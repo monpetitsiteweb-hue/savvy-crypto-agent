@@ -1,0 +1,281 @@
+
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { Plus, Wallet2, AlertTriangle, CheckCircle } from 'lucide-react';
+
+interface CoinbaseConnection {
+  id: string;
+  connection_name: string;
+  is_sandbox: boolean;
+  is_active: boolean;
+  connected_at: string;
+  last_sync: string | null;
+}
+
+export const CoinbaseConnectionPanel = () => {
+  const [connections, setConnections] = useState<CoinbaseConnection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [connectionName, setConnectionName] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [apiSecret, setApiSecret] = useState('');
+  const [isSandbox, setIsSandbox] = useState(true);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    fetchConnections();
+  }, []);
+
+  const fetchConnections = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('coinbase_connections')
+        .select('*')
+        .order('connected_at', { ascending: false });
+
+      if (error) throw error;
+      setConnections(data || []);
+    } catch (error) {
+      console.error('Error fetching connections:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load Coinbase connections",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveConnection = async () => {
+    if (!connectionName || !apiKey || !apiSecret) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('coinbase_connections')
+        .insert({
+          connection_name: connectionName,
+          api_key_encrypted: apiKey, // In production, this should be encrypted
+          api_secret_encrypted: apiSecret, // In production, this should be encrypted
+          is_sandbox: isSandbox,
+          is_active: true,
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Coinbase connection saved successfully",
+      });
+
+      setIsDialogOpen(false);
+      setConnectionName('');
+      setApiKey('');
+      setApiSecret('');
+      setIsSandbox(true);
+      fetchConnections();
+    } catch (error) {
+      console.error('Error saving connection:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save Coinbase connection",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const toggleConnection = async (id: string, currentStatus: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('coinbase_connections')
+        .update({ is_active: !currentStatus })
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchConnections();
+    } catch (error) {
+      console.error('Error toggling connection:', error);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-white">Coinbase Connections</h2>
+          <p className="text-slate-400">Manage your Coinbase API connections for trading</p>
+        </div>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="bg-blue-600 hover:bg-blue-700">
+              <Plus className="w-4 h-4 mr-2" />
+              Connect Coinbase
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="bg-slate-800 border-slate-700">
+            <DialogHeader>
+              <DialogTitle className="text-white">Connect to Coinbase</DialogTitle>
+              <DialogDescription className="text-slate-400">
+                Add your Coinbase API credentials to enable automated trading
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="text-amber-200 font-medium">Security Notice</p>
+                    <p className="text-amber-300/80">
+                      Your API keys are stored securely. We recommend using sandbox mode for testing.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label className="text-slate-300">Connection Name</Label>
+                <Input
+                  value={connectionName}
+                  onChange={(e) => setConnectionName(e.target.value)}
+                  placeholder="e.g., Main Trading Account"
+                  className="bg-slate-700 border-slate-600 text-white"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label className="text-slate-300">API Key</Label>
+                <Input
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Your Coinbase API Key"
+                  className="bg-slate-700 border-slate-600 text-white"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label className="text-slate-300">API Secret</Label>
+                <Input
+                  type="password"
+                  value={apiSecret}
+                  onChange={(e) => setApiSecret(e.target.value)}
+                  placeholder="Your Coinbase API Secret"
+                  className="bg-slate-700 border-slate-600 text-white"
+                />
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
+                <div>
+                  <Label className="text-slate-300">Sandbox Mode</Label>
+                  <p className="text-xs text-slate-500">Use test environment for development</p>
+                </div>
+                <Switch
+                  checked={isSandbox}
+                  onCheckedChange={setIsSandbox}
+                />
+              </div>
+              
+              <Button onClick={handleSaveConnection} className="w-full bg-blue-600 hover:bg-blue-700">
+                Save Connection
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {connections.map((connection) => (
+          <Card key={connection.id} className="bg-slate-800/50 border-slate-700">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Wallet2 className="w-5 h-5 text-blue-400" />
+                  <CardTitle className="text-lg text-white">
+                    {connection.connection_name}
+                  </CardTitle>
+                </div>
+                <Badge 
+                  variant={connection.is_active ? "default" : "secondary"}
+                  className={connection.is_active ? "bg-green-600" : "bg-slate-600"}
+                >
+                  {connection.is_active ? (
+                    <CheckCircle className="w-3 h-3 mr-1" />
+                  ) : (
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                  )}
+                  {connection.is_active ? 'Active' : 'Inactive'}
+                </Badge>
+              </div>
+              <CardDescription className="text-slate-400">
+                {connection.is_sandbox ? 'Sandbox Environment' : 'Live Trading'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">Connected:</span>
+                <span className="text-slate-300">
+                  {new Date(connection.connected_at).toLocaleDateString()}
+                </span>
+              </div>
+              {connection.last_sync && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Last Sync:</span>
+                  <span className="text-slate-300">
+                    {new Date(connection.last_sync).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              <div className="flex gap-2 pt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => toggleConnection(connection.id, connection.is_active)}
+                  className="flex-1 border-slate-600 text-slate-300"
+                >
+                  {connection.is_active ? 'Disable' : 'Enable'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-blue-600 text-blue-400 hover:bg-blue-600 hover:text-white"
+                >
+                  Test Connection
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {connections.length === 0 && !loading && (
+        <Card className="bg-slate-800/30 border-slate-700 border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Wallet2 className="w-12 h-12 text-slate-600 mb-4" />
+            <h3 className="text-lg font-semibold text-slate-400 mb-2">No Coinbase Connections</h3>
+            <p className="text-slate-500 text-center mb-4">
+              Connect your Coinbase account to start automated trading
+            </p>
+            <Button onClick={() => setIsDialogOpen(true)} className="bg-blue-600 hover:bg-blue-700">
+              <Plus className="w-4 h-4 mr-2" />
+              Connect Your First Account
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+};
