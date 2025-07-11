@@ -1,11 +1,14 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
-import { Play, Pause, Settings, Trash2, Plus, TrendingUp } from 'lucide-react';
+import { Play, Pause, Settings, Trash2, Plus, TrendingUp, Activity } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 interface Strategy {
   id: string;
@@ -24,58 +27,86 @@ interface Strategy {
 }
 
 export const StrategyConfig = () => {
-  const [strategies, setStrategies] = useState<Strategy[]>([
-    {
-      id: '1',
-      name: 'XRP RSI Scalping',
-      description: 'Buy XRP when RSI < 30, sell when RSI > 70',
-      isActive: true,
-      riskLevel: 'Medium',
-      maxPosition: 1000,
-      stopLoss: 2,
-      takeProfit: 3,
-      performance: {
-        totalTrades: 45,
-        profitLoss: 234.56,
-        successRate: 73.3
-      }
-    },
-    {
-      id: '2',
-      name: 'BTC Trend Following',
-      description: 'Follow Bitcoin momentum with moving average crossovers',
-      isActive: false,
-      riskLevel: 'High',
-      maxPosition: 500,
-      stopLoss: 3,
-      takeProfit: 5,
-      performance: {
-        totalTrades: 12,
-        profitLoss: -23.12,
-        successRate: 41.7
-      }
-    },
-    {
-      id: '3',
-      name: 'Multi-Asset Momentum',
-      description: 'Trade multiple assets based on volume and price momentum',
-      isActive: true,
-      riskLevel: 'Low',
-      maxPosition: 750,
-      stopLoss: 1.5,
-      takeProfit: 2.5,
-      performance: {
-        totalTrades: 78,
-        profitLoss: 567.89,
-        successRate: 84.6
-      }
-    }
-  ]);
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const toggleStrategy = (id: string) => {
-    setStrategies(prev => prev.map(strategy => 
-      strategy.id === id ? { ...strategy, isActive: !strategy.isActive } : strategy
-    ));
+  useEffect(() => {
+    if (user) {
+      fetchStrategies();
+    }
+  }, [user]);
+
+  const fetchStrategies = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('trading_strategies')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      // Convert Supabase data to Strategy interface
+      const formattedStrategies: Strategy[] = (data || []).map(strategy => ({
+        id: strategy.id,
+        name: strategy.strategy_name,
+        description: strategy.description || '',
+        isActive: strategy.is_active,
+        riskLevel: 'Medium', // This would come from configuration
+        maxPosition: 1000, // This would come from configuration
+        stopLoss: 2, // This would come from configuration
+        takeProfit: 3, // This would come from configuration
+        performance: {
+          totalTrades: 0, // Would need to calculate from trading_history
+          profitLoss: 0, // Would need to calculate from trading_history
+          successRate: 0 // Would need to calculate from trading_history
+        }
+      }));
+      
+      setStrategies(formattedStrategies);
+    } catch (error) {
+      console.error('Error fetching strategies:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load trading strategies",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleStrategy = async (id: string) => {
+    try {
+      const strategy = strategies.find(s => s.id === id);
+      if (!strategy) return;
+
+      const { error } = await supabase
+        .from('trading_strategies')
+        .update({ is_active: !strategy.isActive })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setStrategies(prev => prev.map(strategy => 
+        strategy.id === id ? { ...strategy, isActive: !strategy.isActive } : strategy
+      ));
+
+      toast({
+        title: "Strategy Updated",
+        description: `Strategy ${strategy.isActive ? 'paused' : 'activated'} successfully`,
+      });
+    } catch (error) {
+      console.error('Error updating strategy:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update strategy",
+        variant: "destructive",
+      });
+    }
   };
 
   const getRiskColor = (risk: string) => {
@@ -86,6 +117,32 @@ export const StrategyConfig = () => {
       default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-slate-400">Loading strategies...</div>
+      </div>
+    );
+  }
+
+  if (strategies.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 space-y-4">
+        <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center">
+          <TrendingUp className="w-8 h-8 text-slate-500" />
+        </div>
+        <div className="text-center">
+          <h3 className="text-xl font-semibold text-white mb-2">No Trading Strategies</h3>
+          <p className="text-slate-400 mb-4">Create your first automated trading strategy to get started.</p>
+          <Button className="bg-green-500 hover:bg-green-600 text-white">
+            <Plus className="w-4 h-4 mr-2" />
+            Create Strategy
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

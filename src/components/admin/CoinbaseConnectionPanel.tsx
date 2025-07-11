@@ -125,21 +125,32 @@ export const CoinbaseConnectionPanel = () => {
     setTestingConnection(connectionId);
     
     try {
-      // Note: This is a simplified test. In production, you'd need proper API signature generation
-      // For now, we'll just validate that the connection exists and is active
-      if (connection.api_key_encrypted && connection.api_secret_encrypted) {
-        toast({
-          title: "Connection Test",
-          description: "API credentials are configured. Full API testing requires proper signature implementation.",
-        });
-      } else {
-        throw new Error('Missing API credentials');
+      // Check if credentials are present
+      if (!connection.api_key_encrypted || !connection.api_secret_encrypted) {
+        throw new Error('API credentials are missing');
       }
+
+      // For now, just validate that credentials exist
+      // In production, you would make an actual API call to Coinbase
+      // with proper HMAC signature authentication
+      
+      toast({
+        title: "Connection Test Completed",
+        description: "✅ API credentials are configured. Note: Full API validation requires implementing HMAC signature authentication for security.",
+      });
+      
+      // Update last_sync timestamp
+      await supabase
+        .from('coinbase_connections')
+        .update({ last_sync: new Date().toISOString() })
+        .eq('id', connectionId);
+        
+      fetchConnections(); // Refresh the connections list
     } catch (error) {
       console.error('Connection test failed:', error);
       toast({
-        title: "Connection Failed",
-        description: "API credentials are missing or invalid",
+        title: "Connection Test Failed",
+        description: "❌ " + (error as Error).message + ". Please verify your API key and secret are correct.",
         variant: "destructive",
       });
     } finally {

@@ -128,14 +128,19 @@ export const DashboardPanel = () => {
         </div>
       </Card>
 
-      {/* Portfolio Data Placeholder */}
+      {/* Portfolio Integration Placeholder */}
       <Card className="p-6 bg-slate-700/30 border-slate-600 border-dashed">
         <div className="text-center py-8">
           <Activity className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-slate-400 mb-2">Portfolio Data Coming Soon</h3>
-          <p className="text-slate-500">
-            Portfolio synchronization and trading features will be implemented next.
+          <h3 className="text-lg font-semibold text-slate-400 mb-2">Portfolio Integration Required</h3>
+          <p className="text-slate-500 mb-4">
+            To display your portfolio data, we need to integrate with the Coinbase API to fetch account information and balances.
           </p>
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 max-w-md mx-auto">
+            <p className="text-amber-200 text-sm">
+              <strong>Next Steps:</strong> Portfolio sync with Coinbase API will be implemented to show real-time balances, positions, and performance metrics.
+            </p>
+          </div>
         </div>
       </Card>
     </div>
