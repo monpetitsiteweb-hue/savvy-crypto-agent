@@ -34,8 +34,13 @@ serve(async (req) => {
   }
 
   try {
+    console.log('=== Coinbase Portfolio Function Called ===');
+    console.log('Request method:', req.method);
+    console.log('Request headers:', Object.fromEntries(req.headers.entries()));
+    
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
+      console.error('No authorization header found');
       throw new Error('No authorization header');
     }
 
@@ -151,10 +156,18 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Error in coinbase-portfolio function:', error);
+    console.error('=== ERROR in coinbase-portfolio function ===');
+    console.error('Error type:', typeof error);
+    console.error('Error name:', error?.name);
+    console.error('Error message:', error?.message);
+    console.error('Error stack:', error?.stack);
+    console.error('Full error object:', error);
+    
     return new Response(JSON.stringify({ 
       success: false,
-      error: error.message 
+      error: error?.message || 'Unknown error occurred',
+      error_type: typeof error,
+      error_name: error?.name
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -237,6 +237,7 @@ export const CoinbaseConnectionPanel = () => {
     }
   };
 
+
   const openEditDialog = (connection: CoinbaseConnection) => {
     setEditingConnection(connection);
     setConnectionName(connection.connection_name);
