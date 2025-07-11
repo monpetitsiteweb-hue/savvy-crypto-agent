@@ -43,6 +43,8 @@ export const DashboardPanel = () => {
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [loading, setLoading] = useState(true);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string>('');
+  const [lastError, setLastError] = useState<string>('');
 
   useEffect(() => {
     if (user) {
@@ -85,55 +87,47 @@ export const DashboardPanel = () => {
     
     setPortfolioLoading(true);
     try {
-      console.log('=== Starting portfolio fetch ===');
-      console.log('User ID:', user.id);
+      setDebugInfo('Starting portfolio fetch...');
+      setLastError('');
       
       const session = await supabase.auth.getSession();
-      console.log('Session check:', {
-        hasSession: !!session.data.session,
-        hasAccessToken: !!session.data.session?.access_token,
-        tokenLength: session.data.session?.access_token?.length
-      });
+      setDebugInfo(`Session check - Has session: ${!!session.data.session}, Has token: ${!!session.data.session?.access_token}`);
       
       if (!session.data.session?.access_token) {
         throw new Error('No valid session found');
       }
 
-      console.log('Calling coinbase-portfolio function...');
+      setDebugInfo('Calling coinbase-portfolio function...');
       const { data, error } = await supabase.functions.invoke('coinbase-portfolio', {
         headers: {
           Authorization: `Bearer ${session.data.session.access_token}`,
         },
       });
 
-      console.log('=== Function Response ===');
-      console.log('Raw data:', data);
-      console.log('Raw error:', error);
-      console.log('Data type:', typeof data);
-      console.log('Error type:', typeof error);
+      setDebugInfo(`Function Response - Data: ${data ? 'received' : 'null'}, Error: ${error ? 'yes' : 'no'}`);
 
       if (error) {
-        console.error('Supabase function error details:', {
-          message: error.message,
-          context: error.context,
-          details: error.details
-        });
+        const errorDetails = `Function error: ${error.message} | Context: ${JSON.stringify(error.context)} | Details: ${JSON.stringify(error.details)}`;
+        setLastError(errorDetails);
         throw new Error(`Function call failed: ${error.message}`);
       }
       
-      if (data.success) {
+      if (data?.success) {
         setPortfolioData(data);
+        setDebugInfo('Portfolio data loaded successfully!');
         toast({
           title: "Portfolio Synced",
           description: `Successfully loaded ${data.accounts?.length || 0} accounts from ${data.connection?.is_sandbox ? 'Sandbox' : 'Production'}`,
         });
       } else {
-        console.error('Portfolio fetch failed:', data.error);
-        throw new Error(data.error || 'Failed to fetch portfolio data');
+        const errorMsg = data?.error || 'Failed to fetch portfolio data';
+        setLastError(`Portfolio fetch failed: ${errorMsg}`);
+        throw new Error(errorMsg);
       }
     } catch (error) {
-      console.error('Error fetching portfolio:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setLastError(`Catch block: ${errorMessage}`);
+      setDebugInfo('Error occurred during portfolio fetch');
       toast({
         title: "Portfolio Sync Failed",
         description: `Unable to fetch portfolio data: ${errorMessage}`,
@@ -326,6 +320,24 @@ export const DashboardPanel = () => {
               <Activity className="w-4 h-4 mr-2" />
               Load Portfolio
             </Button>
+            
+            {/* Debug Information */}
+            {(debugInfo || lastError) && (
+              <div className="mt-6 space-y-2">
+                {debugInfo && (
+                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                    <p className="text-sm text-blue-200 font-medium">Debug Info:</p>
+                    <p className="text-sm text-blue-300">{debugInfo}</p>
+                  </div>
+                )}
+                {lastError && (
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                    <p className="text-sm text-red-200 font-medium">Last Error:</p>
+                    <p className="text-sm text-red-300 break-words">{lastError}</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </Card>
       )}
