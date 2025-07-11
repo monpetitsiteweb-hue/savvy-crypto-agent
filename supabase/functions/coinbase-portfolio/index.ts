@@ -83,7 +83,7 @@ serve(async (req) => {
       name: connection.connection_name,
       is_sandbox: connection.is_sandbox,
       has_api_key: !!connection.api_key_encrypted,
-      has_api_secret: !!connection.api_secret_encrypted
+      has_private_key: !!connection.api_private_key_encrypted
     });
 
     // Use the stored API credentials from the database
@@ -100,8 +100,14 @@ serve(async (req) => {
       throw new Error('Coinbase API credentials not found in connection - API Key and Private Key are required');
     }
 
-    console.log('API Key length:', apiKey.length);
-    console.log('Private Key length:', apiPrivateKey.length);
+    console.log('API Key format:', apiKey.substring(0, 20) + '...');
+    console.log('Private Key format:', apiPrivateKey.substring(0, 50) + '...');
+    
+    // Validate API key format (should be like "organizations/ORG_ID/apiKeys/KEY_ID")
+    if (!apiKey.includes('organizations/') || !apiKey.includes('apiKeys/')) {
+      console.error('Invalid API key format. Expected format: organizations/ORG_ID/apiKeys/KEY_ID');
+      throw new Error('Invalid Coinbase API key format. Please check your API key and update your connection.');
+    }
 
     // Coinbase Advanced Trade API endpoint
     const baseUrl = connection.is_sandbox 
