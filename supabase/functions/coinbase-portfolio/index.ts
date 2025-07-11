@@ -142,23 +142,34 @@ serve(async (req) => {
       uri: method + ' ' + baseUrl + endpoint
     };
 
-    const token = await new SignJWT(payload)
-      .setProtectedHeader(header)
-      .sign(await importPKCS8(apiPrivateKey, 'ES256'));
+    console.log('Creating JWT token...');
+    
+    let response;
+    try {
+      const token = await new SignJWT(payload)
+        .setProtectedHeader(header)
+        .sign(await importPKCS8(apiPrivateKey, 'ES256'));
+      
+      console.log('JWT token created successfully, length:', token.length);
+      console.log('Making request to:', baseUrl + endpoint);
+      console.log('Using sandbox mode:', connection.is_sandbox);
 
-    console.log('Making request to:', baseUrl + endpoint);
-    console.log('Using sandbox mode:', connection.is_sandbox);
+      // Make request to Coinbase Advanced Trade API
+      response = await fetch(`${baseUrl}${endpoint}`, {
+        method: method,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
-    // Make request to Coinbase Advanced Trade API
-    const response = await fetch(`${baseUrl}${endpoint}`, {
-      method: method,
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    console.log('Coinbase API response status:', response.status);
+      console.log('Coinbase API response status:', response.status);
+      console.log('Coinbase API response headers:', Object.fromEntries(response.headers.entries()));
+      
+    } catch (jwtError) {
+      console.error('JWT creation failed:', jwtError);
+      throw new Error(`Failed to create JWT token: ${jwtError.message}`);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
