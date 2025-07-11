@@ -2,28 +2,57 @@
 import { useState } from 'react';
 import { Header } from '@/components/Header';
 import { APIConnectionsPanel } from '@/components/admin/APIConnectionsPanel';
+import { AdminAPIConnectionsPanel } from '@/components/admin/AdminAPIConnectionsPanel';
 import { CoinbaseConnectionPanel } from '@/components/admin/CoinbaseConnectionPanel';
-import { Settings, Wallet2, Link } from 'lucide-react';
+import { useUserRole } from '@/hooks/useUserRole';
+import { Settings, Wallet2, Link, Shield } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const AdminPage = () => {
-  const [activeTab, setActiveTab] = useState('api-connections');
+  const [activeTab, setActiveTab] = useState('user-connections');
+  const { isAdmin, loading } = useUserRole();
+
+  if (loading) {
+    return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+      <div className="text-white">Loading...</div>
+    </div>;
+  }
+
+  // Define tabs based on user role
+  const userTabs = [
+    { id: 'user-connections', label: 'User API Connections', icon: <Link className="w-4 h-4" /> },
+    { id: 'coinbase', label: 'User Coinbase', icon: <Wallet2 className="w-4 h-4" /> },
+  ];
+
+  const adminTabs = [
+    ...userTabs,
+    { id: 'admin-api', label: 'Admin API', icon: <Shield className="w-4 h-4" /> },
+  ];
+
+  const tabs = isAdmin ? adminTabs : userTabs;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       <Header />
       
       <div className="container mx-auto px-4 py-6">
+        {isAdmin && (
+          <Alert className="mb-6 border-green-600 bg-green-950/20">
+            <Shield className="h-4 w-4" />
+            <AlertDescription>
+              You have admin privileges. You can access both user and admin functionality.
+            </AlertDescription>
+          </Alert>
+        )}
+        
         <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700">
           {/* Tab Navigation */}
-          <div className="flex border-b border-slate-700">
-            {[
-              { id: 'api-connections', label: 'API Connections', icon: <Link className="w-4 h-4" /> },
-              { id: 'coinbase', label: 'Coinbase', icon: <Wallet2 className="w-4 h-4" /> },
-            ].map((tab) => (
+          <div className="flex border-b border-slate-700 overflow-x-auto">
+            {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors ${
+                className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors whitespace-nowrap ${
                   activeTab === tab.id
                     ? 'text-green-400 border-b-2 border-green-400 bg-slate-700/50'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
@@ -37,8 +66,9 @@ const AdminPage = () => {
           
           {/* Tab Content */}
           <div className="p-6">
-            {activeTab === 'api-connections' && <APIConnectionsPanel />}
+            {activeTab === 'user-connections' && <APIConnectionsPanel />}
             {activeTab === 'coinbase' && <CoinbaseConnectionPanel />}
+            {activeTab === 'admin-api' && isAdmin && <AdminAPIConnectionsPanel />}
           </div>
         </div>
       </div>
