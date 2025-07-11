@@ -98,41 +98,77 @@ export const DashboardPanel = () => {
       }
 
       setDebugInfo('Calling coinbase-portfolio function...');
-      const { data, error } = await supabase.functions.invoke('coinbase-portfolio', {
-        headers: {
-          Authorization: `Bearer ${session.data.session.access_token}`,
-        },
-      });
-
-      setDebugInfo(`Function Response - Data: ${data ? 'received' : 'null'}, Error: ${error ? 'yes' : 'no'}`);
-
-      if (error) {
-        // Capture the full error details including the response body
-        const errorDetails = {
-          message: error.message,
-          context: error.context,
-          details: error.details,
-          status: error.context?.response?.status,
-          statusText: error.context?.response?.statusText,
-          body: error.context?.response?.body
-        };
-        
-        const fullErrorMsg = `Function error: ${error.message} | Status: ${errorDetails.status} | Body: ${JSON.stringify(errorDetails.body)} | Full context: ${JSON.stringify(errorDetails)}`;
-        setLastError(fullErrorMsg);
-        throw new Error(`Function call failed: ${error.message}`);
-      }
       
-      if (data?.success) {
-        setPortfolioData(data);
-        setDebugInfo('Portfolio data loaded successfully!');
-        toast({
-          title: "Portfolio Synced",
-          description: `Successfully loaded ${data.accounts?.length || 0} accounts from ${data.connection?.is_sandbox ? 'Sandbox' : 'Production'}`,
+      // Make raw fetch call to see the actual response
+      const functionUrl = `https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/coinbase-portfolio`;
+      
+      try {
+        const rawResponse = await fetch(functionUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.data.session.access_token}`,
+            'Content-Type': 'application/json',
+          },
         });
-      } else {
-        const errorMsg = data?.error || 'Failed to fetch portfolio data';
-        setLastError(`Portfolio fetch failed: ${errorMsg}`);
-        throw new Error(errorMsg);
+        
+        const responseText = await rawResponse.text();
+        setDebugInfo(`Raw Response - Status: ${rawResponse.status}, Text: ${responseText.substring(0, 500)}`);
+        
+        if (!rawResponse.ok) {
+          throw new Error(`HTTP ${rawResponse.status}: ${responseText}`);
+        }
+        
+        const responseData = JSON.parse(responseText);
+        if (responseData.success) {
+          setPortfolioData(responseData);
+          setDebugInfo('Portfolio data loaded successfully!');
+          toast({
+            title: "Portfolio Synced",
+            description: `Successfully loaded ${responseData.accounts?.length || 0} accounts`,
+          });
+        } else {
+          throw new Error(responseData.error || 'Function returned unsuccessful');
+        }
+        
+      } catch (fetchError) {
+        // Fallback to supabase.functions.invoke
+        setDebugInfo('Raw fetch failed, trying Supabase client...');
+        
+        const { data, error } = await supabase.functions.invoke('coinbase-portfolio', {
+          headers: {
+            Authorization: `Bearer ${session.data.session.access_token}`,
+          },
+        });
+
+        setDebugInfo(`Supabase Response - Data: ${data ? 'received' : 'null'}, Error: ${error ? 'yes' : 'no'}`);
+
+        if (error) {
+          const errorDetails = {
+            message: error.message,
+            context: error.context,
+            details: error.details,
+            status: error.context?.response?.status,
+            statusText: error.context?.response?.statusText,
+            body: error.context?.response?.body
+          };
+          
+          const fullErrorMsg = `Supabase error: ${error.message} | Status: ${errorDetails.status} | Body: ${JSON.stringify(errorDetails.body)} | Fetch error: ${fetchError.message}`;
+          setLastError(fullErrorMsg);
+          throw new Error(`Function call failed: ${error.message}`);
+        }
+        
+        if (data?.success) {
+          setPortfolioData(data);
+          setDebugInfo('Portfolio data loaded successfully!');
+          toast({
+            title: "Portfolio Synced", 
+            description: `Successfully loaded ${data.accounts?.length || 0} accounts`,
+          });
+        } else {
+          const errorMsg = data?.error || 'Failed to fetch portfolio data';
+          setLastError(`Portfolio fetch failed: ${errorMsg}`);
+          throw new Error(errorMsg);
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
