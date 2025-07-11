@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { Plus, Wallet2, AlertTriangle, CheckCircle } from 'lucide-react';
 
 interface CoinbaseConnection {
@@ -29,12 +30,17 @@ export const CoinbaseConnectionPanel = () => {
   const [apiSecret, setApiSecret] = useState('');
   const [isSandbox, setIsSandbox] = useState(true);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   useEffect(() => {
-    fetchConnections();
-  }, []);
+    if (user) {
+      fetchConnections();
+    }
+  }, [user]);
 
   const fetchConnections = async () => {
+    if (!user) return;
+    
     try {
       const { data, error } = await supabase
         .from('coinbase_connections')
@@ -56,6 +62,15 @@ export const CoinbaseConnectionPanel = () => {
   };
 
   const handleSaveConnection = async () => {
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please log in to save Coinbase connections",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!connectionName || !apiKey || !apiSecret) {
       toast({
         title: "Missing Information",
@@ -69,6 +84,7 @@ export const CoinbaseConnectionPanel = () => {
       const { error } = await supabase
         .from('coinbase_connections')
         .insert({
+          user_id: user.id,
           connection_name: connectionName,
           api_key_encrypted: apiKey, // In production, this should be encrypted
           api_secret_encrypted: apiSecret, // In production, this should be encrypted
@@ -112,6 +128,14 @@ export const CoinbaseConnectionPanel = () => {
       console.error('Error toggling connection:', error);
     }
   };
+
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-slate-400">Please log in to manage Coinbase connections</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { Plus, Settings, Trash2, CheckCircle, XCircle } from 'lucide-react';
 
 interface APIConnection {
@@ -26,6 +27,7 @@ export const APIConnectionsPanel = () => {
   const [connectionName, setConnectionName] = useState('');
   const [apiKey, setApiKey] = useState('');
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const serviceOptions = [
     { value: 'openai', label: 'OpenAI API', description: 'For ChatGPT integration' },
@@ -36,10 +38,14 @@ export const APIConnectionsPanel = () => {
   ];
 
   useEffect(() => {
-    fetchConnections();
-  }, []);
+    if (user) {
+      fetchConnections();
+    }
+  }, [user]);
 
   const fetchConnections = async () => {
+    if (!user) return;
+    
     try {
       const { data, error } = await supabase
         .from('api_connections')
@@ -61,6 +67,15 @@ export const APIConnectionsPanel = () => {
   };
 
   const handleSaveConnection = async () => {
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please log in to save API connections",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!serviceName || !connectionName || !apiKey) {
       toast({
         title: "Missing Information",
@@ -74,6 +89,7 @@ export const APIConnectionsPanel = () => {
       const { error } = await supabase
         .from('api_connections')
         .insert({
+          user_id: user.id,
           service_name: serviceName,
           connection_name: connectionName,
           api_key_encrypted: apiKey, // In production, this should be encrypted
@@ -140,6 +156,14 @@ export const APIConnectionsPanel = () => {
       });
     }
   };
+
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <p className="text-slate-400">Please log in to manage API connections</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
