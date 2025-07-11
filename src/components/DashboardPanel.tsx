@@ -107,8 +107,18 @@ export const DashboardPanel = () => {
       setDebugInfo(`Function Response - Data: ${data ? 'received' : 'null'}, Error: ${error ? 'yes' : 'no'}`);
 
       if (error) {
-        const errorDetails = `Function error: ${error.message} | Context: ${JSON.stringify(error.context)} | Details: ${JSON.stringify(error.details)}`;
-        setLastError(errorDetails);
+        // Capture the full error details including the response body
+        const errorDetails = {
+          message: error.message,
+          context: error.context,
+          details: error.details,
+          status: error.context?.response?.status,
+          statusText: error.context?.response?.statusText,
+          body: error.context?.response?.body
+        };
+        
+        const fullErrorMsg = `Function error: ${error.message} | Status: ${errorDetails.status} | Body: ${JSON.stringify(errorDetails.body)} | Full context: ${JSON.stringify(errorDetails)}`;
+        setLastError(fullErrorMsg);
         throw new Error(`Function call failed: ${error.message}`);
       }
       
