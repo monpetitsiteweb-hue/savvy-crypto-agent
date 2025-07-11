@@ -90,20 +90,17 @@ serve(async (req) => {
     // Note: For this demo, we'll assume credentials are stored as plain text
     // In production, you'd want to implement proper encryption/decryption
     const apiKey = connection.api_key_encrypted;
-    const apiSecret = connection.api_secret_encrypted;
     const apiPrivateKey = connection.api_private_key_encrypted;
 
-    if (!apiKey || !apiSecret || !apiPrivateKey) {
+    if (!apiKey || !apiPrivateKey) {
       console.error('Missing credentials:', { 
         hasKey: !!apiKey, 
-        hasSecret: !!apiSecret, 
         hasPrivateKey: !!apiPrivateKey 
       });
-      throw new Error('Coinbase API credentials not found in connection - API Key, Secret, and Private Key are all required');
+      throw new Error('Coinbase API credentials not found in connection - API Key and Private Key are required');
     }
 
     console.log('API Key length:', apiKey.length);
-    console.log('API Secret length:', apiSecret.length);
     console.log('Private Key length:', apiPrivateKey.length);
 
     // Coinbase Advanced Trade API endpoint

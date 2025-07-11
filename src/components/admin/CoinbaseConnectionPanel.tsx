@@ -21,7 +21,7 @@ interface CoinbaseConnection {
   connected_at: string;
   last_sync: string | null;
   api_key_encrypted?: string;
-  api_secret_encrypted?: string;
+  
 }
 
 export const CoinbaseConnectionPanel = () => {
@@ -33,7 +33,7 @@ export const CoinbaseConnectionPanel = () => {
   const [editingConnection, setEditingConnection] = useState<CoinbaseConnection | null>(null);
   const [connectionName, setConnectionName] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [apiSecret, setApiSecret] = useState('');
+  
   const [apiPrivateKey, setApiPrivateKey] = useState('');
   
   const [isSandbox, setIsSandbox] = useState(false); // Changed default to false for production
@@ -79,7 +79,7 @@ export const CoinbaseConnectionPanel = () => {
       return;
     }
 
-    if (!connectionName || !apiKey || !apiSecret || !apiPrivateKey) {
+    if (!connectionName || !apiKey || !apiPrivateKey) {
       toast({
         title: "Missing Information",
         description: "Please fill in all required fields",
@@ -95,7 +95,6 @@ export const CoinbaseConnectionPanel = () => {
           user_id: user.id,
           connection_name: connectionName,
           api_key_encrypted: apiKey, // In production, this should be encrypted
-          api_secret_encrypted: apiSecret, // In production, this should be encrypted
           api_private_key_encrypted: apiPrivateKey, // In production, this should be encrypted
           is_sandbox: isSandbox,
           is_active: true,
@@ -111,7 +110,6 @@ export const CoinbaseConnectionPanel = () => {
       setIsDialogOpen(false);
       setConnectionName('');
       setApiKey('');
-      setApiSecret('');
       setApiPrivateKey('');
       setIsSandbox(false); // Reset to production default
       fetchConnections();
@@ -133,7 +131,7 @@ export const CoinbaseConnectionPanel = () => {
     
     try {
       // Check if credentials are present
-      if (!connection.api_key_encrypted || !connection.api_secret_encrypted) {
+      if (!connection.api_key_encrypted) {
         throw new Error('API credentials are missing');
       }
 
@@ -245,7 +243,7 @@ export const CoinbaseConnectionPanel = () => {
     setEditingConnection(connection);
     setConnectionName(connection.connection_name);
     setApiKey(''); // Don't pre-fill for security
-    setApiSecret(''); // Don't pre-fill for security
+    
     setApiPrivateKey(''); // Don't pre-fill for security
     
     setIsSandbox(connection.is_sandbox);
@@ -262,7 +260,7 @@ export const CoinbaseConnectionPanel = () => {
       return;
     }
 
-    if (!connectionName || !apiKey || !apiSecret || !apiPrivateKey) {
+    if (!connectionName || !apiKey || !apiPrivateKey) {
       toast({
         title: "Missing Information",
         description: "Please fill in all required fields",
@@ -277,7 +275,7 @@ export const CoinbaseConnectionPanel = () => {
         .update({
           connection_name: connectionName,
           api_key_encrypted: apiKey, // In production, this should be encrypted
-          api_secret_encrypted: apiSecret, // In production, this should be encrypted
+          
           api_private_key_encrypted: apiPrivateKey, // In production, this should be encrypted
           
           is_sandbox: isSandbox,
@@ -295,7 +293,7 @@ export const CoinbaseConnectionPanel = () => {
       setEditingConnection(null);
       setConnectionName('');
       setApiKey('');
-      setApiSecret('');
+      
       setApiPrivateKey('');
       setIsSandbox(false);
       fetchConnections();
@@ -386,16 +384,6 @@ export const CoinbaseConnectionPanel = () => {
                 />
               </div>
               
-              <div className="space-y-2">
-                <Label className="text-slate-300">API Secret</Label>
-                <Input
-                  type="password"
-                  value={apiSecret}
-                  onChange={(e) => setApiSecret(e.target.value)}
-                  placeholder="Your Coinbase API Secret"
-                  className="bg-slate-700 border-slate-600 text-white"
-                />
-              </div>
               
               <div className="space-y-2">
                 <Label className="text-slate-300">Private Key</Label>
@@ -602,16 +590,6 @@ export const CoinbaseConnectionPanel = () => {
               />
             </div>
             
-            <div className="space-y-2">
-              <Label className="text-slate-300">API Secret</Label>
-              <Input
-                type="password"
-                value={apiSecret}
-                onChange={(e) => setApiSecret(e.target.value)}
-                placeholder="Enter your Coinbase API Secret"
-                className="bg-slate-700 border-slate-600 text-white"
-              />
-            </div>
             
             <div className="space-y-2">
               <Label className="text-slate-300">Private Key</Label>
