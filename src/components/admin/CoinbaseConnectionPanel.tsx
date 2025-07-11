@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { Plus, Wallet2, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Plus, Wallet2, AlertTriangle, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface CoinbaseConnection {
   id: string;
@@ -165,7 +165,22 @@ export const CoinbaseConnectionPanel = () => {
                   <div className="text-sm">
                     <p className="text-amber-200 font-medium">Security Notice</p>
                     <p className="text-amber-300/80">
-                      Your API keys are stored securely. We recommend using sandbox mode for testing.
+                      Your API keys are encrypted and stored securely. Start with sandbox mode for testing.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="text-blue-200 font-medium">How to get Coinbase API Keys</p>
+                    <p className="text-blue-300/80">
+                      1. Go to Coinbase Advanced Trade → API<br/>
+                      2. Create new API key with trading permissions<br/>
+                      3. Copy both the API Key and Secret<br/>
+                      4. Paste them here to connect your account
                     </p>
                   </div>
                 </div>

@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Wallet, Settings, Bell, User, LogOut } from 'lucide-react';
@@ -7,7 +7,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 
 export const Header = () => {
-  const [isConnected, setIsConnected] = useState(false);
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
 
@@ -36,31 +35,6 @@ export const Header = () => {
 
           {/* Status & Actions */}
           <div className="flex items-center gap-4">
-            {/* Portfolio Value */}
-            <div className="text-right hidden sm:block">
-              <p className="text-sm text-slate-400">Portfolio Value</p>
-              <p className="text-lg font-bold text-green-400">€12,450.32</p>
-            </div>
-
-            {/* Connection Status */}
-            <Badge 
-              variant={isConnected ? "default" : "secondary"}
-              className={isConnected ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"}
-            >
-              <div className={`w-2 h-2 rounded-full mr-2 ${isConnected ? "bg-green-400" : "bg-red-400"}`} />
-              {isConnected ? "Connected" : "Disconnected"}
-            </Badge>
-
-            {/* Action Buttons */}
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => setIsConnected(!isConnected)}
-              className="border-slate-600 text-slate-300 hover:bg-slate-700"
-            >
-              <Wallet className="w-4 h-4 mr-2" />
-              {isConnected ? "Disconnect" : "Connect Coinbase"}
-            </Button>
 
             <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
               <Bell className="w-4 h-4" />

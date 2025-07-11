@@ -1,142 +1,141 @@
 
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { TrendingUp, TrendingDown, Activity, DollarSign, Target, AlertCircle } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, DollarSign, Target, AlertCircle, Wallet, Plus } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+
+interface CoinbaseConnection {
+  id: string;
+  connection_name: string;
+  is_active: boolean;
+  is_sandbox: boolean;
+}
 
 export const DashboardPanel = () => {
-  const portfolioData = {
-    totalValue: 12450.32,
-    dayChange: 245.67,
-    dayChangePercent: 2.01,
-    activeStrategies: 3,
-    totalTrades: 127,
-    successRate: 68.5
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const [connections, setConnections] = useState<CoinbaseConnection[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (user) {
+      fetchConnections();
+    }
+  }, [user]);
+
+  const fetchConnections = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('coinbase_connections')
+        .select('id, connection_name, is_active, is_sandbox')
+        .eq('is_active', true);
+
+      if (error) throw error;
+      setConnections(data || []);
+    } catch (error) {
+      console.error('Error fetching connections:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load Coinbase connections",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const holdings = [
-    { symbol: 'XRP', amount: 15420.50, value: 8234.12, change: 3.2, allocation: 66.2 },
-    { symbol: 'BTC', amount: 0.1847, value: 3216.89, change: -1.8, allocation: 25.8 },
-    { symbol: 'ETH', amount: 0.8923, value: 999.31, change: 4.1, allocation: 8.0 }
-  ];
+  const handleConnectCoinbase = () => {
+    navigate('/admin');
+  };
 
-  const activeStrategies = [
-    { name: 'XRP RSI Scalping', status: 'active', profit: 234.56, trades: 45 },
-    { name: 'BTC Trend Following', status: 'paused', profit: -23.12, trades: 12 },
-    { name: 'Multi-Asset Momentum', status: 'active', profit: 567.89, trades: 78 }
-  ];
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-slate-400">Loading dashboard...</div>
+      </div>
+    );
+  }
 
+  // Show empty state if no active connections
+  if (connections.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 space-y-6">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center mx-auto">
+            <Wallet className="w-8 h-8 text-slate-500" />
+          </div>
+          <div>
+            <h3 className="text-xl font-semibold text-white mb-2">Connect Your Coinbase Account</h3>
+            <p className="text-slate-400 max-w-md">
+              To start trading and manage your portfolio, you need to connect your Coinbase account first.
+            </p>
+          </div>
+        </div>
+        
+        <Button 
+          onClick={handleConnectCoinbase}
+          className="bg-blue-600 hover:bg-blue-700 px-6 py-3"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Connect Coinbase Account
+        </Button>
+        
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 max-w-md">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
+            <div className="text-sm">
+              <p className="text-amber-200 font-medium">Getting Started</p>
+              <p className="text-amber-300/80">
+                Once connected, you'll be able to view your portfolio, execute trades, and configure automated trading strategies.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show connected state with connection info
   return (
     <div className="space-y-6">
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="p-4 bg-slate-700/30 border-slate-600">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-400">Portfolio Value</p>
-              <p className="text-2xl font-bold text-white">€{portfolioData.totalValue.toLocaleString()}</p>
-              <div className="flex items-center gap-1 mt-1">
-                <TrendingUp className="w-4 h-4 text-green-400" />
-                <span className="text-sm text-green-400">
-                  +€{portfolioData.dayChange} ({portfolioData.dayChangePercent}%)
-                </span>
-              </div>
-            </div>
-            <DollarSign className="w-8 h-8 text-green-400" />
-          </div>
-        </Card>
-
-        <Card className="p-4 bg-slate-700/30 border-slate-600">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-400">Active Strategies</p>
-              <p className="text-2xl font-bold text-white">{portfolioData.activeStrategies}</p>
-              <p className="text-sm text-slate-400 mt-1">{portfolioData.totalTrades} total trades</p>
-            </div>
-            <Activity className="w-8 h-8 text-blue-400" />
-          </div>
-        </Card>
-
-        <Card className="p-4 bg-slate-700/30 border-slate-600">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-400">Success Rate</p>
-              <p className="text-2xl font-bold text-white">{portfolioData.successRate}%</p>
-              <p className="text-sm text-green-400 mt-1">Above average</p>
-            </div>
-            <Target className="w-8 h-8 text-purple-400" />
-          </div>
-        </Card>
-      </div>
-
-      {/* Holdings */}
+      {/* Connection Status */}
       <Card className="p-6 bg-slate-700/30 border-slate-600">
-        <h3 className="text-lg font-semibold text-white mb-4">Current Holdings</h3>
-        <div className="space-y-4">
-          {holdings.map((holding) => (
-            <div key={holding.symbol} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 bg-gradient-to-br from-orange-400 to-orange-600 rounded-full flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">{holding.symbol}</span>
-                </div>
+        <h3 className="text-lg font-semibold text-white mb-4">Connected Accounts</h3>
+        <div className="space-y-3">
+          {connections.map((connection) => (
+            <div key={connection.id} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-green-400" />
                 <div>
-                  <p className="font-medium text-white">{holding.symbol}</p>
-                  <p className="text-sm text-slate-400">{holding.amount.toLocaleString()} coins</p>
+                  <p className="font-medium text-white">{connection.connection_name}</p>
+                  <p className="text-sm text-slate-400">
+                    {connection.is_sandbox ? 'Sandbox Environment' : 'Live Trading'}
+                  </p>
                 </div>
               </div>
-              
-              <div className="text-right">
-                <p className="font-medium text-white">€{holding.value.toLocaleString()}</p>
-                <div className="flex items-center gap-2">
-                  {holding.change >= 0 ? (
-                    <TrendingUp className="w-4 h-4 text-green-400" />
-                  ) : (
-                    <TrendingDown className="w-4 h-4 text-red-400" />
-                  )}
-                  <span className={`text-sm ${holding.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {holding.change >= 0 ? '+' : ''}{holding.change}%
-                  </span>
-                </div>
-              </div>
-              
-              <div className="text-right">
-                <p className="text-sm text-slate-400">Allocation</p>
-                <p className="font-medium text-white">{holding.allocation}%</p>
-              </div>
+              <Badge className="bg-green-600">Connected</Badge>
             </div>
           ))}
         </div>
       </Card>
 
-      {/* Active Strategies */}
-      <Card className="p-6 bg-slate-700/30 border-slate-600">
-        <h3 className="text-lg font-semibold text-white mb-4">Active Strategies</h3>
-        <div className="space-y-3">
-          {activeStrategies.map((strategy, index) => (
-            <div key={index} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className={`w-3 h-3 rounded-full ${
-                  strategy.status === 'active' ? 'bg-green-400' : 'bg-yellow-400'
-                }`} />
-                <div>
-                  <p className="font-medium text-white">{strategy.name}</p>
-                  <p className="text-sm text-slate-400">{strategy.trades} trades executed</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-4">
-                <Badge variant={strategy.status === 'active' ? 'default' : 'secondary'}>
-                  {strategy.status}
-                </Badge>
-                <div className="text-right">
-                  <p className={`font-medium ${
-                    strategy.profit >= 0 ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {strategy.profit >= 0 ? '+' : ''}€{strategy.profit}
-                  </p>
-                </div>
-              </div>
-            </div>
-          ))}
+      {/* Portfolio Data Placeholder */}
+      <Card className="p-6 bg-slate-700/30 border-slate-600 border-dashed">
+        <div className="text-center py-8">
+          <Activity className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-slate-400 mb-2">Portfolio Data Coming Soon</h3>
+          <p className="text-slate-500">
+            Portfolio synchronization and trading features will be implemented next.
+          </p>
         </div>
       </Card>
     </div>
