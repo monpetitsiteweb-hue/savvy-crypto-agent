@@ -19,11 +19,14 @@ interface CoinbaseConnection {
   is_active: boolean;
   connected_at: string;
   last_sync: string | null;
+  api_key_encrypted?: string;
+  api_secret_encrypted?: string;
 }
 
 export const CoinbaseConnectionPanel = () => {
   const [connections, setConnections] = useState<CoinbaseConnection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [connectionName, setConnectionName] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -112,6 +115,35 @@ export const CoinbaseConnectionPanel = () => {
         description: "Failed to save Coinbase connection",
         variant: "destructive",
       });
+    }
+  };
+
+  const testConnection = async (connectionId: string) => {
+    const connection = connections.find(c => c.id === connectionId);
+    if (!connection) return;
+
+    setTestingConnection(connectionId);
+    
+    try {
+      // Note: This is a simplified test. In production, you'd need proper API signature generation
+      // For now, we'll just validate that the connection exists and is active
+      if (connection.api_key_encrypted && connection.api_secret_encrypted) {
+        toast({
+          title: "Connection Test",
+          description: "API credentials are configured. Full API testing requires proper signature implementation.",
+        });
+      } else {
+        throw new Error('Missing API credentials');
+      }
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      toast({
+        title: "Connection Failed",
+        description: "API credentials are missing or invalid",
+        variant: "destructive",
+      });
+    } finally {
+      setTestingConnection(null);
     }
   };
 
@@ -290,9 +322,11 @@ export const CoinbaseConnectionPanel = () => {
                 <Button
                   size="sm"
                   variant="outline"
+                  onClick={() => testConnection(connection.id)}
+                  disabled={testingConnection === connection.id}
                   className="border-blue-600 text-blue-400 hover:bg-blue-600 hover:text-white"
                 >
-                  Test Connection
+                  {testingConnection === connection.id ? 'Testing...' : 'Test Connection'}
                 </Button>
               </div>
             </CardContent>
