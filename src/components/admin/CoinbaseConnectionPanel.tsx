@@ -11,7 +11,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { Plus, Wallet2, AlertTriangle, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
+import { Plus, Wallet2, AlertTriangle, CheckCircle, AlertCircle, Trash2, Settings } from 'lucide-react';
 
 interface CoinbaseConnection {
   id: string;
@@ -29,6 +29,8 @@ export const CoinbaseConnectionPanel = () => {
   const [loading, setLoading] = useState(true);
   const [testingConnection, setTestingConnection] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingConnection, setEditingConnection] = useState<CoinbaseConnection | null>(null);
   const [connectionName, setConnectionName] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
@@ -237,6 +239,72 @@ export const CoinbaseConnectionPanel = () => {
     }
   };
 
+  const openEditDialog = (connection: CoinbaseConnection) => {
+    setEditingConnection(connection);
+    setConnectionName(connection.connection_name);
+    setApiKey(''); // Don't pre-fill for security
+    setApiSecret(''); // Don't pre-fill for security
+    setApiPassphrase(''); // Don't pre-fill for security
+    setIsSandbox(connection.is_sandbox);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleUpdateConnection = async () => {
+    if (!user || !editingConnection) {
+      toast({
+        title: "Error",
+        description: "Unable to update connection",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!connectionName || !apiKey || !apiSecret || !apiPassphrase) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('coinbase_connections')
+        .update({
+          connection_name: connectionName,
+          api_key_encrypted: apiKey, // In production, this should be encrypted
+          api_secret_encrypted: apiSecret, // In production, this should be encrypted
+          api_passphrase_encrypted: apiPassphrase, // In production, this should be encrypted
+          is_sandbox: isSandbox,
+        })
+        .eq('id', editingConnection.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: `Connection "${connectionName}" updated successfully`,
+      });
+
+      setIsEditDialogOpen(false);
+      setEditingConnection(null);
+      setConnectionName('');
+      setApiKey('');
+      setApiSecret('');
+      setApiPassphrase('');
+      setIsSandbox(false);
+      fetchConnections();
+    } catch (error) {
+      console.error('Error updating connection:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update connection",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (!user) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -412,6 +480,14 @@ export const CoinbaseConnectionPanel = () => {
                   <Button
                     size="sm"
                     variant="outline"
+                    onClick={() => openEditDialog(connection)}
+                    className="border-slate-600 text-slate-300 hover:bg-slate-600 hover:text-white"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={() => testConnection(connection.id)}
                     disabled={testingConnection === connection.id}
                     className="border-blue-600 text-blue-400 hover:bg-blue-600 hover:text-white"
@@ -479,6 +555,90 @@ export const CoinbaseConnectionPanel = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Edit Connection Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="bg-slate-800 border-slate-700">
+          <DialogHeader>
+            <DialogTitle className="text-white">Edit Coinbase Connection</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Update your Coinbase API credentials and settings
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5" />
+                <div className="text-sm">
+                  <p className="text-amber-200 font-medium">Security Notice</p>
+                  <p className="text-amber-300/80">
+                    For security reasons, you must re-enter all API credentials to update the connection.
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="text-slate-300">Connection Name</Label>
+              <Input
+                value={connectionName}
+                onChange={(e) => setConnectionName(e.target.value)}
+                placeholder="e.g., Main Trading Account"
+                className="bg-slate-700 border-slate-600 text-white"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="text-slate-300">API Key</Label>
+              <Input
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter your Coinbase API Key"
+                className="bg-slate-700 border-slate-600 text-white"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="text-slate-300">API Secret</Label>
+              <Input
+                type="password"
+                value={apiSecret}
+                onChange={(e) => setApiSecret(e.target.value)}
+                placeholder="Enter your Coinbase API Secret"
+                className="bg-slate-700 border-slate-600 text-white"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label className="text-slate-300">API Passphrase</Label>
+              <Input
+                type="password"
+                value={apiPassphrase}
+                onChange={(e) => setApiPassphrase(e.target.value)}
+                placeholder="Enter your Coinbase API Passphrase"
+                className="bg-slate-700 border-slate-600 text-white"
+              />
+            </div>
+            
+            <div className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
+              <div>
+                <Label className="text-slate-300">Sandbox Mode</Label>
+                <p className="text-xs text-slate-500">
+                  {isSandbox ? 'Testing with fake data' : 'Live trading with real money'}
+                </p>
+              </div>
+              <Switch
+                checked={isSandbox}
+                onCheckedChange={setIsSandbox}
+              />
+            </div>
+            
+            <Button onClick={handleUpdateConnection} className="w-full bg-blue-600 hover:bg-blue-700">
+              Update Connection ({isSandbox ? 'Sandbox' : 'Production'})
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
