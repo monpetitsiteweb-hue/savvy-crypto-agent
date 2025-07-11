@@ -63,6 +63,7 @@ export const DashboardPanel = () => {
       const { data, error } = await supabase
         .from('coinbase_connections')
         .select('id, connection_name, is_active, is_sandbox')
+        .eq('user_id', user.id)
         .eq('is_active', true);
 
       if (error) throw error;
