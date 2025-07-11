@@ -85,23 +85,39 @@ export const DashboardPanel = () => {
     
     setPortfolioLoading(true);
     try {
-      console.log('Fetching portfolio data...');
+      console.log('=== Starting portfolio fetch ===');
+      console.log('User ID:', user.id);
+      
       const session = await supabase.auth.getSession();
+      console.log('Session check:', {
+        hasSession: !!session.data.session,
+        hasAccessToken: !!session.data.session?.access_token,
+        tokenLength: session.data.session?.access_token?.length
+      });
       
       if (!session.data.session?.access_token) {
         throw new Error('No valid session found');
       }
 
+      console.log('Calling coinbase-portfolio function...');
       const { data, error } = await supabase.functions.invoke('coinbase-portfolio', {
         headers: {
           Authorization: `Bearer ${session.data.session.access_token}`,
         },
       });
 
-      console.log('Portfolio response:', { data, error });
+      console.log('=== Function Response ===');
+      console.log('Raw data:', data);
+      console.log('Raw error:', error);
+      console.log('Data type:', typeof data);
+      console.log('Error type:', typeof error);
 
       if (error) {
-        console.error('Supabase function error:', error);
+        console.error('Supabase function error details:', {
+          message: error.message,
+          context: error.context,
+          details: error.details
+        });
         throw new Error(`Function call failed: ${error.message}`);
       }
       
