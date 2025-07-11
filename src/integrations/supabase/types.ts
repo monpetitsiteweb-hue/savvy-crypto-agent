@@ -61,6 +61,7 @@ export type Database = {
       coinbase_connections: {
         Row: {
           api_key_encrypted: string | null
+          api_passphrase_encrypted: string | null
           api_secret_encrypted: string | null
           connected_at: string
           connection_name: string
@@ -72,6 +73,7 @@ export type Database = {
         }
         Insert: {
           api_key_encrypted?: string | null
+          api_passphrase_encrypted?: string | null
           api_secret_encrypted?: string | null
           connected_at?: string
           connection_name?: string
@@ -83,6 +85,7 @@ export type Database = {
         }
         Update: {
           api_key_encrypted?: string | null
+          api_passphrase_encrypted?: string | null
           api_secret_encrypted?: string | null
           connected_at?: string
           connection_name?: string

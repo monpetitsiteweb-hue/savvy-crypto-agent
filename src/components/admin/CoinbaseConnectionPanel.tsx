@@ -31,6 +31,7 @@ export const CoinbaseConnectionPanel = () => {
   const [connectionName, setConnectionName] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
+  const [apiPassphrase, setApiPassphrase] = useState('');
   const [isSandbox, setIsSandbox] = useState(false); // Changed default to false for production
   const { toast } = useToast();
   const { user } = useAuth();
@@ -74,7 +75,7 @@ export const CoinbaseConnectionPanel = () => {
       return;
     }
 
-    if (!connectionName || !apiKey || !apiSecret) {
+    if (!connectionName || !apiKey || !apiSecret || !apiPassphrase) {
       toast({
         title: "Missing Information",
         description: "Please fill in all required fields",
@@ -91,6 +92,7 @@ export const CoinbaseConnectionPanel = () => {
           connection_name: connectionName,
           api_key_encrypted: apiKey, // In production, this should be encrypted
           api_secret_encrypted: apiSecret, // In production, this should be encrypted
+          api_passphrase_encrypted: apiPassphrase, // In production, this should be encrypted
           is_sandbox: isSandbox,
           is_active: true,
         });
@@ -106,6 +108,7 @@ export const CoinbaseConnectionPanel = () => {
       setConnectionName('');
       setApiKey('');
       setApiSecret('');
+      setApiPassphrase('');
       setIsSandbox(false); // Reset to production default
       fetchConnections();
     } catch (error) {
@@ -292,6 +295,17 @@ export const CoinbaseConnectionPanel = () => {
                   value={apiSecret}
                   onChange={(e) => setApiSecret(e.target.value)}
                   placeholder="Your Coinbase API Secret"
+                  className="bg-slate-700 border-slate-600 text-white"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label className="text-slate-300">API Passphrase</Label>
+                <Input
+                  type="password"
+                  value={apiPassphrase}
+                  onChange={(e) => setApiPassphrase(e.target.value)}
+                  placeholder="Your Coinbase API Passphrase"
                   className="bg-slate-700 border-slate-600 text-white"
                 />
               </div>
