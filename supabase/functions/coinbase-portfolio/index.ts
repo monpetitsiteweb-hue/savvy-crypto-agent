@@ -195,13 +195,21 @@ serve(async (req) => {
     console.error('Error stack:', error?.stack);
     console.error('Full error object:', error);
     
+    // Determine if this is a validation error (400) or server error (500)
+    const isValidationError = error?.message?.includes('Invalid') || 
+                             error?.message?.includes('format') ||
+                             error?.message?.includes('credentials not found');
+    
+    const statusCode = isValidationError ? 400 : 500;
+    
     return new Response(JSON.stringify({ 
       success: false,
       error: error?.message || 'Unknown error occurred',
       error_type: typeof error,
-      error_name: error?.name
+      error_name: error?.name,
+      validation_error: isValidationError
     }), {
-      status: 500,
+      status: statusCode,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
