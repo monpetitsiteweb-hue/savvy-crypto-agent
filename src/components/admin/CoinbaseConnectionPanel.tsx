@@ -7,10 +7,11 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { Plus, Wallet2, AlertTriangle, CheckCircle, AlertCircle } from 'lucide-react';
+import { Plus, Wallet2, AlertTriangle, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
 
 interface CoinbaseConnection {
   id: string;
@@ -211,6 +212,31 @@ export const CoinbaseConnectionPanel = () => {
     }
   };
 
+  const deleteConnection = async (id: string, connectionName: string) => {
+    try {
+      const { error } = await supabase
+        .from('coinbase_connections')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      toast({
+        title: "Connection Deleted",
+        description: `"${connectionName}" has been removed successfully`,
+      });
+      
+      fetchConnections();
+    } catch (error) {
+      console.error('Error deleting connection:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete connection",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (!user) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -401,6 +427,37 @@ export const CoinbaseConnectionPanel = () => {
                 >
                   Switch to {connection.is_sandbox ? 'Production' : 'Sandbox'} Mode
                 </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full border-red-600 text-red-400 hover:bg-red-600 hover:text-white"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Connection
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="bg-slate-800 border-slate-700">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="text-white">Delete Connection</AlertDialogTitle>
+                      <AlertDialogDescription className="text-slate-400">
+                        Are you sure you want to delete "{connection.connection_name}"? This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                        Cancel
+                      </AlertDialogCancel>
+                      <AlertDialogAction 
+                        onClick={() => deleteConnection(connection.id, connection.connection_name)}
+                        className="bg-red-600 hover:bg-red-700 text-white"
+                      >
+                        Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             </CardContent>
           </Card>
