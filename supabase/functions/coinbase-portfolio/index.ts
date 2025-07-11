@@ -85,9 +85,8 @@ serve(async (req) => {
     // In production, you'd want to implement proper encryption/decryption
     const apiKey = connection.api_key_encrypted;
     const apiSecret = connection.api_secret_encrypted;
-    const apiPassphrase = connection.api_passphrase_encrypted;
 
-    if (!apiKey || !apiSecret || !apiPassphrase) {
+    if (!apiKey || !apiSecret) {
       throw new Error('Coinbase API credentials not found in connection');
     }
 
@@ -118,7 +117,6 @@ serve(async (req) => {
         'CB-ACCESS-KEY': apiKey,
         'CB-ACCESS-SIGN': signature,
         'CB-ACCESS-TIMESTAMP': timestamp,
-        'CB-ACCESS-PASSPHRASE': apiPassphrase,
         'Content-Type': 'application/json',
       },
     });
