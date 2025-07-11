@@ -183,6 +183,31 @@ export const CoinbaseConnectionPanel = () => {
     }
   };
 
+  const toggleSandboxMode = async (id: string, currentSandboxMode: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('coinbase_connections')
+        .update({ is_sandbox: !currentSandboxMode })
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      toast({
+        title: "Environment Updated",
+        description: `Connection switched to ${!currentSandboxMode ? 'Sandbox' : 'Production'} mode`,
+      });
+      
+      fetchConnections();
+    } catch (error) {
+      console.error('Error toggling sandbox mode:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update environment mode",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (!user) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -334,23 +359,33 @@ export const CoinbaseConnectionPanel = () => {
                   </span>
                 </div>
               )}
-              <div className="flex gap-2 pt-2">
+              <div className="space-y-2 pt-2">
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => toggleConnection(connection.id, connection.is_active)}
+                    className="flex-1 border-slate-600 text-slate-300"
+                  >
+                    {connection.is_active ? 'Disable' : 'Enable'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => testConnection(connection.id)}
+                    disabled={testingConnection === connection.id}
+                    className="border-blue-600 text-blue-400 hover:bg-blue-600 hover:text-white"
+                  >
+                    {testingConnection === connection.id ? 'Testing...' : 'Test Connection'}
+                  </Button>
+                </div>
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => toggleConnection(connection.id, connection.is_active)}
-                  className="flex-1 border-slate-600 text-slate-300"
+                  onClick={() => toggleSandboxMode(connection.id, connection.is_sandbox)}
+                  className="w-full border-amber-600 text-amber-400 hover:bg-amber-600 hover:text-white"
                 >
-                  {connection.is_active ? 'Disable' : 'Enable'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => testConnection(connection.id)}
-                  disabled={testingConnection === connection.id}
-                  className="border-blue-600 text-blue-400 hover:bg-blue-600 hover:text-white"
-                >
-                  {testingConnection === connection.id ? 'Testing...' : 'Test Connection'}
+                  Switch to {connection.is_sandbox ? 'Production' : 'Sandbox'} Mode
                 </Button>
               </div>
             </CardContent>
