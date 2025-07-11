@@ -81,12 +81,17 @@ serve(async (req) => {
     });
 
     // Use the stored API credentials from the database
+    // Note: For this demo, we'll assume credentials are stored as plain text
+    // In production, you'd want to implement proper encryption/decryption
     const apiKey = connection.api_key_encrypted;
     const apiSecret = connection.api_secret_encrypted;
 
     if (!apiKey || !apiSecret) {
       throw new Error('Coinbase API credentials not found in connection');
     }
+
+    console.log('API Key length:', apiKey.length);
+    console.log('API Secret length:', apiSecret.length);
 
     // Coinbase API endpoint - use correct URLs based on environment
     const baseUrl = connection.is_sandbox 
@@ -112,7 +117,7 @@ serve(async (req) => {
         'CB-ACCESS-KEY': apiKey,
         'CB-ACCESS-SIGN': signature,
         'CB-ACCESS-TIMESTAMP': timestamp,
-        'CB-ACCESS-PASSPHRASE': connection.is_sandbox ? 'sandbox' : 'production',
+        'CB-ACCESS-PASSPHRASE': apiSecret, // Use the API secret as passphrase for now
         'Content-Type': 'application/json',
       },
     });
