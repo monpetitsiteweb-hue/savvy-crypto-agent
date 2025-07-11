@@ -100,13 +100,21 @@ serve(async (req) => {
       throw new Error('Coinbase API credentials not found in connection - API Key and Private Key are required');
     }
 
-    console.log('API Key format:', apiKey.substring(0, 20) + '...');
-    console.log('Private Key format:', apiPrivateKey.substring(0, 50) + '...');
+    console.log('API Key format:', apiKey.substring(0, 50) + '...');
+    console.log('Private Key starts with:', apiPrivateKey.substring(0, 30) + '...');
     
     // Validate API key format (should be like "organizations/ORG_ID/apiKeys/KEY_ID")
     if (!apiKey.includes('organizations/') || !apiKey.includes('apiKeys/')) {
       console.error('Invalid API key format. Expected format: organizations/ORG_ID/apiKeys/KEY_ID');
+      console.error('Current API key:', apiKey);
       throw new Error('Invalid Coinbase API key format. Please check your API key and update your connection.');
+    }
+    
+    // Validate private key format (should start with -----BEGIN EC PRIVATE KEY-----)
+    if (!apiPrivateKey.includes('-----BEGIN') || !apiPrivateKey.includes('PRIVATE KEY-----')) {
+      console.error('Invalid private key format. Expected PEM format starting with -----BEGIN EC PRIVATE KEY-----');
+      console.error('Private key preview:', apiPrivateKey.substring(0, 100));
+      throw new Error('Invalid Coinbase API private key format. Please ensure it\'s in PEM format.');
     }
 
     // Coinbase Advanced Trade API endpoint
