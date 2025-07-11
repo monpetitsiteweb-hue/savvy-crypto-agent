@@ -14,7 +14,232 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      api_connections: {
+        Row: {
+          additional_config: Json | null
+          api_key_encrypted: string | null
+          connection_name: string
+          created_at: string
+          id: string
+          is_active: boolean
+          service_name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          additional_config?: Json | null
+          api_key_encrypted?: string | null
+          connection_name?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          service_name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          additional_config?: Json | null
+          api_key_encrypted?: string | null
+          connection_name?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          service_name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_connections_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coinbase_connections: {
+        Row: {
+          api_key_encrypted: string | null
+          api_secret_encrypted: string | null
+          connected_at: string
+          connection_name: string
+          id: string
+          is_active: boolean
+          is_sandbox: boolean
+          last_sync: string | null
+          user_id: string
+        }
+        Insert: {
+          api_key_encrypted?: string | null
+          api_secret_encrypted?: string | null
+          connected_at?: string
+          connection_name?: string
+          id?: string
+          is_active?: boolean
+          is_sandbox?: boolean
+          last_sync?: string | null
+          user_id: string
+        }
+        Update: {
+          api_key_encrypted?: string | null
+          api_secret_encrypted?: string | null
+          connected_at?: string
+          connection_name?: string
+          id?: string
+          is_active?: boolean
+          is_sandbox?: boolean
+          last_sync?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coinbase_connections_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          full_name: string | null
+          id: string
+          updated_at: string
+          username: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          id: string
+          updated_at?: string
+          username?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
+      trading_history: {
+        Row: {
+          amount: number
+          coinbase_connection_id: string | null
+          coinbase_order_id: string | null
+          cryptocurrency: string
+          executed_at: string
+          fees: number | null
+          id: string
+          notes: string | null
+          price: number
+          strategy_id: string | null
+          total_value: number
+          trade_type: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          coinbase_connection_id?: string | null
+          coinbase_order_id?: string | null
+          cryptocurrency: string
+          executed_at?: string
+          fees?: number | null
+          id?: string
+          notes?: string | null
+          price: number
+          strategy_id?: string | null
+          total_value: number
+          trade_type: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          coinbase_connection_id?: string | null
+          coinbase_order_id?: string | null
+          cryptocurrency?: string
+          executed_at?: string
+          fees?: number | null
+          id?: string
+          notes?: string | null
+          price?: number
+          strategy_id?: string | null
+          total_value?: number
+          trade_type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trading_history_coinbase_connection_id_fkey"
+            columns: ["coinbase_connection_id"]
+            isOneToOne: false
+            referencedRelation: "coinbase_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trading_history_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trading_history_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trading_strategies: {
+        Row: {
+          configuration: Json
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          strategy_name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          configuration: Json
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          strategy_name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          configuration?: Json
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          strategy_name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trading_strategies_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
