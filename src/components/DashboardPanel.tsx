@@ -16,18 +16,45 @@ interface CoinbaseConnection {
   is_sandbox: boolean;
 }
 
+interface CoinbaseAccount {
+  id: string;
+  currency: string;
+  balance: string;
+  available: string;
+  hold: string;
+  profile_id: string;
+  trading_enabled: boolean;
+}
+
+interface PortfolioData {
+  accounts: CoinbaseAccount[];
+  connection: {
+    name: string;
+    is_sandbox: boolean;
+    last_sync: string;
+  };
+}
+
 export const DashboardPanel = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [connections, setConnections] = useState<CoinbaseConnection[]>([]);
+  const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
 
   useEffect(() => {
     if (user) {
       fetchConnections();
     }
   }, [user]);
+
+  useEffect(() => {
+    if (connections.length > 0 && !portfolioData) {
+      fetchPortfolioData();
+    }
+  }, [connections]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -49,6 +76,40 @@ export const DashboardPanel = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchPortfolioData = async () => {
+    if (!user) return;
+    
+    setPortfolioLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('coinbase-portfolio', {
+        headers: {
+          Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+      });
+
+      if (error) throw error;
+      
+      if (data.success) {
+        setPortfolioData(data);
+        toast({
+          title: "Portfolio Synced",
+          description: "Successfully loaded your Coinbase portfolio data",
+        });
+      } else {
+        throw new Error(data.error || 'Failed to fetch portfolio data');
+      }
+    } catch (error) {
+      console.error('Error fetching portfolio:', error);
+      toast({
+        title: "Portfolio Sync Failed",
+        description: "Unable to fetch portfolio data. Please check your API configuration.",
+        variant: "destructive",
+      });
+    } finally {
+      setPortfolioLoading(false);
     }
   };
 
@@ -128,21 +189,115 @@ export const DashboardPanel = () => {
         </div>
       </Card>
 
-      {/* Portfolio Integration Placeholder */}
-      <Card className="p-6 bg-slate-700/30 border-slate-600 border-dashed">
-        <div className="text-center py-8">
-          <Activity className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-slate-400 mb-2">Portfolio Integration Required</h3>
-          <p className="text-slate-500 mb-4">
-            To display your portfolio data, we need to integrate with the Coinbase API to fetch account information and balances.
-          </p>
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 max-w-md mx-auto">
-            <p className="text-amber-200 text-sm">
-              <strong>Next Steps:</strong> Portfolio sync with Coinbase API will be implemented to show real-time balances, positions, and performance metrics.
-            </p>
+      {/* Portfolio Data */}
+      {portfolioLoading ? (
+        <Card className="p-6 bg-slate-700/30 border-slate-600">
+          <div className="text-center py-8">
+            <Activity className="w-12 h-12 text-slate-600 mx-auto mb-4 animate-spin" />
+            <h3 className="text-lg font-semibold text-white mb-2">Loading Portfolio...</h3>
+            <p className="text-slate-400">Fetching your account data from Coinbase</p>
           </div>
+        </Card>
+      ) : portfolioData ? (
+        <div className="space-y-4">
+          {/* Portfolio Overview */}
+          <Card className="p-6 bg-slate-700/30 border-slate-600">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Portfolio Overview</h3>
+              <Button 
+                onClick={fetchPortfolioData}
+                variant="outline" 
+                size="sm"
+                disabled={portfolioLoading}
+              >
+                Refresh
+              </Button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-slate-800/50 p-4 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <DollarSign className="w-5 h-5 text-green-400" />
+                  <span className="text-slate-400 text-sm">Total Accounts</span>
+                </div>
+                <p className="text-2xl font-bold text-white">{portfolioData.accounts.length}</p>
+              </div>
+              
+              <div className="bg-slate-800/50 p-4 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Activity className="w-5 h-5 text-blue-400" />
+                  <span className="text-slate-400 text-sm">Environment</span>
+                </div>
+                <p className="text-lg font-semibold text-white">
+                  {portfolioData.connection.is_sandbox ? 'Sandbox' : 'Live'}
+                </p>
+              </div>
+              
+              <div className="bg-slate-800/50 p-4 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Target className="w-5 h-5 text-purple-400" />
+                  <span className="text-slate-400 text-sm">Last Sync</span>
+                </div>
+                <p className="text-sm text-white">
+                  {new Date(portfolioData.connection.last_sync).toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            {/* Account Balances */}
+            <div>
+              <h4 className="text-md font-semibold text-white mb-3">Account Balances</h4>
+              <div className="space-y-2">
+                {portfolioData.accounts.map((account) => (
+                  <div key={account.id} className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-slate-600 rounded-full flex items-center justify-center">
+                        <span className="text-white text-sm font-bold">
+                          {account.currency.slice(0, 2)}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="font-medium text-white">{account.currency}</p>
+                        <p className="text-sm text-slate-400">
+                          Trading: {account.trading_enabled ? 'Enabled' : 'Disabled'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-white">
+                        {parseFloat(account.balance).toFixed(8)}
+                      </p>
+                      <p className="text-sm text-slate-400">
+                        Available: {parseFloat(account.available).toFixed(8)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                
+                {portfolioData.accounts.length === 0 && (
+                  <div className="text-center py-8">
+                    <p className="text-slate-400">No accounts found in your portfolio</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Card>
         </div>
-      </Card>
+      ) : (
+        <Card className="p-6 bg-slate-700/30 border-slate-600 border-dashed">
+          <div className="text-center py-8">
+            <Activity className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-slate-400 mb-2">Load Portfolio Data</h3>
+            <p className="text-slate-500 mb-4">
+              Click below to fetch your portfolio data from Coinbase
+            </p>
+            <Button onClick={fetchPortfolioData} disabled={portfolioLoading}>
+              <Activity className="w-4 h-4 mr-2" />
+              Load Portfolio
+            </Button>
+          </div>
+        </Card>
+      )}
     </div>
   );
 };
