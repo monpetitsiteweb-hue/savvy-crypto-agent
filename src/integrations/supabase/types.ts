@@ -61,7 +61,7 @@ export type Database = {
       coinbase_connections: {
         Row: {
           api_key_encrypted: string | null
-          api_passphrase_encrypted: string | null
+          api_private_key_encrypted: string | null
           api_secret_encrypted: string | null
           connected_at: string
           connection_name: string
@@ -73,7 +73,7 @@ export type Database = {
         }
         Insert: {
           api_key_encrypted?: string | null
-          api_passphrase_encrypted?: string | null
+          api_private_key_encrypted?: string | null
           api_secret_encrypted?: string | null
           connected_at?: string
           connection_name?: string
@@ -85,7 +85,7 @@ export type Database = {
         }
         Update: {
           api_key_encrypted?: string | null
-          api_passphrase_encrypted?: string | null
+          api_private_key_encrypted?: string | null
           api_secret_encrypted?: string | null
           connected_at?: string
           connection_name?: string
@@ -104,6 +104,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      coinbase_oauth_credentials: {
+        Row: {
+          app_name: string
+          client_id_encrypted: string | null
+          client_secret_encrypted: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          is_sandbox: boolean
+          updated_at: string
+        }
+        Insert: {
+          app_name?: string
+          client_id_encrypted?: string | null
+          client_secret_encrypted?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_sandbox?: boolean
+          updated_at?: string
+        }
+        Update: {
+          app_name?: string
+          client_id_encrypted?: string | null
+          client_secret_encrypted?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_sandbox?: boolean
+          updated_at?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {

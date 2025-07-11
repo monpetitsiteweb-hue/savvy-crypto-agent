@@ -2,6 +2,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.5';
+import { SignJWT, importPKCS8 } from 'https://deno.land/x/jose@v4.14.4/index.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -90,38 +91,58 @@ serve(async (req) => {
     // In production, you'd want to implement proper encryption/decryption
     const apiKey = connection.api_key_encrypted;
     const apiSecret = connection.api_secret_encrypted;
+    const apiPrivateKey = connection.api_private_key_encrypted;
 
-    if (!apiKey || !apiSecret) {
-      throw new Error('Coinbase API credentials not found in connection');
+    if (!apiKey || !apiSecret || !apiPrivateKey) {
+      console.error('Missing credentials:', { 
+        hasKey: !!apiKey, 
+        hasSecret: !!apiSecret, 
+        hasPrivateKey: !!apiPrivateKey 
+      });
+      throw new Error('Coinbase API credentials not found in connection - API Key, Secret, and Private Key are all required');
     }
 
     console.log('API Key length:', apiKey.length);
     console.log('API Secret length:', apiSecret.length);
+    console.log('Private Key length:', apiPrivateKey.length);
 
-    // Coinbase API endpoint - use correct URLs based on environment
+    // Coinbase Advanced Trade API endpoint
     const baseUrl = connection.is_sandbox 
-      ? 'https://api-public.sandbox.exchange.coinbase.com'
-      : 'https://api.exchange.coinbase.com';
+      ? 'https://api-public.sandbox.coinbase.com'
+      : 'https://api.coinbase.com';
 
-    const endpoint = '/accounts';
+    const endpoint = '/api/v3/brokerage/accounts';
     const method = 'GET';
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const body = '';
+    const timestamp = Math.floor(Date.now() / 1000);
 
-    // Create signature
-    const message = timestamp + method + endpoint + body;
-    const signature = await generateSignature(message, apiSecret);
+    // Create JWT token for Coinbase Advanced Trade API
+    const header = {
+      alg: 'ES256',
+      kid: apiKey,
+      nonce: timestamp.toString()
+    };
+
+    const payload = {
+      sub: apiKey,
+      iss: 'cdp',
+      nbf: timestamp,
+      exp: timestamp + 120,
+      aud: ['retail_rest_api_proxy'],
+      uri: method + ' ' + baseUrl + endpoint
+    };
+
+    const token = await new SignJWT(payload)
+      .setProtectedHeader(header)
+      .sign(await importPKCS8(apiPrivateKey, 'ES256'));
 
     console.log('Making request to:', baseUrl + endpoint);
     console.log('Using sandbox mode:', connection.is_sandbox);
 
-    // Make request to Coinbase
+    // Make request to Coinbase Advanced Trade API
     const response = await fetch(`${baseUrl}${endpoint}`, {
       method: method,
       headers: {
-        'CB-ACCESS-KEY': apiKey,
-        'CB-ACCESS-SIGN': signature,
-        'CB-ACCESS-TIMESTAMP': timestamp,
+        'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
     });

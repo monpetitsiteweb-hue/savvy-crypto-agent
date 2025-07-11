@@ -34,6 +34,7 @@ export const CoinbaseConnectionPanel = () => {
   const [connectionName, setConnectionName] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
+  const [apiPrivateKey, setApiPrivateKey] = useState('');
   
   const [isSandbox, setIsSandbox] = useState(false); // Changed default to false for production
   const { toast } = useToast();
@@ -78,7 +79,7 @@ export const CoinbaseConnectionPanel = () => {
       return;
     }
 
-    if (!connectionName || !apiKey || !apiSecret) {
+    if (!connectionName || !apiKey || !apiSecret || !apiPrivateKey) {
       toast({
         title: "Missing Information",
         description: "Please fill in all required fields",
@@ -95,6 +96,7 @@ export const CoinbaseConnectionPanel = () => {
           connection_name: connectionName,
           api_key_encrypted: apiKey, // In production, this should be encrypted
           api_secret_encrypted: apiSecret, // In production, this should be encrypted
+          api_private_key_encrypted: apiPrivateKey, // In production, this should be encrypted
           is_sandbox: isSandbox,
           is_active: true,
         });
@@ -110,6 +112,7 @@ export const CoinbaseConnectionPanel = () => {
       setConnectionName('');
       setApiKey('');
       setApiSecret('');
+      setApiPrivateKey('');
       setIsSandbox(false); // Reset to production default
       fetchConnections();
     } catch (error) {
@@ -243,6 +246,7 @@ export const CoinbaseConnectionPanel = () => {
     setConnectionName(connection.connection_name);
     setApiKey(''); // Don't pre-fill for security
     setApiSecret(''); // Don't pre-fill for security
+    setApiPrivateKey(''); // Don't pre-fill for security
     
     setIsSandbox(connection.is_sandbox);
     setIsEditDialogOpen(true);
@@ -258,7 +262,7 @@ export const CoinbaseConnectionPanel = () => {
       return;
     }
 
-    if (!connectionName || !apiKey || !apiSecret) {
+    if (!connectionName || !apiKey || !apiSecret || !apiPrivateKey) {
       toast({
         title: "Missing Information",
         description: "Please fill in all required fields",
@@ -274,6 +278,7 @@ export const CoinbaseConnectionPanel = () => {
           connection_name: connectionName,
           api_key_encrypted: apiKey, // In production, this should be encrypted
           api_secret_encrypted: apiSecret, // In production, this should be encrypted
+          api_private_key_encrypted: apiPrivateKey, // In production, this should be encrypted
           
           is_sandbox: isSandbox,
         })
@@ -291,7 +296,7 @@ export const CoinbaseConnectionPanel = () => {
       setConnectionName('');
       setApiKey('');
       setApiSecret('');
-      
+      setApiPrivateKey('');
       setIsSandbox(false);
       fetchConnections();
     } catch (error) {
@@ -392,6 +397,16 @@ export const CoinbaseConnectionPanel = () => {
                 />
               </div>
               
+              <div className="space-y-2">
+                <Label className="text-slate-300">Private Key</Label>
+                <Input
+                  type="password"
+                  value={apiPrivateKey}
+                  onChange={(e) => setApiPrivateKey(e.target.value)}
+                  placeholder="Your Coinbase Private Key"
+                  className="bg-slate-700 border-slate-600 text-white"
+                />
+              </div>
               
               <div className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
                 <div>
@@ -598,6 +613,16 @@ export const CoinbaseConnectionPanel = () => {
               />
             </div>
             
+            <div className="space-y-2">
+              <Label className="text-slate-300">Private Key</Label>
+              <Input
+                type="password"
+                value={apiPrivateKey}
+                onChange={(e) => setApiPrivateKey(e.target.value)}
+                placeholder="Enter your Coinbase Private Key"
+                className="bg-slate-700 border-slate-600 text-white"
+              />
+            </div>
             
             <div className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
               <div>
