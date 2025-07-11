@@ -31,7 +31,7 @@ export const CoinbaseConnectionPanel = () => {
   const [connectionName, setConnectionName] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
-  const [isSandbox, setIsSandbox] = useState(true);
+  const [isSandbox, setIsSandbox] = useState(false); // Changed default to false for production
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -99,14 +99,14 @@ export const CoinbaseConnectionPanel = () => {
 
       toast({
         title: "Success",
-        description: "Coinbase connection saved successfully",
+        description: `Coinbase connection saved successfully (${isSandbox ? 'Sandbox' : 'Production'} mode)`,
       });
 
       setIsDialogOpen(false);
       setConnectionName('');
       setApiKey('');
       setApiSecret('');
-      setIsSandbox(true);
+      setIsSandbox(false); // Reset to production default
       fetchConnections();
     } catch (error) {
       console.error('Error saving connection:', error);
@@ -130,16 +130,27 @@ export const CoinbaseConnectionPanel = () => {
         throw new Error('API credentials are missing');
       }
 
-      // For now, just validate that credentials exist
-      // In production, you would make an actual API call to Coinbase
-      // with proper HMAC signature authentication
-      
-      toast({
-        title: "Connection Test Completed",
-        description: "✅ API credentials are configured. Note: Full API validation requires implementing HMAC signature authentication for security.",
+      // Test the actual connection by calling the portfolio function
+      const { data, error } = await supabase.functions.invoke('coinbase-portfolio', {
+        headers: {
+          Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
       });
+
+      if (error) {
+        throw new Error('Connection test failed: ' + error.message);
+      }
+
+      if (data.success) {
+        toast({
+          title: "Connection Test Successful",
+          description: `✅ Successfully connected to Coinbase ${connection.is_sandbox ? 'Sandbox' : 'Production'} API and fetched ${data.accounts?.length || 0} accounts.`,
+        });
+      } else {
+        throw new Error(data.error || 'Unknown error occurred');
+      }
       
-      // Update last_sync timestamp
+      // Update last_sync timestamp on successful test
       await supabase
         .from('coinbase_connections')
         .update({ last_sync: new Date().toISOString() })
@@ -150,7 +161,7 @@ export const CoinbaseConnectionPanel = () => {
       console.error('Connection test failed:', error);
       toast({
         title: "Connection Test Failed",
-        description: "❌ " + (error as Error).message + ". Please verify your API key and secret are correct.",
+        description: "❌ " + (error as Error).message,
         variant: "destructive",
       });
     } finally {
@@ -208,7 +219,7 @@ export const CoinbaseConnectionPanel = () => {
                   <div className="text-sm">
                     <p className="text-amber-200 font-medium">Security Notice</p>
                     <p className="text-amber-300/80">
-                      Your API keys are encrypted and stored securely. Start with sandbox mode for testing.
+                      Your API keys are encrypted and stored securely. Use production mode for live trading.
                     </p>
                   </div>
                 </div>
@@ -223,7 +234,7 @@ export const CoinbaseConnectionPanel = () => {
                       1. Go to Coinbase Advanced Trade → API<br/>
                       2. Create new API key with trading permissions<br/>
                       3. Copy both the API Key and Secret<br/>
-                      4. Paste them here to connect your account
+                      4. Make sure to select the correct environment (Production/Sandbox)
                     </p>
                   </div>
                 </div>
@@ -263,7 +274,9 @@ export const CoinbaseConnectionPanel = () => {
               <div className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg">
                 <div>
                   <Label className="text-slate-300">Sandbox Mode</Label>
-                  <p className="text-xs text-slate-500">Use test environment for development</p>
+                  <p className="text-xs text-slate-500">
+                    {isSandbox ? 'Testing with fake data' : 'Live trading with real money'}
+                  </p>
                 </div>
                 <Switch
                   checked={isSandbox}
@@ -272,7 +285,7 @@ export const CoinbaseConnectionPanel = () => {
               </div>
               
               <Button onClick={handleSaveConnection} className="w-full bg-blue-600 hover:bg-blue-700">
-                Save Connection
+                Save Connection ({isSandbox ? 'Sandbox' : 'Production'})
               </Button>
             </div>
           </DialogContent>

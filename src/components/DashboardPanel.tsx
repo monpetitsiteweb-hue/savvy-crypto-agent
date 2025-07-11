@@ -85,28 +85,42 @@ export const DashboardPanel = () => {
     
     setPortfolioLoading(true);
     try {
+      console.log('Fetching portfolio data...');
+      const session = await supabase.auth.getSession();
+      
+      if (!session.data.session?.access_token) {
+        throw new Error('No valid session found');
+      }
+
       const { data, error } = await supabase.functions.invoke('coinbase-portfolio', {
         headers: {
-          Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          Authorization: `Bearer ${session.data.session.access_token}`,
         },
       });
 
-      if (error) throw error;
+      console.log('Portfolio response:', { data, error });
+
+      if (error) {
+        console.error('Supabase function error:', error);
+        throw new Error(`Function call failed: ${error.message}`);
+      }
       
       if (data.success) {
         setPortfolioData(data);
         toast({
           title: "Portfolio Synced",
-          description: "Successfully loaded your Coinbase portfolio data",
+          description: `Successfully loaded ${data.accounts?.length || 0} accounts from ${data.connection?.is_sandbox ? 'Sandbox' : 'Production'}`,
         });
       } else {
+        console.error('Portfolio fetch failed:', data.error);
         throw new Error(data.error || 'Failed to fetch portfolio data');
       }
     } catch (error) {
       console.error('Error fetching portfolio:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       toast({
         title: "Portfolio Sync Failed",
-        description: "Unable to fetch portfolio data. Please check your API configuration.",
+        description: `Unable to fetch portfolio data: ${errorMessage}`,
         variant: "destructive",
       });
     } finally {
