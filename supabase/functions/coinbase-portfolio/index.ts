@@ -76,17 +76,92 @@ serve(async (req) => {
     const connection = connections[0];
     console.log('Found connection:', connection.connection_name);
 
-    // For now, return a test response with connection info
+    // Decrypt API credentials
+    if (!connection.api_key_encrypted || !connection.api_private_key_encrypted) {
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: 'API credentials not found for this connection' 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const apiKey = connection.api_key_encrypted;
+    const apiSecret = connection.api_private_key_encrypted;
+    
+    console.log('Using API Key:', apiKey.substring(0, 8) + '...');
+
+    // Generate timestamp and signature for Coinbase API
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const method = 'GET';
+    const path = '/accounts';
+    const body = '';
+    
+    const message = timestamp + method + path + body;
+    
+    // Create HMAC signature
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(apiSecret);
+    const messageData = encoder.encode(message);
+    
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    
+    const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+    const signatureHex = Array.from(new Uint8Array(signature))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    // Make API call to Coinbase
+    const baseUrl = connection.is_sandbox 
+      ? 'https://api.sandbox.exchange.coinbase.com' 
+      : 'https://api.exchange.coinbase.com';
+    
+    console.log('Calling Coinbase API:', baseUrl + path);
+    
+    const response = await fetch(baseUrl + path, {
+      method: 'GET',
+      headers: {
+        'CB-ACCESS-KEY': apiKey,
+        'CB-ACCESS-SIGN': signatureHex,
+        'CB-ACCESS-TIMESTAMP': timestamp,
+        'CB-ACCESS-PASSPHRASE': Deno.env.get('COINBASE_API_PASSPHRASE') || '',
+      },
+    });
+
+    console.log('Coinbase API Response Status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Coinbase API Error:', errorText);
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: `Coinbase API error: ${response.status} - ${errorText}` 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const accounts = await response.json();
+    console.log('Coinbase accounts fetched:', accounts.length || 'No accounts');
+
     return new Response(JSON.stringify({ 
       success: true,
-      message: 'Connection found successfully',
+      message: 'Portfolio data fetched successfully',
       connection: {
         name: connection.connection_name,
         is_sandbox: connection.is_sandbox,
         connected_at: connection.connected_at
       },
-      accounts: [],
-      balances: []
+      accounts: accounts,
+      balances: accounts
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
