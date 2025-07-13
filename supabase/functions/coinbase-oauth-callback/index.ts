@@ -122,6 +122,18 @@ serve(async (req) => {
 
     // Extract user ID from state parameter (format: "userid_randomstring")
     const userId = state.split('_')[0];
+    
+    if (!userId || userId.length !== 36) { // UUID length check
+      console.error('Invalid user ID extracted from state:', userId);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          'Location': `${Deno.env.get('SUPABASE_URL').replace('.supabase.co', '.lovable.app')}/?error=invalid_state`,
+        },
+      });
+    }
+    
+    console.log('Extracted user ID from state:', userId);
 
     // Calculate expiration time
     const expiresAt = new Date();

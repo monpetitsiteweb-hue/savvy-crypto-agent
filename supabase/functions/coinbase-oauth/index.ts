@@ -67,11 +67,11 @@ serve(async (req) => {
       ? 'https://www.sandbox.coinbase.com' 
       : 'https://www.coinbase.com';
 
-    // Generate state parameter for security
-    const state = crypto.randomUUID();
+    // Generate state parameter with user ID for security
+    const state = `${user.id}_${crypto.randomUUID()}`;
 
-    // Store state in session/cache for validation (simplified for demo)
-    console.log('Generated state:', state);
+    // Store state for validation (simplified for demo)
+    console.log('Generated state with user ID:', state);
 
     // Build OAuth URL
     const scope = 'wallet:accounts:read,wallet:user:read';
