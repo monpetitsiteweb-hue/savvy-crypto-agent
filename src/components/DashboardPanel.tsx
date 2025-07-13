@@ -114,6 +114,7 @@ export const DashboardPanel = () => {
       const functionUrl = `https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/coinbase-portfolio`;
       
       try {
+        console.log('Making fetch request to:', functionUrl);
         const rawResponse = await fetch(functionUrl, {
           method: 'POST',
           headers: {
@@ -122,10 +123,16 @@ export const DashboardPanel = () => {
           },
         });
         
+        console.log('Raw response status:', rawResponse.status);
+        console.log('Raw response headers:', Object.fromEntries(rawResponse.headers.entries()));
+        
         const responseText = await rawResponse.text();
+        console.log('Raw response text:', responseText);
+        
         setDebugInfo(`Raw Response - Status: ${rawResponse.status}, Text: ${responseText.substring(0, 500)}`);
         
         if (!rawResponse.ok) {
+          console.error('Response not OK:', rawResponse.status, responseText);
           throw new Error(`HTTP ${rawResponse.status}: ${responseText}`);
         }
         
