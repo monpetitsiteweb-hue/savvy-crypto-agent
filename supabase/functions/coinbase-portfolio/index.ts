@@ -16,9 +16,19 @@ serve(async (req) => {
   try {
     console.log('=== Coinbase Portfolio Function Called ===');
     console.log('Request method:', req.method);
+    console.log('Request URL:', req.url);
     console.log('Request headers:', Object.fromEntries(req.headers.entries()));
     
-    // Initialize Supabase client
+    // Accept both GET and POST requests
+    if (!['GET', 'POST'].includes(req.method)) {
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: `Method ${req.method} not allowed. Use GET or POST.` 
+      }), {
+        status: 405,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
