@@ -112,39 +112,23 @@ serve(async (req) => {
       // Create Ed25519 signature for Coinbase Advanced Trade API
       const message = timestamp + method + requestPath + body;
       
-      // Decode the base64-encoded Ed25519 private key
-      let privateKeyBytes: Uint8Array;
-      try {
-        privateKeyBytes = new Uint8Array(
-          atob(apiSecret)
-            .split('')
-            .map(c => c.charCodeAt(0))
-        );
-      } catch (error) {
-        console.error('Failed to decode Ed25519 private key:', error);
-        throw new Error('Invalid Ed25519 private key format. Make sure the API secret is properly base64-encoded.');
-      }
-
-      // Import the Ed25519 private key
-      const privateKey = await crypto.subtle.importKey(
+      // Create HMAC-SHA256 signature for Coinbase Advanced Trade API (fallback to old method)
+      const encoder = new TextEncoder();
+      const keyData = encoder.encode(apiSecret);
+      const messageData = encoder.encode(message);
+      
+      const cryptoKey = await crypto.subtle.importKey(
         'raw',
-        privateKeyBytes,
-        {
-          name: 'Ed25519',
-        },
+        keyData,
+        { name: 'HMAC', hash: 'SHA-256' },
         false,
         ['sign']
       );
       
-      // Sign the message with Ed25519
-      const signatureBytes = await crypto.subtle.sign(
-        'Ed25519',
-        privateKey,
-        new TextEncoder().encode(message)
-      );
-      
-      // Convert signature to base64
-      const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)));
+      const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+      const signature = Array.from(new Uint8Array(signatureBuffer))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
 
       const baseUrl = 'https://api.coinbase.com';
       const fullUrl = baseUrl + requestPath;
