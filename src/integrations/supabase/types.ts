@@ -14,94 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      api_connections: {
-        Row: {
-          additional_config: Json | null
-          api_key_encrypted: string | null
-          connection_name: string
-          created_at: string
-          id: string
-          is_active: boolean
-          service_name: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          additional_config?: Json | null
-          api_key_encrypted?: string | null
-          connection_name?: string
-          created_at?: string
-          id?: string
-          is_active?: boolean
-          service_name: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          additional_config?: Json | null
-          api_key_encrypted?: string | null
-          connection_name?: string
-          created_at?: string
-          id?: string
-          is_active?: boolean
-          service_name?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "api_connections_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      coinbase_connections: {
-        Row: {
-          api_key_encrypted: string | null
-          api_private_key_encrypted: string | null
-          connected_at: string
-          connection_name: string
-          id: string
-          is_active: boolean
-          is_sandbox: boolean
-          last_sync: string | null
-          user_id: string
-        }
-        Insert: {
-          api_key_encrypted?: string | null
-          api_private_key_encrypted?: string | null
-          connected_at?: string
-          connection_name?: string
-          id?: string
-          is_active?: boolean
-          is_sandbox?: boolean
-          last_sync?: string | null
-          user_id: string
-        }
-        Update: {
-          api_key_encrypted?: string | null
-          api_private_key_encrypted?: string | null
-          connected_at?: string
-          connection_name?: string
-          id?: string
-          is_active?: boolean
-          is_sandbox?: boolean
-          last_sync?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "coinbase_connections_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       coinbase_oauth_credentials: {
         Row: {
           app_name: string
@@ -165,7 +77,6 @@ export type Database = {
       trading_history: {
         Row: {
           amount: number
-          coinbase_connection_id: string | null
           coinbase_order_id: string | null
           cryptocurrency: string
           executed_at: string
@@ -176,11 +87,11 @@ export type Database = {
           strategy_id: string | null
           total_value: number
           trade_type: string
+          user_coinbase_connection_id: string | null
           user_id: string
         }
         Insert: {
           amount: number
-          coinbase_connection_id?: string | null
           coinbase_order_id?: string | null
           cryptocurrency: string
           executed_at?: string
@@ -191,11 +102,11 @@ export type Database = {
           strategy_id?: string | null
           total_value: number
           trade_type: string
+          user_coinbase_connection_id?: string | null
           user_id: string
         }
         Update: {
           amount?: number
-          coinbase_connection_id?: string | null
           coinbase_order_id?: string | null
           cryptocurrency?: string
           executed_at?: string
@@ -206,21 +117,22 @@ export type Database = {
           strategy_id?: string | null
           total_value?: number
           trade_type?: string
+          user_coinbase_connection_id?: string | null
           user_id?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "trading_history_coinbase_connection_id_fkey"
-            columns: ["coinbase_connection_id"]
-            isOneToOne: false
-            referencedRelation: "coinbase_connections"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "trading_history_strategy_id_fkey"
             columns: ["strategy_id"]
             isOneToOne: false
             referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trading_history_user_coinbase_connection_id_fkey"
+            columns: ["user_coinbase_connection_id"]
+            isOneToOne: false
+            referencedRelation: "user_coinbase_connections"
             referencedColumns: ["id"]
           },
           {
@@ -272,6 +184,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_coinbase_connections: {
+        Row: {
+          access_token_encrypted: string | null
+          coinbase_user_id: string | null
+          connected_at: string
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          last_sync: string | null
+          refresh_token_encrypted: string | null
+          user_id: string
+        }
+        Insert: {
+          access_token_encrypted?: string | null
+          coinbase_user_id?: string | null
+          connected_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          last_sync?: string | null
+          refresh_token_encrypted?: string | null
+          user_id: string
+        }
+        Update: {
+          access_token_encrypted?: string | null
+          coinbase_user_id?: string | null
+          connected_at?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          last_sync?: string | null
+          refresh_token_encrypted?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {

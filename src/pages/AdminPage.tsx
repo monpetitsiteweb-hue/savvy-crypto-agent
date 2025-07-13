@@ -1,16 +1,13 @@
 
 import { useState } from 'react';
 import { Header } from '@/components/Header';
-import { APIConnectionsPanel } from '@/components/admin/APIConnectionsPanel';
-import { AdminAPIConnectionsPanel } from '@/components/admin/AdminAPIConnectionsPanel';
-import { CoinbaseConnectionPanel } from '@/components/admin/CoinbaseConnectionPanel';
 import { CoinbaseOAuthPanel } from '@/components/admin/CoinbaseOAuthPanel';
 import { useUserRole } from '@/hooks/useUserRole';
 import { Settings, Wallet2, Link, Shield } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const AdminPage = () => {
-  const [activeTab, setActiveTab] = useState('user-connections');
+  const [activeTab, setActiveTab] = useState('my-connections');
   const { isAdmin, loading } = useUserRole();
 
   if (loading) {
@@ -21,14 +18,12 @@ const AdminPage = () => {
 
   // Define tabs based on user role
   const userTabs = [
-    { id: 'user-connections', label: 'User API Connections', icon: <Link className="w-4 h-4" /> },
-    { id: 'coinbase', label: 'User Coinbase', icon: <Wallet2 className="w-4 h-4" /> },
+    { id: 'my-connections', label: 'My Connections', icon: <Wallet2 className="w-4 h-4" /> },
   ];
 
   const adminTabs = [
     ...userTabs,
-    { id: 'coinbase-oauth', label: 'Coinbase OAuth (Admin)', icon: <Settings className="w-4 h-4" /> },
-    { id: 'admin-api', label: 'Admin API', icon: <Shield className="w-4 h-4" /> },
+    { id: 'oauth-setup', label: 'OAuth Setup (Admin)', icon: <Settings className="w-4 h-4" /> },
   ];
 
   const tabs = isAdmin ? adminTabs : userTabs;
@@ -68,10 +63,14 @@ const AdminPage = () => {
           
           {/* Tab Content */}
           <div className="p-6">
-            {activeTab === 'user-connections' && <APIConnectionsPanel />}
-            {activeTab === 'coinbase' && <CoinbaseConnectionPanel />}
-            {activeTab === 'coinbase-oauth' && isAdmin && <CoinbaseOAuthPanel />}
-            {activeTab === 'admin-api' && isAdmin && <AdminAPIConnectionsPanel />}
+            {activeTab === 'my-connections' && (
+              <div className="text-center py-8">
+                <Wallet2 className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-white mb-2">My Coinbase Connections</h3>
+                <p className="text-slate-400">Use the main dashboard to connect your Coinbase account via OAuth.</p>
+              </div>
+            )}
+            {activeTab === 'oauth-setup' && isAdmin && <CoinbaseOAuthPanel />}
           </div>
         </div>
       </div>

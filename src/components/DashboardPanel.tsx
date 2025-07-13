@@ -11,9 +11,12 @@ import { useToast } from '@/hooks/use-toast';
 
 interface CoinbaseConnection {
   id: string;
-  connection_name: string;
   is_active: boolean;
-  is_sandbox: boolean;
+  connected_at: string;
+  last_sync: string | null;
+  user_id: string;
+  coinbase_user_id: string | null;
+  expires_at: string | null;
 }
 
 interface CoinbaseAccount {
@@ -63,8 +66,8 @@ export const DashboardPanel = () => {
     
     try {
       const { data, error } = await supabase
-        .from('coinbase_connections')
-        .select('id, connection_name, is_active, is_sandbox')
+        .from('user_coinbase_connections')
+        .select('id, is_active, connected_at, last_sync, user_id, coinbase_user_id, expires_at')
         .eq('user_id', user.id)
         .eq('is_active', true);
 
@@ -184,8 +187,39 @@ export const DashboardPanel = () => {
     }
   };
 
-  const handleConnectCoinbase = () => {
-    navigate('/admin');
+  const handleConnectCoinbase = async () => {
+    if (!user) return;
+    
+    try {
+      const session = await supabase.auth.getSession();
+      if (!session.data.session?.access_token) {
+        throw new Error('No valid session found');
+      }
+
+      const { data, error } = await supabase.functions.invoke('coinbase-oauth', {
+        headers: {
+          Authorization: `Bearer ${session.data.session.access_token}`,
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      if (data?.success && data?.oauth_url) {
+        // Redirect to Coinbase OAuth
+        window.location.href = data.oauth_url;
+      } else {
+        throw new Error('Failed to generate OAuth URL');
+      }
+    } catch (error) {
+      console.error('OAuth initiation error:', error);
+      toast({
+        title: "Connection Failed",
+        description: error instanceof Error ? error.message : 'Failed to start OAuth flow',
+        variant: "destructive",
+      });
+    }
   };
 
   // Show loading state
@@ -248,9 +282,9 @@ export const DashboardPanel = () => {
               <div className="flex items-center gap-3">
                 <div className="w-3 h-3 rounded-full bg-green-400" />
                 <div>
-                  <p className="font-medium text-white">{connection.connection_name}</p>
+                  <p className="font-medium text-white">Coinbase Connection</p>
                   <p className="text-sm text-slate-400">
-                    {connection.is_sandbox ? 'Sandbox Environment' : 'Live Trading'}
+                    Connected: {new Date(connection.connected_at).toLocaleDateString()}
                   </p>
                 </div>
               </div>
