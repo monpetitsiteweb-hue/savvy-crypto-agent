@@ -78,7 +78,7 @@ serve(async (req) => {
     const connection = connections[0];
     console.log('Found connection:', connection.connection_name);
 
-    // Handle OAuth credentials vs API keys
+    // API Key authentication for Coinbase Advanced Trade
     if (!connection.api_key_encrypted || !connection.api_private_key_encrypted) {
       return new Response(JSON.stringify({ 
         success: false, 
@@ -89,176 +89,88 @@ serve(async (req) => {
       });
     }
 
-    const clientId = connection.api_key_encrypted;
-    const clientSecret = connection.api_private_key_encrypted;
+    const apiKey = connection.api_key_encrypted;
+    const apiSecret = connection.api_private_key_encrypted;
     
-    console.log('Using OAuth Client ID:', clientId.substring(0, 8) + '...');
+    console.log('Using API Key:', apiKey.substring(0, 8) + '...');
+    console.log('API Secret length:', apiSecret.length);
 
-    // Check if these look like OAuth credentials (UUID format) vs API keys
-    const isOAuthCredentials = clientId.includes('-') && clientId.length > 30;
+    // Generate timestamp and signature for Coinbase Advanced Trade API
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const method = 'GET';
+    const path = '/api/v3/brokerage/accounts';
+    const body = '';
     
-    if (isOAuthCredentials) {
-      // OAuth flow - get access token first
-      console.log('Using OAuth flow to get access token');
-      
-      const tokenUrl = connection.is_sandbox 
-        ? 'https://api.sandbox.coinbase.com/oauth/token' 
-        : 'https://api.coinbase.com/oauth/token';
-      
-      // For machine-to-machine OAuth, use client credentials grant
-      const tokenResponse = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          grant_type: 'client_credentials',
-          client_id: clientId,
-          client_secret: clientSecret,
-          scope: 'wallet:accounts:read'
-        }),
-      });
+    const message = timestamp + method + path + body;
+    console.log('HMAC message:', message);
+    
+    // Create HMAC signature
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(apiSecret);
+    const messageData = encoder.encode(message);
+    
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    
+    const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+    const signatureHex = Array.from(new Uint8Array(signature))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
 
-      if (!tokenResponse.ok) {
-        const errorText = await tokenResponse.text();
-        console.error('OAuth token error:', errorText);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: `OAuth authentication failed: ${tokenResponse.status} - ${errorText}` 
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
+    console.log('Generated signature:', signatureHex.substring(0, 20) + '...');
 
-      const tokenData = await tokenResponse.json();
-      const accessToken = tokenData.access_token;
-      
-      console.log('Got OAuth access token');
+    // Use Coinbase Advanced Trade API
+    const baseUrl = connection.is_sandbox 
+      ? 'https://api.sandbox.coinbase.com' 
+      : 'https://api.coinbase.com';
+    
+    const fullUrl = baseUrl + path;
+    console.log('Calling Coinbase Advanced Trade API:', fullUrl);
+    
+    const response = await fetch(fullUrl, {
+      method: 'GET',
+      headers: {
+        'CB-ACCESS-KEY': apiKey,
+        'CB-ACCESS-SIGN': signatureHex,
+        'CB-ACCESS-TIMESTAMP': timestamp,
+      },
+    });
 
-      // Use the access token to call Coinbase API
-      const baseUrl = connection.is_sandbox 
-        ? 'https://api.sandbox.coinbase.com' 
-        : 'https://api.coinbase.com';
-      
-      const apiPath = '/v2/accounts';
-      console.log('Calling Coinbase API with OAuth:', baseUrl + apiPath);
-      
-      const response = await fetch(baseUrl + apiPath, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'CB-VERSION': '2023-01-05',
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Coinbase API Error:', errorText);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: `Coinbase API error: ${response.status} - ${errorText}` 
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      const accountsData = await response.json();
-      console.log('Coinbase accounts fetched via OAuth:', accountsData?.data?.length || 'No accounts');
-
+    console.log('Coinbase API Response Status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Coinbase API Error:', errorText);
       return new Response(JSON.stringify({ 
-        success: true,
-        message: 'Portfolio data fetched successfully via OAuth',
-        connection: {
-          name: connection.connection_name,
-          is_sandbox: connection.is_sandbox,
-          connected_at: connection.connected_at,
-          auth_method: 'oauth'
-        },
-        accounts: accountsData.data || [],
-        balances: accountsData.data || []
+        success: false, 
+        error: `Coinbase API error: ${response.status} - ${errorText}` 
       }), {
+        status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
 
-    } else {
-      // API Key flow (HMAC authentication)
-      console.log('Using API Key authentication');
-      
-      const apiKey = clientId;
-      const apiSecret = clientSecret;
-      
-      // Generate timestamp and signature for Coinbase API
-      const timestamp = Math.floor(Date.now() / 1000).toString();
-      const method = 'GET';
-      const path = '/accounts';
-      const body = '';
-      
-      const message = timestamp + method + path + body;
-      
-      // Create HMAC signature
-      const encoder = new TextEncoder();
-      const keyData = encoder.encode(apiSecret);
-      const messageData = encoder.encode(message);
-      
-      const cryptoKey = await crypto.subtle.importKey(
-        'raw',
-        keyData,
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign']
-      );
-      
-      const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
-      const signatureHex = Array.from(new Uint8Array(signature))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
+    const accountsData = await response.json();
+    console.log('Coinbase accounts fetched:', accountsData?.accounts?.length || 'No accounts found');
 
-      // Use Coinbase Advanced Trade API (no passphrase needed)
-      const baseUrl = connection.is_sandbox 
-        ? 'https://api.sandbox.coinbase.com' 
-        : 'https://api.coinbase.com';
-      
-      console.log('Calling Coinbase Advanced Trade API:', baseUrl + path);
-      
-      const response = await fetch(baseUrl + path, {
-        method: 'GET',
-        headers: {
-          'CB-ACCESS-KEY': apiKey,
-          'CB-ACCESS-SIGN': signatureHex,
-          'CB-ACCESS-TIMESTAMP': timestamp,
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Coinbase API Error:', errorText);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: `Coinbase API error: ${response.status} - ${errorText}` 
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      const accounts = await response.json();
-      console.log('Coinbase accounts fetched via API keys:', accounts.length || 'No accounts');
-
-      return new Response(JSON.stringify({ 
-        success: true,
-        message: 'Portfolio data fetched successfully via API keys',
-        connection: {
-          name: connection.connection_name,
-          is_sandbox: connection.is_sandbox,
-          connected_at: connection.connected_at,
-          auth_method: 'api_keys'
-        },
-        accounts: accounts,
-        balances: accounts
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    return new Response(JSON.stringify({ 
+      success: true,
+      message: 'Portfolio data fetched successfully',
+      connection: {
+        name: connection.connection_name,
+        is_sandbox: connection.is_sandbox,
+        connected_at: connection.connected_at,
+        auth_method: 'api_keys'
+      },
+      accounts: accountsData.accounts || [],
+      balances: accountsData.accounts || []
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
