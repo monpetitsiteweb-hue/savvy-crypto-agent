@@ -237,12 +237,8 @@ serve(async (req) => {
         success: false, 
         error: `Coinbase API error: ${response.status} - ${response.statusText}`,
         details: errorDetails,
-        debug: {
-          apiKey: apiKey.substring(0, 10) + '...',
-          timestamp: timestamp,
-          requestPath: requestPath,
-          signature: signature.substring(0, 20) + '...'
-        }
+        auth_method: authMethod,
+        status_code: response.status
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
