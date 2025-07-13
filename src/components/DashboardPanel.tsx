@@ -244,20 +244,28 @@ export const DashboardPanel = () => {
       <Card className="p-6 bg-slate-700/30 border-slate-600">
         <h3 className="text-lg font-semibold text-white mb-4">Connected Accounts</h3>
         <div className="space-y-3">
-          {connections.map((connection) => (
-            <div key={connection.id} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className="w-3 h-3 rounded-full bg-green-400" />
-                <div>
-                  <p className="font-medium text-white">Coinbase Connection</p>
-                  <p className="text-sm text-slate-400">
-                    Connected: {new Date(connection.connected_at).toLocaleDateString()}
-                  </p>
+          {connections.map((connection) => {
+            const isApiConnection = connection.coinbase_user_id === 'api_user';
+            return (
+              <div key={connection.id} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-green-400" />
+                  <div>
+                    <p className="font-medium text-white">
+                      {isApiConnection ? 'Coinbase API Keys' : 'Coinbase OAuth'}
+                    </p>
+                    <p className="text-sm text-slate-400">
+                      Connected: {new Date(connection.connected_at).toLocaleDateString()}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Method: {isApiConnection ? 'API Keys' : 'OAuth Token'}
+                    </p>
+                  </div>
                 </div>
+                <Badge className="bg-green-600">Connected</Badge>
               </div>
-              <Badge className="bg-green-600">Connected</Badge>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
 

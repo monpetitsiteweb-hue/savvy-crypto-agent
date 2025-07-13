@@ -47,7 +47,7 @@ serve(async (req) => {
 
     console.log('User authenticated:', user.id);
 
-    // Get user's OAuth connections
+    // Get user's connections (both OAuth and API)
     const { data: connections, error: connectionsError } = await supabase
       .from('user_coinbase_connections')
       .select('*')
@@ -68,7 +68,7 @@ serve(async (req) => {
     if (!connections || connections.length === 0) {
       return new Response(JSON.stringify({ 
         success: false, 
-        error: 'No active Coinbase OAuth connections found. Please connect your Coinbase account first.' 
+        error: 'No active Coinbase connections found. Please connect your Coinbase account first.' 
       }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -76,46 +76,124 @@ serve(async (req) => {
     }
 
     const connection = connections[0];
-    console.log('Found OAuth connection for user:', connection.coinbase_user_id);
+    console.log('Found connection for user:', connection.coinbase_user_id || 'API connection');
 
-    // OAuth token authentication for Coinbase API
-    if (!connection.access_token_encrypted) {
+    // Determine connection type
+    const isApiConnection = connection.coinbase_user_id === 'api_user';
+    const isOAuthConnection = !isApiConnection && connection.coinbase_user_id;
+
+    let response;
+    let authMethod;
+
+    if (isApiConnection) {
+      // API Key authentication
+      console.log('Using API key authentication');
+      
+      if (!connection.access_token_encrypted || !connection.refresh_token_encrypted) {
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: 'API credentials not found for this connection' 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const apiKey = connection.access_token_encrypted;
+      const apiSecret = connection.refresh_token_encrypted;
+      console.log('Using API key:', apiKey.substring(0, 10) + '...');
+
+      // Use Coinbase Advanced Trade API with API keys
+      const timestamp = Date.now() / 1000;
+      const method = 'GET';
+      const requestPath = '/api/v3/brokerage/accounts';
+      const body = '';
+      
+      // Create signature for Coinbase Advanced Trade API
+      const message = timestamp + method + requestPath + body;
+      const signature = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(apiSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      ).then(key =>
+        crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message))
+      ).then(signature =>
+        Array.from(new Uint8Array(signature))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('')
+      );
+
+      const baseUrl = 'https://api.coinbase.com';
+      const fullUrl = baseUrl + requestPath;
+      console.log('Calling Coinbase API with API keys:', fullUrl);
+      
+      response = await fetch(fullUrl, {
+        method: 'GET',
+        headers: {
+          'CB-ACCESS-KEY': apiKey,
+          'CB-ACCESS-SIGN': signature,
+          'CB-ACCESS-TIMESTAMP': timestamp.toString(),
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      authMethod = 'api_key';
+      
+    } else if (isOAuthConnection) {
+      // OAuth token authentication
+      console.log('Using OAuth token authentication');
+      
+      if (!connection.access_token_encrypted) {
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: 'OAuth access token not found for this connection' 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Check if token is expired
+      if (connection.expires_at && new Date(connection.expires_at) < new Date()) {
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: 'OAuth token has expired. Please reconnect your Coinbase account.' 
+        }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const accessToken = connection.access_token_encrypted;
+      console.log('Using OAuth token:', accessToken.substring(0, 10) + '...');
+
+      // Use Coinbase API with OAuth
+      const baseUrl = 'https://api.coinbase.com';
+      const requestPath = '/v2/accounts';
+      const fullUrl = baseUrl + requestPath;
+      console.log('Calling Coinbase OAuth API:', fullUrl);
+      
+      response = await fetch(fullUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'CB-VERSION': '2023-08-01',
+        },
+      });
+      
+      authMethod = 'oauth';
+      
+    } else {
       return new Response(JSON.stringify({ 
         success: false, 
-        error: 'OAuth access token not found for this connection' 
+        error: 'Invalid connection type. Connection must be either OAuth or API key based.' 
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-
-    // Check if token is expired
-    if (connection.expires_at && new Date(connection.expires_at) < new Date()) {
-      return new Response(JSON.stringify({ 
-        success: false, 
-        error: 'OAuth token has expired. Please reconnect your Coinbase account.' 
-      }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    const accessToken = connection.access_token_encrypted;
-    console.log('Using OAuth token:', accessToken.substring(0, 10) + '...');
-
-    // Use Coinbase API with OAuth
-    const baseUrl = 'https://api.coinbase.com';
-    const path = '/v2/accounts';
-    const fullUrl = baseUrl + path;
-    console.log('Calling Coinbase OAuth API:', fullUrl);
-    
-    const response = await fetch(fullUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'CB-VERSION': '2023-08-01',
-      },
-    });
 
     console.log('Coinbase API Response Status:', response.status);
     
@@ -132,20 +210,29 @@ serve(async (req) => {
     }
 
     const accountsData = await response.json();
-    console.log('Coinbase accounts fetched:', accountsData?.accounts?.length || 'No accounts found');
+    
+    // Handle different response formats for OAuth vs API
+    let accounts = [];
+    if (authMethod === 'oauth') {
+      accounts = accountsData.data || [];
+      console.log('OAuth accounts fetched:', accounts.length);
+    } else {
+      accounts = accountsData.accounts || [];
+      console.log('API accounts fetched:', accounts.length);
+    }
 
     return new Response(JSON.stringify({ 
       success: true,
       message: 'Portfolio data fetched successfully',
       connection: {
-        name: 'Coinbase OAuth',
+        name: isApiConnection ? 'Coinbase API Keys' : 'Coinbase OAuth',
         is_sandbox: false,
         connected_at: connection.connected_at,
         last_sync: new Date().toISOString(),
-        auth_method: 'oauth'
+        auth_method: authMethod
       },
-      accounts: accountsData.data || [],
-      balances: accountsData.data || []
+      accounts: accounts,
+      balances: accounts
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
