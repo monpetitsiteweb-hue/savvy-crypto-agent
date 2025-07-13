@@ -120,9 +120,8 @@ serve(async (req) => {
     const userData = await userResponse.json();
     const coinbaseUserId = userData.data.id;
 
-    // For this demo, we'll use a hardcoded user ID
-    // In a real app, you'd get this from the state parameter or session
-    const userId = '00000000-0000-0000-0000-000000000000'; // This should be the actual authenticated user ID
+    // Extract user ID from state parameter (format: "userid_randomstring")
+    const userId = state.split('_')[0];
 
     // Calculate expiration time
     const expiresAt = new Date();
