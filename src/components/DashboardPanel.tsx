@@ -566,13 +566,19 @@ Original Fetch Error: ${fetchError.message}`);
         <Card className="p-6 bg-slate-700/30 border-slate-600 border-dashed">
           <div className="text-center py-8">
             <Activity className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-slate-400 mb-2">Load Portfolio Data</h3>
-            <p className="text-slate-500 mb-4">
-              Click below to fetch your portfolio data from Coinbase
+            <h3 className="text-lg font-semibold text-slate-400 mb-2">Test Your Connection</h3>
+            <p className="text-slate-500 mb-2">
+              Your credentials are saved, but let's test if they actually work with Coinbase's API
             </p>
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 mb-4">
+              <p className="text-sm text-amber-200">
+                ⚠️ "Connected" status = credentials saved in database<br/>
+                ✅ "Portfolio loaded" = credentials actually work with Coinbase
+              </p>
+            </div>
             <Button onClick={fetchPortfolioData} disabled={portfolioLoading}>
               <Activity className="w-4 h-4 mr-2" />
-              Load Portfolio
+              {portfolioLoading ? 'Testing API...' : 'Test Coinbase Connection'}
             </Button>
             
             {/* Debug Information */}
