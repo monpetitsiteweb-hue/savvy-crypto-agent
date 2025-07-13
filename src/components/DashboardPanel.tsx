@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { CoinbaseConnectionSelector } from './CoinbaseConnectionSelector';
 
 interface CoinbaseConnection {
   id: string;
@@ -233,41 +234,7 @@ export const DashboardPanel = () => {
 
   // Show empty state if no active connections
   if (connections.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12 space-y-6">
-        <div className="text-center space-y-4">
-          <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center mx-auto">
-            <Wallet className="w-8 h-8 text-slate-500" />
-          </div>
-          <div>
-            <h3 className="text-xl font-semibold text-white mb-2">Connect Your Coinbase Account</h3>
-            <p className="text-slate-400 max-w-md">
-              To start trading and manage your portfolio, you need to connect your Coinbase account first.
-            </p>
-          </div>
-        </div>
-        
-        <Button 
-          onClick={handleConnectCoinbase}
-          className="bg-blue-600 hover:bg-blue-700 px-6 py-3"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Connect Coinbase Account
-        </Button>
-        
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 max-w-md">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
-            <div className="text-sm">
-              <p className="text-amber-200 font-medium">Getting Started</p>
-              <p className="text-amber-300/80">
-                Once connected, you'll be able to view your portfolio, execute trades, and configure automated trading strategies.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <CoinbaseConnectionSelector onConnectionEstablished={fetchConnections} />;
   }
 
   // Show connected state with connection info
