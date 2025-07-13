@@ -103,59 +103,34 @@ serve(async (req) => {
       const apiSecret = connection.refresh_token_encrypted;
       console.log('Using API key:', apiKey.substring(0, 10) + '...');
 
-      // Use Coinbase Advanced Trade API with Ed25519 signing
-      const timestamp = Math.floor(Date.now() / 1000);
+      // Use Coinbase Advanced Trade API with HMAC-SHA256 (standard method)
+      const timestamp = Math.floor(Date.now() / 1000).toString();
       const method = 'GET';
       const requestPath = '/api/v3/brokerage/accounts';
       const body = '';
       
-      // Create Ed25519 signature for Coinbase Advanced Trade API
+      // Create HMAC-SHA256 signature for Coinbase Advanced Trade API
       const message = timestamp + method + requestPath + body;
+      console.log('Message to sign:', message);
       
-      // For Ed25519 keys, the secret should be base64-encoded private key
-      let signature;
-      try {
-        // Try Ed25519 signing first (for new API keys)
-        const privateKeyBytes = Uint8Array.from(atob(apiSecret), c => c.charCodeAt(0));
-        
-        const privateKey = await crypto.subtle.importKey(
-          'raw',
-          privateKeyBytes,
-          { name: 'Ed25519' },
-          false,
-          ['sign']
-        );
-        
-        const signatureBytes = await crypto.subtle.sign(
-          'Ed25519',
-          privateKey,
-          new TextEncoder().encode(message)
-        );
-        
-        signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)));
-        console.log('Using Ed25519 signing method');
-        
-      } catch (ed25519Error) {
-        console.log('Ed25519 failed, falling back to HMAC-SHA256:', ed25519Error);
-        
-        // Fallback to HMAC-SHA256 for legacy API keys
-        const encoder = new TextEncoder();
-        const keyData = encoder.encode(apiSecret);
-        const messageData = encoder.encode(message);
-        
-        const cryptoKey = await crypto.subtle.importKey(
-          'raw',
-          keyData,
-          { name: 'HMAC', hash: 'SHA-256' },
-          false,
-          ['sign']
-        );
-        
-        const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
-        signature = Array.from(new Uint8Array(signatureBuffer))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
-      }
+      const encoder = new TextEncoder();
+      const keyData = encoder.encode(apiSecret);
+      const messageData = encoder.encode(message);
+      
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw',
+        keyData,
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      
+      const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+      const signature = Array.from(new Uint8Array(signatureBuffer))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      
+      console.log('Generated signature:', signature.substring(0, 20) + '...');
 
       const baseUrl = 'https://api.coinbase.com';
       const fullUrl = baseUrl + requestPath;
