@@ -71,18 +71,29 @@ serve(async (req) => {
     const tokenUrl = `${baseUrl}/oauth/token`;
     const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/coinbase-oauth-callback`;
 
+    console.log('=== TOKEN EXCHANGE DEBUG ===');
+    console.log('Token URL:', tokenUrl);
+    console.log('Redirect URI:', redirectUri);
+    console.log('Client ID:', clientId);
+    console.log('Base URL:', baseUrl);
+    console.log('Is Sandbox:', oauthCreds.is_sandbox);
+
+    const tokenRequestBody = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+    });
+
+    console.log('Token request body:', tokenRequestBody.toString());
+
     const tokenResponse = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: code,
-        client_id: clientId,
-        client_secret: clientSecret,
-        redirect_uri: redirectUri,
-      }),
+      body: tokenRequestBody,
     });
 
     if (!tokenResponse.ok) {
