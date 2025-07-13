@@ -170,7 +170,16 @@ export const DashboardPanel = () => {
             body: error.context?.response?.body
           };
           
-          const fullErrorMsg = `Supabase error: ${error.message} | Status: ${errorDetails.status} | Body: ${JSON.stringify(errorDetails.body)} | Fetch error: ${fetchError.message}`;
+          console.log('Full error details:', errorDetails);
+          
+          // Show detailed error in debug panel
+          setDebugInfo(`Edge Function Error Details:
+Status: ${errorDetails.status || 'unknown'}
+Status Text: ${errorDetails.statusText || 'unknown'}
+Body: ${JSON.stringify(errorDetails.body, null, 2)}
+Original Fetch Error: ${fetchError.message}`);
+          
+          const fullErrorMsg = `Coinbase API Issue - Status: ${errorDetails.status} | Error: ${error.message}`;
           setLastError(fullErrorMsg);
           throw new Error(`Function call failed: ${error.message}`);
         }
