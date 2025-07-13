@@ -96,8 +96,8 @@ serve(async (req) => {
     let authMethod;
 
     if (isApiConnection) {
-      // API Key authentication - Use Coinbase signed request method
-      console.log('Using API key authentication with signed request');
+      // API Key authentication - Use Coinbase Exchange API
+      console.log('Using API key authentication with Coinbase Exchange API');
       
       if (!connection.access_token_encrypted || !connection.refresh_token_encrypted) {
         return new Response(JSON.stringify({ 
@@ -113,15 +113,16 @@ serve(async (req) => {
       const apiSecret = connection.refresh_token_encrypted;
       console.log('Using API key:', apiKey.substring(0, 10) + '...');
 
-      // Create signature for Coinbase API
+      // For API keys, use Coinbase Wallet API (same as OAuth but with signed requests)
+      // Wallet API requires signed requests for API keys
       const timestamp = Math.floor(Date.now() / 1000).toString();
       const method = 'GET';
-      const requestPath = '/v2/accounts';
+      const requestPath = '/v2/accounts'; // Wallet API endpoint
       const body = '';
       
       // Create message to sign: timestamp + method + requestPath + body
       const message = timestamp + method + requestPath + body;
-      console.log('Signing message:', message);
+      console.log('Signing message for Wallet API:', message);
       
       // Create HMAC signature
       const encoder = new TextEncoder();
@@ -138,9 +139,10 @@ serve(async (req) => {
         .map(b => b.toString(16).padStart(2, '0'))
         .join('');
 
+      // Use Wallet API base URL (same as OAuth)
       const baseUrl = 'https://api.coinbase.com';
       const fullUrl = baseUrl + requestPath;
-      console.log('Calling Coinbase API with signed request:', fullUrl);
+      console.log('Calling Coinbase Wallet API with signed request:', fullUrl);
       
       response = await fetch(fullUrl, {
         method: 'GET',
@@ -153,7 +155,7 @@ serve(async (req) => {
         },
       });
       
-      authMethod = 'api_key_signed';
+      authMethod = 'wallet_api_signed';
       
     } else if (isOAuthConnection) {
       // OAuth token authentication
