@@ -148,8 +148,7 @@ serve(async (req) => {
       balances: accountsData.data || []
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    });
 
   } catch (error) {
     console.error('Error in coinbase-portfolio function:', error);
