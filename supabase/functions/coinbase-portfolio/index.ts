@@ -103,27 +103,48 @@ serve(async (req) => {
       const apiSecret = connection.refresh_token_encrypted;
       console.log('Using API key:', apiKey.substring(0, 10) + '...');
 
-      // Use Coinbase Advanced Trade API with API keys
-      const timestamp = Date.now() / 1000;
+      // Use Coinbase Advanced Trade API with Ed25519 signing
+      const timestamp = Math.floor(Date.now() / 1000);
       const method = 'GET';
       const requestPath = '/api/v3/brokerage/accounts';
       const body = '';
       
-      // Create signature for Coinbase Advanced Trade API
+      // Create Ed25519 signature for Coinbase Advanced Trade API
       const message = timestamp + method + requestPath + body;
-      const signature = await crypto.subtle.importKey(
+      
+      // Decode the base64-encoded Ed25519 private key
+      let privateKeyBytes: Uint8Array;
+      try {
+        privateKeyBytes = new Uint8Array(
+          atob(apiSecret)
+            .split('')
+            .map(c => c.charCodeAt(0))
+        );
+      } catch (error) {
+        console.error('Failed to decode Ed25519 private key:', error);
+        throw new Error('Invalid Ed25519 private key format. Make sure the API secret is properly base64-encoded.');
+      }
+
+      // Import the Ed25519 private key
+      const privateKey = await crypto.subtle.importKey(
         'raw',
-        new TextEncoder().encode(apiSecret),
-        { name: 'HMAC', hash: 'SHA-256' },
+        privateKeyBytes,
+        {
+          name: 'Ed25519',
+        },
         false,
         ['sign']
-      ).then(key =>
-        crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message))
-      ).then(signature =>
-        Array.from(new Uint8Array(signature))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('')
       );
+      
+      // Sign the message with Ed25519
+      const signatureBytes = await crypto.subtle.sign(
+        'Ed25519',
+        privateKey,
+        new TextEncoder().encode(message)
+      );
+      
+      // Convert signature to base64
+      const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)));
 
       const baseUrl = 'https://api.coinbase.com';
       const fullUrl = baseUrl + requestPath;
