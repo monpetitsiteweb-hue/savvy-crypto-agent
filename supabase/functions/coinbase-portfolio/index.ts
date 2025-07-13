@@ -15,6 +15,8 @@ serve(async (req) => {
 
   try {
     console.log('=== Coinbase Portfolio Function Called ===');
+    console.log('Request method:', req.method);
+    console.log('Request headers:', Object.fromEntries(req.headers.entries()));
     
     // Initialize Supabase client
     const supabase = createClient(
