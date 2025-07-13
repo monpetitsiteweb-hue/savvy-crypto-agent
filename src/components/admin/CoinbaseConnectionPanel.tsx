@@ -353,12 +353,13 @@ export const CoinbaseConnectionPanel = () => {
                 <div className="flex items-start gap-3">
                   <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5" />
                   <div className="text-sm">
-                    <p className="text-blue-200 font-medium">How to get Coinbase API Keys</p>
+                    <p className="text-blue-200 font-medium">How to get Coinbase Advanced Trade API Keys</p>
                     <p className="text-blue-300/80">
-                      1. Go to Coinbase Advanced Trade → API<br/>
-                      2. Create new API key with trading permissions<br/>
-                      3. Copy both the API Key and Secret<br/>
-                      4. Make sure to select the correct environment (Production/Sandbox)
+                      1. Go to <strong>Coinbase Advanced Trade → API</strong> section<br/>
+                      2. Create new API key with <strong>view and trade</strong> permissions<br/>
+                      3. Copy both the <strong>API Key</strong> and <strong>Private Key</strong><br/>
+                      4. No passphrase needed for Advanced Trade API<br/>
+                      5. Choose Production for real trading, Sandbox for testing
                     </p>
                   </div>
                 </div>

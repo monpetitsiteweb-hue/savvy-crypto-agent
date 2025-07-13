@@ -118,12 +118,12 @@ serve(async (req) => {
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
 
-    // Make API call to Coinbase
+    // Use Coinbase Advanced Trade API (no passphrase needed)
     const baseUrl = connection.is_sandbox 
-      ? 'https://api.sandbox.exchange.coinbase.com' 
-      : 'https://api.exchange.coinbase.com';
+      ? 'https://api.sandbox.coinbase.com' 
+      : 'https://api.coinbase.com';
     
-    console.log('Calling Coinbase API:', baseUrl + path);
+    console.log('Calling Coinbase Advanced Trade API:', baseUrl + path);
     
     const response = await fetch(baseUrl + path, {
       method: 'GET',
@@ -131,7 +131,6 @@ serve(async (req) => {
         'CB-ACCESS-KEY': apiKey,
         'CB-ACCESS-SIGN': signatureHex,
         'CB-ACCESS-TIMESTAMP': timestamp,
-        'CB-ACCESS-PASSPHRASE': Deno.env.get('COINBASE_API_PASSPHRASE') || '',
       },
     });
 
