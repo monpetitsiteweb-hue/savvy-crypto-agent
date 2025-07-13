@@ -3,7 +3,10 @@ import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { TrendingUp, TrendingDown, Activity, DollarSign, Target, AlertCircle, Wallet, Plus } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, DollarSign, Target, AlertCircle, Wallet, Plus, Settings, Trash2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -49,6 +52,10 @@ export const DashboardPanel = () => {
   const [portfolioLoading, setPortfolioLoading] = useState(false);
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [lastError, setLastError] = useState<string>('');
+  const [showConnectionSelector, setShowConnectionSelector] = useState(false);
+  const [editingConnection, setEditingConnection] = useState<CoinbaseConnection | null>(null);
+  const [editApiKey, setEditApiKey] = useState('');
+  const [editApiSecret, setEditApiSecret] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -223,6 +230,76 @@ export const DashboardPanel = () => {
     }
   };
 
+  const handleDeleteConnection = async (connectionId: string) => {
+    if (!user) return;
+    
+    try {
+      const { error } = await supabase
+        .from('user_coinbase_connections')
+        .delete()
+        .eq('id', connectionId)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Connection Deleted",
+        description: "Coinbase connection removed successfully",
+      });
+
+      fetchConnections();
+      setPortfolioData(null);
+    } catch (error) {
+      console.error('Error deleting connection:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete connection",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdateApiConnection = async () => {
+    if (!editingConnection || !editApiKey.trim() || !editApiSecret.trim()) {
+      toast({
+        title: "Missing Information",
+        description: "Please provide both API key and secret",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      const { error } = await supabase
+        .from('user_coinbase_connections')
+        .update({
+          access_token_encrypted: editApiKey,
+          refresh_token_encrypted: editApiSecret,
+        })
+        .eq('id', editingConnection.id)
+        .eq('user_id', user!.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Connection Updated",
+        description: "API credentials updated successfully",
+      });
+
+      setEditingConnection(null);
+      setEditApiKey('');
+      setEditApiSecret('');
+      fetchConnections();
+    } catch (error) {
+      console.error('Error updating connection:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update API credentials",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Show loading state
   if (loading) {
     return (
@@ -232,9 +309,16 @@ export const DashboardPanel = () => {
     );
   }
 
-  // Show empty state if no active connections
-  if (connections.length === 0) {
-    return <CoinbaseConnectionSelector onConnectionEstablished={fetchConnections} />;
+  // Show connection selector if requested or no connections
+  if (connections.length === 0 || showConnectionSelector) {
+    return (
+      <CoinbaseConnectionSelector 
+        onConnectionEstablished={() => {
+          fetchConnections();
+          setShowConnectionSelector(false);
+        }} 
+      />
+    );
   }
 
   // Show connected state with connection info
@@ -242,7 +326,17 @@ export const DashboardPanel = () => {
     <div className="space-y-6">
       {/* Connection Status */}
       <Card className="p-6 bg-slate-700/30 border-slate-600">
-        <h3 className="text-lg font-semibold text-white mb-4">Connected Accounts</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-white">Connected Accounts</h3>
+          <Button 
+            onClick={() => setShowConnectionSelector(true)}
+            variant="outline" 
+            size="sm"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Connection
+          </Button>
+        </div>
         <div className="space-y-3">
           {connections.map((connection) => {
             const isApiConnection = connection.coinbase_user_id === 'api_user';
@@ -262,7 +356,71 @@ export const DashboardPanel = () => {
                     </p>
                   </div>
                 </div>
-                <Badge className="bg-green-600">Connected</Badge>
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-green-600">Connected</Badge>
+                  
+                  {isApiConnection && (
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            setEditingConnection(connection);
+                            setEditApiKey('');
+                            setEditApiSecret('');
+                          }}
+                        >
+                          <Settings className="w-4 h-4" />
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="bg-slate-800 border-slate-600">
+                        <DialogHeader>
+                          <DialogTitle className="text-white">Edit API Connection</DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div>
+                            <Label htmlFor="edit-api-key" className="text-white">API Key</Label>
+                            <Input
+                              id="edit-api-key"
+                              type="password"
+                              placeholder="Enter new API key"
+                              value={editApiKey}
+                              onChange={(e) => setEditApiKey(e.target.value)}
+                              className="bg-slate-700 border-slate-600 text-white"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="edit-api-secret" className="text-white">API Secret</Label>
+                            <Input
+                              id="edit-api-secret"
+                              type="password"
+                              placeholder="Enter new API secret"
+                              value={editApiSecret}
+                              onChange={(e) => setEditApiSecret(e.target.value)}
+                              className="bg-slate-700 border-slate-600 text-white"
+                            />
+                          </div>
+                          <Button 
+                            onClick={handleUpdateApiConnection}
+                            disabled={!editApiKey.trim() || !editApiSecret.trim()}
+                            className="w-full"
+                          >
+                            Update API Credentials
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                  
+                  <Button 
+                    variant="destructive" 
+                    size="sm"
+                    onClick={() => handleDeleteConnection(connection.id)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             );
           })}
