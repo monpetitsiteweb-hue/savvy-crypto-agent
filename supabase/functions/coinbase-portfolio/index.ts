@@ -203,13 +203,36 @@ serve(async (req) => {
     }
 
     console.log('Coinbase API Response Status:', response.status);
+    console.log('Coinbase API Response Headers:', Object.fromEntries(response.headers.entries()));
     
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Coinbase API Error:', errorText);
+      console.error('Coinbase API Error Response:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        body: errorText
+      });
+      
+      // Try to parse error details if it's JSON
+      let errorDetails = errorText;
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorDetails = JSON.stringify(errorJson, null, 2);
+      } catch (e) {
+        // Keep as text if not JSON
+      }
+      
       return new Response(JSON.stringify({ 
         success: false, 
-        error: `Coinbase API error: ${response.status} - ${errorText}` 
+        error: `Coinbase API error: ${response.status} - ${response.statusText}`,
+        details: errorDetails,
+        debug: {
+          apiKey: apiKey.substring(0, 10) + '...',
+          timestamp: timestamp,
+          requestPath: requestPath,
+          signature: signature.substring(0, 20) + '...'
+        }
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
