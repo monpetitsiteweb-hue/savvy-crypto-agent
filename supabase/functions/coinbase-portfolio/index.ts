@@ -96,13 +96,13 @@ serve(async (req) => {
     let authMethod;
 
     if (isApiConnection) {
-      // API Key authentication - Use simple Bearer token approach
-      console.log('Using API key authentication with Bearer token');
+      // API Key authentication - Use Coinbase signed request method
+      console.log('Using API key authentication with signed request');
       
-      if (!connection.access_token_encrypted) {
+      if (!connection.access_token_encrypted || !connection.refresh_token_encrypted) {
         return new Response(JSON.stringify({ 
           success: false, 
-          error: 'API key not found for this connection' 
+          error: 'API key or secret not found for this connection' 
         }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -110,23 +110,50 @@ serve(async (req) => {
       }
 
       const apiKey = connection.access_token_encrypted;
+      const apiSecret = connection.refresh_token_encrypted;
       console.log('Using API key:', apiKey.substring(0, 10) + '...');
 
-      // Use Coinbase API v2 with Bearer token (simpler approach)
-      const baseUrl = 'https://api.coinbase.com';
+      // Create signature for Coinbase API
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const method = 'GET';
       const requestPath = '/v2/accounts';
+      const body = '';
+      
+      // Create message to sign: timestamp + method + requestPath + body
+      const message = timestamp + method + requestPath + body;
+      console.log('Signing message:', message);
+      
+      // Create HMAC signature
+      const encoder = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(apiSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      
+      const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
+      const hexSignature = Array.from(new Uint8Array(signature))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      const baseUrl = 'https://api.coinbase.com';
       const fullUrl = baseUrl + requestPath;
-      console.log('Calling Coinbase API with Bearer token:', fullUrl);
+      console.log('Calling Coinbase API with signed request:', fullUrl);
       
       response = await fetch(fullUrl, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          'CB-ACCESS-KEY': apiKey,
+          'CB-ACCESS-SIGN': hexSignature,
+          'CB-ACCESS-TIMESTAMP': timestamp,
+          'CB-VERSION': '2023-08-01',
           'Content-Type': 'application/json',
         },
       });
       
-      authMethod = 'api_key_bearer';
+      authMethod = 'api_key_signed';
       
     } else if (isOAuthConnection) {
       // OAuth token authentication
