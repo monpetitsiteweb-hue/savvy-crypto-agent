@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { TrendingUp, TrendingDown, Activity, DollarSign, Target, AlertCircle, Wallet, Plus, Settings, Trash2, Terminal } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, DollarSign, Target, AlertCircle, Wallet, Plus, Settings, Trash2, Terminal, AlertTriangle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -384,7 +384,7 @@ Original Fetch Error: ${fetchError.message}`);
             return (
               <div key={connection.id} className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
                 <div className="flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full bg-green-400" />
+                  <div className="w-3 h-3 rounded-full bg-amber-400 animate-pulse" />
                   <div>
                     <p className="font-medium text-white">
                       {isApiConnection ? 'Coinbase API Keys' : 'Coinbase OAuth'}
@@ -395,10 +395,16 @@ Original Fetch Error: ${fetchError.message}`);
                     <p className="text-xs text-slate-500">
                       Method: {isApiConnection ? 'API Keys' : 'OAuth Token'}
                     </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <AlertTriangle className="w-3 h-3 text-amber-400" />
+                      <span className="text-xs text-amber-400">
+                        {connection.last_sync ? `Last validated: ${new Date(connection.last_sync).toLocaleDateString()}` : 'Never validated with Coinbase'}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge className="bg-green-600">Connected</Badge>
+                  <Badge className="bg-amber-600 text-amber-100">Credentials Saved</Badge>
                   
                   {isApiConnection && (
                     <Dialog>
