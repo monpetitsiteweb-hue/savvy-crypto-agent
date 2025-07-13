@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { TrendingUp, TrendingDown, Activity, DollarSign, Target, AlertCircle, Wallet, Plus, Settings, Trash2 } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, DollarSign, Target, AlertCircle, Wallet, Plus, Settings, Trash2, Terminal } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -331,6 +331,31 @@ export const DashboardPanel = () => {
   // Show connected state with connection info
   return (
     <div className="space-y-6">
+      {/* Debug Panel - Show console messages in UI for iPad */}
+      <Card className="border-amber-200 bg-amber-50">
+        <div className="p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Terminal className="h-5 w-5 text-amber-700" />
+            <h3 className="text-lg font-semibold text-amber-800">Debug Console (iPad View)</h3>
+          </div>
+          <div className="space-y-2">
+            {debugInfo && (
+              <div className="bg-blue-100 p-3 rounded text-sm font-mono">
+                <strong>Status:</strong> {debugInfo}
+              </div>
+            )}
+            {lastError && (
+              <div className="bg-red-100 p-3 rounded text-sm font-mono">
+                <strong>Error:</strong> {lastError}
+              </div>
+            )}
+            <div className="text-xs text-gray-600">
+              This panel shows debug information that would normally appear in browser console.
+            </div>
+          </div>
+        </div>
+      </Card>
+
       {/* Connection Status */}
       <Card className="p-6 bg-slate-700/30 border-slate-600">
         <div className="flex items-center justify-between mb-4">
