@@ -103,16 +103,15 @@ serve(async (req) => {
       const apiSecret = connection.refresh_token_encrypted;
       console.log('Using API key:', apiKey.substring(0, 10) + '...');
 
-      // Use Coinbase Advanced Trade API with Ed25519 signing
+      // Use Coinbase Advanced Trade API with HMAC-SHA256
       const timestamp = Math.floor(Date.now() / 1000);
       const method = 'GET';
       const requestPath = '/api/v3/brokerage/accounts';
       const body = '';
       
-      // Create Ed25519 signature for Coinbase Advanced Trade API
+      // Create HMAC-SHA256 signature for Coinbase Advanced Trade API
       const message = timestamp + method + requestPath + body;
       
-      // Create HMAC-SHA256 signature for Coinbase Advanced Trade API (fallback to old method)
       const encoder = new TextEncoder();
       const keyData = encoder.encode(apiSecret);
       const messageData = encoder.encode(message);
