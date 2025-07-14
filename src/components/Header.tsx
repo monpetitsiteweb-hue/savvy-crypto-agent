@@ -24,11 +24,11 @@ export const Header = () => {
         <div className="flex items-center justify-between">
           {/* Logo */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
-            <div className="w-10 h-10 bg-gradient-to-br from-green-400 to-blue-500 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-gradient-to-r from-green-400 via-yellow-400 via-orange-400 to-red-500 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-lg">AI</span>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white">CryptoAI Assistant</h1>
+              <h1 className="text-xl font-bold text-white">My Little AI Assistant</h1>
               <p className="text-sm text-slate-400">Smart Trading Platform</p>
             </div>
           </div>

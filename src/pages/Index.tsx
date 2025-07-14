@@ -2,6 +2,7 @@
 import { useAuth } from '@/hooks/useAuth';
 import { AuthPage } from '@/components/auth/AuthPage';
 import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 import { ConversationPanel } from '@/components/ConversationPanel';
 import { DashboardPanel } from '@/components/DashboardPanel';
 import { TradingHistory } from '@/components/TradingHistory';
@@ -33,11 +34,11 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
       <Header />
       
-      <div className="container mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-120px)]">
+      <div className="container mx-auto px-4 py-6 flex-1">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-180px)]">
           {/* Left Panel - Conversation */}
           <div className="lg:col-span-1">
             <ConversationPanel />
@@ -76,12 +77,14 @@ const Index = () => {
               <div className="p-6 h-[calc(100%-73px)] overflow-y-auto">
                 {activeTab === 'dashboard' && <DashboardPanel />}
                 {activeTab === 'history' && <TradingHistory />}
-          {activeTab === 'strategy' && <StrategyConfig />}
+                {activeTab === 'strategy' && <StrategyConfig />}
               </div>
             </div>
           </div>
         </div>
       </div>
+      
+      <Footer />
     </div>
   );
 };
