@@ -6,13 +6,16 @@ import { ConversationPanel } from '@/components/ConversationPanel';
 import { DashboardPanel } from '@/components/DashboardPanel';
 import { TradingHistory } from '@/components/TradingHistory';
 import { StrategyConfig } from '@/components/StrategyConfig';
+import { AdminPage } from '@/components/admin/AdminPage';
+import { useUserRole } from '@/hooks/useUserRole';
 import { useState } from 'react';
 
 const Index = () => {
   const { user, loading } = useAuth();
+  const { role, loading: roleLoading } = useUserRole();
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  if (loading) {
+  if (loading || roleLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
         <div className="text-white">Loading...</div>
@@ -22,6 +25,11 @@ const Index = () => {
 
   if (!user) {
     return <AuthPage />;
+  }
+
+  // Show admin page if user is admin
+  if (role === 'admin') {
+    return <AdminPage />;
   }
 
   return (
@@ -68,7 +76,7 @@ const Index = () => {
               <div className="p-6 h-[calc(100%-73px)] overflow-y-auto">
                 {activeTab === 'dashboard' && <DashboardPanel />}
                 {activeTab === 'history' && <TradingHistory />}
-                {activeTab === 'strategy' && <StrategyConfig />}
+          {activeTab === 'strategy' && <StrategyConfig />}
               </div>
             </div>
           </div>

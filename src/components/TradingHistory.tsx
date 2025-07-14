@@ -160,7 +160,7 @@ export const TradingHistory = () => {
                 >
                   {connections.map((connection) => (
                     <option key={connection.id} value={connection.id}>
-                      {connection.api_name_encrypted || 'Coinbase Account'}
+                    Coinbase Account {connections.findIndex(c => c.id === connection.id) + 1}
                     </option>
                   ))}
                 </select>
@@ -214,7 +214,7 @@ export const TradingHistory = () => {
               >
                 {connections.map((connection) => (
                   <option key={connection.id} value={connection.id}>
-                    {connection.api_name_encrypted || 'Coinbase Account'}
+                    Coinbase Account {connections.findIndex(c => c.id === connection.id) + 1}
                   </option>
                 ))}
               </select>
