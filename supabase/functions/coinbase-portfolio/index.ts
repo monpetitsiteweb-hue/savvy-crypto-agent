@@ -100,20 +100,17 @@ serve(async (req) => {
       
       // Check if it's Ed25519 key (new Coinbase Advanced Trading API)
       if (privateKeyData.startsWith('ed25519:')) {
-        console.log('Detected Ed25519 key - trying simplified approach');
-        
-        // Let's try the simple approach first - just return the key info for debugging
+        // NO TRY-CATCH - just return the debug info directly
         return new Response(JSON.stringify({ 
           success: true,
-          message: 'Connection found - Ed25519 format detected',
+          message: 'Ed25519 connection found - here is the raw data',
           debug: {
             keyType: 'ed25519',
-            apiKeyStart: apiKey.substring(0, 8) + '...',
-            privateKeyFormat: privateKeyData.substring(0, 20) + '...',
-            keyLength: privateKeyData.length,
-            hasEd25519Prefix: privateKeyData.startsWith('ed25519:')
-          },
-          note: 'Ed25519 keys may need different handling - checking Coinbase documentation'
+            apiKey: apiKey,
+            privateKeyStart: privateKeyData.substring(0, 30),
+            privateKeyLength: privateKeyData.length,
+            fullPrivateKey: privateKeyData // Show the full key for debugging
+          }
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
