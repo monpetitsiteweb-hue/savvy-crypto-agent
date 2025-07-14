@@ -97,73 +97,95 @@ serve(async (req) => {
     console.log('Found connection for user:', connection.coinbase_user_id || 'API connection');
 
     // Determine connection type
-    const isApiConnection = connection.coinbase_user_id === 'api_user';
+    const isApiConnection = connection.coinbase_user_id === 'api_user' || 
+                           (connection.api_name_encrypted && connection.api_identifier_encrypted && connection.api_private_key_encrypted);
     const isOAuthConnection = !isApiConnection && connection.coinbase_user_id;
 
     let response;
     let authMethod;
 
     if (isApiConnection) {
-      // API Key authentication - Use Coinbase Exchange API
-      console.log('Using API key authentication with Coinbase Exchange API');
+      // API credentials authentication - Use Coinbase Advanced Trade API
+      console.log('Using API credentials authentication with Coinbase Advanced Trade API');
       
-      if (!connection.access_token_encrypted || !connection.refresh_token_encrypted) {
+      // Check for new format first (api_name_encrypted, etc.)
+      if (connection.api_name_encrypted && connection.api_identifier_encrypted && connection.api_private_key_encrypted) {
+        const apiName = connection.api_name_encrypted;
+        const apiIdentifier = connection.api_identifier_encrypted;
+        const privateKey = connection.api_private_key_encrypted;
+        
+        console.log('Using new API credentials format:', apiName);
+        
+        // For now, return a message that this format is recognized but needs JWT implementation
         return new Response(JSON.stringify({ 
           success: false, 
-          error: 'API key or secret not found for this connection' 
+          error: 'New Coinbase API credentials format detected. JWT signing implementation needed for Advanced Trade API.',
+          details: 'Your credentials have been saved correctly. This requires ES256 JWT signing which will be implemented next.',
+          connection_type: 'advanced_trade_api',
+          api_name: apiName
+        }), {
+          status: 501,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+        
+      } else if (connection.access_token_encrypted && connection.refresh_token_encrypted) {
+        // Legacy format - treat as old API key/secret
+        const apiKey = connection.access_token_encrypted;
+        const apiSecret = connection.refresh_token_encrypted;
+        console.log('Using legacy API key format:', apiKey.substring(0, 10) + '...');
+
+        // For legacy API keys, use Coinbase Wallet API (same as OAuth but with signed requests)
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const method = 'GET';
+        const requestPath = '/v2/accounts'; // Wallet API endpoint
+        const body = '';
+        
+        // Create message to sign: timestamp + method + requestPath + body
+        const message = timestamp + method + requestPath + body;
+        console.log('Signing message for Wallet API:', message);
+        
+        // Create HMAC signature
+        const encoder = new TextEncoder();
+        const key = await crypto.subtle.importKey(
+          'raw',
+          encoder.encode(apiSecret),
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['sign']
+        );
+        
+        const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
+        const hexSignature = Array.from(new Uint8Array(signature))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+
+        // Use Wallet API base URL (same as OAuth)
+        const baseUrl = 'https://api.coinbase.com';
+        const fullUrl = baseUrl + requestPath;
+        console.log('Calling Coinbase Wallet API with signed request:', fullUrl);
+        
+        response = await fetch(fullUrl, {
+          method: 'GET',
+          headers: {
+            'CB-ACCESS-KEY': apiKey,
+            'CB-ACCESS-SIGN': hexSignature,
+            'CB-ACCESS-TIMESTAMP': timestamp,
+            'CB-VERSION': '2015-07-22',
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        authMethod = 'wallet_api_signed';
+        
+      } else {
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: 'API credentials not found for this connection' 
         }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-
-      const apiKey = connection.access_token_encrypted;
-      const apiSecret = connection.refresh_token_encrypted;
-      console.log('Using API key:', apiKey.substring(0, 10) + '...');
-
-      // For API keys, use Coinbase Wallet API (same as OAuth but with signed requests)
-      // Wallet API requires signed requests for API keys
-      const timestamp = Math.floor(Date.now() / 1000).toString();
-      const method = 'GET';
-      const requestPath = '/v2/accounts'; // Wallet API endpoint
-      const body = '';
-      
-      // Create message to sign: timestamp + method + requestPath + body
-      const message = timestamp + method + requestPath + body;
-      console.log('Signing message for Wallet API:', message);
-      
-      // Create HMAC signature
-      const encoder = new TextEncoder();
-      const key = await crypto.subtle.importKey(
-        'raw',
-        encoder.encode(apiSecret),
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['sign']
-      );
-      
-      const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
-      const hexSignature = Array.from(new Uint8Array(signature))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-
-      // Use Wallet API base URL (same as OAuth)
-      const baseUrl = 'https://api.coinbase.com';
-      const fullUrl = baseUrl + requestPath;
-      console.log('Calling Coinbase Wallet API with signed request:', fullUrl);
-      
-      response = await fetch(fullUrl, {
-        method: 'GET',
-        headers: {
-          'CB-ACCESS-KEY': apiKey,
-          'CB-ACCESS-SIGN': hexSignature,
-          'CB-ACCESS-TIMESTAMP': timestamp,
-          'CB-VERSION': '2015-07-22',
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      authMethod = 'wallet_api_signed';
       
     } else if (isOAuthConnection) {
       // OAuth token authentication

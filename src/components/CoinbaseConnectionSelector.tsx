@@ -18,8 +18,9 @@ export const CoinbaseConnectionSelector = ({ onConnectionEstablished }: Coinbase
   const { user } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [apiKey, setApiKey] = useState('');
-  const [apiSecret, setApiSecret] = useState('');
+  const [apiName, setApiName] = useState('');
+  const [apiIdentifier, setApiIdentifier] = useState('');
+  const [apiPrivateKey, setApiPrivateKey] = useState('');
   const [connectionMethod, setConnectionMethod] = useState<'oauth' | 'api'>('oauth');
 
   const handleOAuthConnect = async () => {
@@ -61,10 +62,10 @@ export const CoinbaseConnectionSelector = ({ onConnectionEstablished }: Coinbase
   };
 
   const handleApiKeyConnect = async () => {
-    if (!user || !apiKey.trim() || !apiSecret.trim()) {
+    if (!user || !apiName.trim() || !apiIdentifier.trim() || !apiPrivateKey.trim()) {
       toast({
         title: "Missing Information",
-        description: "Please provide both API key and secret",
+        description: "Please provide API name, identifier, and private key",
         variant: "destructive",
       });
       return;
@@ -77,8 +78,9 @@ export const CoinbaseConnectionSelector = ({ onConnectionEstablished }: Coinbase
         .from('user_coinbase_connections')
         .insert({
           user_id: user.id,
-          access_token_encrypted: apiKey, // Using access_token field for API key
-          refresh_token_encrypted: apiSecret, // Using refresh_token field for API secret
+          api_name_encrypted: apiName,
+          api_identifier_encrypted: apiIdentifier,
+          api_private_key_encrypted: apiPrivateKey,
           coinbase_user_id: 'api_user', // Placeholder for API connections
           is_active: true,
           connected_at: new Date().toISOString(),
@@ -92,8 +94,9 @@ export const CoinbaseConnectionSelector = ({ onConnectionEstablished }: Coinbase
       });
 
       // Clear the form
-      setApiKey('');
-      setApiSecret('');
+      setApiName('');
+      setApiIdentifier('');
+      setApiPrivateKey('');
       
       // Notify parent component
       onConnectionEstablished();
@@ -197,45 +200,58 @@ export const CoinbaseConnectionSelector = ({ onConnectionEstablished }: Coinbase
 
               <div className="space-y-3">
                 <div>
-                  <Label htmlFor="apiKey" className="text-white">API Key</Label>
+                  <Label htmlFor="apiName" className="text-white">API Name</Label>
                   <Input
-                    id="apiKey"
-                    type="password"
-                    placeholder="Enter your Coinbase API key"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
+                    id="apiName"
+                    placeholder="organizations/your-org-id"
+                    value={apiName}
+                    onChange={(e) => setApiName(e.target.value)}
                     className="bg-slate-800/50 border-slate-600 text-white"
                   />
+                  <p className="text-xs text-slate-400 mt-1">Format: organizations/xxx (found in your downloaded JSON file)</p>
                 </div>
                 
                 <div>
-                  <Label htmlFor="apiSecret" className="text-white">API Secret</Label>
+                  <Label htmlFor="apiIdentifier" className="text-white">API Key Identifier</Label>
                   <Input
-                    id="apiSecret"
-                    type="password"
-                    placeholder="Enter your Coinbase API secret"
-                    value={apiSecret}
-                    onChange={(e) => setApiSecret(e.target.value)}
+                    id="apiIdentifier"
+                    placeholder="97dc6c2d"
+                    value={apiIdentifier}
+                    onChange={(e) => setApiIdentifier(e.target.value)}
                     className="bg-slate-800/50 border-slate-600 text-white"
                   />
+                  <p className="text-xs text-slate-400 mt-1">Short identifier from your JSON file (e.g., 97dc6c2d)</p>
+                </div>
+
+                <div>
+                  <Label htmlFor="apiPrivateKey" className="text-white">Private Key</Label>
+                  <textarea
+                    id="apiPrivateKey"
+                    value={apiPrivateKey}
+                    onChange={(e) => setApiPrivateKey(e.target.value)}
+                    placeholder="-----BEGIN EC PRIVATE KEY-----&#10;MHcCAQXXXXXX&#10;-----END EC PRIVATE KEY-----"
+                    className="w-full min-h-[100px] p-2 border border-slate-600 rounded-md resize-vertical font-mono text-sm bg-slate-800/50 text-white"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Complete PEM format private key from your JSON file</p>
                 </div>
               </div>
 
               <Button 
                 onClick={handleApiKeyConnect}
-                disabled={loading || !apiKey.trim() || !apiSecret.trim()}
+                disabled={loading || !apiName.trim() || !apiIdentifier.trim() || !apiPrivateKey.trim()}
                 className="w-full bg-purple-600 hover:bg-purple-700"
               >
-                {loading ? 'Connecting...' : 'Connect with API Keys'}
+                {loading ? 'Connecting...' : 'Connect with API Credentials'}
               </Button>
 
               <div className="space-y-2 text-sm text-slate-400">
                 <p className="font-medium">How to get your API credentials:</p>
                 <ol className="list-decimal list-inside space-y-1 ml-2">
-                  <li>Go to <a href="https://exchange.coinbase.com/profile/api" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Coinbase Exchange API settings</a></li>
-                  <li>Create a new API key with read permissions</li>
-                  <li>Copy the key and secret (you won't see the secret again)</li>
-                  <li>Paste them above to connect</li>
+                  <li>Go to <a href="https://www.coinbase.com/settings/api" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">coinbase.com/settings/api</a></li>
+                  <li>Click "Create an API Key"</li>
+                  <li>Set permissions (View for portfolio access)</li>
+                  <li>Download the JSON file containing your credentials</li>
+                  <li>Extract the "name", key identifier, and "privateKey" from the JSON</li>
                 </ol>
               </div>
 

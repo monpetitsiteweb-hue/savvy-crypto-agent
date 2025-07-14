@@ -188,6 +188,9 @@ export type Database = {
       user_coinbase_connections: {
         Row: {
           access_token_encrypted: string | null
+          api_identifier_encrypted: string | null
+          api_name_encrypted: string | null
+          api_private_key_encrypted: string | null
           coinbase_user_id: string | null
           connected_at: string
           expires_at: string | null
@@ -199,6 +202,9 @@ export type Database = {
         }
         Insert: {
           access_token_encrypted?: string | null
+          api_identifier_encrypted?: string | null
+          api_name_encrypted?: string | null
+          api_private_key_encrypted?: string | null
           coinbase_user_id?: string | null
           connected_at?: string
           expires_at?: string | null
@@ -210,6 +216,9 @@ export type Database = {
         }
         Update: {
           access_token_encrypted?: string | null
+          api_identifier_encrypted?: string | null
+          api_name_encrypted?: string | null
+          api_private_key_encrypted?: string | null
           coinbase_user_id?: string | null
           connected_at?: string
           expires_at?: string | null
