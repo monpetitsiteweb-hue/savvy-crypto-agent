@@ -100,20 +100,110 @@ serve(async (req) => {
       
       // Check if it's Ed25519 key (new Coinbase Advanced Trading API)
       if (privateKeyData.startsWith('ed25519:')) {
-        // NO TRY-CATCH - just return the debug info directly
-        return new Response(JSON.stringify({ 
-          success: true,
-          message: 'Ed25519 connection found - here is the raw data',
-          debug: {
-            keyType: 'ed25519',
-            apiKey: apiKey,
-            privateKeyStart: privateKeyData.substring(0, 30),
-            privateKeyLength: privateKeyData.length,
-            fullPrivateKey: privateKeyData // Show the full key for debugging
+        console.log('Processing Ed25519 key for Coinbase Advanced Trading API');
+        
+        // Extract the base64 private key (remove "ed25519:" prefix)
+        const base64PrivateKey = privateKeyData.slice(8); // Remove "ed25519:" (8 chars)
+        console.log('Base64 key extracted, length:', base64PrivateKey.length);
+        
+        // Create JWT for Coinbase Advanced Trading API
+        const timestamp = Math.floor(Date.now() / 1000);
+        
+        const header = {
+          alg: "EdDSA",
+          typ: "JWT", 
+          kid: apiKey,
+          nonce: timestamp.toString()
+        };
+        
+        const payload = {
+          sub: apiKey,
+          iss: "coinbase-cloud",
+          nbf: timestamp,
+          exp: timestamp + 120, // 2 minutes
+          aud: ["retail_rest_api_proxy"]
+        };
+        
+        // Base64URL encode (without padding)
+        const encodeBase64URL = (obj) => {
+          return btoa(JSON.stringify(obj))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+        };
+        
+        const encodedHeader = encodeBase64URL(header);
+        const encodedPayload = encodeBase64URL(payload);
+        const message = `${encodedHeader}.${encodedPayload}`;
+        
+        try {
+          // Decode the Ed25519 private key from base64
+          const privateKeyBytes = Uint8Array.from(atob(base64PrivateKey), c => c.charCodeAt(0));
+          console.log('Private key bytes length:', privateKeyBytes.length);
+          
+          // Import as Ed25519 key for signing
+          const cryptoKey = await crypto.subtle.importKey(
+            "raw",
+            privateKeyBytes.slice(0, 32), // Ed25519 private keys are 32 bytes
+            { name: "Ed25519" },
+            false,
+            ["sign"]
+          );
+          
+          // Sign the JWT message
+          const messageBytes = new TextEncoder().encode(message);
+          const signatureBytes = await crypto.subtle.sign("Ed25519", cryptoKey, messageBytes);
+          
+          // Encode signature as base64URL
+          const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+          
+          const jwt = `${message}.${signature}`;
+          
+          // Make API call to Coinbase Advanced Trading API
+          const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${jwt}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          const result = await response.json();
+          console.log('Coinbase API response status:', response.status);
+          
+          if (!response.ok) {
+            return new Response(JSON.stringify({ 
+              error: 'Coinbase API request failed',
+              status: response.status,
+              details: result
+            }), {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
           }
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+          
+          return new Response(JSON.stringify({ 
+            success: true,
+            message: `Successfully fetched ${result.accounts?.length || 0} accounts from Coinbase`,
+            accounts: result.accounts,
+            connectionType: 'ed25519'
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+          
+        } catch (error) {
+          console.error('Ed25519 signing error:', error);
+          return new Response(JSON.stringify({ 
+            error: 'Failed to sign JWT with Ed25519 key',
+            details: error.message
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
         
       } else {
         // Legacy ECDSA key (old Coinbase Pro API)
