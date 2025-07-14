@@ -178,8 +178,8 @@ serve(async (req) => {
           
           // Try different ECDSA curves - Coinbase might use secp256k1 or P-256
           const curves = ['P-256', 'P-384', 'P-521'];
-          let cryptoKey;
-          let usedCurve;
+          let cryptoKey = null;
+          let usedCurve = null;
           
           for (const curve of curves) {
             try {
