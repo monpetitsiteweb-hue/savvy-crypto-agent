@@ -137,8 +137,15 @@ serve(async (req) => {
         const message = `${encodedHeader}.${encodedPayload}`;
         
         try {
-          // Use noble Ed25519 library with correct import syntax
-          const { sign } = await import('https://esm.sh/@noble/ed25519@2.0.0');
+          // Use noble Ed25519 library with SHA-512 setup
+          const ed25519Module = await import('https://esm.sh/@noble/ed25519@2.0.0');
+          const { sha512 } = await import('https://esm.sh/@noble/hashes@1.3.3/sha512');
+          
+          // Set up SHA-512 for noble/ed25519
+          ed25519Module.etc.sha512Sync = (...m) => sha512(ed25519Module.etc.concatBytes(...m));
+          
+          // Now we can use the sign function
+          const { sign } = ed25519Module;
           
           // Decode the Ed25519 private key from base64
           const privateKeyBytes = Uint8Array.from(atob(base64PrivateKey), c => c.charCodeAt(0));
