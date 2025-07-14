@@ -2,7 +2,8 @@
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowUpRight, ArrowDownLeft, Clock, Activity } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -24,6 +25,9 @@ export const TradingHistory = () => {
   const { toast } = useToast();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
+  const [connections, setConnections] = useState<any[]>([]);
+  const [selectedConnection, setSelectedConnection] = useState<string>('');
+  const [fetching, setFetching] = useState(false);
   const [stats, setStats] = useState({
     totalTrades: 0,
     totalValue: 0,
@@ -32,9 +36,31 @@ export const TradingHistory = () => {
 
   useEffect(() => {
     if (user) {
+      fetchConnections();
       fetchTradingHistory();
     }
   }, [user]);
+
+  const fetchConnections = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_coinbase_connections')
+        .select('*')
+        .eq('is_active', true)
+        .order('connected_at', { ascending: false });
+
+      if (error) throw error;
+      
+      setConnections(data || []);
+      if (data && data.length > 0 && !selectedConnection) {
+        setSelectedConnection(data[0].id);
+      }
+    } catch (error) {
+      console.error('Error fetching connections:', error);
+    }
+  };
 
   const fetchTradingHistory = async () => {
     if (!user) return;
@@ -68,6 +94,43 @@ export const TradingHistory = () => {
     }
   };
 
+  const fetchFromCoinbase = async () => {
+    if (!selectedConnection) {
+      toast({
+        title: "No Connection Selected",
+        description: "Please select a Coinbase connection first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setFetching(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('coinbase-trading-history', {
+        body: { connectionId: selectedConnection }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: `Fetched ${data.trades} trades from Coinbase`,
+      });
+      
+      // Refresh local data
+      await fetchTradingHistory();
+    } catch (error) {
+      console.error('Error fetching from Coinbase:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch trading history from Coinbase",
+        variant: "destructive",
+      });
+    } finally {
+      setFetching(false);
+    }
+  };
+
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -83,13 +146,54 @@ export const TradingHistory = () => {
 
   if (trades.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 space-y-4">
-        <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center">
-          <Activity className="w-8 h-8 text-slate-500" />
-        </div>
-        <div className="text-center">
-          <h3 className="text-xl font-semibold text-white mb-2">No Trading History</h3>
-          <p className="text-slate-400">Your trading history will appear here once you start trading.</p>
+      <div className="space-y-4">
+        {/* Connection Selector */}
+        {connections.length > 0 && (
+          <Card className="p-4 bg-slate-700/30 border-slate-600">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <label className="text-sm text-slate-400 mb-2 block">Select Coinbase Connection:</label>
+                <select
+                  value={selectedConnection}
+                  onChange={(e) => setSelectedConnection(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-white"
+                >
+                  {connections.map((connection) => (
+                    <option key={connection.id} value={connection.id}>
+                      {connection.api_name_encrypted || 'Coinbase Account'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button 
+                onClick={fetchFromCoinbase}
+                disabled={fetching || !selectedConnection}
+                className="bg-green-500 hover:bg-green-600 text-white"
+              >
+                {fetching ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Fetching...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Fetch from Coinbase
+                  </>
+                )}
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        <div className="flex flex-col items-center justify-center py-12 space-y-4">
+          <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center">
+            <Activity className="w-8 h-8 text-slate-500" />
+          </div>
+          <div className="text-center">
+            <h3 className="text-xl font-semibold text-white mb-2">No Trading History</h3>
+            <p className="text-slate-400">Click "Fetch from Coinbase" to load your trading history.</p>
+          </div>
         </div>
       </div>
     );
@@ -97,6 +201,45 @@ export const TradingHistory = () => {
 
   return (
     <div className="space-y-4">
+      {/* Connection Selector */}
+      {connections.length > 0 && (
+        <Card className="p-4 bg-slate-700/30 border-slate-600">
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <label className="text-sm text-slate-400 mb-2 block">Select Coinbase Connection:</label>
+              <select
+                value={selectedConnection}
+                onChange={(e) => setSelectedConnection(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-white"
+              >
+                {connections.map((connection) => (
+                  <option key={connection.id} value={connection.id}>
+                    {connection.api_name_encrypted || 'Coinbase Account'}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button 
+              onClick={fetchFromCoinbase}
+              disabled={fetching || !selectedConnection}
+              className="bg-green-500 hover:bg-green-600 text-white"
+            >
+              {fetching ? (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  Fetching...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Fetch from Coinbase
+                </>
+              )}
+            </Button>
+          </div>
+        </Card>
+      )}
+
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card className="p-4 bg-slate-700/30 border-slate-600">

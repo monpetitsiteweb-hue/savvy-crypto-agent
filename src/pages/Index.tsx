@@ -47,7 +47,11 @@ const Index = () => {
                 ].map((tab) => (
                   <button
                     key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setActiveTab(tab.id);
+                    }}
                     className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors ${
                       activeTab === tab.id
                         ? 'text-green-400 border-b-2 border-green-400 bg-slate-700/50'

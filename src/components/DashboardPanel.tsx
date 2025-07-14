@@ -154,6 +154,42 @@ export const DashboardPanel = () => {
     }
   };
 
+  const editConnection = (connectionId: string) => {
+    // Find the connection and allow editing the API name
+    const connection = connections.find(c => c.id === connectionId);
+    if (connection) {
+      const newName = prompt("Enter new connection name:", connection.api_name_encrypted || "");
+      if (newName && newName !== connection.api_name_encrypted) {
+        updateConnectionName(connectionId, newName);
+      }
+    }
+  };
+
+  const updateConnectionName = async (connectionId: string, newName: string) => {
+    try {
+      const { error } = await supabase
+        .from('user_coinbase_connections')
+        .update({ api_name_encrypted: newName })
+        .eq('id', connectionId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Connection Updated",
+        description: "Connection name updated successfully",
+      });
+      
+      fetchConnections(); // Refresh the list
+    } catch (error) {
+      console.error('Error updating connection:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update connection name",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -203,13 +239,7 @@ export const DashboardPanel = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => {
-                      // TODO: Implement edit connection functionality
-                      toast({
-                        title: "Edit Connection",
-                        description: "Edit functionality coming soon",
-                      });
-                    }}
+                    onClick={() => editConnection(connection.id)}
                   >
                     <Edit className="h-4 w-4" />
                   </Button>

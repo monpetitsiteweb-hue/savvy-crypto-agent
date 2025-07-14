@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Bot, Settings, TrendingUp, Target, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 export const StrategyBuilder = () => {
   const { toast } = useToast();
@@ -45,10 +46,32 @@ export const StrategyBuilder = () => {
       return;
     }
 
-    toast({
-      title: "AI Strategy Generation",
-      description: "This feature requires admin configuration of LLM integration",
-    });
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-ai-strategy', {
+        body: { prompt: aiPrompt }
+      });
+
+      if (error) throw error;
+
+      if (data.strategy) {
+        setStrategyConfig(prev => ({
+          ...prev,
+          ...data.strategy
+        }));
+        
+        toast({
+          title: "AI Strategy Generated",
+          description: "Your strategy configuration has been updated with AI recommendations",
+        });
+      }
+    } catch (error) {
+      console.error('Error generating AI strategy:', error);
+      toast({
+        title: "Error",
+        description: "Failed to generate AI strategy. Please check admin configuration.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
