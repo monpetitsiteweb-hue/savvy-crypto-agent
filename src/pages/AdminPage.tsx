@@ -4,8 +4,9 @@ import { Header } from '@/components/Header';
 import { CoinbaseOAuthPanel } from '@/components/admin/CoinbaseOAuthPanel';
 import { LLMConfigPanel } from '@/components/admin/LLMConfigPanel';
 import { DataSourcesPanel } from '@/components/admin/DataSourcesPanel';
+import { StrategyConfig } from '@/components/StrategyConfig';
 import { useUserRole } from '@/hooks/useUserRole';
-import { Settings, Wallet2, Bot, Database, Shield } from 'lucide-react';
+import { Settings, Wallet2, Bot, Database, Shield, TrendingUp } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const AdminPage = () => {
@@ -21,6 +22,7 @@ const AdminPage = () => {
   // Define tabs based on user role
   const userTabs = [
     { id: 'my-connections', label: 'My Connections', icon: <Wallet2 className="w-4 h-4" /> },
+    { id: 'strategies', label: 'Strategy', icon: <TrendingUp className="w-4 h-4" /> },
   ];
 
   const adminTabs = [
@@ -74,6 +76,7 @@ const AdminPage = () => {
                 <p className="text-slate-400">Use the main dashboard to connect your Coinbase account via OAuth.</p>
               </div>
             )}
+            {activeTab === 'strategies' && <StrategyConfig />}
             {activeTab === 'oauth-setup' && isAdmin && <CoinbaseOAuthPanel />}
             {activeTab === 'llm-config' && isAdmin && <LLMConfigPanel />}
             {activeTab === 'data-sources' && isAdmin && <DataSourcesPanel />}
