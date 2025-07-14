@@ -116,17 +116,92 @@ serve(async (req) => {
         
         console.log('Using new API credentials format:', apiName);
         
-        // For now, return a message that this format is recognized but needs JWT implementation
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: 'New Coinbase API credentials format detected. JWT signing implementation needed for Advanced Trade API.',
-          details: 'Your credentials have been saved correctly. This requires ES256 JWT signing which will be implemented next.',
-          connection_type: 'advanced_trade_api',
-          api_name: apiName
-        }), {
-          status: 501,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        try {
+          // Create JWT for Coinbase Advanced Trade API
+          const timestamp = Math.floor(Date.now() / 1000);
+          const method = 'GET';
+          const requestPath = '/api/v3/brokerage/accounts';
+          
+          // JWT header
+          const header = {
+            alg: 'ES256',
+            kid: apiIdentifier,
+            nonce: timestamp.toString()
+          };
+          
+          // JWT payload
+          const payload = {
+            sub: apiName,
+            iss: 'coinbase-cloud',
+            aud: ['public_websocket_api'],
+            exp: timestamp + 120 // 2 minutes
+          };
+          
+          // Encode header and payload
+          const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+          const encodedPayload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+          
+          const message = encodedHeader + '.' + encodedPayload;
+          
+          // Import the private key for ES256 signing
+          // Remove header and footer from PEM key
+          const pemKey = privateKey
+            .replace('-----BEGIN EC PRIVATE KEY-----', '')
+            .replace('-----END EC PRIVATE KEY-----', '')
+            .replace(/\s/g, '');
+          
+          const keyData = Uint8Array.from(atob(pemKey), c => c.charCodeAt(0));
+          
+          const cryptoKey = await crypto.subtle.importKey(
+            'pkcs8',
+            keyData,
+            {
+              name: 'ECDSA',
+              namedCurve: 'P-256'
+            },
+            false,
+            ['sign']
+          );
+          
+          const signature = await crypto.subtle.sign(
+            {
+              name: 'ECDSA',
+              hash: 'SHA-256'
+            },
+            cryptoKey,
+            new TextEncoder().encode(message)
+          );
+          
+          const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
+            .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+          
+          const jwt = message + '.' + encodedSignature;
+          
+          console.log('JWT created for Advanced Trade API');
+          
+          // Call Coinbase Advanced Trade API
+          response = await fetch('https://api.coinbase.com' + requestPath, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${jwt}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          authMethod = 'advanced_trade_api';
+          
+        } catch (jwtError) {
+          console.error('JWT creation error:', jwtError);
+          return new Response(JSON.stringify({ 
+            success: false, 
+            error: 'Failed to create JWT for Advanced Trade API',
+            details: jwtError instanceof Error ? jwtError.message : 'JWT signing failed',
+            connection_type: 'advanced_trade_api'
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
         
       } else if (connection.access_token_encrypted && connection.refresh_token_encrypted) {
         // Legacy format - treat as old API key/secret
