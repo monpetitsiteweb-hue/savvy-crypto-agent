@@ -182,8 +182,22 @@ serve(async (req) => {
             },
           });
           
-          const result = await response.json();
           console.log('Coinbase API response status:', response.status);
+          console.log('Coinbase API response headers:', Object.fromEntries(response.headers.entries()));
+          
+          // Handle response based on content type
+          let result;
+          const contentType = response.headers.get('content-type');
+          
+          if (contentType && contentType.includes('application/json')) {
+            result = await response.json();
+          } else {
+            // Handle non-JSON responses (like plain text error messages)
+            const textResult = await response.text();
+            console.log('Coinbase API text response:', textResult);
+            result = { message: textResult, status: response.status };
+          }
+          
           console.log('Coinbase API response:', result);
           
           if (!response.ok) {
@@ -191,7 +205,8 @@ serve(async (req) => {
               error: 'Coinbase API request failed',
               status: response.status,
               details: result,
-              jwt_preview: jwt.substring(0, 50) + '...'
+              jwt_preview: jwt.substring(0, 100) + '...',
+              contentType: contentType
             }), {
               status: 500,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
