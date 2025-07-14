@@ -156,17 +156,19 @@ export const StrategyConfig = () => {
 
   console.log('StrategyConfig render - showBuilder:', showBuilder, 'strategies.length:', strategies.length);
 
+  // TEST: Simple conditional rendering first
   if (showBuilder) {
-    console.log('Rendering StrategyBuilder');
+    console.log('showBuilder is true, should render builder!');
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-white">STRATEGY BUILDER IS WORKING!</h1>
-        <p className="text-slate-400">This proves the state change works. Now let me load the actual builder...</p>
-        <StrategyBuilder onCancel={() => {
-          console.log('StrategyBuilder cancelled');
-          setShowBuilder(false);
-          fetchStrategies(); // Refresh the list
-        }} />
+      <div className="p-8 bg-red-500 border-4 border-yellow-400">
+        <h1 className="text-4xl font-bold text-white">SUCCESS! BUILDER PANEL IS SHOWING!</h1>
+        <p className="text-2xl text-white mt-4">showBuilder = {showBuilder ? 'TRUE' : 'FALSE'}</p>
+        <button 
+          onClick={() => setShowBuilder(false)}
+          className="mt-4 px-4 py-2 bg-blue-500 text-white rounded"
+        >
+          Go Back to Strategy List
+        </button>
       </div>
     );
   }
