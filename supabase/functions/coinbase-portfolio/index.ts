@@ -118,7 +118,8 @@ serve(async (req) => {
         let keyType = 'ecdsa'; // default
         let privateKey = privateKeyRaw;
         
-        if (privateKeyRaw.startsWith('ed25519:') || privateKeyRaw.startsWith('ecdsa:')) {
+        if (privateKeyRaw && typeof privateKeyRaw === 'string' && 
+            (privateKeyRaw.startsWith('ed25519:') || privateKeyRaw.startsWith('ecdsa:'))) {
           const [type, key] = privateKeyRaw.split(':', 2);
           keyType = type;
           privateKey = key;
