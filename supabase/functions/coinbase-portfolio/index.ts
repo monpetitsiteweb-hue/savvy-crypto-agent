@@ -107,26 +107,85 @@ serve(async (req) => {
           const base64PrivateKey = privateKeyData.replace('ed25519:', '');
           console.log('Processing Ed25519 key for Advanced Trading API...');
           
-          // For Ed25519, we need to create a JWT token
-          // This requires the jose library for JWT signing with Ed25519
+          // Decode the base64 private key
+          const privateKeyBytes = Uint8Array.from(atob(base64PrivateKey), c => c.charCodeAt(0));
+          
+          // Create timestamp
           const timestamp = Math.floor(Date.now() / 1000);
           
-          // Create JWT payload
-          const payload = {
-            sub: apiKey,
-            iss: "coinbase-cloud",
-            nbf: timestamp,
-            exp: timestamp + 120, // 2 minutes expiry
-            aud: ["retail_rest_api_proxy"],
+          // Create JWT header and payload
+          const header = {
+            alg: "EdDSA",
+            typ: "JWT",
+            kid: apiKey,
+            nonce: timestamp.toString()
           };
           
-          // For now, return information about the detected key type
+          const payload = {
+            sub: apiKey,
+            iss: "coinbase-cloud", 
+            nbf: timestamp,
+            exp: timestamp + 120,
+            aud: ["retail_rest_api_proxy"]
+          };
+          
+          // Encode header and payload
+          const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+          const encodedPayload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+          
+          // Create message to sign
+          const message = encodedHeader + "." + encodedPayload;
+          const messageBytes = new TextEncoder().encode(message);
+          
+          // Import the Ed25519 key for signing
+          const cryptoKey = await crypto.subtle.importKey(
+            "raw",
+            privateKeyBytes,
+            { name: "Ed25519", namedCurve: "Ed25519" },
+            false,
+            ["sign"]
+          );
+          
+          // Sign the message
+          const signatureBytes = await crypto.subtle.sign("Ed25519", cryptoKey, messageBytes);
+          const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
+            .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+          
+          // Create the JWT
+          const jwt = message + "." + signature;
+          
+          // Make request to Coinbase Advanced Trading API
+          const coinbaseResponse = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${jwt}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          const portfolioData = await coinbaseResponse.json();
+          console.log('Advanced Trading API response status:', coinbaseResponse.status);
+          
+          if (!coinbaseResponse.ok) {
+            console.error('Advanced Trading API error:', portfolioData);
+            return new Response(JSON.stringify({ 
+              error: 'Failed to fetch portfolio from Coinbase Advanced Trading API',
+              details: portfolioData.message || portfolioData.error || 'API request failed',
+              status: coinbaseResponse.status,
+              keyType: 'ed25519'
+            }), {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+          
           return new Response(JSON.stringify({ 
             success: true,
-            message: 'Ed25519 key detected - Advanced Trading API integration needed',
+            message: `Successfully fetched ${portfolioData.accounts?.length || 0} accounts from Coinbase Advanced Trading API`,
+            data: portfolioData.accounts,
+            connectionType: 'api_key',
             keyType: 'ed25519',
-            apiKey: apiKey.substring(0, 8) + '...',
-            note: 'Ed25519 keys require JWT signing which needs additional crypto libraries'
+            connectionId: connection.id
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
