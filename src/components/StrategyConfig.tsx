@@ -138,11 +138,12 @@ export const StrategyConfig = () => {
           <h3 className="text-xl font-semibold text-white mb-2">No Trading Strategies</h3>
           <p className="text-slate-400 mb-4">Create your first automated trading strategy to get started.</p>
           <Button onClick={() => {
+            alert('BUTTON CLICKED! This proves the button works!');
             console.log('Create Strategy button clicked!');
             setShowBuilder(true);
           }} className="bg-green-500 hover:bg-green-600 text-white">
             <Plus className="w-4 h-4 mr-2" />
-            Create Strategy
+            CREATE STRATEGY - CLICK ME
           </Button>
         </div>
       </div>
@@ -169,11 +170,12 @@ export const StrategyConfig = () => {
           <p className="text-sm text-slate-400 mt-1">Manage and configure your trading strategies</p>
         </div>
         <Button onClick={() => {
+          alert('NEW STRATEGY BUTTON CLICKED!');
           console.log('New Strategy button clicked!');
           setShowBuilder(true);
         }} className="bg-green-500 hover:bg-green-600 text-white">
           <Plus className="w-4 h-4 mr-2" />
-          New Strategy
+          NEW STRATEGY - CLICK ME
         </Button>
       </div>
 
