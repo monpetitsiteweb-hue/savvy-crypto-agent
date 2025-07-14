@@ -15,22 +15,32 @@ serve(async (req) => {
   try {
     console.log('Coinbase portfolio function called');
     
+    // Get authorization header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      console.error('No authorization header provided');
+      return new Response(JSON.stringify({ error: 'Authorization header required' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
     // Initialize Supabase client
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
-        },
-      }
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Get the current user
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    // Verify the JWT token
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+    
     if (userError || !user) {
       console.error('User authentication failed:', userError);
-      return new Response(JSON.stringify({ error: 'Authentication required' }), {
+      return new Response(JSON.stringify({ 
+        error: 'Authentication failed',
+        details: userError?.message 
+      }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
