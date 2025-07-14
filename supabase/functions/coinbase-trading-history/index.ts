@@ -27,8 +27,20 @@ serve(async (req) => {
     }
 
     // Initialize Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    
+    console.log('Supabase URL:', supabaseUrl ? 'Present' : 'Missing');
+    console.log('Service Key:', supabaseServiceKey ? 'Present' : 'Missing');
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('Missing Supabase environment variables');
+      return new Response(
+        JSON.stringify({ error: 'Server configuration error' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get the connection details
@@ -93,24 +105,41 @@ serve(async (req) => {
     ];
 
     // Insert mock data into trading_history table for this user
+    console.log('About to insert trading history for user:', connection.user_id);
+    
     // First, delete any existing mock data for this connection to avoid duplicates
-    await supabase
+    const { error: deleteError } = await supabase
       .from('trading_history')
       .delete()
       .eq('user_coinbase_connection_id', connectionId)
       .like('coinbase_order_id', 'mock_order_%');
 
+    if (deleteError) {
+      console.error('Delete error:', deleteError);
+      // Don't fail on delete error, just log it
+    }
+
+    // Prepare the data for insertion
+    const tradesData = mockTradingHistory.map(trade => ({
+      trade_type: trade.trade_type,
+      cryptocurrency: trade.cryptocurrency,
+      amount: trade.amount,
+      price: trade.price,
+      total_value: trade.total_value,
+      executed_at: trade.executed_at,
+      fees: trade.fees,
+      notes: trade.notes,
+      user_id: connection.user_id,
+      user_coinbase_connection_id: connectionId,
+      coinbase_order_id: `mock_order_${trade.id}_${Date.now()}`
+    }));
+
+    console.log('About to insert trades data:', tradesData);
+
     // Then insert the new mock data
     const { error: insertError } = await supabase
       .from('trading_history')
-      .insert(
-        mockTradingHistory.map(trade => ({
-          ...trade,
-          user_id: connection.user_id,
-          user_coinbase_connection_id: connectionId,
-          coinbase_order_id: `mock_order_${trade.id}`
-        }))
-      );
+      .insert(tradesData);
 
     if (insertError) {
       console.error('Insert error:', insertError);
@@ -119,6 +148,8 @@ serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    console.log('Successfully inserted trading history');
 
     return new Response(
       JSON.stringify({ 
