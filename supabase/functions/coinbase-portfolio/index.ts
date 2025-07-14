@@ -106,9 +106,17 @@ serve(async (req) => {
           // Extract the base64 private key
           const base64PrivateKey = privateKeyData.replace('ed25519:', '');
           console.log('Processing Ed25519 key for Advanced Trading API...');
+          console.log('Base64 key length:', base64PrivateKey.length);
           
-          // Decode the base64 private key
-          const privateKeyBytes = Uint8Array.from(atob(base64PrivateKey), c => c.charCodeAt(0));
+          // Decode the base64 private key - Ed25519 private keys are 32 bytes
+          let privateKeyBytes;
+          try {
+            privateKeyBytes = Uint8Array.from(atob(base64PrivateKey), c => c.charCodeAt(0));
+            console.log('Decoded key length:', privateKeyBytes.length);
+          } catch (decodeError) {
+            console.error('Base64 decode error:', decodeError);
+            throw new Error(`Failed to decode base64 private key: ${decodeError.message}`);
+          }
           
           // Create timestamp
           const timestamp = Math.floor(Date.now() / 1000);
