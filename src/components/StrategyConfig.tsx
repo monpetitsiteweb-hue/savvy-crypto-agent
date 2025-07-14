@@ -34,6 +34,9 @@ export const StrategyConfig = () => {
   const [loading, setLoading] = useState(true);
   const [showBuilder, setShowBuilder] = useState(false);
 
+  // Debug the state
+  console.log('StrategyConfig: showBuilder =', showBuilder);
+
   useEffect(() => {
     if (user) {
       fetchStrategies();
@@ -138,9 +141,10 @@ export const StrategyConfig = () => {
           <h3 className="text-xl font-semibold text-white mb-2">No Trading Strategies</h3>
           <p className="text-slate-400 mb-4">Create your first automated trading strategy to get started.</p>
           <Button onClick={() => {
-            alert('BUTTON CLICKED! This proves the button works!');
-            console.log('Create Strategy button clicked!');
+            alert('BUTTON CLICKED! showBuilder was: ' + showBuilder);
+            console.log('Before setState: showBuilder =', showBuilder);
             setShowBuilder(true);
+            console.log('After setState called');
           }} className="bg-green-500 hover:bg-green-600 text-white">
             <Plus className="w-4 h-4 mr-2" />
             CREATE STRATEGY - CLICK ME
