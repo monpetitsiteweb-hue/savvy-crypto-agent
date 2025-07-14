@@ -176,42 +176,61 @@ serve(async (req) => {
             throw new Error('Invalid private key format - base64 decode failed');
           }
           
-          // Try different key formats - start with PKCS8
+          // Try different ECDSA curves - Coinbase might use secp256k1 or P-256
+          const curves = ['P-256', 'P-384', 'P-521'];
           let cryptoKey;
-          try {
-            cryptoKey = await crypto.subtle.importKey(
-              'pkcs8',
-              keyData,
-              {
-                name: 'ECDSA',
-                namedCurve: 'P-256'
-              },
-              false,
-              ['sign']
-            );
-            console.log('Successfully imported key as PKCS8');
-          } catch (pkcs8Error) {
-            console.log('PKCS8 import failed, trying raw format:', pkcs8Error.message);
-            
-            // Try with raw format for EC keys
+          let usedCurve;
+          
+          for (const curve of curves) {
             try {
               cryptoKey = await crypto.subtle.importKey(
-                'raw',
+                'pkcs8',
                 keyData,
                 {
                   name: 'ECDSA',
-                  namedCurve: 'P-256'
+                  namedCurve: curve
                 },
                 false,
                 ['sign']
               );
-              console.log('Successfully imported key as raw');
-            } catch (rawError) {
-              console.error('Raw key import also failed:', rawError);
-              throw new Error(`Key import failed: PKCS8 (${pkcs8Error.message}), Raw (${rawError.message})`);
+              usedCurve = curve;
+              console.log(`Successfully imported key as PKCS8 with curve: ${curve}`);
+              break;
+            } catch (curveError) {
+              console.log(`Failed to import with curve ${curve}:`, curveError.message);
+              continue;
             }
           }
           
+          // If PKCS8 failed with all curves, try raw format
+          if (!cryptoKey) {
+            for (const curve of curves) {
+              try {
+                cryptoKey = await crypto.subtle.importKey(
+                  'raw',
+                  keyData,
+                  {
+                    name: 'ECDSA',
+                    namedCurve: curve
+                  },
+                  false,
+                  ['sign']
+                );
+                usedCurve = curve;
+                console.log(`Successfully imported key as raw with curve: ${curve}`);
+                break;
+              } catch (curveError) {
+                console.log(`Failed raw import with curve ${curve}:`, curveError.message);
+                continue;
+              }
+            }
+          }
+          
+          if (!cryptoKey) {
+            throw new Error('Failed to import ECDSA key with any supported curve (P-256, P-384, P-521)');
+          }
+          
+          console.log(`Creating signature with curve: ${usedCurve}`);
           const signature = await crypto.subtle.sign(
             {
               name: 'ECDSA',
