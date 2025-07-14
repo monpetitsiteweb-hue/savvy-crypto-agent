@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.coinbase-portfolio]
 verify_jwt = true
+
+[functions.coinbase-trading-history]
+verify_jwt = true
+
+[functions.generate-ai-strategy]
+verify_jwt = true
