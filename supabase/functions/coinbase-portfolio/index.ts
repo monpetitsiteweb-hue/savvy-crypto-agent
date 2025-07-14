@@ -137,8 +137,8 @@ serve(async (req) => {
         const message = `${encodedHeader}.${encodedPayload}`;
         
         try {
-          // Use a different Ed25519 library that works in Deno edge functions
-          const { ed25519 } = await import('https://esm.sh/@noble/ed25519@2.0.0');
+          // Use noble Ed25519 library with correct import syntax
+          const { sign } = await import('https://esm.sh/@noble/ed25519@2.0.0');
           
           // Decode the Ed25519 private key from base64
           const privateKeyBytes = Uint8Array.from(atob(base64PrivateKey), c => c.charCodeAt(0));
@@ -154,7 +154,7 @@ serve(async (req) => {
           console.log('Message to sign length:', messageBytes.length);
           
            // Sign with Ed25519 using noble library
-           const signatureBytes = await ed25519.sign(messageBytes, privateKey);
+           const signatureBytes = await sign(messageBytes, privateKey);
            console.log('Signature created, length:', signatureBytes.length);
           
           // Encode signature as base64URL
