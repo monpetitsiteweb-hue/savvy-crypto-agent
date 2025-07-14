@@ -5,8 +5,9 @@ import { CoinbaseOAuthPanel } from '@/components/admin/CoinbaseOAuthPanel';
 import { LLMConfigPanel } from '@/components/admin/LLMConfigPanel';
 import { DataSourcesPanel } from '@/components/admin/DataSourcesPanel';
 import { useUserRole } from '@/hooks/useUserRole';
-import { Settings, Bot, Database, Shield } from 'lucide-react';
+import { Settings, Bot, Database, Shield, TrendingUp, ExternalLink } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 
 const AdminPage = () => {
   const [activeTab, setActiveTab] = useState('oauth-setup');
@@ -46,6 +47,17 @@ const AdminPage = () => {
           <Shield className="h-4 w-4" />
           <AlertDescription>
             Admin Dashboard - Manage system configurations and integrations.
+          </AlertDescription>
+        </Alert>
+        
+        <Alert className="mb-6 border-blue-600 bg-blue-950/20">
+          <TrendingUp className="h-4 w-4" />
+          <AlertDescription className="flex items-center justify-between">
+            <span>Looking for Strategy Configuration? It's in the main user interface.</span>
+            <Button variant="outline" size="sm" onClick={() => window.location.href = '/'} className="ml-4">
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Go to Main Dashboard
+            </Button>
           </AlertDescription>
         </Alert>
         
