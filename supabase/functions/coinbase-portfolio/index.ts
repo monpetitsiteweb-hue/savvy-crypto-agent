@@ -217,6 +217,16 @@ serve(async (req) => {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
           }
+        } catch (error) {
+          console.error('Ed25519 signing error:', error);
+          return new Response(JSON.stringify({ 
+            error: 'Failed to sign JWT with Ed25519 key',
+            details: error instanceof Error ? error.message : 'Unknown error'
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
         
       } else {
         // Legacy ECDSA key (old Coinbase Pro API)
