@@ -137,9 +137,8 @@ serve(async (req) => {
         const message = `${encodedHeader}.${encodedPayload}`;
         
         try {
-          // Since Deno doesn't support Ed25519 in Web Crypto, let's use a different approach
-          // Import Ed25519 library for Deno
-          const { sign } = await import('https://deno.land/x/ed25519@1.7.0/mod.ts');
+          // Use a different Ed25519 library that works in Deno edge functions
+          const { ed25519 } = await import('https://esm.sh/@noble/ed25519@2.0.0');
           
           // Decode the Ed25519 private key from base64
           const privateKeyBytes = Uint8Array.from(atob(base64PrivateKey), c => c.charCodeAt(0));
@@ -154,9 +153,9 @@ serve(async (req) => {
           const messageBytes = new TextEncoder().encode(message);
           console.log('Message to sign length:', messageBytes.length);
           
-          // Sign with Ed25519
-          const signatureBytes = sign(messageBytes, privateKey);
-          console.log('Signature created, length:', signatureBytes.length);
+           // Sign with Ed25519 using noble library
+           const signatureBytes = await ed25519.sign(messageBytes, privateKey);
+           console.log('Signature created, length:', signatureBytes.length);
           
           // Encode signature as base64URL
           const signature = btoa(String.fromCharCode(...signatureBytes))
