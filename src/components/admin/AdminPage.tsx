@@ -3,13 +3,15 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Shield, Settings, Database, Bot, Zap } from 'lucide-react';
 import { CoinbaseOAuthPanel } from './CoinbaseOAuthPanel';
-import { Footer } from '../Footer';
 import { LLMConfigPanel } from './LLMConfigPanel';
 import { DataSourcesPanel } from './DataSourcesPanel';
+import { Header } from '../Header';
+import { Footer } from '../Footer';
 
 export const AdminPage = () => {
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
+      <Header />
       <div className="flex-1 p-6">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}

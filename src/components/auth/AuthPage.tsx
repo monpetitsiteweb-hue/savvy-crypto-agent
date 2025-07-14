@@ -126,7 +126,7 @@ export const AuthPage = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
       <Card className="w-full max-w-md bg-slate-800/50 backdrop-blur-sm border-slate-700">
         <CardHeader className="text-center">
-          <div className="w-16 h-16 bg-gradient-to-r from-green-400 via-yellow-400 via-orange-400 to-red-500 rounded-xl flex items-center justify-center mx-auto mb-4">
+          <div className="w-16 h-16 bg-green-500 rounded-xl flex items-center justify-center mx-auto mb-4">
             <span className="text-white font-bold text-2xl">AI</span>
           </div>
           <CardTitle className="text-2xl text-white">My Little AI Assistant</CardTitle>

@@ -2,20 +2,19 @@
 
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Wallet, Settings, Bell, User, LogOut } from 'lucide-react';
+import { Wallet, Settings, Bell, User, LogOut, Shield } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { useUserRole } from '@/hooks/useUserRole';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 export const Header = () => {
   const { user, signOut } = useAuth();
+  const { role } = useUserRole();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleSignOut = async () => {
     await signOut();
-  };
-
-  const handleAdminClick = () => {
-    navigate('/admin');
   };
 
   return (
@@ -24,7 +23,7 @@ export const Header = () => {
         <div className="flex items-center justify-between">
           {/* Logo */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
-            <div className="w-10 h-10 bg-gradient-to-r from-green-400 via-yellow-400 via-orange-400 to-red-500 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-lg">AI</span>
             </div>
             <div>
@@ -35,29 +34,41 @@ export const Header = () => {
 
           {/* Status & Actions */}
           <div className="flex items-center gap-4">
-
             <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
               <Bell className="w-4 h-4" />
             </Button>
 
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="text-slate-400 hover:text-white"
-              onClick={handleAdminClick}
-            >
-              <Settings className="w-4 h-4" />
-            </Button>
-
-            {user && (
+            {role === 'admin' && (
               <Button 
                 variant="ghost" 
                 size="sm" 
-                className="text-slate-400 hover:text-white"
-                onClick={handleSignOut}
+                className={`text-slate-400 hover:text-white ${
+                  location.pathname === '/admin' ? 'text-green-400' : ''
+                }`}
+                onClick={() => navigate(location.pathname === '/admin' ? '/' : '/admin')}
               >
-                <LogOut className="w-4 h-4" />
+                <Settings className="w-4 h-4 mr-1" />
+                {location.pathname === '/admin' ? 'Dashboard' : 'Admin'}
               </Button>
+            )}
+
+            {user && (
+              <div className="flex items-center gap-2">
+                {role === 'admin' && (
+                  <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/30">
+                    <Shield className="w-3 h-3 mr-1" />
+                    Admin
+                  </Badge>
+                )}
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="text-slate-400 hover:text-white"
+                  onClick={handleSignOut}
+                >
+                  <LogOut className="w-4 h-4" />
+                </Button>
+              </div>
             )}
           </div>
         </div>

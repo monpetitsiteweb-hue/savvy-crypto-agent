@@ -28,11 +28,6 @@ const Index = () => {
     return <AuthPage />;
   }
 
-  // Show admin page if user is admin
-  if (role === 'admin') {
-    return <AdminPage />;
-  }
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
       <Header />
