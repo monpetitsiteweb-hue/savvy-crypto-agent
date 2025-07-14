@@ -154,11 +154,17 @@ export const StrategyConfig = () => {
 
   if (showBuilder) {
     console.log('Rendering StrategyBuilder');
-    return <StrategyBuilder onCancel={() => {
-      console.log('StrategyBuilder cancelled');
-      setShowBuilder(false);
-      fetchStrategies(); // Refresh the list
-    }} />;
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-white">STRATEGY BUILDER IS WORKING!</h1>
+        <p className="text-slate-400">This proves the state change works. Now let me load the actual builder...</p>
+        <StrategyBuilder onCancel={() => {
+          console.log('StrategyBuilder cancelled');
+          setShowBuilder(false);
+          fetchStrategies(); // Refresh the list
+        }} />
+      </div>
+    );
   }
 
   return (
