@@ -64,9 +64,22 @@ export const DashboardPanel = () => {
           variant: "destructive",
         });
       } else {
+        // Show the full debug data
+        console.log('Full response data:', data);
+        
+        let displayMessage = data.message || 'Function responded successfully';
+        
+        // If there's debug data, add it to the message
+        if (data.debug) {
+          displayMessage += `\n\nDebug Info:\n`;
+          displayMessage += `API Key: ${data.debug.apiKey}\n`;
+          displayMessage += `Private Key (first 30 chars): ${data.debug.privateKeyStart}\n`;
+          displayMessage += `Key Length: ${data.debug.privateKeyLength}`;
+        }
+        
         toast({
           title: "Function Test Success",
-          description: data.message || JSON.stringify(data),
+          description: displayMessage,
         });
       }
     } catch (error) {
