@@ -47,7 +47,8 @@ export const TradingHistory = () => {
     try {
       const { data, error } = await supabase
         .from('user_coinbase_connections')
-        .select('*')
+        .select('id, is_active, connected_at, user_id, api_name_encrypted')
+        .eq('user_id', user.id)
         .eq('is_active', true)
         .order('connected_at', { ascending: false });
 
@@ -160,7 +161,7 @@ export const TradingHistory = () => {
                 >
                   {connections.map((connection) => (
                     <option key={connection.id} value={connection.id}>
-                    Coinbase Account {connections.findIndex(c => c.id === connection.id) + 1}
+                      {connection.api_name_encrypted || `Coinbase Account ${connections.findIndex(c => c.id === connection.id) + 1}`}
                     </option>
                   ))}
                 </select>
@@ -214,7 +215,7 @@ export const TradingHistory = () => {
               >
                 {connections.map((connection) => (
                   <option key={connection.id} value={connection.id}>
-                    Coinbase Account {connections.findIndex(c => c.id === connection.id) + 1}
+                    {connection.api_name_encrypted || `Coinbase Account ${connections.findIndex(c => c.id === connection.id) + 1}`}
                   </option>
                 ))}
               </select>
