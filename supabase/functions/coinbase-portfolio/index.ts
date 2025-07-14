@@ -143,31 +143,29 @@ serve(async (req) => {
           
           const message = encodedHeader + '.' + encodedPayload;
           
-          // Import the private key for ES256 signing
+          // First try to import the key - handle different formats
           console.log('Attempting to parse private key...');
+          console.log('Private key length:', privateKey.length);
           
-          // Remove header and footer from PEM key and normalize
-          let pemKey = privateKey.trim();
+          let keyData;
+          let isEd25519 = false;
           
-          // Handle different PEM formats
-          if (pemKey.includes('BEGIN EC PRIVATE KEY')) {
-            pemKey = pemKey
-              .replace('-----BEGIN EC PRIVATE KEY-----', '')
-              .replace('-----END EC PRIVATE KEY-----', '')
-              .replace(/\s/g, '');
-          } else if (pemKey.includes('BEGIN PRIVATE KEY')) {
-            pemKey = pemKey
-              .replace('-----BEGIN PRIVATE KEY-----', '')
-              .replace('-----END PRIVATE KEY-----', '')
-              .replace(/\s/g, '');
-          } else {
-            // Assume it's already cleaned
-            pemKey = pemKey.replace(/\s/g, '');
+          // Check if it's Ed25519
+          if (privateKey.includes('BEGIN PRIVATE KEY') || privateKey.includes('ED25519')) {
+            console.log('Detected possible Ed25519 key');
+            isEd25519 = true;
           }
+          
+          // Clean the PEM key
+          let pemKey = privateKey.trim()
+            .replace('-----BEGIN EC PRIVATE KEY-----', '')
+            .replace('-----END EC PRIVATE KEY-----', '')
+            .replace('-----BEGIN PRIVATE KEY-----', '')
+            .replace('-----END PRIVATE KEY-----', '')
+            .replace(/\s/g, '');
           
           console.log('Cleaned PEM key length:', pemKey.length);
           
-          let keyData;
           try {
             keyData = Uint8Array.from(atob(pemKey), c => c.charCodeAt(0));
             console.log('Key data decoded, length:', keyData.length);
@@ -176,38 +174,36 @@ serve(async (req) => {
             throw new Error('Invalid private key format - base64 decode failed');
           }
           
-          // Try different ECDSA curves - Coinbase might use secp256k1 or P-256
-          const curves = ['P-256', 'P-384', 'P-521'];
           let cryptoKey = null;
-          let usedCurve = null;
+          let usedAlgorithm = null;
           
-          for (const curve of curves) {
+          // Try Ed25519 first if detected
+          if (isEd25519) {
             try {
               cryptoKey = await crypto.subtle.importKey(
                 'pkcs8',
                 keyData,
                 {
-                  name: 'ECDSA',
-                  namedCurve: curve
+                  name: 'Ed25519'
                 },
                 false,
                 ['sign']
               );
-              usedCurve = curve;
-              console.log(`Successfully imported key as PKCS8 with curve: ${curve}`);
-              break;
-            } catch (curveError) {
-              console.log(`Failed to import with curve ${curve}:`, curveError.message);
-              continue;
+              usedAlgorithm = 'Ed25519';
+              console.log('Successfully imported Ed25519 key');
+            } catch (ed25519Error) {
+              console.log('Ed25519 import failed:', ed25519Error.message);
             }
           }
           
-          // If PKCS8 failed with all curves, try raw format
+          // If not Ed25519 or Ed25519 failed, try ECDSA curves
           if (!cryptoKey) {
+            const curves = ['P-256', 'P-384', 'P-521'];
+            
             for (const curve of curves) {
               try {
                 cryptoKey = await crypto.subtle.importKey(
-                  'raw',
+                  'pkcs8',
                   keyData,
                   {
                     name: 'ECDSA',
@@ -216,29 +212,39 @@ serve(async (req) => {
                   false,
                   ['sign']
                 );
-                usedCurve = curve;
-                console.log(`Successfully imported key as raw with curve: ${curve}`);
+                usedAlgorithm = `ECDSA-${curve}`;
+                console.log(`Successfully imported ECDSA key with curve: ${curve}`);
                 break;
               } catch (curveError) {
-                console.log(`Failed raw import with curve ${curve}:`, curveError.message);
-                continue;
+                console.log(`Failed ECDSA import with curve ${curve}:`, curveError.message);
               }
             }
           }
           
           if (!cryptoKey) {
-            throw new Error('Failed to import ECDSA key with any supported curve (P-256, P-384, P-521)');
+            throw new Error('Failed to import key as Ed25519 or any ECDSA curve');
           }
           
-          console.log(`Creating signature with curve: ${usedCurve}`);
-          const signature = await crypto.subtle.sign(
-            {
-              name: 'ECDSA',
-              hash: 'SHA-256'
-            },
-            cryptoKey,
-            new TextEncoder().encode(message)
-          );
+          console.log(`Using algorithm: ${usedAlgorithm}`);
+          
+          // Create signature based on algorithm
+          let signature;
+          if (usedAlgorithm === 'Ed25519') {
+            signature = await crypto.subtle.sign(
+              'Ed25519',
+              cryptoKey,
+              new TextEncoder().encode(message)
+            );
+          } else {
+            signature = await crypto.subtle.sign(
+              {
+                name: 'ECDSA',
+                hash: 'SHA-256'
+              },
+              cryptoKey,
+              new TextEncoder().encode(message)
+            );
+          }
           
           const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
             .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
