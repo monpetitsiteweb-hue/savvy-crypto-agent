@@ -8,11 +8,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { Bot, Settings, TrendingUp, Target, AlertTriangle } from 'lucide-react';
+import { Bot, Settings, TrendingUp, Target, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
-export const StrategyBuilder = () => {
+interface StrategyBuilderProps {
+  onCancel: () => void;
+}
+
+export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [activeMode, setActiveMode] = useState<'manual' | 'ai'>('manual');
   const [aiPrompt, setAiPrompt] = useState('');
@@ -74,10 +80,57 @@ export const StrategyBuilder = () => {
     }
   };
 
+  const saveStrategy = async () => {
+    if (!user) return;
+    
+    if (!strategyConfig.name.trim()) {
+      toast({
+        title: "Missing Name",
+        description: "Please enter a strategy name",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('trading_strategies')
+        .insert({
+          user_id: user.id,
+          strategy_name: strategyConfig.name,
+          description: strategyConfig.description,
+          configuration: strategyConfig,
+          is_active: false
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Strategy Created",
+        description: "Your trading strategy has been saved successfully",
+      });
+      
+      onCancel(); // Go back to strategy list
+    } catch (error) {
+      console.error('Error saving strategy:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save strategy",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white">Strategy Builder</h2>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={onCancel} className="text-slate-400 hover:text-white">
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Strategies
+          </Button>
+          <h2 className="text-2xl font-bold text-white">Strategy Builder</h2>
+        </div>
         <div className="flex items-center gap-2">
           <Button
             variant={activeMode === 'manual' ? 'default' : 'outline'}
@@ -354,10 +407,10 @@ export const StrategyBuilder = () => {
       )}
       
       <div className="flex justify-end gap-3">
-        <Button variant="outline" className="border-slate-600 text-slate-300">
+        <Button variant="outline" onClick={onCancel} className="border-slate-600 text-slate-300">
           Cancel
         </Button>
-        <Button className="bg-green-500 hover:bg-green-600">
+        <Button onClick={saveStrategy} className="bg-green-500 hover:bg-green-600">
           Save Strategy
         </Button>
       </div>

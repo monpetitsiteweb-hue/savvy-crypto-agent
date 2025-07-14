@@ -147,7 +147,10 @@ export const StrategyConfig = () => {
   }
 
   if (showBuilder) {
-    return <StrategyBuilder />;
+    return <StrategyBuilder onCancel={() => {
+      setShowBuilder(false);
+      fetchStrategies(); // Refresh the list
+    }} />;
   }
 
   return (
