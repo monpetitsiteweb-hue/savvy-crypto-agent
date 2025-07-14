@@ -58,9 +58,27 @@ export const DashboardPanel = () => {
       console.log('Edge function response:', data);
       
       if (data.error) {
+        console.log('Full error response:', data);
+        
+        let errorMessage = data.error;
+        
+        // Add detailed error info if available
+        if (data.details) {
+          errorMessage += `\nDetails: ${data.details}`;
+        }
+        if (data.keyBytesLength) {
+          errorMessage += `\nKey Length: ${data.keyBytesLength}`;
+        }
+        if (data.supportsEd25519 !== undefined) {
+          errorMessage += `\nEd25519 Support: ${data.supportsEd25519}`;
+        }
+        if (data.cryptoSubtleKeys) {
+          errorMessage += `\nAvailable Crypto Methods: ${data.cryptoSubtleKeys.join(', ')}`;
+        }
+        
         toast({
           title: "Function Error",
-          description: data.error,
+          description: errorMessage,
           variant: "destructive",
         });
       } else {
