@@ -172,6 +172,10 @@ serve(async (req) => {
           }
           
           // Clean the PEM key
+          if (!privateKey || typeof privateKey !== 'string') {
+            throw new Error('Private key is missing or invalid');
+          }
+          
           let pemKey = privateKey.trim()
             .replace('-----BEGIN EC PRIVATE KEY-----', '')
             .replace('-----END EC PRIVATE KEY-----', '')
