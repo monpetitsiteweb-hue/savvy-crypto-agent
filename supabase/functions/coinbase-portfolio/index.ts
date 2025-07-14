@@ -144,24 +144,73 @@ serve(async (req) => {
           const message = encodedHeader + '.' + encodedPayload;
           
           // Import the private key for ES256 signing
-          // Remove header and footer from PEM key
-          const pemKey = privateKey
-            .replace('-----BEGIN EC PRIVATE KEY-----', '')
-            .replace('-----END EC PRIVATE KEY-----', '')
-            .replace(/\s/g, '');
+          console.log('Attempting to parse private key...');
           
-          const keyData = Uint8Array.from(atob(pemKey), c => c.charCodeAt(0));
+          // Remove header and footer from PEM key and normalize
+          let pemKey = privateKey.trim();
           
-          const cryptoKey = await crypto.subtle.importKey(
-            'pkcs8',
-            keyData,
-            {
-              name: 'ECDSA',
-              namedCurve: 'P-256'
-            },
-            false,
-            ['sign']
-          );
+          // Handle different PEM formats
+          if (pemKey.includes('BEGIN EC PRIVATE KEY')) {
+            pemKey = pemKey
+              .replace('-----BEGIN EC PRIVATE KEY-----', '')
+              .replace('-----END EC PRIVATE KEY-----', '')
+              .replace(/\s/g, '');
+          } else if (pemKey.includes('BEGIN PRIVATE KEY')) {
+            pemKey = pemKey
+              .replace('-----BEGIN PRIVATE KEY-----', '')
+              .replace('-----END PRIVATE KEY-----', '')
+              .replace(/\s/g, '');
+          } else {
+            // Assume it's already cleaned
+            pemKey = pemKey.replace(/\s/g, '');
+          }
+          
+          console.log('Cleaned PEM key length:', pemKey.length);
+          
+          let keyData;
+          try {
+            keyData = Uint8Array.from(atob(pemKey), c => c.charCodeAt(0));
+            console.log('Key data decoded, length:', keyData.length);
+          } catch (decodeError) {
+            console.error('Failed to decode base64 key:', decodeError);
+            throw new Error('Invalid private key format - base64 decode failed');
+          }
+          
+          // Try different key formats - start with PKCS8
+          let cryptoKey;
+          try {
+            cryptoKey = await crypto.subtle.importKey(
+              'pkcs8',
+              keyData,
+              {
+                name: 'ECDSA',
+                namedCurve: 'P-256'
+              },
+              false,
+              ['sign']
+            );
+            console.log('Successfully imported key as PKCS8');
+          } catch (pkcs8Error) {
+            console.log('PKCS8 import failed, trying raw format:', pkcs8Error.message);
+            
+            // Try with raw format for EC keys
+            try {
+              cryptoKey = await crypto.subtle.importKey(
+                'raw',
+                keyData,
+                {
+                  name: 'ECDSA',
+                  namedCurve: 'P-256'
+                },
+                false,
+                ['sign']
+              );
+              console.log('Successfully imported key as raw');
+            } catch (rawError) {
+              console.error('Raw key import also failed:', rawError);
+              throw new Error(`Key import failed: PKCS8 (${pkcs8Error.message}), Raw (${rawError.message})`);
+            }
+          }
           
           const signature = await crypto.subtle.sign(
             {
