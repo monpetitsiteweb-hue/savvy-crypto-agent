@@ -158,7 +158,7 @@ serve(async (req) => {
           'CB-ACCESS-KEY': apiKey,
           'CB-ACCESS-SIGN': hexSignature,
           'CB-ACCESS-TIMESTAMP': timestamp,
-          'CB-VERSION': '2023-08-01',
+          'CB-VERSION': '2015-07-22',
           'Content-Type': 'application/json',
         },
       });
