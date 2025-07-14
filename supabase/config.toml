@@ -1,1 +1,16 @@
 project_id = "fuieplftlcxdfkxyqzlt"
+
+[api]
+enabled = true
+
+[auth]
+enabled = true
+
+[functions.coinbase-oauth]
+verify_jwt = true
+
+[functions.coinbase-oauth-callback]
+verify_jwt = false
+
+[functions.coinbase-portfolio]
+verify_jwt = true
