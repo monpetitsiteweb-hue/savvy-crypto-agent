@@ -112,7 +112,20 @@ serve(async (req) => {
       if (connection.api_name_encrypted && connection.api_identifier_encrypted && connection.api_private_key_encrypted) {
         const apiName = connection.api_name_encrypted;
         const apiIdentifier = connection.api_identifier_encrypted;
-        const privateKey = connection.api_private_key_encrypted;
+        let privateKeyRaw = connection.api_private_key_encrypted;
+        
+        // Check if key has type prefix
+        let keyType = 'ecdsa'; // default
+        let privateKey = privateKeyRaw;
+        
+        if (privateKeyRaw.startsWith('ed25519:') || privateKeyRaw.startsWith('ecdsa:')) {
+          const [type, key] = privateKeyRaw.split(':', 2);
+          keyType = type;
+          privateKey = key;
+          console.log('Detected key type from prefix:', keyType);
+        } else {
+          console.log('No key type prefix found, assuming ECDSA');
+        }
         
         console.log('Using new API credentials format:', apiName);
         
@@ -129,9 +142,9 @@ serve(async (req) => {
             nonce: timestamp.toString()
           };
           
-          // JWT payload
+          // JWT payload - for Ed25519 keys, use keyIdentifier as sub, for ECDSA use apiName
           const payload = {
-            sub: apiName,
+            sub: keyType === 'ed25519' ? apiIdentifier : apiName,
             iss: 'coinbase-cloud',
             aud: ['public_websocket_api'],
             exp: timestamp + 120 // 2 minutes
@@ -148,12 +161,13 @@ serve(async (req) => {
           console.log('Private key length:', privateKey.length);
           
           let keyData;
-          let isEd25519 = false;
+          let isEd25519 = keyType === 'ed25519';
           
-          // Check if it's Ed25519
-          if (privateKey.includes('BEGIN PRIVATE KEY') || privateKey.includes('ED25519')) {
-            console.log('Detected possible Ed25519 key');
-            isEd25519 = true;
+          console.log('Key type determined:', keyType);
+          if (isEd25519) {
+            console.log('Processing as Ed25519 key');
+          } else {
+            console.log('Processing as ECDSA key');
           }
           
           // Clean the PEM key

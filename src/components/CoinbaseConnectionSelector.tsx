@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { AlertCircle, Wallet, Key, Link, Shield, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -22,6 +23,7 @@ export const CoinbaseConnectionSelector = ({ onConnectionEstablished }: Coinbase
   const [apiIdentifier, setApiIdentifier] = useState('');
   const [apiPrivateKey, setApiPrivateKey] = useState('');
   const [connectionMethod, setConnectionMethod] = useState<'oauth' | 'api'>('oauth');
+  const [keyType, setKeyType] = useState<'ecdsa' | 'ed25519'>('ed25519');
 
   const handleOAuthConnect = async () => {
     if (!user) return;
@@ -62,10 +64,13 @@ export const CoinbaseConnectionSelector = ({ onConnectionEstablished }: Coinbase
   };
 
   const handleApiKeyConnect = async () => {
-    if (!user || !apiName.trim() || !apiIdentifier.trim() || !apiPrivateKey.trim()) {
+    const requiredFields = keyType === 'ecdsa' ? [apiName, apiIdentifier, apiPrivateKey] : [apiIdentifier, apiPrivateKey];
+    if (!user || !requiredFields.every(field => field.trim())) {
       toast({
         title: "Missing Information",
-        description: "Please provide API name, identifier, and private key",
+        description: keyType === 'ecdsa' 
+          ? "Please provide API name, identifier, and private key" 
+          : "Please provide API identifier and private key",
         variant: "destructive",
       });
       return;
@@ -78,9 +83,9 @@ export const CoinbaseConnectionSelector = ({ onConnectionEstablished }: Coinbase
         .from('user_coinbase_connections')
         .insert({
           user_id: user.id,
-          api_name_encrypted: apiName,
+          api_name_encrypted: keyType === 'ecdsa' ? apiName : `ed25519_key_${Date.now()}`,
           api_identifier_encrypted: apiIdentifier,
-          api_private_key_encrypted: apiPrivateKey,
+          api_private_key_encrypted: `${keyType}:${apiPrivateKey}`, // Prefix with key type
           coinbase_user_id: 'api_user', // Placeholder for API connections
           is_active: true,
           connected_at: new Date().toISOString(),
@@ -198,18 +203,40 @@ export const CoinbaseConnectionSelector = ({ onConnectionEstablished }: Coinbase
                 </div>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div>
-                  <Label htmlFor="apiName" className="text-white">API Name</Label>
-                  <Input
-                    id="apiName"
-                    placeholder="organizations/your-org-id"
-                    value={apiName}
-                    onChange={(e) => setApiName(e.target.value)}
-                    className="bg-slate-800/50 border-slate-600 text-white"
-                  />
-                  <p className="text-xs text-slate-400 mt-1">Format: organizations/xxx (found in your downloaded JSON file)</p>
+                  <Label className="text-white">Key Type</Label>
+                  <RadioGroup value={keyType} onValueChange={(value) => setKeyType(value as 'ecdsa' | 'ed25519')} className="flex gap-4 mt-2">
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="ed25519" id="ed25519" />
+                      <Label htmlFor="ed25519" className="text-white">Ed25519 (Recommended)</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <RadioGroupItem value="ecdsa" id="ecdsa" />
+                      <Label htmlFor="ecdsa" className="text-white">ECDSA</Label>
+                    </div>
+                  </RadioGroup>
+                  <p className="text-xs text-slate-400 mt-2">
+                    {keyType === 'ed25519' 
+                      ? "Ed25519 keys are simpler and don't require an API name field"
+                      : "ECDSA keys require the organizations/xxx format API name"
+                    }
+                  </p>
                 </div>
+
+                {keyType === 'ecdsa' && (
+                  <div>
+                    <Label htmlFor="apiName" className="text-white">API Name</Label>
+                    <Input
+                      id="apiName"
+                      placeholder="organizations/your-org-id"
+                      value={apiName}
+                      onChange={(e) => setApiName(e.target.value)}
+                      className="bg-slate-800/50 border-slate-600 text-white"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">Format: organizations/xxx (found in your downloaded JSON file)</p>
+                  </div>
+                )}
                 
                 <div>
                   <Label htmlFor="apiIdentifier" className="text-white">API Key Identifier</Label>
@@ -229,16 +256,22 @@ export const CoinbaseConnectionSelector = ({ onConnectionEstablished }: Coinbase
                     id="apiPrivateKey"
                     value={apiPrivateKey}
                     onChange={(e) => setApiPrivateKey(e.target.value)}
-                    placeholder="-----BEGIN EC PRIVATE KEY-----&#10;MHcCAQXXXXXX&#10;-----END EC PRIVATE KEY-----"
+                    placeholder={keyType === 'ed25519' 
+                      ? "-----BEGIN PRIVATE KEY-----\nMIGEAgEAMBAGByqGSM49AgEG...\n-----END PRIVATE KEY-----"
+                      : "-----BEGIN EC PRIVATE KEY-----\nMHcCAQXXXXXX\n-----END EC PRIVATE KEY-----"
+                    }
                     className="w-full min-h-[100px] p-2 border border-slate-600 rounded-md resize-vertical font-mono text-sm bg-slate-800/50 text-white"
                   />
-                  <p className="text-xs text-slate-400 mt-1">Complete PEM format private key from your JSON file</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Complete PEM format private key from your JSON file
+                    {keyType === 'ed25519' && " (Ed25519 keys start with -----BEGIN PRIVATE KEY-----)"}
+                  </p>
                 </div>
               </div>
 
               <Button 
                 onClick={handleApiKeyConnect}
-                disabled={loading || !apiName.trim() || !apiIdentifier.trim() || !apiPrivateKey.trim()}
+                disabled={loading || !apiIdentifier.trim() || !apiPrivateKey.trim() || (keyType === 'ecdsa' && !apiName.trim())}
                 className="w-full bg-purple-600 hover:bg-purple-700"
               >
                 {loading ? 'Connecting...' : 'Connect with API Credentials'}
@@ -249,9 +282,10 @@ export const CoinbaseConnectionSelector = ({ onConnectionEstablished }: Coinbase
                 <ol className="list-decimal list-inside space-y-1 ml-2">
                   <li>Go to <a href="https://www.coinbase.com/settings/api" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">coinbase.com/settings/api</a></li>
                   <li>Click "Create an API Key"</li>
+                  <li>Choose <strong>{keyType === 'ed25519' ? 'Ed25519' : 'ECDSA'}</strong> as the signature algorithm</li>
                   <li>Set permissions (View for portfolio access)</li>
                   <li>Download the JSON file containing your credentials</li>
-                  <li>Extract the "name", key identifier, and "privateKey" from the JSON</li>
+                  <li>Extract the {keyType === 'ecdsa' ? '"name", ' : ''}key identifier, and "privateKey" from the JSON</li>
                 </ol>
               </div>
 
