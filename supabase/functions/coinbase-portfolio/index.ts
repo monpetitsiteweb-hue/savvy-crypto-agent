@@ -119,13 +119,14 @@ serve(async (req) => {
            nonce: nonce
          };
         
-        const payload = {
-          sub: apiKey,
-          iss: "coinbase-cloud",
-          nbf: timestamp,
-          exp: timestamp + 120, // 2 minutes
-          aud: ["retail_rest_api_proxy"]
-        };
+         const payload = {
+           sub: apiKey,
+           iss: "cdp",
+           nbf: timestamp,
+           exp: timestamp + 120, // 2 minutes
+           aud: ["retail_rest_api_proxy"],
+           uri: "GET api.coinbase.com/api/v3/brokerage/accounts"
+         };
         
         // Base64URL encode (without padding)
         const encodeBase64URL = (obj) => {
