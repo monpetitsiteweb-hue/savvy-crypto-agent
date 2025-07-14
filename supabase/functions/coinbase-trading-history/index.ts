@@ -12,9 +12,14 @@ serve(async (req) => {
   }
 
   try {
-    const { connectionId } = await req.json();
+    const requestBody = await req.json();
+    console.log('Request body:', requestBody);
+    
+    const { connectionId } = requestBody;
+    console.log('Connection ID:', connectionId, 'Type:', typeof connectionId);
     
     if (!connectionId) {
+      console.log('No connection ID provided');
       return new Response(
         JSON.stringify({ error: 'Connection ID is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -31,10 +36,18 @@ serve(async (req) => {
       .from('user_coinbase_connections')
       .select('*')
       .eq('id', connectionId)
-      .single();
+      .maybeSingle();
 
-    if (connectionError || !connection) {
+    if (connectionError) {
       console.error('Connection error:', connectionError);
+      return new Response(
+        JSON.stringify({ error: 'Database error while fetching connection', details: connectionError.message }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!connection) {
+      console.error('No connection found for ID:', connectionId);
       return new Response(
         JSON.stringify({ error: 'Connection not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
