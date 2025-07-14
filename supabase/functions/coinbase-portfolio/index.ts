@@ -92,74 +92,123 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     } else if (connection.api_identifier_encrypted && connection.api_private_key_encrypted) {
-      // API key connection - implement API key flow
+      // API key connection - check if it's Ed25519 or ECDSA
       console.log('Using API key connection');
       
-      // For now, we'll use the encrypted values directly (in production, these would be properly decrypted)
       const apiKey = connection.api_identifier_encrypted;
-      const apiSecret = connection.api_private_key_encrypted;
+      const privateKeyData = connection.api_private_key_encrypted;
       
-      // Create timestamp for API request
-      const timestamp = Math.floor(Date.now() / 1000).toString();
-      const method = 'GET';
-      const requestPath = '/v2/accounts';
-      
-      // Create signature for Coinbase API
-      const message = timestamp + method + requestPath;
-      
-      try {
-        console.log('Fetching portfolio from Coinbase API...');
+      // Check if it's Ed25519 key (new Coinbase Advanced Trading API)
+      if (privateKeyData.startsWith('ed25519:')) {
+        console.log('Detected Ed25519 key - using Advanced Trading API');
         
-        // Import crypto for HMAC
-        const crypto = await import('node:crypto');
-        const signature = crypto.createHmac('sha256', apiSecret).update(message).digest('hex');
-        
-        // Make request to Coinbase API
-        const coinbaseResponse = await fetch(`https://api.coinbase.com${requestPath}`, {
-          method: method,
-          headers: {
-            'CB-ACCESS-KEY': apiKey,
-            'CB-ACCESS-SIGN': signature,
-            'CB-ACCESS-TIMESTAMP': timestamp,
-            'CB-VERSION': '2021-06-25',
-            'Content-Type': 'application/json',
-          },
-        });
-        
-        const portfolioData = await coinbaseResponse.json();
-        console.log('Coinbase API response status:', coinbaseResponse.status);
-        
-        if (!coinbaseResponse.ok) {
-          console.error('Coinbase API error:', portfolioData);
+        try {
+          // Extract the base64 private key
+          const base64PrivateKey = privateKeyData.replace('ed25519:', '');
+          console.log('Processing Ed25519 key for Advanced Trading API...');
+          
+          // For Ed25519, we need to create a JWT token
+          // This requires the jose library for JWT signing with Ed25519
+          const timestamp = Math.floor(Date.now() / 1000);
+          
+          // Create JWT payload
+          const payload = {
+            sub: apiKey,
+            iss: "coinbase-cloud",
+            nbf: timestamp,
+            exp: timestamp + 120, // 2 minutes expiry
+            aud: ["retail_rest_api_proxy"],
+          };
+          
+          // For now, return information about the detected key type
           return new Response(JSON.stringify({ 
-            error: 'Failed to fetch portfolio from Coinbase',
-            details: portfolioData.errors || portfolioData.message || 'API request failed',
-            status: coinbaseResponse.status
+            success: true,
+            message: 'Ed25519 key detected - Advanced Trading API integration needed',
+            keyType: 'ed25519',
+            apiKey: apiKey.substring(0, 8) + '...',
+            note: 'Ed25519 keys require JWT signing which needs additional crypto libraries'
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+          
+        } catch (error) {
+          console.error('Ed25519 processing error:', error);
+          return new Response(JSON.stringify({ 
+            error: 'Failed to process Ed25519 key',
+            details: error instanceof Error ? error.message : 'Unknown error'
           }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
         
-        return new Response(JSON.stringify({ 
-          success: true,
-          message: `Successfully fetched ${portfolioData.data?.length || 0} accounts from Coinbase`,
-          data: portfolioData.data,
-          connectionType: 'api_key',
-          connectionId: connection.id
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+      } else {
+        // Legacy ECDSA key (old Coinbase Pro API)
+        console.log('Detected ECDSA key - using legacy Pro API');
         
-      } catch (apiError) {
-        console.error('Coinbase API error:', apiError);
-        return new Response(JSON.stringify({ 
-          error: 'Failed to fetch portfolio from Coinbase',
-          details: apiError instanceof Error ? apiError.message : 'Unknown error'
-        }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        const apiSecret = privateKeyData;
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const method = 'GET';
+        const requestPath = '/v2/accounts';
+        
+        // Create signature for legacy Coinbase API
+        const message = timestamp + method + requestPath;
+        
+        try {
+          // Import crypto for HMAC
+          const crypto = await import('node:crypto');
+          const signature = crypto.createHmac('sha256', apiSecret).update(message).digest('hex');
+          
+          // Make request to legacy Coinbase API
+          const coinbaseResponse = await fetch(`https://api.coinbase.com${requestPath}`, {
+            method: method,
+            headers: {
+              'CB-ACCESS-KEY': apiKey,
+              'CB-ACCESS-SIGN': signature,
+              'CB-ACCESS-TIMESTAMP': timestamp,
+              'CB-VERSION': '2021-06-25',
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          const portfolioData = await coinbaseResponse.json();
+          console.log('Legacy Coinbase API response status:', coinbaseResponse.status);
+          
+          if (!coinbaseResponse.ok) {
+            console.error('Legacy Coinbase API error:', portfolioData);
+            return new Response(JSON.stringify({ 
+              error: 'Failed to fetch portfolio from legacy Coinbase API',
+              details: portfolioData.errors || portfolioData.message || 'API request failed',
+              status: coinbaseResponse.status,
+              keyType: 'ecdsa'
+            }), {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+          
+          return new Response(JSON.stringify({ 
+            success: true,
+            message: `Successfully fetched ${portfolioData.data?.length || 0} accounts from legacy Coinbase API`,
+            data: portfolioData.data,
+            connectionType: 'api_key',
+            keyType: 'ecdsa',
+            connectionId: connection.id
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+          
+        } catch (apiError) {
+          console.error('Legacy Coinbase API error:', apiError);
+          return new Response(JSON.stringify({ 
+            error: 'Failed to fetch portfolio from legacy Coinbase API',
+            details: apiError instanceof Error ? apiError.message : 'Unknown error',
+            keyType: 'ecdsa'
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
       }
     } else {
       console.log('Invalid connection - missing credentials');
