@@ -176,12 +176,21 @@ serve(async (req) => {
             throw new Error('Private key is missing or invalid');
           }
           
-          let pemKey = privateKey.trim()
-            .replace('-----BEGIN EC PRIVATE KEY-----', '')
-            .replace('-----END EC PRIVATE KEY-----', '')
-            .replace('-----BEGIN PRIVATE KEY-----', '')
-            .replace('-----END PRIVATE KEY-----', '')
-            .replace(/\s/g, '');
+          let pemKey;
+          
+          // Check if it's already base64 encoded (no PEM headers) or PEM format
+          if (privateKey.includes('-----BEGIN')) {
+            // PEM format - extract base64 part
+            pemKey = privateKey.trim()
+              .replace('-----BEGIN EC PRIVATE KEY-----', '')
+              .replace('-----END EC PRIVATE KEY-----', '')
+              .replace('-----BEGIN PRIVATE KEY-----', '')
+              .replace('-----END PRIVATE KEY-----', '')
+              .replace(/\s/g, '');
+          } else {
+            // Already base64 encoded
+            pemKey = privateKey.trim();
+          }
           
           console.log('Cleaned PEM key length:', pemKey.length);
           
