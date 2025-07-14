@@ -106,15 +106,18 @@ serve(async (req) => {
         const base64PrivateKey = privateKeyData.slice(8); // Remove "ed25519:" (8 chars)
         console.log('Base64 key extracted, length:', base64PrivateKey.length);
         
-        // Create JWT for Coinbase Advanced Trading API
-        const timestamp = Math.floor(Date.now() / 1000);
-        
-        const header = {
-          alg: "EdDSA",
-          typ: "JWT", 
-          kid: apiKey,
-          nonce: timestamp.toString()
-        };
+         // Create JWT for Coinbase Advanced Trading API
+         const timestamp = Math.floor(Date.now() / 1000);
+         
+         // Generate a proper nonce (UUID format)
+         const nonce = crypto.randomUUID();
+         
+         const header = {
+           alg: "EdDSA",
+           typ: "JWT", 
+           kid: apiKey,
+           nonce: nonce
+         };
         
         const payload = {
           sub: apiKey,
@@ -173,8 +176,8 @@ serve(async (req) => {
           const jwt = `${message}.${signature}`;
           console.log('JWT created successfully, length:', jwt.length);
           
-          // Make API call to Coinbase Advanced Trading API
-          const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
+          // Make API call to Coinbase Advanced Trading API (try correct endpoint)
+          const response = await fetch('https://api.coinbase.com/api/v3/brokerage/portfolios', {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${jwt}`,
