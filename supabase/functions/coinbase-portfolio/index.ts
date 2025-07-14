@@ -137,86 +137,81 @@ serve(async (req) => {
         const message = `${encodedHeader}.${encodedPayload}`;
         
         try {
+          // Since Deno doesn't support Ed25519 in Web Crypto, let's use a different approach
+          // Import Ed25519 library for Deno
+          const { sign } = await import('https://deno.land/x/ed25519@1.7.0/mod.ts');
+          
           // Decode the Ed25519 private key from base64
           const privateKeyBytes = Uint8Array.from(atob(base64PrivateKey), c => c.charCodeAt(0));
           console.log('Private key bytes length:', privateKeyBytes.length);
-          console.log('First few bytes:', Array.from(privateKeyBytes.slice(0, 8)));
           
-          // Check if Web Crypto supports Ed25519
-          try {
-            const testKey = await crypto.subtle.importKey(
-              "raw",
-              privateKeyBytes.slice(0, 32), // Ed25519 private keys are 32 bytes
-              { name: "Ed25519" },
-              false,
-              ["sign"]
-            );
-            console.log('Ed25519 key import successful');
-            
-            // Sign the JWT message
-            const messageBytes = new TextEncoder().encode(message);
-            console.log('Message to sign length:', messageBytes.length);
-            
-            const signatureBytes = await crypto.subtle.sign("Ed25519", testKey, messageBytes);
-            console.log('Signature created, length:', signatureBytes.byteLength);
-            
-            // Encode signature as base64URL
-            const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
-              .replace(/\+/g, '-')
-              .replace(/\//g, '_')
-              .replace(/=/g, '');
-            
-            const jwt = `${message}.${signature}`;
-            console.log('JWT created successfully');
-            
-            // Make API call to Coinbase Advanced Trading API
-            const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
-              method: 'GET',
-              headers: {
-                'Authorization': `Bearer ${jwt}`,
-                'Content-Type': 'application/json',
-              },
-            });
-            
-            const result = await response.json();
-            console.log('Coinbase API response status:', response.status);
-            
-            if (!response.ok) {
-              return new Response(JSON.stringify({ 
-                error: 'Coinbase API request failed',
-                status: response.status,
-                details: result,
-                jwt_length: jwt.length
-              }), {
-                status: 500,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              });
-            }
-            
+          // Ed25519 private keys should be 32 bytes, but we got 64 (private + public)
+          // Take only the first 32 bytes for the private key
+          const privateKey = privateKeyBytes.slice(0, 32);
+          console.log('Using private key length:', privateKey.length);
+          
+          // Create message to sign
+          const messageBytes = new TextEncoder().encode(message);
+          console.log('Message to sign length:', messageBytes.length);
+          
+          // Sign with Ed25519
+          const signatureBytes = sign(messageBytes, privateKey);
+          console.log('Signature created, length:', signatureBytes.length);
+          
+          // Encode signature as base64URL
+          const signature = btoa(String.fromCharCode(...signatureBytes))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+          
+          const jwt = `${message}.${signature}`;
+          console.log('JWT created successfully, length:', jwt.length);
+          
+          // Make API call to Coinbase Advanced Trading API
+          const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${jwt}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          const result = await response.json();
+          console.log('Coinbase API response status:', response.status);
+          console.log('Coinbase API response:', result);
+          
+          if (!response.ok) {
             return new Response(JSON.stringify({ 
-              success: true,
-              message: `Successfully fetched ${result.accounts?.length || 0} accounts from Coinbase`,
-              accounts: result.accounts,
-              connectionType: 'ed25519'
-            }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-            
-          } catch (cryptoError) {
-            console.error('Crypto operation failed:', cryptoError);
-            
-            // Return detailed crypto error info
-            return new Response(JSON.stringify({ 
-              error: 'Web Crypto Ed25519 operation failed',
-              details: cryptoError.message,
-              keyBytesLength: privateKeyBytes.length,
-              supportsEd25519: 'Ed25519' in crypto.subtle,
-              cryptoSubtleKeys: Object.keys(crypto.subtle)
+              error: 'Coinbase API request failed',
+              status: response.status,
+              details: result,
+              jwt_preview: jwt.substring(0, 50) + '...'
             }), {
               status: 500,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
           }
+          
+          return new Response(JSON.stringify({ 
+            success: true,
+            message: `Successfully fetched ${result.accounts?.length || 0} accounts from Coinbase`,
+            accounts: result.accounts,
+            connectionType: 'ed25519'
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+          
+        } catch (error) {
+          console.error('Ed25519 signing error:', error);
+          return new Response(JSON.stringify({ 
+            error: 'Failed to sign JWT with Ed25519 key',
+            details: error instanceof Error ? error.message : 'Unknown error',
+            errorName: error instanceof Error ? error.name : 'Unknown'
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
         } catch (error) {
           console.error('Ed25519 signing error:', error);
           return new Response(JSON.stringify({ 
