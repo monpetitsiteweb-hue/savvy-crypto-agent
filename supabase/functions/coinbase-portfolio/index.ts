@@ -95,26 +95,62 @@ serve(async (req) => {
       // API key connection - implement API key flow
       console.log('Using API key connection');
       
-      // Decrypt the API credentials (simplified for now)
-      // Note: In production, you would properly decrypt these
-      const apiName = connection.api_name_encrypted; // This would be decrypted
-      const apiKey = connection.api_identifier_encrypted; // This would be decrypted
-      const apiSecret = connection.api_private_key_encrypted; // This would be decrypted
+      // For now, we'll use the encrypted values directly (in production, these would be properly decrypted)
+      const apiKey = connection.api_identifier_encrypted;
+      const apiSecret = connection.api_private_key_encrypted;
       
-      // Make request to Coinbase API
+      // Create timestamp for API request
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const method = 'GET';
+      const requestPath = '/v2/accounts';
+      
+      // Create signature for Coinbase API
+      const message = timestamp + method + requestPath;
+      
       try {
         console.log('Fetching portfolio from Coinbase API...');
         
-        // For now, return a success message indicating the connection is ready
+        // Import crypto for HMAC
+        const crypto = await import('node:crypto');
+        const signature = crypto.createHmac('sha256', apiSecret).update(message).digest('hex');
+        
+        // Make request to Coinbase API
+        const coinbaseResponse = await fetch(`https://api.coinbase.com${requestPath}`, {
+          method: method,
+          headers: {
+            'CB-ACCESS-KEY': apiKey,
+            'CB-ACCESS-SIGN': signature,
+            'CB-ACCESS-TIMESTAMP': timestamp,
+            'CB-VERSION': '2021-06-25',
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        const portfolioData = await coinbaseResponse.json();
+        console.log('Coinbase API response status:', coinbaseResponse.status);
+        
+        if (!coinbaseResponse.ok) {
+          console.error('Coinbase API error:', portfolioData);
+          return new Response(JSON.stringify({ 
+            error: 'Failed to fetch portfolio from Coinbase',
+            details: portfolioData.errors || portfolioData.message || 'API request failed',
+            status: coinbaseResponse.status
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
         return new Response(JSON.stringify({ 
           success: true,
-          message: 'API key connection detected - ready to fetch portfolio',
+          message: `Successfully fetched ${portfolioData.data?.length || 0} accounts from Coinbase`,
+          data: portfolioData.data,
           connectionType: 'api_key',
-          connectionId: connection.id,
-          apiName: 'Hidden for security'
+          connectionId: connection.id
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
+        
       } catch (apiError) {
         console.error('Coinbase API error:', apiError);
         return new Response(JSON.stringify({ 
