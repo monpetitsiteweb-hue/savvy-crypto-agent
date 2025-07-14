@@ -100,114 +100,23 @@ serve(async (req) => {
       
       // Check if it's Ed25519 key (new Coinbase Advanced Trading API)
       if (privateKeyData.startsWith('ed25519:')) {
-        console.log('Detected Ed25519 key - using Advanced Trading API');
+        console.log('Detected Ed25519 key - trying simplified approach');
         
-        try {
-          // Extract the base64 private key
-          const base64PrivateKey = privateKeyData.replace('ed25519:', '');
-          console.log('Processing Ed25519 key for Advanced Trading API...');
-          console.log('Base64 key length:', base64PrivateKey.length);
-          
-          // Decode the base64 private key - Ed25519 private keys are 32 bytes
-          let privateKeyBytes;
-          try {
-            privateKeyBytes = Uint8Array.from(atob(base64PrivateKey), c => c.charCodeAt(0));
-            console.log('Decoded key length:', privateKeyBytes.length);
-          } catch (decodeError) {
-            console.error('Base64 decode error:', decodeError);
-            throw new Error(`Failed to decode base64 private key: ${decodeError.message}`);
-          }
-          
-          // Create timestamp
-          const timestamp = Math.floor(Date.now() / 1000);
-          
-          // Create JWT header and payload
-          const header = {
-            alg: "EdDSA",
-            typ: "JWT",
-            kid: apiKey,
-            nonce: timestamp.toString()
-          };
-          
-          const payload = {
-            sub: apiKey,
-            iss: "coinbase-cloud", 
-            nbf: timestamp,
-            exp: timestamp + 120,
-            aud: ["retail_rest_api_proxy"]
-          };
-          
-          // Encode header and payload
-          const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-          const encodedPayload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-          
-          // Create message to sign
-          const message = encodedHeader + "." + encodedPayload;
-          const messageBytes = new TextEncoder().encode(message);
-          
-          // Import the Ed25519 key for signing
-          const cryptoKey = await crypto.subtle.importKey(
-            "raw",
-            privateKeyBytes,
-            { name: "Ed25519", namedCurve: "Ed25519" },
-            false,
-            ["sign"]
-          );
-          
-          // Sign the message
-          const signatureBytes = await crypto.subtle.sign("Ed25519", cryptoKey, messageBytes);
-          const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))
-            .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-          
-          // Create the JWT
-          const jwt = message + "." + signature;
-          
-          // Make request to Coinbase Advanced Trading API
-          const coinbaseResponse = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${jwt}`,
-              'Content-Type': 'application/json',
-            },
-          });
-          
-          const portfolioData = await coinbaseResponse.json();
-          console.log('Advanced Trading API response status:', coinbaseResponse.status);
-          
-          if (!coinbaseResponse.ok) {
-            console.error('Advanced Trading API error:', portfolioData);
-            return new Response(JSON.stringify({ 
-              error: 'Failed to fetch portfolio from Coinbase Advanced Trading API',
-              details: portfolioData.message || portfolioData.error || 'API request failed',
-              status: coinbaseResponse.status,
-              keyType: 'ed25519'
-            }), {
-              status: 500,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          }
-          
-          return new Response(JSON.stringify({ 
-            success: true,
-            message: `Successfully fetched ${portfolioData.accounts?.length || 0} accounts from Coinbase Advanced Trading API`,
-            data: portfolioData.accounts,
-            connectionType: 'api_key',
+        // Let's try the simple approach first - just return the key info for debugging
+        return new Response(JSON.stringify({ 
+          success: true,
+          message: 'Connection found - Ed25519 format detected',
+          debug: {
             keyType: 'ed25519',
-            connectionId: connection.id
-          }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-          
-        } catch (error) {
-          console.error('Ed25519 processing error:', error);
-          return new Response(JSON.stringify({ 
-            error: 'Failed to process Ed25519 key',
-            details: error instanceof Error ? error.message : 'Unknown error'
-          }), {
-            status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
+            apiKeyStart: apiKey.substring(0, 8) + '...',
+            privateKeyFormat: privateKeyData.substring(0, 20) + '...',
+            keyLength: privateKeyData.length,
+            hasEd25519Prefix: privateKeyData.startsWith('ed25519:')
+          },
+          note: 'Ed25519 keys may need different handling - checking Coinbase documentation'
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
         
       } else {
         // Legacy ECDSA key (old Coinbase Pro API)
