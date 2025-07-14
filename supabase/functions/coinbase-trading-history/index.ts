@@ -80,20 +80,31 @@ serve(async (req) => {
     ];
 
     // Insert mock data into trading_history table for this user
+    // First, delete any existing mock data for this connection to avoid duplicates
+    await supabase
+      .from('trading_history')
+      .delete()
+      .eq('user_coinbase_connection_id', connectionId)
+      .like('coinbase_order_id', 'mock_order_%');
+
+    // Then insert the new mock data
     const { error: insertError } = await supabase
       .from('trading_history')
-      .upsert(
+      .insert(
         mockTradingHistory.map(trade => ({
           ...trade,
           user_id: connection.user_id,
           user_coinbase_connection_id: connectionId,
           coinbase_order_id: `mock_order_${trade.id}`
-        })),
-        { onConflict: 'coinbase_order_id' }
+        }))
       );
 
     if (insertError) {
       console.error('Insert error:', insertError);
+      return new Response(
+        JSON.stringify({ error: 'Failed to save trading history', details: insertError.message }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     return new Response(
