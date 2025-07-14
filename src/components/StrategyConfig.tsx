@@ -137,7 +137,10 @@ export const StrategyConfig = () => {
         <div className="text-center">
           <h3 className="text-xl font-semibold text-white mb-2">No Trading Strategies</h3>
           <p className="text-slate-400 mb-4">Create your first automated trading strategy to get started.</p>
-          <Button onClick={() => setShowBuilder(true)} className="bg-green-500 hover:bg-green-600 text-white">
+          <Button onClick={() => {
+            console.log('Create Strategy button clicked!');
+            setShowBuilder(true);
+          }} className="bg-green-500 hover:bg-green-600 text-white">
             <Plus className="w-4 h-4 mr-2" />
             Create Strategy
           </Button>
@@ -146,8 +149,12 @@ export const StrategyConfig = () => {
     );
   }
 
+  console.log('StrategyConfig render - showBuilder:', showBuilder, 'strategies.length:', strategies.length);
+
   if (showBuilder) {
+    console.log('Rendering StrategyBuilder');
     return <StrategyBuilder onCancel={() => {
+      console.log('StrategyBuilder cancelled');
       setShowBuilder(false);
       fetchStrategies(); // Refresh the list
     }} />;
@@ -161,7 +168,10 @@ export const StrategyConfig = () => {
           <h2 className="text-xl font-bold text-white">Strategy Configuration</h2>
           <p className="text-sm text-slate-400 mt-1">Manage and configure your trading strategies</p>
         </div>
-        <Button onClick={() => setShowBuilder(true)} className="bg-green-500 hover:bg-green-600 text-white">
+        <Button onClick={() => {
+          console.log('New Strategy button clicked!');
+          setShowBuilder(true);
+        }} className="bg-green-500 hover:bg-green-600 text-white">
           <Plus className="w-4 h-4 mr-2" />
           New Strategy
         </Button>
