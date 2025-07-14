@@ -21,6 +21,7 @@ serve(async (req) => {
     
     // Accept both GET and POST requests
     if (!['GET', 'POST'].includes(req.method)) {
+      console.log('Method not allowed:', req.method);
       return new Response(JSON.stringify({ 
         success: false, 
         error: `Method ${req.method} not allowed. Use GET or POST.` 
@@ -29,6 +30,8 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    console.log('Creating Supabase client...');
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
@@ -39,16 +42,21 @@ serve(async (req) => {
       }
     );
 
+    console.log('Getting current user...');
     // Get current user
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
 
+    console.log('User result:', { user: user?.id, error: userError?.message });
+
     if (userError || !user) {
+      console.log('Authentication failed:', userError?.message);
       return new Response(JSON.stringify({ 
         success: false, 
-        error: 'Authentication required' 
+        error: 'Authentication required',
+        details: userError?.message 
       }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
