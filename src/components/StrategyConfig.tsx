@@ -9,6 +9,7 @@ import { Play, Pause, Settings, Trash2, Plus, TrendingUp, Activity } from 'lucid
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { StrategyBuilder } from './strategy/StrategyBuilder';
 
 interface Strategy {
   id: string;
@@ -31,6 +32,7 @@ export const StrategyConfig = () => {
   const { toast } = useToast();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showBuilder, setShowBuilder] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -135,13 +137,17 @@ export const StrategyConfig = () => {
         <div className="text-center">
           <h3 className="text-xl font-semibold text-white mb-2">No Trading Strategies</h3>
           <p className="text-slate-400 mb-4">Create your first automated trading strategy to get started.</p>
-          <Button className="bg-green-500 hover:bg-green-600 text-white">
+          <Button onClick={() => setShowBuilder(true)} className="bg-green-500 hover:bg-green-600 text-white">
             <Plus className="w-4 h-4 mr-2" />
             Create Strategy
           </Button>
         </div>
       </div>
     );
+  }
+
+  if (showBuilder) {
+    return <StrategyBuilder />;
   }
 
   return (
@@ -152,7 +158,7 @@ export const StrategyConfig = () => {
           <h2 className="text-xl font-bold text-white">Strategy Configuration</h2>
           <p className="text-sm text-slate-400 mt-1">Manage and configure your trading strategies</p>
         </div>
-        <Button className="bg-green-500 hover:bg-green-600 text-white">
+        <Button onClick={() => setShowBuilder(true)} className="bg-green-500 hover:bg-green-600 text-white">
           <Plus className="w-4 h-4 mr-2" />
           New Strategy
         </Button>

@@ -112,10 +112,7 @@ export const DashboardPanel = () => {
         });
       } else {
         setPortfolioData(data);
-        toast({
-          title: "Portfolio Updated",
-          description: data.message || 'Portfolio data fetched successfully',
-        });
+        // Remove the refresh - keep data displayed permanently once fetched
       }
     } catch (error) {
       console.error('Portfolio fetch error:', error);
@@ -203,6 +200,19 @@ export const DashboardPanel = () => {
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      // TODO: Implement edit connection functionality
+                      toast({
+                        title: "Edit Connection",
+                        description: "Edit functionality coming soon",
+                      });
+                    }}
+                  >
+                    <Edit className="h-4 w-4" />
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"

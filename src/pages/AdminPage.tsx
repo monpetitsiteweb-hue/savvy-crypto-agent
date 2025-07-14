@@ -2,8 +2,10 @@
 import { useState } from 'react';
 import { Header } from '@/components/Header';
 import { CoinbaseOAuthPanel } from '@/components/admin/CoinbaseOAuthPanel';
+import { LLMConfigPanel } from '@/components/admin/LLMConfigPanel';
+import { DataSourcesPanel } from '@/components/admin/DataSourcesPanel';
 import { useUserRole } from '@/hooks/useUserRole';
-import { Settings, Wallet2, Link, Shield } from 'lucide-react';
+import { Settings, Wallet2, Bot, Database, Shield } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const AdminPage = () => {
@@ -23,7 +25,9 @@ const AdminPage = () => {
 
   const adminTabs = [
     ...userTabs,
-    { id: 'oauth-setup', label: 'OAuth Setup (Admin)', icon: <Settings className="w-4 h-4" /> },
+    { id: 'oauth-setup', label: 'OAuth Setup', icon: <Settings className="w-4 h-4" /> },
+    { id: 'llm-config', label: 'AI Configuration', icon: <Bot className="w-4 h-4" /> },
+    { id: 'data-sources', label: 'Data Sources', icon: <Database className="w-4 h-4" /> },
   ];
 
   const tabs = isAdmin ? adminTabs : userTabs;
@@ -71,6 +75,8 @@ const AdminPage = () => {
               </div>
             )}
             {activeTab === 'oauth-setup' && isAdmin && <CoinbaseOAuthPanel />}
+            {activeTab === 'llm-config' && isAdmin && <LLMConfigPanel />}
+            {activeTab === 'data-sources' && isAdmin && <DataSourcesPanel />}
           </div>
         </div>
       </div>
