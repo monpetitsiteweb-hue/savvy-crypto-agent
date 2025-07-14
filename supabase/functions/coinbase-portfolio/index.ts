@@ -48,12 +48,32 @@ serve(async (req) => {
 
     console.log('User authenticated:', user.id);
 
+    // Parse request body to get connection ID
+    let requestBody = {};
+    try {
+      if (req.method === 'POST') {
+        requestBody = await req.json();
+      }
+    } catch (error) {
+      console.log('No request body or invalid JSON');
+    }
+
+    const requestedConnectionId = (requestBody as any)?.connectionId;
+    console.log('Requested connection ID:', requestedConnectionId);
+
     // Get user's active Coinbase connections
-    const { data: connections, error: connectionError } = await supabaseClient
+    let query = supabaseClient
       .from('user_coinbase_connections')
       .select('*')
       .eq('user_id', user.id)
       .eq('is_active', true);
+
+    // If specific connection requested, filter by it
+    if (requestedConnectionId) {
+      query = query.eq('id', requestedConnectionId);
+    }
+
+    const { data: connections, error: connectionError } = await query;
 
     if (connectionError) {
       console.error('Error fetching connections:', connectionError);
