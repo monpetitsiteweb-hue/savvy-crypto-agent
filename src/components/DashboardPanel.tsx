@@ -55,11 +55,22 @@ export const DashboardPanel = () => {
       });
       
       const data = await response.json();
-      toast({
-        title: "Function Test",
-        description: data.message || 'Function responded',
-      });
+      console.log('Edge function response:', data);
+      
+      if (data.error) {
+        toast({
+          title: "Function Error",
+          description: data.error,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Function Test Success",
+          description: data.message || JSON.stringify(data),
+        });
+      }
     } catch (error) {
+      console.error('Function test error:', error);
       toast({
         title: "Function Test Failed",
         description: error instanceof Error ? error.message : 'Unknown error',
