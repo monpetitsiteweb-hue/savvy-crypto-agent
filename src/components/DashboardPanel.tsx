@@ -64,7 +64,20 @@ export const DashboardPanel = () => {
         
         // Add detailed error info if available
         if (data.details) {
-          errorMessage += `\nDetails: ${data.details}`;
+          if (typeof data.details === 'object') {
+            errorMessage += `\nDetails: ${JSON.stringify(data.details, null, 2)}`;
+          } else {
+            errorMessage += `\nDetails: ${data.details}`;
+          }
+        }
+        if (data.status) {
+          errorMessage += `\nStatus: ${data.status}`;
+        }
+        if (data.jwt_preview) {
+          errorMessage += `\nJWT Preview: ${data.jwt_preview}`;
+        }
+        if (data.contentType) {
+          errorMessage += `\nContent Type: ${data.contentType}`;
         }
         if (data.keyBytesLength) {
           errorMessage += `\nKey Length: ${data.keyBytesLength}`;
