@@ -119,14 +119,14 @@ serve(async (req) => {
            nonce: nonce
          };
         
-         const payload = {
-           sub: apiKey,
-           iss: "cdp",
-           nbf: timestamp,
-           exp: timestamp + 120, // 2 minutes
-           aud: ["retail_rest_api_proxy"],
-           uri: "GET api.coinbase.com/api/v3/brokerage/accounts"
-         };
+          const payload = {
+            sub: apiKey,
+            iss: "cdp",
+            nbf: timestamp,
+            exp: timestamp + 120, // 2 minutes
+            aud: ["retail_rest_api_proxy"],
+            uri: "GET api.coinbase.com/api/v3/brokerage/accounts"
+          };
         
         // Base64URL encode (without padding)
         const encodeBase64URL = (obj) => {
@@ -177,8 +177,8 @@ serve(async (req) => {
           const jwt = `${message}.${signature}`;
           console.log('JWT created successfully, length:', jwt.length);
           
-          // Make API call to Coinbase Advanced Trading API (try correct endpoint)
-          const response = await fetch('https://api.coinbase.com/api/v3/brokerage/portfolios', {
+          // Make API call to Coinbase Advanced Trading API (must match JWT URI exactly)
+          const response = await fetch('https://api.coinbase.com/api/v3/brokerage/accounts', {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${jwt}`,
