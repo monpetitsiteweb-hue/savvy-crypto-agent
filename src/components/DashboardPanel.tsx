@@ -42,8 +42,24 @@ export const DashboardPanel = () => {
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
 
+  // Load saved portfolio data and selected connection from localStorage on mount
   useEffect(() => {
     if (user) {
+      const savedData = localStorage.getItem(`portfolio_${user.id}`);
+      const savedConnectionId = localStorage.getItem(`selectedConnection_${user.id}`);
+      
+      if (savedData) {
+        try {
+          setPortfolioData(JSON.parse(savedData));
+        } catch (error) {
+          console.error('Error parsing saved portfolio data:', error);
+        }
+      }
+      
+      if (savedConnectionId) {
+        setSelectedConnectionId(savedConnectionId);
+      }
+      
       fetchConnections();
     }
   }, [user]);
@@ -62,9 +78,11 @@ export const DashboardPanel = () => {
       if (error) throw error;
       setConnections(data || []);
       
-      // Auto-select first connection if none selected
+      // Auto-select first connection if none selected and no saved selection
       if (data && data.length > 0 && !selectedConnectionId) {
-        setSelectedConnectionId(data[0].id);
+        const firstConnectionId = data[0].id;
+        setSelectedConnectionId(firstConnectionId);
+        localStorage.setItem(`selectedConnection_${user.id}`, firstConnectionId);
       }
     } catch (error) {
       console.error('Error fetching connections:', error);
@@ -112,7 +130,10 @@ export const DashboardPanel = () => {
         });
       } else {
         setPortfolioData(data);
-        // Remove the refresh - keep data displayed permanently once fetched
+        // Save portfolio data to localStorage
+        if (user) {
+          localStorage.setItem(`portfolio_${user.id}`, JSON.stringify(data));
+        }
       }
     } catch (error) {
       console.error('Portfolio fetch error:', error);
@@ -139,6 +160,11 @@ export const DashboardPanel = () => {
       if (selectedConnectionId === connectionId) {
         setSelectedConnectionId('');
         setPortfolioData(null);
+        // Clear saved data when connection is deleted
+        if (user) {
+          localStorage.removeItem(`portfolio_${user.id}`);
+          localStorage.removeItem(`selectedConnection_${user.id}`);
+        }
       }
       
       toast({
@@ -263,7 +289,16 @@ export const DashboardPanel = () => {
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-white">Portfolio Dashboard</h3>
             <div className="flex items-center space-x-3">
-              <Select value={selectedConnectionId} onValueChange={setSelectedConnectionId}>
+              <Select 
+                value={selectedConnectionId} 
+                onValueChange={(value) => {
+                  setSelectedConnectionId(value);
+                  // Save selected connection to localStorage
+                  if (user) {
+                    localStorage.setItem(`selectedConnection_${user.id}`, value);
+                  }
+                }}
+              >
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Select connection" />
                 </SelectTrigger>
