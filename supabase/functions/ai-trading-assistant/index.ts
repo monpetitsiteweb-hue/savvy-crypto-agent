@@ -173,48 +173,129 @@ ${!hasStopLoss ? '• 🚨 URGENT: Enable stop-loss protection (recommended 2-4%
       `;
     }
 
-    // Handle specific questions first
+    // Intelligent question analysis and strategy interpretation
     if (!responseMessage && !recommendations) {
-      // Handle specific stop loss questions
-      if ((lowerMessage.includes('stop loss') || lowerMessage.includes('stop-loss')) && 
-          (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
-        const stopLossValue = currentConfig?.stopLoss ? `${currentConfig.stopLossPercentage}%` : 'Disabled';
-        responseMessage = `🛡️ **Your Stop Loss:** ${stopLossValue}`;
+      // Analyze sell strategy
+      if (lowerMessage.includes('sell strategy') || lowerMessage.includes('selling strategy') || 
+          (lowerMessage.includes('sell') && (lowerMessage.includes('strategy') || lowerMessage.includes('when') || lowerMessage.includes('how')))) {
+        
+        const hasStopLoss = currentConfig?.stopLoss;
+        const stopLossPercent = currentConfig?.stopLossPercentage || 3;
+        const takeProfitPercent = currentConfig?.takeProfit || 1.3;
+        const riskLevel = currentConfig?.riskLevel || 'medium';
+        const strategyType = currentConfig?.strategyType || 'trend-following';
+        
+        responseMessage = `📈 **Your Selling Strategy Analysis:**
+
+**Exit Triggers:**
+${hasStopLoss ? `• 🛡️ Stop-loss protection at ${stopLossPercent}% loss (Risk management active)` : '• ⚠️ NO STOP-LOSS - You\'re exposed to unlimited downside risk!'}
+• 🎯 Take profit target at ${takeProfitPercent}% gain
+• 📊 ${strategyType} signals for trend reversals
+
+**Risk Profile:** ${riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1)}
+${riskLevel === 'low' ? '- Conservative approach, quick to lock in profits' : 
+  riskLevel === 'high' ? '- Aggressive approach, holding for larger gains' : 
+  '- Balanced approach between risk and reward'}
+
+**Selling Logic:**
+${takeProfitPercent < 1.5 ? '📤 Quick profit-taking strategy (scalping approach)' : 
+  takeProfitPercent > 2.5 ? '📈 Hold for larger gains (swing trading)' : 
+  '⚖️ Balanced profit targets'}
+
+${!hasStopLoss ? '🚨 **CRITICAL:** Enable stop-loss immediately to protect your capital!' : '✅ Good risk management with stop-loss protection'}`;
       }
-      // Handle specific take profit questions
+      
+      // Analyze buy strategy  
+      else if (lowerMessage.includes('buy strategy') || lowerMessage.includes('buying strategy') || 
+               (lowerMessage.includes('buy') && (lowerMessage.includes('strategy') || lowerMessage.includes('when') || lowerMessage.includes('how')))) {
+        
+        const maxPosition = currentConfig?.maxPosition || 5000;
+        const riskLevel = currentConfig?.riskLevel || 'medium';
+        const strategyType = currentConfig?.strategyType || 'trend-following';
+        
+        responseMessage = `📊 **Your Buying Strategy Analysis:**
+
+**Entry Signals:**
+• 📈 ${strategyType} indicators for market timing
+• 💰 Maximum position size: €${maxPosition.toLocaleString()}
+• ⚖️ ${riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1)} risk tolerance
+
+**Position Sizing Logic:**
+${riskLevel === 'low' ? '- Smaller positions, prioritizing capital preservation' : 
+  riskLevel === 'high' ? '- Larger positions for maximum growth potential' : 
+  '- Moderate position sizes balancing growth and safety'}
+
+**Buy Triggers:**
+${strategyType === 'trend-following' ? '- Entering on confirmed upward momentum\n- Avoiding falling knives (catching downtrends)' :
+  strategyType === 'mean-reversion' ? '- Buying oversold conditions\n- Targeting bounce-back opportunities' :
+  '- Following systematic entry rules\n- Waiting for confirmation signals'}
+
+**Risk Management:**
+• Max exposure per trade: €${maxPosition.toLocaleString()}
+• Portfolio diversification across positions`;
+      }
+      
+      // Specific component questions
+      else if ((lowerMessage.includes('stop loss') || lowerMessage.includes('stop-loss')) && 
+               (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
+        const stopLossValue = currentConfig?.stopLoss ? `${currentConfig.stopLossPercentage}%` : 'Disabled';
+        responseMessage = `🛡️ **Your Stop Loss:** ${stopLossValue}${!currentConfig?.stopLoss ? ' ⚠️ This means unlimited downside risk!' : ''}`;
+      }
       else if ((lowerMessage.includes('take profit') || lowerMessage.includes('profit')) && 
                (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
         responseMessage = `🎯 **Your Take Profit:** ${currentConfig?.takeProfit || 1.3}%`;
       }
-      // Handle specific risk level questions
       else if (lowerMessage.includes('risk') && 
                (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
         responseMessage = `⚖️ **Your Risk Level:** ${(currentConfig?.riskLevel || 'medium').charAt(0).toUpperCase() + (currentConfig?.riskLevel || 'medium').slice(1)}`;
       }
-      // Handle specific max position questions
       else if ((lowerMessage.includes('max position') || lowerMessage.includes('position size')) && 
                (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
         responseMessage = `💰 **Your Max Position:** €${currentConfig?.maxPosition?.toLocaleString() || '5,000'}`;
       }
-      // Handle general configuration questions
+      
+      // Strategy analysis questions
+      else if (lowerMessage.includes('strategy') && (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
+        const hasStopLoss = currentConfig?.stopLoss;
+        const riskLevel = currentConfig?.riskLevel || 'medium';
+        
+        responseMessage = `🎯 **Your Complete Trading Strategy:**
+
+**Type:** ${currentConfig?.strategyType || 'trend-following'}
+**Risk Level:** ${riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1)}
+**Position Size:** €${currentConfig?.maxPosition?.toLocaleString() || '5,000'} max
+
+**Entry/Exit Rules:**
+• Buy: ${currentConfig?.strategyType || 'trend-following'} signals
+• Sell: ${currentConfig?.takeProfit || 1.3}% profit OR ${hasStopLoss ? `${currentConfig.stopLossPercentage}% loss` : 'NO STOP LOSS ⚠️'}
+
+**Overall Assessment:**
+${!hasStopLoss ? '🚨 HIGH RISK - No downside protection' : 
+  riskLevel === 'high' && currentConfig?.takeProfit > 2 ? '📈 Aggressive growth strategy' :
+  riskLevel === 'low' && currentConfig?.takeProfit < 1.5 ? '🛡️ Conservative preservation strategy' :
+  '⚖️ Balanced risk/reward approach'}`;
+      }
+      
+      // Fallback for general questions
       else if (lowerMessage.includes('what') || lowerMessage.includes('current') || lowerMessage.includes('my')) {
-        responseMessage = `📋 **Your Current Strategy Configuration:**
-• Risk Level: ${currentConfig?.riskLevel || 'medium'}
-• Max Position: €${currentConfig?.maxPosition?.toLocaleString() || '5,000'}
-• Take Profit: ${currentConfig?.takeProfit || 1.3}%
-• Stop Loss: ${currentConfig?.stopLoss ? `${currentConfig.stopLossPercentage}%` : 'Disabled'}
-• Auto Trading: ${currentConfig?.autoTrading ? 'Enabled' : 'Disabled'}
-• Strategy Type: ${currentConfig?.strategyType || 'trend-following'}
+        responseMessage = `📋 **Quick Strategy Overview:**
+• Risk: ${currentConfig?.riskLevel || 'medium'} | Max: €${currentConfig?.maxPosition?.toLocaleString() || '5,000'}
+• Profit: ${currentConfig?.takeProfit || 1.3}% | Stop: ${currentConfig?.stopLoss ? `${currentConfig.stopLossPercentage}%` : 'Disabled'}
+• Type: ${currentConfig?.strategyType || 'trend-following'} | Auto: ${currentConfig?.autoTrading ? 'On' : 'Off'}
 
-Ask me to change any of these settings or request trading advice!`;
+Ask me specific questions like:
+• "What's my sell strategy?"
+• "How do I buy positions?"  
+• "Should I change my risk level?"`;
       } else {
-        responseMessage = `I can help you:
-• 🔧 Modify settings: "change stop loss to 2.5%"
-• 📈 Get advice: "give me trading recommendations"  
-• 📊 Check config: "what's my current setup?"
-• 🎯 Analyze market: "what are current crypto trends?"
+        responseMessage = `I can analyze your trading strategy intelligently:
 
-What would you like to do?`;
+• 📈 **Strategy Analysis:** "What's my sell strategy?" or "How does my buying work?"
+• 🔧 **Modify Settings:** "Change stop loss to 2.5%" or "Set risk to aggressive"
+• 💡 **Get Advice:** "Should I adjust my strategy?" or "What's risky about my setup?"
+• 📊 **Market Insights:** "Give me trading recommendations"
+
+What would you like to know?`;
       }
     }
 
