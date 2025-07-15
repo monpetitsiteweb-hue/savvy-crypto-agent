@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -33,23 +33,24 @@ export const StrategyConfig = () => {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
   const [showBuilder, setShowBuilder] = useState(false);
+  const [forceUpdate, setForceUpdate] = useState(0);
 
-  // Fix React re-rendering issue by using a callback form of setState
-  const toggleBuilder = () => {
-    setShowBuilder(prev => {
-      console.log('toggleBuilder: current showBuilder =', prev);
-      return !prev;
-    });
-  };
+  // Use a ref to force immediate DOM updates
+  const containerRef = useRef<HTMLDivElement>(null);
 
+  // Force component remount when showBuilder changes
   const showBuilderPanel = () => {
-    console.log('showBuilderPanel called!');
-    alert('BUTTON CLICKED - showBuilderPanel called!');
-    setShowBuilder(prev => {
-      console.log('showBuilderPanel: setting to true, was:', prev);
-      alert('Setting showBuilder to true, was: ' + prev);
-      return true;
-    });
+    setShowBuilder(true);
+    setForceUpdate(prev => prev + 1);
+    
+    // Force immediate DOM update
+    setTimeout(() => {
+      if (containerRef.current) {
+        containerRef.current.style.display = 'none';
+        containerRef.current.offsetHeight; // Force reflow
+        containerRef.current.style.display = 'block';
+      }
+    }, 0);
   };
   useEffect(() => {
     if (user) {
@@ -163,22 +164,21 @@ export const StrategyConfig = () => {
     );
   }
 
-  // Render StrategyBuilder if showBuilder is true
-  console.log('RENDER CHECK: showBuilder =', showBuilder);
+  // Force complete re-render with key
   if (showBuilder) {
-    console.log('RENDERING STRATEGY BUILDER!');
-    alert('Rendering StrategyBuilder!');
     return (
-      <StrategyBuilder onCancel={() => {
-        console.log('StrategyBuilder cancelled');
-        setShowBuilder(false);
-        fetchStrategies(); // Refresh the list
-      }} />
+      <div key={`builder-${forceUpdate}`}>
+        <StrategyBuilder onCancel={() => {
+          setShowBuilder(false);
+          setForceUpdate(prev => prev + 1);
+          fetchStrategies();
+        }} />
+      </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div ref={containerRef} key={`config-${forceUpdate}`} className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
