@@ -430,24 +430,10 @@ export const StrategyConfig = () => {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex gap-2">
-            <Button onClick={() => executeSandboxTrade('buy')} size="sm" className="bg-green-600 hover:bg-green-700">
-              🏖️ Sandbox Buy
-            </Button>
-            <Button onClick={() => executeSandboxTrade('sell')} size="sm" className="bg-red-600 hover:bg-red-700">
-              🏖️ Sandbox Sell
-            </Button>
-            {!activeStrategy?.test_mode && (
-              <>
-                <Button onClick={() => executeLiveTrade('buy')} size="sm" className="bg-blue-600 hover:bg-blue-700">
-                  💸 Live Buy
-                </Button>
-                <Button onClick={() => executeLiveTrade('sell')} size="sm" className="bg-orange-600 hover:bg-orange-700">
-                  💸 Live Sell
-                </Button>
-              </>
-            )}
-          </div>
+          <Badge variant="secondary" className="bg-purple-500/20 text-purple-400 border-purple-500/30">
+            <Zap className="h-3 w-3 mr-1" />
+            Automated Trading Active
+          </Badge>
           <Button onClick={handleEditStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
             <Edit className="w-4 h-4 mr-2" />
             Edit Strategy
