@@ -103,7 +103,7 @@ export const StrategyConfig = () => {
           
           // Load performance data
           await loadStrategyPerformance(activeStrategyData.id);
-          await loadMockTrades(activeStrategyData.id);
+          await loadSandboxTrades(activeStrategyData.id);
         } else {
           setHasActiveStrategy(false);
           setActiveStrategy(null);
@@ -136,75 +136,6 @@ export const StrategyConfig = () => {
     }
   };
 
-  const loadMockTrades = async (strategyId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('mock_trades')
-        .select('*')
-        .eq('strategy_id', strategyId)
-        .order('executed_at', { ascending: false })
-        .limit(10);
-
-      if (!error && data) {
-        setMockTrades(data);
-      }
-    } catch (error) {
-      console.error('Error loading mock trades:', error);
-    }
-  };
-
-  const executeMockTrade = async (tradeType: 'buy' | 'sell', cryptocurrency: string = 'BTC') => {
-    if (!activeStrategy) return;
-
-    try {
-      // Simulate realistic crypto prices (you could fetch real prices from an API)
-      const mockPrices: Record<string, number> = {
-        'BTC': 45000 + (Math.random() - 0.5) * 4000,
-        'ETH': 3000 + (Math.random() - 0.5) * 300,
-        'ADA': 0.8 + (Math.random() - 0.5) * 0.2,
-      };
-
-      const price = mockPrices[cryptocurrency] || mockPrices['BTC'];
-      const amount = tradeType === 'buy' 
-        ? (strategyConfig.maxPosition * 0.1) / price // 10% of max position
-        : Math.random() * 0.5; // Random amount to sell
-
-      const { data, error } = await supabase.functions.invoke('execute-mock-trade', {
-        body: {
-          strategyId: activeStrategy.id,
-          tradeType,
-          cryptocurrency,
-          amount,
-          price,
-          strategyTrigger: `${strategyConfig.strategyType} signal`,
-          marketConditions: {
-            volatility: Math.random() * 10,
-            volume: Math.random() * 1000000,
-            trend: Math.random() > 0.5 ? 'bullish' : 'bearish'
-          }
-        }
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: "Mock Trade Executed",
-        description: `${tradeType.toUpperCase()} ${amount.toFixed(8)} ${cryptocurrency} at $${price.toFixed(2)}`,
-      });
-
-      // Reload data
-      await loadStrategyPerformance(activeStrategy.id);
-      await loadMockTrades(activeStrategy.id);
-    } catch (error) {
-      console.error('Error executing mock trade:', error);
-      toast({
-        title: "Trade Failed",
-        description: "Failed to execute mock trade",
-        variant: "destructive",
-      });
-    }
-  };
-
   const executeSandboxTrade = async (tradeType: 'buy' | 'sell', cryptocurrency: string = 'BTC') => {
     if (!activeStrategy) return;
 
@@ -226,17 +157,15 @@ export const StrategyConfig = () => {
         return;
       }
 
-      // Realistic amounts and prices for sandbox
+      // Realistic amounts for sandbox testing
       const amount = tradeType === 'buy' ? '0.001' : '0.0005'; // Small amounts for testing
-      const price = tradeType === 'buy' ? '45000' : '46000'; // Realistic BTC price
-
+      
       const { data, error } = await supabase.functions.invoke('coinbase-sandbox-trade', {
         body: {
           connectionId: connections[0].id,
           tradeType,
           cryptocurrency,
           amount,
-          price,
           strategyId: activeStrategy.id
         }
       });
@@ -250,7 +179,7 @@ export const StrategyConfig = () => {
 
       // Reload data
       await loadStrategyPerformance(activeStrategy.id);
-      await loadMockTrades(activeStrategy.id);
+      await loadSandboxTrades(activeStrategy.id);
     } catch (error) {
       console.error('Error executing sandbox trade:', error);
       toast({
@@ -259,6 +188,33 @@ export const StrategyConfig = () => {
         variant: "destructive",
       });
     }
+  };
+
+  const loadSandboxTrades = async (strategyId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('trading_history')
+        .select('*')
+        .eq('strategy_id', strategyId)
+        .order('executed_at', { ascending: false })
+        .limit(10);
+
+      if (!error && data) {
+        setMockTrades(data);
+      }
+    } catch (error) {
+      console.error('Error loading sandbox trades:', error);
+    }
+  };
+
+  const executeLiveTrade = async (tradeType: 'buy' | 'sell', cryptocurrency: string = 'BTC') => {
+    if (!activeStrategy) return;
+
+    toast({
+      title: "Live Trading Not Implemented",
+      description: "Live trading will be implemented after sandbox validation",
+      variant: "destructive",
+    });
   };
 
   const handleCreateStrategy = () => {
@@ -474,24 +430,24 @@ export const StrategyConfig = () => {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {activeStrategy?.test_mode && (
-            <div className="flex gap-2">
-              <Button onClick={() => executeMockTrade('buy')} size="sm" className="bg-green-600 hover:bg-green-700">
-                <Zap className="w-4 h-4 mr-1" />
-                Mock Buy
-              </Button>
-              <Button onClick={() => executeMockTrade('sell')} size="sm" className="bg-red-600 hover:bg-red-700">
-                <Zap className="w-4 h-4 mr-1" />
-                Mock Sell
-              </Button>
-              <Button onClick={() => executeSandboxTrade('buy')} size="sm" className="bg-blue-600 hover:bg-blue-700">
-                🏖️ Sandbox Buy
-              </Button>
-              <Button onClick={() => executeSandboxTrade('sell')} size="sm" className="bg-orange-600 hover:bg-orange-700">
-                🏖️ Sandbox Sell
-              </Button>
-            </div>
-          )}
+          <div className="flex gap-2">
+            <Button onClick={() => executeSandboxTrade('buy')} size="sm" className="bg-green-600 hover:bg-green-700">
+              🏖️ Sandbox Buy
+            </Button>
+            <Button onClick={() => executeSandboxTrade('sell')} size="sm" className="bg-red-600 hover:bg-red-700">
+              🏖️ Sandbox Sell
+            </Button>
+            {!activeStrategy?.test_mode && (
+              <>
+                <Button onClick={() => executeLiveTrade('buy')} size="sm" className="bg-blue-600 hover:bg-blue-700">
+                  💸 Live Buy
+                </Button>
+                <Button onClick={() => executeLiveTrade('sell')} size="sm" className="bg-orange-600 hover:bg-orange-700">
+                  💸 Live Sell
+                </Button>
+              </>
+            )}
+          </div>
           <Button onClick={handleEditStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
             <Edit className="w-4 h-4 mr-2" />
             Edit Strategy
@@ -590,7 +546,7 @@ export const StrategyConfig = () => {
         {/* Recent Trades Display */}
         {mockTrades.length > 0 && (
           <Card className="p-6 bg-slate-700/30 border-slate-600">
-            <h3 className="text-lg font-semibold text-white mb-4">Recent Test Trades</h3>
+            <h3 className="text-lg font-semibold text-white mb-4">Recent Sandbox Trades</h3>
             <div className="space-y-3">
               {mockTrades.slice(0, 5).map((trade) => (
                 <div key={trade.id} className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg border border-slate-600">
@@ -606,6 +562,9 @@ export const StrategyConfig = () => {
                           {trade.trade_type.toUpperCase()}
                         </Badge>
                         <span className="text-white font-medium">{trade.cryptocurrency}</span>
+                        <Badge variant="outline" className="text-orange-400 border-orange-400/30">
+                          🏖️ Sandbox
+                        </Badge>
                       </div>
                       <p className="text-xs text-slate-400">
                         {new Date(trade.executed_at).toLocaleDateString()} at {new Date(trade.executed_at).toLocaleTimeString()}
@@ -613,11 +572,9 @@ export const StrategyConfig = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-white font-medium">${trade.total_value.toFixed(2)}</p>
-                    {trade.profit_loss !== 0 && (
-                      <p className={`text-xs ${trade.profit_loss > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {trade.profit_loss > 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
-                      </p>
+                    <p className="text-white font-medium">${Number(trade.total_value).toFixed(2)}</p>
+                    {trade.coinbase_order_id && (
+                      <p className="text-xs text-slate-400">Order: {trade.coinbase_order_id.slice(0, 8)}...</p>
                     )}
                   </div>
                 </div>
