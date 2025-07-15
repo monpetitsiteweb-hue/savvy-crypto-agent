@@ -217,6 +217,37 @@ export const StrategyConfig = () => {
     });
   };
 
+  const triggerAutomatedTrading = async () => {
+    try {
+      toast({
+        title: "Running Automated Trading Cycle",
+        description: "Analyzing market conditions and executing trades...",
+      });
+
+      const { data, error } = await supabase.functions.invoke('automated-trading-engine');
+      
+      if (error) throw error;
+
+      toast({
+        title: "Automated Trading Completed",
+        description: `Processed ${data.processedStrategies} strategies. Check trading history for results.`,
+      });
+
+      // Reload data after automated trading
+      if (activeStrategy) {
+        await loadStrategyPerformance(activeStrategy.id);
+        await loadSandboxTrades(activeStrategy.id);
+      }
+    } catch (error) {
+      console.error('Error running automated trading:', error);
+      toast({
+        title: "Automated Trading Failed",
+        description: error.message || "Failed to run automated trading cycle",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleCreateStrategy = () => {
     setIsEditing(false);
     setViewMode('configure');
@@ -434,6 +465,10 @@ export const StrategyConfig = () => {
             <Zap className="h-3 w-3 mr-1" />
             Automated Trading Active
           </Badge>
+          <Button onClick={triggerAutomatedTrading} size="sm" className="bg-green-600 hover:bg-green-700">
+            <Activity className="w-4 h-4 mr-2" />
+            Run Trading Cycle
+          </Button>
           <Button onClick={handleEditStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
             <Edit className="w-4 h-4 mr-2" />
             Edit Strategy
