@@ -46,6 +46,21 @@ export const StrategyConfig = () => {
   const [activeMenuItem, setActiveMenuItem] = useState<MenuItem>('basic-settings');
   const [hasActiveStrategy, setHasActiveStrategy] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [activeStrategy, setActiveStrategy] = useState<any>(null);
+  const [strategyConfig, setStrategyConfig] = useState({
+    name: '',
+    maxPosition: 5000,
+    riskLevel: 'medium',
+    autoTrading: false,
+    aiStrategy: false,
+    strategyType: 'trend-following',
+    trailingStopBuy: false,
+    trailingStopBuyPercentage: 1.5,
+    takeProfit: 1.3,
+    orderType: 'limit',
+    stopLoss: false,
+    stopLossPercentage: 3,
+  });
 
   // Check if user has an active strategy
   useEffect(() => {
@@ -57,10 +72,18 @@ export const StrategyConfig = () => {
         .select('*')
         .eq('user_id', user.id)
         .eq('is_active', true)
-        .single();
+        .maybeSingle();
 
       if (data && !error) {
         setHasActiveStrategy(true);
+        setActiveStrategy(data);
+        // Load strategy configuration from the database
+        if (data.configuration && typeof data.configuration === 'object') {
+          setStrategyConfig(prevConfig => ({ ...prevConfig, ...(data.configuration as Record<string, any>) }));
+        }
+      } else {
+        setHasActiveStrategy(false);
+        setActiveStrategy(null);
       }
     };
 
@@ -83,13 +106,64 @@ export const StrategyConfig = () => {
   };
 
   const handleSaveStrategy = async () => {
-    // Save strategy logic here
-    toast({
-      title: "Strategy saved",
-      description: "Your trading strategy has been saved successfully.",
-    });
-    setViewMode('overview');
-    setHasActiveStrategy(true);
+    if (!user) return;
+    
+    try {
+      if (isEditing && activeStrategy) {
+        // Update existing strategy
+        const { error } = await supabase
+          .from('trading_strategies')
+          .update({
+            strategy_name: strategyConfig.name || 'My Trading Strategy',
+            configuration: strategyConfig,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', activeStrategy.id)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+      } else {
+        // Create new strategy
+        const { error } = await supabase
+          .from('trading_strategies')
+          .insert({
+            user_id: user.id,
+            strategy_name: strategyConfig.name || 'My Trading Strategy',
+            configuration: strategyConfig,
+            is_active: true,
+          });
+
+        if (error) throw error;
+      }
+
+      toast({
+        title: "Strategy saved",
+        description: "Your trading strategy has been saved successfully.",
+      });
+      
+      // Refresh the active strategy state
+      const { data } = await supabase
+        .from('trading_strategies')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .maybeSingle();
+      
+      if (data) {
+        setActiveStrategy(data);
+        setHasActiveStrategy(true);
+      }
+      
+      setViewMode('overview');
+    } catch (error) {
+      console.error('Error saving strategy:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save strategy. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   // Performance Overview Component
@@ -203,7 +277,8 @@ export const StrategyConfig = () => {
                 <Label className="text-slate-300 mb-2 block">Strategy Name</Label>
                 <Input 
                   type="text" 
-                  defaultValue={isEditing ? "My Trading Strategy" : ""} 
+                  value={strategyConfig.name}
+                  onChange={(e) => setStrategyConfig(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="Enter strategy name"
                   className="bg-slate-600 border-slate-500 text-white"
                 />
@@ -213,14 +288,15 @@ export const StrategyConfig = () => {
                 <Label className="text-slate-300 mb-2 block">Max Total Position (€)</Label>
                 <Input 
                   type="number" 
-                  defaultValue="5000" 
+                  value={strategyConfig.maxPosition}
+                  onChange={(e) => setStrategyConfig(prev => ({ ...prev, maxPosition: Number(e.target.value) }))}
                   className="bg-slate-600 border-slate-500 text-white"
                 />
               </div>
               
               <div>
                 <Label className="text-slate-300 mb-2 block">Risk Tolerance</Label>
-                <Select defaultValue="medium">
+                <Select value={strategyConfig.riskLevel} onValueChange={(value) => setStrategyConfig(prev => ({ ...prev, riskLevel: value }))}>
                   <SelectTrigger className="bg-slate-600 border-slate-500 text-white">
                     <SelectValue />
                   </SelectTrigger>
@@ -233,7 +309,11 @@ export const StrategyConfig = () => {
               </div>
               
               <div className="flex items-center space-x-2">
-                <Switch id="auto-trading" defaultChecked={isEditing} />
+                <Switch 
+                  id="auto-trading" 
+                  checked={strategyConfig.autoTrading}
+                  onCheckedChange={(checked) => setStrategyConfig(prev => ({ ...prev, autoTrading: checked }))}
+                />
                 <Label htmlFor="auto-trading" className="text-slate-300">Enable auto trading</Label>
               </div>
             </div>
