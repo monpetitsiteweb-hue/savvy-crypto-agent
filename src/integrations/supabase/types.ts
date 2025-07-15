@@ -248,10 +248,12 @@ export type Database = {
           executed_at: string
           fees: number | null
           id: string
+          is_sandbox: boolean | null
           notes: string | null
           price: number
           strategy_id: string | null
           total_value: number
+          trade_environment: string | null
           trade_type: string
           user_coinbase_connection_id: string | null
           user_id: string
@@ -263,10 +265,12 @@ export type Database = {
           executed_at?: string
           fees?: number | null
           id?: string
+          is_sandbox?: boolean | null
           notes?: string | null
           price: number
           strategy_id?: string | null
           total_value: number
+          trade_environment?: string | null
           trade_type: string
           user_coinbase_connection_id?: string | null
           user_id: string
@@ -278,10 +282,12 @@ export type Database = {
           executed_at?: string
           fees?: number | null
           id?: string
+          is_sandbox?: boolean | null
           notes?: string | null
           price?: number
           strategy_id?: string | null
           total_value?: number
+          trade_environment?: string | null
           trade_type?: string
           user_coinbase_connection_id?: string | null
           user_id?: string
