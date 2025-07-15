@@ -196,50 +196,53 @@ export const CoinbaseOAuthPanel = () => {
   }
 
   return (
-    <Card>
+    <Card className="bg-slate-700/30 border-slate-600">
       <CardHeader>
-        <CardTitle className="flex items-center justify-between">
+        <CardTitle className="flex items-center justify-between text-white">
           Coinbase OAuth Credentials (Admin)
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
-              <Button>
+              <Button className="bg-green-600 hover:bg-green-700 text-white">
                 <Plus className="w-4 h-4 mr-2" />
                 Add OAuth App
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="bg-slate-800 border-slate-700">
               <DialogHeader>
-                <DialogTitle>Add Coinbase OAuth Credentials</DialogTitle>
+                <DialogTitle className="text-white">Add Coinbase OAuth Credentials</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleAddCredentials} className="space-y-4">
                 <div>
-                  <Label htmlFor="app_name">App Name</Label>
+                  <Label htmlFor="app_name" className="text-slate-300">App Name</Label>
                   <Input
                     id="app_name"
                     type="text"
                     value={formData.app_name}
                     onChange={(e) => setFormData({ ...formData, app_name: e.target.value })}
                     required
+                    className="bg-slate-700 border-slate-600 text-white"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="client_id">Client ID</Label>
+                  <Label htmlFor="client_id" className="text-slate-300">Client ID</Label>
                   <Input
                     id="client_id"
                     type="text"
                     value={formData.client_id}
                     onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
                     required
+                    className="bg-slate-700 border-slate-600 text-white"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="client_secret">Client Secret</Label>
+                  <Label htmlFor="client_secret" className="text-slate-300">Client Secret</Label>
                   <Input
                     id="client_secret"
                     type="password"
                     value={formData.client_secret}
                     onChange={(e) => setFormData({ ...formData, client_secret: e.target.value })}
                     required
+                    className="bg-slate-700 border-slate-600 text-white"
                   />
                 </div>
                 <div className="flex items-center space-x-2">
@@ -248,9 +251,9 @@ export const CoinbaseOAuthPanel = () => {
                     checked={formData.is_sandbox}
                     onCheckedChange={(checked) => setFormData({ ...formData, is_sandbox: checked })}
                   />
-                  <Label htmlFor="is_sandbox">Sandbox Mode</Label>
+                  <Label htmlFor="is_sandbox" className="text-slate-300">Sandbox Mode</Label>
                 </div>
-                <Button type="submit" className="w-full">
+                <Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white">
                   Add OAuth Credentials
                 </Button>
               </form>
@@ -258,20 +261,20 @@ export const CoinbaseOAuthPanel = () => {
           </Dialog>
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="text-white">
         {credentials.length === 0 ? (
-          <p className="text-muted-foreground">No OAuth credentials configured yet.</p>
+          <p className="text-slate-400">No OAuth credentials configured yet.</p>
         ) : (
           <div className="space-y-4">
             {credentials.map((creds) => (
-              <div key={creds.id} className="flex items-center justify-between p-4 border rounded-lg">
+              <div key={creds.id} className="flex items-center justify-between p-4 border border-slate-600 rounded-lg bg-slate-800/30">
                 <div>
-                  <h3 className="font-medium">{creds.app_name}</h3>
-                  <p className="text-sm text-muted-foreground">
+                  <h3 className="font-medium text-white">{creds.app_name}</h3>
+                  <p className="text-sm text-slate-400">
                     {creds.is_sandbox ? "Sandbox" : "Production"} • 
                     Status: {creds.is_active ? "Active" : "Inactive"}
                   </p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-slate-500">
                     Created: {new Date(creds.created_at).toLocaleDateString()}
                   </p>
                 </div>
@@ -280,6 +283,7 @@ export const CoinbaseOAuthPanel = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => openEditDialog(creds)}
+                    className="border-slate-600 text-slate-300 hover:bg-slate-700"
                   >
                     <Settings className="w-4 h-4" />
                   </Button>
@@ -297,42 +301,45 @@ export const CoinbaseOAuthPanel = () => {
         )}
 
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-          <DialogContent>
+          <DialogContent className="bg-slate-800 border-slate-700">
             <DialogHeader>
-              <DialogTitle>Edit OAuth Credentials</DialogTitle>
+              <DialogTitle className="text-white">Edit OAuth Credentials</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleUpdateCredentials} className="space-y-4">
-              <div>
-                <Label htmlFor="edit_app_name">App Name</Label>
-                <Input
-                  id="edit_app_name"
-                  type="text"
-                  value={formData.app_name}
-                  onChange={(e) => setFormData({ ...formData, app_name: e.target.value })}
-                  required
-                />
+                <div>
+                  <Label htmlFor="edit_app_name" className="text-slate-300">App Name</Label>
+                  <Input
+                    id="edit_app_name"
+                    type="text"
+                    value={formData.app_name}
+                    onChange={(e) => setFormData({ ...formData, app_name: e.target.value })}
+                    required
+                    className="bg-slate-700 border-slate-600 text-white"
+                  />
               </div>
-              <div>
-                <Label htmlFor="edit_client_id">Client ID</Label>
-                <Input
-                  id="edit_client_id"
-                  type="text"
-                  value={formData.client_id}
-                  onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
-                  placeholder="Enter new Client ID"
-                  required
-                />
+                <div>
+                  <Label htmlFor="edit_client_id" className="text-slate-300">Client ID</Label>
+                  <Input
+                    id="edit_client_id"
+                    type="text"
+                    value={formData.client_id}
+                    onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
+                    placeholder="Enter new Client ID"
+                    required
+                    className="bg-slate-700 border-slate-600 text-white"
+                  />
               </div>
-              <div>
-                <Label htmlFor="edit_client_secret">Client Secret</Label>
-                <Input
-                  id="edit_client_secret"
-                  type="password"
-                  value={formData.client_secret}
-                  onChange={(e) => setFormData({ ...formData, client_secret: e.target.value })}
-                  placeholder="Enter new Client Secret"
-                  required
-                />
+                <div>
+                  <Label htmlFor="edit_client_secret" className="text-slate-300">Client Secret</Label>
+                  <Input
+                    id="edit_client_secret"
+                    type="password"
+                    value={formData.client_secret}
+                    onChange={(e) => setFormData({ ...formData, client_secret: e.target.value })}
+                    placeholder="Enter new Client Secret"
+                    required
+                    className="bg-slate-700 border-slate-600 text-white"
+                  />
               </div>
               <div className="flex items-center space-x-2">
                 <Switch
@@ -340,9 +347,9 @@ export const CoinbaseOAuthPanel = () => {
                   checked={formData.is_sandbox}
                   onCheckedChange={(checked) => setFormData({ ...formData, is_sandbox: checked })}
                 />
-                <Label htmlFor="edit_is_sandbox">Sandbox Mode</Label>
+                <Label htmlFor="edit_is_sandbox" className="text-slate-300">Sandbox Mode</Label>
               </div>
-              <Button type="submit" className="w-full">
+              <Button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white">
                 Update OAuth Credentials
               </Button>
             </form>

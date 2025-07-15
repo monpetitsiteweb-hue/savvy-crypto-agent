@@ -232,7 +232,7 @@ export const DataSourcesPanel = () => {
                 <select
                   value={newSource.type}
                   onChange={(e) => setNewSource(prev => ({ ...prev, type: e.target.value as any }))}
-                  className="w-full p-2 bg-slate-800 border border-slate-600 rounded-md text-white"
+                  className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md text-white"
                 >
                   <option value="rss">RSS Feed</option>
                   <option value="api">API Endpoint</option>
@@ -246,7 +246,7 @@ export const DataSourcesPanel = () => {
                 <Input
                   value={newSource.url}
                   onChange={(e) => setNewSource(prev => ({ ...prev, url: e.target.value }))}
-                  className="bg-slate-800 border-slate-600 text-white"
+                  className="bg-slate-700 border-slate-600 text-white"
                   placeholder="https://example.com/feed.xml"
                 />
               </div>
