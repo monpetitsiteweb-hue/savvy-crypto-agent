@@ -26,7 +26,7 @@ export const ConversationPanel = () => {
     {
       id: '1',
       type: 'ai',
-      content: "Hello! I'm your AI trading assistant. I can help you analyze your trading strategies, provide insights based on your configuration, and suggest improvements. Ask me anything about your trading setup!",
+      content: "Hello! I'm your AI trading assistant. I can analyze your strategies, modify your settings in real-time, and provide trading advice based on current market signals and trends. Try asking me to 'change stop loss to 2.5%' or 'give me trading advice'!",
       timestamp: new Date()
     }
   ]);
@@ -228,20 +228,66 @@ export const ConversationPanel = () => {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = input;
     setInput('');
     setIsLoading(true);
 
-    // Simulate thinking time and generate contextual response
-    setTimeout(() => {
+    try {
+      const activeStrategy = userStrategies.find(s => s.is_active);
+      
+      // Call the edge function for AI analysis and strategy updates
+      const response = await fetch('/api/ai-trading-assistant', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: currentInput,
+          userId: user?.id,
+          strategyId: activeStrategy?.id,
+          currentConfig: activeStrategy?.configuration || {}
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get AI response');
+      }
+
+      const data = await response.json();
+      
+      // Update local strategy state if there were config updates
+      if (data.configUpdates && Object.keys(data.configUpdates).length > 0 && activeStrategy) {
+        const newConfig = { ...activeStrategy.configuration, ...data.configUpdates };
+        setUserStrategies(prev => prev.map(s => 
+          s.id === activeStrategy.id 
+            ? { ...s, configuration: newConfig }
+            : s
+        ));
+      }
+
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: analyzeUserQuestion(input),
+        content: data.message || 'I apologize, but I encountered an issue processing your request.',
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, aiResponse]);
+      
+    } catch (error) {
+      console.error('Error calling AI function:', error);
+      
+      // Fallback to local analysis if edge function fails
+      const aiResponse: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'ai',
+        content: analyzeUserQuestion(currentInput),
         timestamp: new Date()
       };
       setMessages(prev => [...prev, aiResponse]);
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -326,7 +372,7 @@ export const ConversationPanel = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ask about your strategy... (e.g., 'What is my stop loss?', 'How can I improve my strategy?')"
+            placeholder="Ask me to change settings or get trading advice... (e.g., 'change stop loss to 2.5%', 'give me trading advice')"
             className="flex-1 min-h-[60px] bg-slate-700/50 border-slate-600 text-white placeholder-slate-400 resize-none"
             disabled={isLoading}
           />
