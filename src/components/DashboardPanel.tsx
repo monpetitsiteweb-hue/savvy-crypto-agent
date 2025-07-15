@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { CoinbaseConnectionSelector } from './CoinbaseConnectionSelector';
+import { MockWalletDisplay } from './MockWalletDisplay';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Trash2, Edit, Plus, RefreshCw, TestTube } from 'lucide-react';
@@ -319,6 +320,8 @@ export const DashboardPanel = () => {
 
   return (
     <div className="space-y-6">
+      <MockWalletDisplay />
+      
       {/* Connections Management */}
       <Card className="p-6 bg-slate-700/30 border-slate-600">
         <div className="flex items-center justify-between mb-4">

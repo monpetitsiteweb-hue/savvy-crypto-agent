@@ -7,9 +7,11 @@ import { ConversationPanel } from '@/components/ConversationPanel';
 import { DashboardPanel } from '@/components/DashboardPanel';
 import { TradingHistory } from '@/components/TradingHistory';
 import { StrategyConfig } from '@/components/StrategyConfig';
+import { PerformanceOverview } from '@/components/PerformanceOverview';
 import { AdminPage } from '@/components/admin/AdminPage';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useTestMode } from '@/hooks/useTestMode';
+import { useTestTrading } from '@/hooks/useTestTrading';
 import { Switch } from '@/components/ui/switch';
 import { useState } from 'react';
 
@@ -18,6 +20,9 @@ const Index = () => {
   const { role, loading: roleLoading } = useUserRole();
   const { testMode, setTestMode } = useTestMode();
   const [activeTab, setActiveTab] = useState('dashboard');
+  
+  // Initialize test trading when component mounts
+  useTestTrading();
 
   if (loading || roleLoading) {
     return (
@@ -51,7 +56,8 @@ const Index = () => {
                   {[
                     { id: 'dashboard', label: 'Dashboard' },
                     { id: 'history', label: 'History' },
-                    { id: 'strategy', label: 'Strategy' }
+                    { id: 'strategy', label: 'Strategy' },
+                    { id: 'performance', label: 'Performance' }
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -89,6 +95,7 @@ const Index = () => {
                 {activeTab === 'dashboard' && <DashboardPanel />}
                 {activeTab === 'history' && <TradingHistory />}
                 {activeTab === 'strategy' && <StrategyConfig />}
+                {activeTab === 'performance' && <PerformanceOverview />}
               </div>
             </div>
           </div>
