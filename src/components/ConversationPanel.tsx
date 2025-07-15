@@ -208,8 +208,19 @@ export const ConversationPanel = () => {
       
     } catch (error) {
       console.error('Error calling AI function:', error);
+      console.error('Error details:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      });
+      
+      // Check if it's a specific Supabase error
+      if (error.details) {
+        console.error('Supabase error details:', error.details);
+      }
       
       // Fallback to local analysis if edge function fails
+      console.log('Falling back to local analysis');
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
