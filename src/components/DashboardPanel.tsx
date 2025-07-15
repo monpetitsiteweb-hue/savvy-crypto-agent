@@ -7,7 +7,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { CoinbaseConnectionSelector } from './CoinbaseConnectionSelector';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Trash2, Edit, Plus, RefreshCw } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Trash2, Edit, Plus, RefreshCw, TestTube } from 'lucide-react';
 
 interface Connection {
   id: string;
@@ -41,12 +42,14 @@ export const DashboardPanel = () => {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
+  const [testMode, setTestMode] = useState(false);
 
   // Load saved portfolio data and selected connection from localStorage on mount
   useEffect(() => {
     if (user) {
       const savedData = localStorage.getItem(`portfolio_${user.id}`);
       const savedConnectionId = localStorage.getItem(`selectedConnection_${user.id}`);
+      const savedTestMode = localStorage.getItem(`testMode_${user.id}`);
       
       if (savedData) {
         try {
@@ -58,6 +61,10 @@ export const DashboardPanel = () => {
       
       if (savedConnectionId) {
         setSelectedConnectionId(savedConnectionId);
+      }
+      
+      if (savedTestMode) {
+        setTestMode(JSON.parse(savedTestMode));
       }
       
       fetchConnections();
@@ -96,9 +103,68 @@ export const DashboardPanel = () => {
     }
   };
 
+  const generateMockPortfolioData = (): PortfolioData => {
+    const mockAccounts = [
+      {
+        uuid: 'mock-btc-account',
+        name: 'Bitcoin Wallet',
+        currency: 'BTC',
+        available_balance: {
+          value: (Math.random() * 2 + 0.5).toFixed(8),
+          currency: 'BTC'
+        },
+        hold: {
+          value: (Math.random() * 0.1).toFixed(8),
+          currency: 'BTC'
+        }
+      },
+      {
+        uuid: 'mock-eth-account',
+        name: 'Ethereum Wallet',
+        currency: 'ETH',
+        available_balance: {
+          value: (Math.random() * 10 + 2).toFixed(6),
+          currency: 'ETH'
+        },
+        hold: {
+          value: (Math.random() * 0.5).toFixed(6),
+          currency: 'ETH'
+        }
+      },
+      {
+        uuid: 'mock-usd-account',
+        name: 'USD Wallet',
+        currency: 'USD',
+        available_balance: {
+          value: (Math.random() * 5000 + 1000).toFixed(2),
+          currency: 'USD'
+        },
+        hold: {
+          value: (Math.random() * 100).toFixed(2),
+          currency: 'USD'
+        }
+      },
+      {
+        uuid: 'mock-ada-account',
+        name: 'Cardano Wallet',
+        currency: 'ADA',
+        available_balance: {
+          value: (Math.random() * 1000 + 100).toFixed(2),
+          currency: 'ADA'
+        },
+        hold: {
+          value: (Math.random() * 50).toFixed(2),
+          currency: 'ADA'
+        }
+      }
+    ];
+
+    return { accounts: mockAccounts };
+  };
+
   const fetchPortfolio = async (connectionId?: string) => {
     const targetConnectionId = connectionId || selectedConnectionId;
-    if (!targetConnectionId) {
+    if (!targetConnectionId && !testMode) {
       toast({
         title: "No Connection Selected",
         description: "Please select a connection to fetch portfolio data",
@@ -109,30 +175,47 @@ export const DashboardPanel = () => {
 
     setFetchingPortfolio(true);
     try {
-      const session = await supabase.auth.getSession();
-      const response = await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/coinbase-portfolio', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.data.session?.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ connectionId: targetConnectionId }),
-      });
-      
-      const data = await response.json();
-      console.log('Portfolio response:', data);
-      
-      if (data.error) {
+      if (testMode) {
+        // Generate mock data for test mode
+        const mockData = generateMockPortfolioData();
+        setPortfolioData(mockData);
+        
+        // Save mock data to localStorage with test mode prefix
+        if (user) {
+          localStorage.setItem(`testPortfolio_${user.id}`, JSON.stringify(mockData));
+        }
+        
         toast({
-          title: "Portfolio Fetch Failed",
-          description: data.error,
-          variant: "destructive",
+          title: "Test Portfolio Generated",
+          description: "Mock portfolio data loaded for testing",
         });
       } else {
-        setPortfolioData(data);
-        // Save portfolio data to localStorage
-        if (user) {
-          localStorage.setItem(`portfolio_${user.id}`, JSON.stringify(data));
+        // Real Coinbase API call
+        const session = await supabase.auth.getSession();
+        const response = await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/coinbase-portfolio', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.data.session?.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ connectionId: targetConnectionId }),
+        });
+        
+        const data = await response.json();
+        console.log('Portfolio response:', data);
+        
+        if (data.error) {
+          toast({
+            title: "Portfolio Fetch Failed",
+            description: data.error,
+            variant: "destructive",
+          });
+        } else {
+          setPortfolioData(data);
+          // Save portfolio data to localStorage
+          if (user) {
+            localStorage.setItem(`portfolio_${user.id}`, JSON.stringify(data));
+          }
         }
       }
     } catch (error) {
@@ -287,39 +370,65 @@ export const DashboardPanel = () => {
       {connections.length > 0 && (
         <Card className="p-6 bg-slate-700/30 border-slate-600">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-white">Portfolio Dashboard</h3>
             <div className="flex items-center space-x-3">
-              <Select 
-                value={selectedConnectionId} 
-                onValueChange={(value) => {
-                  setSelectedConnectionId(value);
-                  // Save selected connection to localStorage
-                  if (user) {
-                    localStorage.setItem(`selectedConnection_${user.id}`, value);
-                  }
-                }}
-              >
-                <SelectTrigger className="w-[200px]">
-                  <SelectValue placeholder="Select connection" />
-                </SelectTrigger>
-                <SelectContent>
-                  {connections.map((connection) => (
-                    <SelectItem key={connection.id} value={connection.id}>
-                      {connection.api_name_encrypted || 'Coinbase Account'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <h3 className="text-lg font-semibold text-white">Portfolio Dashboard</h3>
+              {testMode && (
+                <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
+                  <TestTube className="h-3 w-3 mr-1" />
+                  Test Mode
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-slate-400">Test Mode</span>
+                <Switch
+                  checked={testMode}
+                  onCheckedChange={(checked) => {
+                    setTestMode(checked);
+                    setPortfolioData(null);
+                    if (user) {
+                      localStorage.setItem(`testMode_${user.id}`, JSON.stringify(checked));
+                      // Clear portfolio data when switching modes
+                      localStorage.removeItem(`portfolio_${user.id}`);
+                      localStorage.removeItem(`testPortfolio_${user.id}`);
+                    }
+                  }}
+                />
+              </div>
+              {!testMode && (
+                <Select 
+                  value={selectedConnectionId} 
+                  onValueChange={(value) => {
+                    setSelectedConnectionId(value);
+                    // Save selected connection to localStorage
+                    if (user) {
+                      localStorage.setItem(`selectedConnection_${user.id}`, value);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="Select connection" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {connections.map((connection) => (
+                      <SelectItem key={connection.id} value={connection.id}>
+                        {connection.api_name_encrypted || 'Coinbase Account'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Button 
                 onClick={() => fetchPortfolio()} 
-                disabled={!selectedConnectionId || fetchingPortfolio}
+                disabled={(!selectedConnectionId && !testMode) || fetchingPortfolio}
               >
                 {fetchingPortfolio ? (
                   <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
                   <RefreshCw className="h-4 w-4 mr-2" />
                 )}
-                Fetch Portfolio
+                {testMode ? 'Generate Test Portfolio' : 'Fetch Portfolio'}
               </Button>
             </div>
           </div>
@@ -363,7 +472,12 @@ export const DashboardPanel = () => {
             </div>
           ) : (
             <div className="text-center py-8">
-              <p className="text-slate-400 mb-4">Select a connection and click "Fetch Portfolio" to view your data</p>
+              <p className="text-slate-400 mb-4">
+                {testMode 
+                  ? 'Click "Generate Test Portfolio" to create mock data for testing'
+                  : 'Select a connection and click "Fetch Portfolio" to view your data'
+                }
+              </p>
             </div>
           )}
         </Card>
