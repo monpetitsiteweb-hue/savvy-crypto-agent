@@ -155,23 +155,60 @@ export const StrategyConfig = () => {
   }
 
   console.log('StrategyConfig render - showBuilder:', showBuilder, 'strategies.length:', strategies.length);
+  console.log('RENDER: About to check if showBuilder is true...');
+  
+  // Add alert to see if render is even called
+  if (typeof window !== 'undefined') {
+    console.log('WINDOW AVAILABLE - About to check showBuilder');
+  }
 
   // TEST: Simple conditional rendering first
   if (showBuilder) {
-    console.log('showBuilder is true, should render builder!');
+    console.log('INSIDE SHOWBUILDER TRUE BLOCK!!!');
+    alert('RENDER: showBuilder is TRUE, returning red panel!');
     return (
-      <div className="p-8 bg-red-500 border-4 border-yellow-400">
-        <h1 className="text-4xl font-bold text-white">SUCCESS! BUILDER PANEL IS SHOWING!</h1>
-        <p className="text-2xl text-white mt-4">showBuilder = {showBuilder ? 'TRUE' : 'FALSE'}</p>
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        backgroundColor: 'red',
+        zIndex: 9999,
+        padding: '50px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <h1 style={{ color: 'white', fontSize: '48px', fontWeight: 'bold' }}>
+          SUCCESS! BUILDER PANEL IS SHOWING!
+        </h1>
+        <p style={{ color: 'white', fontSize: '24px', marginTop: '20px' }}>
+          showBuilder = {showBuilder ? 'TRUE' : 'FALSE'}
+        </p>
         <button 
-          onClick={() => setShowBuilder(false)}
-          className="mt-4 px-4 py-2 bg-blue-500 text-white rounded"
+          onClick={() => {
+            console.log('GO BACK CLICKED');
+            setShowBuilder(false);
+          }}
+          style={{
+            marginTop: '20px',
+            padding: '10px 20px',
+            backgroundColor: 'blue',
+            color: 'white',
+            border: 'none',
+            borderRadius: '5px',
+            fontSize: '18px'
+          }}
         >
           Go Back to Strategy List
         </button>
       </div>
     );
   }
+  
+  console.log('RENDER: showBuilder is FALSE, continuing with normal render...');
 
   return (
     <div className="space-y-6">
