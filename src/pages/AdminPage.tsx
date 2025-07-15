@@ -44,17 +44,17 @@ const AdminPage = () => {
       
       <div className="container mx-auto px-4 py-6">
         <Alert className="mb-6 border-green-600 bg-green-950/20">
-          <Shield className="h-4 w-4" />
-          <AlertDescription>
+          <Shield className="h-4 w-4 text-green-400" />
+          <AlertDescription className="text-green-300">
             Admin Dashboard - Manage system configurations and integrations.
           </AlertDescription>
         </Alert>
         
         <Alert className="mb-6 border-blue-600 bg-blue-950/20">
-          <TrendingUp className="h-4 w-4" />
-          <AlertDescription className="flex items-center justify-between">
+          <TrendingUp className="h-4 w-4 text-blue-400" />
+          <AlertDescription className="flex items-center justify-between text-blue-300">
             <span>Looking for Strategy Configuration? It's in the main user interface.</span>
-            <Button variant="outline" size="sm" onClick={() => window.location.href = '/'} className="ml-4">
+            <Button variant="outline" size="sm" onClick={() => window.location.href = '/'} className="ml-4 border-blue-600 text-blue-400 hover:bg-blue-500/10">
               <ExternalLink className="w-4 h-4 mr-2" />
               Go to Main Dashboard
             </Button>
