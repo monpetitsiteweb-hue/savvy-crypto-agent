@@ -235,7 +235,9 @@ serve(async (req) => {
             fees: fees,
             coinbase_order_id: result.order_id || result.success_response?.order_id,
             notes: `Sandbox ${tradeType} order - Order ID: ${result.order_id || 'unknown'}`,
-            user_coinbase_connection_id: connectionId
+            user_coinbase_connection_id: connectionId,
+            is_sandbox: true,
+            trade_environment: 'sandbox'
           });
       }
       
