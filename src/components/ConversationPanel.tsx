@@ -47,16 +47,25 @@ export const ConversationPanel = () => {
   // Load user strategies
   useEffect(() => {
     const loadStrategies = async () => {
-      if (!user) return;
+      console.log('Loading strategies, user:', user);
+      if (!user) {
+        console.log('No user found, returning');
+        return;
+      }
       
+      console.log('Fetching strategies for user ID:', user.id);
       const { data, error } = await supabase
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
+      console.log('Strategies response:', { data, error });
       if (data && !error) {
         setUserStrategies(data);
+        console.log('Set user strategies:', data);
+      } else {
+        console.error('Error loading strategies:', error);
       }
     };
 
