@@ -133,10 +133,22 @@ export const Header = () => {
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            handleSignOut();
+                            navigate('/profile');
                             setShowDropdown(false);
                           }}
                           className="w-full justify-start text-slate-300 hover:text-white mt-1"
+                        >
+                          <User className="w-4 h-4 mr-2" />
+                          My Profile
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            handleSignOut();
+                            setShowDropdown(false);
+                          }}
+                          className="w-full justify-start text-slate-300 hover:text-white"
                         >
                           <LogOut className="w-4 h-4 mr-2" />
                           Sign Out
