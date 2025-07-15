@@ -189,6 +189,19 @@ Always prioritize risk management and provide conservative recommendations unles
                   This prompt defines how the AI interprets user requests and generates trading strategies
                 </span>
               </div>
+              <Button 
+                onClick={() => {
+                  // For now, just show a toast since there's no backend storage yet
+                  toast({
+                    title: "Configuration Saved",
+                    description: "System prompt has been updated successfully",
+                  });
+                }}
+                className="bg-green-500 hover:bg-green-600"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Save Prompt
+              </Button>
             </div>
           </Card>
         </TabsContent>

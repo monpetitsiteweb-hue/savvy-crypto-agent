@@ -173,9 +173,31 @@ ${!hasStopLoss ? '• 🚨 URGENT: Enable stop-loss protection (recommended 2-4%
       `;
     }
 
-    // Handle general questions about current configuration
+    // Handle specific questions first
     if (!responseMessage && !recommendations) {
-      if (lowerMessage.includes('what') || lowerMessage.includes('current') || lowerMessage.includes('my')) {
+      // Handle specific stop loss questions
+      if ((lowerMessage.includes('stop loss') || lowerMessage.includes('stop-loss')) && 
+          (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
+        const stopLossValue = currentConfig?.stopLoss ? `${currentConfig.stopLossPercentage}%` : 'Disabled';
+        responseMessage = `🛡️ **Your Stop Loss:** ${stopLossValue}`;
+      }
+      // Handle specific take profit questions
+      else if ((lowerMessage.includes('take profit') || lowerMessage.includes('profit')) && 
+               (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
+        responseMessage = `🎯 **Your Take Profit:** ${currentConfig?.takeProfit || 1.3}%`;
+      }
+      // Handle specific risk level questions
+      else if (lowerMessage.includes('risk') && 
+               (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
+        responseMessage = `⚖️ **Your Risk Level:** ${(currentConfig?.riskLevel || 'medium').charAt(0).toUpperCase() + (currentConfig?.riskLevel || 'medium').slice(1)}`;
+      }
+      // Handle specific max position questions
+      else if ((lowerMessage.includes('max position') || lowerMessage.includes('position size')) && 
+               (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
+        responseMessage = `💰 **Your Max Position:** €${currentConfig?.maxPosition?.toLocaleString() || '5,000'}`;
+      }
+      // Handle general configuration questions
+      else if (lowerMessage.includes('what') || lowerMessage.includes('current') || lowerMessage.includes('my')) {
         responseMessage = `📋 **Your Current Strategy Configuration:**
 • Risk Level: ${currentConfig?.riskLevel || 'medium'}
 • Max Position: €${currentConfig?.maxPosition?.toLocaleString() || '5,000'}
