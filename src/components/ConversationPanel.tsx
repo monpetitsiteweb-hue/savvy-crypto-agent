@@ -153,6 +153,13 @@ export const ConversationPanel = () => {
     try {
       const activeStrategy = userStrategies.find(s => s.is_active);
       
+      console.log('Calling AI assistant with:', {
+        message: currentInput,
+        userId: user?.id,
+        strategyId: activeStrategy?.id,
+        hasConfig: !!activeStrategy?.configuration
+      });
+      
       // Call the edge function for AI analysis and strategy updates
       const { data, error } = await supabase.functions.invoke('ai-trading-assistant', {
         body: {
@@ -163,7 +170,10 @@ export const ConversationPanel = () => {
         },
       });
 
+      console.log('AI assistant response:', { data, error });
+
       if (error) {
+        console.error('AI assistant error:', error);
         throw new Error(error.message || 'Failed to get AI response');
       }
       
