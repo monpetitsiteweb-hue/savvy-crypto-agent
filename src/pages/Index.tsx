@@ -9,11 +9,14 @@ import { TradingHistory } from '@/components/TradingHistory';
 import { StrategyConfig } from '@/components/StrategyConfig';
 import { AdminPage } from '@/components/admin/AdminPage';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useTestMode } from '@/hooks/useTestMode';
+import { Switch } from '@/components/ui/switch';
 import { useState } from 'react';
 
 const Index = () => {
   const { user, loading } = useAuth();
   const { role, loading: roleLoading } = useUserRole();
+  const { testMode, setTestMode } = useTestMode();
   const [activeTab, setActiveTab] = useState('dashboard');
 
   if (loading || roleLoading) {
@@ -43,28 +46,42 @@ const Index = () => {
           <div className="lg:col-span-2">
             <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700 h-full">
               {/* Tab Navigation */}
-              <div className="flex border-b border-slate-700">
-                {[
-                  { id: 'dashboard', label: 'Dashboard' },
-                  { id: 'history', label: 'History' },
-                  { id: 'strategy', label: 'Strategy' }
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setActiveTab(tab.id);
-                    }}
-                    className={`px-6 py-4 text-sm font-medium transition-colors ${
-                      activeTab === tab.id
-                        ? 'text-green-400 border-b-2 border-green-400 bg-slate-700/50'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+              <div className="flex justify-between items-center border-b border-slate-700">
+                <div className="flex">
+                  {[
+                    { id: 'dashboard', label: 'Dashboard' },
+                    { id: 'history', label: 'History' },
+                    { id: 'strategy', label: 'Strategy' }
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setActiveTab(tab.id);
+                      }}
+                      className={`px-6 py-4 text-sm font-medium transition-colors ${
+                        activeTab === tab.id
+                          ? 'text-green-400 border-b-2 border-green-400 bg-slate-700/50'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                
+                {/* Global Test Mode Toggle */}
+                <div className="flex items-center gap-3 px-6 py-4">
+                  <span className={`text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
+                    {testMode ? 'Test Mode' : 'Live Mode'}
+                  </span>
+                  <Switch
+                    checked={testMode}
+                    onCheckedChange={setTestMode}
+                    className="data-[state=checked]:bg-orange-500"
+                  />
+                </div>
               </div>
               
               {/* Tab Content */}
