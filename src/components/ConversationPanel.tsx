@@ -263,9 +263,9 @@ export const ConversationPanel = () => {
   };
 
   return (
-    <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col">
+    <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col max-h-[calc(100vh-180px)]">
       {/* Header */}
-      <div className="p-4 border-b border-slate-700">
+      <div className="p-4 border-b border-slate-700 flex-shrink-0">
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
           <Bot className="w-5 h-5 text-green-400" />
           AI Trading Assistant
@@ -278,60 +278,62 @@ export const ConversationPanel = () => {
         </p>
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex gap-3 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            {message.type === 'ai' && (
+      {/* Messages - Scrollable Area */}
+      <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="p-4 space-y-4">
+          {messages.map((message) => (
+            <div
+              key={message.id}
+              className={`flex gap-3 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              {message.type === 'ai' && (
+                <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                  <Bot className="w-4 h-4 text-green-400" />
+                </div>
+              )}
+              
+              <div
+                className={`max-w-[80%] p-3 rounded-lg whitespace-pre-wrap ${
+                  message.type === 'user'
+                    ? 'bg-blue-500/20 text-blue-100 border border-blue-500/30'
+                    : 'bg-slate-700/50 text-slate-100 border border-slate-600/50'
+                }`}
+              >
+                {message.content}
+                <div className="text-xs text-slate-400 mt-2">
+                  {message.timestamp.toLocaleTimeString()}
+                </div>
+              </div>
+
+              {message.type === 'user' && (
+                <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                  <User className="w-4 h-4 text-blue-400" />
+                </div>
+              )}
+            </div>
+          ))}
+          
+          {isLoading && (
+            <div className="flex gap-3 justify-start">
               <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
                 <Bot className="w-4 h-4 text-green-400" />
               </div>
-            )}
-            
-            <div
-              className={`max-w-[80%] p-3 rounded-lg whitespace-pre-wrap ${
-                message.type === 'user'
-                  ? 'bg-blue-500/20 text-blue-100 border border-blue-500/30'
-                  : 'bg-slate-700/50 text-slate-100 border border-slate-600/50'
-              }`}
-            >
-              {message.content}
-              <div className="text-xs text-slate-400 mt-2">
-                {message.timestamp.toLocaleTimeString()}
+              <div className="bg-slate-700/50 text-slate-100 border border-slate-600/50 p-3 rounded-lg">
+                <div className="flex space-x-1">
+                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
+                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                </div>
               </div>
             </div>
-
-            {message.type === 'user' && (
-              <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                <User className="w-4 h-4 text-blue-400" />
-              </div>
-            )}
-          </div>
-        ))}
-        
-        {isLoading && (
-          <div className="flex gap-3 justify-start">
-            <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <Bot className="w-4 h-4 text-green-400" />
-            </div>
-            <div className="bg-slate-700/50 text-slate-100 border border-slate-600/50 p-3 rounded-lg">
-              <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-              </div>
-            </div>
-          </div>
-        )}
-        
-        <div ref={messagesEndRef} />
+          )}
+          
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
-      {/* Input */}
-      <div className="p-4 border-t border-slate-700">
+      {/* Input - Fixed at bottom */}
+      <div className="p-4 border-t border-slate-700 flex-shrink-0">
         <div className="flex gap-2">
           <Textarea
             value={input}
