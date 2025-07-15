@@ -1,5 +1,4 @@
-
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,30 +17,26 @@ interface Strategy {
   isActive: boolean;
   riskLevel: 'Low' | 'Medium' | 'High';
   maxPosition: number;
-  stopLoss: number;
-  takeProfit: number;
-  performance: {
-    totalTrades: number;
-    profitLoss: number;
-    successRate: number;
-  };
+  monthlyReturn: number;
+  winRate: number;
+  totalTrades: number;
+  profitLoss: number;
+  lastExecuted: string;
+  nextExecution: string;
 }
 
 export const StrategyConfig = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
   const [showBuilder, setShowBuilder] = useState(false);
-  const [forceUpdate, setForceUpdate] = useState(0);
-
-  // Use a ref to force immediate DOM updates
-  const containerRef = useRef<HTMLDivElement>(null);
 
   const showBuilderPanel = () => {
-    console.log('BUTTON CLICKED - showBuilderPanel triggered');
     setShowBuilder(true);
   };
+
   useEffect(() => {
     if (user) {
       fetchStrategies();
@@ -49,39 +44,46 @@ export const StrategyConfig = () => {
   }, [user]);
 
   const fetchStrategies = async () => {
-    if (!user) return;
-    
     try {
+      setLoading(true);
+      
       const { data, error } = await supabase
         .from('trading_strategies')
         .select('*')
-        .order('created_at', { ascending: false });
+        .eq('user_id', user?.id);
 
-      if (error) throw error;
-      
-      // Convert Supabase data to Strategy interface
-      const formattedStrategies: Strategy[] = (data || []).map(strategy => ({
+      if (error) {
+        console.error('Error fetching strategies:', error);
+        toast({
+          title: "Error",
+          description: "Failed to fetch strategies",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Transform the data to match our interface
+      const transformedStrategies = (data || []).map(strategy => ({
         id: strategy.id,
         name: strategy.strategy_name,
         description: strategy.description || '',
         isActive: strategy.is_active,
-        riskLevel: 'Medium', // This would come from configuration
-        maxPosition: 1000, // This would come from configuration
-        stopLoss: 2, // This would come from configuration
-        takeProfit: 3, // This would come from configuration
-        performance: {
-          totalTrades: 0, // Would need to calculate from trading_history
-          profitLoss: 0, // Would need to calculate from trading_history
-          successRate: 0 // Would need to calculate from trading_history
-        }
+        riskLevel: (strategy.configuration as any)?.riskLevel || 'Medium',
+        maxPosition: (strategy.configuration as any)?.maxPosition || 1000,
+        monthlyReturn: Math.random() * 10 - 2, // Mock data
+        winRate: Math.random() * 40 + 40, // Mock data
+        totalTrades: Math.floor(Math.random() * 100), // Mock data
+        profitLoss: Math.random() * 2000 - 500, // Mock data
+        lastExecuted: new Date(Date.now() - Math.random() * 86400000).toISOString(),
+        nextExecution: new Date(Date.now() + Math.random() * 86400000).toISOString()
       }));
-      
-      setStrategies(formattedStrategies);
+
+      setStrategies(transformedStrategies);
     } catch (error) {
       console.error('Error fetching strategies:', error);
       toast({
         title: "Error",
-        description: "Failed to load trading strategies",
+        description: "An unexpected error occurred",
         variant: "destructive",
       });
     } finally {
@@ -99,23 +101,26 @@ export const StrategyConfig = () => {
         .update({ is_active: !strategy.isActive })
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error updating strategy:', error);
+        toast({
+          title: "Error",
+          description: "Failed to update strategy",
+          variant: "destructive",
+        });
+        return;
+      }
 
-      setStrategies(prev => prev.map(strategy => 
-        strategy.id === id ? { ...strategy, isActive: !strategy.isActive } : strategy
+      setStrategies(prev => prev.map(s => 
+        s.id === id ? { ...s, isActive: !s.isActive } : s
       ));
 
       toast({
-        title: "Strategy Updated",
-        description: `Strategy ${strategy.isActive ? 'paused' : 'activated'} successfully`,
+        title: "Success",
+        description: `Strategy ${!strategy.isActive ? 'activated' : 'paused'}`,
       });
     } catch (error) {
-      console.error('Error updating strategy:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update strategy",
-        variant: "destructive",
-      });
+      console.error('Error toggling strategy:', error);
     }
   };
 
@@ -136,49 +141,24 @@ export const StrategyConfig = () => {
     );
   }
 
-  if (strategies.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12 space-y-4">
-        <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center">
-          <TrendingUp className="w-8 h-8 text-slate-500" />
-        </div>
-        <div className="text-center">
-          <h3 className="text-xl font-semibold text-white mb-2">No Trading Strategies</h3>
-          <p className="text-slate-400 mb-4">Create your first automated trading strategy to get started.</p>
-          <Button onClick={showBuilderPanel} className="bg-green-500 hover:bg-green-600 text-white">
-            <Plus className="w-4 h-4 mr-2" />
-            Create Strategy
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Force complete re-render with key
   if (showBuilder) {
     return (
-      <div key={`builder-${forceUpdate}`}>
-        <StrategyBuilder onCancel={() => {
-          setShowBuilder(false);
-          setForceUpdate(prev => prev + 1);
-          fetchStrategies();
-        }} />
-      </div>
+      <StrategyBuilder onCancel={() => {
+        setShowBuilder(false);
+        fetchStrategies();
+      }} />
     );
   }
 
   return (
-    <div ref={containerRef} key={`config-${forceUpdate}`} className="space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white">Strategy Configuration</h2>
           <p className="text-sm text-slate-400 mt-1">Manage and configure your trading strategies</p>
         </div>
-        <Button onClick={() => {
-          alert('Button clicked!');
-          showBuilderPanel();
-        }} className="bg-green-500 hover:bg-green-600 text-white">
+        <Button onClick={showBuilderPanel} className="bg-green-500 hover:bg-green-600 text-white">
           <Plus className="w-4 h-4 mr-2" />
           New Strategy
         </Button>
@@ -203,14 +183,13 @@ export const StrategyConfig = () => {
               <span>€20,000</span>
             </div>
           </div>
-          
           <div>
             <label className="text-sm text-slate-400 mb-2 block">Risk Tolerance</label>
             <Slider
-              defaultValue={[60]}
-              max={100}
-              min={0}
-              step={10}
+              defaultValue={[3]}
+              max={5}
+              min={1}
+              step={1}
               className="mb-2"
             />
             <div className="flex justify-between text-xs text-slate-400">
@@ -222,120 +201,142 @@ export const StrategyConfig = () => {
         </div>
       </Card>
 
-      {/* Strategy List */}
+      {/* Strategies List */}
       <div className="space-y-4">
-        {strategies.map((strategy) => (
-          <Card key={strategy.id} className="p-6 bg-slate-700/30 border-slate-600">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <h3 className="text-lg font-semibold text-white">{strategy.name}</h3>
-                  <Badge variant="outline" className={getRiskColor(strategy.riskLevel)}>
-                    {strategy.riskLevel} Risk
-                  </Badge>
-                  <Switch
-                    checked={strategy.isActive}
-                    onCheckedChange={() => toggleStrategy(strategy.id)}
-                  />
-                </div>
-                <p className="text-sm text-slate-400 mb-3">{strategy.description}</p>
-                
-                {/* Performance Metrics */}
-                <div className="grid grid-cols-3 gap-4 mb-4">
-                  <div>
-                    <p className="text-xs text-slate-400">Total Trades</p>
-                    <p className="font-medium text-white">{strategy.performance.totalTrades}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">P&L</p>
-                    <p className={`font-medium ${
-                      strategy.performance.profitLoss >= 0 ? 'text-green-400' : 'text-red-400'
-                    }`}>
-                      {strategy.performance.profitLoss >= 0 ? '+' : ''}€{strategy.performance.profitLoss}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">Success Rate</p>
-                    <p className="font-medium text-white">{strategy.performance.successRate}%</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 ml-4">
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => toggleStrategy(strategy.id)}
-                  className="border-slate-600 text-slate-300"
-                >
-                  {strategy.isActive ? (
-                    <>
-                      <Pause className="w-4 h-4 mr-1" />
-                      Pause
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4 mr-1" />
-                      Start
-                    </>
-                  )}
-                </Button>
-                <Button variant="outline" size="sm" className="border-slate-600 text-slate-300">
-                  <Settings className="w-4 h-4" />
-                </Button>
-                <Button variant="outline" size="sm" className="border-red-600 text-red-400 hover:bg-red-500/10">
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
+        <h3 className="text-lg font-semibold text-white">Active Strategies</h3>
+        
+        {strategies.length === 0 ? (
+          <Card className="p-8 bg-slate-700/30 border-slate-600 text-center">
+            <div className="text-slate-400 mb-4">
+              <TrendingUp className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <h4 className="text-lg font-medium mb-2">No Strategies Yet</h4>
+              <p className="text-sm">Create your first trading strategy to get started</p>
             </div>
-
-            {/* Strategy Parameters */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-slate-600">
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Max Position (€)</label>
-                <div className="flex items-center gap-2">
-                  <Slider
-                    defaultValue={[strategy.maxPosition]}
-                    max={2000}
-                    min={100}
-                    step={50}
-                    className="flex-1"
-                  />
-                  <span className="text-sm text-white min-w-[60px]">€{strategy.maxPosition}</span>
-                </div>
-              </div>
-              
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Stop Loss (%)</label>
-                <div className="flex items-center gap-2">
-                  <Slider
-                    defaultValue={[strategy.stopLoss]}
-                    max={10}
-                    min={0.5}
-                    step={0.5}
-                    className="flex-1"
-                  />
-                  <span className="text-sm text-white min-w-[40px]">{strategy.stopLoss}%</span>
-                </div>
-              </div>
-              
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Take Profit (%)</label>
-                <div className="flex items-center gap-2">
-                  <Slider
-                    defaultValue={[strategy.takeProfit]}
-                    max={15}
-                    min={1}
-                    step={0.5}
-                    className="flex-1"
-                  />
-                  <span className="text-sm text-white min-w-[40px]">{strategy.takeProfit}%</span>
-                </div>
-              </div>
-            </div>
+            <Button onClick={showBuilderPanel} className="bg-green-500 hover:bg-green-600 text-white">
+              <Plus className="w-4 h-4 mr-2" />
+              Create Strategy
+            </Button>
           </Card>
-        ))}
+        ) : (
+          strategies.map((strategy) => (
+            <Card key={strategy.id} className="p-6 bg-slate-700/30 border-slate-600">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <h4 className="text-lg font-semibold text-white">{strategy.name}</h4>
+                    <Badge className={`text-xs ${getRiskColor(strategy.riskLevel)}`}>
+                      {strategy.riskLevel} Risk
+                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={strategy.isActive}
+                        onCheckedChange={() => toggleStrategy(strategy.id)}
+                      />
+                      <span className={`text-sm ${strategy.isActive ? 'text-green-400' : 'text-slate-400'}`}>
+                        {strategy.isActive ? 'Active' : 'Paused'}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-sm text-slate-400 mb-4">{strategy.description}</p>
+                  
+                  {/* Strategy Stats */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="text-center">
+                      <div className="text-lg font-bold text-white">
+                        {strategy.monthlyReturn >= 0 ? '+' : ''}{strategy.monthlyReturn.toFixed(1)}%
+                      </div>
+                      <div className="text-xs text-slate-400">Monthly Return</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-lg font-bold text-white">{strategy.winRate.toFixed(0)}%</div>
+                      <div className="text-xs text-slate-400">Win Rate</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-lg font-bold text-white">{strategy.totalTrades}</div>
+                      <div className="text-xs text-slate-400">Total Trades</div>
+                    </div>
+                    <div className="text-center">
+                      <div className={`text-lg font-bold ${strategy.profitLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {strategy.profitLoss >= 0 ? '+' : ''}€{strategy.profitLoss.toFixed(0)}
+                      </div>
+                      <div className="text-xs text-slate-400">P&L</div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2 ml-4">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-slate-400 hover:text-white"
+                    onClick={() => toggleStrategy(strategy.id)}
+                  >
+                    {strategy.isActive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <Settings className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-slate-400 hover:text-red-400"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))
+        )}
       </div>
+
+      {/* Performance Overview */}
+      <Card className="p-6 bg-slate-700/30 border-slate-600">
+        <h3 className="text-lg font-semibold text-white mb-4">Performance Overview</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="text-center">
+            <div className="flex items-center justify-center mb-2">
+              <Activity className="w-5 h-5 text-green-400" />
+            </div>
+            <div className="text-2xl font-bold text-white">
+              {strategies.filter(s => s.isActive).length}
+            </div>
+            <div className="text-sm text-slate-400">Active Strategies</div>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center mb-2">
+              <TrendingUp className="w-5 h-5 text-blue-400" />
+            </div>
+            <div className="text-2xl font-bold text-white">
+              +{(strategies.reduce((acc, s) => acc + s.monthlyReturn, 0) / (strategies.length || 1)).toFixed(1)}%
+            </div>
+            <div className="text-sm text-slate-400">Avg. Monthly Return</div>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center mb-2">
+              <Settings className="w-5 h-5 text-yellow-400" />
+            </div>
+            <div className="text-2xl font-bold text-white">
+              {(strategies.reduce((acc, s) => acc + s.winRate, 0) / (strategies.length || 1)).toFixed(0)}%
+            </div>
+            <div className="text-sm text-slate-400">Overall Win Rate</div>
+          </div>
+          <div className="text-center">
+            <div className="flex items-center justify-center mb-2">
+              <Activity className="w-5 h-5 text-purple-400" />
+            </div>
+            <div className="text-2xl font-bold text-white">
+              {strategies.reduce((acc, s) => acc + s.totalTrades, 0)}
+            </div>
+            <div className="text-sm text-slate-400">Total Trades</div>
+          </div>
+        </div>
+      </Card>
     </div>
   );
 };
