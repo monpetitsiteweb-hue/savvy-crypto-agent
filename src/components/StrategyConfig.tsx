@@ -33,6 +33,7 @@ export const StrategyConfig = () => {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
   const [showBuilder, setShowBuilder] = useState(false);
+  const [renderKey, setRenderKey] = useState(0);
 
   // Debug the state
   console.log('StrategyConfig: showBuilder =', showBuilder);
@@ -144,6 +145,7 @@ export const StrategyConfig = () => {
             alert('BUTTON CLICKED! showBuilder was: ' + showBuilder);
             console.log('Before setState: showBuilder =', showBuilder);
             setShowBuilder(true);
+            setRenderKey(prev => prev + 1); // Force re-render
             console.log('After setState called');
           }} className="bg-green-500 hover:bg-green-600 text-white">
             <Plus className="w-4 h-4 mr-2" />
@@ -167,7 +169,7 @@ export const StrategyConfig = () => {
     console.log('INSIDE SHOWBUILDER TRUE BLOCK!!!');
     alert('RENDER: showBuilder is TRUE, returning red panel!');
     return (
-      <div style={{
+      <div key={`strategy-config-${renderKey}-${showBuilder}`} style={{
         position: 'fixed',
         top: 0,
         left: 0,
@@ -191,6 +193,7 @@ export const StrategyConfig = () => {
           onClick={() => {
             console.log('GO BACK CLICKED');
             setShowBuilder(false);
+            setRenderKey(prev => prev + 1);
           }}
           style={{
             marginTop: '20px',
@@ -211,7 +214,7 @@ export const StrategyConfig = () => {
   console.log('RENDER: showBuilder is FALSE, continuing with normal render...');
 
   return (
-    <div className="space-y-6">
+    <div key={`strategy-config-${renderKey}-${showBuilder}`} className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -222,6 +225,7 @@ export const StrategyConfig = () => {
           alert('NEW STRATEGY BUTTON CLICKED!');
           console.log('New Strategy button clicked!');
           setShowBuilder(true);
+          setRenderKey(prev => prev + 1); // Force re-render
         }} className="bg-green-500 hover:bg-green-600 text-white">
           <Plus className="w-4 h-4 mr-2" />
           NEW STRATEGY - CLICK ME
