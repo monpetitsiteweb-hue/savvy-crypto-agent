@@ -197,9 +197,10 @@ export const ConversationPanel = () => {
         });
 
         if (aiError) {
-          aiMessage = `❌ Edge function error: ${JSON.stringify(aiError)}. Using local fallback.`;
-        } else if (aiData) {
-          aiMessage = `✅ AI Connected Successfully!\n\n${aiData.message}`;
+          aiMessage = `❌ Edge function error: ${JSON.stringify(aiError)}`;
+        } else if (aiData && aiData.message) {
+          // Use the ACTUAL AI response, not just a success message
+          aiMessage = aiData.message;
           hasConfigUpdates = aiData.configUpdates && Object.keys(aiData.configUpdates).length > 0;
           
           // Update strategy if changes were made
@@ -222,15 +223,15 @@ export const ConversationPanel = () => {
             ));
           }
         } else {
-          aiMessage = '❌ No response data from AI assistant. Using local fallback.';
+          aiMessage = '❌ No response data from AI assistant';
         }
       } catch (edgeFunctionError) {
         // Show the actual error details
-        aiMessage = `❌ Function call exception: ${edgeFunctionError.message || JSON.stringify(edgeFunctionError)}. Using local fallback.`;
+        aiMessage = `❌ Function call exception: ${edgeFunctionError.message || JSON.stringify(edgeFunctionError)}`;
       }
       
-      // If we didn't get a proper AI response, use local analysis
-      if (!aiMessage || aiMessage.includes('fallback')) {
+      // ONLY use local fallback if we actually failed to get an AI response
+      if (!aiMessage) {
         aiMessage = analyzeUserQuestion(currentInput);
       }
       const aiResponse: Message = {
