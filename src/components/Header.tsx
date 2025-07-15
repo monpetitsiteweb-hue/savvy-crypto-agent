@@ -102,12 +102,6 @@ export const Header = () => {
 
             {user && (
               <div className="flex items-center gap-4">
-                {role === 'admin' && (
-                  <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/30">
-                    <Shield className="w-3 h-3 mr-1" />
-                    Admin
-                  </Badge>
-                )}
                 
                 {/* Profile Dropdown */}
                 <div className="relative">
@@ -126,8 +120,14 @@ export const Header = () => {
                   {showDropdown && (
                     <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-600 rounded-lg shadow-lg z-50">
                       <div className="p-2">
-                        <div className="px-3 py-2 text-sm text-slate-400 border-b border-slate-600">
-                          {user?.email}
+                        <div className="px-3 py-2 text-sm text-slate-400 border-b border-slate-600 flex items-center justify-between">
+                          <span>{user?.email}</span>
+                          {role === 'admin' && (
+                            <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
+                              <Shield className="w-3 h-3 mr-1" />
+                              Admin
+                            </Badge>
+                          )}
                         </div>
                         <Button
                           variant="ghost"
