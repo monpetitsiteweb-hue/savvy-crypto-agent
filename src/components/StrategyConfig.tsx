@@ -35,6 +35,64 @@ export const StrategyConfig = () => {
   const [showBuilder, setShowBuilder] = useState(false);
   const [renderKey, setRenderKey] = useState(0);
 
+  // EMERGENCY: Force DOM manipulation when state changes
+  useEffect(() => {
+    console.log('useEffect triggered! showBuilder =', showBuilder);
+    if (showBuilder) {
+      console.log('CREATING RED PANEL VIA DOM MANIPULATION!');
+      
+      // Create red panel directly in DOM
+      const redPanel = document.createElement('div');
+      redPanel.id = 'emergency-red-panel';
+      redPanel.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: red;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 50px;
+      `;
+      redPanel.innerHTML = `
+        <h1 style="color: white; font-size: 48px; font-weight: bold;">
+          EMERGENCY DOM PANEL! React isn't working!
+        </h1>
+        <p style="color: white; font-size: 24px; margin-top: 20px;">
+          showBuilder = ${showBuilder}
+        </p>
+        <button id="emergency-back-btn" style="
+          margin-top: 20px;
+          padding: 10px 20px;
+          background-color: blue;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          font-size: 18px;
+          cursor: pointer;
+        ">
+          Go Back (DOM Click)
+        </button>
+      `;
+      
+      document.body.appendChild(redPanel);
+      
+      // Add click handler
+      document.getElementById('emergency-back-btn')?.addEventListener('click', () => {
+        console.log('EMERGENCY BACK CLICKED');
+        document.getElementById('emergency-red-panel')?.remove();
+        setShowBuilder(false);
+      });
+    } else {
+      // Remove panel if it exists
+      document.getElementById('emergency-red-panel')?.remove();
+    }
+  }, [showBuilder]);
+
   // Debug the state
   console.log('StrategyConfig: showBuilder =', showBuilder);
 
