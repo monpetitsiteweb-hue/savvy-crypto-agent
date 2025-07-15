@@ -38,7 +38,7 @@ interface ConnectionData {
   connected_at: string;
 }
 
-export const ProfilePage = () => {
+const ProfilePage = () => {
   const { user } = useAuth();
   const { role } = useUserRole();
   const { toast } = useToast();
@@ -393,3 +393,5 @@ export const ProfilePage = () => {
     </div>
   );
 };
+
+export default ProfilePage;
