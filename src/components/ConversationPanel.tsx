@@ -21,6 +21,7 @@ interface StrategyData {
 }
 
 export const ConversationPanel = () => {
+  console.log('ConversationPanel component loaded');
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([
     {
