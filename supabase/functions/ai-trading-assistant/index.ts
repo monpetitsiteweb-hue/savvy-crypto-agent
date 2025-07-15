@@ -27,41 +27,35 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get Perplexity API key
-    const perplexityApiKey = Deno.env.get('PERPLEXITY_API_KEY');
+    // Get OpenAI API key
+    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     
     let marketInsights = '';
     let recommendations = '';
 
-    // Fetch market insights using Perplexity if available
-    if (perplexityApiKey) {
+    // Fetch market insights using OpenAI if available
+    if (openAIApiKey) {
       try {
-        const marketResponse = await fetch('https://api.perplexity.ai/chat/completions', {
+        const marketResponse = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${perplexityApiKey}`,
+            'Authorization': `Bearer ${openAIApiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'llama-3.1-sonar-small-128k-online',
+            model: 'gpt-4o-mini',
             messages: [
               {
                 role: 'system',
-                content: 'You are a crypto trading analyst. Provide current market insights, trends, and signals for cryptocurrency trading. Be concise and focus on actionable information.'
+                content: 'You are a crypto trading analyst. Provide general market insights, trends, and signals for cryptocurrency trading based on your training data. Be concise and focus on actionable information.'
               },
               {
                 role: 'user',
-                content: 'What are the current cryptocurrency market trends, signals, and key indicators that would affect trading strategies today? Include BTC, ETH, and major altcoins.'
+                content: 'What are the general cryptocurrency market patterns, signals, and key indicators that typically affect trading strategies? Include insights about BTC, ETH, and major altcoins.'
               }
             ],
             temperature: 0.2,
-            top_p: 0.9,
             max_tokens: 500,
-            return_images: false,
-            return_related_questions: false,
-            search_recency_filter: 'day',
-            frequency_penalty: 1,
-            presence_penalty: 0
           }),
         });
 
@@ -70,8 +64,8 @@ serve(async (req) => {
           marketInsights = marketData.choices[0]?.message?.content || '';
         }
       } catch (error) {
-        console.log('Perplexity API error:', error);
-        marketInsights = 'Unable to fetch current market data at this time.';
+        console.log('OpenAI API error:', error);
+        marketInsights = 'Using general market analysis patterns from training data.';
       }
     }
 
