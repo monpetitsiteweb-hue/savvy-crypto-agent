@@ -27,6 +27,28 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Get LLM configuration from database
+    let llmConfig: any = {
+      system_prompt: 'You are a cryptocurrency trading assistant. Help users analyze and modify their trading strategies. Always be direct and concise. Do not use emojis or icons in your responses. Focus on the user\'s exact request and maintain context from previous messages.',
+      temperature: 0.3,
+      max_tokens: 2000,
+      model: 'gpt-4o-mini'
+    };
+
+    try {
+      const { data: configData } = await supabase
+        .from('llm_configurations')
+        .select('*')
+        .eq('is_active', true)
+        .single();
+      
+      if (configData) {
+        llmConfig = configData;
+      }
+    } catch (error) {
+      console.log('Using default LLM configuration');
+    }
+
     // Get OpenAI API key
     const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     
@@ -42,21 +64,21 @@ serve(async (req) => {
             'Authorization': `Bearer ${openAIApiKey}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              {
-                role: 'system',
-                content: 'You are a crypto trading analyst. Provide general market insights, trends, and signals for cryptocurrency trading based on your training data. Be concise and focus on actionable information.'
-              },
-              {
-                role: 'user',
-                content: 'What are the general cryptocurrency market patterns, signals, and key indicators that typically affect trading strategies? Include insights about BTC, ETH, and major altcoins.'
-              }
-            ],
-            temperature: 0.2,
-            max_tokens: 500,
-          }),
+            body: JSON.stringify({
+              model: llmConfig.model || 'gpt-4o-mini',
+              messages: [
+                {
+                  role: 'system',
+                  content: llmConfig.system_prompt
+                },
+                {
+                  role: 'user',
+                  content: message
+                }
+              ],
+              temperature: llmConfig.temperature || 0.3,
+              max_tokens: llmConfig.max_tokens || 2000,
+            }),
         });
 
         if (marketResponse.ok) {
@@ -74,20 +96,23 @@ serve(async (req) => {
     let configUpdates: any = {};
     let responseMessage = '';
 
-    // Handle stop loss changes
-    if (lowerMessage.includes('stop loss') || lowerMessage.includes('stop-loss')) {
+    // Handle stop loss changes with context awareness
+    if (lowerMessage.includes('stop loss') || lowerMessage.includes('stop-loss') || 
+        (lowerMessage.includes('change') && lowerMessage.includes('3')) ||
+        (lowerMessage.includes('to') && lowerMessage.match(/\d+/))) {
+      
       const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
       if (percentageMatch) {
         const newPercentage = parseFloat(percentageMatch[1]);
         configUpdates.stopLoss = true;
         configUpdates.stopLossPercentage = newPercentage;
-        responseMessage = `✅ Updated stop-loss to ${newPercentage}% and enabled it. This will help protect your capital by automatically selling if positions drop by ${newPercentage}% or more.`;
+        responseMessage = `Updated stop-loss to ${newPercentage}% and enabled it. This will help protect your capital by automatically selling if positions drop by ${newPercentage}% or more.`;
       } else if (lowerMessage.includes('enable') || lowerMessage.includes('activate')) {
         configUpdates.stopLoss = true;
-        responseMessage = `✅ Enabled stop-loss protection at ${currentConfig?.stopLossPercentage || 3}%. This will help limit your downside risk.`;
+        responseMessage = `Enabled stop-loss protection at ${currentConfig?.stopLossPercentage || 3}%. This will help limit your downside risk.`;
       } else if (lowerMessage.includes('disable') || lowerMessage.includes('turn off')) {
         configUpdates.stopLoss = false;
-        responseMessage = `⚠️ Disabled stop-loss protection. Note that this increases your risk exposure. You might want to monitor your positions more closely.`;
+        responseMessage = `Disabled stop-loss protection. Note that this increases your risk exposure. You might want to monitor your positions more closely.`;
       }
     }
 
@@ -302,19 +327,19 @@ ${strategyType === 'trend-following' ? '- Entering on confirmed upward momentum\
       else if ((lowerMessage.includes('stop loss') || lowerMessage.includes('stop-loss')) && 
                (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
         const stopLossValue = currentConfig?.stopLoss ? `${currentConfig.stopLossPercentage}%` : 'Disabled';
-        responseMessage = `🛡️ **Your Stop Loss:** ${stopLossValue}${!currentConfig?.stopLoss ? ' ⚠️ This means unlimited downside risk!' : ''}`;
+        responseMessage = `Your Stop Loss: ${stopLossValue}${!currentConfig?.stopLoss ? ' - This means unlimited downside risk!' : ''}`;
       }
       else if ((lowerMessage.includes('take profit') || lowerMessage.includes('profit')) && 
                (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
-        responseMessage = `🎯 **Your Take Profit:** ${currentConfig?.takeProfit || 1.3}%`;
+        responseMessage = `Your Take Profit: ${currentConfig?.takeProfit || 1.3}%`;
       }
       else if (lowerMessage.includes('risk') && 
                (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
-        responseMessage = `⚖️ **Your Risk Level:** ${(currentConfig?.riskLevel || 'medium').charAt(0).toUpperCase() + (currentConfig?.riskLevel || 'medium').slice(1)}`;
+        responseMessage = `Your Risk Level: ${(currentConfig?.riskLevel || 'medium').charAt(0).toUpperCase() + (currentConfig?.riskLevel || 'medium').slice(1)}`;
       }
       else if ((lowerMessage.includes('max position') || lowerMessage.includes('position size')) && 
                (lowerMessage.includes('what') || lowerMessage.includes('my') || lowerMessage.includes('current'))) {
-        responseMessage = `💰 **Your Max Position:** €${currentConfig?.maxPosition?.toLocaleString() || '5,000'}`;
+        responseMessage = `Your Max Position: €${currentConfig?.maxPosition?.toLocaleString() || '5,000'}`;
       }
       
       // Strategy analysis questions
@@ -353,10 +378,10 @@ Ask me specific questions like:
       } else {
         responseMessage = `I can analyze your trading strategy intelligently:
 
-• 📈 **Strategy Analysis:** "What's my sell strategy?" or "How does my buying work?"
-• 🔧 **Modify Settings:** "Change stop loss to 2.5%" or "Set risk to aggressive"
-• 💡 **Get Advice:** "Should I adjust my strategy?" or "What's risky about my setup?"
-• 📊 **Market Insights:** "Give me trading recommendations"
+Strategy Analysis: "What's my sell strategy?" or "How does my buying work?"
+Modify Settings: "Change stop loss to 2.5%" or "Set risk to aggressive"  
+Get Advice: "Should I adjust my strategy?" or "What's risky about my setup?"
+Market Insights: "Give me trading recommendations"
 
 What would you like to know?`;
       }

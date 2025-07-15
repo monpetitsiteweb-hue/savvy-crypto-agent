@@ -21,16 +21,7 @@ export const LLMConfigPanel = () => {
     apiKey: '••••••••', // Masked since it's stored in Supabase secrets
     temperature: 0.3,
     maxTokens: 2000,
-    systemPrompt: `You are an expert cryptocurrency trading strategist. You help users translate natural language trading requirements into precise technical configurations.
-
-Key responsibilities:
-- Analyze user trading goals and risk tolerance
-- Recommend appropriate technical indicators
-- Set optimal entry/exit conditions
-- Configure risk management parameters
-- Consider market conditions and trends
-
-Always prioritize risk management and provide conservative recommendations unless user explicitly requests aggressive strategies.`,
+    systemPrompt: '',
     contextSources: {
       tradingHistory: true,
       marketData: true,
@@ -39,8 +30,42 @@ Always prioritize risk management and provide conservative recommendations unles
       whaleMovements: true
     }
   });
-
+  const [originalPrompt, setOriginalPrompt] = useState('');
   const [testing, setTesting] = useState(false);
+
+  // Load LLM configuration from database
+  useEffect(() => {
+    const loadLLMConfig = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('llm_configurations')
+          .select('*')
+          .eq('is_active', true)
+          .single();
+
+        if (error) {
+          console.log('No LLM config found, using defaults');
+          return;
+        }
+
+        if (data) {
+          setConfig(prev => ({
+            ...prev,
+            systemPrompt: data.system_prompt,
+            temperature: data.temperature,
+            maxTokens: data.max_tokens,
+            model: data.model,
+            provider: data.provider,
+          }));
+          setOriginalPrompt(data.system_prompt);
+        }
+      } catch (error) {
+        console.error('Error loading LLM config:', error);
+      }
+    };
+
+    loadLLMConfig();
+  }, []);
 
   const handleSaveConfig = async () => {
     try {
@@ -197,14 +222,35 @@ Always prioritize risk management and provide conservative recommendations unles
                 </span>
               </div>
               <Button 
-                onClick={() => {
-                  // Note: System prompt changes require updating the edge function code
-                  toast({
-                    title: "Note",
-                    description: "System prompt changes require code deployment to take effect"
-                  });
+                onClick={async () => {
+                  try {
+                    const { error } = await supabase
+                      .from('llm_configurations')
+                      .update({
+                        system_prompt: config.systemPrompt,
+                        temperature: config.temperature,
+                        max_tokens: config.maxTokens,
+                        updated_at: new Date().toISOString(),
+                      })
+                      .eq('is_active', true);
+
+                    if (error) throw error;
+
+                    setOriginalPrompt(config.systemPrompt);
+                    toast({
+                      title: "Configuration Saved",
+                      description: "System prompt has been updated successfully",
+                    });
+                  } catch (error) {
+                    toast({
+                      title: "Error",
+                      description: "Failed to save configuration. Please try again.",
+                      variant: "destructive",
+                    });
+                  }
                 }}
                 className="bg-green-500 hover:bg-green-600"
+                disabled={config.systemPrompt === originalPrompt}
               >
                 <Save className="w-4 h-4 mr-2" />
                 Save Prompt

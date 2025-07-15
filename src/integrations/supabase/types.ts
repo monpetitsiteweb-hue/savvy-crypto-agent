@@ -47,6 +47,42 @@ export type Database = {
         }
         Relationships: []
       }
+      llm_configurations: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          max_tokens: number
+          model: string
+          provider: string
+          system_prompt: string
+          temperature: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          max_tokens?: number
+          model?: string
+          provider?: string
+          system_prompt?: string
+          temperature?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          max_tokens?: number
+          model?: string
+          provider?: string
+          system_prompt?: string
+          temperature?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
