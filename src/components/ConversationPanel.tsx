@@ -183,16 +183,18 @@ export const ConversationPanel = () => {
       let aiMessage = '';
       let hasConfigUpdates = false;
       
-      console.log('🔄 About to call ai-trading-assistant edge function...');
-      console.log('User ID:', user?.id);
-      console.log('Strategy ID:', activeStrategy?.id);
-      console.log('Input message:', currentInput);
+      // Show debugging info directly in chat
+      const debugInfo = [];
+      debugInfo.push(`🔄 About to call ai-trading-assistant edge function...`);
+      debugInfo.push(`User ID: ${user?.id || 'NOT LOGGED IN'}`);
+      debugInfo.push(`Strategy ID: ${activeStrategy?.id || 'NO STRATEGY'}`);
+      debugInfo.push(`Input message: "${currentInput}"`);
       
       try {
         // Wait a moment so user can see the attempt
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        console.log('🔄 Calling supabase.functions.invoke...');
+        debugInfo.push(`🔄 Calling supabase.functions.invoke...`);
         const { data: aiData, error: aiError } = await supabase.functions.invoke('ai-trading-assistant', {
           body: {
             message: currentInput,
@@ -202,13 +204,15 @@ export const ConversationPanel = () => {
           },
         });
 
-        console.log('🔄 Edge function response received:', { aiData, aiError });
+        debugInfo.push(`🔄 Edge function response received`);
+        debugInfo.push(`aiData: ${JSON.stringify(aiData, null, 2)}`);
+        debugInfo.push(`aiError: ${JSON.stringify(aiError, null, 2)}`);
 
         if (aiError) {
-          console.log('❌ Edge function returned error:', aiError);
+          debugInfo.push(`❌ Edge function returned error`);
           aiMessage = `❌ Edge function error: ${JSON.stringify(aiError)}`;
         } else if (aiData && aiData.message) {
-          console.log('✅ Got AI response:', aiData.message);
+          debugInfo.push(`✅ Got AI response: ${aiData.message}`);
           // Use the ACTUAL AI response, not just a success message
           aiMessage = aiData.message;
           hasConfigUpdates = aiData.configUpdates && Object.keys(aiData.configUpdates).length > 0;
@@ -233,21 +237,22 @@ export const ConversationPanel = () => {
             ));
           }
         } else {
+          debugInfo.push(`❌ No response data from AI assistant`);
           aiMessage = '❌ No response data from AI assistant';
         }
       } catch (edgeFunctionError) {
         // Show the actual error details
+        debugInfo.push(`❌ Function call exception: ${edgeFunctionError.message || JSON.stringify(edgeFunctionError)}`);
         aiMessage = `❌ Function call exception: ${edgeFunctionError.message || JSON.stringify(edgeFunctionError)}`;
       }
       
-      // ONLY use local fallback if we actually failed to get an AI response
-      if (!aiMessage) {
-        aiMessage = analyzeUserQuestion(currentInput);
-      }
+      // Show all debug info in the response
+      const finalResponse = debugInfo.join('\n') + '\n\n---\n\n' + (aiMessage || analyzeUserQuestion(currentInput));
+      
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: aiMessage || 'I apologize, but I encountered an issue processing your request.',
+        content: finalResponse,
         timestamp: new Date()
       };
       
