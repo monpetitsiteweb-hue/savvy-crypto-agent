@@ -11,6 +11,17 @@ import { Play, Pause, Settings, Trash2, Plus, TrendingUp, Activity, ArrowUpDown,
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 type ViewMode = 'overview' | 'configure';
 type MenuItem = 'basic-settings' | 'exchange' | 'notifications' | 'buy-settings' | 'coins-amounts' | 'strategy' | 'trailing-stop-buy' | 'sell-settings' | 'sell-strategy' | 'stop-loss' | 'trailing-stop-loss' | 'auto-close' | 'shorting-settings' | 'dollar-cost-averaging';
@@ -47,6 +58,7 @@ export const StrategyConfig = () => {
   const [hasActiveStrategy, setHasActiveStrategy] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [activeStrategy, setActiveStrategy] = useState<any>(null);
+  const [allStrategies, setAllStrategies] = useState<any[]>([]);
   const [strategyConfig, setStrategyConfig] = useState({
     name: '',
     maxPosition: 5000,
@@ -62,32 +74,40 @@ export const StrategyConfig = () => {
     stopLossPercentage: 3,
   });
 
-  // Check if user has an active strategy
+  // Load all strategies and check active one
   useEffect(() => {
-    const checkActiveStrategy = async () => {
+    const loadStrategies = async () => {
       if (!user) return;
       
       const { data, error } = await supabase
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
-        .eq('is_active', true)
-        .maybeSingle();
+        .order('created_at', { ascending: false });
 
       if (data && !error) {
-        setHasActiveStrategy(true);
-        setActiveStrategy(data);
-        // Load strategy configuration from the database
-        if (data.configuration && typeof data.configuration === 'object') {
-          setStrategyConfig(prevConfig => ({ ...prevConfig, ...(data.configuration as Record<string, any>) }));
+        setAllStrategies(data);
+        const activeStrategyData = data.find(s => s.is_active);
+        
+        if (activeStrategyData) {
+          setHasActiveStrategy(true);
+          setActiveStrategy(activeStrategyData);
+          // Load strategy configuration from the database
+          if (activeStrategyData.configuration && typeof activeStrategyData.configuration === 'object') {
+            setStrategyConfig(prevConfig => ({ ...prevConfig, ...(activeStrategyData.configuration as Record<string, any>) }));
+          }
+        } else {
+          setHasActiveStrategy(false);
+          setActiveStrategy(null);
         }
       } else {
         setHasActiveStrategy(false);
         setActiveStrategy(null);
+        setAllStrategies([]);
       }
     };
 
-    checkActiveStrategy();
+    loadStrategies();
   }, [user]);
 
   const handleCreateStrategy = () => {
@@ -161,6 +181,76 @@ export const StrategyConfig = () => {
       toast({
         title: "Error",
         description: "Failed to save strategy. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Toggle strategy activation
+  const handleToggleStrategy = async (strategyId: string, currentlyActive: boolean) => {
+    if (!user) return;
+    
+    try {
+      if (currentlyActive) {
+        // Désactiver la stratégie
+        const { error } = await supabase
+          .from('trading_strategies')
+          .update({ is_active: false })
+          .eq('id', strategyId)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        toast({
+          title: "Stratégie désactivée",
+          description: "Votre stratégie de trading a été désactivée.",
+        });
+      } else {
+        // Désactiver toutes les autres stratégies d'abord
+        await supabase
+          .from('trading_strategies')
+          .update({ is_active: false })
+          .eq('user_id', user.id);
+
+        // Activer la stratégie sélectionnée
+        const { error } = await supabase
+          .from('trading_strategies')
+          .update({ is_active: true })
+          .eq('id', strategyId)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        toast({
+          title: "Stratégie activée",
+          description: "Votre stratégie de trading a été activée.",
+        });
+      }
+
+      // Recharger les stratégies
+      const { data } = await supabase
+        .from('trading_strategies')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (data) {
+        setAllStrategies(data);
+        const activeStrategyData = data.find(s => s.is_active);
+        
+        if (activeStrategyData) {
+          setHasActiveStrategy(true);
+          setActiveStrategy(activeStrategyData);
+        } else {
+          setHasActiveStrategy(false);
+          setActiveStrategy(null);
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling strategy:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de modifier l'état de la stratégie.",
         variant: "destructive",
       });
     }
@@ -251,22 +341,164 @@ export const StrategyConfig = () => {
             <p className="text-white font-medium">{strategyConfig.stopLossPercentage || 3}%</p>
           </div>
         </div>
-      </Card>
-    </div>
-  );
+        </Card>
 
-  // Create Strategy View
+        {/* Liste de toutes les stratégies */}
+        {allStrategies.length > 0 && (
+          <Card className="p-6 bg-slate-700/30 border-slate-600">
+            <h3 className="text-lg font-semibold text-white mb-4">Toutes les stratégies</h3>
+            <div className="space-y-3">
+              {allStrategies.map((strategy) => (
+                <div key={strategy.id} className="flex items-center justify-between p-4 bg-slate-800/30 rounded-lg border border-slate-600">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3">
+                      <h4 className="text-white font-medium">{strategy.strategy_name}</h4>
+                      {strategy.is_active && (
+                        <Badge className="bg-green-500 text-white">Actif</Badge>
+                      )}
+                    </div>
+                    <p className="text-slate-400 text-sm mt-1">
+                      Créée le {new Date(strategy.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={`${
+                            strategy.is_active 
+                              ? 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30' 
+                              : 'bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500'
+                          }`}
+                        >
+                          {strategy.is_active ? (
+                            <>
+                              <Pause className="w-4 h-4 mr-2" />
+                              Désactiver
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-4 h-4 mr-2" />
+                              Activer
+                            </>
+                          )}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="bg-slate-800 border-slate-700">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="text-white">
+                            {strategy.is_active ? 'Désactiver la stratégie' : 'Activer la stratégie'}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription className="text-slate-400">
+                            {strategy.is_active 
+                              ? `Êtes-vous sûr de vouloir désactiver la stratégie "${strategy.strategy_name}" ? Cela arrêtera tous les trades automatiques.`
+                              : `Êtes-vous sûr de vouloir activer la stratégie "${strategy.strategy_name}" ? Cela désactivera automatiquement toute autre stratégie active.`
+                            }
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                            Annuler
+                          </AlertDialogCancel>
+                          <AlertDialogAction 
+                            onClick={() => handleToggleStrategy(strategy.id, strategy.is_active)}
+                            className={`${
+                              strategy.is_active 
+                                ? 'bg-red-600 hover:bg-red-700' 
+                                : 'bg-green-600 hover:bg-green-700'
+                            } text-white`}
+                          >
+                            {strategy.is_active ? 'Désactiver' : 'Activer'}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+      </div>
+    );
+  
+  // Create Strategy View - Modifié pour montrer les stratégies existantes
   const CreateStrategyView = () => (
-    <div className="flex items-center justify-center h-full">
-      <Card className="p-8 bg-slate-700/30 border-slate-600 text-center max-w-md">
-        <TrendingUp className="w-16 h-16 mx-auto mb-4 text-cyan-400" />
-        <h3 className="text-xl font-semibold text-white mb-2">No Active Strategy</h3>
-        <p className="text-slate-400 mb-6">Create your first trading strategy to get started</p>
-        <Button onClick={handleCreateStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
-          <Plus className="w-4 h-4 mr-2" />
-          Create New Strategy
-        </Button>
-      </Card>
+    <div className="space-y-6">
+      {allStrategies.length > 0 ? (
+        <>
+          <div className="text-center">
+            <h3 className="text-xl font-semibold text-white mb-2">Aucune stratégie active</h3>
+            <p className="text-slate-400 mb-6">Activez une stratégie existante ou créez-en une nouvelle</p>
+            <Button onClick={handleCreateStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
+              <Plus className="w-4 h-4 mr-2" />
+              Créer une nouvelle stratégie
+            </Button>
+          </div>
+          
+          <Card className="p-6 bg-slate-700/30 border-slate-600">
+            <h3 className="text-lg font-semibold text-white mb-4">Stratégies existantes</h3>
+            <div className="space-y-3">
+              {allStrategies.map((strategy) => (
+                <div key={strategy.id} className="flex items-center justify-between p-4 bg-slate-800/30 rounded-lg border border-slate-600">
+                  <div className="flex-1">
+                    <h4 className="text-white font-medium">{strategy.strategy_name}</h4>
+                    <p className="text-slate-400 text-sm mt-1">
+                      Créée le {new Date(strategy.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        size="sm"
+                        className="bg-green-500 hover:bg-green-600 text-white"
+                      >
+                        <Play className="w-4 h-4 mr-2" />
+                        Activer
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="bg-slate-800 border-slate-700">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="text-white">Activer la stratégie</AlertDialogTitle>
+                        <AlertDialogDescription className="text-slate-400">
+                          Êtes-vous sûr de vouloir activer la stratégie "{strategy.strategy_name}" ? Cela commencera les trades automatiques selon la configuration définie.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                          Annuler
+                        </AlertDialogCancel>
+                        <AlertDialogAction 
+                          onClick={() => handleToggleStrategy(strategy.id, false)}
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          Activer
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      ) : (
+        <div className="flex items-center justify-center h-full">
+          <Card className="p-8 bg-slate-700/30 border-slate-600 text-center max-w-md">
+            <TrendingUp className="w-16 h-16 mx-auto mb-4 text-cyan-400" />
+            <h3 className="text-xl font-semibold text-white mb-2">Aucune stratégie</h3>
+            <p className="text-slate-400 mb-6">Créez votre première stratégie de trading pour commencer</p>
+            <Button onClick={handleCreateStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
+              <Plus className="w-4 h-4 mr-2" />
+              Créer une nouvelle stratégie
+            </Button>
+          </Card>
+        </div>
+      )}
     </div>
   );
 
