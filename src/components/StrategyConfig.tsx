@@ -414,6 +414,24 @@ export const StrategyConfig = () => {
                   </div>
                   
                   <div className="flex items-center gap-3">
+                    {!strategy.is_active && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setActiveStrategy(strategy);
+                          setStrategyConfig(prevConfig => ({ 
+                            ...prevConfig, 
+                            ...(strategy.configuration as Record<string, any>) 
+                          }));
+                          handleEditStrategy();
+                        }}
+                        className="bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                    )}
+                    
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
