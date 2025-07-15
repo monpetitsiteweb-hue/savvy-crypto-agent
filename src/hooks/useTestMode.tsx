@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 interface TestModeContextType {
   testMode: boolean;
   setTestMode: (enabled: boolean) => void;
+  toggleTestMode: () => void;
 }
 
 const TestModeContext = createContext<TestModeContextType | undefined>(undefined);
@@ -18,12 +19,18 @@ export const TestModeProvider = ({ children }: { children: ReactNode }) => {
     localStorage.setItem('global-test-mode', JSON.stringify(enabled));
   };
 
+  const toggleTestMode = () => {
+    const newMode = !testMode;
+    setTestMode(newMode);
+    return newMode;
+  };
+
   useEffect(() => {
     localStorage.setItem('global-test-mode', JSON.stringify(testMode));
   }, [testMode]);
 
   return (
-    <TestModeContext.Provider value={{ testMode, setTestMode }}>
+    <TestModeContext.Provider value={{ testMode, setTestMode, toggleTestMode }}>
       {children}
     </TestModeContext.Provider>
   );

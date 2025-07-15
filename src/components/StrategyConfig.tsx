@@ -527,7 +527,7 @@ export const StrategyConfig = () => {
                       {strategy.is_active && (
                         <Badge className="bg-green-500 text-white">Actif</Badge>
                       )}
-                      {strategy.test_mode && (
+                      {testMode && (
                         <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
                           <TestTube className="h-3 w-3 mr-1" />
                           Test
