@@ -183,10 +183,16 @@ export const ConversationPanel = () => {
       let aiMessage = '';
       let hasConfigUpdates = false;
       
+      console.log('🔄 About to call ai-trading-assistant edge function...');
+      console.log('User ID:', user?.id);
+      console.log('Strategy ID:', activeStrategy?.id);
+      console.log('Input message:', currentInput);
+      
       try {
         // Wait a moment so user can see the attempt
         await new Promise(resolve => setTimeout(resolve, 500));
         
+        console.log('🔄 Calling supabase.functions.invoke...');
         const { data: aiData, error: aiError } = await supabase.functions.invoke('ai-trading-assistant', {
           body: {
             message: currentInput,
@@ -196,9 +202,13 @@ export const ConversationPanel = () => {
           },
         });
 
+        console.log('🔄 Edge function response received:', { aiData, aiError });
+
         if (aiError) {
+          console.log('❌ Edge function returned error:', aiError);
           aiMessage = `❌ Edge function error: ${JSON.stringify(aiError)}`;
         } else if (aiData && aiData.message) {
+          console.log('✅ Got AI response:', aiData.message);
           // Use the ACTUAL AI response, not just a success message
           aiMessage = aiData.message;
           hasConfigUpdates = aiData.configUpdates && Object.keys(aiData.configUpdates).length > 0;
