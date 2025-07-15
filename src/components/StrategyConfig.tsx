@@ -130,13 +130,12 @@ export const StrategyConfig = () => {
     
     try {
       if (isEditing && activeStrategy) {
-        // Update existing strategy
+        // Update existing strategy - keep current activation status
         const { error } = await supabase
           .from('trading_strategies')
           .update({
             strategy_name: strategyConfig.name || 'My Trading Strategy',
             configuration: strategyConfig,
-            is_active: true,
             updated_at: new Date().toISOString(),
           })
           .eq('id', activeStrategy.id)
@@ -144,14 +143,14 @@ export const StrategyConfig = () => {
 
         if (error) throw error;
       } else {
-        // Create new strategy
+        // Create new strategy - inactive by default
         const { error } = await supabase
           .from('trading_strategies')
           .insert({
             user_id: user.id,
             strategy_name: strategyConfig.name || 'My Trading Strategy',
             configuration: strategyConfig,
-            is_active: true,
+            is_active: false,
           });
 
         if (error) throw error;
