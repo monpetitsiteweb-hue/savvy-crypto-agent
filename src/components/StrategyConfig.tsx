@@ -38,19 +38,9 @@ export const StrategyConfig = () => {
   // Use a ref to force immediate DOM updates
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Force component remount when showBuilder changes
   const showBuilderPanel = () => {
+    console.log('BUTTON CLICKED - showBuilderPanel triggered');
     setShowBuilder(true);
-    setForceUpdate(prev => prev + 1);
-    
-    // Force immediate DOM update
-    setTimeout(() => {
-      if (containerRef.current) {
-        containerRef.current.style.display = 'none';
-        containerRef.current.offsetHeight; // Force reflow
-        containerRef.current.style.display = 'block';
-      }
-    }, 0);
   };
   useEffect(() => {
     if (user) {
