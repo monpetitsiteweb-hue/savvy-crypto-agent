@@ -170,11 +170,23 @@ export const ConversationPanel = () => {
         hasConfig: !!activeStrategy?.configuration
       });
       
+      // Add a visual indicator that we're attempting to call AI
+      const testResponse: Message = {
+        id: (Date.now() + 0.5).toString(),
+        type: 'ai',
+        content: '🔄 Connecting to AI assistant...',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, testResponse]);
+      
       // Try to call the edge function for AI analysis and strategy updates
       let aiMessage = '';
       let hasConfigUpdates = false;
       
       try {
+        // Wait a moment so user can see the attempt
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         const { data: aiData, error: aiError } = await supabase.functions.invoke('ai-trading-assistant', {
           body: {
             message: currentInput,
@@ -185,33 +197,40 @@ export const ConversationPanel = () => {
         });
 
         if (aiError) {
-          throw aiError;
-        }
-
-        aiMessage = aiData.message;
-        hasConfigUpdates = aiData.configUpdates && Object.keys(aiData.configUpdates).length > 0;
-        
-        // Update strategy if changes were made
-        if (hasConfigUpdates && activeStrategy?.id) {
-          await supabase
-            .from('trading_strategies')
-            .update({
-              configuration: { ...activeStrategy.configuration, ...aiData.configUpdates },
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', activeStrategy.id)
-            .eq('user_id', user?.id);
-            
-          // Update local strategy state
-          const newConfig = { ...activeStrategy.configuration, ...aiData.configUpdates };
-          setUserStrategies(prev => prev.map(s => 
-            s.id === activeStrategy.id 
-              ? { ...s, configuration: newConfig }
-              : s
-          ));
+          aiMessage = `❌ Edge function error: ${JSON.stringify(aiError)}. Using local fallback.`;
+        } else if (aiData) {
+          aiMessage = `✅ AI Connected Successfully!\n\n${aiData.message}`;
+          hasConfigUpdates = aiData.configUpdates && Object.keys(aiData.configUpdates).length > 0;
+          
+          // Update strategy if changes were made
+          if (hasConfigUpdates && activeStrategy?.id) {
+            await supabase
+              .from('trading_strategies')
+              .update({
+                configuration: { ...activeStrategy.configuration, ...aiData.configUpdates },
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', activeStrategy.id)
+              .eq('user_id', user?.id);
+              
+            // Update local strategy state
+            const newConfig = { ...activeStrategy.configuration, ...aiData.configUpdates };
+            setUserStrategies(prev => prev.map(s => 
+              s.id === activeStrategy.id 
+                ? { ...s, configuration: newConfig }
+                : s
+            ));
+          }
+        } else {
+          aiMessage = '❌ No response data from AI assistant. Using local fallback.';
         }
       } catch (edgeFunctionError) {
-        // If edge function fails completely, use local analysis
+        // Show the actual error details
+        aiMessage = `❌ Function call exception: ${edgeFunctionError.message || JSON.stringify(edgeFunctionError)}. Using local fallback.`;
+      }
+      
+      // If we didn't get a proper AI response, use local analysis
+      if (!aiMessage || aiMessage.includes('fallback')) {
         aiMessage = analyzeUserQuestion(currentInput);
       }
       const aiResponse: Message = {
@@ -221,7 +240,8 @@ export const ConversationPanel = () => {
         timestamp: new Date()
       };
       
-      setMessages(prev => [...prev, aiResponse]);
+      // Replace the "Connecting..." message with the actual response
+      setMessages(prev => [...prev.slice(0, -1), aiResponse]);
       
     } catch (error) {
       // This should only catch unexpected errors now since edge function errors are handled above
