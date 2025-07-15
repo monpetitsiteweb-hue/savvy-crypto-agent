@@ -364,9 +364,9 @@ ${!hasStopLoss ? '🚨 HIGH RISK - No downside protection' :
   '⚖️ Balanced risk/reward approach'}`;
       }
       
-      // Fallback for general questions
+      // Fallback for general questions - use the LLM for actual conversation
       else if (lowerMessage.includes('what') || lowerMessage.includes('current') || lowerMessage.includes('my')) {
-        responseMessage = `📋 **Quick Strategy Overview:**
+        responseMessage = `Quick Strategy Overview:
 • Risk: ${currentConfig?.riskLevel || 'medium'} | Max: €${currentConfig?.maxPosition?.toLocaleString() || '5,000'}
 • Profit: ${currentConfig?.takeProfit || 1.3}% | Stop: ${currentConfig?.stopLoss ? `${currentConfig.stopLossPercentage}%` : 'Disabled'}
 • Type: ${currentConfig?.strategyType || 'trend-following'} | Auto: ${currentConfig?.autoTrading ? 'On' : 'Off'}
@@ -376,14 +376,45 @@ Ask me specific questions like:
 • "How do I buy positions?"  
 • "Should I change my risk level?"`;
       } else {
-        responseMessage = `I can analyze your trading strategy intelligently:
+        // Use LLM for general conversation and questions not related to trading config
+        if (openAIApiKey) {
+          try {
+            const conversationResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${openAIApiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: llmConfig.model || 'gpt-4o-mini',
+                messages: [
+                  {
+                    role: 'system',
+                    content: llmConfig.system_prompt
+                  },
+                  {
+                    role: 'user',
+                    content: message
+                  }
+                ],
+                temperature: llmConfig.temperature || 0.3,
+                max_tokens: llmConfig.max_tokens || 2000,
+              }),
+            });
 
-Strategy Analysis: "What's my sell strategy?" or "How does my buying work?"
-Modify Settings: "Change stop loss to 2.5%" or "Set risk to aggressive"  
-Get Advice: "Should I adjust my strategy?" or "What's risky about my setup?"
-Market Insights: "Give me trading recommendations"
-
-What would you like to know?`;
+            if (conversationResponse.ok) {
+              const conversationData = await conversationResponse.json();
+              responseMessage = conversationData.choices[0]?.message?.content || 'I can help you with your trading strategy. What would you like to know?';
+            } else {
+              responseMessage = 'I can help you with your trading strategy. What would you like to know?';
+            }
+          } catch (error) {
+            console.error('LLM conversation error:', error);
+            responseMessage = 'I can help you with your trading strategy. What would you like to know?';
+          }
+        } else {
+          responseMessage = 'I can help you with your trading strategy. What would you like to know?';
+        }
       }
     }
 
