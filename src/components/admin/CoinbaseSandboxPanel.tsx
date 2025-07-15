@@ -14,6 +14,7 @@ interface CoinbaseSandboxCredentials {
   id: string;
   api_key_encrypted: string | null;
   api_secret_encrypted: string | null;
+  api_passphrase_encrypted: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -30,6 +31,7 @@ export const CoinbaseSandboxPanel = () => {
   const [formData, setFormData] = useState({
     api_key: '',
     api_secret: '',
+    api_passphrase: '',
     is_active: true
   });
 
@@ -62,10 +64,10 @@ export const CoinbaseSandboxPanel = () => {
 
   const handleAddCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.api_key || !formData.api_secret) {
+    if (!formData.api_key || !formData.api_secret || !formData.api_passphrase) {
       toast({
         title: "Error",
-        description: "Please fill in all required fields",
+        description: "Please fill in all required fields (API Key, Secret, and Passphrase)",
         variant: "destructive",
       });
       return;
@@ -77,6 +79,7 @@ export const CoinbaseSandboxPanel = () => {
         .insert([{
           api_key_encrypted: formData.api_key,
           api_secret_encrypted: formData.api_secret,
+          api_passphrase_encrypted: formData.api_passphrase,
           is_active: formData.is_active
         }]);
 
@@ -87,7 +90,7 @@ export const CoinbaseSandboxPanel = () => {
         description: "Sandbox credentials added successfully",
       });
 
-      setFormData({ api_key: '', api_secret: '', is_active: true });
+      setFormData({ api_key: '', api_secret: '', api_passphrase: '', is_active: true });
       setIsAddDialogOpen(false);
       fetchCredentials();
     } catch (error) {
@@ -102,10 +105,10 @@ export const CoinbaseSandboxPanel = () => {
 
   const handleUpdateCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingCredentials || !formData.api_key || !formData.api_secret) {
+    if (!editingCredentials || !formData.api_key || !formData.api_secret || !formData.api_passphrase) {
       toast({
         title: "Error",
-        description: "Please fill in all required fields",
+        description: "Please fill in all required fields (API Key, Secret, and Passphrase)",
         variant: "destructive",
       });
       return;
@@ -117,6 +120,7 @@ export const CoinbaseSandboxPanel = () => {
         .update({
           api_key_encrypted: formData.api_key,
           api_secret_encrypted: formData.api_secret,
+          api_passphrase_encrypted: formData.api_passphrase,
           is_active: formData.is_active
         })
         .eq('id', editingCredentials.id);
@@ -128,7 +132,7 @@ export const CoinbaseSandboxPanel = () => {
         description: "Sandbox credentials updated successfully",
       });
 
-      setFormData({ api_key: '', api_secret: '', is_active: true });
+      setFormData({ api_key: '', api_secret: '', api_passphrase: '', is_active: true });
       setIsEditDialogOpen(false);
       setEditingCredentials(null);
       fetchCredentials();
@@ -174,6 +178,7 @@ export const CoinbaseSandboxPanel = () => {
     setFormData({
       api_key: creds.api_key_encrypted || '',
       api_secret: creds.api_secret_encrypted || '',
+      api_passphrase: creds.api_passphrase_encrypted || '',
       is_active: creds.is_active
     });
     setIsEditDialogOpen(true);
@@ -229,6 +234,17 @@ export const CoinbaseSandboxPanel = () => {
                     value={formData.api_secret}
                     onChange={(e) => setFormData({ ...formData, api_secret: e.target.value })}
                     placeholder="Enter sandbox API secret"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="api_passphrase">API Passphrase</Label>
+                  <Input
+                    id="api_passphrase"
+                    type="password"
+                    value={formData.api_passphrase}
+                    onChange={(e) => setFormData({ ...formData, api_passphrase: e.target.value })}
+                    placeholder="Enter sandbox API passphrase"
                     required
                   />
                 </div>
@@ -318,6 +334,17 @@ export const CoinbaseSandboxPanel = () => {
                 value={formData.api_secret}
                 onChange={(e) => setFormData({ ...formData, api_secret: e.target.value })}
                 placeholder="Enter sandbox API secret"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_api_passphrase">API Passphrase</Label>
+              <Input
+                id="edit_api_passphrase"
+                type="password"
+                value={formData.api_passphrase}
+                onChange={(e) => setFormData({ ...formData, api_passphrase: e.target.value })}
+                placeholder="Enter sandbox API passphrase"
                 required
               />
             </div>
