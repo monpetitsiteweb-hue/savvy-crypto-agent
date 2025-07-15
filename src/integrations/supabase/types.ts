@@ -47,6 +47,33 @@ export type Database = {
         }
         Relationships: []
       }
+      coinbase_sandbox_credentials: {
+        Row: {
+          api_key_encrypted: string | null
+          api_secret_encrypted: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          updated_at: string
+        }
+        Insert: {
+          api_key_encrypted?: string | null
+          api_secret_encrypted?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          updated_at?: string
+        }
+        Update: {
+          api_key_encrypted?: string | null
+          api_secret_encrypted?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       llm_configurations: {
         Row: {
           created_at: string

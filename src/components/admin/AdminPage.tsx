@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Shield, Settings, Database, Bot, Zap } from 'lucide-react';
 import { CoinbaseOAuthPanel } from './CoinbaseOAuthPanel';
+import { CoinbaseSandboxPanel } from './CoinbaseSandboxPanel';
 import { LLMConfigPanel } from './LLMConfigPanel';
 import { DataSourcesPanel } from './DataSourcesPanel';
 import { Header } from '../Header';
@@ -28,7 +29,7 @@ export const AdminPage = () => {
 
           {/* Admin Tabs */}
           <Tabs defaultValue="llm" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3 bg-slate-800">
+            <TabsList className="grid w-full grid-cols-4 bg-slate-800">
               <TabsTrigger value="llm" className="flex items-center gap-2">
                 <Bot className="w-4 h-4" />
                 AI Configuration
@@ -40,6 +41,10 @@ export const AdminPage = () => {
               <TabsTrigger value="coinbase" className="flex items-center gap-2">
                 <Zap className="w-4 h-4" />
                 Coinbase OAuth
+              </TabsTrigger>
+              <TabsTrigger value="sandbox" className="flex items-center gap-2">
+                <Settings className="w-4 h-4" />
+                Sandbox API
               </TabsTrigger>
             </TabsList>
 
@@ -53,6 +58,10 @@ export const AdminPage = () => {
 
             <TabsContent value="coinbase">
               <CoinbaseOAuthPanel />
+            </TabsContent>
+
+            <TabsContent value="sandbox">
+              <CoinbaseSandboxPanel />
             </TabsContent>
           </Tabs>
         </div>
