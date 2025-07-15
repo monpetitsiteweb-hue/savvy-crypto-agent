@@ -1,20 +1,57 @@
-
-
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Wallet, Settings, Bell, User, LogOut, Shield } from 'lucide-react';
+import { Wallet, Settings, Bell, User, LogOut, Shield, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 export const Header = () => {
   const { user, signOut } = useAuth();
   const { role } = useUserRole();
+  const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [emergencyStop, setEmergencyStop] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
+  };
+
+  const handleEmergencyStop = async () => {
+    if (!user) return;
+    
+    try {
+      // Disable all active strategies
+      const { error } = await supabase
+        .from('trading_strategies')
+        .update({ is_active: false })
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+
+      if (error) throw error;
+
+      setEmergencyStop(true);
+      toast({
+        title: "Emergency Stop Activated",
+        description: "All trading strategies have been deactivated immediately.",
+        variant: "destructive",
+      });
+    } catch (error) {
+      console.error('Error stopping strategies:', error);
+      toast({
+        title: "Error",
+        description: "Failed to stop strategies. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const getInitials = (email: string) => {
+    return email.split('@')[0].slice(0, 2).toUpperCase();
   };
 
   return (
@@ -34,6 +71,17 @@ export const Header = () => {
 
           {/* Status & Actions */}
           <div className="flex items-center gap-4">
+            {/* Emergency Stop Button */}
+            <Button
+              onClick={handleEmergencyStop}
+              disabled={emergencyStop}
+              className="bg-red-600 hover:bg-red-700 text-white font-medium"
+              size="sm"
+            >
+              <AlertTriangle className="w-4 h-4 mr-2" />
+              {emergencyStop ? 'STOPPED' : 'EMERGENCY STOP'}
+            </Button>
+
             <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
               <Bell className="w-4 h-4" />
             </Button>
@@ -53,21 +101,50 @@ export const Header = () => {
             )}
 
             {user && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-4">
                 {role === 'admin' && (
                   <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/30">
                     <Shield className="w-3 h-3 mr-1" />
                     Admin
                   </Badge>
                 )}
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="text-slate-400 hover:text-white"
-                  onClick={handleSignOut}
-                >
-                  <LogOut className="w-4 h-4" />
-                </Button>
+                
+                {/* Profile Dropdown */}
+                <div className="relative">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowDropdown(!showDropdown)}
+                    className="flex items-center gap-2 text-slate-300 hover:text-white"
+                  >
+                    <div className="w-8 h-8 bg-cyan-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
+                      {user?.email ? getInitials(user.email) : <User className="w-4 h-4" />}
+                    </div>
+                    <span className="hidden md:block">{user?.email}</span>
+                  </Button>
+                  
+                  {showDropdown && (
+                    <div className="absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-600 rounded-lg shadow-lg z-50">
+                      <div className="p-2">
+                        <div className="px-3 py-2 text-sm text-slate-400 border-b border-slate-600">
+                          {user?.email}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            handleSignOut();
+                            setShowDropdown(false);
+                          }}
+                          className="w-full justify-start text-slate-300 hover:text-white mt-1"
+                        >
+                          <LogOut className="w-4 h-4 mr-2" />
+                          Sign Out
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -62,40 +62,6 @@ export const ConversationPanel = () => {
     loadStrategies();
   }, [user]);
 
-  const updateStrategyConfig = async (updates: any) => {
-    if (!user || !userStrategies.length) return false;
-    
-    const activeStrategy = userStrategies.find(s => s.is_active);
-    if (!activeStrategy) return false;
-
-    try {
-      const newConfig = { ...activeStrategy.configuration, ...updates };
-      
-      const { error } = await supabase
-        .from('trading_strategies')
-        .update({
-          configuration: newConfig,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', activeStrategy.id)
-        .eq('user_id', user.id);
-
-      if (error) throw error;
-      
-      // Update local state
-      setUserStrategies(prev => prev.map(s => 
-        s.id === activeStrategy.id 
-          ? { ...s, configuration: newConfig }
-          : s
-      ));
-      
-      return true;
-    } catch (error) {
-      console.error('Error updating strategy:', error);
-      return false;
-    }
-  };
-
   const analyzeUserQuestion = (question: string): string => {
     const lowerQuestion = question.toLowerCase();
     const activeStrategy = userStrategies.find(s => s.is_active);
@@ -105,54 +71,6 @@ export const ConversationPanel = () => {
     }
 
     const config = activeStrategy.configuration || {};
-    
-    // Handle modification requests
-    if (lowerQuestion.includes('change') || lowerQuestion.includes('set') || lowerQuestion.includes('update') || lowerQuestion.includes('modify')) {
-      // Stop loss modifications
-      if (lowerQuestion.includes('stop loss') || lowerQuestion.includes('stop-loss')) {
-        const percentageMatch = lowerQuestion.match(/(\d+(?:\.\d+)?)\s*%?/);
-        if (percentageMatch) {
-          const newPercentage = parseFloat(percentageMatch[1]);
-          updateStrategyConfig({ 
-            stopLoss: true, 
-            stopLossPercentage: newPercentage 
-          });
-          return `I've updated your stop-loss to ${newPercentage}% and enabled it. This will help protect your capital by automatically selling if your positions drop by ${newPercentage}% or more.`;
-        } else if (lowerQuestion.includes('enable') || lowerQuestion.includes('activate')) {
-          updateStrategyConfig({ stopLoss: true });
-          return `I've enabled stop-loss protection for your strategy at ${config.stopLossPercentage || 3}%. This will help limit your downside risk.`;
-        } else if (lowerQuestion.includes('disable') || lowerQuestion.includes('turn off')) {
-          updateStrategyConfig({ stopLoss: false });
-          return `I've disabled stop-loss protection. Note that this increases your risk exposure. You might want to monitor your positions more closely.`;
-        }
-      }
-      
-      // Take profit modifications
-      if (lowerQuestion.includes('take profit') || lowerQuestion.includes('profit target')) {
-        const percentageMatch = lowerQuestion.match(/(\d+(?:\.\d+)?)\s*%?/);
-        if (percentageMatch) {
-          const newPercentage = parseFloat(percentageMatch[1]);
-          updateStrategyConfig({ takeProfit: newPercentage });
-          return `I've updated your take profit target to ${newPercentage}%. Your strategy will now automatically sell positions when they reach ${newPercentage}% profit.`;
-        }
-      }
-      
-      // Risk level modifications
-      if (lowerQuestion.includes('risk')) {
-        if (lowerQuestion.includes('low') || lowerQuestion.includes('conservative')) {
-          updateStrategyConfig({ riskLevel: 'low' });
-          return `I've changed your risk tolerance to Conservative. This setting prioritizes capital preservation over aggressive gains.`;
-        } else if (lowerQuestion.includes('high') || lowerQuestion.includes('aggressive')) {
-          updateStrategyConfig({ riskLevel: 'high' });
-          return `I've changed your risk tolerance to Aggressive. This allows for higher potential returns but also higher risk of losses.`;
-        } else if (lowerQuestion.includes('medium') || lowerQuestion.includes('moderate')) {
-          updateStrategyConfig({ riskLevel: 'medium' });
-          return `I've set your risk tolerance to Moderate. This balances risk and reward appropriately.`;
-        }
-      }
-      
-      return "I can help you modify your strategy settings. Try asking me to 'change stop loss to 2.5%' or 'set take profit to 1.5%' or 'change risk to conservative'.";
-    }
     
     // Strategy analysis questions
     if (lowerQuestion.includes('stop loss') || lowerQuestion.includes('stop-loss')) {
@@ -236,24 +154,18 @@ export const ConversationPanel = () => {
       const activeStrategy = userStrategies.find(s => s.is_active);
       
       // Call the edge function for AI analysis and strategy updates
-      const response = await fetch('/api/ai-trading-assistant', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('ai-trading-assistant', {
+        body: {
           message: currentInput,
           userId: user?.id,
           strategyId: activeStrategy?.id,
           currentConfig: activeStrategy?.configuration || {}
-        }),
+        },
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to get AI response');
+      if (error) {
+        throw new Error(error.message || 'Failed to get AI response');
       }
-
-      const data = await response.json();
       
       // Update local strategy state if there were config updates
       if (data.configUpdates && Object.keys(data.configUpdates).length > 0 && activeStrategy) {
