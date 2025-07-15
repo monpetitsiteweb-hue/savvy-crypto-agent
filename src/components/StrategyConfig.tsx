@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Play, Pause, Settings, Trash2, Plus, TrendingUp, ArrowUpDown, DollarSign, Shield, AlertTriangle, BarChart3, ArrowLeft, Save, Edit, TestTube } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -52,6 +53,7 @@ const menuItems = {
 export const StrategyConfig = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { testMode } = useTestMode();
   
   const [viewMode, setViewMode] = useState<ViewMode>('overview');
   const [activeMenuItem, setActiveMenuItem] = useState<MenuItem>('basic-settings');
@@ -74,7 +76,6 @@ export const StrategyConfig = () => {
     orderType: 'limit',
     stopLoss: false,
     stopLossPercentage: 3,
-    testMode: true,
   });
 
   // Load all strategies, performance data, and mock trades
@@ -143,6 +144,7 @@ export const StrategyConfig = () => {
         .from('trading_history')
         .select('*')
         .eq('strategy_id', strategyId)
+        .eq('is_sandbox', testMode)
         .order('executed_at', { ascending: false })
         .limit(10);
 
@@ -180,6 +182,7 @@ export const StrategyConfig = () => {
           .update({
             strategy_name: strategyConfig.name || 'My Trading Strategy',
             configuration: strategyConfig,
+            test_mode: testMode,
             updated_at: new Date().toISOString(),
           })
           .eq('id', activeStrategy.id)
@@ -194,6 +197,7 @@ export const StrategyConfig = () => {
             user_id: user.id,
             strategy_name: strategyConfig.name || 'My Trading Strategy',
             configuration: strategyConfig,
+            test_mode: testMode,
             is_active: false,
           });
 
@@ -359,7 +363,7 @@ export const StrategyConfig = () => {
             <h2 className="text-2xl font-bold text-white">{activeStrategy?.strategy_name || 'My Trading Strategy'}</h2>
             <p className="text-slate-400">Performance overview and key metrics</p>
           </div>
-          {activeStrategy?.test_mode && (
+          {testMode && (
             <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
               <TestTube className="h-3 w-3 mr-1" />
               Test Mode
@@ -416,7 +420,7 @@ export const StrategyConfig = () => {
               <p className="text-slate-400 text-sm">Total Trades</p>
               <p className="text-2xl font-bold text-white">{strategyPerformance?.total_trades || 0}</p>
               <p className="text-xs text-slate-500">
-                {activeStrategy?.test_mode ? 'Test mode active' : 'Live trading'}
+                {testMode ? 'Test mode active' : 'Live trading'}
               </p>
             </div>
             <BarChart3 className="w-8 h-8 text-slate-400" />
@@ -465,7 +469,7 @@ export const StrategyConfig = () => {
         {/* Recent Trades Display */}
         {mockTrades.length > 0 && (
           <Card className="p-6 bg-slate-700/30 border-slate-600">
-            <h3 className="text-lg font-semibold text-white mb-4">Recent Sandbox Trades</h3>
+            <h3 className="text-lg font-semibold text-white mb-4">Recent {testMode ? 'Sandbox' : 'Live'} Trades</h3>
             <div className="space-y-3">
               {mockTrades.slice(0, 5).map((trade) => (
                 <div key={trade.id} className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg border border-slate-600">
@@ -481,9 +485,11 @@ export const StrategyConfig = () => {
                           {trade.trade_type.toUpperCase()}
                         </Badge>
                         <span className="text-white font-medium">{trade.cryptocurrency}</span>
-                        <Badge variant="outline" className="text-orange-400 border-orange-400/30">
-                          🏖️ Sandbox
-                        </Badge>
+                        {testMode && (
+                          <Badge variant="outline" className="text-orange-400 border-orange-400/30">
+                            🧪 Sandbox
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-slate-400">
                         {new Date(trade.executed_at).toLocaleDateString()} at {new Date(trade.executed_at).toLocaleTimeString()}
@@ -817,12 +823,11 @@ export const StrategyConfig = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-slate-300 block">Test Mode</Label>
-                  <p className="text-xs text-slate-400">Use Coinbase Sandbox (test) vs Live environment</p>
+                  <p className="text-xs text-slate-400">Use global test mode toggle at the top to switch between Coinbase Sandbox and Live environment</p>
                 </div>
-                <Switch 
-                  checked={strategyConfig.testMode}
-                  onCheckedChange={(checked) => setStrategyConfig(prev => ({ ...prev, testMode: checked }))}
-                />
+                <Badge variant="secondary" className={testMode ? "bg-orange-500/20 text-orange-400" : "bg-green-500/20 text-green-400"}>
+                  {testMode ? "Sandbox" : "Live"}
+                </Badge>
               </div>
               
               <div className="flex items-center space-x-2">

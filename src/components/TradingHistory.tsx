@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -23,6 +24,7 @@ interface Trade {
 export const TradingHistory = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { testMode } = useTestMode();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<any[]>([]);
@@ -39,7 +41,7 @@ export const TradingHistory = () => {
       fetchConnections();
       fetchTradingHistory();
     }
-  }, [user]);
+  }, [user, testMode]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -70,6 +72,7 @@ export const TradingHistory = () => {
       const { data, error } = await supabase
         .from('trading_history')
         .select('*')
+        .eq('is_sandbox', testMode)
         .order('executed_at', { ascending: false })
         .limit(50);
 
@@ -108,7 +111,10 @@ export const TradingHistory = () => {
     setFetching(true);
     try {
       const { data, error } = await supabase.functions.invoke('coinbase-trading-history', {
-        body: { connectionId: selectedConnection }
+        body: { 
+          connectionId: selectedConnection,
+          testMode: testMode
+        }
       });
 
       if (error) throw error;

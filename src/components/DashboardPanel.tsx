@@ -3,11 +3,11 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { CoinbaseConnectionSelector } from './CoinbaseConnectionSelector';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
 import { Trash2, Edit, Plus, RefreshCw, TestTube } from 'lucide-react';
 
 interface Connection {
@@ -36,20 +36,20 @@ interface PortfolioData {
 export const DashboardPanel = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { testMode } = useTestMode();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [showConnectionSelector, setShowConnectionSelector] = useState(false);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
-  const [testMode, setTestMode] = useState(false);
 
   // Load saved portfolio data and selected connection from localStorage on mount
   useEffect(() => {
     if (user) {
-      const savedData = localStorage.getItem(`portfolio_${user.id}`);
+      const savedDataKey = testMode ? `testPortfolio_${user.id}` : `portfolio_${user.id}`;
+      const savedData = localStorage.getItem(savedDataKey);
       const savedConnectionId = localStorage.getItem(`selectedConnection_${user.id}`);
-      const savedTestMode = localStorage.getItem(`testMode_${user.id}`);
       
       if (savedData) {
         try {
@@ -57,19 +57,17 @@ export const DashboardPanel = () => {
         } catch (error) {
           console.error('Error parsing saved portfolio data:', error);
         }
+      } else {
+        setPortfolioData(null);
       }
       
       if (savedConnectionId) {
         setSelectedConnectionId(savedConnectionId);
       }
       
-      if (savedTestMode) {
-        setTestMode(JSON.parse(savedTestMode));
-      }
-      
       fetchConnections();
     }
-  }, [user]);
+  }, [user, testMode]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -246,6 +244,7 @@ export const DashboardPanel = () => {
         // Clear saved data when connection is deleted
         if (user) {
           localStorage.removeItem(`portfolio_${user.id}`);
+          localStorage.removeItem(`testPortfolio_${user.id}`);
           localStorage.removeItem(`selectedConnection_${user.id}`);
         }
       }
@@ -380,22 +379,6 @@ export const DashboardPanel = () => {
               )}
             </div>
             <div className="flex items-center space-x-3">
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-slate-400">Test Mode</span>
-                <Switch
-                  checked={testMode}
-                  onCheckedChange={(checked) => {
-                    setTestMode(checked);
-                    setPortfolioData(null);
-                    if (user) {
-                      localStorage.setItem(`testMode_${user.id}`, JSON.stringify(checked));
-                      // Clear portfolio data when switching modes
-                      localStorage.removeItem(`portfolio_${user.id}`);
-                      localStorage.removeItem(`testPortfolio_${user.id}`);
-                    }
-                  }}
-                />
-              </div>
               {!testMode && (
                 <Select 
                   value={selectedConnectionId} 

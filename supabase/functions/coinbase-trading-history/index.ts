@@ -15,8 +15,9 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log('Request body:', requestBody);
     
-    const { connectionId } = requestBody;
+    const { connectionId, testMode = false } = requestBody;
     console.log('Connection ID:', connectionId, 'Type:', typeof connectionId);
+    console.log('Test Mode:', testMode);
     
     if (!connectionId) {
       console.log('No connection ID provided');
@@ -131,7 +132,9 @@ serve(async (req) => {
       notes: trade.notes,
       user_id: connection.user_id,
       user_coinbase_connection_id: connectionId,
-      coinbase_order_id: `mock_order_${trade.id}_${Date.now()}`
+      coinbase_order_id: `mock_order_${trade.id}_${Date.now()}`,
+      is_sandbox: testMode,
+      trade_environment: testMode ? 'sandbox' : 'live'
     }));
 
     console.log('About to insert trades data:', tradesData);
