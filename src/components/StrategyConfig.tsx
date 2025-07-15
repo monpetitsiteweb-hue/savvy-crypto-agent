@@ -155,8 +155,8 @@ export const StrategyConfig = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white">Strategy Configuration</h2>
-          <p className="text-sm text-slate-400 mt-1">Manage and configure your trading strategies</p>
+          <h2 className="text-xl font-bold text-white">Strategy Performance</h2>
+          <p className="text-sm text-slate-400 mt-1">Monitor your trading strategies performance</p>
         </div>
         <Button onClick={showBuilderPanel} className="bg-green-500 hover:bg-green-600 text-white">
           <Plus className="w-4 h-4 mr-2" />
@@ -164,61 +164,23 @@ export const StrategyConfig = () => {
         </Button>
       </div>
 
-      {/* Global Settings */}
-      <Card className="p-6 bg-slate-700/30 border-slate-600">
-        <h3 className="text-lg font-semibold text-white mb-4">Global Settings</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="text-sm text-slate-400 mb-2 block">Max Total Position (€)</label>
-            <Slider
-              defaultValue={[5000]}
-              max={20000}
-              min={1000}
-              step={500}
-              className="mb-2"
-            />
-            <div className="flex justify-between text-xs text-slate-400">
-              <span>€1,000</span>
-              <span>€5,000</span>
-              <span>€20,000</span>
-            </div>
-          </div>
-          <div>
-            <label className="text-sm text-slate-400 mb-2 block">Risk Tolerance</label>
-            <Slider
-              defaultValue={[3]}
-              max={5}
-              min={1}
-              step={1}
-              className="mb-2"
-            />
-            <div className="flex justify-between text-xs text-slate-400">
-              <span>Conservative</span>
-              <span>Moderate</span>
-              <span>Aggressive</span>
-            </div>
-          </div>
-        </div>
-      </Card>
-
       {/* Strategies List */}
-      <div className="space-y-4">
-        <h3 className="text-lg font-semibold text-white">Active Strategies</h3>
-        
-        {strategies.length === 0 ? (
-          <Card className="p-8 bg-slate-700/30 border-slate-600 text-center">
-            <div className="text-slate-400 mb-4">
-              <TrendingUp className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <h4 className="text-lg font-medium mb-2">No Strategies Yet</h4>
-              <p className="text-sm">Create your first trading strategy to get started</p>
-            </div>
-            <Button onClick={showBuilderPanel} className="bg-green-500 hover:bg-green-600 text-white">
-              <Plus className="w-4 h-4 mr-2" />
-              Create Strategy
-            </Button>
-          </Card>
-        ) : (
-          strategies.map((strategy) => (
+      {strategies.length === 0 ? (
+        <Card className="p-8 bg-slate-700/30 border-slate-600 text-center">
+          <div className="text-slate-400 mb-4">
+            <TrendingUp className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <h4 className="text-lg font-medium mb-2">No Strategies Yet</h4>
+            <p className="text-sm">Create your first trading strategy to get started</p>
+          </div>
+          <Button onClick={showBuilderPanel} className="bg-green-500 hover:bg-green-600 text-white">
+            <Plus className="w-4 h-4 mr-2" />
+            Create Strategy
+          </Button>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold text-white">Active Strategies</h3>
+          {strategies.map((strategy) => (
             <Card key={strategy.id} className="p-6 bg-slate-700/30 border-slate-600">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -291,9 +253,9 @@ export const StrategyConfig = () => {
                 </div>
               </div>
             </Card>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Performance Overview */}
       <Card className="p-6 bg-slate-700/30 border-slate-600">
