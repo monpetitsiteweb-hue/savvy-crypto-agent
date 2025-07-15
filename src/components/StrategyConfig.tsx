@@ -185,7 +185,8 @@ export const StrategyConfig = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-slate-400 text-sm">Total Profit</p>
-              <p className="text-2xl font-bold text-green-400">+$1,234.56</p>
+              <p className="text-2xl font-bold text-green-400">€0.00</p>
+              <p className="text-xs text-slate-500">No trades executed yet</p>
             </div>
             <TrendingUp className="w-8 h-8 text-green-400" />
           </div>
@@ -195,7 +196,8 @@ export const StrategyConfig = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-slate-400 text-sm">Win Rate</p>
-              <p className="text-2xl font-bold text-cyan-400">68.5%</p>
+              <p className="text-2xl font-bold text-cyan-400">0%</p>
+              <p className="text-xs text-slate-500">Strategy not started</p>
             </div>
             <BarChart3 className="w-8 h-8 text-cyan-400" />
           </div>
@@ -205,7 +207,8 @@ export const StrategyConfig = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-slate-400 text-sm">Total Trades</p>
-              <p className="text-2xl font-bold text-white">47</p>
+              <p className="text-2xl font-bold text-white">0</p>
+              <p className="text-xs text-slate-500">Strategy configured</p>
             </div>
             <Activity className="w-8 h-8 text-slate-400" />
           </div>
@@ -215,7 +218,10 @@ export const StrategyConfig = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-slate-400 text-sm">Active Since</p>
-              <p className="text-2xl font-bold text-white">15 days</p>
+              <p className="text-2xl font-bold text-white">
+                {activeStrategy ? new Date(activeStrategy.created_at).toLocaleDateString() : 'Not started'}
+              </p>
+              <p className="text-xs text-slate-500">Strategy creation date</p>
             </div>
             <Shield className="w-8 h-8 text-slate-400" />
           </div>
@@ -431,6 +437,117 @@ export const StrategyConfig = () => {
           </Card>
         );
 
+      case 'exchange':
+        return (
+          <Card className="p-6 bg-slate-700/30 border-slate-600">
+            <div className="mb-6">
+              <h3 className="text-xl font-semibold text-white mb-2">Exchange</h3>
+              <p className="text-sm text-slate-400">Configure your exchange settings.</p>
+            </div>
+            
+            <div className="space-y-6">
+              <div>
+                <Label className="text-slate-300 mb-2 block">Exchange</Label>
+                <Select value="coinbase" disabled>
+                  <SelectTrigger className="bg-slate-600 border-slate-500 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="coinbase">Coinbase</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-400 mt-1">Currently only Coinbase is supported</p>
+              </div>
+            </div>
+          </Card>
+        );
+
+      case 'notifications':
+        return (
+          <Card className="p-6 bg-slate-700/30 border-slate-600">
+            <div className="mb-6">
+              <h3 className="text-xl font-semibold text-white mb-2">Notifications</h3>
+              <p className="text-sm text-slate-400">Configure your notification preferences.</p>
+            </div>
+            
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-slate-300 block">Trade notifications</Label>
+                  <p className="text-xs text-slate-400">Get notified when trades are executed</p>
+                </div>
+                <Switch defaultChecked />
+              </div>
+              
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-slate-300 block">Email alerts</Label>
+                  <p className="text-xs text-slate-400">Receive email notifications for important events</p>
+                </div>
+                <Switch defaultChecked />
+              </div>
+            </div>
+          </Card>
+        );
+
+      case 'buy-settings':
+        return (
+          <Card className="p-6 bg-slate-700/30 border-slate-600">
+            <div className="mb-6">
+              <h3 className="text-xl font-semibold text-white mb-2">Buy settings</h3>
+              <p className="text-sm text-slate-400">Configure your buy order settings.</p>
+            </div>
+            
+            <div className="space-y-6">
+              <div>
+                <Label className="text-slate-300 mb-2 block">Order type</Label>
+                <Select value="market" disabled>
+                  <SelectTrigger className="bg-slate-600 border-slate-500 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="market">Market</SelectItem>
+                    <SelectItem value="limit">Limit</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label className="text-slate-300 mb-2 block">Base order amount (€)</Label>
+                <Input 
+                  type="number" 
+                  defaultValue={100}
+                  className="bg-slate-600 border-slate-500 text-white"
+                />
+              </div>
+            </div>
+          </Card>
+        );
+
+      case 'coins-amounts':
+        return (
+          <Card className="p-6 bg-slate-700/30 border-slate-600">
+            <div className="mb-6">
+              <h3 className="text-xl font-semibold text-white mb-2">Coins and amounts</h3>
+              <p className="text-sm text-slate-400">Configure which coins to trade and position sizes.</p>
+            </div>
+            
+            <div className="space-y-6">
+              <div>
+                <Label className="text-slate-300 mb-2 block">Allowed coins</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['BTC', 'ETH', 'ADA', 'SOL', 'DOT', 'MATIC'].map((coin) => (
+                    <div key={coin} className="flex items-center space-x-2 p-2 bg-slate-600 rounded">
+                      <input type="checkbox" defaultChecked className="rounded" />
+                      <span className="text-white text-sm">{coin}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </Card>
+        );
+
       case 'stop-loss':
         return (
           <Card className="p-6 bg-slate-700/30 border-slate-600">
@@ -458,6 +575,84 @@ export const StrategyConfig = () => {
                   className="bg-slate-600 border-slate-500 text-white"
                 />
                 <p className="text-xs text-slate-400 mt-1">(Enter as positive, example: 2.8)</p>
+              </div>
+            </div>
+          </Card>
+        );
+
+      case 'sell-strategy':
+        return (
+          <Card className="p-6 bg-slate-700/30 border-slate-600">
+            <div className="mb-6">
+              <h3 className="text-xl font-semibold text-white mb-2">Sell strategy</h3>
+              <p className="text-sm text-slate-400">Configure your selling strategy.</p>
+            </div>
+            
+            <div className="space-y-6">
+              <div>
+                <Label className="text-slate-300 mb-2 block">Sell strategy type</Label>
+                <Select defaultValue="take-profit">
+                  <SelectTrigger className="bg-slate-600 border-slate-500 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="take-profit">Take Profit</SelectItem>
+                    <SelectItem value="trailing">Trailing</SelectItem>
+                    <SelectItem value="time-based">Time Based</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </Card>
+        );
+
+      case 'trailing-stop-loss':
+        return (
+          <Card className="p-6 bg-slate-700/30 border-slate-600">
+            <div className="mb-6">
+              <h3 className="text-xl font-semibold text-white mb-2">Trailing stop-loss</h3>
+              <p className="text-sm text-slate-400">Configure trailing stop-loss orders.</p>
+            </div>
+            
+            <div className="space-y-6">
+              <div className="flex items-center space-x-2">
+                <Switch id="trailing-stop-loss" />
+                <Label htmlFor="trailing-stop-loss" className="text-slate-300">Enable</Label>
+              </div>
+              
+              <div>
+                <Label className="text-slate-300 mb-2 block">Trailing percentage</Label>
+                <Input 
+                  type="number" 
+                  defaultValue={2.5}
+                  className="bg-slate-600 border-slate-500 text-white"
+                />
+              </div>
+            </div>
+          </Card>
+        );
+
+      case 'auto-close':
+        return (
+          <Card className="p-6 bg-slate-700/30 border-slate-600">
+            <div className="mb-6">
+              <h3 className="text-xl font-semibold text-white mb-2">Auto close</h3>
+              <p className="text-sm text-slate-400">Automatically close positions based on conditions.</p>
+            </div>
+            
+            <div className="space-y-6">
+              <div className="flex items-center space-x-2">
+                <Switch id="auto-close" />
+                <Label htmlFor="auto-close" className="text-slate-300">Enable auto close</Label>
+              </div>
+              
+              <div>
+                <Label className="text-slate-300 mb-2 block">Auto close after (hours)</Label>
+                <Input 
+                  type="number" 
+                  defaultValue={24}
+                  className="bg-slate-600 border-slate-500 text-white"
+                />
               </div>
             </div>
           </Card>

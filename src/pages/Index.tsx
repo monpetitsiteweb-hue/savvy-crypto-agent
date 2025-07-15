@@ -45,9 +45,9 @@ const Index = () => {
               {/* Tab Navigation */}
               <div className="flex border-b border-slate-700">
                 {[
-                  { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-                  { id: 'history', label: 'History', icon: '📋' },
-                  { id: 'strategy', label: 'Strategy', icon: '⚙️' }
+                  { id: 'dashboard', label: 'Dashboard' },
+                  { id: 'history', label: 'History' },
+                  { id: 'strategy', label: 'Strategy' }
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -56,13 +56,12 @@ const Index = () => {
                       e.preventDefault();
                       setActiveTab(tab.id);
                     }}
-                    className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors ${
+                    className={`px-6 py-4 text-sm font-medium transition-colors ${
                       activeTab === tab.id
                         ? 'text-green-400 border-b-2 border-green-400 bg-slate-700/50'
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
                     }`}
                   >
-                    <span>{tab.icon}</span>
                     {tab.label}
                   </button>
                 ))}
