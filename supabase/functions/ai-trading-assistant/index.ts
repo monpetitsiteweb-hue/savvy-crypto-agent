@@ -205,6 +205,69 @@ ${takeProfitPercent < 1.5 ? '📤 Quick profit-taking strategy (scalping approac
 ${!hasStopLoss ? '🚨 **CRITICAL:** Enable stop-loss immediately to protect your capital!' : '✅ Good risk management with stop-loss protection'}`;
       }
       
+      // Handle buy settings/configuration queries (UI context aware)
+      else if (lowerMessage.includes('buy settings') || lowerMessage.includes('buy configuration') || 
+               (lowerMessage.includes('my buy') && lowerMessage.includes('settings'))) {
+        
+        const maxPosition = currentConfig?.maxPosition || 5000;
+        const orderType = currentConfig?.orderType || 'limit';
+        const trailingStopBuy = currentConfig?.trailingStopBuy;
+        const trailingPercentage = currentConfig?.trailingStopBuyPercentage || 1.5;
+        
+        responseMessage = `🛒 **Your Buy Settings Configuration:**
+
+**Position Management:**
+• Maximum Position Size: €${maxPosition.toLocaleString()}
+• Order Type: ${orderType.charAt(0).toUpperCase() + orderType.slice(1)}
+
+**Advanced Buy Features:**
+• Trailing Stop-Buy: ${trailingStopBuy ? `✅ Enabled (${trailingPercentage}%)` : '❌ Disabled'}
+${trailingStopBuy ? `  - Will track prices down by ${trailingPercentage}% before buying` : '  - No automatic price tracking on entries'}
+
+**Strategy Context:**
+• Strategy Type: ${currentConfig?.strategyType || 'trend-following'}
+• Risk Level: ${currentConfig?.riskLevel || 'medium'}
+
+💡 **Location:** You can modify these in the "Buy settings" and "Trailing stop-buy" tabs.
+
+**Need changes?** Try:
+- "Set max position to 10000"
+- "Enable trailing stop buy at 2%"`;
+      }
+      
+      // Handle sell settings/configuration queries (UI context aware)
+      else if (lowerMessage.includes('sell settings') || lowerMessage.includes('sell configuration') || 
+               (lowerMessage.includes('my sell') && lowerMessage.includes('settings'))) {
+        
+        const takeProfit = currentConfig?.takeProfit || 1.3;
+        const hasStopLoss = currentConfig?.stopLoss;
+        const stopLossPercent = currentConfig?.stopLossPercentage || 3;
+        const orderType = currentConfig?.orderType || 'limit';
+        const autoTrading = currentConfig?.autoTrading;
+        
+        responseMessage = `💰 **Your Sell Settings Configuration:**
+
+**Exit Targets:**
+• Take Profit: ${takeProfit}%
+• Stop Loss: ${hasStopLoss ? `${stopLossPercent}%` : '❌ DISABLED'}
+• Order Type: ${orderType.charAt(0).toUpperCase() + orderType.slice(1)}
+
+**Automation:**
+• Auto Trading: ${autoTrading ? '✅ Enabled' : '❌ Disabled'}
+
+**Risk Assessment:**
+${!hasStopLoss ? '⚠️ **WARNING:** No stop-loss protection - unlimited downside risk!' : '✅ Protected with stop-loss'}
+${takeProfit < 1.5 ? '📊 Conservative profit-taking (quick exits)' : 
+  takeProfit > 2.5 ? '📈 Aggressive profit targets (holding for bigger gains)' : 
+  '⚖️ Balanced profit targets'}
+
+💡 **Location:** Configure these in "Sell settings", "Stop-loss", and "Auto close" tabs.
+
+**Quick fixes:** 
+- "Enable stop loss at 2.5%"
+- "Set take profit to 2%"`;
+      }
+      
       // Analyze buy strategy  
       else if (lowerMessage.includes('buy strategy') || lowerMessage.includes('buying strategy') || 
                (lowerMessage.includes('buy') && (lowerMessage.includes('strategy') || lowerMessage.includes('when') || lowerMessage.includes('how')))) {
