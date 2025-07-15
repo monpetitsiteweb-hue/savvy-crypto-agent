@@ -396,7 +396,13 @@ export const StrategyConfig = () => {
         {/* Liste de toutes les stratégies */}
         {allStrategies.length > 0 && (
           <Card className="p-6 bg-slate-700/30 border-slate-600">
-            <h3 className="text-lg font-semibold text-white mb-4">Toutes les stratégies</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">Toutes les stratégies</h3>
+              <Button onClick={handleCreateStrategy} className="bg-green-600 hover:bg-green-700 text-white">
+                <Plus className="w-4 h-4 mr-2" />
+                Add a strategy
+              </Button>
+            </div>
             <div className="space-y-3">
               {allStrategies.map((strategy) => (
                 <div key={strategy.id} className="flex items-center justify-between p-4 bg-slate-800/30 rounded-lg border border-slate-600">
