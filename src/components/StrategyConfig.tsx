@@ -33,69 +33,21 @@ export const StrategyConfig = () => {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(true);
   const [showBuilder, setShowBuilder] = useState(false);
-  const [renderKey, setRenderKey] = useState(0);
 
-  // EMERGENCY: Force DOM manipulation when state changes
-  useEffect(() => {
-    console.log('useEffect triggered! showBuilder =', showBuilder);
-    if (showBuilder) {
-      console.log('CREATING RED PANEL VIA DOM MANIPULATION!');
-      
-      // Create red panel directly in DOM
-      const redPanel = document.createElement('div');
-      redPanel.id = 'emergency-red-panel';
-      redPanel.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        background-color: red;
-        z-index: 9999;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 50px;
-      `;
-      redPanel.innerHTML = `
-        <h1 style="color: white; font-size: 48px; font-weight: bold;">
-          EMERGENCY DOM PANEL! React isn't working!
-        </h1>
-        <p style="color: white; font-size: 24px; margin-top: 20px;">
-          showBuilder = ${showBuilder}
-        </p>
-        <button id="emergency-back-btn" style="
-          margin-top: 20px;
-          padding: 10px 20px;
-          background-color: blue;
-          color: white;
-          border: none;
-          border-radius: 5px;
-          font-size: 18px;
-          cursor: pointer;
-        ">
-          Go Back (DOM Click)
-        </button>
-      `;
-      
-      document.body.appendChild(redPanel);
-      
-      // Add click handler
-      document.getElementById('emergency-back-btn')?.addEventListener('click', () => {
-        console.log('EMERGENCY BACK CLICKED');
-        document.getElementById('emergency-red-panel')?.remove();
-        setShowBuilder(false);
-      });
-    } else {
-      // Remove panel if it exists
-      document.getElementById('emergency-red-panel')?.remove();
-    }
-  }, [showBuilder]);
+  // Fix React re-rendering issue by using a callback form of setState
+  const toggleBuilder = () => {
+    setShowBuilder(prev => {
+      console.log('toggleBuilder: current showBuilder =', prev);
+      return !prev;
+    });
+  };
 
-  // Debug the state
-  console.log('StrategyConfig: showBuilder =', showBuilder);
-
+  const showBuilderPanel = () => {
+    setShowBuilder(prev => {
+      console.log('showBuilderPanel: setting to true, was:', prev);
+      return true;
+    });
+  };
   useEffect(() => {
     if (user) {
       fetchStrategies();
@@ -199,94 +151,36 @@ export const StrategyConfig = () => {
         <div className="text-center">
           <h3 className="text-xl font-semibold text-white mb-2">No Trading Strategies</h3>
           <p className="text-slate-400 mb-4">Create your first automated trading strategy to get started.</p>
-          <Button onClick={() => {
-            alert('BUTTON CLICKED! showBuilder was: ' + showBuilder);
-            console.log('Before setState: showBuilder =', showBuilder);
-            setShowBuilder(true);
-            setRenderKey(prev => prev + 1); // Force re-render
-            console.log('After setState called');
-          }} className="bg-green-500 hover:bg-green-600 text-white">
+          <Button onClick={showBuilderPanel} className="bg-green-500 hover:bg-green-600 text-white">
             <Plus className="w-4 h-4 mr-2" />
-            CREATE STRATEGY - CLICK ME
+            Create Strategy
           </Button>
         </div>
       </div>
     );
   }
 
-  console.log('StrategyConfig render - showBuilder:', showBuilder, 'strategies.length:', strategies.length);
-  console.log('RENDER: About to check if showBuilder is true...');
-  
-  // Add alert to see if render is even called
-  if (typeof window !== 'undefined') {
-    console.log('WINDOW AVAILABLE - About to check showBuilder');
-  }
-
-  // TEST: Simple conditional rendering first
+  // Render StrategyBuilder if showBuilder is true
   if (showBuilder) {
-    console.log('INSIDE SHOWBUILDER TRUE BLOCK!!!');
-    alert('RENDER: showBuilder is TRUE, returning red panel!');
     return (
-      <div key={`strategy-config-${renderKey}-${showBuilder}`} style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100vw',
-        height: '100vh',
-        backgroundColor: 'red',
-        zIndex: 9999,
-        padding: '50px',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center'
-      }}>
-        <h1 style={{ color: 'white', fontSize: '48px', fontWeight: 'bold' }}>
-          SUCCESS! BUILDER PANEL IS SHOWING!
-        </h1>
-        <p style={{ color: 'white', fontSize: '24px', marginTop: '20px' }}>
-          showBuilder = {showBuilder ? 'TRUE' : 'FALSE'}
-        </p>
-        <button 
-          onClick={() => {
-            console.log('GO BACK CLICKED');
-            setShowBuilder(false);
-            setRenderKey(prev => prev + 1);
-          }}
-          style={{
-            marginTop: '20px',
-            padding: '10px 20px',
-            backgroundColor: 'blue',
-            color: 'white',
-            border: 'none',
-            borderRadius: '5px',
-            fontSize: '18px'
-          }}
-        >
-          Go Back to Strategy List
-        </button>
-      </div>
+      <StrategyBuilder onCancel={() => {
+        setShowBuilder(false);
+        fetchStrategies(); // Refresh the list
+      }} />
     );
   }
-  
-  console.log('RENDER: showBuilder is FALSE, continuing with normal render...');
 
   return (
-    <div key={`strategy-config-${renderKey}-${showBuilder}`} className="space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white">Strategy Configuration</h2>
           <p className="text-sm text-slate-400 mt-1">Manage and configure your trading strategies</p>
         </div>
-        <Button onClick={() => {
-          alert('NEW STRATEGY BUTTON CLICKED!');
-          console.log('New Strategy button clicked!');
-          setShowBuilder(true);
-          setRenderKey(prev => prev + 1); // Force re-render
-        }} className="bg-green-500 hover:bg-green-600 text-white">
+        <Button onClick={showBuilderPanel} className="bg-green-500 hover:bg-green-600 text-white">
           <Plus className="w-4 h-4 mr-2" />
-          NEW STRATEGY - CLICK ME
+          New Strategy
         </Button>
       </div>
 
