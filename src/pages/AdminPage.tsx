@@ -2,10 +2,11 @@
 import { useState } from 'react';
 import { Header } from '@/components/Header';
 import { CoinbaseOAuthPanel } from '@/components/admin/CoinbaseOAuthPanel';
+import { CoinbaseSandboxPanel } from '@/components/admin/CoinbaseSandboxPanel';
 import { LLMConfigPanel } from '@/components/admin/LLMConfigPanel';
 import { DataSourcesPanel } from '@/components/admin/DataSourcesPanel';
 import { useUserRole } from '@/hooks/useUserRole';
-import { Settings, Bot, Database, Shield, TrendingUp, ExternalLink } from 'lucide-react';
+import { Settings, Bot, Database, Shield, TrendingUp, ExternalLink, Key } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 
@@ -24,6 +25,7 @@ const AdminPage = () => {
     { id: 'oauth-setup', label: 'OAuth Setup', icon: <Settings className="w-4 h-4" /> },
     { id: 'llm-config', label: 'AI Configuration', icon: <Bot className="w-4 h-4" /> },
     { id: 'data-sources', label: 'Data Sources', icon: <Database className="w-4 h-4" /> },
+    { id: 'sandbox-api', label: 'Sandbox API', icon: <Key className="w-4 h-4" /> },
   ];
 
   // Redirect non-admins to main page
@@ -85,6 +87,7 @@ const AdminPage = () => {
             {activeTab === 'oauth-setup' && <CoinbaseOAuthPanel />}
             {activeTab === 'llm-config' && <LLMConfigPanel />}
             {activeTab === 'data-sources' && <DataSourcesPanel />}
+            {activeTab === 'sandbox-api' && <CoinbaseSandboxPanel />}
           </div>
         </div>
       </div>
