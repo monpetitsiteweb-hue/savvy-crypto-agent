@@ -171,7 +171,10 @@ export const ConversationPanel = () => {
       });
       
       // Call the edge function for AI analysis and strategy updates
+      console.log('About to call AI function...');
       const session = await supabase.auth.getSession();
+      console.log('Session:', session.data.session?.access_token ? 'Has token' : 'No token');
+      
       const response = await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/ai-trading-assistant', {
         method: 'POST',
         headers: {
@@ -186,8 +189,13 @@ export const ConversationPanel = () => {
         }),
       });
 
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+
       if (!response.ok) {
-        throw new Error(`Function call failed: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('Response error:', errorText);
+        throw new Error(`Function call failed: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
       const data = await response.json();
