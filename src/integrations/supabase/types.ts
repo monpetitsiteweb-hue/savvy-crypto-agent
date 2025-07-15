@@ -83,6 +83,68 @@ export type Database = {
         }
         Relationships: []
       }
+      mock_trades: {
+        Row: {
+          amount: number
+          cryptocurrency: string
+          executed_at: string
+          fees: number | null
+          id: string
+          is_test_mode: boolean | null
+          market_conditions: Json | null
+          notes: string | null
+          price: number
+          profit_loss: number | null
+          strategy_id: string
+          strategy_trigger: string | null
+          total_value: number
+          trade_type: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          cryptocurrency: string
+          executed_at?: string
+          fees?: number | null
+          id?: string
+          is_test_mode?: boolean | null
+          market_conditions?: Json | null
+          notes?: string | null
+          price: number
+          profit_loss?: number | null
+          strategy_id: string
+          strategy_trigger?: string | null
+          total_value: number
+          trade_type: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          cryptocurrency?: string
+          executed_at?: string
+          fees?: number | null
+          id?: string
+          is_test_mode?: boolean | null
+          market_conditions?: Json | null
+          notes?: string | null
+          price?: number
+          profit_loss?: number | null
+          strategy_id?: string
+          strategy_trigger?: string | null
+          total_value?: number
+          trade_type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mock_trades_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -109,6 +171,74 @@ export type Database = {
           username?: string | null
         }
         Relationships: []
+      }
+      strategy_performance: {
+        Row: {
+          average_gain: number | null
+          average_loss: number | null
+          created_at: string
+          execution_date: string
+          id: string
+          is_test_mode: boolean | null
+          losing_trades: number | null
+          max_drawdown: number | null
+          portfolio_value: number | null
+          strategy_id: string
+          total_fees: number | null
+          total_profit_loss: number | null
+          total_trades: number | null
+          updated_at: string
+          user_id: string
+          win_rate: number | null
+          winning_trades: number | null
+        }
+        Insert: {
+          average_gain?: number | null
+          average_loss?: number | null
+          created_at?: string
+          execution_date?: string
+          id?: string
+          is_test_mode?: boolean | null
+          losing_trades?: number | null
+          max_drawdown?: number | null
+          portfolio_value?: number | null
+          strategy_id: string
+          total_fees?: number | null
+          total_profit_loss?: number | null
+          total_trades?: number | null
+          updated_at?: string
+          user_id: string
+          win_rate?: number | null
+          winning_trades?: number | null
+        }
+        Update: {
+          average_gain?: number | null
+          average_loss?: number | null
+          created_at?: string
+          execution_date?: string
+          id?: string
+          is_test_mode?: boolean | null
+          losing_trades?: number | null
+          max_drawdown?: number | null
+          portfolio_value?: number | null
+          strategy_id?: string
+          total_fees?: number | null
+          total_profit_loss?: number | null
+          total_trades?: number | null
+          updated_at?: string
+          user_id?: string
+          win_rate?: number | null
+          winning_trades?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "strategy_performance_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       trading_history: {
         Row: {
@@ -188,6 +318,7 @@ export type Database = {
           id: string
           is_active: boolean
           strategy_name: string
+          test_mode: boolean | null
           updated_at: string
           user_id: string
         }
@@ -198,6 +329,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           strategy_name: string
+          test_mode?: boolean | null
           updated_at?: string
           user_id: string
         }
@@ -208,6 +340,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           strategy_name?: string
+          test_mode?: boolean | null
           updated_at?: string
           user_id?: string
         }

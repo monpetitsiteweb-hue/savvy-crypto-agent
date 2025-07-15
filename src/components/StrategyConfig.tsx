@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Play, Pause, Settings, Trash2, Plus, TrendingUp, Activity, ArrowUpDown, DollarSign, Shield, AlertTriangle, BarChart3, ArrowLeft, Save, Edit } from 'lucide-react';
+import { Play, Pause, Settings, Trash2, Plus, TrendingUp, Activity, ArrowUpDown, DollarSign, Shield, AlertTriangle, BarChart3, ArrowLeft, Save, Edit, TestTube, Zap } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -59,6 +59,8 @@ export const StrategyConfig = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [activeStrategy, setActiveStrategy] = useState<any>(null);
   const [allStrategies, setAllStrategies] = useState<any[]>([]);
+  const [strategyPerformance, setStrategyPerformance] = useState<any>(null);
+  const [mockTrades, setMockTrades] = useState<any[]>([]);
   const [strategyConfig, setStrategyConfig] = useState({
     name: '',
     maxPosition: 5000,
@@ -72,9 +74,10 @@ export const StrategyConfig = () => {
     orderType: 'limit',
     stopLoss: false,
     stopLossPercentage: 3,
+    testMode: true,
   });
 
-  // Load all strategies and check active one
+  // Load all strategies, performance data, and mock trades
   useEffect(() => {
     const loadStrategies = async () => {
       if (!user) return;
@@ -92,10 +95,15 @@ export const StrategyConfig = () => {
         if (activeStrategyData) {
           setHasActiveStrategy(true);
           setActiveStrategy(activeStrategyData);
+          
           // Load strategy configuration from the database
           if (activeStrategyData.configuration && typeof activeStrategyData.configuration === 'object') {
             setStrategyConfig(prevConfig => ({ ...prevConfig, ...(activeStrategyData.configuration as Record<string, any>) }));
           }
+          
+          // Load performance data
+          await loadStrategyPerformance(activeStrategyData.id);
+          await loadMockTrades(activeStrategyData.id);
         } else {
           setHasActiveStrategy(false);
           setActiveStrategy(null);
@@ -109,6 +117,93 @@ export const StrategyConfig = () => {
 
     loadStrategies();
   }, [user]);
+
+  const loadStrategyPerformance = async (strategyId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('strategy_performance')
+        .select('*')
+        .eq('strategy_id', strategyId)
+        .order('execution_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && data) {
+        setStrategyPerformance(data);
+      }
+    } catch (error) {
+      console.error('Error loading strategy performance:', error);
+    }
+  };
+
+  const loadMockTrades = async (strategyId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('mock_trades')
+        .select('*')
+        .eq('strategy_id', strategyId)
+        .order('executed_at', { ascending: false })
+        .limit(10);
+
+      if (!error && data) {
+        setMockTrades(data);
+      }
+    } catch (error) {
+      console.error('Error loading mock trades:', error);
+    }
+  };
+
+  const executeMockTrade = async (tradeType: 'buy' | 'sell', cryptocurrency: string = 'BTC') => {
+    if (!activeStrategy) return;
+
+    try {
+      // Simulate realistic crypto prices (you could fetch real prices from an API)
+      const mockPrices: Record<string, number> = {
+        'BTC': 45000 + (Math.random() - 0.5) * 4000,
+        'ETH': 3000 + (Math.random() - 0.5) * 300,
+        'ADA': 0.8 + (Math.random() - 0.5) * 0.2,
+      };
+
+      const price = mockPrices[cryptocurrency] || mockPrices['BTC'];
+      const amount = tradeType === 'buy' 
+        ? (strategyConfig.maxPosition * 0.1) / price // 10% of max position
+        : Math.random() * 0.5; // Random amount to sell
+
+      const { data, error } = await supabase.functions.invoke('execute-mock-trade', {
+        body: {
+          strategyId: activeStrategy.id,
+          tradeType,
+          cryptocurrency,
+          amount,
+          price,
+          strategyTrigger: `${strategyConfig.strategyType} signal`,
+          marketConditions: {
+            volatility: Math.random() * 10,
+            volume: Math.random() * 1000000,
+            trend: Math.random() > 0.5 ? 'bullish' : 'bearish'
+          }
+        }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Mock Trade Executed",
+        description: `${tradeType.toUpperCase()} ${amount.toFixed(8)} ${cryptocurrency} at $${price.toFixed(2)}`,
+      });
+
+      // Reload data
+      await loadStrategyPerformance(activeStrategy.id);
+      await loadMockTrades(activeStrategy.id);
+    } catch (error) {
+      console.error('Error executing mock trade:', error);
+      toast({
+        title: "Trade Failed",
+        description: "Failed to execute mock trade",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleCreateStrategy = () => {
     setIsEditing(false);
@@ -310,14 +405,36 @@ export const StrategyConfig = () => {
   const PerformanceOverview = () => (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-white">{activeStrategy?.strategy_name || 'My Trading Strategy'}</h2>
-          <p className="text-slate-400">Performance overview and key metrics</p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-2xl font-bold text-white">{activeStrategy?.strategy_name || 'My Trading Strategy'}</h2>
+            <p className="text-slate-400">Performance overview and key metrics</p>
+          </div>
+          {activeStrategy?.test_mode && (
+            <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
+              <TestTube className="h-3 w-3 mr-1" />
+              Test Mode
+            </Badge>
+          )}
         </div>
-        <Button onClick={handleEditStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
-          <Edit className="w-4 h-4 mr-2" />
-          Edit Strategy
-        </Button>
+        <div className="flex items-center gap-2">
+          {activeStrategy?.test_mode && (
+            <div className="flex gap-2">
+              <Button onClick={() => executeMockTrade('buy')} size="sm" className="bg-green-600 hover:bg-green-700">
+                <Zap className="w-4 h-4 mr-1" />
+                Mock Buy
+              </Button>
+              <Button onClick={() => executeMockTrade('sell')} size="sm" className="bg-red-600 hover:bg-red-700">
+                <Zap className="w-4 h-4 mr-1" />
+                Mock Sell
+              </Button>
+            </div>
+          )}
+          <Button onClick={handleEditStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
+            <Edit className="w-4 h-4 mr-2" />
+            Edit Strategy
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -325,8 +442,14 @@ export const StrategyConfig = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-slate-400 text-sm">Total Profit</p>
-              <p className="text-2xl font-bold text-green-400">€0.00</p>
-              <p className="text-xs text-slate-500">No trades executed yet</p>
+              <p className={`text-2xl font-bold ${
+                (strategyPerformance?.total_profit_loss || 0) >= 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                ${(strategyPerformance?.total_profit_loss || 0).toFixed(2)}
+              </p>
+              <p className="text-xs text-slate-500">
+                {strategyPerformance ? `${strategyPerformance.total_trades} trades` : 'No trades executed yet'}
+              </p>
             </div>
             <TrendingUp className="w-8 h-8 text-green-400" />
           </div>
@@ -336,8 +459,15 @@ export const StrategyConfig = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-slate-400 text-sm">Win Rate</p>
-              <p className="text-2xl font-bold text-cyan-400">0%</p>
-              <p className="text-xs text-slate-500">Strategy not started</p>
+              <p className="text-2xl font-bold text-cyan-400">
+                {strategyPerformance?.win_rate || 0}%
+              </p>
+              <p className="text-xs text-slate-500">
+                {strategyPerformance ? 
+                  `${strategyPerformance.winning_trades}W / ${strategyPerformance.losing_trades}L` : 
+                  'Strategy not started'
+                }
+              </p>
             </div>
             <BarChart3 className="w-8 h-8 text-cyan-400" />
           </div>
@@ -347,8 +477,10 @@ export const StrategyConfig = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-slate-400 text-sm">Total Trades</p>
-              <p className="text-2xl font-bold text-white">0</p>
-              <p className="text-xs text-slate-500">Strategy configured</p>
+              <p className="text-2xl font-bold text-white">{strategyPerformance?.total_trades || 0}</p>
+              <p className="text-xs text-slate-500">
+                {activeStrategy?.test_mode ? 'Test mode active' : 'Live trading'}
+              </p>
             </div>
             <Activity className="w-8 h-8 text-slate-400" />
           </div>
@@ -357,11 +489,11 @@ export const StrategyConfig = () => {
         <Card className="p-4 bg-slate-700/30 border-slate-600">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-slate-400 text-sm">Active Since</p>
+              <p className="text-slate-400 text-sm">Total Fees</p>
               <p className="text-2xl font-bold text-white">
-                {activeStrategy ? new Date(activeStrategy.created_at).toLocaleDateString() : 'Not started'}
+                ${(strategyPerformance?.total_fees || 0).toFixed(2)}
               </p>
-              <p className="text-xs text-slate-500">Strategy creation date</p>
+              <p className="text-xs text-slate-500">Trading costs</p>
             </div>
             <Shield className="w-8 h-8 text-slate-400" />
           </div>
@@ -393,6 +525,45 @@ export const StrategyConfig = () => {
         </div>
         </Card>
 
+        {/* Recent Trades Display */}
+        {mockTrades.length > 0 && (
+          <Card className="p-6 bg-slate-700/30 border-slate-600">
+            <h3 className="text-lg font-semibold text-white mb-4">Recent Test Trades</h3>
+            <div className="space-y-3">
+              {mockTrades.slice(0, 5).map((trade) => (
+                <div key={trade.id} className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg border border-slate-600">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      trade.trade_type === 'buy' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {trade.trade_type === 'buy' ? '↓' : '↑'}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={trade.trade_type === 'buy' ? 'default' : 'secondary'}>
+                          {trade.trade_type.toUpperCase()}
+                        </Badge>
+                        <span className="text-white font-medium">{trade.cryptocurrency}</span>
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        {new Date(trade.executed_at).toLocaleDateString()} at {new Date(trade.executed_at).toLocaleTimeString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-white font-medium">${trade.total_value.toFixed(2)}</p>
+                    {trade.profit_loss !== 0 && (
+                      <p className={`text-xs ${trade.profit_loss > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {trade.profit_loss > 0 ? '+' : ''}${trade.profit_loss.toFixed(2)}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
         {/* Liste de toutes les stratégies */}
         {allStrategies.length > 0 && (
           <Card className="p-6 bg-slate-700/30 border-slate-600">
@@ -411,6 +582,12 @@ export const StrategyConfig = () => {
                       <h4 className="text-white font-medium">{strategy.strategy_name}</h4>
                       {strategy.is_active && (
                         <Badge className="bg-green-500 text-white">Actif</Badge>
+                      )}
+                      {strategy.test_mode && (
+                        <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
+                          <TestTube className="h-3 w-3 mr-1" />
+                          Test
+                        </Badge>
                       )}
                     </div>
                     <p className="text-slate-400 text-sm mt-1">
