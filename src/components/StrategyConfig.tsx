@@ -186,6 +186,57 @@ export const StrategyConfig = () => {
     }
   };
 
+  // Delete strategy
+  const handleDeleteStrategy = async (strategyId: string, strategyName: string) => {
+    if (!user) return;
+    
+    try {
+      const { error } = await supabase
+        .from('trading_strategies')
+        .delete()
+        .eq('id', strategyId)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Stratégie supprimée",
+        description: `La stratégie "${strategyName}" a été supprimée définitivement.`,
+      });
+
+      // Recharger les stratégies
+      const { data } = await supabase
+        .from('trading_strategies')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (data) {
+        setAllStrategies(data);
+        const activeStrategyData = data.find(s => s.is_active);
+        
+        if (activeStrategyData) {
+          setHasActiveStrategy(true);
+          setActiveStrategy(activeStrategyData);
+        } else {
+          setHasActiveStrategy(false);
+          setActiveStrategy(null);
+        }
+      } else {
+        setAllStrategies([]);
+        setHasActiveStrategy(false);
+        setActiveStrategy(null);
+      }
+    } catch (error) {
+      console.error('Error deleting strategy:', error);
+      toast({
+        title: "Erreur",
+        description: "Impossible de supprimer la stratégie.",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Toggle strategy activation
   const handleToggleStrategy = async (strategyId: string, currentlyActive: boolean) => {
     if (!user) return;
@@ -416,6 +467,41 @@ export const StrategyConfig = () => {
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
+
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Supprimer
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="bg-slate-800 border-slate-700">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="text-white">
+                            Supprimer la stratégie
+                          </AlertDialogTitle>
+                          <AlertDialogDescription className="text-slate-400">
+                            Êtes-vous sûr de vouloir supprimer définitivement la stratégie "{strategy.strategy_name}" ? 
+                            Cette action est irréversible et supprimera toutes les données associées.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                            Annuler
+                          </AlertDialogCancel>
+                          <AlertDialogAction 
+                            onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                          >
+                            Supprimer définitivement
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </div>
               ))}
@@ -451,36 +537,73 @@ export const StrategyConfig = () => {
                     </p>
                   </div>
                   
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        size="sm"
-                        className="bg-green-500 hover:bg-green-600 text-white"
-                      >
-                        <Play className="w-4 h-4 mr-2" />
-                        Activer
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent className="bg-slate-800 border-slate-700">
-                      <AlertDialogHeader>
-                        <AlertDialogTitle className="text-white">Activer la stratégie</AlertDialogTitle>
-                        <AlertDialogDescription className="text-slate-400">
-                          Êtes-vous sûr de vouloir activer la stratégie "{strategy.strategy_name}" ? Cela commencera les trades automatiques selon la configuration définie.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                          Annuler
-                        </AlertDialogCancel>
-                        <AlertDialogAction 
-                          onClick={() => handleToggleStrategy(strategy.id, false)}
-                          className="bg-green-600 hover:bg-green-700 text-white"
+                  <div className="flex items-center gap-3">
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          className="bg-green-500 hover:bg-green-600 text-white"
                         >
+                          <Play className="w-4 h-4 mr-2" />
                           Activer
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="bg-slate-800 border-slate-700">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="text-white">Activer la stratégie</AlertDialogTitle>
+                          <AlertDialogDescription className="text-slate-400">
+                            Êtes-vous sûr de vouloir activer la stratégie "{strategy.strategy_name}" ? Cela commencera les trades automatiques selon la configuration définie.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                            Annuler
+                          </AlertDialogCancel>
+                          <AlertDialogAction 
+                            onClick={() => handleToggleStrategy(strategy.id, false)}
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                          >
+                            Activer
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Supprimer
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="bg-slate-800 border-slate-700">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="text-white">
+                            Supprimer la stratégie
+                          </AlertDialogTitle>
+                          <AlertDialogDescription className="text-slate-400">
+                            Êtes-vous sûr de vouloir supprimer définitivement la stratégie "{strategy.strategy_name}" ? 
+                            Cette action est irréversible et supprimera toutes les données associées.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                            Annuler
+                          </AlertDialogCancel>
+                          <AlertDialogAction 
+                            onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                          >
+                            Supprimer définitivement
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 </div>
               ))}
             </div>
