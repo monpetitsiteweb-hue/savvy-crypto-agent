@@ -171,21 +171,27 @@ export const ConversationPanel = () => {
       });
       
       // Call the edge function for AI analysis and strategy updates
-      const { data, error } = await supabase.functions.invoke('ai-trading-assistant', {
-        body: {
+      const session = await supabase.auth.getSession();
+      const response = await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/ai-trading-assistant', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.data.session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           message: currentInput,
           userId: user?.id,
           strategyId: activeStrategy?.id,
           currentConfig: activeStrategy?.configuration || {}
-        },
+        }),
       });
 
-      console.log('AI assistant response:', { data, error });
-
-      if (error) {
-        console.error('AI assistant error:', error);
-        throw new Error(error.message || 'Failed to get AI response');
+      if (!response.ok) {
+        throw new Error(`Function call failed: ${response.status} ${response.statusText}`);
       }
+
+      const data = await response.json();
+      console.log('AI assistant response:', { data });
       
       // Update local strategy state if there were config updates
       if (data.configUpdates && Object.keys(data.configUpdates).length > 0 && activeStrategy) {
