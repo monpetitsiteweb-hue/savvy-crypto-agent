@@ -43,8 +43,11 @@ export const StrategyConfig = () => {
   };
 
   const showBuilderPanel = () => {
+    console.log('showBuilderPanel called!');
+    alert('BUTTON CLICKED - showBuilderPanel called!');
     setShowBuilder(prev => {
       console.log('showBuilderPanel: setting to true, was:', prev);
+      alert('Setting showBuilder to true, was: ' + prev);
       return true;
     });
   };
@@ -161,9 +164,13 @@ export const StrategyConfig = () => {
   }
 
   // Render StrategyBuilder if showBuilder is true
+  console.log('RENDER CHECK: showBuilder =', showBuilder);
   if (showBuilder) {
+    console.log('RENDERING STRATEGY BUILDER!');
+    alert('Rendering StrategyBuilder!');
     return (
       <StrategyBuilder onCancel={() => {
+        console.log('StrategyBuilder cancelled');
         setShowBuilder(false);
         fetchStrategies(); // Refresh the list
       }} />
