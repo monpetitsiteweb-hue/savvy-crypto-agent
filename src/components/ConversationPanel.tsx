@@ -170,71 +170,61 @@ export const ConversationPanel = () => {
         hasConfig: !!activeStrategy?.configuration
       });
       
-      // Call the edge function for AI analysis and strategy updates
-      console.log('About to call AI function...');
-      const session = await supabase.auth.getSession();
-      console.log('Session:', session.data.session?.access_token ? 'Has token' : 'No token');
+      // Try to call the edge function for AI analysis and strategy updates
+      let aiMessage = '';
+      let hasConfigUpdates = false;
       
-      const response = await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/ai-trading-assistant', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.data.session?.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: currentInput,
-          userId: user?.id,
-          strategyId: activeStrategy?.id,
-          currentConfig: activeStrategy?.configuration || {}
-        }),
-      });
+      try {
+        const { data: aiData, error: aiError } = await supabase.functions.invoke('ai-trading-assistant', {
+          body: {
+            message: currentInput,
+            userId: user?.id,
+            strategyId: activeStrategy?.id,
+            currentConfig: activeStrategy?.configuration || {},
+          },
+        });
 
-      console.log('Response status:', response.status);
-      console.log('Response ok:', response.ok);
+        if (aiError) {
+          throw aiError;
+        }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Response error:', errorText);
-        throw new Error(`Function call failed: ${response.status} ${response.statusText} - ${errorText}`);
+        aiMessage = aiData.message;
+        hasConfigUpdates = aiData.configUpdates && Object.keys(aiData.configUpdates).length > 0;
+        
+        // Update strategy if changes were made
+        if (hasConfigUpdates && activeStrategy?.id) {
+          await supabase
+            .from('trading_strategies')
+            .update({
+              configuration: { ...activeStrategy.configuration, ...aiData.configUpdates },
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', activeStrategy.id)
+            .eq('user_id', user?.id);
+            
+          // Update local strategy state
+          const newConfig = { ...activeStrategy.configuration, ...aiData.configUpdates };
+          setUserStrategies(prev => prev.map(s => 
+            s.id === activeStrategy.id 
+              ? { ...s, configuration: newConfig }
+              : s
+          ));
+        }
+      } catch (edgeFunctionError) {
+        // If edge function fails completely, use local analysis
+        aiMessage = analyzeUserQuestion(currentInput);
       }
-
-      const data = await response.json();
-      console.log('AI assistant response:', { data });
-      
-      // Update local strategy state if there were config updates
-      if (data.configUpdates && Object.keys(data.configUpdates).length > 0 && activeStrategy) {
-        const newConfig = { ...activeStrategy.configuration, ...data.configUpdates };
-        setUserStrategies(prev => prev.map(s => 
-          s.id === activeStrategy.id 
-            ? { ...s, configuration: newConfig }
-            : s
-        ));
-      }
-
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: data.message || 'I apologize, but I encountered an issue processing your request.',
+        content: aiMessage || 'I apologize, but I encountered an issue processing your request.',
         timestamp: new Date()
       };
       
       setMessages(prev => [...prev, aiResponse]);
       
     } catch (error) {
-      console.error('Error calling AI function:', error);
-      console.error('Error details:', {
-        message: error.message,
-        name: error.name,
-        stack: error.stack
-      });
-      
-      // Check if it's a specific Supabase error
-      if (error.details) {
-        console.error('Supabase error details:', error.details);
-      }
-      
-      // Fallback to local analysis if edge function fails
-      console.log('Falling back to local analysis');
+      // This should only catch unexpected errors now since edge function errors are handled above
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
