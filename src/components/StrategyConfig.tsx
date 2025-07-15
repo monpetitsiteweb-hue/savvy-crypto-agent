@@ -171,7 +171,7 @@ export const StrategyConfig = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">My Trading Strategy</h2>
+          <h2 className="text-2xl font-bold text-white">{activeStrategy?.strategy_name || 'My Trading Strategy'}</h2>
           <p className="text-slate-400">Performance overview and key metrics</p>
         </div>
         <Button onClick={handleEditStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
@@ -227,19 +227,22 @@ export const StrategyConfig = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <p className="text-slate-400 text-sm">Risk Level</p>
-            <p className="text-white font-medium">Medium Risk</p>
+            <p className="text-white font-medium">
+              {strategyConfig.riskLevel === 'low' ? 'Conservative' : 
+               strategyConfig.riskLevel === 'medium' ? 'Moderate' : 'Aggressive'}
+            </p>
           </div>
           <div>
             <p className="text-slate-400 text-sm">Max Position</p>
-            <p className="text-white font-medium">€5,000</p>
+            <p className="text-white font-medium">€{strategyConfig.maxPosition?.toLocaleString() || '5,000'}</p>
           </div>
           <div>
             <p className="text-slate-400 text-sm">Take Profit</p>
-            <p className="text-white font-medium">1.3%</p>
+            <p className="text-white font-medium">{strategyConfig.takeProfit || 1.3}%</p>
           </div>
           <div>
             <p className="text-slate-400 text-sm">Stop Loss</p>
-            <p className="text-white font-medium">3%</p>
+            <p className="text-white font-medium">{strategyConfig.stopLossPercentage || 3}%</p>
           </div>
         </div>
       </Card>
@@ -278,9 +281,13 @@ export const StrategyConfig = () => {
                 <Input 
                   type="text" 
                   value={strategyConfig.name}
-                  onChange={(e) => setStrategyConfig(prev => ({ ...prev, name: e.target.value }))}
+                  onChange={(e) => {
+                    const newName = e.target.value;
+                    setStrategyConfig(prev => ({ ...prev, name: newName }));
+                  }}
                   placeholder="Enter strategy name"
                   className="bg-slate-600 border-slate-500 text-white"
+                  autoComplete="off"
                 />
               </div>
               
@@ -334,12 +341,15 @@ export const StrategyConfig = () => {
                   <Label className="text-slate-300 block">Enable AI Strategy</Label>
                   <p className="text-xs text-slate-400">Use AI to automatically create and manage strategies</p>
                 </div>
-                <Switch defaultChecked={isEditing} />
+                <Switch 
+                  checked={strategyConfig.aiStrategy}
+                  onCheckedChange={(checked) => setStrategyConfig(prev => ({ ...prev, aiStrategy: checked }))}
+                />
               </div>
               
               <div>
                 <Label className="text-slate-300 mb-2 block">Strategy Type</Label>
-                <Select defaultValue="trend-following">
+                <Select value={strategyConfig.strategyType} onValueChange={(value) => setStrategyConfig(prev => ({ ...prev, strategyType: value }))}>
                   <SelectTrigger className="bg-slate-600 border-slate-500 text-white">
                     <SelectValue />
                   </SelectTrigger>
@@ -365,7 +375,11 @@ export const StrategyConfig = () => {
             
             <div className="space-y-6">
               <div className="flex items-center space-x-2">
-                <Switch id="trailing-stop-buy" />
+                <Switch 
+                  id="trailing-stop-buy" 
+                  checked={strategyConfig.trailingStopBuy}
+                  onCheckedChange={(checked) => setStrategyConfig(prev => ({ ...prev, trailingStopBuy: checked }))}
+                />
                 <Label htmlFor="trailing-stop-buy" className="text-slate-300">Enable</Label>
               </div>
               
@@ -373,7 +387,8 @@ export const StrategyConfig = () => {
                 <Label className="text-slate-300 mb-2 block">Trailing stop-buy percentage</Label>
                 <Input 
                   type="number" 
-                  defaultValue="1.5" 
+                  value={strategyConfig.trailingStopBuyPercentage}
+                  onChange={(e) => setStrategyConfig(prev => ({ ...prev, trailingStopBuyPercentage: Number(e.target.value) }))}
                   className="bg-slate-600 border-slate-500 text-white"
                 />
               </div>
@@ -394,14 +409,15 @@ export const StrategyConfig = () => {
                 <Label className="text-slate-300 mb-2 block">Take profit at</Label>
                 <Input 
                   type="number" 
-                  defaultValue="1.3" 
+                  value={strategyConfig.takeProfit}
+                  onChange={(e) => setStrategyConfig(prev => ({ ...prev, takeProfit: Number(e.target.value) }))}
                   className="bg-slate-600 border-slate-500 text-white"
                 />
               </div>
               
               <div>
                 <Label className="text-slate-300 mb-2 block">Order type</Label>
-                <Select defaultValue="limit">
+                <Select value={strategyConfig.orderType} onValueChange={(value) => setStrategyConfig(prev => ({ ...prev, orderType: value }))}>
                   <SelectTrigger className="bg-slate-600 border-slate-500 text-white">
                     <SelectValue />
                   </SelectTrigger>
@@ -425,7 +441,11 @@ export const StrategyConfig = () => {
             
             <div className="space-y-6">
               <div className="flex items-center space-x-2">
-                <Switch id="stop-loss" defaultChecked={isEditing} />
+                <Switch 
+                  id="stop-loss" 
+                  checked={strategyConfig.stopLoss}
+                  onCheckedChange={(checked) => setStrategyConfig(prev => ({ ...prev, stopLoss: checked }))}
+                />
                 <Label htmlFor="stop-loss" className="text-slate-300">Enable</Label>
               </div>
               
@@ -433,7 +453,8 @@ export const StrategyConfig = () => {
                 <Label className="text-slate-300 mb-2 block">Stop-loss percentage</Label>
                 <Input 
                   type="number" 
-                  defaultValue="3" 
+                  value={strategyConfig.stopLossPercentage}
+                  onChange={(e) => setStrategyConfig(prev => ({ ...prev, stopLossPercentage: Number(e.target.value) }))}
                   className="bg-slate-600 border-slate-500 text-white"
                 />
                 <p className="text-xs text-slate-400 mt-1">(Enter as positive, example: 2.8)</p>
@@ -457,37 +478,37 @@ export const StrategyConfig = () => {
 
   // Configuration View
   const ConfigurationView = () => (
-    <div className="flex h-full">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="absolute top-0 left-0 right-0 bg-slate-800/50 border-b border-slate-600 p-4 z-10">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              onClick={handleBackToOverview}
-              className="text-slate-300 hover:text-white"
-            >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Strategies
-            </Button>
-            <h1 className="text-xl font-semibold text-white">
-              {isEditing ? 'Edit Strategy' : 'Create New Strategy'}
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={handleBackToOverview}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveStrategy} className="bg-green-600 hover:bg-green-700 text-white">
-              <Save className="w-4 h-4 mr-2" />
-              {isEditing ? 'Save Changes' : 'Save Strategy'}
-            </Button>
-          </div>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost"
+            onClick={handleBackToOverview}
+            className="text-slate-300 hover:text-white"
+          >
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Strategies
+          </Button>
+          <h1 className="text-xl font-semibold text-white">
+            {isEditing ? 'Edit Strategy' : 'Create New Strategy'}
+          </h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleBackToOverview}>
+            Cancel
+          </Button>
+          <Button onClick={handleSaveStrategy} className="bg-green-600 hover:bg-green-700 text-white">
+            <Save className="w-4 h-4 mr-2" />
+            {isEditing ? 'Save Changes' : 'Save Strategy'}
+          </Button>
         </div>
       </div>
 
-      {/* Left Sidebar */}
-      <div className="w-80 bg-slate-800/50 border-r border-slate-600 p-4 pt-20">
+      {/* Configuration Content */}
+      <div className="flex h-full">
+        {/* Left Sidebar */}
+        <div className="w-80 bg-slate-800/50 border-r border-slate-600 p-4">
         {/* General Section */}
         <div className="mb-6">
           <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3">GENERAL</h3>
@@ -570,9 +591,10 @@ export const StrategyConfig = () => {
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 p-6 pt-20">
-        {renderConfigPanel()}
+        {/* Main Content */}
+        <div className="flex-1 p-6">
+          {renderConfigPanel()}
+        </div>
       </div>
     </div>
   );

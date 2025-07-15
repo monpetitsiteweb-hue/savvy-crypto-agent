@@ -1,8 +1,9 @@
-
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, Bot, User } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Message {
   id: string;
@@ -11,16 +12,27 @@ interface Message {
   timestamp: Date;
 }
 
+interface StrategyData {
+  id: string;
+  strategy_name: string;
+  configuration: any;
+  is_active: boolean;
+  created_at: string;
+}
+
 export const ConversationPanel = () => {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       type: 'ai',
-      content: "Hello! I'm your AI trading assistant. I can help you create trading strategies for XRP and other cryptocurrencies. Try telling me something like: 'Buy XRP when RSI drops below 30 and Bitcoin is trending up'",
+      content: "Hello! I'm your AI trading assistant. I can help you analyze your trading strategies, provide insights based on your configuration, and suggest improvements. Ask me anything about your trading setup!",
       timestamp: new Date()
     }
   ]);
   const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [userStrategies, setUserStrategies] = useState<StrategyData[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -31,8 +43,100 @@ export const ConversationPanel = () => {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = () => {
-    if (!input.trim()) return;
+  // Load user strategies
+  useEffect(() => {
+    const loadStrategies = async () => {
+      if (!user) return;
+      
+      const { data, error } = await supabase
+        .from('trading_strategies')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (data && !error) {
+        setUserStrategies(data);
+      }
+    };
+
+    loadStrategies();
+  }, [user]);
+
+  const analyzeUserQuestion = (question: string): string => {
+    const lowerQuestion = question.toLowerCase();
+    const activeStrategy = userStrategies.find(s => s.is_active);
+    
+    if (!activeStrategy) {
+      return "I notice you don't have an active trading strategy yet. I'd recommend creating one first by clicking 'Create New Strategy' in the Strategy tab. Once you have a strategy configured, I'll be able to provide detailed analysis and suggestions based on your specific settings.";
+    }
+
+    const config = activeStrategy.configuration || {};
+    
+    // Strategy analysis questions
+    if (lowerQuestion.includes('stop loss') || lowerQuestion.includes('stop-loss')) {
+      if (config.stopLoss) {
+        return `Your current strategy "${activeStrategy.strategy_name}" has stop-loss enabled at ${config.stopLossPercentage || 3}%. This helps limit your losses when trades move against you. Based on your ${config.riskLevel || 'medium'} risk tolerance, this seems appropriate. You might consider adjusting it based on market volatility.`;
+      } else {
+        return `Your strategy "${activeStrategy.strategy_name}" currently has stop-loss disabled. This increases your risk exposure. Given your ${config.riskLevel || 'medium'} risk tolerance, I'd recommend enabling stop-loss with a percentage between 2-5% to protect your capital.`;
+      }
+    }
+
+    if (lowerQuestion.includes('take profit') || lowerQuestion.includes('profit target')) {
+      return `Your strategy "${activeStrategy.strategy_name}" has a take profit target of ${config.takeProfit || 1.3}%. This is ${config.takeProfit > 2 ? 'relatively aggressive' : config.takeProfit < 1 ? 'quite conservative' : 'moderate'} for a ${config.riskLevel || 'medium'} risk strategy. Consider the current market conditions when setting this target.`;
+    }
+
+    if (lowerQuestion.includes('risk') || lowerQuestion.includes('position size')) {
+      return `Your strategy is configured with ${config.riskLevel || 'medium'} risk tolerance and a maximum position size of €${config.maxPosition?.toLocaleString() || '5,000'}. Your auto-trading is ${config.autoTrading ? 'enabled' : 'disabled'}. This setup ${config.riskLevel === 'high' ? 'allows for higher potential returns but also higher losses' : config.riskLevel === 'low' ? 'prioritizes capital preservation over aggressive gains' : 'balances risk and reward appropriately'}.`;
+    }
+
+    if (lowerQuestion.includes('strategy type') || lowerQuestion.includes('trading strategy')) {
+      return `You're using a ${config.strategyType || 'trend-following'} strategy named "${activeStrategy.strategy_name}". This type of strategy ${config.strategyType === 'trend-following' ? 'follows market trends and momentum' : config.strategyType === 'mean-reversion' ? 'buys when prices are low and sells when they revert to mean' : config.strategyType === 'momentum' ? 'capitalizes on strong price movements' : 'looks for price discrepancies across markets'}. AI strategy assistance is ${config.aiStrategy ? 'enabled' : 'disabled'}.`;
+    }
+
+    if (lowerQuestion.includes('trailing stop')) {
+      if (config.trailingStopBuy) {
+        return `Your strategy has trailing stop-buy enabled at ${config.trailingStopBuyPercentage || 1.5}%. This helps you enter positions at better prices by tracking price movements downward before buying. This is a good feature for your ${config.strategyType || 'trend-following'} strategy.`;
+      } else {
+        return `Trailing stop-buy is currently disabled in your strategy. This feature could help you get better entry points by waiting for price dips before purchasing. Consider enabling it with a 1-2% setting for your ${config.strategyType || 'trend-following'} strategy.`;
+      }
+    }
+
+    if (lowerQuestion.includes('performance') || lowerQuestion.includes('how am i doing')) {
+      return `Based on your current strategy "${activeStrategy.strategy_name}" configuration, you have a ${config.riskLevel || 'medium'} risk approach with ${config.stopLoss ? 'stop-loss protection' : 'no stop-loss protection'}. Your max position is €${config.maxPosition?.toLocaleString() || '5,000'} with a ${config.takeProfit || 1.3}% profit target. To see actual performance metrics, check the Strategy tab performance overview.`;
+    }
+
+    if (lowerQuestion.includes('improve') || lowerQuestion.includes('optimize') || lowerQuestion.includes('better')) {
+      const suggestions = [];
+      
+      if (!config.stopLoss) {
+        suggestions.push("Enable stop-loss protection to limit downside risk");
+      }
+      
+      if (!config.trailingStopBuy) {
+        suggestions.push("Consider enabling trailing stop-buy for better entry points");
+      }
+      
+      if (config.riskLevel === 'high' && !config.stopLoss) {
+        suggestions.push("With high risk tolerance, stop-loss becomes even more important");
+      }
+      
+      if (!config.aiStrategy) {
+        suggestions.push("Enable AI strategy assistance for automated optimizations");
+      }
+
+      if (suggestions.length > 0) {
+        return `Here are some suggestions to improve your "${activeStrategy.strategy_name}" strategy:\n\n• ${suggestions.join('\n• ')}\n\nThese adjustments could help optimize your risk-reward ratio based on current market conditions.`;
+      } else {
+        return `Your strategy "${activeStrategy.strategy_name}" looks well-configured! You have the main risk management features enabled. Continue monitoring performance and consider adjusting take-profit and stop-loss levels based on market volatility.`;
+      }
+    }
+
+    // Default response with strategy context
+    return `I can help you analyze your "${activeStrategy.strategy_name}" strategy. You currently have:\n\n• Risk Level: ${config.riskLevel || 'medium'}\n• Max Position: €${config.maxPosition?.toLocaleString() || '5,000'}\n• Take Profit: ${config.takeProfit || 1.3}%\n• Stop Loss: ${config.stopLoss ? `${config.stopLossPercentage}%` : 'Disabled'}\n• Strategy Type: ${config.strategyType || 'trend-following'}\n\nAsk me about any of these settings, performance optimization, or risk management!`;
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -43,16 +147,18 @@ export const ConversationPanel = () => {
 
     setMessages(prev => [...prev, userMessage]);
     setInput('');
+    setIsLoading(true);
 
-    // Simulate AI response
+    // Simulate thinking time and generate contextual response
     setTimeout(() => {
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: `I understand you want to implement a trading strategy. Let me break this down:\n\n• Strategy: ${input}\n• I'll need to configure RSI monitoring\n• Set up price triggers\n• Define position sizing\n\nShould I proceed with creating this strategy? What's your preferred position size?`,
+        content: analyzeUserQuestion(input),
         timestamp: new Date()
       };
       setMessages(prev => [...prev, aiResponse]);
+      setIsLoading(false);
     }, 1000);
   };
 
@@ -71,7 +177,12 @@ export const ConversationPanel = () => {
           <Bot className="w-5 h-5 text-green-400" />
           AI Trading Assistant
         </h2>
-        <p className="text-sm text-slate-400 mt-1">Describe your trading strategy in natural language</p>
+        <p className="text-sm text-slate-400 mt-1">
+          {userStrategies.length > 0 
+            ? `Analyzing your ${userStrategies.filter(s => s.is_active).length > 0 ? 'active' : ''} trading strategies`
+            : 'Ask me about trading strategies and risk management'
+          }
+        </p>
       </div>
 
       {/* Messages */}
@@ -107,6 +218,22 @@ export const ConversationPanel = () => {
             )}
           </div>
         ))}
+        
+        {isLoading && (
+          <div className="flex gap-3 justify-start">
+            <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+              <Bot className="w-4 h-4 text-green-400" />
+            </div>
+            <div className="bg-slate-700/50 text-slate-100 border border-slate-600/50 p-3 rounded-lg">
+              <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+              </div>
+            </div>
+          </div>
+        )}
+        
         <div ref={messagesEndRef} />
       </div>
 
@@ -117,13 +244,14 @@ export const ConversationPanel = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Describe your trading strategy... (e.g., 'Buy XRP when RSI < 30 and volume increases 20%')"
+            placeholder="Ask about your strategy... (e.g., 'What is my stop loss?', 'How can I improve my strategy?')"
             className="flex-1 min-h-[60px] bg-slate-700/50 border-slate-600 text-white placeholder-slate-400 resize-none"
+            disabled={isLoading}
           />
           <Button 
             onClick={handleSend}
             className="bg-green-500 hover:bg-green-600 text-white"
-            disabled={!input.trim()}
+            disabled={!input.trim() || isLoading}
           >
             <Send className="w-4 h-4" />
           </Button>
