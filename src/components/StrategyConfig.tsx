@@ -205,6 +205,62 @@ export const StrategyConfig = () => {
     }
   };
 
+  const executeSandboxTrade = async (tradeType: 'buy' | 'sell', cryptocurrency: string = 'BTC') => {
+    if (!activeStrategy) return;
+
+    try {
+      // Get user's connections to find one for sandbox trading
+      const { data: connections } = await supabase
+        .from('user_coinbase_connections')
+        .select('id')
+        .eq('user_id', user?.id)
+        .eq('is_active', true)
+        .limit(1);
+
+      if (!connections || connections.length === 0) {
+        toast({
+          title: "No Coinbase Connection",
+          description: "Please connect your Coinbase account first",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Realistic amounts and prices for sandbox
+      const amount = tradeType === 'buy' ? '0.001' : '0.0005'; // Small amounts for testing
+      const price = tradeType === 'buy' ? '45000' : '46000'; // Realistic BTC price
+
+      const { data, error } = await supabase.functions.invoke('coinbase-sandbox-trade', {
+        body: {
+          connectionId: connections[0].id,
+          tradeType,
+          cryptocurrency,
+          amount,
+          price,
+          strategyId: activeStrategy.id
+        }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Sandbox Trade Executed",
+        description: `${tradeType.toUpperCase()} ${amount} ${cryptocurrency} on Coinbase Sandbox`,
+      });
+
+      // Reload data
+      await loadStrategyPerformance(activeStrategy.id);
+      await loadMockTrades(activeStrategy.id);
+    } catch (error) {
+      console.error('Error executing sandbox trade:', error);
+      toast({
+        title: "Sandbox Trade Failed",
+        description: error.message || "Failed to execute sandbox trade",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleCreateStrategy = () => {
     setIsEditing(false);
     setViewMode('configure');
@@ -427,6 +483,12 @@ export const StrategyConfig = () => {
               <Button onClick={() => executeMockTrade('sell')} size="sm" className="bg-red-600 hover:bg-red-700">
                 <Zap className="w-4 h-4 mr-1" />
                 Mock Sell
+              </Button>
+              <Button onClick={() => executeSandboxTrade('buy')} size="sm" className="bg-blue-600 hover:bg-blue-700">
+                🏖️ Sandbox Buy
+              </Button>
+              <Button onClick={() => executeSandboxTrade('sell')} size="sm" className="bg-orange-600 hover:bg-orange-700">
+                🏖️ Sandbox Sell
               </Button>
             </div>
           )}
