@@ -10,9 +10,10 @@ export const useTestTrading = () => {
   const { user } = useAuth();
   const { updateBalance, getBalance } = useMockWallet();
   const { toast } = useToast();
-  const tradingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
+  const lastPricesRef = useRef<any>({});
 
-  const executeTestTrade = async () => {
+  const checkStrategiesAndExecute = async () => {
     if (!testMode || !user) return;
 
     try {
@@ -27,112 +28,144 @@ export const useTestTrading = () => {
       if (strategiesError) throw strategiesError;
       if (!strategies || strategies.length === 0) return;
 
-      // Execute trades for each active strategy
+      // Get real market data
+      const marketData = await getRealMarketData();
+      
+      // Check each strategy against current market conditions
       for (const strategy of strategies) {
-        await simulateTradeForStrategy(strategy);
+        await checkStrategyConditions(strategy, marketData);
       }
     } catch (error) {
-      console.error('Error executing test trade:', error);
+      console.error('Error checking strategies:', error);
     }
   };
 
-  const simulateTradeForStrategy = async (strategy: any) => {
-    // Get real market data simulation
-    const marketData = await getMarketData();
-    const decision = analyzeStrategy(strategy, marketData);
+  const checkStrategyConditions = async (strategy: any, marketData: any) => {
+    const config = strategy.configuration;
+    const currentPrices = marketData;
+    const lastPrices = lastPricesRef.current;
 
-    if (decision.shouldTrade) {
-      const { cryptocurrency, action, amount } = decision;
-      const price = marketData[cryptocurrency]?.price || 1000;
+    // Check strategy conditions based on configuration
+    for (const [symbol, data] of Object.entries(currentPrices) as [string, any][]) {
+      const lastPrice = lastPrices[symbol]?.price || data.price;
+      const priceChange = ((data.price - lastPrice) / lastPrice) * 100;
 
-      // Check if we have enough balance
-      if (action === 'buy') {
-        const eurBalance = getBalance('EUR');
-        const tradeValue = amount * price;
+      // Example strategy condition checks based on common patterns
+      const shouldBuy = checkBuyConditions(config, data, priceChange);
+      const shouldSell = checkSellConditions(config, data, priceChange);
+
+      if (shouldBuy) {
+        await executeTrade(strategy, 'buy', symbol, data.price);
+      } else if (shouldSell) {
+        await executeTrade(strategy, 'sell', symbol, data.price);
+      }
+    }
+
+    // Update last prices
+    lastPricesRef.current = currentPrices;
+  };
+
+  const checkBuyConditions = (config: any, data: any, priceChange: number) => {
+    // Example: Buy when price drops by threshold percentage
+    const buyThreshold = config.buyThreshold || -5; // Default -5%
+    return priceChange <= buyThreshold;
+  };
+
+  const checkSellConditions = (config: any, data: any, priceChange: number) => {
+    // Example: Sell when price rises by threshold percentage
+    const sellThreshold = config.sellThreshold || 5; // Default 5%
+    return priceChange >= sellThreshold;
+  };
+
+  const executeTrade = async (strategy: any, action: 'buy' | 'sell', cryptocurrency: string, price: number) => {
+    const config = strategy.configuration;
+    const tradeAmount = config.tradeAmount || 0.001; // Default trade amount
+
+    if (action === 'buy') {
+      const eurBalance = getBalance('EUR');
+      const tradeValue = tradeAmount * price;
+      
+      if (eurBalance >= tradeValue) {
+        updateBalance('EUR', -tradeValue);
+        updateBalance(cryptocurrency, tradeAmount);
         
-        if (eurBalance >= tradeValue) {
-          // Execute buy order
-          updateBalance('EUR', -tradeValue);
-          updateBalance(cryptocurrency, amount);
-          
-          await recordTrade({
-            strategy_id: strategy.id,
-            trade_type: 'buy',
-            cryptocurrency,
-            amount,
-            price,
-            total_value: tradeValue
-          });
+        await recordTrade({
+          strategy_id: strategy.id,
+          trade_type: 'buy',
+          cryptocurrency,
+          amount: tradeAmount,
+          price,
+          total_value: tradeValue,
+          strategy_trigger: `Price drop condition met`
+        });
 
-          toast({
-            title: "Test Trade Executed",
-            description: `Bought ${amount} ${cryptocurrency} at €${price.toFixed(2)}`,
-          });
-        }
-      } else if (action === 'sell') {
-        const cryptoBalance = getBalance(cryptocurrency);
+        toast({
+          title: "Strategy Trade Executed",
+          description: `Bought ${tradeAmount} ${cryptocurrency} at €${price.toFixed(2)}`,
+        });
+      }
+    } else if (action === 'sell') {
+      const cryptoBalance = getBalance(cryptocurrency);
+      
+      if (cryptoBalance >= tradeAmount) {
+        const tradeValue = tradeAmount * price;
+        updateBalance(cryptocurrency, -tradeAmount);
+        updateBalance('EUR', tradeValue);
         
-        if (cryptoBalance >= amount) {
-          // Execute sell order
-          const tradeValue = amount * price;
-          updateBalance(cryptocurrency, -amount);
-          updateBalance('EUR', tradeValue);
-          
-          await recordTrade({
-            strategy_id: strategy.id,
-            trade_type: 'sell',
-            cryptocurrency,
-            amount,
-            price,
-            total_value: tradeValue
-          });
+        await recordTrade({
+          strategy_id: strategy.id,
+          trade_type: 'sell',
+          cryptocurrency,
+          amount: tradeAmount,
+          price,
+          total_value: tradeValue,
+          strategy_trigger: `Price rise condition met`
+        });
 
-          toast({
-            title: "Test Trade Executed",
-            description: `Sold ${amount} ${cryptocurrency} at €${price.toFixed(2)}`,
-          });
-        }
+        toast({
+          title: "Strategy Trade Executed",
+          description: `Sold ${tradeAmount} ${cryptocurrency} at €${price.toFixed(2)}`,
+        });
       }
     }
   };
 
-  const getMarketData = async () => {
-    // Simulate real market data with some volatility
-    const baseData = {
-      BTC: { price: 45000 + (Math.random() - 0.5) * 2000, change: (Math.random() - 0.5) * 10 },
-      ETH: { price: 3000 + (Math.random() - 0.5) * 300, change: (Math.random() - 0.5) * 8 },
-      XRP: { price: 0.6 + (Math.random() - 0.5) * 0.1, change: (Math.random() - 0.5) * 15 }
-    };
-    
-    return baseData;
-  };
+  const getRealMarketData = async () => {
+    try {
+      // Use Coinbase public API - no authentication required
+      const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
+      const promises = symbols.map(symbol => 
+        fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`)
+          .then(res => res.json())
+      );
 
-  const analyzeStrategy = (strategy: any, marketData: any) => {
-    const config = strategy.configuration;
-    const cryptocurrencies = ['BTC', 'ETH', 'XRP'];
-    const selectedCrypto = cryptocurrencies[Math.floor(Math.random() * cryptocurrencies.length)];
-    const market = marketData[selectedCrypto];
-    
-    // Simple strategy simulation based on price changes
-    const shouldTrade = Math.random() < 0.3; // 30% chance to trade
-    
-    if (!shouldTrade) {
-      return { shouldTrade: false };
+      const responses = await Promise.all(promises);
+      
+      const marketData: any = {};
+      symbols.forEach((symbol, index) => {
+        const crypto = symbol.split('-')[0];
+        const data = responses[index];
+        marketData[crypto] = {
+          price: parseFloat(data.price),
+          volume: parseFloat(data.volume),
+          bid: parseFloat(data.bid),
+          ask: parseFloat(data.ask),
+          time: data.time
+        };
+      });
+
+      return marketData;
+    } catch (error) {
+      console.error('Error fetching real market data:', error);
+      // Fallback to mock data if API fails
+      return {
+        BTC: { price: 45000, volume: 100, bid: 44990, ask: 45010 },
+        ETH: { price: 3000, volume: 500, bid: 2995, ask: 3005 },
+        XRP: { price: 0.6, volume: 1000, bid: 0.599, ask: 0.601 }
+      };
     }
-
-    const action = market.change > 2 ? 'sell' : market.change < -2 ? 'buy' : Math.random() > 0.5 ? 'buy' : 'sell';
-    const amount = selectedCrypto === 'BTC' ? 0.001 + Math.random() * 0.002 :
-                  selectedCrypto === 'ETH' ? 0.01 + Math.random() * 0.02 :
-                  10 + Math.random() * 20; // XRP
-
-    return {
-      shouldTrade: true,
-      action,
-      cryptocurrency: selectedCrypto,
-      amount: parseFloat(amount.toFixed(selectedCrypto === 'XRP' ? 0 : 4)),
-      reason: `Market ${action} signal detected`
-    };
   };
+
 
   const recordTrade = async (tradeData: any) => {
     try {
@@ -165,25 +198,25 @@ export const useTestTrading = () => {
 
   useEffect(() => {
     if (testMode && user) {
-      // Start automated trading every 30 seconds
-      tradingIntervalRef.current = setInterval(executeTestTrade, 30000);
+      // Monitor market data every 10 seconds to check strategy conditions
+      marketMonitorRef.current = setInterval(checkStrategiesAndExecute, 10000);
       
-      // Execute first trade immediately
-      setTimeout(executeTestTrade, 2000);
+      // Check immediately
+      setTimeout(checkStrategiesAndExecute, 2000);
     } else {
-      // Stop automated trading
-      if (tradingIntervalRef.current) {
-        clearInterval(tradingIntervalRef.current);
-        tradingIntervalRef.current = null;
+      // Stop market monitoring
+      if (marketMonitorRef.current) {
+        clearInterval(marketMonitorRef.current);
+        marketMonitorRef.current = null;
       }
     }
 
     return () => {
-      if (tradingIntervalRef.current) {
-        clearInterval(tradingIntervalRef.current);
+      if (marketMonitorRef.current) {
+        clearInterval(marketMonitorRef.current);
       }
     };
   }, [testMode, user]);
 
-  return { executeTestTrade };
+  return { checkStrategiesAndExecute };
 };
