@@ -183,18 +183,7 @@ export const ConversationPanel = () => {
       let aiMessage = '';
       let hasConfigUpdates = false;
       
-      // Show debugging info directly in chat
-      const debugInfo = [];
-      debugInfo.push(`🔄 About to call ai-trading-assistant edge function...`);
-      debugInfo.push(`User ID: ${user?.id || 'NOT LOGGED IN'}`);
-      debugInfo.push(`Strategy ID: ${activeStrategy?.id || 'NO STRATEGY'}`);
-      debugInfo.push(`Input message: "${currentInput}"`);
-      
       try {
-        // Wait a moment so user can see the attempt
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        debugInfo.push(`🔄 Calling supabase.functions.invoke...`);
         const { data: aiData, error: aiError } = await supabase.functions.invoke('ai-trading-assistant', {
           body: {
             message: currentInput,
@@ -204,16 +193,10 @@ export const ConversationPanel = () => {
           },
         });
 
-        debugInfo.push(`🔄 Edge function response received`);
-        debugInfo.push(`aiData: ${JSON.stringify(aiData, null, 2)}`);
-        debugInfo.push(`aiError: ${JSON.stringify(aiError, null, 2)}`);
-
         if (aiError) {
-          debugInfo.push(`❌ Edge function returned error`);
           aiMessage = `❌ Edge function error: ${JSON.stringify(aiError)}`;
         } else if (aiData && aiData.message) {
-          debugInfo.push(`✅ Got AI response: ${aiData.message}`);
-          // Use the ACTUAL AI response, not just a success message
+          // Use the ACTUAL AI response
           aiMessage = aiData.message;
           hasConfigUpdates = aiData.configUpdates && Object.keys(aiData.configUpdates).length > 0;
           
@@ -237,22 +220,21 @@ export const ConversationPanel = () => {
             ));
           }
         } else {
-          debugInfo.push(`❌ No response data from AI assistant`);
-          aiMessage = '❌ No response data from AI assistant';
+          aiMessage = 'No response from AI assistant';
         }
       } catch (edgeFunctionError) {
-        // Show the actual error details
-        debugInfo.push(`❌ Function call exception: ${edgeFunctionError.message || JSON.stringify(edgeFunctionError)}`);
-        aiMessage = `❌ Function call exception: ${edgeFunctionError.message || JSON.stringify(edgeFunctionError)}`;
+        aiMessage = `Function error: ${edgeFunctionError.message}`;
       }
       
-      // Show all debug info in the response
-      const finalResponse = debugInfo.join('\n') + '\n\n---\n\n' + (aiMessage || analyzeUserQuestion(currentInput));
+      // Fallback to local analysis only if no AI response
+      if (!aiMessage) {
+        aiMessage = analyzeUserQuestion(currentInput);
+      }
       
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: finalResponse,
+        content: aiMessage,
         timestamp: new Date()
       };
       
