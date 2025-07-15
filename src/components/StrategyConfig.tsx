@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Play, Pause, Settings, Trash2, Plus, TrendingUp, Activity, ArrowUpDown, DollarSign, Shield, AlertTriangle, BarChart3, ArrowLeft, Save, Edit, TestTube, Zap } from 'lucide-react';
+import { Play, Pause, Settings, Trash2, Plus, TrendingUp, ArrowUpDown, DollarSign, Shield, AlertTriangle, BarChart3, ArrowLeft, Save, Edit, TestTube } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -103,7 +103,7 @@ export const StrategyConfig = () => {
           
           // Load performance data
           await loadStrategyPerformance(activeStrategyData.id);
-          await loadSandboxTrades(activeStrategyData.id);
+          await loadTradingHistory(activeStrategyData.id);
         } else {
           setHasActiveStrategy(false);
           setActiveStrategy(null);
@@ -136,61 +136,8 @@ export const StrategyConfig = () => {
     }
   };
 
-  const executeSandboxTrade = async (tradeType: 'buy' | 'sell', cryptocurrency: string = 'BTC') => {
-    if (!activeStrategy) return;
 
-    try {
-      // Get user's connections to find one for sandbox trading
-      const { data: connections } = await supabase
-        .from('user_coinbase_connections')
-        .select('id')
-        .eq('user_id', user?.id)
-        .eq('is_active', true)
-        .limit(1);
-
-      if (!connections || connections.length === 0) {
-        toast({
-          title: "No Coinbase Connection",
-          description: "Please connect your Coinbase account first",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Realistic amounts for sandbox testing
-      const amount = tradeType === 'buy' ? '0.001' : '0.0005'; // Small amounts for testing
-      
-      const { data, error } = await supabase.functions.invoke('coinbase-sandbox-trade', {
-        body: {
-          connectionId: connections[0].id,
-          tradeType,
-          cryptocurrency,
-          amount,
-          strategyId: activeStrategy.id
-        }
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: "Sandbox Trade Executed",
-        description: `${tradeType.toUpperCase()} ${amount} ${cryptocurrency} on Coinbase Sandbox`,
-      });
-
-      // Reload data
-      await loadStrategyPerformance(activeStrategy.id);
-      await loadSandboxTrades(activeStrategy.id);
-    } catch (error) {
-      console.error('Error executing sandbox trade:', error);
-      toast({
-        title: "Sandbox Trade Failed",
-        description: error.message || "Failed to execute sandbox trade",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const loadSandboxTrades = async (strategyId: string) => {
+  const loadTradingHistory = async (strategyId: string) => {
     try {
       const { data, error } = await supabase
         .from('trading_history')
@@ -203,48 +150,7 @@ export const StrategyConfig = () => {
         setMockTrades(data);
       }
     } catch (error) {
-      console.error('Error loading sandbox trades:', error);
-    }
-  };
-
-  const executeLiveTrade = async (tradeType: 'buy' | 'sell', cryptocurrency: string = 'BTC') => {
-    if (!activeStrategy) return;
-
-    toast({
-      title: "Live Trading Not Implemented",
-      description: "Live trading will be implemented after sandbox validation",
-      variant: "destructive",
-    });
-  };
-
-  const triggerAutomatedTrading = async () => {
-    try {
-      toast({
-        title: "Running Automated Trading Cycle",
-        description: "Analyzing market conditions and executing trades...",
-      });
-
-      const { data, error } = await supabase.functions.invoke('automated-trading-engine');
-      
-      if (error) throw error;
-
-      toast({
-        title: "Automated Trading Completed",
-        description: `Processed ${data.processedStrategies} strategies. Check trading history for results.`,
-      });
-
-      // Reload data after automated trading
-      if (activeStrategy) {
-        await loadStrategyPerformance(activeStrategy.id);
-        await loadSandboxTrades(activeStrategy.id);
-      }
-    } catch (error) {
-      console.error('Error running automated trading:', error);
-      toast({
-        title: "Automated Trading Failed",
-        description: error.message || "Failed to run automated trading cycle",
-        variant: "destructive",
-      });
+      console.error('Error loading trading history:', error);
     }
   };
 
@@ -461,14 +367,6 @@ export const StrategyConfig = () => {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary" className="bg-purple-500/20 text-purple-400 border-purple-500/30">
-            <Zap className="h-3 w-3 mr-1" />
-            Automated Trading Active
-          </Badge>
-          <Button onClick={triggerAutomatedTrading} size="sm" className="bg-green-600 hover:bg-green-700">
-            <Activity className="w-4 h-4 mr-2" />
-            Run Trading Cycle
-          </Button>
           <Button onClick={handleEditStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
             <Edit className="w-4 h-4 mr-2" />
             Edit Strategy
@@ -521,7 +419,7 @@ export const StrategyConfig = () => {
                 {activeStrategy?.test_mode ? 'Test mode active' : 'Live trading'}
               </p>
             </div>
-            <Activity className="w-8 h-8 text-slate-400" />
+            <BarChart3 className="w-8 h-8 text-slate-400" />
           </div>
         </Card>
 
@@ -914,6 +812,17 @@ export const StrategyConfig = () => {
                     <SelectItem value="high">Aggressive</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-slate-300 block">Test Mode</Label>
+                  <p className="text-xs text-slate-400">Use Coinbase Sandbox (test) vs Live environment</p>
+                </div>
+                <Switch 
+                  checked={strategyConfig.testMode}
+                  onCheckedChange={(checked) => setStrategyConfig(prev => ({ ...prev, testMode: checked }))}
+                />
               </div>
               
               <div className="flex items-center space-x-2">
