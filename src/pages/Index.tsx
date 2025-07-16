@@ -91,7 +91,7 @@ const Index = () => {
               </div>
               
               {/* Tab Content */}
-              <div className="p-6 h-[calc(100%-73px)] overflow-y-auto">
+              <div className="p-6 flex-1 overflow-y-auto">
                 {activeTab === 'dashboard' && <DashboardPanel />}
                 {activeTab === 'history' && <TradingHistory />}
                 {activeTab === 'strategy' && <StrategyConfig />}
