@@ -49,9 +49,9 @@ const Index = () => {
           
           {/* Right Panel - Dashboard/History/Config */}
           <div className="lg:col-span-2">
-            <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full">
+            <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col">
               {/* Tab Navigation */}
-              <div className="flex justify-between items-center border-b border-slate-700">
+              <div className="flex justify-between items-center border-b border-slate-700 flex-shrink-0">
                 <div className="flex">
                   {[
                     { id: 'dashboard', label: 'Dashboard' },
@@ -91,7 +91,7 @@ const Index = () => {
               </div>
               
               {/* Tab Content */}
-              <div className="p-6 flex-1 overflow-y-auto">
+              <div className="p-6 flex-1 overflow-y-auto min-h-0">
                 {activeTab === 'dashboard' && <DashboardPanel />}
                 {activeTab === 'history' && <TradingHistory />}
                 {activeTab === 'strategy' && <StrategyConfig />}
