@@ -30,7 +30,8 @@ serve(async (req) => {
       amount, 
       price,
       strategyId,
-      userId // Add userId to the request body
+      userId, // Add userId to the request body
+      orderType = 'market' // Default to market order if not specified
     } = requestBody;
 
     let user;
@@ -126,17 +127,25 @@ serve(async (req) => {
       // Create order endpoint
       endpoint = 'POST api.sandbox.coinbase.com/api/v3/brokerage/orders';
       
-      // Create order payload
+      // Create order payload based on order type
+      const orderConfig = orderType === 'market' 
+        ? {
+            market_market_ioc: {
+              quote_size: amount.toString() // For market orders, use quote_size (USD amount)
+            }
+          }
+        : {
+            limit_limit_gtc: {
+              base_size: amount.toString(),
+              limit_price: price.toString()
+            }
+          };
+
       payload = {
         client_order_id: crypto.randomUUID(),
         product_id: `${cryptocurrency.toUpperCase()}-USD`, // e.g., BTC-USD
         side: tradeType.toUpperCase(),
-        order_configuration: {
-          limit_limit_gtc: {
-            base_size: amount.toString(),
-            limit_price: price ? price.toString() : undefined
-          }
-        }
+        order_configuration: orderConfig
       };
     } else if (tradeType === 'portfolio') {
       // Get portfolio/accounts
