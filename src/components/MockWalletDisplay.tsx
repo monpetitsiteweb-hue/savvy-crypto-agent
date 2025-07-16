@@ -15,7 +15,7 @@ export const MockWalletDisplay = () => {
   const totalValue = getTotalValue();
 
   return (
-    <Card className="border-orange-500/20 bg-orange-500/5">
+    <Card className="border-orange-500/20 bg-slate-800/50 border-slate-600">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-orange-400">
           <Wallet className="h-5 w-5" />
@@ -27,16 +27,16 @@ export const MockWalletDisplay = () => {
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          <div className="flex justify-between items-center p-3 bg-background/50 rounded-lg">
-            <span className="font-medium">Total Portfolio Value</span>
+          <div className="flex justify-between items-center p-3 bg-slate-700/50 rounded-lg border border-slate-600/50">
+            <span className="font-medium text-white">Total Portfolio Value</span>
             <span className="text-xl font-bold text-green-400">€{totalValue.toLocaleString()}</span>
           </div>
           
           <div className="grid grid-cols-2 gap-3">
             {balances.map((balance) => (
-              <div key={balance.currency} className="p-3 bg-background/30 rounded-lg">
+              <div key={balance.currency} className="p-3 bg-slate-700/50 rounded-lg border border-slate-600/50">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-muted-foreground">
+                  <span className="text-sm font-medium text-slate-300">
                     {balance.currency}
                   </span>
                   {balance.currency !== 'EUR' && (
@@ -50,14 +50,14 @@ export const MockWalletDisplay = () => {
                   )}
                 </div>
                 <div className="mt-1">
-                  <div className="font-bold">
+                  <div className="font-bold text-white">
                     {balance.amount.toLocaleString(undefined, {
                       maximumFractionDigits: balance.currency === 'EUR' ? 2 : 
                                            balance.currency === 'XRP' ? 0 : 4
                     })}
                   </div>
                   {balance.currency !== 'EUR' && (
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-slate-400">
                       ≈ €{balance.value_in_base.toLocaleString()}
                     </div>
                   )}
