@@ -14,6 +14,90 @@ interface StrategyUpdateRequest {
   currentConfig?: any;
 }
 
+interface TradeRequest {
+  tradeType: 'buy' | 'sell';
+  cryptocurrency: string;
+  amount: number;
+  strategyId?: string;
+  orderType?: 'market' | 'limit';
+  price?: number;
+}
+
+// Trade execution function
+async function executeTrade(supabase: any, userId: string, trade: TradeRequest): Promise<string> {
+  try {
+    console.log('Executing trade:', trade);
+    
+    // Get user's active connections
+    const { data: connections, error: connectionError } = await supabase
+      .from('user_coinbase_connections')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true);
+
+    if (connectionError || !connections || connections.length === 0) {
+      return '❌ **Trade Failed**: No active Coinbase connections found. Please connect your Coinbase account first in the Dashboard tab.';
+    }
+
+    // Use the first active connection
+    const connection = connections[0];
+    
+    // Check test mode - for now, we'll use sandbox if available, otherwise inform user
+    const isTestMode = true; // TODO: Get this from user settings/strategy config
+    
+    const tradingFunction = isTestMode ? 'coinbase-sandbox-trade' : 'coinbase-live-trade';
+    const environment = isTestMode ? 'TEST' : 'LIVE';
+    
+    // Prepare trade payload
+    const tradePayload = {
+      connectionId: connection.id,
+      tradeType: trade.tradeType,
+      cryptocurrency: trade.cryptocurrency,
+      amount: trade.amount,
+      price: trade.price,
+      strategyId: trade.strategyId,
+      orderType: trade.orderType || 'market'
+    };
+
+    console.log(`Calling ${tradingFunction} with payload:`, tradePayload);
+
+    // Execute the trade through the appropriate trading function
+    const { data: tradeResult, error: tradeError } = await supabase.functions.invoke(tradingFunction, {
+      body: tradePayload
+    });
+
+    if (tradeError) {
+      console.error('Trade execution error:', tradeError);
+      return `❌ **Trade Failed**: ${tradeError.message || 'Unable to execute trade. Please check your connection and try again.'}`;
+    }
+
+    if (!tradeResult.success) {
+      console.error('Trade execution failed:', tradeResult);
+      return `❌ **Trade Failed**: ${tradeResult.error || 'Trade execution failed. Please check your account and try again.'}`;
+    }
+
+    // Success message
+    const crypto = trade.cryptocurrency.toUpperCase();
+    const action = trade.tradeType === 'buy' ? 'Bought' : 'Sold';
+    const orderTypeText = trade.orderType === 'market' ? 'Market' : 'Limit';
+    
+    return `🚀 **Trade Executed Successfully!**
+
+${action} ${trade.amount} ${trade.tradeType === 'buy' ? 'euros worth of' : ''} ${crypto} 
+Order Type: ${orderTypeText}
+Environment: ${environment}
+Order ID: ${tradeResult.data?.order_id || 'Unknown'}
+
+${isTestMode ? '🧪 This was a TEST trade (sandbox mode). No real money was involved.' : '💰 This was a LIVE trade with real money!'}
+
+The trade has been recorded in your trading history.`;
+
+  } catch (error) {
+    console.error('Execute trade error:', error);
+    return `❌ **Trade Failed**: System error occurred. Please try again. Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -371,11 +455,65 @@ ${!hasStopLoss ? '🚨 HIGH RISK - No downside protection' :
 • Profit: ${currentConfig?.takeProfit || 1.3}% | Stop: ${currentConfig?.stopLoss ? `${currentConfig.stopLossPercentage}%` : 'Disabled'}
 • Type: ${currentConfig?.strategyType || 'trend-following'} | Auto: ${currentConfig?.autoTrading ? 'On' : 'Off'}
 
-Ask me specific questions like:
+        Ask me specific questions like:
 • "What's my sell strategy?"
 • "How do I buy positions?"  
 • "Should I change my risk level?"`;
-      } else {
+      } 
+      // ===== NEW TRADE EXECUTION LOGIC =====
+      else if (lowerMessage.includes('buy') && (lowerMessage.includes('euro') || lowerMessage.includes('€') || lowerMessage.includes('dollar') || lowerMessage.includes('$'))) {
+        // Extract amount and cryptocurrency from message
+        const amountMatch = message.match(/(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:euro|eur|€|dollar|usd|\$)/i);
+        const cryptoMatch = message.match(/\b(btc|bitcoin|eth|ethereum|xrp|ripple)\b/i);
+        
+        if (amountMatch && cryptoMatch) {
+          const amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+          let crypto = cryptoMatch[1].toLowerCase();
+          
+          // Normalize crypto names
+          if (crypto === 'bitcoin') crypto = 'btc';
+          if (crypto === 'ethereum') crypto = 'eth';
+          if (crypto === 'ripple') crypto = 'xrp';
+          
+          // Execute the trade
+          responseMessage = await executeTrade(supabase, user.id, {
+            tradeType: 'buy',
+            cryptocurrency: crypto,
+            amount: amount,
+            strategyId: strategyId,
+            orderType: 'market' // Use market order for AI-initiated trades
+          });
+        } else {
+          responseMessage = `I understand you want to buy crypto, but I need more details. Try: "Buy 1000 euros worth of BTC" or "Buy 500€ of ETH"`;
+        }
+      }
+      else if (lowerMessage.includes('sell') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum'))) {
+        // Extract amount and cryptocurrency from message  
+        const amountMatch = message.match(/(\d+(?:\.\d+)?)/);
+        const cryptoMatch = message.match(/\b(btc|bitcoin|eth|ethereum|xrp|ripple)\b/i);
+        
+        if (amountMatch && cryptoMatch) {
+          const amount = parseFloat(amountMatch[1]);
+          let crypto = cryptoMatch[1].toLowerCase();
+          
+          // Normalize crypto names
+          if (crypto === 'bitcoin') crypto = 'btc';
+          if (crypto === 'ethereum') crypto = 'eth';
+          if (crypto === 'ripple') crypto = 'xrp';
+          
+          // Execute the trade
+          responseMessage = await executeTrade(supabase, user.id, {
+            tradeType: 'sell',
+            cryptocurrency: crypto,
+            amount: amount,
+            strategyId: strategyId,
+            orderType: 'market'
+          });
+        } else {
+          responseMessage = `I understand you want to sell crypto, but I need more details. Try: "Sell 0.5 BTC" or "Sell 2 ETH"`;
+        }
+      }
+      else {
         // Use LLM for general conversation and questions not related to trading config
         if (openAIApiKey) {
           try {
@@ -390,7 +528,7 @@ Ask me specific questions like:
                 messages: [
                   {
                     role: 'system',
-                    content: llmConfig.system_prompt
+                    content: llmConfig.system_prompt + '\n\nIMPORTANT: You can execute real trades when users ask. Examples:\n- "Buy 1000 euros worth of BTC" - I will execute a market buy order\n- "Sell 0.5 BTC" - I will execute a market sell order\n\nAlways ask for confirmation before executing trades and specify if it will be live or test mode.'
                   },
                   {
                     role: 'user',
@@ -404,16 +542,16 @@ Ask me specific questions like:
 
             if (conversationResponse.ok) {
               const conversationData = await conversationResponse.json();
-              responseMessage = conversationData.choices[0]?.message?.content || 'I can help you with your trading strategy. What would you like to know?';
+              responseMessage = conversationData.choices[0]?.message?.content || 'I can help you with your trading strategy and execute trades. What would you like to do?';
             } else {
-              responseMessage = 'I can help you with your trading strategy. What would you like to know?';
+              responseMessage = 'I can help you with your trading strategy and execute trades. What would you like to do?';
             }
           } catch (error) {
             console.error('LLM conversation error:', error);
-            responseMessage = 'I can help you with your trading strategy. What would you like to know?';
+            responseMessage = 'I can help you with your trading strategy and execute trades. What would you like to do?';
           }
         } else {
-          responseMessage = 'I can help you with your trading strategy. What would you like to know?';
+          responseMessage = 'I can help you with your trading strategy and execute trades. What would you like to do?';
         }
       }
     }
