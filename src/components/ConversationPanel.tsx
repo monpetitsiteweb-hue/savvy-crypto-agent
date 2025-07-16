@@ -32,7 +32,9 @@ export const ConversationPanel = () => {
     {
       id: '1',
       type: 'ai',
-      content: "Hello! I'm your AI trading assistant. I can analyze your strategies, modify your settings in real-time, and provide trading advice based on current market signals and trends. Try asking me to 'change stop loss to 2.5%' or 'give me trading advice'!",
+      content: testMode 
+        ? "Hello! I'm your AI trading assistant in **TEST MODE** 🧪. I can help you practice trading safely with mock money, analyze strategies, and provide advice. Try asking me to 'buy 1000 euros of BTC' or 'change stop loss to 2.5%' - all trades will be simulated!"
+        : "Hello! I'm your AI trading assistant. Currently in LIVE MODE - production trading is under development. Please enable Test Mode to safely practice trading features. I can analyze your strategies and provide trading advice!",
       timestamp: new Date()
     }
   ]);
@@ -200,13 +202,14 @@ export const ConversationPanel = () => {
     // Check if this is a trade request and we're not in test mode
     const tradeRequest = detectTradeRequest(currentInput);
     if (tradeRequest && !testMode) {
-      // Production trade detected - show confirmation dialog
-      const activeStrategy = userStrategies.find(s => s.is_active);
-      setPendingTradeDetails({
-        ...tradeRequest,
-        strategyId: activeStrategy?.id
-      });
-      setShowProductionConfirmation(true);
+      // Production trade detected - show warning that we're focusing on test mode for now
+      const productionWarning: Message = {
+        id: Date.now().toString(),
+        type: 'ai',
+        content: "🚧 **Production trading is under development**\n\nFor now, please enable Test Mode to try trading features safely. Production trading with real money will be available soon!\n\nTo enable test mode, look for the test mode toggle in your interface.",
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, productionWarning]);
       setIsLoading(false);
       return;
     }
@@ -436,9 +439,14 @@ export const ConversationPanel = () => {
             : 'Ask me about trading strategies and risk management'
           }
         </p>
+        {testMode && (
+          <p className="text-xs text-blue-300 mt-1">
+            🧪 Test mode: All trades are simulated with mock money - perfect for learning!
+          </p>
+        )}
         {!testMode && (
-          <p className="text-xs text-red-300 mt-1">
-            ⚠️ Production mode: Trade requests will use real money via Coinbase API
+          <p className="text-xs text-amber-300 mt-1">
+            🚧 Live mode: Production trading under development - please enable Test Mode for now
           </p>
         )}
       </div>
@@ -505,8 +513,8 @@ export const ConversationPanel = () => {
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder={testMode 
-              ? "Ask me to change settings or get trading advice... (e.g., 'change stop loss to 2.5%', 'give me trading advice')"
-              : "⚠️ LIVE MODE: Trade requests use real money! Ask me to change settings or get trading advice..."
+              ? "🧪 TEST MODE: Try 'buy 1000 euros of BTC', 'sell 0.5 ETH', or ask me to change strategy settings..."
+              : "🚧 Enable Test Mode to try trading features safely. Ask me about strategy settings or trading advice..."
             }
             className="flex-1 min-h-[60px] bg-slate-700/50 border-slate-600 text-white placeholder-slate-400 resize-none"
             disabled={isLoading}
