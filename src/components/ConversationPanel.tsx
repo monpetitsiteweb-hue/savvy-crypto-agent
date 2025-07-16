@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, Bot, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 
 interface Message {
@@ -23,6 +24,7 @@ interface StrategyData {
 export const ConversationPanel = () => {
   console.log('ConversationPanel component loaded');
   const { user } = useAuth();
+  const { testMode } = useTestMode();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -190,6 +192,7 @@ export const ConversationPanel = () => {
             userId: user?.id,
             strategyId: activeStrategy?.id,
             currentConfig: activeStrategy?.configuration || {},
+            testMode: testMode, // Pass the current test mode setting
           },
         });
 

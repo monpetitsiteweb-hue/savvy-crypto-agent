@@ -21,6 +21,7 @@ interface TradeRequest {
   strategyId?: string;
   orderType?: 'market' | 'limit';
   price?: number;
+  testMode?: boolean; // Add test mode to trade request
 }
 
 // Trade execution function
@@ -42,8 +43,8 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
     // Use the first active connection
     const connection = connections[0];
     
-    // Check test mode - for now, we'll use sandbox if available, otherwise inform user
-    const isTestMode = true; // TODO: Get this from user settings/strategy config
+    // Use test mode from trade request, defaulting to true for safety
+    const isTestMode = trade.testMode !== undefined ? trade.testMode : true;
     
     const tradingFunction = isTestMode ? 'coinbase-sandbox-trade' : 'coinbase-live-trade';
     const environment = isTestMode ? 'TEST' : 'LIVE';
@@ -118,7 +119,7 @@ serve(async (req) => {
     const authHeader = req.headers.get('Authorization');
     const authToken = authHeader?.replace('Bearer ', '');
     
-    const { message, userId, strategyId, currentConfig }: StrategyUpdateRequest = await req.json();
+    const { message, userId, strategyId, currentConfig, testMode }: StrategyUpdateRequest & { testMode?: boolean } = await req.json();
     
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -495,7 +496,8 @@ ${!hasStopLoss ? '🚨 HIGH RISK - No downside protection' :
             cryptocurrency: crypto,
             amount: amount,
             strategyId: strategyId,
-            orderType: 'market' // Use market order for AI-initiated trades
+            orderType: 'market', // Use market order for AI-initiated trades
+            testMode: testMode // Pass the test mode from UI
           }, authToken);
         } else {
           responseMessage = `I understand you want to buy crypto, but I need more details. Try: "Buy 1000 euros worth of BTC" or "Buy 500€ of ETH"`;
@@ -521,7 +523,8 @@ ${!hasStopLoss ? '🚨 HIGH RISK - No downside protection' :
             cryptocurrency: crypto,
             amount: amount,
             strategyId: strategyId,
-            orderType: 'market'
+            orderType: 'market',
+            testMode: testMode // Pass the test mode from UI
           }, authToken);
         } else {
           responseMessage = `I understand you want to sell crypto, but I need more details. Try: "Sell 0.5 BTC" or "Sell 2 ETH"`;
