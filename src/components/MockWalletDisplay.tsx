@@ -1,12 +1,13 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useMockWallet } from "@/hooks/useMockWallet";
 import { useTestMode } from "@/hooks/useTestMode";
-import { Wallet, TrendingUp, TrendingDown } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, RefreshCw, Loader2 } from "lucide-react";
 
 export const MockWalletDisplay = () => {
   const { testMode } = useTestMode();
-  const { balances, getTotalValue } = useMockWallet();
+  const { balances, getTotalValue, refreshFromDatabase, isLoading } = useMockWallet();
 
   if (!testMode || balances.length === 0) {
     return null;
@@ -17,16 +18,38 @@ export const MockWalletDisplay = () => {
   return (
     <Card className="border-orange-500/20 bg-slate-800/50 border-slate-600">
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-orange-400">
-          <Wallet className="h-5 w-5" />
-          Test Wallet
-          <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
-            Mock Data
-          </Badge>
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-orange-400">
+            <Wallet className="h-5 w-5" />
+            Test Wallet
+            <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
+              Mock Data
+            </Badge>
+          </CardTitle>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={refreshFromDatabase}
+            disabled={isLoading}
+            className="text-orange-400 hover:text-orange-300"
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
+          {isLoading && (
+            <div className="flex justify-center items-center p-4">
+              <Loader2 className="h-6 w-6 animate-spin text-orange-400" />
+              <span className="ml-2 text-orange-400">Syncing with trades...</span>
+            </div>
+          )}
+          
           <div className="flex justify-between items-center p-3 bg-slate-700/50 rounded-lg border border-slate-600/50">
             <span className="font-medium text-white">Total Portfolio Value</span>
             <span className="text-xl font-bold text-green-400">€{totalValue.toLocaleString()}</span>
