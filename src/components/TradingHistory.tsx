@@ -19,6 +19,10 @@ interface Trade {
   executed_at: string;
   fees?: number;
   notes?: string;
+  strategy_id?: string;
+  strategy_trigger?: string;
+  is_test_mode?: boolean;
+  profit_loss?: number;
 }
 
 export const TradingHistory = () => {
@@ -69,12 +73,33 @@ export const TradingHistory = () => {
     if (!user) return;
     
     try {
-      const { data, error } = await supabase
-        .from('trading_history')
-        .select('*')
-        .eq('is_sandbox', testMode)
-        .order('executed_at', { ascending: false })
-        .limit(50);
+      let data, error;
+      
+      if (testMode) {
+        // In test mode, fetch from mock_trades table (real test trading data)
+        const result = await supabase
+          .from('mock_trades')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('is_test_mode', true)
+          .order('executed_at', { ascending: false })
+          .limit(50);
+        
+        data = result.data;
+        error = result.error;
+      } else {
+        // In live mode, fetch from trading_history table (real Coinbase trades)
+        const result = await supabase
+          .from('trading_history')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('is_sandbox', false)
+          .order('executed_at', { ascending: false })
+          .limit(50);
+        
+        data = result.data;
+        error = result.error;
+      }
 
       if (error) throw error;
       
@@ -199,7 +224,12 @@ export const TradingHistory = () => {
           </div>
           <div className="text-center">
             <h3 className="text-xl font-semibold text-white mb-2">No Trading History</h3>
-            <p className="text-slate-400">Click "Fetch from Coinbase" to load your trading history.</p>
+            <p className="text-slate-400">
+              {testMode 
+                ? "No test trades yet. Create a strategy and enable test mode to start automated trading." 
+                : "Click \"Fetch from Coinbase\" to load your trading history."
+              }
+            </p>
           </div>
         </div>
       </div>
@@ -302,6 +332,9 @@ export const TradingHistory = () => {
                         </Badge>
                       )}
                     </div>
+                    {trade.strategy_trigger && testMode && (
+                      <p className="text-sm text-blue-400">🎯 {trade.strategy_trigger}</p>
+                    )}
                     {trade.notes && (
                       <p className="text-sm text-slate-400">{trade.notes}</p>
                     )}
