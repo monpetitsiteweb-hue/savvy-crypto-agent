@@ -476,7 +476,7 @@ ${!hasStopLoss ? '🚨 HIGH RISK - No downside protection' :
           if (crypto === 'ripple') crypto = 'xrp';
           
           // Execute the trade
-          responseMessage = await executeTrade(supabase, user.id, {
+          responseMessage = await executeTrade(supabase, userId, {
             tradeType: 'buy',
             cryptocurrency: crypto,
             amount: amount,
@@ -502,7 +502,7 @@ ${!hasStopLoss ? '🚨 HIGH RISK - No downside protection' :
           if (crypto === 'ripple') crypto = 'xrp';
           
           // Execute the trade
-          responseMessage = await executeTrade(supabase, user.id, {
+          responseMessage = await executeTrade(supabase, userId, {
             tradeType: 'sell',
             cryptocurrency: crypto,
             amount: amount,
