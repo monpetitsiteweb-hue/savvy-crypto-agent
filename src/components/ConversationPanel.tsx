@@ -197,6 +197,7 @@ export const ConversationPanel = () => {
         });
 
         if (aiError) {
+          console.error('AI function error details:', aiError);
           aiMessage = `❌ Edge function error: ${JSON.stringify(aiError)}`;
         } else if (aiData && aiData.message) {
           // Use the ACTUAL AI response

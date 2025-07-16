@@ -115,11 +115,15 @@ serve(async (req) => {
   }
 
   try {
+    console.log('=== AI Trading Assistant Function Called ===');
     // Get auth token from request
     const authHeader = req.headers.get('Authorization');
     const authToken = authHeader?.replace('Bearer ', '');
+    console.log('Auth header present:', !!authHeader);
     
-    const { message, userId, strategyId, currentConfig, testMode }: StrategyUpdateRequest & { testMode?: boolean } = await req.json();
+    const requestBody = await req.json();
+    console.log('Request body received:', requestBody);
+    const { message, userId, strategyId, currentConfig, testMode }: StrategyUpdateRequest & { testMode?: boolean } = requestBody;
     
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
