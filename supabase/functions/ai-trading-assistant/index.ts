@@ -380,13 +380,16 @@ serve(async (req) => {
       }
     }
 
-    // Use AI-first approach: let OpenAI understand and handle everything
+    // Use AI-first approach with fallback for trade execution
     let configUpdates: any = {};
     let responseMessage = '';
+    let useAI = openAIApiKey && llmConfig; // Only use AI if properly configured
     
-    // Use OpenAI to understand the user's intent and generate intelligent responses
-    if (openAIApiKey) {
+    console.log('🤖 AI Configuration Status:', { useAI, hasOpenAI: !!openAIApiKey, hasLLMConfig: !!llmConfig });
+    
+    if (useAI) {
       try {
+        console.log('🤖 Attempting AI processing...');
         const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -394,7 +397,7 @@ serve(async (req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: llmConfig.model || 'gpt-4o',
+            model: llmConfig.model || 'gpt-4o-mini', // Use faster model as fallback
             messages: [
               {
                 role: 'system',
@@ -446,7 +449,7 @@ If it's a general question or trade request, just respond naturally with helpful
               }
             ],
             temperature: llmConfig.temperature || 0.7,
-            max_tokens: llmConfig.max_tokens || 1500,
+            max_tokens: Math.min(llmConfig.max_tokens || 1000, 1000), // Limit tokens to prevent timeouts
           }),
         });
 
@@ -454,12 +457,15 @@ If it's a general question or trade request, just respond naturally with helpful
           const aiData = await aiResponse.json();
           const aiMessage = aiData.choices[0]?.message?.content || '';
           
+          console.log('🤖 AI Response received:', aiMessage.substring(0, 200) + '...');
+          
           // Try to parse if AI returned JSON with config updates
           try {
             const parsedResponse = JSON.parse(aiMessage);
             if (parsedResponse.configUpdates) {
               configUpdates = parsedResponse.configUpdates;
               responseMessage = parsedResponse.response;
+              console.log('🤖 AI Config Updates:', configUpdates);
             } else {
               responseMessage = aiMessage;
             }
@@ -467,10 +473,54 @@ If it's a general question or trade request, just respond naturally with helpful
             // AI returned plain text response
             responseMessage = aiMessage;
           }
+        } else {
+          console.log('🤖 AI API failed, falling back to pattern matching');
+          useAI = false; // Fallback to pattern matching
         }
       } catch (error) {
-        console.error('AI response error:', error);
-        responseMessage = "I'm having trouble processing your request right now. Could you please rephrase your question?";
+        console.error('🤖 AI processing error:', error);
+        useAI = false; // Fallback to pattern matching
+      }
+    }
+    
+    // Fallback to pattern matching if AI fails or isn't configured
+    if (!useAI || !responseMessage) {
+      console.log('🔄 Using pattern matching fallback...');
+      const lowerMessage = message.toLowerCase();
+      
+      // Handle stop loss changes with context awareness
+      if (lowerMessage.includes('stop loss') || lowerMessage.includes('stop-loss')) {
+        const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
+        if (percentageMatch) {
+          const newPercentage = parseFloat(percentageMatch[1]);
+          configUpdates.stopLoss = true;
+          configUpdates.stopLossPercentage = newPercentage;
+          responseMessage = `Updated stop-loss to ${newPercentage}% and enabled it. This will help protect your capital by automatically selling if positions drop by ${newPercentage}% or more.`;
+        }
+      }
+
+      // Handle take profit changes
+      if (lowerMessage.includes('take profit')) {
+        const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
+        if (percentageMatch) {
+          const newPercentage = parseFloat(percentageMatch[1]);
+          configUpdates.takeProfit = newPercentage;
+          responseMessage = `✅ Updated take profit target to ${newPercentage}%. Your strategy will now automatically sell positions when they reach ${newPercentage}% profit.`;
+        }
+      }
+
+      // Handle risk level changes
+      if (lowerMessage.includes('risk')) {
+        if (lowerMessage.includes('low') || lowerMessage.includes('conservative')) {
+          configUpdates.riskLevel = 'low';
+          responseMessage = `✅ Changed risk tolerance to Conservative. This setting prioritizes capital preservation over aggressive gains.`;
+        } else if (lowerMessage.includes('high') || lowerMessage.includes('aggressive')) {
+          configUpdates.riskLevel = 'high';
+          responseMessage = `✅ Changed risk tolerance to Aggressive. This allows for higher potential returns but also higher risk of losses.`;
+        } else if (lowerMessage.includes('medium') || lowerMessage.includes('moderate')) {
+          configUpdates.riskLevel = 'medium';
+          responseMessage = `✅ Set risk tolerance to Moderate. This balances risk and reward appropriately.`;
+        }
       }
     }
 
