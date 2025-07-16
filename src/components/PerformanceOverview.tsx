@@ -104,9 +104,9 @@ export const PerformanceOverview = () => {
   }
 
   return (
-    <Card className={testMode ? "border-orange-500/20 bg-orange-500/5" : ""}>
+    <Card className={`bg-slate-800/50 border-slate-600 ${testMode ? "border-orange-500/20" : ""}`}>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-white">
           <Activity className="h-5 w-5" />
           Performance Overview
           {testMode && (
@@ -120,15 +120,15 @@ export const PerformanceOverview = () => {
       <CardContent>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-slate-300">
               <Target className="h-4 w-4" />
               Total Trades
             </div>
-            <div className="text-2xl font-bold">{metrics.totalTrades}</div>
+            <div className="text-2xl font-bold text-white">{metrics.totalTrades}</div>
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-slate-300">
               <TrendingUp className="h-4 w-4" />
               Win Rate
             </div>
@@ -138,7 +138,7 @@ export const PerformanceOverview = () => {
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-slate-300">
               <DollarSign className="h-4 w-4" />
               P&L
             </div>
@@ -170,11 +170,11 @@ export const PerformanceOverview = () => {
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-slate-300">
               <DollarSign className="h-4 w-4" />
               Total Fees
             </div>
-            <div className="text-xl font-semibold text-muted-foreground">
+            <div className="text-xl font-semibold text-slate-300">
               €{metrics.totalFees.toFixed(2)}
             </div>
           </div>

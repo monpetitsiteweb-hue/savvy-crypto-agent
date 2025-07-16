@@ -323,26 +323,26 @@ export const DashboardPanel = () => {
       <MockWalletDisplay />
       
       {/* Connections Management */}
-      <Card className="p-6 bg-slate-700/30 border-slate-600">
+      <Card className="p-6 bg-slate-800/50 border-slate-600">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-white">Coinbase Connections</h3>
-          <Button onClick={() => setShowConnectionSelector(true)} size="sm">
+          <Button onClick={() => setShowConnectionSelector(true)} size="sm" className="bg-blue-500 hover:bg-blue-600">
             <Plus className="h-4 w-4 mr-2" />
             Add Connection
           </Button>
         </div>
         
         {connections.length === 0 ? (
-          <p className="text-slate-400">No connections found. Add your first connection to get started.</p>
+          <p className="text-slate-300">No connections found. Add your first connection to get started.</p>
         ) : (
           <div className="space-y-3">
             {connections.map((connection) => (
-              <div key={connection.id} className="flex items-center justify-between p-3 bg-slate-600/30 rounded-lg">
+              <div key={connection.id} className="flex items-center justify-between p-4 bg-slate-700/50 rounded-lg border border-slate-600/50">
                 <div className="flex items-center space-x-3">
-                  <Badge variant="secondary">
+                  <Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">
                     {connection.api_name_encrypted || 'Coinbase Connection'}
                   </Badge>
-                  <span className="text-sm text-slate-400">
+                  <span className="text-sm text-slate-300">
                     Connected {new Date(connection.connected_at).toLocaleDateString()}
                   </span>
                 </div>
@@ -351,6 +351,7 @@ export const DashboardPanel = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => editConnection(connection.id)}
+                    className="border-slate-500 text-slate-300 hover:bg-slate-700 hover:text-white"
                   >
                     <Edit className="h-4 w-4" />
                   </Button>
@@ -358,6 +359,7 @@ export const DashboardPanel = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => deleteConnection(connection.id)}
+                    className="border-red-500/50 text-red-400 hover:bg-red-500/20 hover:text-red-300"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -370,7 +372,7 @@ export const DashboardPanel = () => {
 
       {/* Portfolio Selection & Display */}
       {connections.length > 0 && (
-        <Card className="p-6 bg-slate-700/30 border-slate-600">
+        <Card className="p-6 bg-slate-800/50 border-slate-600">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center space-x-3">
               <h3 className="text-lg font-semibold text-white">Portfolio Dashboard</h3>
@@ -408,6 +410,7 @@ export const DashboardPanel = () => {
               <Button 
                 onClick={() => fetchPortfolio()} 
                 disabled={(!selectedConnectionId && !testMode) || fetchingPortfolio}
+                className="bg-blue-500 hover:bg-blue-600"
               >
                 {fetchingPortfolio ? (
                   <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -424,25 +427,25 @@ export const DashboardPanel = () => {
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {portfolioData.accounts?.map((account) => (
-                  <Card key={account.uuid} className="p-4 bg-slate-600/30 border-slate-500">
-                    <h4 className="font-medium text-white mb-2">{account.name}</h4>
-                    <div className="text-sm space-y-1">
+                  <Card key={account.uuid} className="p-4 bg-slate-700/50 border-slate-600">
+                    <h4 className="font-medium text-white mb-3">{account.name}</h4>
+                    <div className="text-sm space-y-2">
                       <div className="flex justify-between">
-                        <span className="text-slate-400">Currency:</span>
-                        <span className="text-white">{account.currency}</span>
+                        <span className="text-slate-300">Currency:</span>
+                        <span className="text-white font-medium">{account.currency}</span>
                       </div>
                       {account.available_balance && (
                         <div className="flex justify-between">
-                          <span className="text-slate-400">Available:</span>
-                          <span className="text-green-400">
+                          <span className="text-slate-300">Available:</span>
+                          <span className="text-green-400 font-medium">
                             {account.available_balance.value} {account.available_balance.currency}
                           </span>
                         </div>
                       )}
                       {account.hold && parseFloat(account.hold.value) > 0 && (
                         <div className="flex justify-between">
-                          <span className="text-slate-400">On Hold:</span>
-                          <span className="text-yellow-400">
+                          <span className="text-slate-300">On Hold:</span>
+                          <span className="text-yellow-400 font-medium">
                             {account.hold.value} {account.hold.currency}
                           </span>
                         </div>
@@ -453,12 +456,12 @@ export const DashboardPanel = () => {
               </div>
               
               {portfolioData.accounts && portfolioData.accounts.length === 0 && (
-                <p className="text-slate-400 text-center py-8">No accounts found in your portfolio.</p>
+                <p className="text-slate-300 text-center py-8">No accounts found in your portfolio.</p>
               )}
             </div>
           ) : (
             <div className="text-center py-8">
-              <p className="text-slate-400 mb-4">
+              <p className="text-slate-300 mb-4">
                 {testMode 
                   ? 'Click "Generate Test Portfolio" to create mock data for testing'
                   : 'Select a connection and click "Fetch Portfolio" to view your data'

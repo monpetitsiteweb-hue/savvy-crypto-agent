@@ -42,10 +42,19 @@ export const TradingHistory = () => {
 
   useEffect(() => {
     if (user) {
-      fetchConnections();
+      if (!testMode) {
+        fetchConnections();
+      }
       fetchTradingHistory();
     }
   }, [user, testMode]);
+
+  useEffect(() => {
+    // Auto-fetch data when connection is selected in live mode
+    if (!testMode && selectedConnection && user) {
+      fetchTradingHistory();
+    }
+  }, [selectedConnection, testMode, user]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -61,8 +70,15 @@ export const TradingHistory = () => {
       if (error) throw error;
       
       setConnections(data || []);
-      if (data && data.length > 0 && !selectedConnection) {
-        setSelectedConnection(data[0].id);
+      
+      // Use saved connection from localStorage or auto-select first
+      const savedConnectionId = localStorage.getItem(`selectedConnection_${user.id}`);
+      if (savedConnectionId && data?.find(c => c.id === savedConnectionId)) {
+        setSelectedConnection(savedConnectionId);
+      } else if (data && data.length > 0) {
+        const firstConnectionId = data[0].id;
+        setSelectedConnection(firstConnectionId);
+        localStorage.setItem(`selectedConnection_${user.id}`, firstConnectionId);
       }
     } catch (error) {
       console.error('Error fetching connections:', error);
@@ -179,15 +195,18 @@ export const TradingHistory = () => {
   if (trades.length === 0) {
     return (
       <div className="space-y-4">
-        {/* Connection Selector */}
-        {connections.length > 0 && (
+        {/* Connection Selector - Only show in live mode */}
+        {!testMode && connections.length > 0 && (
           <Card className="p-4 bg-slate-700/30 border-slate-600">
             <div className="flex items-center gap-4">
               <div className="flex-1">
-                <label className="text-sm text-slate-400 mb-2 block">Select Coinbase Connection:</label>
+                <label className="text-sm text-slate-400 mb-2 block">Coinbase Connection:</label>
                 <select
                   value={selectedConnection}
-                  onChange={(e) => setSelectedConnection(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedConnection(e.target.value);
+                    localStorage.setItem(`selectedConnection_${user.id}`, e.target.value);
+                  }}
                   className="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-white"
                 >
                   {connections.map((connection) => (
@@ -227,7 +246,7 @@ export const TradingHistory = () => {
             <p className="text-slate-400">
               {testMode 
                 ? "No test trades yet. Create a strategy and enable test mode to start automated trading." 
-                : "Click \"Fetch from Coinbase\" to load your trading history."
+                : "Historical trades will appear here automatically when available."
               }
             </p>
           </div>
@@ -236,46 +255,49 @@ export const TradingHistory = () => {
     );
   }
 
-  return (
-    <div className="space-y-4">
-      {/* Connection Selector */}
-      {connections.length > 0 && (
-        <Card className="p-4 bg-slate-700/30 border-slate-600">
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              <label className="text-sm text-slate-400 mb-2 block">Select Coinbase Connection:</label>
-              <select
-                value={selectedConnection}
-                onChange={(e) => setSelectedConnection(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-white"
+    return (
+      <div className="space-y-4">
+        {/* Connection Selector - Only show in live mode */}
+        {!testMode && connections.length > 0 && (
+          <Card className="p-4 bg-slate-700/30 border-slate-600">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <label className="text-sm text-slate-400 mb-2 block">Coinbase Connection:</label>
+                <select
+                  value={selectedConnection}
+                  onChange={(e) => {
+                    setSelectedConnection(e.target.value);
+                    localStorage.setItem(`selectedConnection_${user.id}`, e.target.value);
+                  }}
+                  className="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-white"
+                >
+                  {connections.map((connection) => (
+                    <option key={connection.id} value={connection.id}>
+                      {connection.api_name_encrypted || `Coinbase Account ${connections.findIndex(c => c.id === connection.id) + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button 
+                onClick={fetchFromCoinbase}
+                disabled={fetching || !selectedConnection}
+                className="bg-green-500 hover:bg-green-600 text-white"
               >
-                {connections.map((connection) => (
-                  <option key={connection.id} value={connection.id}>
-                    {connection.api_name_encrypted || `Coinbase Account ${connections.findIndex(c => c.id === connection.id) + 1}`}
-                  </option>
-                ))}
-              </select>
+                {fetching ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Fetching...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Fetch from Coinbase
+                  </>
+                )}
+              </Button>
             </div>
-            <Button 
-              onClick={fetchFromCoinbase}
-              disabled={fetching || !selectedConnection}
-              className="bg-green-500 hover:bg-green-600 text-white"
-            >
-              {fetching ? (
-                <>
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                  Fetching...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Fetch from Coinbase
-                </>
-              )}
-            </Button>
-          </div>
-        </Card>
-      )}
+          </Card>
+        )}
 
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
