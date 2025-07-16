@@ -76,7 +76,7 @@ export const MockWalletDisplay = () => {
                   <div className="font-bold text-white">
                     {balance.amount.toLocaleString(undefined, {
                       maximumFractionDigits: balance.currency === 'EUR' ? 2 : 
-                                           balance.currency === 'XRP' ? 0 : 4
+                                           balance.currency === 'XRP' ? 0 : 6
                     })}
                   </div>
                   {balance.currency !== 'EUR' && (
@@ -87,6 +87,11 @@ export const MockWalletDisplay = () => {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Real-time sync indicator */}
+          <div className="text-xs text-slate-400 text-center mt-2">
+            💫 Synced with database • Updates automatically after trades
           </div>
         </div>
       </CardContent>
