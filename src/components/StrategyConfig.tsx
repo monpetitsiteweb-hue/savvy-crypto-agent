@@ -277,8 +277,8 @@ export const StrategyConfig = () => {
     } catch (error) {
       console.error('Error deleting strategy:', error);
       toast({
-        title: "Erreur",
-        description: "Impossible de supprimer la stratégie.",
+        title: "Error",
+        description: "Unable to delete strategy.",
         variant: "destructive",
       });
     }
@@ -290,7 +290,7 @@ export const StrategyConfig = () => {
     
     try {
       if (currentlyActive) {
-        // Désactiver la stratégie
+        // Deactivate the strategy
         const { error } = await supabase
           .from('trading_strategies')
           .update({ is_active: false })
@@ -304,7 +304,7 @@ export const StrategyConfig = () => {
           description: "Votre stratégie de trading a été désactivée.",
         });
       } else {
-        // Désactiver toutes les autres stratégies d'abord
+        // Deactivate all other strategies first
         await supabase
           .from('trading_strategies')
           .update({ is_active: false })
@@ -525,7 +525,7 @@ export const StrategyConfig = () => {
                     <div className="flex items-center gap-3">
                       <h4 className="text-white font-medium">{strategy.strategy_name}</h4>
                       {strategy.is_active && (
-                        <Badge className="bg-green-500 text-white">Actif</Badge>
+                        <Badge className="bg-green-500 text-white">Active</Badge>
                       )}
                       {testMode && (
                         <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
@@ -572,7 +572,7 @@ export const StrategyConfig = () => {
                           {strategy.is_active ? (
                             <>
                               <Pause className="w-4 h-4 mr-2" />
-                              Désactiver
+                              Deactivate
                             </>
                           ) : (
                             <>
@@ -585,12 +585,12 @@ export const StrategyConfig = () => {
                       <AlertDialogContent className="bg-slate-800 border-slate-700">
                         <AlertDialogHeader>
                           <AlertDialogTitle className="text-white">
-                            {strategy.is_active ? 'Désactiver la stratégie' : 'Activer la stratégie'}
+                            {strategy.is_active ? 'Deactivate Strategy' : 'Activate Strategy'}
                           </AlertDialogTitle>
                           <AlertDialogDescription className="text-slate-400">
                             {strategy.is_active 
-                              ? `Êtes-vous sûr de vouloir désactiver la stratégie "${strategy.strategy_name}" ? Cela arrêtera tous les trades automatiques.`
-                              : `Êtes-vous sûr de vouloir activer la stratégie "${strategy.strategy_name}" ? Cela désactivera automatiquement toute autre stratégie active.`
+                              ? `Are you sure you want to deactivate the strategy "${strategy.strategy_name}"? This will stop all automated trading.`
+                              : `Are you sure you want to activate the strategy "${strategy.strategy_name}"? This will automatically deactivate any other active strategy.`
                             }
                           </AlertDialogDescription>
                         </AlertDialogHeader>
@@ -606,7 +606,7 @@ export const StrategyConfig = () => {
                                 : 'bg-green-600 hover:bg-green-700'
                             } text-white`}
                           >
-                            {strategy.is_active ? 'Désactiver' : 'Activer'}
+                            {strategy.is_active ? 'Deactivate' : 'Activate'}
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
@@ -620,17 +620,17 @@ export const StrategyConfig = () => {
                           className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
-                          Supprimer
+                          Delete
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent className="bg-slate-800 border-slate-700">
                         <AlertDialogHeader>
                           <AlertDialogTitle className="text-white">
-                            Supprimer la stratégie
+                            Delete Strategy
                           </AlertDialogTitle>
                           <AlertDialogDescription className="text-slate-400">
-                            Êtes-vous sûr de vouloir supprimer définitivement la stratégie "{strategy.strategy_name}" ? 
-                            Cette action est irréversible et supprimera toutes les données associées.
+                            Are you sure you want to permanently delete the strategy "{strategy.strategy_name}"? 
+                            This action is irreversible and will delete all associated data.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -641,7 +641,7 @@ export const StrategyConfig = () => {
                             onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
                             className="bg-red-600 hover:bg-red-700 text-white"
                           >
-                            Supprimer définitivement
+                            Delete Permanently
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
@@ -721,17 +721,17 @@ export const StrategyConfig = () => {
                           className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
-                          Supprimer
+                          Delete
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent className="bg-slate-800 border-slate-700">
                         <AlertDialogHeader>
                           <AlertDialogTitle className="text-white">
-                            Supprimer la stratégie
+                            Delete Strategy
                           </AlertDialogTitle>
                           <AlertDialogDescription className="text-slate-400">
-                            Êtes-vous sûr de vouloir supprimer définitivement la stratégie "{strategy.strategy_name}" ? 
-                            Cette action est irréversible et supprimera toutes les données associées.
+                            Are you sure you want to permanently delete the strategy "{strategy.strategy_name}"? 
+                            This action is irreversible and will delete all associated data.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -742,7 +742,7 @@ export const StrategyConfig = () => {
                             onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
                             className="bg-red-600 hover:bg-red-700 text-white"
                           >
-                            Supprimer définitivement
+                            Delete Permanently
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
