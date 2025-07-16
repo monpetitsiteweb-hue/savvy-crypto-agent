@@ -4,12 +4,14 @@ import { useAuth } from './useAuth';
 import { useMockWallet } from './useMockWallet';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from './use-toast';
+import { useRealTimeMarketData } from './useRealTimeMarketData';
 
 export const useTestTrading = () => {
   const { testMode } = useTestMode();
   const { user } = useAuth();
   const { updateBalance, getBalance } = useMockWallet();
   const { toast } = useToast();
+  const { marketData, getCurrentData } = useRealTimeMarketData();
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const lastPricesRef = useRef<any>({});
 
@@ -28,12 +30,13 @@ export const useTestTrading = () => {
       if (strategiesError) throw strategiesError;
       if (!strategies || strategies.length === 0) return;
 
-      // Get real market data
-      const marketData = await getRealMarketData();
+      // Get real market data - prioritize real-time data, fallback to API call
+      const realTimeData = Object.keys(marketData).length > 0 ? marketData : null;
+      const currentMarketData = realTimeData || await getCurrentData(['BTC-USD', 'ETH-USD', 'XRP-USD']);
       
       // Check each strategy against current market conditions
       for (const strategy of strategies) {
-        await checkStrategyConditions(strategy, marketData);
+        await checkStrategyConditions(strategy, currentMarketData);
       }
     } catch (error) {
       console.error('Error checking strategies:', error);
