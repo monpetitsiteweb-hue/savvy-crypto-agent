@@ -212,8 +212,30 @@ serve(async (req) => {
 
       console.log('Making sandbox API call to:', apiUrl);
       console.log('Request payload:', payload);
+      console.log('Request headers:', requestOptions.headers);
+      console.log('JWT length:', jwt.length);
       
-      const response = await fetch(apiUrl, requestOptions);
+      let response;
+      try {
+        response = await fetch(apiUrl, requestOptions);
+        console.log('Fetch completed, status:', response.status);
+      } catch (fetchError) {
+        console.error('Fetch error details:', fetchError);
+        console.error('Error name:', fetchError.name);
+        console.error('Error message:', fetchError.message);
+        
+        // Try with different API endpoint - maybe sandbox endpoint is down
+        const productionApiUrl = apiUrl.replace('api.sandbox.coinbase.com', 'api.coinbase.com');
+        console.log('Trying production endpoint instead:', productionApiUrl);
+        
+        try {
+          response = await fetch(productionApiUrl, requestOptions);
+          console.log('Production API fetch completed, status:', response.status);
+        } catch (prodError) {
+          console.error('Production API also failed:', prodError);
+          throw fetchError; // Throw original error
+        }
+      }
       const result = await response.json();
       
       console.log('Sandbox API response status:', response.status);
