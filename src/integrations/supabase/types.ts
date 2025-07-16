@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_data_sources: {
+        Row: {
+          api_endpoint: string | null
+          configuration: Json | null
+          created_at: string
+          id: string
+          is_active: boolean
+          last_sync: string | null
+          source_name: string
+          source_type: string
+          update_frequency: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          api_endpoint?: string | null
+          configuration?: Json | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_sync?: string | null
+          source_name: string
+          source_type: string
+          update_frequency?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          api_endpoint?: string | null
+          configuration?: Json | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_sync?: string | null
+          source_name?: string
+          source_type?: string
+          update_frequency?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ai_knowledge_base: {
         Row: {
           confidence_score: number
@@ -151,6 +193,50 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      external_market_data: {
+        Row: {
+          created_at: string
+          cryptocurrency: string | null
+          data_type: string
+          data_value: number | null
+          entity: string | null
+          id: string
+          metadata: Json | null
+          source_id: string
+          timestamp: string
+        }
+        Insert: {
+          created_at?: string
+          cryptocurrency?: string | null
+          data_type: string
+          data_value?: number | null
+          entity?: string | null
+          id?: string
+          metadata?: Json | null
+          source_id: string
+          timestamp?: string
+        }
+        Update: {
+          created_at?: string
+          cryptocurrency?: string | null
+          data_type?: string
+          data_value?: number | null
+          entity?: string | null
+          id?: string
+          metadata?: Json | null
+          source_id?: string
+          timestamp?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_market_data_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "ai_data_sources"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       llm_configurations: {
         Row: {

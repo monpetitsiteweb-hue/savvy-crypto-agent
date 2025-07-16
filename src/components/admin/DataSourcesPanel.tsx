@@ -1,190 +1,368 @@
-import { useState } from 'react';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Trash2, Globe, Rss, TrendingUp, Users, BarChart3, AlertCircle } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap } from "lucide-react";
 
 interface DataSource {
   id: string;
-  name: string;
-  type: 'rss' | 'api' | 'social' | 'market';
-  url: string;
-  enabled: boolean;
-  lastSync?: string;
-  status: 'active' | 'error' | 'disabled';
+  source_name: string;
+  source_type: string;
+  api_endpoint?: string;
+  is_active: boolean;
+  update_frequency: string;
+  configuration: any;
+  last_sync?: string;
+  created_at: string;
 }
 
-export const DataSourcesPanel = () => {
+const DATA_SOURCE_TEMPLATES = {
+  arkham_intelligence: {
+    name: "Arkham Intelligence",
+    type: "blockchain_analytics",
+    endpoint: "https://api.arkhamintelligence.com",
+    description: "Track whale movements, institutional flows, and major wallet activities from BlackRock, Trump, MicroStrategy, etc.",
+    fields: ["api_key"],
+    entities: ["blackrock", "microstrategy", "tesla", "trump", "biden"],
+    icon: Shield,
+    needsApiKey: true
+  },
+  fear_greed_index: {
+    name: "Fear & Greed Index",
+    type: "sentiment",
+    endpoint: "https://api.alternative.me/fng",
+    description: "Market sentiment analysis based on Fear & Greed Index - free API",
+    fields: [],
+    entities: ["market_sentiment"],
+    icon: TrendingUp,
+    needsApiKey: false
+  },
+  coinbase_institutional: {
+    name: "Coinbase Institutional Flows",
+    type: "institutional_tracking",
+    endpoint: "https://api.exchange.coinbase.com/products",
+    description: "Track large institutional trades and volume patterns - free API",
+    fields: [],
+    entities: ["institutional_flows"],
+    icon: BarChart3,
+    needsApiKey: false
+  },
+  whale_alerts: {
+    name: "Whale Alert",
+    type: "blockchain_analytics", 
+    endpoint: "https://api.whale-alert.io",
+    description: "Real-time large transaction monitoring across blockchains",
+    fields: ["api_key"],
+    entities: ["whale_transactions"],
+    icon: Activity,
+    needsApiKey: true
+  }
+};
+
+export function DataSourcesPanel() {
+  const [dataSources, setDataSources] = useState<DataSource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+  const [apiKey, setApiKey] = useState('');
+  const [syncing, setSyncing] = useState(false);
   const { toast } = useToast();
-  const [sources, setSources] = useState<DataSource[]>([
-    {
-      id: '1',
-      name: 'CoinDesk RSS',
-      type: 'rss',
-      url: 'https://feeds.coindesk.com/rss',
-      enabled: true,
-      lastSync: '2024-01-15T10:30:00Z',
-      status: 'active'
-    },
-    {
-      id: '2',
-      name: 'Federal Reserve Economic Data',
-      type: 'api',
-      url: 'https://api.stlouisfed.org/fred/',
-      enabled: true,
-      lastSync: '2024-01-15T09:15:00Z',
-      status: 'active'
-    },
-    {
-      id: '3',
-      name: 'X (Twitter) Crypto Sentiment',
-      type: 'social',
-      url: 'https://api.twitter.com/2/',
-      enabled: false,
-      status: 'disabled'
-    }
-  ]);
 
-  const [newSource, setNewSource] = useState({
-    name: '',
-    type: 'rss' as const,
-    url: ''
-  });
+  useEffect(() => {
+    loadDataSources();
+  }, []);
 
-  const addSource = () => {
-    if (!newSource.name || !newSource.url) {
+  const loadDataSources = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('ai_data_sources')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setDataSources(data || []);
+    } catch (error) {
+      console.error('Error loading data sources:', error);
       toast({
-        title: "Missing Information",
-        description: "Please fill in all fields",
-        variant: "destructive"
+        title: "Error",
+        description: "Failed to load data sources",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addDataSource = async () => {
+    if (!selectedTemplate) {
+      toast({
+        title: "Error",
+        description: "Please select a data source template",
+        variant: "destructive",
       });
       return;
     }
 
-    const source: DataSource = {
-      id: Date.now().toString(),
-      ...newSource,
-      enabled: true,
-      status: 'active'
-    };
-
-    setSources(prev => [...prev, source]);
-    setNewSource({ name: '', type: 'rss', url: '' });
+    const template = DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES];
     
-    toast({
-      title: "Data Source Added",
-      description: `${newSource.name} has been configured successfully`,
-    });
-  };
+    if (template.needsApiKey && !apiKey) {
+      toast({
+        title: "Error",
+        description: "API key is required for this data source",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  const removeSource = (id: string) => {
-    setSources(prev => prev.filter(s => s.id !== id));
-    toast({
-      title: "Data Source Removed",
-      description: "The data source has been deleted",
-    });
-  };
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
 
-  const toggleSource = (id: string) => {
-    setSources(prev => prev.map(source => 
-      source.id === id 
-        ? { ...source, enabled: !source.enabled, status: !source.enabled ? 'active' : 'disabled' }
-        : source
-    ));
-  };
+      const config = template.needsApiKey ? { api_key: apiKey } : {};
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'rss': return <Rss className="w-4 h-4" />;
-      case 'api': return <BarChart3 className="w-4 h-4" />;
-      case 'social': return <Users className="w-4 h-4" />;
-      case 'market': return <TrendingUp className="w-4 h-4" />;
-      default: return <Globe className="w-4 h-4" />;
+      const { error } = await supabase
+        .from('ai_data_sources')
+        .insert({
+          user_id: user.id,
+          source_name: selectedTemplate,
+          source_type: template.type,
+          api_endpoint: template.endpoint,
+          update_frequency: 'daily',
+          configuration: config,
+          is_active: true
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: `${template.name} added successfully`,
+      });
+
+      setShowAddForm(false);
+      setSelectedTemplate('');
+      setApiKey('');
+      loadDataSources();
+    } catch (error) {
+      console.error('Error adding data source:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add data source",
+        variant: "destructive",
+      });
     }
   };
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'rss': return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
-      case 'api': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-      case 'social': return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
-      case 'market': return 'bg-green-500/20 text-green-400 border-green-500/30';
-      default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+  const toggleDataSource = async (id: string, isActive: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('ai_data_sources')
+        .update({ is_active: isActive })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: `Data source ${isActive ? 'enabled' : 'disabled'}`,
+      });
+
+      loadDataSources();
+    } catch (error) {
+      console.error('Error updating data source:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update data source",
+        variant: "destructive",
+      });
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'bg-green-500/20 text-green-400';
-      case 'error': return 'bg-red-500/20 text-red-400';
-      case 'disabled': return 'bg-slate-500/20 text-slate-400';
-      default: return 'bg-slate-500/20 text-slate-400';
+  const deleteDataSource = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('ai_data_sources')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Data source deleted",
+      });
+
+      loadDataSources();
+    } catch (error) {
+      console.error('Error deleting data source:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete data source",
+        variant: "destructive",
+      });
     }
   };
+
+  const syncAllSources = async () => {
+    setSyncing(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { error } = await supabase.functions.invoke('external-data-collector', {
+        body: { action: 'sync_all_sources', userId: user.id }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "All data sources synced successfully",
+      });
+
+      loadDataSources();
+    } catch (error) {
+      console.error('Error syncing data sources:', error);
+      toast({
+        title: "Error",
+        description: "Failed to sync data sources",
+        variant: "destructive",
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const getSourceTemplate = (sourceName: string) => {
+    return DATA_SOURCE_TEMPLATES[sourceName as keyof typeof DATA_SOURCE_TEMPLATES];
+  };
+
+  const getSourceIcon = (sourceName: string) => {
+    const template = getSourceTemplate(sourceName);
+    const IconComponent = template?.icon || Database;
+    return <IconComponent className="h-4 w-4" />;
+  };
+
+  const getSourceColor = (sourceType: string) => {
+    switch (sourceType) {
+      case 'blockchain_analytics': return 'bg-blue-500/10 text-blue-700';
+      case 'sentiment': return 'bg-green-500/10 text-green-700';
+      case 'institutional_tracking': return 'bg-purple-500/10 text-purple-700';
+      default: return 'bg-gray-500/10 text-gray-700';
+    }
+  };
+
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Database className="h-5 w-5" />
+            External Data Sources
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">Data Sources</h2>
-          <p className="text-slate-400">Configure external data feeds for the AI trading agent</p>
+          <h2 className="text-2xl font-bold">External Data Sources</h2>
+          <p className="text-muted-foreground">Connect to external APIs to enhance AI learning with market intelligence</p>
+        </div>
+        <div className="flex gap-2">
+          <Button 
+            onClick={syncAllSources} 
+            disabled={syncing || dataSources.length === 0}
+            variant="outline"
+          >
+            {syncing ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
+                Syncing...
+              </>
+            ) : (
+              <>
+                <Zap className="h-4 w-4 mr-2" />
+                Sync All
+              </>
+            )}
+          </Button>
+          <Button onClick={() => setShowAddForm(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Source
+          </Button>
         </div>
       </div>
 
-      <Tabs defaultValue="sources" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2 bg-slate-800">
-          <TabsTrigger value="sources">Data Sources</TabsTrigger>
-          <TabsTrigger value="add">Add New Source</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="sources" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {sources.map((source) => (
-              <Card key={source.id} className="p-4 bg-slate-700/30 border-slate-600">
+      {/* Current Sources */}
+      {dataSources.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {dataSources.map((source) => {
+            const template = getSourceTemplate(source.source_name);
+            return (
+              <Card key={source.id} className="p-4">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    {getTypeIcon(source.type)}
-                    <h3 className="font-medium text-white truncate">{source.name}</h3>
+                    {getSourceIcon(source.source_name)}
+                    <h3 className="font-semibold">{template?.name || source.source_name}</h3>
                   </div>
                   <Switch
-                    checked={source.enabled}
-                    onCheckedChange={() => toggleSource(source.id)}
+                    checked={source.is_active}
+                    onCheckedChange={(checked) => toggleDataSource(source.id, checked)}
                   />
                 </div>
 
                 <div className="space-y-2 mb-4">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className={getTypeColor(source.type)}>
-                      {source.type.toUpperCase()}
-                    </Badge>
-                    <Badge variant="outline" className={getStatusColor(source.status)}>
-                      {source.status}
-                    </Badge>
-                  </div>
+                  <Badge 
+                    variant="secondary" 
+                    className={getSourceColor(source.source_type)}
+                  >
+                    {source.source_type.replace('_', ' ')}
+                  </Badge>
                   
-                  <p className="text-xs text-slate-400 truncate">{source.url}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {template?.description || 'External data source'}
+                  </p>
                   
-                  {source.lastSync && (
-                    <p className="text-xs text-slate-500">
-                      Last sync: {new Date(source.lastSync).toLocaleString()}
+                  <p className="text-xs text-muted-foreground">
+                    Updates: {source.update_frequency}
+                  </p>
+                  
+                  {source.last_sync && (
+                    <p className="text-xs text-muted-foreground">
+                      Last sync: {new Date(source.last_sync).toLocaleString()}
                     </p>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="flex-1 border-slate-600 text-slate-300"
+                    className="flex-1"
                     onClick={() => {
+                      supabase.functions.invoke('external-data-collector', {
+                        body: { action: 'sync_source', sourceId: source.id }
+                      });
                       toast({
                         title: "Sync Started",
-                        description: `Synchronizing ${source.name}...`,
+                        description: `Syncing ${template?.name}...`,
                       });
                     }}
                   >
@@ -193,87 +371,124 @@ export const DataSourcesPanel = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => removeSource(source.id)}
-                    className="border-red-600 text-red-400 hover:bg-red-500/10"
+                    onClick={() => deleteDataSource(source.id)}
+                    className="text-red-600 hover:text-red-700"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               </Card>
-            ))}
-          </div>
+            );
+          })}
+        </div>
+      ) : (
+        <Card>
+          <CardContent className="text-center py-12">
+            <Database className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Data Sources Connected</h3>
+            <p className="text-muted-foreground mb-4">
+              Connect to external APIs to give your AI agent access to market intelligence
+            </p>
+            <Button onClick={() => setShowAddForm(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Your First Source
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
-          {sources.length === 0 && (
-            <div className="text-center py-12">
-              <Globe className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-white mb-2">No Data Sources</h3>
-              <p className="text-slate-400">Add your first data source to get started</p>
+      {/* Add New Source Modal/Form */}
+      {showAddForm && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Add External Data Source</CardTitle>
+            <CardDescription>
+              Connect to external APIs to enhance your AI agent's market knowledge
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Templates */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Object.entries(DATA_SOURCE_TEMPLATES).map(([key, template]) => {
+                const IconComponent = template.icon;
+                return (
+                  <div
+                    key={key}
+                    className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                      selectedTemplate === key 
+                        ? 'border-primary bg-primary/5' 
+                        : 'border-border hover:border-primary/50'
+                    }`}
+                    onClick={() => setSelectedTemplate(key)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <IconComponent className="h-6 w-6 text-primary mt-1" />
+                      <div>
+                        <h4 className="font-semibold">{template.name}</h4>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {template.description}
+                        </p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <Badge variant="outline" className={getSourceColor(template.type)}>
+                            {template.type.replace('_', ' ')}
+                          </Badge>
+                          {template.needsApiKey && (
+                            <Badge variant="outline" className="text-orange-600">
+                              Requires API Key
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          )}
-        </TabsContent>
 
-        <TabsContent value="add" className="space-y-4">
-          <Card className="p-6 bg-slate-700/30 border-slate-600">
-            <h3 className="text-lg font-semibold text-white mb-4">Add New Data Source</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <Label className="text-slate-300">Name</Label>
+            {/* API Key Input */}
+            {selectedTemplate && DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES]?.needsApiKey && (
+              <div className="space-y-2">
+                <Label>API Key</Label>
                 <Input
-                  value={newSource.name}
-                  onChange={(e) => setNewSource(prev => ({ ...prev, name: e.target.value }))}
-                  className="bg-slate-800 border-slate-600 text-white"
-                  placeholder="e.g., CoinTelegraph RSS Feed"
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Enter your API key"
                 />
+                <p className="text-sm text-muted-foreground">
+                  Get your API key from the provider's dashboard. It will be stored securely.
+                </p>
               </div>
+            )}
 
-              <div>
-                <Label className="text-slate-300">Type</Label>
-                <select
-                  value={newSource.type}
-                  onChange={(e) => setNewSource(prev => ({ ...prev, type: e.target.value as any }))}
-                  className="w-full p-2 bg-slate-700 border border-slate-600 rounded-md text-white"
-                >
-                  <option value="rss">RSS Feed</option>
-                  <option value="api">API Endpoint</option>
-                  <option value="social">Social Media</option>
-                  <option value="market">Market Data</option>
-                </select>
+            {/* Special Instructions */}
+            {selectedTemplate === 'arkham_intelligence' && (
+              <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-blue-800 dark:text-blue-200">Arkham Intelligence Setup</h4>
+                    <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                      This will track major players like BlackRock, Trump, MicroStrategy movements. 
+                      Get your API key from <ExternalLink className="h-3 w-3 inline" /> arkham.com/api
+                    </p>
+                  </div>
+                </div>
               </div>
+            )}
 
-              <div>
-                <Label className="text-slate-300">URL</Label>
-                <Input
-                  value={newSource.url}
-                  onChange={(e) => setNewSource(prev => ({ ...prev, url: e.target.value }))}
-                  className="bg-slate-700 border-slate-600 text-white"
-                  placeholder="https://example.com/feed.xml"
-                />
-              </div>
-
-              <Button onClick={addSource} className="w-full bg-green-500 hover:bg-green-600">
-                <Plus className="w-4 h-4 mr-2" />
+            {/* Actions */}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowAddForm(false)}>
+                Cancel
+              </Button>
+              <Button onClick={addDataSource} disabled={!selectedTemplate}>
                 Add Data Source
               </Button>
             </div>
-          </Card>
-
-          <Card className="p-4 bg-blue-500/10 border border-blue-500/20">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-blue-400 mt-0.5" />
-              <div>
-                <h4 className="font-medium text-blue-300 mb-1">Supported Data Sources</h4>
-                <ul className="text-sm text-blue-200 space-y-1">
-                  <li><strong>RSS Feeds:</strong> News sites, government publications, financial reports</li>
-                  <li><strong>API Endpoints:</strong> Real-time market data, economic indicators</li>
-                  <li><strong>Social Media:</strong> X (Twitter), Reddit sentiment analysis</li>
-                  <li><strong>Market Data:</strong> Whale movements, institutional flows</li>
-                </ul>
-              </div>
-            </div>
-          </Card>
-        </TabsContent>
-      </Tabs>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
-};
+}
