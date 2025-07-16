@@ -50,52 +50,119 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
 
     console.log('✅ TRADE STEP 2 SUCCESS: Found active connection');
     
-    // Step 3: Prepare trade payload
+    // Step 3: Prepare trade parameters
     console.log('🔄 TRADE STEP 3: Preparing trade parameters...');
     const connection = connections[0];
     const isTestMode = trade.testMode !== undefined ? trade.testMode : true;
-    const tradingFunction = isTestMode ? 'coinbase-sandbox-trade' : 'coinbase-live-trade';
     const environment = isTestMode ? 'TEST' : 'LIVE';
     
-    const tradePayload = {
-      connectionId: connection.id,
-      tradeType: trade.tradeType,
-      cryptocurrency: trade.cryptocurrency,
-      amount: trade.amount,
-      price: trade.price,
-      strategyId: trade.strategyId,
-      orderType: trade.orderType || 'market',
-      userId: userId
-    };
-
-    console.log('✅ TRADE STEP 3 SUCCESS: Trade payload prepared');
-    console.log('Trade payload:', JSON.stringify(tradePayload, null, 2));
-    console.log('Target function:', tradingFunction);
+    console.log('✅ TRADE STEP 3 SUCCESS: Trade parameters prepared');
     console.log('Environment:', environment);
+    console.log('Test Mode:', isTestMode);
 
     // Step 4: Execute the trade
-    console.log('🔄 TRADE STEP 4: Calling trading function...');
-    const invokeOptions: any = {
-      body: tradePayload
-    };
-    
-    if (authToken) {
-      invokeOptions.headers = {
-        Authorization: `Bearer ${authToken}`
-      };
-      console.log('Auth token included in request');
-    }
-    
     let tradeResult, tradeError;
-    try {
-      const response = await supabase.functions.invoke(tradingFunction, invokeOptions);
-      tradeResult = response.data;
-      tradeError = response.error;
+    
+    if (isTestMode) {
+      console.log('🔄 TRADE STEP 4: Test mode detected - executing mock trade locally (no Coinbase API call)');
       
-      console.log('Raw trading function response:', JSON.stringify(response, null, 2));
-    } catch (invokeError) {
-      console.error('❌ TRADE STEP 4 FAILED: Function invoke error:', invokeError);
-      return `❌ **Trade Step 4 Failed**: Could not call trading function\n\n**Function:** ${tradingFunction}\n**Error:** ${invokeError.message}\n**Type:** ${invokeError.name}\n\n**Debug Info:**\n- Test Mode: ${isTestMode}\n- Connection ID: ${connection.id}\n- Payload: ${JSON.stringify(tradePayload, null, 2)}`;
+      try {
+        const mockPrice = trade.cryptocurrency.toLowerCase() === 'btc' ? 60000 : 
+                         trade.cryptocurrency.toLowerCase() === 'eth' ? 3000 : 
+                         trade.cryptocurrency.toLowerCase() === 'xrp' ? 2.5 : 1000;
+        const tradeValue = trade.amount; // Amount in EUR
+        const cryptoAmount = tradeValue / mockPrice; // Calculate crypto amount
+        
+        console.log(`Mock trade: ${trade.tradeType} ${cryptoAmount} ${trade.cryptocurrency} at €${mockPrice} (total: €${tradeValue})`);
+        
+        // Record the mock trade in the database
+        const { error: insertError } = await supabase
+          .from('mock_trades')
+          .insert({
+            user_id: userId,
+            strategy_id: trade.strategyId,
+            trade_type: trade.tradeType,
+            cryptocurrency: trade.cryptocurrency.toUpperCase(),
+            amount: cryptoAmount,
+            price: mockPrice,
+            total_value: tradeValue,
+            fees: tradeValue * 0.005, // 0.5% fee
+            strategy_trigger: 'AI Assistant Trade',
+            is_test_mode: true,
+            market_conditions: {
+              timestamp: new Date().toISOString(),
+              mock_price: mockPrice,
+              order_type: trade.orderType || 'market'
+            }
+          });
+        
+        if (insertError) {
+          console.error('❌ TRADE STEP 4 FAILED: Mock trade recording error:', insertError);
+          return `❌ **Trade Step 4 Failed**: Could not record mock trade\n\n**Error:** ${insertError.message}\n**Details:** ${insertError.details}`;
+        }
+        
+        // Simulate successful trade result
+        tradeResult = {
+          success: true,
+          data: {
+            order_id: `MOCK-${Date.now()}`,
+            trade_type: trade.tradeType,
+            cryptocurrency: trade.cryptocurrency.toUpperCase(),
+            amount: cryptoAmount,
+            price: mockPrice,
+            total_value: tradeValue,
+            fees: tradeValue * 0.005,
+            timestamp: new Date().toISOString()
+          }
+        };
+        
+        console.log('✅ TRADE STEP 4 SUCCESS: Mock trade executed and recorded (no external API call made)');
+      } catch (mockError) {
+        console.error('❌ TRADE STEP 4 FAILED: Mock trade execution error:', mockError);
+        return `❌ **Trade Step 4 Failed**: Mock trade execution failed\n\n**Error:** ${mockError.message}\n**Type:** ${mockError.name}`;
+      }
+    } else {
+      console.log('🔄 TRADE STEP 4: Live mode - calling Coinbase trading function...');
+      
+      // Prepare the trade payload for live trading
+      const tradePayload = {
+        connectionId: connection.id,
+        tradeType: trade.tradeType,
+        cryptocurrency: trade.cryptocurrency,
+        amount: trade.amount,
+        price: trade.price,
+        strategyId: trade.strategyId,
+        orderType: trade.orderType || 'market',
+        userId: userId
+      };
+      
+      console.log('Trade payload:', JSON.stringify(tradePayload, null, 2));
+      
+      const tradingFunction = 'coinbase-live-trade';
+      console.log('Target function:', tradingFunction);
+      
+      // Set up the function invoke options
+      const invokeOptions: any = {
+        body: tradePayload
+      };
+      
+      if (authToken) {
+        invokeOptions.headers = {
+          Authorization: `Bearer ${authToken}`
+        };
+        console.log('Auth token included in request');
+      }
+      
+      try {
+        const response = await supabase.functions.invoke(tradingFunction, invokeOptions);
+        tradeResult = response.data;
+        tradeError = response.error;
+        
+        console.log('Raw trading function response:', JSON.stringify(response, null, 2));
+      } catch (invokeError) {
+        console.error('❌ TRADE STEP 4 FAILED: Function invoke error:', invokeError);
+        return `❌ **Trade Step 4 Failed**: Could not call trading function\n\n**Function:** ${tradingFunction}\n**Error:** ${invokeError.message}\n**Type:** ${invokeError.name}\n\n**Debug Info:**\n- Test Mode: ${isTestMode}\n- Connection ID: ${connection.id}\n- Payload: ${JSON.stringify(tradePayload, null, 2)}`;
+      }
     }
 
     if (tradeError) {
