@@ -27,29 +27,36 @@ interface TradeRequest {
 // Trade execution function
 async function executeTrade(supabase: any, userId: string, trade: TradeRequest, authToken?: string): Promise<string> {
   try {
-    console.log('Executing trade:', trade);
+    console.log('🔄 TRADE STEP 1: Starting trade execution...');
+    console.log('Trade details:', JSON.stringify(trade, null, 2));
     
-    // Get user's active connections
+    // Step 1: Get user's active connections
+    console.log('🔄 TRADE STEP 2: Looking for active Coinbase connections...');
     const { data: connections, error: connectionError } = await supabase
       .from('user_coinbase_connections')
       .select('*')
       .eq('user_id', userId)
       .eq('is_active', true);
 
-    if (connectionError || !connections || connections.length === 0) {
-      return '❌ **Trade Failed**: No active Coinbase connections found. Please connect your Coinbase account first in the Dashboard tab.';
+    if (connectionError) {
+      console.error('❌ TRADE STEP 2 FAILED: Connection query error:', connectionError);
+      return `❌ **Trade Step 2 Failed**: Database error while fetching connections\n\n**Error:** ${connectionError.message}\n**Details:** Could not access your Coinbase connection data`;
+    }
+    
+    if (!connections || connections.length === 0) {
+      console.error('❌ TRADE STEP 2 FAILED: No active connections found');
+      return `❌ **Trade Step 2 Failed**: No active Coinbase connections\n\n**Problem:** No active Coinbase accounts linked\n**Solution:** Connect your Coinbase account in the Dashboard tab`;
     }
 
-    // Use the first active connection
+    console.log('✅ TRADE STEP 2 SUCCESS: Found active connection');
+    
+    // Step 3: Prepare trade payload
+    console.log('🔄 TRADE STEP 3: Preparing trade parameters...');
     const connection = connections[0];
-    
-    // Use test mode from trade request, defaulting to true for safety
     const isTestMode = trade.testMode !== undefined ? trade.testMode : true;
-    
     const tradingFunction = isTestMode ? 'coinbase-sandbox-trade' : 'coinbase-live-trade';
     const environment = isTestMode ? 'TEST' : 'LIVE';
     
-    // Prepare trade payload
     const tradePayload = {
       connectionId: connection.id,
       tradeType: trade.tradeType,
@@ -58,41 +65,83 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
       price: trade.price,
       strategyId: trade.strategyId,
       orderType: trade.orderType || 'market',
-      userId: userId // Add userId to the payload
+      userId: userId
     };
 
-    console.log(`Calling ${tradingFunction} with payload:`, tradePayload);
+    console.log('✅ TRADE STEP 3 SUCCESS: Trade payload prepared');
+    console.log('Trade payload:', JSON.stringify(tradePayload, null, 2));
+    console.log('Target function:', tradingFunction);
+    console.log('Environment:', environment);
 
-    // Execute the trade through the appropriate trading function
+    // Step 4: Execute the trade
+    console.log('🔄 TRADE STEP 4: Calling trading function...');
     const invokeOptions: any = {
       body: tradePayload
     };
     
-    // Add authorization header if token is provided
     if (authToken) {
       invokeOptions.headers = {
         Authorization: `Bearer ${authToken}`
       };
+      console.log('Auth token included in request');
     }
     
-    const { data: tradeResult, error: tradeError } = await supabase.functions.invoke(tradingFunction, invokeOptions);
+    let tradeResult, tradeError;
+    try {
+      const response = await supabase.functions.invoke(tradingFunction, invokeOptions);
+      tradeResult = response.data;
+      tradeError = response.error;
+      
+      console.log('Raw trading function response:', JSON.stringify(response, null, 2));
+    } catch (invokeError) {
+      console.error('❌ TRADE STEP 4 FAILED: Function invoke error:', invokeError);
+      return `❌ **Trade Step 4 Failed**: Could not call trading function\n\n**Function:** ${tradingFunction}\n**Error:** ${invokeError.message}\n**Type:** ${invokeError.name}\n\n**Debug Info:**\n- Test Mode: ${isTestMode}\n- Connection ID: ${connection.id}\n- Payload: ${JSON.stringify(tradePayload, null, 2)}`;
+    }
 
     if (tradeError) {
-      console.error('Trade execution error:', tradeError);
-      return `❌ **Trade Failed**: ${tradeError.message || 'Unable to execute trade. Please check your connection and try again.'}`;
+      console.error('❌ TRADE STEP 4 FAILED: Trading function error:', tradeError);
+      let errorDetails = `❌ **Trade Step 4 Failed**: Trading function returned error\n\n`;
+      errorDetails += `**Function:** ${tradingFunction}\n`;
+      errorDetails += `**Environment:** ${environment}\n`;
+      errorDetails += `**Error Message:** ${tradeError.message || 'Unknown error'}\n`;
+      
+      if (tradeError.details) {
+        errorDetails += `**Details:** ${tradeError.details}\n`;
+      }
+      
+      // Check for specific error patterns
+      if (tradeError.message && tradeError.message.includes('Edge Function returned a non-2xx status code')) {
+        errorDetails += `\n**Specific Issue:** Coinbase API connectivity problem\n`;
+        errorDetails += `**API Endpoint:** api.sandbox.coinbase.com\n`;
+        errorDetails += `**Likely Cause:** Coinbase Sandbox API is temporarily unavailable\n`;
+        errorDetails += `**Suggestion:** Try again in a few minutes\n`;
+      }
+      
+      errorDetails += `\n**Full Error Object:** ${JSON.stringify(tradeError, null, 2)}`;
+      return errorDetails;
+    }
+
+    // Step 5: Validate trade result
+    console.log('🔄 TRADE STEP 5: Validating trade result...');
+    if (!tradeResult) {
+      console.error('❌ TRADE STEP 5 FAILED: No trade result received');
+      return `❌ **Trade Step 5 Failed**: No response from trading function\n\n**Function:** ${tradingFunction}\n**Expected:** Trade execution result\n**Received:** null/undefined`;
     }
 
     if (!tradeResult.success) {
-      console.error('Trade execution failed:', tradeResult);
-      return `❌ **Trade Failed**: ${tradeResult.error || 'Trade execution failed. Please check your account and try again.'}`;
+      console.error('❌ TRADE STEP 5 FAILED: Trade execution failed:', tradeResult);
+      return `❌ **Trade Step 5 Failed**: Trade execution unsuccessful\n\n**Function:** ${tradingFunction}\n**Error:** ${tradeResult.error || 'Unknown execution error'}\n**Result:** ${JSON.stringify(tradeResult, null, 2)}`;
     }
 
-    // Success message
+    console.log('✅ TRADE STEP 5 SUCCESS: Trade executed successfully');
+
+    // Step 6: Format success response
+    console.log('🔄 TRADE STEP 6: Formatting success response...');
     const crypto = trade.cryptocurrency.toUpperCase();
     const action = trade.tradeType === 'buy' ? 'Bought' : 'Sold';
     const orderTypeText = trade.orderType === 'market' ? 'Market' : 'Limit';
     
-    return `🚀 **Trade Executed Successfully!**
+    const successMessage = `🚀 **Trade Executed Successfully!**
 
 ${action} ${trade.amount} ${trade.tradeType === 'buy' ? 'euros worth of' : ''} ${crypto} 
 Order Type: ${orderTypeText}
@@ -103,32 +152,102 @@ ${isTestMode ? '🧪 This was a TEST trade (sandbox mode). No real money was inv
 
 The trade has been recorded in your trading history.`;
 
+    console.log('✅ TRADE STEP 6 SUCCESS: Response formatted');
+    return successMessage;
+
   } catch (error) {
-    console.error('Execute trade error:', error);
-    return `❌ **Trade Failed**: System error occurred. Please try again. Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    console.error('❌ TRADE EXECUTION FATAL ERROR:', error);
+    let errorDetails = `❌ **Fatal Trade Error**: Unexpected system error\n\n`;
+    errorDetails += `**Error Type:** ${error.name || 'Unknown'}\n`;
+    errorDetails += `**Error Message:** ${error.message || 'Unknown error'}\n`;
+    errorDetails += `**Stack Trace:** ${error.stack || 'Not available'}\n`;
+    errorDetails += `\n**Trade Details:**\n`;
+    errorDetails += `- User: ${userId}\n`;
+    errorDetails += `- Type: ${trade.tradeType}\n`;
+    errorDetails += `- Crypto: ${trade.cryptocurrency}\n`;
+    errorDetails += `- Amount: ${trade.amount}\n`;
+    errorDetails += `- Test Mode: ${trade.testMode}\n`;
+    
+    return errorDetails;
   }
 }
 
 serve(async (req) => {
+  console.log('=== AI Trading Assistant Function Called ===');
+  
   if (req.method === 'OPTIONS') {
+    console.log('STEP 0: OPTIONS request - returning CORS headers');
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    console.log('=== AI Trading Assistant Function Called ===');
-    // Get auth token from request
+    console.log('STEP 1: Processing request...');
+    
+    // Step 1: Parse request body
+    let requestBody;
+    try {
+      requestBody = await req.json();
+      console.log('STEP 1 SUCCESS: Request body parsed');
+      console.log('Request data:', JSON.stringify(requestBody, null, 2));
+    } catch (parseError) {
+      console.error('STEP 1 FAILED: Request parsing error:', parseError);
+      return new Response(JSON.stringify({ 
+        error: 'Request parsing failed',
+        step: 'STEP_1_REQUEST_PARSING',
+        details: parseError.message,
+        message: `❌ **Step 1 Failed**: Could not parse request data\n\n**Error:** ${parseError.message}`
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Step 2: Get authentication
+    console.log('STEP 2: Checking authentication...');
     const authHeader = req.headers.get('Authorization');
     const authToken = authHeader?.replace('Bearer ', '');
-    console.log('Auth header present:', !!authHeader);
+    console.log('STEP 2 INFO: Auth header present:', !!authHeader);
     
-    const requestBody = await req.json();
-    console.log('Request body received:', requestBody);
     const { message, userId, strategyId, currentConfig, testMode }: StrategyUpdateRequest & { testMode?: boolean } = requestBody;
     
-    // Initialize Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    if (!userId) {
+      console.error('STEP 2 FAILED: No userId provided');
+      return new Response(JSON.stringify({ 
+        error: 'Authentication failed',
+        step: 'STEP_2_AUTHENTICATION',
+        message: `❌ **Step 2 Failed**: No user ID provided\n\n**Required:** User authentication is required for trading operations`
+      }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    console.log('STEP 2 SUCCESS: User ID found:', userId);
+
+    // Step 3: Initialize Supabase client
+    console.log('STEP 3: Initializing database connection...');
+    let supabase;
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL');
+      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Missing Supabase environment variables');
+      }
+      
+      supabase = createClient(supabaseUrl, supabaseKey);
+      console.log('STEP 3 SUCCESS: Database client initialized');
+    } catch (dbError) {
+      console.error('STEP 3 FAILED: Database initialization error:', dbError);
+      return new Response(JSON.stringify({ 
+        error: 'Database connection failed',
+        step: 'STEP_3_DATABASE_INIT',
+        message: `❌ **Step 3 Failed**: Could not connect to database\n\n**Error:** ${dbError.message}`
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     // Get LLM configuration from database
     let llmConfig: any = {
