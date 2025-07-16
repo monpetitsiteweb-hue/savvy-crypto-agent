@@ -67,15 +67,30 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
         const totalValue = parseFloat(trade.total_value.toString());
         const fees = parseFloat(trade.fees?.toString() || '0');
 
+        console.log('Processing trade:', {
+          currency,
+          trade_type: trade.trade_type,
+          amount,
+          totalValue,
+          fees,
+          currentEUR: calculatedBalances.EUR,
+          currentCrypto: calculatedBalances[currency]
+        });
+
         if (trade.trade_type === 'buy') {
           // Buying crypto: reduce EUR, increase crypto
-          calculatedBalances.EUR -= (totalValue + fees);
-          calculatedBalances[currency] = (calculatedBalances[currency] || 0) + amount;
+          calculatedBalances.EUR -= totalValue; // EUR spent (total_value is EUR amount)
+          calculatedBalances[currency] = (calculatedBalances[currency] || 0) + amount; // crypto amount received
         } else if (trade.trade_type === 'sell') {
           // Selling crypto: increase EUR, decrease crypto  
-          calculatedBalances.EUR += (totalValue - fees);
+          calculatedBalances.EUR += totalValue; // EUR received
           calculatedBalances[currency] = Math.max(0, (calculatedBalances[currency] || 0) - amount);
         }
+
+        console.log('After trade processing:', {
+          newEUR: calculatedBalances.EUR,
+          newCrypto: calculatedBalances[currency]
+        });
       });
 
       // Convert to WalletBalance format with current market values
