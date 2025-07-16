@@ -291,10 +291,33 @@ serve(async (req) => {
       
     } catch (error) {
       console.error('Sandbox trading error:', error);
-      return new Response(JSON.stringify({ 
+      
+      // Provide detailed error information for debugging
+      let errorDetails = {
         error: 'Failed to execute sandbox trade',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      }), {
+        details: error instanceof Error ? error.message : 'Unknown error',
+        errorType: error instanceof Error ? error.name : 'Unknown',
+        debugInfo: {
+          apiEndpoint: 'api.sandbox.coinbase.com',
+          connectionInfo: `Using connection ID: ${connectionId}`,
+          tradeDetails: `${tradeType} ${amount} of ${cryptocurrency}`,
+          orderType: orderType,
+          timestamp: new Date().toISOString()
+        }
+      };
+      
+      // Add specific guidance based on error type
+      if (error instanceof Error) {
+        if (error.message.includes('error sending request')) {
+          errorDetails.debugInfo.suggestion = 'Coinbase Sandbox API is unreachable. This is likely a temporary network issue.';
+        } else if (error.message.includes('fetch')) {
+          errorDetails.debugInfo.suggestion = 'Network connectivity issue. Check internet connection.';
+        } else if (error.message.includes('API')) {
+          errorDetails.debugInfo.suggestion = 'Coinbase API error. Check API credentials and permissions.';
+        }
+      }
+      
+      return new Response(JSON.stringify(errorDetails), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

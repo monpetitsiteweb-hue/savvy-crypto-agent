@@ -198,7 +198,30 @@ export const ConversationPanel = () => {
 
         if (aiError) {
           console.error('AI function error details:', aiError);
-          aiMessage = `❌ Edge function error: ${JSON.stringify(aiError)}`;
+          
+          // Show detailed error information in UI
+          let errorDetails = '';
+          if (aiError.message) {
+            errorDetails += `**Error Message:** ${aiError.message}\n`;
+          }
+          if (aiError.details) {
+            errorDetails += `**Details:** ${aiError.details}\n`;
+          }
+          if (aiError.hint) {
+            errorDetails += `**Hint:** ${aiError.hint}\n`;
+          }
+          
+          // Check for specific error patterns
+          if (aiError.message && aiError.message.includes('Edge Function returned a non-2xx status code')) {
+            errorDetails += `\n**Debug Information:**\n`;
+            errorDetails += `- The Coinbase Sandbox API is currently unreachable\n`;
+            errorDetails += `- This may be a temporary connectivity issue\n`;
+            errorDetails += `- API endpoint: api.sandbox.coinbase.com\n`;
+            errorDetails += `- Test Mode: ${testMode ? 'Enabled' : 'Disabled'}\n`;
+            errorDetails += `- Try again in a few minutes or contact support if the issue persists\n`;
+          }
+          
+          aiMessage = `❌ **Trading Operation Failed**\n\n${errorDetails}`;
         } else if (aiData && aiData.message) {
           // Use the ACTUAL AI response
           aiMessage = aiData.message;
@@ -227,7 +250,21 @@ export const ConversationPanel = () => {
           aiMessage = 'No response from AI assistant';
         }
       } catch (edgeFunctionError) {
-        aiMessage = `Function error: ${edgeFunctionError.message}`;
+        console.error('Edge function exception:', edgeFunctionError);
+        
+        // Show detailed error in UI
+        let errorMsg = `**Unexpected Error:** ${edgeFunctionError.message}\n`;
+        errorMsg += `**Error Type:** ${edgeFunctionError.name || 'Unknown'}\n`;
+        errorMsg += `**Test Mode:** ${testMode ? 'Enabled' : 'Disabled'}\n`;
+        
+        if (edgeFunctionError.message.includes('Failed to fetch') || 
+            edgeFunctionError.message.includes('NetworkError') ||
+            edgeFunctionError.message.includes('fetch')) {
+          errorMsg += `\n**Likely Cause:** Network connectivity issue with Coinbase API\n`;
+          errorMsg += `**Suggestion:** Check your internet connection and try again\n`;
+        }
+        
+        aiMessage = `❌ **Connection Error**\n\n${errorMsg}`;
       }
       
       // Fallback to local analysis only if no AI response
