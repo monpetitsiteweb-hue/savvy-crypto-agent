@@ -14,7 +14,7 @@ interface CoinbaseSandboxCredentials {
   id: string;
   api_key_encrypted: string | null;
   api_secret_encrypted: string | null;
-  api_passphrase_encrypted: string | null;
+  api_passphrase_encrypted?: string | null; // Make optional since migration might not be run
   is_active: boolean;
   created_at: string;
   updated_at: string;
