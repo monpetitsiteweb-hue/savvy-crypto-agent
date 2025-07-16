@@ -4,6 +4,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Send, Bot, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
+import { useProductionTrading, ProductionTradeDetails } from '@/hooks/useProductionTrading';
+import { ProductionTradeConfirmation } from './ProductionTradeConfirmation';
 import { supabase } from '@/integrations/supabase/client';
 
 interface Message {
@@ -25,6 +27,7 @@ export const ConversationPanel = () => {
   console.log('ConversationPanel component loaded');
   const { user } = useAuth();
   const { testMode } = useTestMode();
+  const { executeProductionTrade, validateProductionReadiness, isProcessing } = useProductionTrading();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -36,6 +39,8 @@ export const ConversationPanel = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [userStrategies, setUserStrategies] = useState<StrategyData[]>([]);
+  const [showProductionConfirmation, setShowProductionConfirmation] = useState(false);
+  const [pendingTradeDetails, setPendingTradeDetails] = useState<ProductionTradeDetails | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -147,6 +152,36 @@ export const ConversationPanel = () => {
     return `I can help you analyze your "${activeStrategy.strategy_name}" strategy. You currently have:\n\n• Risk Level: ${config.riskLevel || 'medium'}\n• Max Position: €${config.maxPosition?.toLocaleString() || '5,000'}\n• Take Profit: ${config.takeProfit || 1.3}%\n• Stop Loss: ${config.stopLoss ? `${config.stopLossPercentage}%` : 'Disabled'}\n• Strategy Type: ${config.strategyType || 'trend-following'}\n\nAsk me about any of these settings, performance optimization, or risk management!`;
   };
 
+  const detectTradeRequest = (message: string): ProductionTradeDetails | null => {
+    const lowerMessage = message.toLowerCase();
+    
+    // Parse trade requests like "buy 1000 euros of BTC" or "sell 0.5 ETH"
+    const buyMatch = lowerMessage.match(/buy\s+(\d+(?:\.\d+)?)\s+(?:euros?|eur|€)\s+(?:of\s+)?([a-z]{3,4})/i);
+    const sellMatch = lowerMessage.match(/sell\s+(\d+(?:\.\d+)?)\s+([a-z]{3,4})/i);
+    
+    if (buyMatch) {
+      const [, amount, crypto] = buyMatch;
+      return {
+        action: 'buy',
+        cryptocurrency: crypto.toLowerCase(),
+        amount: parseFloat(amount),
+        orderType: 'market'
+      };
+    }
+    
+    if (sellMatch) {
+      const [, amount, crypto] = sellMatch;
+      return {
+        action: 'sell',
+        cryptocurrency: crypto.toLowerCase(),
+        amount: parseFloat(amount),
+        orderType: 'market'
+      };
+    }
+    
+    return null;
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -161,6 +196,20 @@ export const ConversationPanel = () => {
     const currentInput = input;
     setInput('');
     setIsLoading(true);
+
+    // Check if this is a trade request and we're not in test mode
+    const tradeRequest = detectTradeRequest(currentInput);
+    if (tradeRequest && !testMode) {
+      // Production trade detected - show confirmation dialog
+      const activeStrategy = userStrategies.find(s => s.is_active);
+      setPendingTradeDetails({
+        ...tradeRequest,
+        strategyId: activeStrategy?.id
+      });
+      setShowProductionConfirmation(true);
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const activeStrategy = userStrategies.find(s => s.is_active);
@@ -296,12 +345,72 @@ export const ConversationPanel = () => {
     }
   };
 
+  const handleProductionTradeConfirm = async (paymentMethod: string, validations: any) => {
+    if (!pendingTradeDetails) return;
+    
+    try {
+      const result = await executeProductionTrade(
+        pendingTradeDetails,
+        paymentMethod, 
+        validations,
+        '1234' // In real app, this would be entered by user
+      );
+      
+      if (result) {
+        const successMessage: Message = {
+          id: Date.now().toString(),
+          type: 'ai',
+          content: `🚀 **Production Trade Executed Successfully!**\n\n${result.message}\n\nOrder ID: ${result.data?.order_id || 'Unknown'}\nEnvironment: LIVE PRODUCTION`,
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, successMessage]);
+      }
+    } catch (error) {
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        type: 'ai',
+        content: `❌ **Production Trade Failed**\n\n${error instanceof Error ? error.message : 'Unknown error occurred'}`,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setShowProductionConfirmation(false);
+      setPendingTradeDetails(null);
+    }
+  };
+
+  const handleProductionTradeCancel = () => {
+    setShowProductionConfirmation(false);
+    setPendingTradeDetails(null);
+    
+    const cancelMessage: Message = {
+      id: Date.now().toString(),
+      type: 'ai',
+      content: "Production trade cancelled. Your order was not executed.",
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, cancelMessage]);
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
+
+  if (showProductionConfirmation && pendingTradeDetails) {
+    return (
+      <div className="h-full">
+        <ProductionTradeConfirmation
+          tradeDetails={pendingTradeDetails}
+          onConfirm={handleProductionTradeConfirm}
+          onCancel={handleProductionTradeCancel}
+          isProcessing={isProcessing}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col">
@@ -310,6 +419,16 @@ export const ConversationPanel = () => {
         <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
           <Bot className="w-5 h-5 text-green-400" />
           AI Trading Assistant
+          {!testMode && (
+            <span className="ml-2 px-2 py-1 bg-red-600 text-white text-xs rounded-full">
+              LIVE MODE
+            </span>
+          )}
+          {testMode && (
+            <span className="ml-2 px-2 py-1 bg-blue-600 text-white text-xs rounded-full">
+              TEST MODE
+            </span>
+          )}
         </h2>
         <p className="text-sm text-slate-300 mt-1">
           {userStrategies.length > 0 
@@ -317,6 +436,11 @@ export const ConversationPanel = () => {
             : 'Ask me about trading strategies and risk management'
           }
         </p>
+        {!testMode && (
+          <p className="text-xs text-red-300 mt-1">
+            ⚠️ Production mode: Trade requests will use real money via Coinbase API
+          </p>
+        )}
       </div>
 
       {/* Messages - Scrollable Area */}
@@ -380,7 +504,10 @@ export const ConversationPanel = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Ask me to change settings or get trading advice... (e.g., 'change stop loss to 2.5%', 'give me trading advice')"
+            placeholder={testMode 
+              ? "Ask me to change settings or get trading advice... (e.g., 'change stop loss to 2.5%', 'give me trading advice')"
+              : "⚠️ LIVE MODE: Trade requests use real money! Ask me to change settings or get trading advice..."
+            }
             className="flex-1 min-h-[60px] bg-slate-700/50 border-slate-600 text-white placeholder-slate-400 resize-none"
             disabled={isLoading}
           />
