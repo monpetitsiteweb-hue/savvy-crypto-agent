@@ -380,62 +380,97 @@ serve(async (req) => {
       }
     }
 
-    // Parse the user message for configuration changes
-    const lowerMessage = message.toLowerCase();
+    // Use AI-first approach: let OpenAI understand and handle everything
     let configUpdates: any = {};
     let responseMessage = '';
+    
+    // Use OpenAI to understand the user's intent and generate intelligent responses
+    if (openAIApiKey) {
+      try {
+        const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openAIApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: llmConfig.model || 'gpt-4o',
+            messages: [
+              {
+                role: 'system',
+                content: `You are an expert crypto trading assistant with deep knowledge of financial markets, trading strategies, and risk management. 
 
-    // Handle stop loss changes with context awareness
-    if (lowerMessage.includes('stop loss') || lowerMessage.includes('stop-loss') || 
-        (lowerMessage.includes('change') && lowerMessage.includes('3')) ||
-        (lowerMessage.includes('to') && lowerMessage.match(/\d+/))) {
-      
-      const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
-      if (percentageMatch) {
-        const newPercentage = parseFloat(percentageMatch[1]);
-        configUpdates.stopLoss = true;
-        configUpdates.stopLossPercentage = newPercentage;
-        responseMessage = `Updated stop-loss to ${newPercentage}% and enabled it. This will help protect your capital by automatically selling if positions drop by ${newPercentage}% or more.`;
-      } else if (lowerMessage.includes('enable') || lowerMessage.includes('activate')) {
-        configUpdates.stopLoss = true;
-        responseMessage = `Enabled stop-loss protection at ${currentConfig?.stopLossPercentage || 3}%. This will help limit your downside risk.`;
-      } else if (lowerMessage.includes('disable') || lowerMessage.includes('turn off')) {
-        configUpdates.stopLoss = false;
-        responseMessage = `Disabled stop-loss protection. Note that this increases your risk exposure. You might want to monitor your positions more closely.`;
-      }
-    }
+CURRENT USER STRATEGY CONTEXT:
+${JSON.stringify(currentConfig, null, 2)}
 
-    // Handle take profit changes
-    if (lowerMessage.includes('take profit') || lowerMessage.includes('profit target')) {
-      const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
-      if (percentageMatch) {
-        const newPercentage = parseFloat(percentageMatch[1]);
-        configUpdates.takeProfit = newPercentage;
-        responseMessage = `✅ Updated take profit target to ${newPercentage}%. Your strategy will now automatically sell positions when they reach ${newPercentage}% profit.`;
-      }
-    }
+YOUR CAPABILITIES:
+1. **Strategy Configuration**: You can modify trading parameters like:
+   - Stop loss (stopLoss: boolean, stopLossPercentage: number)
+   - Take profit (takeProfit: number)
+   - Risk level (riskLevel: "low"|"medium"|"high") 
+   - Max position size (maxPosition: number)
+   - Order type (orderType: "market"|"limit")
+   - Auto trading (autoTrading: boolean)
 
-    // Handle risk level changes
-    if (lowerMessage.includes('risk')) {
-      if (lowerMessage.includes('low') || lowerMessage.includes('conservative')) {
-        configUpdates.riskLevel = 'low';
-        responseMessage = `✅ Changed risk tolerance to Conservative. This setting prioritizes capital preservation over aggressive gains.`;
-      } else if (lowerMessage.includes('high') || lowerMessage.includes('aggressive')) {
-        configUpdates.riskLevel = 'high';
-        responseMessage = `✅ Changed risk tolerance to Aggressive. This allows for higher potential returns but also higher risk of losses.`;
-      } else if (lowerMessage.includes('medium') || lowerMessage.includes('moderate')) {
-        configUpdates.riskLevel = 'medium';
-        responseMessage = `✅ Set risk tolerance to Moderate. This balances risk and reward appropriately.`;
-      }
-    }
+2. **Trade Execution**: You can execute trades when users request:
+   - Buy orders: "Buy X euros worth of BTC" 
+   - Sell orders: "Sell X amount of crypto"
 
-    // Handle max position changes
-    if (lowerMessage.includes('max position') || lowerMessage.includes('position size')) {
-      const amountMatch = message.match(/(\d+(?:,\d{3})*(?:\.\d+)?)/);
-      if (amountMatch) {
-        const newAmount = parseFloat(amountMatch[1].replace(/,/g, ''));
-        configUpdates.maxPosition = newAmount;
-        responseMessage = `✅ Updated maximum position size to €${newAmount.toLocaleString()}.`;
+3. **Market Analysis**: Provide insights about crypto markets, timing, trends
+
+4. **Education**: Explain trading concepts, strategies, and risk management
+
+RESPONSE FORMAT:
+- Always provide intelligent, context-aware responses
+- Explain your reasoning behind recommendations
+- If changing strategy settings, explain why and what it means
+- For trade requests, confirm details before execution
+- Use a professional but friendly tone
+- Provide educational value in your responses
+
+CURRENT MARKET INSIGHTS: ${marketInsights}
+
+USER IS IN ${testMode ? 'TEST' : 'LIVE'} MODE.
+
+If you need to update strategy configuration, respond with JSON format:
+{
+  "configUpdates": { ... config changes ... },
+  "response": "Your explanation message"
+}
+
+If it's a general question or trade request, just respond naturally with helpful information.`
+              },
+              {
+                role: 'user',
+                content: message
+              }
+            ],
+            temperature: llmConfig.temperature || 0.7,
+            max_tokens: llmConfig.max_tokens || 1500,
+          }),
+        });
+
+        if (aiResponse.ok) {
+          const aiData = await aiResponse.json();
+          const aiMessage = aiData.choices[0]?.message?.content || '';
+          
+          // Try to parse if AI returned JSON with config updates
+          try {
+            const parsedResponse = JSON.parse(aiMessage);
+            if (parsedResponse.configUpdates) {
+              configUpdates = parsedResponse.configUpdates;
+              responseMessage = parsedResponse.response;
+            } else {
+              responseMessage = aiMessage;
+            }
+          } catch {
+            // AI returned plain text response
+            responseMessage = aiMessage;
+          }
+        }
+      } catch (error) {
+        console.error('AI response error:', error);
+        responseMessage = "I'm having trouble processing your request right now. Could you please rephrase your question?";
       }
     }
 
