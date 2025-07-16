@@ -24,7 +24,7 @@ interface TradeRequest {
 }
 
 // Trade execution function
-async function executeTrade(supabase: any, userId: string, trade: TradeRequest): Promise<string> {
+async function executeTrade(supabase: any, userId: string, trade: TradeRequest, authToken?: string): Promise<string> {
   try {
     console.log('Executing trade:', trade);
     
@@ -62,9 +62,18 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest):
     console.log(`Calling ${tradingFunction} with payload:`, tradePayload);
 
     // Execute the trade through the appropriate trading function
-    const { data: tradeResult, error: tradeError } = await supabase.functions.invoke(tradingFunction, {
+    const invokeOptions: any = {
       body: tradePayload
-    });
+    };
+    
+    // Add authorization header if token is provided
+    if (authToken) {
+      invokeOptions.headers = {
+        Authorization: `Bearer ${authToken}`
+      };
+    }
+    
+    const { data: tradeResult, error: tradeError } = await supabase.functions.invoke(tradingFunction, invokeOptions);
 
     if (tradeError) {
       console.error('Trade execution error:', tradeError);
@@ -104,6 +113,10 @@ serve(async (req) => {
   }
 
   try {
+    // Get auth token from request
+    const authHeader = req.headers.get('Authorization');
+    const authToken = authHeader?.replace('Bearer ', '');
+    
     const { message, userId, strategyId, currentConfig }: StrategyUpdateRequest = await req.json();
     
     // Initialize Supabase client
@@ -482,7 +495,7 @@ ${!hasStopLoss ? '🚨 HIGH RISK - No downside protection' :
             amount: amount,
             strategyId: strategyId,
             orderType: 'market' // Use market order for AI-initiated trades
-          });
+          }, authToken);
         } else {
           responseMessage = `I understand you want to buy crypto, but I need more details. Try: "Buy 1000 euros worth of BTC" or "Buy 500€ of ETH"`;
         }
@@ -508,7 +521,7 @@ ${!hasStopLoss ? '🚨 HIGH RISK - No downside protection' :
             amount: amount,
             strategyId: strategyId,
             orderType: 'market'
-          });
+          }, authToken);
         } else {
           responseMessage = `I understand you want to sell crypto, but I need more details. Try: "Sell 0.5 BTC" or "Sell 2 ETH"`;
         }
