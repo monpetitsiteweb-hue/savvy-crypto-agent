@@ -332,13 +332,37 @@ serve(async (req) => {
         responseMessage = `✅ Set risk tolerance to Moderate. This balances risk and reward appropriately.`;
       }
     }
-    // Priority 3: General conversation
+    // Priority 3: General conversation with learning context
     else {
-      console.log('💬 GENERAL CONVERSATION');
+      console.log('💬 GENERAL CONVERSATION WITH AI LEARNING');
       
       if (openAIApiKey && llmConfig) {
-        console.log('💬 Using AI for conversation...');
+        console.log('💬 Getting AI knowledge context...');
+        
+        // Get learned knowledge for AI context
+        let aiKnowledge = [];
         try {
+          const knowledgeResponse = await supabase.functions.invoke('ai-learning-engine', {
+            body: { action: 'get_knowledge', userId }
+          });
+          aiKnowledge = knowledgeResponse.data?.knowledge || [];
+          console.log(`📚 Retrieved ${aiKnowledge.length} knowledge items`);
+        } catch (knowledgeError) {
+          console.log('⚠️ Could not retrieve AI knowledge, continuing without context');
+        }
+        
+        console.log('💬 Using AI for conversation with learning context...');
+        try {
+          // Build enhanced system prompt with learned knowledge
+          let enhancedSystemPrompt = llmConfig.system_prompt + '\n\nCurrent strategy context: ' + JSON.stringify(currentConfig, null, 2);
+          
+          if (aiKnowledge.length > 0) {
+            enhancedSystemPrompt += '\n\n🧠 LEARNED INSIGHTS (use this knowledge in your responses):';
+            aiKnowledge.forEach((insight: any, index: number) => {
+              enhancedSystemPrompt += `\n${index + 1}. ${insight.title} (Confidence: ${(insight.confidence_score * 100).toFixed(0)}%): ${insight.content}`;
+            });
+          }
+          
           const conversationResponse = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -350,7 +374,7 @@ serve(async (req) => {
               messages: [
                 {
                   role: 'system',
-                  content: llmConfig.system_prompt + '\n\nCurrent strategy context: ' + JSON.stringify(currentConfig, null, 2)
+                  content: enhancedSystemPrompt
                 },
                 {
                   role: 'user',
@@ -365,6 +389,14 @@ serve(async (req) => {
           if (conversationResponse.ok) {
             const conversationData = await conversationResponse.json();
             responseMessage = conversationData.choices[0]?.message?.content || 'Hello! I can help you with your trading strategy and execute trades. What would you like to do?';
+            
+            // Trigger learning analysis in background occasionally
+            if (Math.random() < 0.3 && aiKnowledge.length < 20) { // 30% chance, max 20 insights
+              console.log('🧠 Triggering background learning analysis...');
+              supabase.functions.invoke('ai-learning-engine', {
+                body: { action: 'analyze_and_learn', userId }
+              }).catch((error: any) => console.error('Background learning failed:', error));
+            }
           } else {
             console.log('💬 OpenAI conversation failed, using fallback');
             responseMessage = 'Hello! I can help you with your trading strategy and execute trades. What would you like to do?';

@@ -1,11 +1,12 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Shield, Settings, Database, Bot, Zap } from 'lucide-react';
+import { Shield, Settings, Database, Bot, Zap, Brain } from 'lucide-react';
 import { CoinbaseOAuthPanel } from './CoinbaseOAuthPanel';
 import { CoinbaseSandboxPanel } from './CoinbaseSandboxPanel';
 import { LLMConfigPanel } from './LLMConfigPanel';
 import { DataSourcesPanel } from './DataSourcesPanel';
+import { AILearningPanel } from './AILearningPanel';
 import { Header } from '../Header';
 import { Footer } from '../Footer';
 
@@ -29,10 +30,14 @@ export const AdminPage = () => {
 
           {/* Admin Tabs */}
           <Tabs defaultValue="llm" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-4 bg-slate-800">
+            <TabsList className="grid w-full grid-cols-5 bg-slate-800">
               <TabsTrigger value="llm" className="flex items-center gap-2">
                 <Bot className="w-4 h-4" />
                 AI Configuration
+              </TabsTrigger>
+              <TabsTrigger value="learning" className="flex items-center gap-2">
+                <Brain className="w-4 h-4" />
+                AI Learning
               </TabsTrigger>
               <TabsTrigger value="data" className="flex items-center gap-2">
                 <Database className="w-4 h-4" />
@@ -50,6 +55,10 @@ export const AdminPage = () => {
 
             <TabsContent value="llm">
               <LLMConfigPanel />
+            </TabsContent>
+
+            <TabsContent value="learning">
+              <AILearningPanel />
             </TabsContent>
 
             <TabsContent value="data">

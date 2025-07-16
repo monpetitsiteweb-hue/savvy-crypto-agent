@@ -14,6 +14,84 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_knowledge_base: {
+        Row: {
+          confidence_score: number
+          content: string
+          created_at: string
+          data_points: number
+          id: string
+          knowledge_type: string
+          last_validated_at: string | null
+          metadata: Json | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          confidence_score?: number
+          content: string
+          created_at?: string
+          data_points?: number
+          id?: string
+          knowledge_type: string
+          last_validated_at?: string | null
+          metadata?: Json | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          confidence_score?: number
+          content?: string
+          created_at?: string
+          data_points?: number
+          id?: string
+          knowledge_type?: string
+          last_validated_at?: string | null
+          metadata?: Json | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ai_learning_metrics: {
+        Row: {
+          created_at: string
+          id: string
+          insights_generated: number
+          metric_type: string
+          metric_value: number
+          period_end: string
+          period_start: string
+          trades_analyzed: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          insights_generated?: number
+          metric_type: string
+          metric_value: number
+          period_end: string
+          period_start: string
+          trades_analyzed?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          insights_generated?: number
+          metric_type?: string
+          metric_value?: number
+          period_end?: string
+          period_start?: string
+          trades_analyzed?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       coinbase_oauth_credentials: {
         Row: {
           app_name: string
