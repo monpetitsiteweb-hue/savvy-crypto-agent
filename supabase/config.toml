@@ -25,10 +25,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.coinbase-sandbox-trade]
-verify_jwt = true
+verify_jwt = false
 
 [functions.coinbase-live-trade]
-verify_jwt = true
+verify_jwt = false
 
 [functions.real-time-market-data]
 verify_jwt = true
