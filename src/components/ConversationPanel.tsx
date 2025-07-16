@@ -263,14 +263,14 @@ export const ConversationPanel = () => {
   };
 
   return (
-    <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col max-h-[calc(100vh-180px)]">
+    <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col">
       {/* Header */}
       <div className="p-4 border-b border-slate-700 flex-shrink-0">
-        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
           <Bot className="w-5 h-5 text-green-400" />
           AI Trading Assistant
         </h2>
-        <p className="text-sm text-slate-400 mt-1">
+        <p className="text-sm text-slate-300 mt-1">
           {userStrategies.length > 0 
             ? `Analyzing your ${userStrategies.filter(s => s.is_active).length > 0 ? 'active' : ''} trading strategies`
             : 'Ask me about trading strategies and risk management'
@@ -295,12 +295,12 @@ export const ConversationPanel = () => {
               <div
                 className={`max-w-[80%] p-3 rounded-lg whitespace-pre-wrap ${
                   message.type === 'user'
-                    ? 'bg-blue-500/20 text-blue-100 border border-blue-500/30'
-                    : 'bg-slate-700/50 text-slate-100 border border-slate-600/50'
+                    ? 'bg-blue-600/30 text-blue-50 border border-blue-500/40'
+                    : 'bg-slate-700/70 text-slate-50 border border-slate-600/60'
                 }`}
               >
                 {message.content}
-                <div className="text-xs text-slate-400 mt-2">
+                <div className="text-xs text-slate-300 mt-2">
                   {message.timestamp.toLocaleTimeString()}
                 </div>
               </div>

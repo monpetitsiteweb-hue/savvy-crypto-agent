@@ -37,11 +37,11 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
+    <div className="h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col overflow-hidden">
       <Header />
       
-      <div className="container mx-auto px-4 py-6 flex-1">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-180px)]">
+      <div className="container mx-auto px-4 py-6 flex-1 overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
           {/* Left Panel - Conversation */}
           <div className="lg:col-span-1">
             <ConversationPanel />
@@ -49,7 +49,7 @@ const Index = () => {
           
           {/* Right Panel - Dashboard/History/Config */}
           <div className="lg:col-span-2">
-            <div className="bg-slate-800/50 backdrop-blur-sm rounded-xl border border-slate-700 h-full">
+            <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full">
               {/* Tab Navigation */}
               <div className="flex justify-between items-center border-b border-slate-700">
                 <div className="flex">
