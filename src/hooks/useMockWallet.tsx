@@ -40,17 +40,22 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     
     setIsLoading(true);
     try {
+      console.log('🔄 Refreshing wallet from database for user:', user.id);
+      
       // Get all mock trades for this user
       const { data: trades, error } = await supabase
         .from('mock_trades')
         .select('*')
         .eq('user_id', user.id)
-        .eq('is_test_mode', true);
+        .eq('is_test_mode', true)
+        .order('executed_at', { ascending: true });
 
       if (error) {
         console.error('Error fetching mock trades:', error);
         return;
       }
+
+      console.log('📊 Found trades:', trades?.length || 0, trades);
 
       // Calculate balances from trades
       const calculatedBalances: { [key: string]: number } = {
@@ -60,6 +65,8 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
         XRP: 1500   // Starting amount
       };
 
+      console.log('💰 Starting balances:', calculatedBalances);
+
       // Process each trade to update balances
       trades?.forEach(trade => {
         const currency = trade.cryptocurrency.toUpperCase();
@@ -67,31 +74,36 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
         const totalValue = parseFloat(trade.total_value.toString());
         const fees = parseFloat(trade.fees?.toString() || '0');
 
-        console.log('Processing trade:', {
+        console.log('🔄 Processing trade:', {
+          id: trade.id,
           currency,
           trade_type: trade.trade_type,
           amount,
           totalValue,
           fees,
+          executed_at: trade.executed_at,
           currentEUR: calculatedBalances.EUR,
           currentCrypto: calculatedBalances[currency]
         });
 
         if (trade.trade_type === 'buy') {
           // Buying crypto: reduce EUR, increase crypto
-          calculatedBalances.EUR -= totalValue; // EUR spent (total_value is EUR amount)
-          calculatedBalances[currency] = (calculatedBalances[currency] || 0) + amount; // crypto amount received
+          // For BTC: if buying 2000 EUR worth, we spend 2000 EUR and get BTC amount
+          calculatedBalances.EUR = Math.max(0, calculatedBalances.EUR - totalValue);
+          calculatedBalances[currency] = (calculatedBalances[currency] || 0) + amount;
         } else if (trade.trade_type === 'sell') {
           // Selling crypto: increase EUR, decrease crypto  
-          calculatedBalances.EUR += totalValue; // EUR received
+          calculatedBalances.EUR += totalValue;
           calculatedBalances[currency] = Math.max(0, (calculatedBalances[currency] || 0) - amount);
         }
 
-        console.log('After trade processing:', {
+        console.log('✅ After trade processing:', {
           newEUR: calculatedBalances.EUR,
           newCrypto: calculatedBalances[currency]
         });
       });
+
+      console.log('🏁 Final calculated balances:', calculatedBalances);
 
       // Convert to WalletBalance format with current market values
       const walletBalances: WalletBalance[] = Object.entries(calculatedBalances)
@@ -102,6 +114,7 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
           value_in_base: currency === 'EUR' ? amount : amount * (mockPrices[currency as keyof typeof mockPrices] || 1)
         }));
 
+      console.log('💼 Final wallet balances:', walletBalances);
       setBalances(walletBalances);
       
       // Also save to localStorage for backup
