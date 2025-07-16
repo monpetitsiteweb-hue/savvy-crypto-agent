@@ -56,7 +56,8 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
       amount: trade.amount,
       price: trade.price,
       strategyId: trade.strategyId,
-      orderType: trade.orderType || 'market'
+      orderType: trade.orderType || 'market',
+      userId: userId // Add userId to the payload
     };
 
     console.log(`Calling ${tradingFunction} with payload:`, tradePayload);

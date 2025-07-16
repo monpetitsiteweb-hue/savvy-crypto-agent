@@ -15,49 +15,54 @@ serve(async (req) => {
   try {
     console.log('Coinbase sandbox trade function called');
     
-    // Get authorization header
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      console.error('No authorization header provided');
-      return new Response(JSON.stringify({ error: 'Authorization header required' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-    
     // Initialize Supabase client
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Verify the JWT token
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
+    // Parse request body first to get user information
+    const requestBody = await req.json();
+    const { 
+      connectionId, 
+      tradeType, 
+      cryptocurrency, 
+      amount, 
+      price,
+      strategyId,
+      userId // Add userId to the request body
+    } = requestBody;
+
+    let user;
     
-    if (userError || !user) {
-      console.error('User authentication failed:', userError);
+    // Try to get user from auth header if available
+    const authHeader = req.headers.get('Authorization');
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user: authUser }, error: userError } = await supabaseClient.auth.getUser(token);
+      if (!userError && authUser) {
+        user = authUser;
+        console.log('User authenticated via JWT:', user.id);
+      }
+    }
+    
+    // If no user from auth, try to get from userId parameter
+    if (!user && userId) {
+      user = { id: userId };
+      console.log('Using userId from request:', userId);
+    }
+    
+    if (!user) {
+      console.error('No user authentication found');
       return new Response(JSON.stringify({ 
-        error: 'Authentication failed',
-        details: userError?.message 
+        error: 'User authentication required',
+        details: 'Either provide Authorization header or userId parameter'
       }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    console.log('User authenticated:', user.id);
-
-    // Parse request body
-    const requestBody = await req.json();
-    const { 
-      connectionId, 
-      tradeType, // 'buy' or 'sell'
-      cryptocurrency, 
-      amount, 
-      price,
-      strategyId 
-    } = requestBody;
 
     if (!connectionId || !tradeType || !cryptocurrency || !amount) {
       return new Response(JSON.stringify({ 
