@@ -8,10 +8,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { Bot, Settings, TrendingUp, Target, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Bot, Settings, TrendingUp, Target, AlertTriangle, ArrowLeft, MessageSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import NaturalLanguageStrategy from './NaturalLanguageStrategy';
 
 interface StrategyBuilderProps {
   onCancel: () => void;
@@ -20,7 +21,7 @@ interface StrategyBuilderProps {
 export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [activeMode, setActiveMode] = useState<'manual' | 'ai'>('manual');
+  const [activeMode, setActiveMode] = useState<'manual' | 'ai' | 'natural'>('manual');
   const [aiPrompt, setAiPrompt] = useState('');
   const [strategyConfig, setStrategyConfig] = useState({
     name: '',
@@ -39,7 +40,9 @@ export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
       priceChange: { enabled: false, threshold: 5 },
       volume: { enabled: false, multiplier: 2 },
       news: { enabled: false }
-    }
+    },
+    parsedConfiguration: null as any,
+    requiredCategories: [] as string[]
   });
 
   const generateAIStrategy = async () => {
@@ -121,6 +124,40 @@ export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
     }
   };
 
+  const handleStrategyParsed = (parsedStrategy: any) => {
+    // Convert parsed strategy to our strategy config format
+    setStrategyConfig({
+      name: parsedStrategy.strategy_name,
+      description: parsedStrategy.description,
+      riskLevel: parsedStrategy.risk_level || 'medium',
+      maxPosition: parsedStrategy.configuration?.amount?.value || 1000,
+      stopLoss: parsedStrategy.configuration?.risk_management?.stop_loss || 2,
+      takeProfit: parsedStrategy.configuration?.risk_management?.take_profit || 3,
+      indicators: {
+        rsi: { enabled: false, oversold: 30, overbought: 70 },
+        macd: { enabled: false },
+        sma: { enabled: false, period: 20 },
+        bollinger: { enabled: false }
+      },
+      triggers: {
+        priceChange: { enabled: false, threshold: 5 },
+        volume: { enabled: false, multiplier: 2 },
+        news: { enabled: false }
+      },
+      // Store the full parsed configuration for reference
+      parsedConfiguration: parsedStrategy.configuration,
+      requiredCategories: parsedStrategy.required_categories
+    });
+    
+    // Switch to manual mode to show the generated config
+    setActiveMode('manual');
+    
+    toast({
+      title: "Strategy Parsed Successfully",
+      description: `${parsedStrategy.strategy_name} is ready for review and customization`,
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -141,6 +178,14 @@ export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
             Manual
           </Button>
           <Button
+            variant={activeMode === 'natural' ? 'default' : 'outline'}
+            onClick={() => setActiveMode('natural')}
+            size="sm"
+          >
+            <MessageSquare className="w-4 h-4 mr-2" />
+            Natural Language
+          </Button>
+          <Button
             variant={activeMode === 'ai' ? 'default' : 'outline'}
             onClick={() => setActiveMode('ai')}
             size="sm"
@@ -151,7 +196,12 @@ export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
         </div>
       </div>
 
-      {activeMode === 'ai' ? (
+      {activeMode === 'natural' ? (
+        <NaturalLanguageStrategy 
+          onStrategyParsed={handleStrategyParsed}
+          onCancel={onCancel}
+        />
+      ) : activeMode === 'ai' ? (
         <Card className="p-6 bg-slate-700/30 border-slate-600">
           <div className="space-y-4">
             <div className="flex items-start gap-3">
