@@ -56,6 +56,42 @@ export const TradingHistory = () => {
     }
   }, [selectedConnection, testMode, user]);
 
+  // Set up real-time subscription for trading history
+  useEffect(() => {
+    if (!user) return;
+
+    console.log('🔄 Setting up real-time subscription for trading history');
+    
+    // Create subscription for the appropriate table based on test mode
+    const tableName = testMode ? 'mock_trades' : 'trading_history';
+    const filter = testMode 
+      ? `user_id=eq.${user.id}`
+      : `user_id=eq.${user.id}`;
+
+    const channel = supabase
+      .channel(`trading-history-${tableName}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to all changes (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: tableName,
+          filter: filter
+        },
+        (payload) => {
+          console.log('📈 Trading history changed:', payload);
+          // Refresh trading history when changes occur
+          fetchTradingHistory();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('🔌 Cleaning up trading history subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [user, testMode]);
+
   const fetchConnections = async () => {
     if (!user) return;
     
