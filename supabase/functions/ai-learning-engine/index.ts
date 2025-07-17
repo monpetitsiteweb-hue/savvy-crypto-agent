@@ -38,7 +38,15 @@ serve(async (req) => {
     if (action === 'analyze_and_learn') {
       // Analyze trading history and generate insights
       const insights = await analyzeAndLearn(supabaseClient, userId);
+      await analyzeCategoryPerformance(supabaseClient, userId);
       return new Response(JSON.stringify({ success: true, insights }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (action === 'update_category_performance') {
+      await analyzeCategoryPerformance(supabaseClient, userId);
+      return new Response(JSON.stringify({ success: true, message: 'Category performance updated' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
@@ -354,4 +362,166 @@ async function updateLearningMetrics(supabaseClient: any, userId: string, trades
       trades_analyzed: tradesAnalyzed,
       insights_generated: insightsGenerated
     });
+}
+
+async function analyzeCategoryPerformance(supabaseClient: any, userId: string) {
+  console.log('📊 Analyzing category performance...');
+  
+  // Get enabled categories
+  const { data: categories } = await supabaseClient
+    .from('ai_data_categories')
+    .select('*')
+    .eq('is_enabled', true);
+
+  if (!categories || categories.length === 0) {
+    console.log('No enabled categories found');
+    return;
+  }
+
+  // Get recent trades (last 30 days)
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  const { data: trades } = await supabaseClient
+    .from('mock_trades')
+    .select('*')
+    .eq('user_id', userId)
+    .gte('executed_at', thirtyDaysAgo.toISOString())
+    .order('executed_at', { ascending: false });
+
+  if (!trades || trades.length === 0) {
+    console.log('No recent trades found for analysis');
+    return;
+  }
+
+  // Get external market data with category context
+  const { data: marketData } = await supabaseClient
+    .from('external_market_data')
+    .select(`
+      *,
+      ai_data_sources!inner(
+        category_id,
+        ai_data_categories!inner(*)
+      )
+    `)
+    .gte('timestamp', thirtyDaysAgo.toISOString());
+
+  // Analyze correlation between categories and trade performance
+  for (const category of categories) {
+    const categoryData = marketData?.filter(d => 
+      d.ai_data_sources?.ai_data_categories?.id === category.id
+    ) || [];
+
+    if (categoryData.length === 0) continue;
+
+    // Find trades that occurred within time windows of category signals
+    const categoryInfluencedTrades = [];
+    
+    for (const trade of trades) {
+      const tradeTime = new Date(trade.executed_at);
+      
+      // Look for category signals within 4 hours before the trade
+      const relevantSignals = categoryData.filter(signal => {
+        const signalTime = new Date(signal.timestamp);
+        const timeDiff = tradeTime.getTime() - signalTime.getTime();
+        return timeDiff >= 0 && timeDiff <= 4 * 60 * 60 * 1000; // 4 hours
+      });
+
+      if (relevantSignals.length > 0) {
+        categoryInfluencedTrades.push({
+          ...trade,
+          categorySignals: relevantSignals
+        });
+      }
+    }
+
+    if (categoryInfluencedTrades.length === 0) continue;
+
+    // Calculate performance metrics for this category
+    const winningTrades = categoryInfluencedTrades.filter(t => (t.profit_loss || 0) > 0);
+    const totalTrades = categoryInfluencedTrades.length;
+    const winRate = winningTrades.length / totalTrades;
+    const profitImpact = categoryInfluencedTrades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
+
+    // Calculate influence weight based on performance
+    const marketCondition = determineMarketCondition(categoryData);
+    const accuracyScore = calculateAccuracyScore(categoryInfluencedTrades, categoryData);
+    const influenceWeight = calculateInfluenceWeight(winRate, profitImpact, totalTrades);
+
+    // Store category performance data
+    await supabaseClient
+      .from('ai_category_performance')
+      .insert({
+        category_id: category.id,
+        user_id: userId,
+        period_start: thirtyDaysAgo.toISOString(),
+        period_end: new Date().toISOString(),
+        winning_trades: winningTrades.length,
+        total_trades: totalTrades,
+        profit_impact: profitImpact,
+        accuracy_score: accuracyScore,
+        influence_weight: influenceWeight,
+        market_condition: marketCondition
+      });
+
+    // Update category importance and confidence scores
+    await supabaseClient
+      .from('ai_data_categories')
+      .update({
+        importance_score: Math.max(0.1, Math.min(1.0, category.importance_score + (influenceWeight - 0.5) * 0.1)),
+        confidence_level: Math.max(0.1, Math.min(1.0, accuracyScore)),
+        last_performance_update: new Date().toISOString()
+      })
+      .eq('id', category.id);
+
+    console.log(`📈 Category "${category.category_name}": ${winRate.toFixed(2)} win rate, €${profitImpact.toFixed(2)} impact`);
+  }
+
+  console.log('✅ Category performance analysis complete');
+}
+
+function determineMarketCondition(marketData: any[]) {
+  // Simple market condition determination based on recent data trends
+  if (!marketData.length) return 'neutral';
+  
+  const recentData = marketData.slice(-10);
+  const avgValue = recentData.reduce((sum, d) => sum + (d.data_value || 0), 0) / recentData.length;
+  
+  if (avgValue > 70) return 'bullish';
+  if (avgValue < 30) return 'bearish';
+  return 'neutral';
+}
+
+function calculateAccuracyScore(trades: any[], signals: any[]) {
+  // Calculate how accurately the category signals predicted trade outcomes
+  const correctPredictions = trades.filter(trade => {
+    const tradeProfit = trade.profit_loss || 0;
+    const relevantSignals = trade.categorySignals || [];
+    
+    if (relevantSignals.length === 0) return false;
+    
+    // Check if signals correctly indicated trade direction
+    const bullishSignals = relevantSignals.filter(s => 
+      s.category_context?.market_impact === 'bullish' || s.data_value > 60
+    );
+    const bearishSignals = relevantSignals.filter(s => 
+      s.category_context?.market_impact === 'bearish' || s.data_value < 40
+    );
+    
+    if (bullishSignals.length > bearishSignals.length && tradeProfit > 0) return true;
+    if (bearishSignals.length > bullishSignals.length && tradeProfit < 0) return true;
+    
+    return false;
+  });
+
+  return trades.length > 0 ? correctPredictions.length / trades.length : 0.5;
+}
+
+function calculateInfluenceWeight(winRate: number, profitImpact: number, totalTrades: number) {
+  // Calculate how much this category should influence future trading decisions
+  const winRateWeight = winRate * 0.4;
+  const profitWeight = Math.min(1.0, Math.max(0.0, (profitImpact / 1000) + 0.5)) * 0.4;
+  const volumeWeight = Math.min(1.0, totalTrades / 20) * 0.2;
+  
+  return Math.max(0.1, Math.min(1.0, winRateWeight + profitWeight + volumeWeight));
 }

@@ -341,12 +341,18 @@ serve(async (req) => {
         
         // Get learned knowledge for AI context
         let aiKnowledge = [];
+        let marketIntelligence = { activeCategories: [], recentSignals: [] };
+        
         try {
           const knowledgeResponse = await supabase.functions.invoke('ai-learning-engine', {
             body: { action: 'get_knowledge', userId }
           });
           aiKnowledge = knowledgeResponse.data?.knowledge || [];
           console.log(`📚 Retrieved ${aiKnowledge.length} knowledge items`);
+
+          // Get curated category-based market intelligence
+          marketIntelligence = await getCuratedMarketIntelligence(supabase, userId);
+          console.log(`🌐 Retrieved market intelligence from ${marketIntelligence.activeCategories.length} enabled categories`);
         } catch (knowledgeError) {
           console.log('⚠️ Could not retrieve AI knowledge, continuing without context');
         }
@@ -361,6 +367,19 @@ serve(async (req) => {
             aiKnowledge.forEach((insight: any, index: number) => {
               enhancedSystemPrompt += `\n${index + 1}. ${insight.title} (Confidence: ${(insight.confidence_score * 100).toFixed(0)}%): ${insight.content}`;
             });
+          }
+
+          if (marketIntelligence.activeCategories.length > 0) {
+            enhancedSystemPrompt += '\n\n🌐 CURRENT MARKET INTELLIGENCE (from enabled data sources):';
+            enhancedSystemPrompt += `\nActive categories: ${marketIntelligence.activeCategories.map(c => c.category_name).join(', ')}`;
+            
+            if (marketIntelligence.recentSignals.length > 0) {
+              enhancedSystemPrompt += '\n\nRecent market signals:';
+              marketIntelligence.recentSignals.slice(0, 5).forEach((signal: any, index: number) => {
+                const context = signal.category_context || {};
+                enhancedSystemPrompt += `\n${index + 1}. ${context.category_name || 'Unknown'}: ${signal.data_type} - ${context.market_impact || 'neutral'} impact (${context.signal_strength || 'medium'} strength)`;
+              });
+            }
           }
           
           const conversationResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -449,3 +468,44 @@ serve(async (req) => {
     });
   }
 });
+
+async function getCuratedMarketIntelligence(supabase: any, userId: string) {
+  try {
+    // Get enabled categories only
+    const { data: enabledCategories } = await supabase
+      .from('ai_data_categories')
+      .select('*')
+      .eq('is_enabled', true)
+      .order('importance_score', { ascending: false });
+
+    if (!enabledCategories || enabledCategories.length === 0) {
+      return { activeCategories: [], recentSignals: [] };
+    }
+
+    // Get recent market data from enabled categories only (last 24 hours)
+    const twentyFourHoursAgo = new Date();
+    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+
+    const { data: recentSignals } = await supabase
+      .from('external_market_data')
+      .select(`
+        *,
+        ai_data_sources!inner(
+          category_id,
+          ai_data_categories!inner(*)
+        )
+      `)
+      .gte('timestamp', twentyFourHoursAgo.toISOString())
+      .in('ai_data_sources.category_id', enabledCategories.map(c => c.id))
+      .order('timestamp', { ascending: false })
+      .limit(20);
+
+    return {
+      activeCategories: enabledCategories,
+      recentSignals: recentSignals || []
+    };
+  } catch (error) {
+    console.error('Error getting curated market intelligence:', error);
+    return { activeCategories: [], recentSignals: [] };
+  }
+}

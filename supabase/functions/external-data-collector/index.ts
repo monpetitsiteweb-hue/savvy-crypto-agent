@@ -49,14 +49,36 @@ serve(async (req) => {
 async function syncAllDataSources(supabaseClient: any, userId: string) {
   console.log('🔄 Syncing all data sources...');
   
+  // Get enabled categories first
+  const { data: enabledCategories } = await supabaseClient
+    .from('ai_data_categories')
+    .select('id, category_name')
+    .eq('is_enabled', true);
+
+  if (!enabledCategories || enabledCategories.length === 0) {
+    console.log('📭 No enabled categories found');
+    return;
+  }
+
+  console.log(`📋 Enabled categories: ${enabledCategories.map(c => c.category_name).join(', ')}`);
+
+  // Get sources for enabled categories only
   const { data: sources } = await supabaseClient
     .from('ai_data_sources')
-    .select('*')
+    .select(`
+      *,
+      ai_data_categories!inner(
+        id,
+        category_name,
+        is_enabled
+      )
+    `)
     .eq('user_id', userId)
-    .eq('is_active', true);
+    .eq('is_active', true)
+    .eq('ai_data_categories.is_enabled', true);
 
   if (!sources || sources.length === 0) {
-    console.log('📭 No active data sources found');
+    console.log('📭 No active data sources found for enabled categories');
     return;
   }
 
@@ -68,7 +90,7 @@ async function syncAllDataSources(supabaseClient: any, userId: string) {
     }
   }
 
-  console.log(`✅ Synced ${sources.length} data sources`);
+  console.log(`✅ Synced ${sources.length} data sources from enabled categories`);
 }
 
 async function syncDataSource(supabaseClient: any, sourceId: string) {
@@ -136,7 +158,7 @@ async function syncArkhemIntelligence(supabaseClient: any, source: any) {
         ]
       };
 
-      // Store the data
+      // Store the data with category context
       await supabaseClient
         .from('external_market_data')
         .insert({
@@ -146,6 +168,12 @@ async function syncArkhemIntelligence(supabaseClient: any, source: any) {
           cryptocurrency: 'BTC',
           data_value: mockData.transactions[0].amount,
           metadata: mockData,
+          category_context: {
+            category_name: 'Institutional Flow',
+            category_type: 'institutional',
+            signal_strength: 'high',
+            market_impact: 'bullish'
+          },
           timestamp: new Date().toISOString()
         });
 
@@ -175,6 +203,12 @@ async function syncFearGreedIndex(supabaseClient: any, source: any) {
           metadata: {
             classification: fearGreedData.value_classification,
             timestamp: fearGreedData.timestamp
+          },
+          category_context: {
+            category_name: 'Market Fear & Greed',
+            category_type: 'sentiment',
+            signal_strength: fearGreedData.value < 20 ? 'extreme_fear' : fearGreedData.value > 80 ? 'extreme_greed' : 'moderate',
+            market_impact: fearGreedData.value < 40 ? 'bearish' : fearGreedData.value > 60 ? 'bullish' : 'neutral'
           },
           timestamp: new Date().toISOString()
         });
@@ -206,6 +240,12 @@ async function syncCoinbaseInstitutional(supabaseClient: any, source: any) {
             product_id: crypto,
             volume_24h: mockVolume,
             type: 'institutional_volume'
+          },
+          category_context: {
+            category_name: 'Institutional Flow',
+            category_type: 'institutional',
+            signal_strength: mockVolume > 5000000 ? 'high' : 'medium',
+            market_impact: 'neutral'
           },
           timestamp: new Date().toISOString()
         });
@@ -253,6 +293,12 @@ async function syncWhaleAlerts(supabaseClient: any, source: any) {
           cryptocurrency: tx.cryptocurrency,
           data_value: tx.amount,
           metadata: tx,
+          category_context: {
+            category_name: 'Whale Activity',
+            category_type: 'whale_tracking',
+            signal_strength: tx.amount > 500 ? 'high' : 'medium',
+            market_impact: tx.type === 'exchange_inflow' ? 'bearish' : 'neutral'
+          },
           timestamp: new Date().toISOString()
         });
     }

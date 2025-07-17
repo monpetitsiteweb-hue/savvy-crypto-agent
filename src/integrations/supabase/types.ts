@@ -14,9 +14,102 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_category_performance: {
+        Row: {
+          accuracy_score: number
+          category_id: string
+          created_at: string
+          id: string
+          influence_weight: number
+          market_condition: string | null
+          period_end: string
+          period_start: string
+          profit_impact: number
+          total_trades: number
+          user_id: string
+          winning_trades: number
+        }
+        Insert: {
+          accuracy_score?: number
+          category_id: string
+          created_at?: string
+          id?: string
+          influence_weight?: number
+          market_condition?: string | null
+          period_end: string
+          period_start: string
+          profit_impact?: number
+          total_trades?: number
+          user_id: string
+          winning_trades?: number
+        }
+        Update: {
+          accuracy_score?: number
+          category_id?: string
+          created_at?: string
+          id?: string
+          influence_weight?: number
+          market_condition?: string | null
+          period_end?: string
+          period_start?: string
+          profit_impact?: number
+          total_trades?: number
+          user_id?: string
+          winning_trades?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_category_performance_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "ai_data_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_data_categories: {
+        Row: {
+          category_name: string
+          category_type: string
+          confidence_level: number
+          created_at: string
+          description: string | null
+          id: string
+          importance_score: number
+          is_enabled: boolean
+          last_performance_update: string | null
+          updated_at: string
+        }
+        Insert: {
+          category_name: string
+          category_type: string
+          confidence_level?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          importance_score?: number
+          is_enabled?: boolean
+          last_performance_update?: string | null
+          updated_at?: string
+        }
+        Update: {
+          category_name?: string
+          category_type?: string
+          confidence_level?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          importance_score?: number
+          is_enabled?: boolean
+          last_performance_update?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_data_sources: {
         Row: {
           api_endpoint: string | null
+          category_id: string | null
           configuration: Json | null
           created_at: string
           id: string
@@ -30,6 +123,7 @@ export type Database = {
         }
         Insert: {
           api_endpoint?: string | null
+          category_id?: string | null
           configuration?: Json | null
           created_at?: string
           id?: string
@@ -43,6 +137,7 @@ export type Database = {
         }
         Update: {
           api_endpoint?: string | null
+          category_id?: string | null
           configuration?: Json | null
           created_at?: string
           id?: string
@@ -54,7 +149,15 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ai_data_sources_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "ai_data_categories"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_knowledge_base: {
         Row: {
@@ -196,6 +299,7 @@ export type Database = {
       }
       external_market_data: {
         Row: {
+          category_context: Json | null
           created_at: string
           cryptocurrency: string | null
           data_type: string
@@ -207,6 +311,7 @@ export type Database = {
           timestamp: string
         }
         Insert: {
+          category_context?: Json | null
           created_at?: string
           cryptocurrency?: string | null
           data_type: string
@@ -218,6 +323,7 @@ export type Database = {
           timestamp?: string
         }
         Update: {
+          category_context?: Json | null
           created_at?: string
           cryptocurrency?: string | null
           data_type?: string
