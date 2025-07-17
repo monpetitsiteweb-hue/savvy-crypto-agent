@@ -7,6 +7,7 @@ import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { CoinbaseConnectionSelector } from './CoinbaseConnectionSelector';
 import { MockWalletDisplay } from './MockWalletDisplay';
+import { useMockWallet } from '@/hooks/useMockWallet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Trash2, Edit, Plus, RefreshCw, TestTube } from 'lucide-react';
@@ -38,6 +39,7 @@ export const DashboardPanel = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const { testMode } = useTestMode();
+  const { balances } = useMockWallet();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [showConnectionSelector, setShowConnectionSelector] = useState(false);
@@ -48,19 +50,7 @@ export const DashboardPanel = () => {
   // Load saved portfolio data and selected connection from localStorage on mount
   useEffect(() => {
     if (user) {
-      const savedDataKey = testMode ? `testPortfolio_${user.id}` : `portfolio_${user.id}`;
-      const savedData = localStorage.getItem(savedDataKey);
       const savedConnectionId = localStorage.getItem(`selectedConnection_${user.id}`);
-      
-      if (savedData) {
-        try {
-          setPortfolioData(JSON.parse(savedData));
-        } catch (error) {
-          console.error('Error parsing saved portfolio data:', error);
-        }
-      } else {
-        setPortfolioData(null);
-      }
       
       if (savedConnectionId) {
         setSelectedConnectionId(savedConnectionId);
@@ -69,6 +59,32 @@ export const DashboardPanel = () => {
       fetchConnections();
     }
   }, [user, testMode]);
+
+  // Auto-refresh portfolio when balances change in test mode
+  useEffect(() => {
+    if (testMode && balances.length > 0) {
+      const mockAccounts = balances.map(balance => ({
+        uuid: `mock-${balance.currency.toLowerCase()}-account`,
+        name: `${balance.currency} Wallet`,
+        currency: balance.currency,
+        available_balance: {
+          value: balance.amount.toFixed(balance.currency === 'EUR' ? 2 : 8),
+          currency: balance.currency
+        },
+        hold: {
+          value: '0',
+          currency: balance.currency
+        }
+      }));
+
+      const mockData = { accounts: mockAccounts };
+      setPortfolioData(mockData);
+      
+      if (user) {
+        localStorage.setItem(`testPortfolio_${user.id}`, JSON.stringify(mockData));
+      }
+    }
+  }, [balances, testMode, user]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -175,8 +191,22 @@ export const DashboardPanel = () => {
     setFetchingPortfolio(true);
     try {
       if (testMode) {
-        // Generate mock data for test mode
-        const mockData = generateMockPortfolioData();
+        // Use real wallet data from mock trades
+        const mockAccounts = balances.map(balance => ({
+          uuid: `mock-${balance.currency.toLowerCase()}-account`,
+          name: `${balance.currency} Wallet`,
+          currency: balance.currency,
+          available_balance: {
+            value: balance.amount.toFixed(balance.currency === 'EUR' ? 2 : 8),
+            currency: balance.currency
+          },
+          hold: {
+            value: '0',
+            currency: balance.currency
+          }
+        }));
+
+        const mockData = { accounts: mockAccounts };
         setPortfolioData(mockData);
         
         // Save mock data to localStorage with test mode prefix
@@ -185,8 +215,8 @@ export const DashboardPanel = () => {
         }
         
         toast({
-          title: "Test Portfolio Generated",
-          description: "Mock portfolio data loaded for testing",
+          title: "Portfolio Refreshed",
+          description: "Portfolio updated with latest trading data",
         });
       } else {
         // Real Coinbase API call
