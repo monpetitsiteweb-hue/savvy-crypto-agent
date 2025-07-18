@@ -369,7 +369,8 @@ Only respond with valid JSON. No additional text.`
           const maxPosition = currentStrategy?.configuration?.maxPosition || 5000;
           
           for (const trade of analysis.trades) {
-            if (trade.amount_eur && trade.amount_eur > maxPosition) {
+            // Only check position limits for BUY orders, not SELL orders
+            if (trade.action === 'buy' && trade.amount_eur && trade.amount_eur > maxPosition) {
               responseMessage = `❌ **Position Limit Exceeded**\n\nYour current strategy has a maximum position limit of €${maxPosition.toLocaleString()}. You're trying to ${trade.action} €${trade.amount_eur.toLocaleString()} of ${trade.cryptocurrency.toUpperCase()}.\n\n**Would you like me to increase the maxPosition limit to €${trade.amount_eur.toLocaleString()}?**\n\nJust say "Yes" or "Change max position to ${trade.amount_eur}"`;
               break;
             }
