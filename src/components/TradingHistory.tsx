@@ -343,11 +343,11 @@ export const TradingHistory = () => {
         </Card>
         <Card className="p-4 bg-slate-700/30 border-slate-600">
           <p className="text-sm text-slate-400">Total Value</p>
-          <p className="text-xl font-bold text-white">${stats.totalValue.toFixed(2)}</p>
+          <p className="text-xl font-bold text-white">€{stats.totalValue.toFixed(2)}</p>
         </Card>
         <Card className="p-4 bg-slate-700/30 border-slate-600">
           <p className="text-sm text-slate-400">Total Fees</p>
-          <p className="text-xl font-bold text-slate-400">${stats.totalFees.toFixed(2)}</p>
+          <p className="text-xl font-bold text-slate-400">€{stats.totalFees.toFixed(2)}</p>
         </Card>
       </div>
 
@@ -384,11 +384,11 @@ export const TradingHistory = () => {
                         {trade.trade_type.toUpperCase()}
                       </Badge>
                       <span className="font-medium text-white">{trade.cryptocurrency}</span>
-                      {trade.fees && (
-                        <Badge variant="outline" className="text-amber-400 border-amber-400/30">
-                          Fee: ${trade.fees}
-                        </Badge>
-                      )}
+                       {trade.fees && (
+                         <Badge variant="outline" className="text-amber-400 border-amber-400/30">
+                           Fee: €{trade.fees}
+                         </Badge>
+                       )}
                     </div>
                     {trade.strategy_trigger && testMode && (
                       <p className="text-sm text-blue-400">🎯 {trade.strategy_trigger}</p>
@@ -406,14 +406,14 @@ export const TradingHistory = () => {
                       <p className="text-sm text-slate-400">Amount</p>
                       <p className="font-medium text-white">{Number(trade.amount).toLocaleString()}</p>
                     </div>
-                    <div>
-                      <p className="text-sm text-slate-400">Price</p>
-                      <p className="font-medium text-white">${Number(trade.price).toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-slate-400">Total</p>
-                      <p className="font-medium text-white">${Number(trade.total_value).toFixed(2)}</p>
-                    </div>
+                     <div>
+                       <p className="text-sm text-slate-400">Price</p>
+                       <p className="font-medium text-white">€{Number(trade.price).toFixed(2)}</p>
+                     </div>
+                     <div>
+                       <p className="text-sm text-slate-400">Total</p>
+                       <p className="font-medium text-white">€{Number(trade.total_value).toFixed(2)}</p>
+                     </div>
                   </div>
                   <div className="flex items-center gap-1 justify-end">
                     <Clock className="w-3 h-3 text-slate-400" />

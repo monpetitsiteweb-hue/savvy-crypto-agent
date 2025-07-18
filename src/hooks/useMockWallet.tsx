@@ -59,10 +59,10 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
 
       // Calculate balances from trades
       const calculatedBalances: { [key: string]: number } = {
-        EUR: 5000, // Starting amount
-        BTC: 0.02,  // Starting amount  
-        ETH: 0.3,   // Starting amount
-        XRP: 1500   // Starting amount
+        EUR: 100000, // Starting amount (realistic for testing)
+        BTC: 0,      // Start with 0 crypto
+        ETH: 0,      // Start with 0 crypto
+        XRP: 0       // Start with 0 crypto
       };
 
       console.log('💰 Starting balances:', calculatedBalances);
