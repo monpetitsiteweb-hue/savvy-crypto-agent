@@ -27,11 +27,11 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
   const [balances, setBalances] = useState<WalletBalance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Current market prices (mock values)
+  // Current market prices (realistic values for test mode)
   const mockPrices = {
     BTC: 60000,
     ETH: 3000, 
-    XRP: 2.5,
+    XRP: 0.6,  // More realistic XRP price
     EUR: 1
   };
 
@@ -163,7 +163,9 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const getTotalValue = (): number => {
-    return balances.reduce((total, balance) => total + balance.value_in_base, 0);
+    const total = balances.reduce((sum, balance) => sum + balance.value_in_base, 0);
+    console.log('💰 Portfolio total value calculation:', { balances, total });
+    return total;
   };
 
   useEffect(() => {
