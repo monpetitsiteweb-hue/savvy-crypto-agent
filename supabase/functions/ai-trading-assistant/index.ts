@@ -423,7 +423,15 @@ Only respond with valid JSON. No additional text.`
                 results.push(`❌ **Could not check balance**\n\nError retrieving your ${trade.cryptocurrency.toUpperCase()} balance. Please try again.`);
               }
             } else {
-              // Regular buy/sell with specific amount
+              // Regular buy/sell with specific amount - CHECK POSITION LIMITS FIRST
+              if (trade.action === 'buy') {
+                const maxPosition = currentConfig.maxPosition || 5000;
+                if (trade.amount_eur > maxPosition) {
+                  results.push(`⚠️ **Position Limit Exceeded**\n\nYour maximum position is set to €${maxPosition.toLocaleString()}, but you're trying to buy €${trade.amount_eur.toLocaleString()} worth of ${trade.cryptocurrency.toUpperCase()}.\n\nWould you like to increase your max position limit to accommodate this trade?`);
+                  continue; // Skip this trade
+                }
+              }
+              
               const result = await executeTrade(supabase, userId, {
                 tradeType: trade.action,
                 cryptocurrency: trade.cryptocurrency,
