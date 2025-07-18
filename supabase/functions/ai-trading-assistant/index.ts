@@ -377,7 +377,7 @@ Only respond with valid JSON. No additional text.`
           
           if (!responseMessage) {
             const results = [];
-          for (const trade of analysis.trades) {
+            for (const trade of analysis.trades) {
             if (trade.action === 'sell' && trade.amount_crypto === 'all') {
               // Handle "sell all" command
               try {
@@ -445,9 +445,10 @@ Only respond with valid JSON. No additional text.`
               }, authToken);
               results.push(result);
             }
+            }
+            
+            responseMessage = results.join('\n\n---\n\n');
           }
-          
-          responseMessage = results.join('\n\n---\n\n');
         } else if (analysis.intent === 'config' && analysis.config_changes) {
           console.log('⚙️ CONFIG REQUEST: AI detected configuration intent');
           configUpdates = analysis.config_changes;
