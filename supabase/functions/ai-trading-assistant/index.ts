@@ -131,7 +131,7 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
 • Amount: ${cryptoAmount.toFixed(6)} ${trade.cryptocurrency.toUpperCase()}
 • Value: €${trade.amount.toLocaleString()}
 • Price: €${(cryptoPrice * eurToUsdRate).toFixed(2)} per ${trade.cryptocurrency.toUpperCase()}
-• Fees: €0.00 (Coinbase Pro)
+• Fees: None (Coinbase Pro)
 • Environment: ${trade.testMode ? '🧪 Test Mode' : '🔴 Live Trading'}
 
 ${trade.testMode ? '**Note:** This was a simulated trade for testing purposes.' : '**Note:** This was a real trade executed on Coinbase.'}`;
@@ -247,32 +247,48 @@ serve(async (req) => {
     let configUpdates: any = {};
     let responseMessage = '';
 
-    // Priority 1: Trade execution
+    // Priority 1: Trade execution - handle multiple trades in one message
     if (lowerMessage.includes('buy') && (lowerMessage.includes('euro') || lowerMessage.includes('€') || lowerMessage.includes('dollar') || lowerMessage.includes('$'))) {
       console.log('🛒 TRADE REQUEST: Buy detected');
-      const amountMatch = message.match(/(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:euro|eur|€|dollar|usd|\$)/i);
-      const cryptoMatch = message.match(/\b(btc|bitcoin|eth|ethereum|xrp|ripple)\b/i);
       
-      if (amountMatch && cryptoMatch) {
-        const amount = parseFloat(amountMatch[1].replace(/,/g, ''));
-        let crypto = cryptoMatch[1].toLowerCase();
+      // Find all amount and crypto pairs in the message
+      const tradeMatches = [];
+      
+      // Pattern to match: amount + currency + "of" + crypto
+      const multiTradePattern = /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:euro|eur|€|dollar|usd|\$)\s*(?:of|worth of)?\s*(btc|bitcoin|eth|ethereum|xrp|ripple)/gi;
+      let match;
+      
+      while ((match = multiTradePattern.exec(message)) !== null) {
+        const amount = parseFloat(match[1].replace(/,/g, ''));
+        let crypto = match[2].toLowerCase();
         
         // Normalize crypto names
         if (crypto === 'bitcoin') crypto = 'btc';
         if (crypto === 'ethereum') crypto = 'eth';
         if (crypto === 'ripple') crypto = 'xrp';
         
-        console.log('🛒 EXECUTING TRADE:', { amount, crypto, testMode });
-        responseMessage = await executeTrade(supabase, userId, {
-          tradeType: 'buy',
-          cryptocurrency: crypto,
-          amount: amount,
-          strategyId: strategyId,
-          orderType: 'market',
-          testMode: testMode
-        }, authToken);
+        tradeMatches.push({ amount, crypto });
+      }
+      
+      if (tradeMatches.length > 0) {
+        console.log(`🛒 EXECUTING ${tradeMatches.length} TRADES:`, tradeMatches);
+        
+        const results = [];
+        for (const trade of tradeMatches) {
+          const result = await executeTrade(supabase, userId, {
+            tradeType: 'buy',
+            cryptocurrency: trade.crypto,
+            amount: trade.amount,
+            strategyId: strategyId,
+            orderType: 'market',
+            testMode: testMode
+          }, authToken);
+          results.push(result);
+        }
+        
+        responseMessage = results.join('\n\n---\n\n');
       } else {
-        responseMessage = `I understand you want to buy crypto, but I need more details. Try: "Buy 1000 euros worth of BTC" or "Buy 500€ of ETH"`;
+        responseMessage = `I understand you want to buy crypto, but I need more details. Try: "Buy 100000 euros of XRP and 50000 euros of ETH"`;
       }
     }
     else if (lowerMessage.includes('sell') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum') || lowerMessage.includes('ripple'))) {
