@@ -17,6 +17,7 @@ interface MockWalletContextType {
   getBalance: (currency: string) => number;
   getTotalValue: () => number;
   refreshFromDatabase: () => Promise<void>;
+  forceReset: () => void;
   isLoading: boolean;
 }
 
@@ -71,6 +72,9 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshFromDatabase = async () => {
     if (!testMode || !user) return;
+    
+    // Clear localStorage first to ensure fresh start
+    localStorage.removeItem(`mock-wallet-${user.id}`);
     
     setIsLoading(true);
     try {
@@ -205,6 +209,21 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     return balance?.amount || 0;
   };
 
+  const forceReset = () => {
+    if (!user) return;
+    console.log('🔄 Force resetting wallet...');
+    // Clear localStorage
+    localStorage.removeItem(`mock-wallet-${user.id}`);
+    // Reset balances to starting state
+    setBalances([{
+      currency: 'EUR',
+      amount: 100000,
+      value_in_base: 100000
+    }]);
+    // Refresh from database
+    refreshFromDatabase();
+  };
+
   const getTotalValue = (): number => {
     const total = balances.reduce((sum, balance) => sum + balance.value_in_base, 0);
     console.log('💰 Portfolio total value calculation:', { balances, total });
@@ -245,6 +264,18 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [testMode, user]);
 
+  // Force immediate refresh when user changes (like after data reset)
+  useEffect(() => {
+    if (testMode && user) {
+      // Check if localStorage is empty (indicating a fresh reset)
+      const stored = localStorage.getItem(`mock-wallet-${user.id}`);
+      if (!stored) {
+        console.log('🔄 No stored wallet data, forcing reset...');
+        forceReset();
+      }
+    }
+  }, [user]);
+
   return (
     <MockWalletContext.Provider value={{ 
       balances, 
@@ -253,6 +284,7 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       getBalance, 
       getTotalValue,
       refreshFromDatabase,
+      forceReset,
       isLoading
     }}>
       {children}
