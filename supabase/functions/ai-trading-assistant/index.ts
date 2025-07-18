@@ -510,124 +510,123 @@ Only respond with valid JSON. No additional text.`
       if (lowerMessage.includes('buy') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum') || lowerMessage.includes('ripple'))) {
         console.log('💰 TRADE REQUEST: Buy detected via fallback');
         responseMessage = 'I understand you want to make a purchase. Please use the format: "Buy [amount] euros of [crypto]" (e.g., "Buy 1000 euros of BTC")';
-      }
-    }
-    else if (lowerMessage.includes('sell') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum') || lowerMessage.includes('ripple'))) {
-      console.log('💸 TRADE REQUEST: Sell detected');
-      
-      // Extract crypto currency
-      let cryptoMatch = message.match(/\b(btc|bitcoin|eth|ethereum|xrp|ripple)\b/i);
-      if (!cryptoMatch) {
-        responseMessage = `I understand you want to sell crypto, but I need to know which cryptocurrency. Try: "Sell 0.5 BTC" or "Sell all my XRP"`;
-      } else {
-        let crypto = cryptoMatch[1].toLowerCase();
+      } else if (lowerMessage.includes('sell') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum') || lowerMessage.includes('ripple'))) {
+        console.log('💸 TRADE REQUEST: Sell detected');
         
-        // Normalize crypto names
-        if (crypto === 'bitcoin') crypto = 'btc';
-        if (crypto === 'ethereum') crypto = 'eth';
-        if (crypto === 'ripple') crypto = 'xrp';
-        
-        // Check if "sell all" or similar
-        if (lowerMessage.includes('all') || lowerMessage.includes('everything')) {
-          console.log('💸 SELL ALL detected for crypto:', crypto);
+        // Extract crypto currency
+        let cryptoMatch = message.match(/\b(btc|bitcoin|eth|ethereum|xrp|ripple)\b/i);
+        if (!cryptoMatch) {
+          responseMessage = `I understand you want to sell crypto, but I need to know which cryptocurrency. Try: "Sell 0.5 BTC" or "Sell all my XRP"`;
+        } else {
+          let crypto = cryptoMatch[1].toLowerCase();
           
-          // Get current balance for this crypto from user's mock trades
-          try {
-            const { data: balanceData } = await supabase
-              .from('mock_trades')
-              .select('amount, trade_type, cryptocurrency')
-              .eq('user_id', userId)
-              .eq('is_test_mode', testMode)
-              .eq('cryptocurrency', crypto);
+          // Normalize crypto names
+          if (crypto === 'bitcoin') crypto = 'btc';
+          if (crypto === 'ethereum') crypto = 'eth';
+          if (crypto === 'ripple') crypto = 'xrp';
+          
+          // Check if "sell all" or similar
+          if (lowerMessage.includes('all') || lowerMessage.includes('everything')) {
+            console.log('💸 SELL ALL detected for crypto:', crypto);
             
-            let currentBalance = 0;
-            if (balanceData) {
-              balanceData.forEach(trade => {
-                if (trade.trade_type === 'buy') {
-                  currentBalance += trade.amount;
-                } else if (trade.trade_type === 'sell') {
-                  currentBalance -= trade.amount;
-                }
-              });
+            // Get current balance for this crypto from user's mock trades
+            try {
+              const { data: balanceData } = await supabase
+                .from('mock_trades')
+                .select('amount, trade_type, cryptocurrency')
+                .eq('user_id', userId)
+                .eq('is_test_mode', testMode)
+                .eq('cryptocurrency', crypto);
+              
+              let currentBalance = 0;
+              if (balanceData) {
+                balanceData.forEach(trade => {
+                  if (trade.trade_type === 'buy') {
+                    currentBalance += trade.amount;
+                  } else if (trade.trade_type === 'sell') {
+                    currentBalance -= trade.amount;
+                  }
+                });
+              }
+              
+              if (currentBalance <= 0) {
+                responseMessage = `❌ **No ${crypto.toUpperCase()} to sell**\n\nYou don't have any ${crypto.toUpperCase()} in your portfolio to sell.`;
+              } else {
+                console.log(`💸 EXECUTING SELL ALL: ${currentBalance} ${crypto}`);
+                
+                // Use current market price to calculate EUR value
+                const mockPrices = {
+                  BTC: 118500, // USD price
+                  ETH: 3190,   // USD price  
+                  XRP: 2.975   // USD price
+                };
+                const eurToUsdRate = 1.05;
+                const cryptoPrice = mockPrices[crypto.toUpperCase() as keyof typeof mockPrices] || 50000;
+                const totalEurValue = currentBalance * (cryptoPrice * eurToUsdRate);
+                
+                responseMessage = await executeTrade(supabase, userId, {
+                  tradeType: 'sell',
+                  cryptocurrency: crypto,
+                  amount: totalEurValue, // Use EUR value for consistency
+                  strategyId: strategyId,
+                  orderType: 'market',
+                  testMode: testMode
+                }, authToken);
+              }
+            } catch (balanceError) {
+              console.error('Error getting balance:', balanceError);
+              responseMessage = `❌ **Could not check balance**\n\nError retrieving your ${crypto.toUpperCase()} balance. Please try again.`;
             }
-            
-            if (currentBalance <= 0) {
-              responseMessage = `❌ **No ${crypto.toUpperCase()} to sell**\n\nYou don't have any ${crypto.toUpperCase()} in your portfolio to sell.`;
-            } else {
-              console.log(`💸 EXECUTING SELL ALL: ${currentBalance} ${crypto}`);
+          } else {
+            // Regular sell with specific amount
+            const amountMatch = message.match(/(\d+(?:\.\d+)?)/);
+            if (amountMatch) {
+              const amount = parseFloat(amountMatch[1]);
               
-              // Use current market price to calculate EUR value
-              const mockPrices = {
-                BTC: 118500, // USD price
-                ETH: 3190,   // USD price  
-                XRP: 2.975   // USD price
-              };
-              const eurToUsdRate = 1.05;
-              const cryptoPrice = mockPrices[crypto.toUpperCase() as keyof typeof mockPrices] || 50000;
-              const totalEurValue = currentBalance * (cryptoPrice * eurToUsdRate);
-              
+              console.log('💸 EXECUTING REGULAR SELL:', { amount, crypto, testMode });
               responseMessage = await executeTrade(supabase, userId, {
                 tradeType: 'sell',
                 cryptocurrency: crypto,
-                amount: totalEurValue, // Use EUR value for consistency
+                amount: amount,
                 strategyId: strategyId,
                 orderType: 'market',
                 testMode: testMode
               }, authToken);
+            } else {
+              responseMessage = `I understand you want to sell ${crypto.toUpperCase()}, but I need to know how much. Try: "Sell 0.5 ${crypto.toUpperCase()}" or "Sell all my ${crypto.toUpperCase()}"`;
             }
-          } catch (balanceError) {
-            console.error('Error getting balance:', balanceError);
-            responseMessage = `❌ **Could not check balance**\n\nError retrieving your ${crypto.toUpperCase()} balance. Please try again.`;
-          }
-        } else {
-          // Regular sell with specific amount
-          const amountMatch = message.match(/(\d+(?:\.\d+)?)/);
-          if (amountMatch) {
-            const amount = parseFloat(amountMatch[1]);
-            
-            console.log('💸 EXECUTING REGULAR SELL:', { amount, crypto, testMode });
-            responseMessage = await executeTrade(supabase, userId, {
-              tradeType: 'sell',
-              cryptocurrency: crypto,
-              amount: amount,
-              strategyId: strategyId,
-              orderType: 'market',
-              testMode: testMode
-            }, authToken);
-          } else {
-            responseMessage = `I understand you want to sell ${crypto.toUpperCase()}, but I need to know how much. Try: "Sell 0.5 ${crypto.toUpperCase()}" or "Sell all my ${crypto.toUpperCase()}"`;
           }
         }
       }
-    }
-    // Priority 2: Configuration changes
-    else if (lowerMessage.includes('stop loss') || lowerMessage.includes('stop-loss')) {
-      const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
-      if (percentageMatch) {
-        const newPercentage = parseFloat(percentageMatch[1]);
-        configUpdates.stopLoss = true;
-        configUpdates.stopLossPercentage = newPercentage;
-        responseMessage = `Updated stop-loss to ${newPercentage}% and enabled it. This will help protect your capital by automatically selling if positions drop by ${newPercentage}% or more.`;
+      // Priority 2: Configuration changes  
+      else if (lowerMessage.includes('stop loss') || lowerMessage.includes('stop-loss')) {
+        const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
+        if (percentageMatch) {
+          const newPercentage = parseFloat(percentageMatch[1]);
+          configUpdates.stopLoss = true;
+          configUpdates.stopLossPercentage = newPercentage;
+          responseMessage = `Updated stop-loss to ${newPercentage}% and enabled it. This will help protect your capital by automatically selling if positions drop by ${newPercentage}% or more.`;
+        }
       }
-    }
-    else if (lowerMessage.includes('take profit')) {
-      const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
-      if (percentageMatch) {
-        const newPercentage = parseFloat(percentageMatch[1]);
-        configUpdates.takeProfit = newPercentage;
-        responseMessage = `✅ Updated take profit target to ${newPercentage}%. Your strategy will now automatically sell positions when they reach ${newPercentage}% profit.`;
+      else if (lowerMessage.includes('take profit')) {
+        const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
+        if (percentageMatch) {
+          const newPercentage = parseFloat(percentageMatch[1]);
+          configUpdates.takeProfit = newPercentage;
+          responseMessage = `✅ Updated take profit target to ${newPercentage}%. Your strategy will now automatically sell positions when they reach ${newPercentage}% profit.`;
+        }
       }
-    }
-    else if (lowerMessage.includes('risk')) {
-      if (lowerMessage.includes('low') || lowerMessage.includes('conservative')) {
-        configUpdates.riskLevel = 'low';
-        responseMessage = `✅ Changed risk tolerance to Conservative. This setting prioritizes capital preservation over aggressive gains.`;
-      } else if (lowerMessage.includes('high') || lowerMessage.includes('aggressive')) {
-        configUpdates.riskLevel = 'high';
-        responseMessage = `✅ Changed risk tolerance to Aggressive. This allows for higher potential returns but also higher risk of losses.`;
-      } else if (lowerMessage.includes('medium') || lowerMessage.includes('moderate')) {
-        configUpdates.riskLevel = 'medium';
-        responseMessage = `✅ Set risk tolerance to Moderate. This balances risk and reward appropriately.`;
+      else if (lowerMessage.includes('risk')) {
+        if (lowerMessage.includes('low') || lowerMessage.includes('conservative')) {
+          configUpdates.riskLevel = 'low';
+          responseMessage = `✅ Changed risk tolerance to Conservative. This setting prioritizes capital preservation over aggressive gains.`;
+        } else if (lowerMessage.includes('high') || lowerMessage.includes('aggressive')) {
+          configUpdates.riskLevel = 'high';
+          responseMessage = `✅ Changed risk tolerance to Aggressive. This allows for higher potential returns but also higher risk of losses.`;
+        } else if (lowerMessage.includes('medium') || lowerMessage.includes('moderate')) {
+          configUpdates.riskLevel = 'medium';
+          responseMessage = `✅ Set risk tolerance to Moderate. This balances risk and reward appropriately.`;
+        }
       }
     }
     // Priority 3: General conversation with learning context
