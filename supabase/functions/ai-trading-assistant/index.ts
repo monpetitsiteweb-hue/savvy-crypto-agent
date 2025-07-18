@@ -303,7 +303,8 @@ serve(async (req) => {
     "stopLoss": boolean,
     "stopLossPercentage": number,
     "takeProfit": number,
-    "riskLevel": "low" | "medium" | "high"
+    "riskLevel": "low" | "medium" | "high",
+    "maxPosition": number
   }
 }
 
@@ -312,6 +313,8 @@ Examples:
 - "Buy 100000 euros of BTC and 50000 euros of ETH" → {"intent": "trade", "trades": [{"action": "buy", "cryptocurrency": "btc", "amount_eur": 100000}, {"action": "buy", "cryptocurrency": "eth", "amount_eur": 50000}]}
 - "Sell all my XRP" → {"intent": "trade", "trades": [{"action": "sell", "cryptocurrency": "xrp", "amount_crypto": "all"}]}
 - "Set stop loss to 3%" → {"intent": "config", "config_changes": {"stopLoss": true, "stopLossPercentage": 3}}
+- "Change max position to 100000" → {"intent": "config", "config_changes": {"maxPosition": 100000}}
+- "Yes" (when asked about changing maxPosition) → {"intent": "config", "config_changes": {"maxPosition": 100000}}
 - "Hello" → {"intent": "conversation"}
 
 Only respond with valid JSON. No additional text.`
@@ -334,7 +337,24 @@ Only respond with valid JSON. No additional text.`
         if (analysis.intent === 'trade' && analysis.trades?.length > 0) {
           console.log('🛒 TRADE REQUEST: AI detected trading intent');
           
-          const results = [];
+          // Check if trade exceeds maxPosition limit
+          const { data: currentStrategy } = await supabase
+            .from('trading_strategies')
+            .select('configuration')
+            .eq('id', strategyId)
+            .single();
+
+          const maxPosition = currentStrategy?.configuration?.maxPosition || 5000;
+          
+          for (const trade of analysis.trades) {
+            if (trade.amount_eur && trade.amount_eur > maxPosition) {
+              responseMessage = `❌ **Position Limit Exceeded**\n\nYour current strategy has a maximum position limit of €${maxPosition.toLocaleString()}. You're trying to ${trade.action} €${trade.amount_eur.toLocaleString()} of ${trade.cryptocurrency.toUpperCase()}.\n\n**Would you like me to increase the maxPosition limit to €${trade.amount_eur.toLocaleString()}?**\n\nJust say "Yes" or "Change max position to ${trade.amount_eur}"`;
+              break;
+            }
+          }
+          
+          if (!responseMessage) {
+            const results = [];
           for (const trade of analysis.trades) {
             if (trade.action === 'sell' && trade.amount_crypto === 'all') {
               // Handle "sell all" command
@@ -398,21 +418,50 @@ Only respond with valid JSON. No additional text.`
           console.log('⚙️ CONFIG REQUEST: AI detected configuration intent');
           configUpdates = analysis.config_changes;
           
-          const changes = [];
-          if (configUpdates.stopLoss !== undefined) {
-            changes.push(`Stop-loss ${configUpdates.stopLoss ? 'enabled' : 'disabled'}`);
-            if (configUpdates.stopLossPercentage) {
-              changes.push(`set to ${configUpdates.stopLossPercentage}%`);
+          // Update the strategy configuration in the database
+          try {
+            const { data: currentStrategy, error: fetchError } = await supabase
+              .from('trading_strategies')
+              .select('configuration')
+              .eq('id', strategyId)
+              .single();
+
+            if (fetchError) throw fetchError;
+
+            const updatedConfig = {
+              ...currentStrategy.configuration,
+              ...configUpdates
+            };
+
+            const { error: updateError } = await supabase
+              .from('trading_strategies')
+              .update({ configuration: updatedConfig })
+              .eq('id', strategyId);
+
+            if (updateError) throw updateError;
+
+            const changes = [];
+            if (configUpdates.stopLoss !== undefined) {
+              changes.push(`Stop-loss ${configUpdates.stopLoss ? 'enabled' : 'disabled'}`);
+              if (configUpdates.stopLossPercentage) {
+                changes.push(`set to ${configUpdates.stopLossPercentage}%`);
+              }
             }
+            if (configUpdates.takeProfit) {
+              changes.push(`Take profit set to ${configUpdates.takeProfit}%`);
+            }
+            if (configUpdates.riskLevel) {
+              changes.push(`Risk level changed to ${configUpdates.riskLevel}`);
+            }
+            if (configUpdates.maxPosition) {
+              changes.push(`Maximum position limit increased to €${configUpdates.maxPosition.toLocaleString()}`);
+            }
+            
+            responseMessage = `✅ **Strategy Configuration Updated**\n\n${changes.join('\n• ')}`;
+          } catch (configError) {
+            console.error('Configuration update error:', configError);
+            responseMessage = `❌ **Configuration Update Failed**\n\nError: ${configError.message}`;
           }
-          if (configUpdates.takeProfit) {
-            changes.push(`Take profit set to ${configUpdates.takeProfit}%`);
-          }
-          if (configUpdates.riskLevel) {
-            changes.push(`Risk level changed to ${configUpdates.riskLevel}`);
-          }
-          
-          responseMessage = `✅ Configuration updated: ${changes.join(', ')}`;
         }
         
       } catch (aiError) {
