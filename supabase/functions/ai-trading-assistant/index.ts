@@ -267,54 +267,162 @@ serve(async (req) => {
       console.log('STEP 4 WARNING: Could not load LLM config, continuing with basic functionality');
     }
 
-    // Main processing logic
+    // Main processing logic - Use OpenAI to understand user intent
     const lowerMessage = message.toLowerCase();
     let configUpdates: any = {};
     let responseMessage = '';
 
-    // Priority 1: Trade execution - handle multiple trades in one message
-    if (lowerMessage.includes('buy') && (lowerMessage.includes('euro') || lowerMessage.includes('€') || lowerMessage.includes('dollar') || lowerMessage.includes('$'))) {
-      console.log('🛒 TRADE REQUEST: Buy detected');
+    // Check if this might be a trading request or configuration change
+    if (openAIApiKey && llmConfig) {
+      console.log('💬 Using AI to analyze user intent...');
       
-      // Find all amount and crypto pairs in the message
-      const tradeMatches = [];
-      
-      // Pattern to match: amount + currency + optional "of"/"worth of" + crypto
-      const multiTradePattern = /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:euro|eur|€|dollar|usd|\$)\s*(?:of\s+|worth\s+of\s+)?(btc|bitcoin|eth|ethereum|xrp|ripple)/gi;
-      let match;
-      
-      while ((match = multiTradePattern.exec(message)) !== null) {
-        const amount = parseFloat(match[1].replace(/,/g, ''));
-        let crypto = match[2].toLowerCase();
+      try {
+        const analysisResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openAIApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: llmConfig.model || 'gpt-4.1-2025-04-14',
+            messages: [
+              {
+                role: 'system',
+                content: `You are a trading assistant parser. Analyze user messages and extract trading intent. Return ONLY a JSON response with this structure:
+{
+  "intent": "trade" | "config" | "conversation",
+  "trades": [
+    {
+      "action": "buy" | "sell",
+      "cryptocurrency": "btc" | "eth" | "xrp",
+      "amount_eur": number,
+      "amount_crypto": number (for sell orders)
+    }
+  ],
+  "config_changes": {
+    "stopLoss": boolean,
+    "stopLossPercentage": number,
+    "takeProfit": number,
+    "riskLevel": "low" | "medium" | "high"
+  }
+}
+
+Examples:
+- "Buy 250000 euros of XRP" → {"intent": "trade", "trades": [{"action": "buy", "cryptocurrency": "xrp", "amount_eur": 250000}]}
+- "Buy 100000 euros of BTC and 50000 euros of ETH" → {"intent": "trade", "trades": [{"action": "buy", "cryptocurrency": "btc", "amount_eur": 100000}, {"action": "buy", "cryptocurrency": "eth", "amount_eur": 50000}]}
+- "Sell all my XRP" → {"intent": "trade", "trades": [{"action": "sell", "cryptocurrency": "xrp", "amount_crypto": "all"}]}
+- "Set stop loss to 3%" → {"intent": "config", "config_changes": {"stopLoss": true, "stopLossPercentage": 3}}
+- "Hello" → {"intent": "conversation"}
+
+Only respond with valid JSON. No additional text.`
+              },
+              {
+                role: 'user',
+                content: message
+              }
+            ],
+            temperature: 0.1,
+            max_tokens: 500
+          }),
+        });
+
+        const analysisData = await analysisResponse.json();
+        const analysis = JSON.parse(analysisData.choices[0].message.content);
         
-        // Normalize crypto names
-        if (crypto === 'bitcoin') crypto = 'btc';
-        if (crypto === 'ethereum') crypto = 'eth';
-        if (crypto === 'ripple') crypto = 'xrp';
-        
-        tradeMatches.push({ amount, crypto });
-      }
-      
-      if (tradeMatches.length > 0) {
-        console.log(`🛒 EXECUTING ${tradeMatches.length} TRADES:`, tradeMatches);
-        
-        const results = [];
-        for (const trade of tradeMatches) {
-          const result = await executeTrade(supabase, userId, {
-            tradeType: 'buy',
-            cryptocurrency: trade.crypto,
-            amount: trade.amount,
-            strategyId: strategyId,
-            orderType: 'market',
-            testMode: testMode
-          }, authToken);
-          results.push(result);
+        console.log('🧠 AI Analysis:', analysis);
+
+        if (analysis.intent === 'trade' && analysis.trades?.length > 0) {
+          console.log('🛒 TRADE REQUEST: AI detected trading intent');
+          
+          const results = [];
+          for (const trade of analysis.trades) {
+            if (trade.action === 'sell' && trade.amount_crypto === 'all') {
+              // Handle "sell all" command
+              try {
+                const { data: balanceData } = await supabase
+                  .from('mock_trades')
+                  .select('amount, trade_type, cryptocurrency')
+                  .eq('user_id', userId)
+                  .eq('is_test_mode', testMode)
+                  .eq('cryptocurrency', trade.cryptocurrency);
+                
+                let currentBalance = 0;
+                if (balanceData) {
+                  balanceData.forEach(tradeRecord => {
+                    if (tradeRecord.trade_type === 'buy') {
+                      currentBalance += tradeRecord.amount;
+                    } else if (tradeRecord.trade_type === 'sell') {
+                      currentBalance -= tradeRecord.amount;
+                    }
+                  });
+                }
+                
+                if (currentBalance <= 0) {
+                  results.push(`❌ **No ${trade.cryptocurrency.toUpperCase()} to sell**\n\nYou don't have any ${trade.cryptocurrency.toUpperCase()} in your portfolio to sell.`);
+                } else {
+                  // Calculate EUR value for sell order
+                  const mockPrices = { BTC: 118500, ETH: 3190, XRP: 2.975 };
+                  const eurToUsdRate = 1.05;
+                  const cryptoPrice = mockPrices[trade.cryptocurrency.toUpperCase() as keyof typeof mockPrices] || 50000;
+                  const totalEurValue = currentBalance * (cryptoPrice * eurToUsdRate);
+                  
+                  const result = await executeTrade(supabase, userId, {
+                    tradeType: 'sell',
+                    cryptocurrency: trade.cryptocurrency,
+                    amount: totalEurValue,
+                    strategyId: strategyId,
+                    orderType: 'market',
+                    testMode: testMode
+                  }, authToken);
+                  results.push(result);
+                }
+              } catch (error) {
+                results.push(`❌ **Could not check balance**\n\nError retrieving your ${trade.cryptocurrency.toUpperCase()} balance. Please try again.`);
+              }
+            } else {
+              // Regular buy/sell with specific amount
+              const result = await executeTrade(supabase, userId, {
+                tradeType: trade.action,
+                cryptocurrency: trade.cryptocurrency,
+                amount: trade.amount_eur || trade.amount_crypto,
+                strategyId: strategyId,
+                orderType: 'market',
+                testMode: testMode
+              }, authToken);
+              results.push(result);
+            }
+          }
+          
+          responseMessage = results.join('\n\n---\n\n');
+        } else if (analysis.intent === 'config' && analysis.config_changes) {
+          console.log('⚙️ CONFIG REQUEST: AI detected configuration intent');
+          configUpdates = analysis.config_changes;
+          
+          const changes = [];
+          if (configUpdates.stopLoss !== undefined) {
+            changes.push(`Stop-loss ${configUpdates.stopLoss ? 'enabled' : 'disabled'}`);
+            if (configUpdates.stopLossPercentage) {
+              changes.push(`set to ${configUpdates.stopLossPercentage}%`);
+            }
+          }
+          if (configUpdates.takeProfit) {
+            changes.push(`Take profit set to ${configUpdates.takeProfit}%`);
+          }
+          if (configUpdates.riskLevel) {
+            changes.push(`Risk level changed to ${configUpdates.riskLevel}`);
+          }
+          
+          responseMessage = `✅ Configuration updated: ${changes.join(', ')}`;
         }
         
-        responseMessage = results.join('\n\n---\n\n');
-      } else {
-        responseMessage = `I understand you want to buy crypto, but I need more details. Try: "Buy 100000 euros of XRP and 50000 euros of ETH"`;
+      } catch (aiError) {
+        console.error('AI analysis error:', aiError);
+        console.log('🔄 Falling back to pattern matching...');
       }
+    }
+
+    // Fallback to pattern matching if AI analysis failed or wasn't available
+    if (!responseMessage) {
     }
     else if (lowerMessage.includes('sell') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum') || lowerMessage.includes('ripple'))) {
       console.log('💸 TRADE REQUEST: Sell detected');
