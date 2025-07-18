@@ -29,28 +29,32 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
   console.log('Trade details:', JSON.stringify(trade, null, 2));
 
   try {
-    // Step 1B: Get strategy and check max position limit
-    console.log('🔄 TRADE STEP 1B: Checking max position limit...');
-    const { data: strategy, error: strategyError } = await supabase
-      .from('trading_strategies')
-      .select('configuration')
-      .eq('id', trade.strategyId)
-      .single();
+    // Step 1B: For BUY orders only, check max position limit (sell orders should never be limited)
+    if (trade.tradeType === 'buy') {
+      console.log('🔄 TRADE STEP 1B: Checking max position limit for BUY order...');
+      const { data: strategy, error: strategyError } = await supabase
+        .from('trading_strategies')
+        .select('configuration')
+        .eq('id', trade.strategyId)
+        .single();
 
-    if (strategyError) {
-      console.error('Strategy error:', strategyError);
-      return `❌ **Strategy Access Failed**\n\nCould not retrieve strategy configuration. Please try again.`;
+      if (strategyError) {
+        console.error('Strategy error:', strategyError);
+        return `❌ **Strategy Access Failed**\n\nCould not retrieve strategy configuration. Please try again.`;
+      }
+
+      const config = strategy.configuration;
+      const maxPosition = config.maxPosition || 5000;
+      
+      if (trade.amount > maxPosition) {
+        console.log(`⚠️ BUY order amount €${trade.amount} exceeds max position €${maxPosition}`);
+        return `❌ **Position Limit Exceeded**\n\nYour maximum position is set to €${maxPosition}, but you're trying to buy €${trade.amount}. Please increase your max position limit first or reduce the trade amount.`;
+      }
+
+      console.log(`✅ Position check passed for BUY: €${trade.amount} ≤ €${maxPosition}`);
+    } else {
+      console.log(`✅ SELL order detected - no position limits apply (selling reduces exposure)`);
     }
-
-    const config = strategy.configuration;
-    const maxPosition = config.maxPosition || 5000;
-    
-    if (trade.amount > maxPosition) {
-      console.log(`⚠️ Trade amount €${trade.amount} exceeds max position €${maxPosition}`);
-      return `❌ **Position Limit Exceeded**\n\nYour maximum position is set to €${maxPosition}, but you're trying to trade €${trade.amount}. Please increase your max position limit first or reduce the trade amount.`;
-    }
-
-    console.log(`✅ Position check passed: €${trade.amount} ≤ €${maxPosition}`);
 
     // Step 2: Get user's fee rate from profile
     console.log('🔄 TRADE STEP 2A: Getting user fee configuration...');
@@ -310,15 +314,24 @@ serve(async (req) => {
             messages: [
               {
                 role: 'system',
-                content: `You are a trading assistant parser. Analyze user messages and extract trading intent. Return ONLY a JSON response with this structure:
+                content: `You are an expert cryptocurrency trading assistant with deep understanding of trading concepts and risk management. Your role is to analyze user requests and determine appropriate actions while applying sound trading logic.
+
+CORE TRADING PRINCIPLES YOU MUST FOLLOW:
+1. Position limits ONLY apply to BUY orders (opening positions), NEVER to SELL orders (closing positions)
+2. Selling reduces exposure and position size - it should never be limited by position size constraints
+3. Risk management settings should be adjusted based on market conditions and user intent
+4. Always consider the full context of the user's portfolio and strategy when making decisions
+
+Analyze the user's message and return ONLY valid JSON with this structure:
 {
   "intent": "trade" | "config" | "conversation",
+  "reasoning": "Brief explanation of your analysis and any trading logic applied",
   "trades": [
     {
       "action": "buy" | "sell",
       "cryptocurrency": "btc" | "eth" | "xrp",
-      "amount_eur": number,
-      "amount_crypto": number (for sell orders)
+      "amount_eur": number (for buy orders),
+      "amount_crypto": number | "all" (for sell orders)
     }
   ],
   "config_changes": {
@@ -330,16 +343,14 @@ serve(async (req) => {
   }
 }
 
-Examples:
-- "Buy 250000 euros of XRP" → {"intent": "trade", "trades": [{"action": "buy", "cryptocurrency": "xrp", "amount_eur": 250000}]}
-- "Buy 100000 euros of BTC and 50000 euros of ETH" → {"intent": "trade", "trades": [{"action": "buy", "cryptocurrency": "btc", "amount_eur": 100000}, {"action": "buy", "cryptocurrency": "eth", "amount_eur": 50000}]}
-- "Sell all my XRP" → {"intent": "trade", "trades": [{"action": "sell", "cryptocurrency": "xrp", "amount_crypto": "all"}]}
-- "Set stop loss to 3%" → {"intent": "config", "config_changes": {"stopLoss": true, "stopLossPercentage": 3}}
-- "Change max position to 100000" → {"intent": "config", "config_changes": {"maxPosition": 100000}}
-- "Yes" (when asked about changing maxPosition) → {"intent": "config", "config_changes": {"maxPosition": 100000}}
-- "Hello" → {"intent": "conversation"}
+EXAMPLES WITH PROPER TRADING LOGIC:
+- "Buy 250000 euros of XRP" → {"intent": "trade", "reasoning": "Buy order - will check against position limits", "trades": [{"action": "buy", "cryptocurrency": "xrp", "amount_eur": 250000}]}
+- "Sell all my XRP" → {"intent": "trade", "reasoning": "Sell order to close position - no position limits apply", "trades": [{"action": "sell", "cryptocurrency": "xrp", "amount_crypto": "all"}]}
+- "Sell half of my BTC holdings" → {"intent": "trade", "reasoning": "Partial position closure - no position limits needed", "trades": [{"action": "sell", "cryptocurrency": "btc", "amount_crypto": "half"}]}
+- "I want to reduce my risk" → {"intent": "config", "reasoning": "Risk reduction request", "config_changes": {"riskLevel": "low"}}
+- "Set position limit to 50000 so I can buy more" → {"intent": "config", "reasoning": "User wants to increase buying power", "config_changes": {"maxPosition": 50000}}
 
-Only respond with valid JSON. No additional text.`
+Apply expert trading knowledge to determine the best response. Only respond with valid JSON.`
               },
               {
                 role: 'user',
@@ -422,19 +433,7 @@ Only respond with valid JSON. No additional text.`
                 results.push(`❌ **Could not check balance**\n\nError retrieving your ${trade.cryptocurrency.toUpperCase()} balance. Please try again.`);
               }
             } else {
-              // Regular buy/sell with specific amount - CHECK POSITION LIMITS FIRST
-              if (trade.action === 'buy') {
-                const maxPosition = currentConfig.maxPosition || 5000;
-                console.log(`🔍 Position check: trying to buy €${trade.amount_eur}, max allowed: €${maxPosition}`);
-                
-                if (trade.amount_eur > maxPosition) {
-                  console.log(`❌ Position limit exceeded: €${trade.amount_eur} > €${maxPosition}`);
-                  results.push(`❌ **Position Limit Exceeded**\n\nYour maximum position is set to €${maxPosition.toLocaleString()}, but you're trying to buy €${trade.amount_eur.toLocaleString()} worth of ${trade.cryptocurrency.toUpperCase()}.\n\n**The trade was NOT executed.** You need to increase your max position limit first.`);
-                  continue; // Skip this trade - do NOT execute it
-                }
-                console.log(`✅ Position check passed: €${trade.amount_eur} <= €${maxPosition}`);
-              }
-              
+              // Regular buy/sell with specific amount
               const result = await executeTrade(supabase, userId, {
                 tradeType: trade.action,
                 cryptocurrency: trade.cryptocurrency,
