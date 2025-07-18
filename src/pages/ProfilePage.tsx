@@ -24,6 +24,7 @@ import { useUserRole } from '@/hooks/useUserRole';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
+import { FeeSettings } from '@/components/FeeSettings';
 
 interface ProfileData {
   full_name: string | null;
@@ -134,6 +135,7 @@ const ProfilePage = () => {
 
   const menuItems = [
     { id: 'profile', label: 'User Profile', icon: User, description: 'Manage your personal information and preferences' },
+    { id: 'fees', label: 'Fee Settings', icon: CreditCard, description: 'Configure your trading fee rates' },
     { id: 'connections', label: 'API Connections', icon: Key, description: 'Manage your Coinbase and exchange connections' },
     { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Configure your notification preferences' },
     { id: 'security', label: 'Security', icon: Shield, description: 'Account security and authentication settings' },
@@ -209,6 +211,9 @@ const ProfilePage = () => {
             </Button>
           </div>
         );
+
+      case 'fees':
+        return <FeeSettings />;
 
       case 'connections':
         return (

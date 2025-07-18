@@ -433,7 +433,13 @@ export const TradingHistory = () => {
                        <p className="text-sm text-slate-400">Total</p>
                        <p className="font-medium text-white">€{Number(trade.total_value).toFixed(2)}</p>
                      </div>
-                  </div>
+                     <div>
+                       <p className="text-sm text-slate-400">Fees</p>
+                       <p className="font-medium text-white">
+                         {trade.fees && trade.fees > 0 ? `€${trade.fees.toFixed(2)}` : '€0.00'}
+                       </p>
+                     </div>
+                   </div>
                   <div className="flex items-center gap-1 justify-end">
                     <Clock className="w-3 h-3 text-slate-400" />
                     <span className="text-xs text-slate-400">{formatTime(trade.executed_at)}</span>

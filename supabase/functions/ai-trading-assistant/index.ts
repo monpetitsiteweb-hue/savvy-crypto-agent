@@ -29,8 +29,24 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
   console.log('Trade details:', JSON.stringify(trade, null, 2));
 
   try {
-    // Step 2: Check for active Coinbase connections
-    console.log('🔄 TRADE STEP 2: Looking for active Coinbase connections...');
+    // Step 2: Get user's fee rate from profile
+    console.log('🔄 TRADE STEP 2A: Getting user fee configuration...');
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('fee_rate')
+      .eq('id', userId)
+      .single();
+
+    if (profileError) {
+      console.error('Profile error:', profileError);
+      return `❌ **Profile Access Failed**\n\nCould not retrieve your fee settings. Please try again.`;
+    }
+
+    const userFeeRate = profile?.fee_rate || 0.0000;
+    console.log(`💰 User fee rate: ${(userFeeRate * 100).toFixed(2)}%`);
+
+    // Step 2B: Check for active Coinbase connections
+    console.log('🔄 TRADE STEP 2B: Looking for active Coinbase connections...');
     const { data: connections, error: connectionError } = await supabase
       .from('user_coinbase_connections')
       .select('*')
@@ -56,10 +72,18 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
     const eurToUsdRate = 1.05; // Approximate EUR to USD rate
     const cryptoPrice = mockPrices[trade.cryptocurrency.toUpperCase() as keyof typeof mockPrices] || 50000;
     const cryptoAmount = trade.amount / (cryptoPrice * eurToUsdRate); // Calculate crypto amount from EUR
+    
+    // Calculate fees based on user's fee rate
+    const fees = trade.amount * userFeeRate;
 
     console.log('Environment:', trade.testMode ? 'TEST' : 'LIVE');
     console.log('Test Mode:', trade.testMode);
     console.log(`Mock trade: ${trade.tradeType} ${cryptoAmount} ${trade.cryptocurrency} at €${cryptoPrice * eurToUsdRate} (total: €${trade.amount})`);
+    if (fees > 0) {
+      console.log(`Fees: €${fees.toFixed(2)} (${(userFeeRate * 100).toFixed(2)}%)`);
+    } else {
+      console.log('Fees: €0.00 (Fee-free account)');
+    }
 
     console.log('✅ TRADE STEP 3 SUCCESS: Trade parameters prepared');
 
@@ -78,7 +102,7 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
           amount: cryptoAmount,
           price: cryptoPrice * eurToUsdRate,
           total_value: trade.amount,
-          fees: 0, // No fees for Coinbase Pro
+          fees: fees,
           is_test_mode: true,
           notes: `AI-executed ${trade.tradeType} order`,
           market_conditions: {
@@ -125,13 +149,14 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
     console.log('✅ TRADE STEP 5 SUCCESS: Trade executed successfully');
 
     console.log('🔄 TRADE STEP 6: Formatting success response...');
+    const feesDisplay = fees > 0 ? `€${fees.toFixed(2)} (${(userFeeRate * 100).toFixed(2)}%)` : 'None (Fee-free account)';
     const successMessage = `✅ **${trade.tradeType.toUpperCase()} Order Executed Successfully**
 
 **Details:**
 • Amount: ${cryptoAmount.toFixed(6)} ${trade.cryptocurrency.toUpperCase()}
 • Value: €${trade.amount.toLocaleString()}
 • Price: €${(cryptoPrice * eurToUsdRate).toFixed(2)} per ${trade.cryptocurrency.toUpperCase()}
-• Fees: None (Coinbase Pro)
+• Fees: ${feesDisplay}
 • Environment: ${trade.testMode ? '🧪 Test Mode' : '🔴 Live Trading'}
 
 ${trade.testMode ? '**Note:** This was a simulated trade for testing purposes.' : '**Note:** This was a real trade executed on Coinbase.'}`;
