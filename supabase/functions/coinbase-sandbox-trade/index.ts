@@ -256,7 +256,7 @@ serve(async (req) => {
       // Save trade to database if it's a buy/sell order
       if ((tradeType === 'buy' || tradeType === 'sell') && strategyId) {
         const totalValue = parseFloat(amount) * (parseFloat(price) || 0);
-        const fees = totalValue * 0.0025; // 0.25% fee
+        const fees = 0; // No fees for Coinbase Pro
 
         await supabaseClient
           .from('trading_history')

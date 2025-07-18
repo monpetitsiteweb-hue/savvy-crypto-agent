@@ -40,7 +40,6 @@ export const TradingHistory = () => {
   const [stats, setStats] = useState({
     totalTrades: 0,
     totalVolume: 0, // Changed from totalValue to totalVolume
-    totalFees: 0,
     netProfitLoss: 0
   });
 
@@ -172,17 +171,16 @@ export const TradingHistory = () => {
       // Calculate meaningful trading statistics
       const totalTrades = data?.length || 0;
       const totalVolume = data?.reduce((sum, trade) => sum + Number(trade.total_value), 0) || 0;
-      const totalFees = data?.reduce((sum, trade) => sum + Number(trade.fees || 0), 0) || 0;
       
       // Calculate net profit/loss for test mode
       let netProfitLoss = 0;
       if (testMode && data) {
-        // Starting value was 100,000 EUR
-        const startingValue = 100000;
+        // Starting value was 2,500,000 EUR
+        const startingValue = 2500000;
         netProfitLoss = getTotalValue() - startingValue;
       }
       
-      setStats({ totalTrades, totalVolume, totalFees, netProfitLoss });
+      setStats({ totalTrades, totalVolume, netProfitLoss });
     } catch (error) {
       console.error('Error fetching trading history:', error);
       toast({
@@ -370,9 +368,9 @@ export const TradingHistory = () => {
           <p className="text-xl font-bold text-white">€{stats.totalVolume.toFixed(2)}</p>
         </Card>
         <Card className="p-4 bg-slate-700/30 border-slate-600">
-          <p className="text-sm text-slate-400">{testMode ? 'Net P&L' : 'Total Fees'}</p>
-          <p className={`text-xl font-bold ${testMode ? (stats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400') : 'text-slate-400'}`}>
-            €{testMode ? stats.netProfitLoss.toFixed(2) : stats.totalFees.toFixed(2)}
+          <p className="text-sm text-slate-400">Net P&L</p>
+          <p className={`text-xl font-bold ${stats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            €{stats.netProfitLoss.toFixed(2)}
           </p>
         </Card>
       </div>
@@ -410,11 +408,6 @@ export const TradingHistory = () => {
                         {trade.trade_type.toUpperCase()}
                       </Badge>
                       <span className="font-medium text-white">{trade.cryptocurrency}</span>
-                       {trade.fees && (
-                         <Badge variant="outline" className="text-amber-400 border-amber-400/30">
-                           Fee: €{trade.fees}
-                         </Badge>
-                       )}
                     </div>
                     {trade.strategy_trigger && testMode && (
                       <p className="text-sm text-blue-400">🎯 {trade.strategy_trigger}</p>

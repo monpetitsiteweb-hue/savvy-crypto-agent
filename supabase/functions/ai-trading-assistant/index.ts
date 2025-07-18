@@ -78,7 +78,7 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
           amount: cryptoAmount,
           price: cryptoPrice * eurToUsdRate,
           total_value: trade.amount,
-          fees: trade.amount * 0.005, // 0.5% fee
+          fees: 0, // No fees for Coinbase Pro
           is_test_mode: true,
           notes: `AI-executed ${trade.tradeType} order`,
           market_conditions: {
@@ -131,7 +131,7 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
 • Amount: ${cryptoAmount.toFixed(6)} ${trade.cryptocurrency.toUpperCase()}
 • Value: €${trade.amount.toLocaleString()}
 • Price: €${(cryptoPrice * eurToUsdRate).toFixed(2)} per ${trade.cryptocurrency.toUpperCase()}
-• Fees: €${(trade.amount * 0.005).toFixed(2)}
+• Fees: €0.00 (Coinbase Pro)
 • Environment: ${trade.testMode ? '🧪 Test Mode' : '🔴 Live Trading'}
 
 ${trade.testMode ? '**Note:** This was a simulated trade for testing purposes.' : '**Note:** This was a real trade executed on Coinbase.'}`;

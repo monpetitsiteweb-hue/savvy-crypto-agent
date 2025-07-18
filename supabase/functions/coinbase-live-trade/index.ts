@@ -246,7 +246,7 @@ serve(async (req) => {
           ? parseFloat(amount) // For market buy, amount is the fiat spent
           : parseFloat(amount) * (parseFloat(price) || 0); // For limit orders or sell
         
-        const fees = totalValue * 0.006; // 0.6% fee for live trading (higher than sandbox)
+        const fees = 0; // No fees for Coinbase Pro
 
         await supabaseClient
           .from('trading_history')
