@@ -223,9 +223,12 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
             table: 'mock_trades',
             filter: `user_id=eq.${user.id}`
           },
-          () => {
-            console.log('Mock trades changed, refreshing wallet...');
-            refreshFromDatabase();
+          (payload) => {
+            console.log('🔔 Mock trades changed, refreshing wallet...', payload);
+            // Add a small delay to ensure database is fully updated
+            setTimeout(() => {
+              refreshFromDatabase();
+            }, 1000);
           }
         )
         .subscribe();
