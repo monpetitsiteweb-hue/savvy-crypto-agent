@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { useTestMode } from './useTestMode';
 import { useAuth } from './useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { useRealTimeMarketData } from './useRealTimeMarketData';
 
 interface WalletBalance {
   currency: string;
@@ -24,16 +25,49 @@ const MockWalletContext = createContext<MockWalletContextType | undefined>(undef
 export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
   const { testMode } = useTestMode();
   const { user } = useAuth();
+  const { marketData, getCurrentData } = useRealTimeMarketData();
   const [balances, setBalances] = useState<WalletBalance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-
-  // Current market prices (realistic values for test mode)
-  const mockPrices = {
+  const [realPrices, setRealPrices] = useState<{[key: string]: number}>({
     BTC: 60000,
     ETH: 3000, 
-    XRP: 0.6,  // More realistic XRP price
+    XRP: 0.6,
     EUR: 1
-  };
+  });
+
+  // Fetch real market prices on mount and when marketData updates
+  useEffect(() => {
+    const updatePrices = async () => {
+      try {
+        // Get current market data
+        const data = await getCurrentData(['BTC-USD', 'ETH-USD', 'XRP-USD']);
+        
+        const newPrices: {[key: string]: number} = { EUR: 1 };
+        
+        // Convert USD prices to EUR (assuming 1 USD = 0.85 EUR for now)
+        const usdToEur = 0.85;
+        
+        if (data['BTC-USD']?.price) {
+          newPrices.BTC = data['BTC-USD'].price * usdToEur;
+        }
+        if (data['ETH-USD']?.price) {
+          newPrices.ETH = data['ETH-USD'].price * usdToEur;
+        }
+        if (data['XRP-USD']?.price) {
+          newPrices.XRP = data['XRP-USD'].price * usdToEur;
+        }
+        
+        console.log('📈 Updated real market prices:', newPrices);
+        setRealPrices(prev => ({ ...prev, ...newPrices }));
+      } catch (error) {
+        console.error('Error fetching real prices:', error);
+      }
+    };
+
+    if (testMode) {
+      updatePrices();
+    }
+  }, [testMode, marketData, getCurrentData]);
 
   const refreshFromDatabase = async () => {
     if (!testMode || !user) return;
@@ -111,7 +145,7 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
         .map(([currency, amount]) => ({
           currency,
           amount: Math.max(0, amount),
-          value_in_base: currency === 'EUR' ? amount : amount * (mockPrices[currency as keyof typeof mockPrices] || 1)
+          value_in_base: currency === 'EUR' ? amount : amount * (realPrices[currency] || 1)
         }));
 
       console.log('💼 Final wallet balances:', walletBalances);
