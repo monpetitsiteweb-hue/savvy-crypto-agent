@@ -87,21 +87,21 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
     console.log('🔄 TRADE STEP 3: Preparing trade parameters...');
     
     const mockPrices = {
-      BTC: 118500, // USD price
-      ETH: 3190,   // USD price  
-      XRP: 2.975   // USD price
+      BTC: 113620, // EUR price (example - should be fetched from real EUR market data)
+      ETH: 3400,   // EUR price (example - should be fetched from real EUR market data)
+      XRP: 3.3     // EUR price (example - should be fetched from real EUR market data)
     };
 
-    const eurToUsdRate = 1.05; // Approximate EUR to USD rate
+    // No conversion needed - prices are already in EUR
     const cryptoPrice = mockPrices[trade.cryptocurrency.toUpperCase() as keyof typeof mockPrices] || 50000;
-    const cryptoAmount = trade.amount / (cryptoPrice * eurToUsdRate); // Calculate crypto amount from EUR
+    const cryptoAmount = trade.amount / cryptoPrice; // Calculate crypto amount from EUR
     
     // Calculate fees based on user's fee rate
     const fees = trade.amount * userFeeRate;
 
     console.log('Environment:', trade.testMode ? 'TEST' : 'LIVE');
     console.log('Test Mode:', trade.testMode);
-    console.log(`Mock trade: ${trade.tradeType} ${cryptoAmount} ${trade.cryptocurrency} at €${cryptoPrice * eurToUsdRate} (total: €${trade.amount})`);
+    console.log(`Mock trade: ${trade.tradeType} ${cryptoAmount} ${trade.cryptocurrency} at €${cryptoPrice} (total: €${trade.amount})`);
     if (fees > 0) {
       console.log(`Fees: €${fees.toFixed(2)} (${(userFeeRate * 100).toFixed(2)}%)`);
     } else {
@@ -123,13 +123,13 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
           cryptocurrency: trade.cryptocurrency.toLowerCase(),
           trade_type: trade.tradeType,
           amount: cryptoAmount,
-          price: cryptoPrice * eurToUsdRate,
+          price: cryptoPrice,
           total_value: trade.amount,
           fees: fees,
           is_test_mode: true,
           notes: `AI-executed ${trade.tradeType} order`,
           market_conditions: {
-            price_at_execution: cryptoPrice * eurToUsdRate,
+            price_at_execution: cryptoPrice,
             market_type: 'simulated',
             timestamp: new Date().toISOString()
           }
@@ -177,7 +177,7 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
 **Details:**
 • Amount: ${cryptoAmount.toFixed(6)} ${trade.cryptocurrency.toUpperCase()}
 • Value: €${trade.amount.toLocaleString()}
-• Price: €${(cryptoPrice * eurToUsdRate).toFixed(2)} per ${trade.cryptocurrency.toUpperCase()}
+• Price: €${cryptoPrice.toFixed(2)} per ${trade.cryptocurrency.toUpperCase()}
 • Fees: €0.00 (Fee-free account)
 • Environment: ${trade.testMode ? '🧪 Test Mode' : '🔴 Live Trading'}
 
@@ -403,10 +403,9 @@ Only respond with valid JSON. No additional text.`
                   results.push(`❌ **No ${trade.cryptocurrency.toUpperCase()} to sell**\n\nYou don't have any ${trade.cryptocurrency.toUpperCase()} in your portfolio to sell.`);
                 } else {
                   // Calculate EUR value for sell order
-                  const mockPrices = { BTC: 118500, ETH: 3190, XRP: 2.975 };
-                  const eurToUsdRate = 1.05;
+                  const mockPrices = { BTC: 113620, ETH: 3400, XRP: 3.3 };
                   const cryptoPrice = mockPrices[trade.cryptocurrency.toUpperCase() as keyof typeof mockPrices] || 50000;
-                  const totalEurValue = currentBalance * (cryptoPrice * eurToUsdRate);
+                  const totalEurValue = currentBalance * cryptoPrice;
                   
                   const result = await executeTrade(supabase, userId, {
                     tradeType: 'sell',
@@ -557,13 +556,12 @@ Only respond with valid JSON. No additional text.`
                 
                 // Use current market price to calculate EUR value
                 const mockPrices = {
-                  BTC: 118500, // USD price
-                  ETH: 3190,   // USD price  
-                  XRP: 2.975   // USD price
+                  BTC: 113620, // EUR price
+                  ETH: 3400,   // EUR price
+                  XRP: 3.3     // EUR price
                 };
-                const eurToUsdRate = 1.05;
                 const cryptoPrice = mockPrices[crypto.toUpperCase() as keyof typeof mockPrices] || 50000;
-                const totalEurValue = currentBalance * (cryptoPrice * eurToUsdRate);
+                const totalEurValue = currentBalance * cryptoPrice;
                 
                 responseMessage = await executeTrade(supabase, userId, {
                   tradeType: 'sell',

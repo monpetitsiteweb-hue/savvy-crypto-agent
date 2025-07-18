@@ -180,7 +180,7 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
 
   // Get initial data on mount
   useEffect(() => {
-    getCurrentData(['BTC-USD', 'ETH-USD', 'XRP-USD']);
+    getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
   }, [getCurrentData]);
 
   return {

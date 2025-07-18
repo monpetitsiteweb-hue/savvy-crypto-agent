@@ -41,19 +41,18 @@ export const UnifiedPortfolioDisplay = () => {
   useEffect(() => {
     const updateRealTimePrices = async () => {
       try {
-        const data = await getCurrentData(['BTC-USD', 'ETH-USD', 'XRP-USD']);
-        const usdToEur = 1.05; // Conversion rate - MATCH TRADING LOGIC
+        const data = await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
         
         const prices: {[key: string]: number} = { EUR: 1 };
         
-        if (data['BTC-USD']?.price) {
-          prices.BTC = data['BTC-USD'].price * usdToEur;
+        if (data['BTC-EUR']?.price) {
+          prices.BTC = data['BTC-EUR'].price;
         }
-        if (data['ETH-USD']?.price) {
-          prices.ETH = data['ETH-USD'].price * usdToEur;
+        if (data['ETH-EUR']?.price) {
+          prices.ETH = data['ETH-EUR'].price;
         }
-        if (data['XRP-USD']?.price) {
-          prices.XRP = data['XRP-USD'].price * usdToEur;
+        if (data['XRP-EUR']?.price) {
+          prices.XRP = data['XRP-EUR'].price;
         }
         
         setRealTimePrices(prices);

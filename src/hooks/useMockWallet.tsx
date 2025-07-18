@@ -40,22 +40,19 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const updatePrices = async () => {
       try {
-        // Get current market data
-        const data = await getCurrentData(['BTC-USD', 'ETH-USD', 'XRP-USD']);
+        // Get current market data in EUR directly
+        const data = await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
         
         const newPrices: {[key: string]: number} = { EUR: 1 };
         
-        // Convert USD prices to EUR (assuming 1 USD = 1.05 EUR to match trading logic)
-        const usdToEur = 1.05;
-        
-        if (data['BTC-USD']?.price) {
-          newPrices.BTC = data['BTC-USD'].price * usdToEur;
+        if (data['BTC-EUR']?.price) {
+          newPrices.BTC = data['BTC-EUR'].price;
         }
-        if (data['ETH-USD']?.price) {
-          newPrices.ETH = data['ETH-USD'].price * usdToEur;
+        if (data['ETH-EUR']?.price) {
+          newPrices.ETH = data['ETH-EUR'].price;
         }
-        if (data['XRP-USD']?.price) {
-          newPrices.XRP = data['XRP-USD'].price * usdToEur;
+        if (data['XRP-EUR']?.price) {
+          newPrices.XRP = data['XRP-EUR'].price;
         }
         
         console.log('📈 Updated real market prices:', newPrices);
