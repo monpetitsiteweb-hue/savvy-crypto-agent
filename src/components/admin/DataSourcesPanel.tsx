@@ -65,43 +65,53 @@ const DATA_SOURCE_TEMPLATES = {
     needsApiKey: true
   },
   twitter_sentiment: {
-    name: "Twitter/X Sentiment",
+    name: "Twitter/X Account",
     type: "social_sentiment",
-    endpoint: "https://api.twitter.com/2",
-    description: "Monitor crypto sentiment on X/Twitter from influencers and retail",
-    fields: ["api_key", "bearer_token"],
+    endpoint: "https://twitter.com",
+    description: "Monitor crypto sentiment on X/Twitter from specific accounts",
+    fields: ["account_username"],
     entities: ["social_sentiment", "influencer_activity"],
     icon: TrendingUp,
-    needsApiKey: true
+    needsApiKey: false
   },
   youtube_channels: {
-    name: "YouTube Crypto Channels",
+    name: "YouTube Channel",
     type: "social_sentiment",
-    endpoint: "https://www.googleapis.com/youtube/v3",
-    description: "Track videos from major crypto YouTubers and analysts",
-    fields: ["api_key", "channel_ids"],
+    endpoint: "https://youtube.com",
+    description: "Track videos from specific crypto YouTubers and analysts",
+    fields: ["channel_url", "channel_name"],
     entities: ["video_content", "channel_sentiment"],
     icon: Activity,
-    needsApiKey: true
+    needsApiKey: false
   },
   reddit_crypto: {
-    name: "Reddit Crypto Communities",
+    name: "Reddit Community",
     type: "social_sentiment",
-    endpoint: "https://www.reddit.com/r/cryptocurrency",
-    description: "Monitor r/cryptocurrency, r/bitcoin, and other crypto subreddits",
-    fields: ["client_id", "client_secret"],
+    endpoint: "https://reddit.com",
+    description: "Monitor specific subreddits and crypto communities",
+    fields: ["subreddit_name"],
     entities: ["reddit_sentiment", "community_discussions"],
     icon: TrendingUp,
-    needsApiKey: true
+    needsApiKey: false
   },
   custom_website: {
-    name: "Custom Website/Blog",
+    name: "Custom Website",
     type: "custom_content",
     endpoint: "",
     description: "Add any website URL for content monitoring and analysis",
     fields: ["website_url", "content_selectors"],
     entities: ["custom_content"],
     icon: ExternalLink,
+    needsApiKey: false
+  },
+  document_upload: {
+    name: "Document Upload",
+    type: "knowledge_base",
+    endpoint: "local",
+    description: "Upload documents (PDF, DOC, TXT) for AI knowledge base",
+    fields: ["document_file"],
+    entities: ["document_content"],
+    icon: Database,
     needsApiKey: false
   }
 };
@@ -459,7 +469,13 @@ export function DataSourcesPanel() {
                         ? 'border-primary bg-primary/5' 
                         : 'border-border hover:border-primary/50'
                     }`}
-                    onClick={() => setSelectedTemplate(key)}
+                    onClick={() => {
+                      setSelectedTemplate(key);
+                      if (key === 'custom_website' || key === 'twitter_sentiment' || key === 'youtube_channels' || key === 'reddit_crypto' || key === 'document_upload') {
+                        // These don't need API keys in our simplified version
+                        setApiKey('');
+                      }
+                    }}
                   >
                     <div className="flex items-start gap-3">
                       <IconComponent className="h-6 w-6 text-primary mt-1" />
@@ -485,19 +501,46 @@ export function DataSourcesPanel() {
               })}
             </div>
 
-            {/* API Key Input */}
-            {selectedTemplate && DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES]?.needsApiKey && (
-              <div className="space-y-2">
-                <Label>API Key</Label>
-                <Input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Enter your API key"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Get your API key from the provider's dashboard. It will be stored securely.
-                </p>
+            {/* Dynamic Input Fields */}
+            {selectedTemplate && (
+              <div className="space-y-4">
+                {DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES]?.fields.map((field) => (
+                  <div key={field} className="space-y-2">
+                    <Label>{field.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
+                    {field === 'document_file' ? (
+                      <Input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.txt"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) setApiKey(file.name);
+                        }}
+                      />
+                    ) : (
+                      <Input
+                        type={field.includes('password') || field.includes('secret') || field.includes('key') ? 'password' : 'text'}
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        placeholder={
+                          field === 'account_username' ? '@username' :
+                          field === 'channel_url' ? 'https://youtube.com/channel/...' :
+                          field === 'channel_name' ? 'Channel Name' :
+                          field === 'subreddit_name' ? 'cryptocurrency' :
+                          field === 'website_url' ? 'https://example.com' :
+                          `Enter ${field.replace('_', ' ')}`
+                        }
+                      />
+                    )}
+                    <p className="text-sm text-muted-foreground">
+                      {field === 'account_username' && 'Twitter/X username without the @ symbol'}
+                      {field === 'channel_url' && 'Full YouTube channel URL'}
+                      {field === 'subreddit_name' && 'Subreddit name without r/'}
+                      {field === 'website_url' && 'Complete website URL including https://'}
+                      {field === 'document_file' && 'Upload PDF, DOC, or TXT files for AI analysis'}
+                      {field.includes('api_key') && 'Get your API key from the provider\'s dashboard'}
+                    </p>
+                  </div>
+                ))}
               </div>
             )}
 

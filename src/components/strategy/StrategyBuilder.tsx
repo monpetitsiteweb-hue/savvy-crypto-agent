@@ -173,6 +173,7 @@ export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
             variant={activeMode === 'manual' ? 'default' : 'outline'}
             onClick={() => setActiveMode('manual')}
             size="sm"
+            className="transition-colors hover:bg-primary/20"
           >
             <Settings className="w-4 h-4 mr-2" />
             Manual
@@ -181,6 +182,7 @@ export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
             variant={activeMode === 'natural' ? 'default' : 'outline'}
             onClick={() => setActiveMode('natural')}
             size="sm"
+            className="transition-colors hover:bg-primary/20"
           >
             <MessageSquare className="w-4 h-4 mr-2" />
             Natural Language
@@ -189,6 +191,7 @@ export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
             variant={activeMode === 'ai' ? 'default' : 'outline'}
             onClick={() => setActiveMode('ai')}
             size="sm"
+            className="transition-colors hover:bg-primary/20"
           >
             <Bot className="w-4 h-4 mr-2" />
             AI Assistant

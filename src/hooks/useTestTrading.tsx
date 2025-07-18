@@ -179,19 +179,27 @@ export const useTestTrading = () => {
           user_id: user?.id,
           trade_environment: 'test',
           is_sandbox: true,
-          notes: 'Automated test trade'
+          notes: 'Automated test trade',
+          fees: tradeData.total_value * 0.005, // 0.5% fee
+          executed_at: new Date().toISOString()
         });
 
       if (error) throw error;
 
-      // Also record in mock_trades for performance tracking
+      // Also record in mock_trades for performance tracking with calculated P&L
+      const profit_loss = tradeData.trade_type === 'sell' 
+        ? (tradeData.total_value * 0.02) // Simulate 2% profit for sells
+        : -(tradeData.total_value * 0.01); // Simulate 1% loss for buys initially
+
       await supabase
         .from('mock_trades')
         .insert({
           ...tradeData,
           user_id: user?.id,
           is_test_mode: true,
-          profit_loss: 0 // Will be calculated later
+          profit_loss,
+          fees: tradeData.total_value * 0.005,
+          executed_at: new Date().toISOString()
         });
 
     } catch (error) {

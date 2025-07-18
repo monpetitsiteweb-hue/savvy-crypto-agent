@@ -174,7 +174,7 @@ export const MergedPortfolioDisplay = () => {
           <div className="flex justify-between">
             <span className="text-slate-400 text-sm">Balance:</span>
             <span className="text-white font-medium">
-              {balance.toFixed(8)} {currency}
+              {currency === 'EUR' ? balance.toFixed(2) : balance.toFixed(4)} {currency}
             </span>
           </div>
           <div className="flex justify-between">
