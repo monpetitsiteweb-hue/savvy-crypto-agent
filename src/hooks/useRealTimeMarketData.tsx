@@ -31,26 +31,54 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
 
   const getCurrentData = useCallback(async (symbols: string[]): Promise<Record<string, MarketData>> => {
     try {
-      const { data, error } = await supabase.functions.invoke('real-time-market-data', {
-        body: {
-          symbols,
-          action: 'get_current'
+      // Use a direct API call to a reliable crypto price source as fallback
+      console.log('🔍 Fetching current market data for symbols:', symbols);
+      
+      // Try Coinbase Pro API directly first
+      const promises = symbols.map(async (symbol) => {
+        try {
+          const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
+          if (response.ok) {
+            const data = await response.json();
+            return {
+              [symbol]: {
+                symbol,
+                price: parseFloat(data.price || '0'),
+                bid: parseFloat(data.bid || '0'),
+                ask: parseFloat(data.ask || '0'),
+                volume: parseFloat(data.volume || '0'),
+                change_24h: '0',
+                change_percentage_24h: '0',
+                high_24h: data.high_24h || '0',
+                low_24h: data.low_24h || '0',
+                timestamp: new Date().toISOString(),
+                source: 'coinbase_rest_api'
+              }
+            };
+          }
+          throw new Error(`Failed to fetch ${symbol}`);
+        } catch (err) {
+          console.error(`Error fetching ${symbol}:`, err);
+          return { [symbol]: null };
         }
       });
 
-      if (error) {
-        console.error('Error fetching current market data:', error);
-        setError(error.message);
-        return {};
-      }
+      const results = await Promise.all(promises);
+      const marketDataMap = results.reduce((acc, result) => {
+        const [symbol, data] = Object.entries(result)[0];
+        if (data) {
+          acc[symbol] = data;
+        }
+        return acc;
+      }, {} as Record<string, MarketData>);
 
-      if (data?.success && data?.data) {
-        // Update local state with current data
-        setMarketData(prev => ({ ...prev, ...data.data }));
-        return data.data;
-      }
-
-      return {};
+      console.log('📈 Fetched market data:', marketDataMap);
+      
+      // Update local state with current data
+      setMarketData(prev => ({ ...prev, ...marketDataMap }));
+      setError(null);
+      
+      return marketDataMap;
     } catch (err) {
       console.error('Error in getCurrentData:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');

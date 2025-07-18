@@ -275,13 +275,14 @@ serve(async (req) => {
         responseMessage = `I understand you want to buy crypto, but I need more details. Try: "Buy 1000 euros worth of BTC" or "Buy 500€ of ETH"`;
       }
     }
-    else if (lowerMessage.includes('sell') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum'))) {
+    else if (lowerMessage.includes('sell') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum') || lowerMessage.includes('ripple'))) {
       console.log('💸 TRADE REQUEST: Sell detected');
-      const amountMatch = message.match(/(\d+(?:\.\d+)?)/);
-      const cryptoMatch = message.match(/\b(btc|bitcoin|eth|ethereum|xrp|ripple)\b/i);
       
-      if (amountMatch && cryptoMatch) {
-        const amount = parseFloat(amountMatch[1]);
+      // Extract crypto currency
+      let cryptoMatch = message.match(/\b(btc|bitcoin|eth|ethereum|xrp|ripple)\b/i);
+      if (!cryptoMatch) {
+        responseMessage = `I understand you want to sell crypto, but I need to know which cryptocurrency. Try: "Sell 0.5 BTC" or "Sell all my XRP"`;
+      } else {
         let crypto = cryptoMatch[1].toLowerCase();
         
         // Normalize crypto names
@@ -289,17 +290,77 @@ serve(async (req) => {
         if (crypto === 'ethereum') crypto = 'eth';
         if (crypto === 'ripple') crypto = 'xrp';
         
-        console.log('💸 EXECUTING TRADE:', { amount, crypto, testMode });
-        responseMessage = await executeTrade(supabase, userId, {
-          tradeType: 'sell',
-          cryptocurrency: crypto,
-          amount: amount,
-          strategyId: strategyId,
-          orderType: 'market',
-          testMode: testMode
-        }, authToken);
-      } else {
-        responseMessage = `I understand you want to sell crypto, but I need more details. Try: "Sell 0.5 BTC" or "Sell 2 ETH"`;
+        // Check if "sell all" or similar
+        if (lowerMessage.includes('all') || lowerMessage.includes('everything')) {
+          console.log('💸 SELL ALL detected for crypto:', crypto);
+          
+          // Get current balance for this crypto from user's mock trades
+          try {
+            const { data: balanceData } = await supabase
+              .from('mock_trades')
+              .select('amount, trade_type, cryptocurrency')
+              .eq('user_id', userId)
+              .eq('is_test_mode', testMode)
+              .eq('cryptocurrency', crypto);
+            
+            let currentBalance = 0;
+            if (balanceData) {
+              balanceData.forEach(trade => {
+                if (trade.trade_type === 'buy') {
+                  currentBalance += trade.amount;
+                } else if (trade.trade_type === 'sell') {
+                  currentBalance -= trade.amount;
+                }
+              });
+            }
+            
+            if (currentBalance <= 0) {
+              responseMessage = `❌ **No ${crypto.toUpperCase()} to sell**\n\nYou don't have any ${crypto.toUpperCase()} in your portfolio to sell.`;
+            } else {
+              console.log(`💸 EXECUTING SELL ALL: ${currentBalance} ${crypto}`);
+              
+              // Use current market price to calculate EUR value
+              const mockPrices = {
+                BTC: 118500, // USD price
+                ETH: 3190,   // USD price  
+                XRP: 2.975   // USD price
+              };
+              const eurToUsdRate = 1.05;
+              const cryptoPrice = mockPrices[crypto.toUpperCase() as keyof typeof mockPrices] || 50000;
+              const totalEurValue = currentBalance * (cryptoPrice * eurToUsdRate);
+              
+              responseMessage = await executeTrade(supabase, userId, {
+                tradeType: 'sell',
+                cryptocurrency: crypto,
+                amount: totalEurValue, // Use EUR value for consistency
+                strategyId: strategyId,
+                orderType: 'market',
+                testMode: testMode
+              }, authToken);
+            }
+          } catch (balanceError) {
+            console.error('Error getting balance:', balanceError);
+            responseMessage = `❌ **Could not check balance**\n\nError retrieving your ${crypto.toUpperCase()} balance. Please try again.`;
+          }
+        } else {
+          // Regular sell with specific amount
+          const amountMatch = message.match(/(\d+(?:\.\d+)?)/);
+          if (amountMatch) {
+            const amount = parseFloat(amountMatch[1]);
+            
+            console.log('💸 EXECUTING REGULAR SELL:', { amount, crypto, testMode });
+            responseMessage = await executeTrade(supabase, userId, {
+              tradeType: 'sell',
+              cryptocurrency: crypto,
+              amount: amount,
+              strategyId: strategyId,
+              orderType: 'market',
+              testMode: testMode
+            }, authToken);
+          } else {
+            responseMessage = `I understand you want to sell ${crypto.toUpperCase()}, but I need to know how much. Try: "Sell 0.5 ${crypto.toUpperCase()}" or "Sell all my ${crypto.toUpperCase()}"`;
+          }
+        }
       }
     }
     // Priority 2: Configuration changes
