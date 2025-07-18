@@ -42,7 +42,7 @@ export const UnifiedPortfolioDisplay = () => {
     const updateRealTimePrices = async () => {
       try {
         const data = await getCurrentData(['BTC-USD', 'ETH-USD', 'XRP-USD']);
-        const usdToEur = 0.85; // Conversion rate
+        const usdToEur = 1.05; // Conversion rate - MATCH TRADING LOGIC
         
         const prices: {[key: string]: number} = { EUR: 1 };
         

@@ -45,8 +45,8 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
         
         const newPrices: {[key: string]: number} = { EUR: 1 };
         
-        // Convert USD prices to EUR (assuming 1 USD = 0.85 EUR for now)
-        const usdToEur = 0.85;
+        // Convert USD prices to EUR (assuming 1 USD = 1.05 EUR to match trading logic)
+        const usdToEur = 1.05;
         
         if (data['BTC-USD']?.price) {
           newPrices.BTC = data['BTC-USD'].price * usdToEur;
