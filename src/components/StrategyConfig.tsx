@@ -162,6 +162,14 @@ export const StrategyConfig = () => {
   };
 
   const handleEditStrategy = () => {
+    if (activeStrategy && activeStrategy.configuration) {
+      // Load the current strategy configuration
+      setStrategyConfig(prevConfig => ({ 
+        ...prevConfig, 
+        ...activeStrategy.configuration,
+        name: activeStrategy.strategy_name || prevConfig.name
+      }));
+    }
     setIsEditing(true);
     setViewMode('configure');
   };

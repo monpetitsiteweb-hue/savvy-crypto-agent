@@ -63,6 +63,46 @@ const DATA_SOURCE_TEMPLATES = {
     entities: ["whale_transactions"],
     icon: Activity,
     needsApiKey: true
+  },
+  twitter_sentiment: {
+    name: "Twitter/X Sentiment",
+    type: "social_sentiment",
+    endpoint: "https://api.twitter.com/2",
+    description: "Monitor crypto sentiment on X/Twitter from influencers and retail",
+    fields: ["api_key", "bearer_token"],
+    entities: ["social_sentiment", "influencer_activity"],
+    icon: TrendingUp,
+    needsApiKey: true
+  },
+  youtube_channels: {
+    name: "YouTube Crypto Channels",
+    type: "social_sentiment",
+    endpoint: "https://www.googleapis.com/youtube/v3",
+    description: "Track videos from major crypto YouTubers and analysts",
+    fields: ["api_key", "channel_ids"],
+    entities: ["video_content", "channel_sentiment"],
+    icon: Activity,
+    needsApiKey: true
+  },
+  reddit_crypto: {
+    name: "Reddit Crypto Communities",
+    type: "social_sentiment",
+    endpoint: "https://www.reddit.com/r/cryptocurrency",
+    description: "Monitor r/cryptocurrency, r/bitcoin, and other crypto subreddits",
+    fields: ["client_id", "client_secret"],
+    entities: ["reddit_sentiment", "community_discussions"],
+    icon: TrendingUp,
+    needsApiKey: true
+  },
+  custom_website: {
+    name: "Custom Website/Blog",
+    type: "custom_content",
+    endpoint: "",
+    description: "Add any website URL for content monitoring and analysis",
+    fields: ["website_url", "content_selectors"],
+    entities: ["custom_content"],
+    icon: ExternalLink,
+    needsApiKey: false
   }
 };
 

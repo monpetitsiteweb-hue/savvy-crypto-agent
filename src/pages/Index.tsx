@@ -4,7 +4,7 @@ import { AuthPage } from '@/components/auth/AuthPage';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { ConversationPanel } from '@/components/ConversationPanel';
-import { DashboardPanel } from '@/components/DashboardPanel';
+import { MergedPortfolioDisplay } from '@/components/MergedPortfolioDisplay';
 import { TradingHistory } from '@/components/TradingHistory';
 import { StrategyConfig } from '@/components/StrategyConfig';
 import { PerformanceOverview } from '@/components/PerformanceOverview';
@@ -92,7 +92,7 @@ const Index = () => {
               
               {/* Tab Content */}
               <div className="p-6 flex-1 overflow-y-auto min-h-0">
-                {activeTab === 'dashboard' && <DashboardPanel />}
+                {activeTab === 'dashboard' && <MergedPortfolioDisplay />}
                 {activeTab === 'history' && <TradingHistory />}
                 {activeTab === 'strategy' && <StrategyConfig />}
                 {activeTab === 'performance' && <PerformanceOverview />}

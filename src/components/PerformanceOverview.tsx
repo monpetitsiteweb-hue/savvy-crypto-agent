@@ -125,6 +125,7 @@ export const PerformanceOverview = () => {
               Total Trades
             </div>
             <div className="text-2xl font-bold text-white">{metrics.totalTrades}</div>
+            <div className="text-xs text-slate-500">Executed trades</div>
           </div>
 
           <div className="space-y-2">
@@ -135,18 +136,20 @@ export const PerformanceOverview = () => {
             <div className="text-2xl font-bold text-green-400">
               {metrics.winRate.toFixed(1)}%
             </div>
+            <div className="text-xs text-slate-500">Success ratio</div>
           </div>
 
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm text-slate-300">
               <DollarSign className="h-4 w-4" />
-              P&L
+              Total P&L
             </div>
             <div className={`text-2xl font-bold ${
               metrics.totalProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'
             }`}>
               {metrics.totalProfitLoss >= 0 ? '+' : ''}€{metrics.totalProfitLoss.toFixed(2)}
             </div>
+            <div className="text-xs text-slate-500">Profit & Loss</div>
           </div>
 
           <div className="space-y-2">
@@ -157,6 +160,7 @@ export const PerformanceOverview = () => {
             <div className="text-xl font-semibold text-green-400">
               {metrics.winningTrades}
             </div>
+            <div className="text-xs text-slate-500">Profitable trades</div>
           </div>
 
           <div className="space-y-2">
@@ -167,6 +171,7 @@ export const PerformanceOverview = () => {
             <div className="text-xl font-semibold text-red-400">
               {metrics.losingTrades}
             </div>
+            <div className="text-xs text-slate-500">Unprofitable trades</div>
           </div>
 
           <div className="space-y-2">
@@ -177,6 +182,7 @@ export const PerformanceOverview = () => {
             <div className="text-xl font-semibold text-slate-300">
               €{metrics.totalFees.toFixed(2)}
             </div>
+            <div className="text-xs text-slate-500">Trading costs</div>
           </div>
         </div>
       </CardContent>
