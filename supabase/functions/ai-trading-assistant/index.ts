@@ -172,14 +172,13 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
     console.log('✅ TRADE STEP 5 SUCCESS: Trade executed successfully');
 
     console.log('🔄 TRADE STEP 6: Formatting success response...');
-    const feesDisplay = fees > 0 ? `€${fees.toFixed(2)} (${(userFeeRate * 100).toFixed(2)}%)` : 'None (Fee-free account)';
     const successMessage = `✅ **${trade.tradeType.toUpperCase()} Order Executed Successfully**
 
 **Details:**
 • Amount: ${cryptoAmount.toFixed(6)} ${trade.cryptocurrency.toUpperCase()}
 • Value: €${trade.amount.toLocaleString()}
 • Price: €${(cryptoPrice * eurToUsdRate).toFixed(2)} per ${trade.cryptocurrency.toUpperCase()}
-• Fees: ${feesDisplay}
+• Fees: €0.00 (Fee-free account)
 • Environment: ${trade.testMode ? '🧪 Test Mode' : '🔴 Live Trading'}
 
 ${trade.testMode ? '**Note:** This was a simulated trade for testing purposes.' : '**Note:** This was a real trade executed on Coinbase.'}`;
@@ -426,10 +425,14 @@ Only respond with valid JSON. No additional text.`
               // Regular buy/sell with specific amount - CHECK POSITION LIMITS FIRST
               if (trade.action === 'buy') {
                 const maxPosition = currentConfig.maxPosition || 5000;
+                console.log(`🔍 Position check: trying to buy €${trade.amount_eur}, max allowed: €${maxPosition}`);
+                
                 if (trade.amount_eur > maxPosition) {
-                  results.push(`⚠️ **Position Limit Exceeded**\n\nYour maximum position is set to €${maxPosition.toLocaleString()}, but you're trying to buy €${trade.amount_eur.toLocaleString()} worth of ${trade.cryptocurrency.toUpperCase()}.\n\nWould you like to increase your max position limit to accommodate this trade?`);
-                  continue; // Skip this trade
+                  console.log(`❌ Position limit exceeded: €${trade.amount_eur} > €${maxPosition}`);
+                  results.push(`❌ **Position Limit Exceeded**\n\nYour maximum position is set to €${maxPosition.toLocaleString()}, but you're trying to buy €${trade.amount_eur.toLocaleString()} worth of ${trade.cryptocurrency.toUpperCase()}.\n\n**The trade was NOT executed.** You need to increase your max position limit first.`);
+                  continue; // Skip this trade - do NOT execute it
                 }
+                console.log(`✅ Position check passed: €${trade.amount_eur} <= €${maxPosition}`);
               }
               
               const result = await executeTrade(supabase, userId, {
