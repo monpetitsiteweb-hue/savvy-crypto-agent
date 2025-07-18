@@ -359,7 +359,7 @@ export const TradingHistory = () => {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Card className="p-4 bg-slate-700/30 border-slate-600">
           <p className="text-sm text-slate-400">Portfolio Value</p>
-          <p className="text-xl font-bold text-white">€{(testMode ? portfolioValue : portfolioValue).toFixed(2)}</p>
+          <p className="text-xl font-bold text-white">€{portfolioValue.toFixed(2)}</p>
         </Card>
         <Card className="p-4 bg-slate-700/30 border-slate-600">
           <p className="text-sm text-slate-400">Total Trades</p>

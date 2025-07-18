@@ -142,11 +142,16 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       // Convert to WalletBalance format with current market values
       const walletBalances: WalletBalance[] = Object.entries(calculatedBalances)
         .filter(([currency, amount]) => amount > 0 || currency === 'EUR')
-        .map(([currency, amount]) => ({
-          currency,
-          amount: Math.max(0, amount),
-          value_in_base: currency === 'EUR' ? amount : amount * (realPrices[currency] || 1)
-        }));
+        .map(([currency, amount]) => {
+          // For EUR, value_in_base is just the amount
+          // For crypto, multiply by real-time market price
+          const valueInBase = currency === 'EUR' ? amount : amount * (realPrices[currency] || 0);
+          return {
+            currency,
+            amount: Math.max(0, amount),
+            value_in_base: valueInBase
+          };
+        });
 
       console.log('💼 Final wallet balances:', walletBalances);
       setBalances(walletBalances);

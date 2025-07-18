@@ -157,9 +157,10 @@ export const ConversationPanel = () => {
   const detectTradeRequest = (message: string): ProductionTradeDetails | null => {
     const lowerMessage = message.toLowerCase();
     
-    // Parse trade requests like "buy 1000 euros of BTC" or "sell 0.5 ETH"
+    // Parse trade requests like "buy 1000 euros of BTC" or "sell 0.5 ETH" or "sell all my XRP"
     const buyMatch = lowerMessage.match(/buy\s+(\d+(?:\.\d+)?)\s+(?:euros?|eur|€)\s+(?:of\s+)?([a-z]{3,4})/i);
     const sellMatch = lowerMessage.match(/sell\s+(\d+(?:\.\d+)?)\s+([a-z]{3,4})/i);
+    const sellAllMatch = lowerMessage.match(/sell\s+all\s+(?:my\s+)?([a-z]{3,4})/i);
     
     if (buyMatch) {
       const [, amount, crypto] = buyMatch;
@@ -177,6 +178,16 @@ export const ConversationPanel = () => {
         action: 'sell',
         cryptocurrency: crypto.toLowerCase(),
         amount: parseFloat(amount),
+        orderType: 'market'
+      };
+    }
+    
+    if (sellAllMatch) {
+      const [, crypto] = sellAllMatch;
+      return {
+        action: 'sell',
+        cryptocurrency: crypto.toLowerCase(),
+        amount: -1, // Special flag for "sell all"
         orderType: 'market'
       };
     }

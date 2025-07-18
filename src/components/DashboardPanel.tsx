@@ -6,7 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { CoinbaseConnectionSelector } from './CoinbaseConnectionSelector';
-import { MockWalletDisplay } from './MockWalletDisplay';
+import { UnifiedPortfolioDisplay } from './UnifiedPortfolioDisplay';
 import { useMockWallet } from '@/hooks/useMockWallet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
@@ -350,7 +350,7 @@ export const DashboardPanel = () => {
 
   return (
     <div className="space-y-6">
-      <MockWalletDisplay />
+      <UnifiedPortfolioDisplay />
       
       {/* Connections Management */}
       <Card className="p-6 bg-slate-800/50 border-slate-600">
