@@ -746,6 +746,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      reset_mock_wallet_balances: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "user"

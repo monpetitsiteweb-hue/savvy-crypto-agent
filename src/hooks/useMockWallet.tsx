@@ -97,7 +97,7 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
 
       // Calculate balances from trades
       const calculatedBalances: { [key: string]: number } = {
-        EUR: 2500000, // Starting amount for Coinbase Pro account
+        EUR: 250000, // Starting amount - €250,000
         BTC: 0,      // Start with 0 crypto
         ETH: 0,      // Start with 0 crypto
         XRP: 0       // Start with 0 crypto
@@ -217,8 +217,8 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     // Reset balances to starting state
     setBalances([{
       currency: 'EUR',
-      amount: 2500000,
-      value_in_base: 2500000
+      amount: 250000,
+      value_in_base: 250000
     }]);
     // Refresh from database
     refreshFromDatabase();
