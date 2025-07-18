@@ -506,6 +506,11 @@ Only respond with valid JSON. No additional text.`
 
     // Fallback to pattern matching if AI analysis failed or wasn't available
     if (!responseMessage) {
+      // Pattern matching fallback logic
+      if (lowerMessage.includes('buy') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum') || lowerMessage.includes('ripple'))) {
+        console.log('💰 TRADE REQUEST: Buy detected via fallback');
+        responseMessage = 'I understand you want to make a purchase. Please use the format: "Buy [amount] euros of [crypto]" (e.g., "Buy 1000 euros of BTC")';
+      }
     }
     else if (lowerMessage.includes('sell') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum') || lowerMessage.includes('ripple'))) {
       console.log('💸 TRADE REQUEST: Sell detected');
