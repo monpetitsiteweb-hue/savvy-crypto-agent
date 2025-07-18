@@ -141,7 +141,11 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
 
       // Convert to WalletBalance format with current market values
       const walletBalances: WalletBalance[] = Object.entries(calculatedBalances)
-        .filter(([currency, amount]) => amount > 0 || currency === 'EUR')
+        .filter(([currency, amount]) => {
+          // Always include EUR (even if 0), only include crypto if amount > 0.001 (to handle rounding)
+          if (currency === 'EUR') return true;
+          return amount > 0.001; // Only show crypto with meaningful balance
+        })
         .map(([currency, amount]) => {
           // For EUR, value_in_base is just the amount
           // For crypto, multiply by real-time market price
