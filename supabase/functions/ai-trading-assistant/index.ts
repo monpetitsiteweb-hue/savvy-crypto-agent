@@ -279,8 +279,8 @@ serve(async (req) => {
       // Find all amount and crypto pairs in the message
       const tradeMatches = [];
       
-      // Pattern to match: amount + currency + "of" + crypto
-      const multiTradePattern = /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:euro|eur|€|dollar|usd|\$)\s*(?:of|worth of)?\s*(btc|bitcoin|eth|ethereum|xrp|ripple)/gi;
+      // Pattern to match: amount + currency + optional "of"/"worth of" + crypto
+      const multiTradePattern = /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:euro|eur|€|dollar|usd|\$)\s*(?:of\s+|worth\s+of\s+)?(btc|bitcoin|eth|ethereum|xrp|ripple)/gi;
       let match;
       
       while ((match = multiTradePattern.exec(message)) !== null) {
