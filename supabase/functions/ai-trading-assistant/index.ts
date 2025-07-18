@@ -29,6 +29,29 @@ async function executeTrade(supabase: any, userId: string, trade: TradeRequest, 
   console.log('Trade details:', JSON.stringify(trade, null, 2));
 
   try {
+    // Step 1B: Get strategy and check max position limit
+    console.log('🔄 TRADE STEP 1B: Checking max position limit...');
+    const { data: strategy, error: strategyError } = await supabase
+      .from('trading_strategies')
+      .select('configuration')
+      .eq('id', trade.strategyId)
+      .single();
+
+    if (strategyError) {
+      console.error('Strategy error:', strategyError);
+      return `❌ **Strategy Access Failed**\n\nCould not retrieve strategy configuration. Please try again.`;
+    }
+
+    const config = strategy.configuration;
+    const maxPosition = config.maxPosition || 5000;
+    
+    if (trade.amount > maxPosition) {
+      console.log(`⚠️ Trade amount €${trade.amount} exceeds max position €${maxPosition}`);
+      return `❌ **Position Limit Exceeded**\n\nYour maximum position is set to €${maxPosition}, but you're trying to trade €${trade.amount}. Please increase your max position limit first or reduce the trade amount.`;
+    }
+
+    console.log(`✅ Position check passed: €${trade.amount} ≤ €${maxPosition}`);
+
     // Step 2: Get user's fee rate from profile
     console.log('🔄 TRADE STEP 2A: Getting user fee configuration...');
     const { data: profile, error: profileError } = await supabase
