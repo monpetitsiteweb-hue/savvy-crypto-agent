@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useMockWallet } from '@/hooks/useMockWallet';
 
 interface Trade {
   id: string;
@@ -29,15 +30,18 @@ export const TradingHistory = () => {
   const { user } = useAuth();
   const { toast } = useToast();
   const { testMode } = useTestMode();
+  const { getTotalValue } = useMockWallet();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<any[]>([]);
   const [selectedConnection, setSelectedConnection] = useState<string>('');
   const [fetching, setFetching] = useState(false);
+  const [portfolioValue, setPortfolioValue] = useState<number>(0);
   const [stats, setStats] = useState({
     totalTrades: 0,
-    totalValue: 0,
-    totalFees: 0
+    totalVolume: 0, // Changed from totalValue to totalVolume
+    totalFees: 0,
+    netProfitLoss: 0
   });
 
   useEffect(() => {
@@ -128,7 +132,7 @@ export const TradingHistory = () => {
       let data, error;
       
       if (testMode) {
-        // In test mode, fetch from mock_trades table (real test trading data)
+        // In test mode, fetch from mock_trades table and use mock wallet value
         const result = await supabase
           .from('mock_trades')
           .select('*')
@@ -139,8 +143,11 @@ export const TradingHistory = () => {
         
         data = result.data;
         error = result.error;
+        
+        // Get current portfolio value from mock wallet
+        setPortfolioValue(getTotalValue());
       } else {
-        // In live mode, fetch from trading_history table (real Coinbase trades)
+        // In live mode, fetch from trading_history table
         const result = await supabase
           .from('trading_history')
           .select('*')
@@ -151,18 +158,31 @@ export const TradingHistory = () => {
         
         data = result.data;
         error = result.error;
+        
+        // In live mode, get portfolio value from Coinbase API or stored value
+        // For now, we'll calculate it from available balance data
+        // TODO: Integrate with real Coinbase portfolio value
+        setPortfolioValue(0); // Will be updated when Coinbase integration is complete
       }
 
       if (error) throw error;
       
       setTrades(data || []);
       
-      // Calculate stats
+      // Calculate meaningful trading statistics
       const totalTrades = data?.length || 0;
-      const totalValue = data?.reduce((sum, trade) => sum + Number(trade.total_value), 0) || 0;
+      const totalVolume = data?.reduce((sum, trade) => sum + Number(trade.total_value), 0) || 0;
       const totalFees = data?.reduce((sum, trade) => sum + Number(trade.fees || 0), 0) || 0;
       
-      setStats({ totalTrades, totalValue, totalFees });
+      // Calculate net profit/loss for test mode
+      let netProfitLoss = 0;
+      if (testMode && data) {
+        // Starting value was 100,000 EUR
+        const startingValue = 100000;
+        netProfitLoss = getTotalValue() - startingValue;
+      }
+      
+      setStats({ totalTrades, totalVolume, totalFees, netProfitLoss });
     } catch (error) {
       console.error('Error fetching trading history:', error);
       toast({
@@ -336,18 +356,24 @@ export const TradingHistory = () => {
         )}
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <Card className="p-4 bg-slate-700/30 border-slate-600">
+          <p className="text-sm text-slate-400">Portfolio Value</p>
+          <p className="text-xl font-bold text-white">€{(testMode ? portfolioValue : portfolioValue).toFixed(2)}</p>
+        </Card>
         <Card className="p-4 bg-slate-700/30 border-slate-600">
           <p className="text-sm text-slate-400">Total Trades</p>
           <p className="text-xl font-bold text-white">{stats.totalTrades}</p>
         </Card>
         <Card className="p-4 bg-slate-700/30 border-slate-600">
-          <p className="text-sm text-slate-400">Total Value</p>
-          <p className="text-xl font-bold text-white">€{stats.totalValue.toFixed(2)}</p>
+          <p className="text-sm text-slate-400">Volume Traded</p>
+          <p className="text-xl font-bold text-white">€{stats.totalVolume.toFixed(2)}</p>
         </Card>
         <Card className="p-4 bg-slate-700/30 border-slate-600">
-          <p className="text-sm text-slate-400">Total Fees</p>
-          <p className="text-xl font-bold text-slate-400">€{stats.totalFees.toFixed(2)}</p>
+          <p className="text-sm text-slate-400">{testMode ? 'Net P&L' : 'Total Fees'}</p>
+          <p className={`text-xl font-bold ${testMode ? (stats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400') : 'text-slate-400'}`}>
+            €{testMode ? stats.netProfitLoss.toFixed(2) : stats.totalFees.toFixed(2)}
+          </p>
         </Card>
       </div>
 
