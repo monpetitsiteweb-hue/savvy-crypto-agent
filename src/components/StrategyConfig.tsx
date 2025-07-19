@@ -570,24 +570,10 @@ export const StrategyConfig = () => {
         {/* All strategies list */}
         {allStrategies.length > 0 && (
           <Card className="p-6 bg-slate-700/30 border-slate-600">
-            <div 
-              onClick={(e) => {
-                console.log('🎯 CARD CONTAINER CLICKED!', { testMode });
-                e.stopPropagation();
-              }}
-              style={{ 
-                position: 'relative',
-                border: testMode ? '3px solid red' : '1px solid inherit'
-              }}
-            >
+            <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white">All Strategies</h3>
-                <Button 
-                  onClick={(e) => {
-                    console.log('🔵 ADD STRATEGY CLICKED!', { testMode });
-                    e.stopPropagation();
-                    handleCreateStrategy();
-                  }} 
+                <Button onClick={handleCreateStrategy}
                   className="bg-green-600 hover:bg-green-700 text-white"
                 >
                   <Plus className="w-4 h-4 mr-2" />
@@ -637,16 +623,11 @@ export const StrategyConfig = () => {
                       </Button>
                     )}
                     
-                       <div>
-                        <AlertDialog>
-                         <AlertDialogTrigger asChild>
-                           <Button
-                             variant="outline"
-                             size="sm"
-                             onClick={(e) => {
-                               console.log('🚀 ACTIVATE/DEACTIVATE TRIGGER CLICKED!', { testMode });
-                               e.stopPropagation();
-                             }}
+                       <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
                              className={`${
                                ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
                                  ? 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30' 
@@ -682,11 +663,8 @@ export const StrategyConfig = () => {
                            <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
                              Cancel
                            </AlertDialogCancel>
-                             <AlertDialogAction 
-                               onClick={() => {
-                                 console.log('🔘 REAL ACTIVATE BUTTON CLICKED!', strategy.id, { testMode, is_active_test: strategy.is_active_test, is_active_live: strategy.is_active_live });
-                                 handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live));
-                               }}
+                              <AlertDialogAction 
+                                onClick={() => handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))}
                              className={`${
                                ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
                                  ? 'bg-red-600 hover:bg-red-700' 
@@ -696,57 +674,49 @@ export const StrategyConfig = () => {
                              {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? 'Deactivate' : 'Activate'}
                            </AlertDialogAction>
                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                         </AlertDialogContent>
+                       </AlertDialog>
                       </div>
 
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => console.log('🗑️ DELETE TRIGGER CLICKED!')}
-                          className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Delete
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="bg-slate-800 border-slate-700">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle className="text-white">
-                            Delete Strategy
-                          </AlertDialogTitle>
-                          <AlertDialogDescription className="text-slate-400">
-                            Are you sure you want to permanently delete the strategy "{strategy.strategy_name}"? 
-                            This action is irreversible and will delete all associated data.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                            Cancel
-                          </AlertDialogCancel>
-                          <AlertDialogAction 
-                            onClick={() => {
-                              console.log('🗑️ REAL DELETE BUTTON CLICKED!');
-                              handleDeleteStrategy(strategy.id, strategy.strategy_name);
-                            }}
-                            className="bg-red-600 hover:bg-red-700 text-white"
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
                           >
-                            Delete Permanently
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                </div>
-              ))}
-            </div>
-            </div>
-          </Card>
-        )}
-      </div>
-    );
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Delete
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="bg-slate-800 border-slate-700">
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="text-white">Delete Strategy</AlertDialogTitle>
+                            <AlertDialogDescription className="text-slate-400">
+                              Are you sure you want to delete "{strategy.strategy_name}"? 
+                              This action is irreversible and will delete all associated data.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                              Cancel
+                            </AlertDialogCancel>
+                            <AlertDialogAction 
+                              onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
+                              className="bg-red-600 hover:bg-red-700 text-white"
+                            >
+                              Delete Permanently
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             </div>
+           </Card>
+         )}
   
   // Create Strategy View - Shows existing strategies when no strategy is active
   const CreateStrategyView = () => (
@@ -778,10 +748,7 @@ export const StrategyConfig = () => {
                      <Button
                        size="sm"
                        className="bg-green-500 hover:bg-green-600 text-white"
-                       onClick={() => {
-                         console.log('🔘 ACTIVATE BUTTON CLICKED!', strategy.id);
-                         handleToggleStrategy(strategy.id, false);
-                       }}
+                        onClick={() => handleToggleStrategy(strategy.id, false)}
                      >
                        <Play className="w-4 h-4 mr-2" />
                        Activate
