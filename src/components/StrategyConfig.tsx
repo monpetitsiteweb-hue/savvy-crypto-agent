@@ -148,8 +148,10 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
   }, [testMode, allStrategies]); // Separate from main loading effect
 
   const handleCreateStrategy = useCallback(() => {
+    console.log('🔥 handleCreateStrategy called - setting viewMode to configure');
     setIsEditing(false);
     setViewMode('configure');
+    console.log('🔥 viewMode should now be configure');
   }, []);
 
   const handleEditStrategy = useCallback(() => {
