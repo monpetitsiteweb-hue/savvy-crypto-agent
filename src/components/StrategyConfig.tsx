@@ -470,110 +470,16 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
         </div>
       </Card>
 
-      <Card className="p-6 bg-slate-700/30 border-slate-600">
-        <h3 className="text-lg font-semibold text-white mb-4">Strategy Actions</h3>
-        <div className="flex gap-3">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="outline"
-                className={`${
-                  hasActiveStrategy
-                    ? 'bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30' 
-                    : 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30'
-                }`}
-              >
-                {hasActiveStrategy ? (
-                  <>
-                    <Pause className="w-4 h-4 mr-2" />
-                    Deactivate Strategy
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 mr-2" />
-                    Activate Strategy
-                  </>
-                )}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent className="bg-slate-800 border-slate-700">
-              <AlertDialogHeader>
-                <AlertDialogTitle className="text-white">
-                  {hasActiveStrategy ? 'Deactivate Strategy' : 'Activate Strategy'}
-                </AlertDialogTitle>
-                <AlertDialogDescription className="text-slate-400">
-                  {hasActiveStrategy
-                    ? `Are you sure you want to deactivate your strategy in ${testMode ? 'Test' : 'Live'} mode? This will stop all automated trading.`
-                    : `Are you sure you want to activate your strategy in ${testMode ? 'Test' : 'Live'} mode? This will start automated trading.`
-                  }
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction 
-                  onClick={() => {
-                    if (activeStrategy) {
-                      handleToggleStrategy(activeStrategy.id, hasActiveStrategy);
-                    }
-                  }}
-                  className={`${
-                    hasActiveStrategy
-                      ? 'bg-red-600 hover:bg-red-700' 
-                      : 'bg-green-600 hover:bg-green-700'
-                  } text-white`}
-                >
-                  {hasActiveStrategy ? 'Deactivate' : 'Activate'}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="outline"
-                className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Delete Strategy
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent className="bg-slate-800 border-slate-700">
-              <AlertDialogHeader>
-                <AlertDialogTitle className="text-white">Delete Strategy</AlertDialogTitle>
-                <AlertDialogDescription className="text-slate-400">
-                  Are you sure you want to delete this strategy? This action is irreversible and will delete all associated data.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction 
-                  onClick={() => {
-                    if (activeStrategy) {
-                      handleDeleteStrategy(activeStrategy.id, activeStrategy.strategy_name);
-                    }
-                  }}
-                  className="bg-red-600 hover:bg-red-700 text-white"
-                >
-                  Delete Permanently
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-      </Card>
-
       {/* All strategies list */}
       {allStrategies.length > 0 && (
         <Card className="p-6 bg-slate-700/30 border-slate-600">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-white">All Strategies</h3>
             <Button 
-              onClick={handleCreateStrategy}
+              onClick={() => {
+                console.log('🔴 TEST MODE BUTTON CLICKED!', { testMode, allStrategies: allStrategies.length });
+                handleCreateStrategy();
+              }}
               className="bg-green-600 hover:bg-green-700 text-white"
             >
               <Plus className="w-4 h-4 mr-2" />
