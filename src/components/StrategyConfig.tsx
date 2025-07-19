@@ -21,7 +21,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
         TEST BUTTON 1
       </button>
       <button 
-        onClick={() => console.log('BUTTON 2 CLICKED')}
+        onClick={() => alert('BUTTON 2 WORKS TOO!')}
         style={{ 
           background: 'green', 
           color: 'white', 
