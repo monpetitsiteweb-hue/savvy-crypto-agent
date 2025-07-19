@@ -68,7 +68,7 @@ async function executeTrade(trade: TradeRequest, userId: string, authToken: stri
         .insert({
           user_id: userId,
           strategy_id: trade.strategyId,
-          trade_type: trade.tradeType,
+          trade_type: trade.tradeType.toLowerCase(),
           cryptocurrency: trade.cryptocurrency,
           amount: cryptoAmount,
           price: cryptoPrice,
