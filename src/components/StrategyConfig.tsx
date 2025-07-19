@@ -600,18 +600,18 @@ export const StrategyConfig = () => {
                       </Button>
                     )}
                     
-                       <AlertDialog>
-                         <AlertDialogTrigger asChild>
-                           <Button
-                             variant="outline"
-                             size="sm"
-                             onClick={() => console.log('🚀 DIALOG TRIGGER CLICKED!')}
-                             className={`${
-                               ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
-                                 ? 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30' 
-                                 : 'bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500'
-                             }`}
-                           >
+                      <AlertDialog>
+                       <AlertDialogTrigger asChild>
+                         <Button
+                           variant="outline"
+                           size="sm"
+                           onClick={() => console.log('🚀 ACTIVATE/DEACTIVATE TRIGGER CLICKED!')}
+                           className={`${
+                             ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
+                               ? 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30' 
+                               : 'bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500'
+                           }`}
+                         >
                             {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? (
                               <>
                                 <Pause className="w-4 h-4 mr-2" />
@@ -663,6 +663,7 @@ export const StrategyConfig = () => {
                         <Button
                           variant="outline"
                           size="sm"
+                          onClick={() => console.log('🗑️ DELETE TRIGGER CLICKED!')}
                           className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
@@ -684,7 +685,10 @@ export const StrategyConfig = () => {
                             Cancel
                           </AlertDialogCancel>
                           <AlertDialogAction 
-                            onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
+                            onClick={() => {
+                              console.log('🗑️ REAL DELETE BUTTON CLICKED!');
+                              handleDeleteStrategy(strategy.id, strategy.strategy_name);
+                            }}
                             className="bg-red-600 hover:bg-red-700 text-white"
                           >
                             Delete Permanently
