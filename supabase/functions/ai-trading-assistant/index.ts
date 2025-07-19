@@ -246,59 +246,58 @@ serve(async (req) => {
       });
     }
 
-    // AI Analysis System Prompt
-    const analysisPrompt = `You are an expert cryptocurrency trading assistant analyzing user messages to determine intent and provide intelligent responses.
+    // AI Analysis System Prompt - DECISIVE BEHAVIOR
+    const analysisPrompt = `You are a DECISIVE cryptocurrency trading assistant. BE DIRECT AND ACTION-ORIENTED.
 
-CRITICAL BEHAVIOR RULES:
-1. For DIRECT TRADE COMMANDS (like "buy X euros of Y", "sell Z amount of Y"), provide SIMPLE CONFIRMATION instead of lengthy advice
-2. For complex strategy questions, provide detailed expert guidance
-3. Always check if user is confirming a previous trade request
+CRITICAL RULES:
+1. ALWAYS execute what user asks - don't ask permission
+2. If trade amount exceeds limit and user wants to trade - increase the limit automatically
+3. If user asks to increase limits - just do it, no consultation needed
+4. If user is frustrated (using strong language) - be MORE decisive, less talking
+5. Multi-step requests: handle limit increase AND trade execution in one response
 
-Current Strategy Context:
-- Max Position: €${currentConfig.maxPosition || 10}
-- Risk Level: ${currentConfig.riskLevel || 'medium'}
-- Stop Loss: ${currentConfig.stopLossPercentage || 3}%
-- Test Mode: ${testMode ? 'Yes' : 'No'}
-
+Current Limits: Max Position €${currentConfig.maxPosition || 10}
 User Message: "${message}"
 
-Analyze this message and respond with a JSON object containing:
+DECISION LOGIC:
+- "buy 1000 euros of XRP" + current limit €10 = increase limit to 1000+ AND execute trade
+- "increase limit" = set maxPosition to 5000
+- "increase limit to X" = set maxPosition to X
+- any buy/sell command = execute immediately
+
+Respond with VALID JSON ONLY:
 {
-  "intent": "trade" | "strategy_advice" | "confirmation" | "general",
-  "requires_consultation": boolean,
-  "trades": [array of trade objects if intent is trade],
-  "config_changes": {},
-  "reasoning": "explanation of your analysis",
-  "consultation_response": "response text for complex queries only",
-  "market_context": "brief market analysis if relevant"
+  "intent": "trade",
+  "requires_consultation": false,
+  "trades": [{"tradeType": "BUY", "cryptocurrency": "XRP", "amount": 1000, "orderType": "market"}],
+  "config_changes": {"maxPosition": 5000},
+  "reasoning": "User wants to buy €1000 XRP, increased limit and executing trade",
+  "consultation_response": "✅ Limit increased to €5000. Executing €1000 XRP purchase now.",
+  "market_context": ""
 }
 
 EXAMPLES:
 
-Direct Trade Command: "buy 50 euros of bitcoin"
-Response: {
+"buy 1000 euros of XRP":
+{
   "intent": "trade",
   "requires_consultation": false,
-  "trades": [{"tradeType": "BUY", "cryptocurrency": "BTC", "amount": 50, "orderType": "market"}],
-  "reasoning": "Clear direct trade command",
-  "consultation_response": "⚡ **Ready to Execute**\n\nBuy €50 of Bitcoin (BTC) at current market price?\n\n**Current Strategy Limits:** €${currentConfig.maxPosition || 10} max per order\n**Environment:** ${testMode ? 'Test Mode' : 'Live Trading'}\n\nConfirm to proceed."
+  "trades": [{"tradeType": "BUY", "cryptocurrency": "XRP", "amount": 1000, "orderType": "market"}],
+  "config_changes": {"maxPosition": 5000},
+  "reasoning": "Increasing limit and executing trade as requested",
+  "consultation_response": "✅ Position limit increased to €5000. Executing €1000 XRP buy order.",
+  "market_context": ""
 }
 
-Complex Strategy Question: "how can I make 1% daily profit"
-Response: {
-  "intent": "strategy_advice", 
-  "requires_consultation": true,
-  "trades": [],
-  "reasoning": "Complex strategy question requiring expert guidance",
-  "consultation_response": "🎯 **Daily 1% Profit Strategy Analysis**\n\n**Reality Check:** 1% daily = 3,778% annually - this is extremely aggressive...[detailed analysis]"
-}
-
-Confirmation: "yes" or "confirm" after a trade suggestion
-Response: {
-  "intent": "confirmation",
+"increase limit":
+{
+  "intent": "config_change",
   "requires_consultation": false,
-  "trades": [extract trade from context],
-  "reasoning": "User confirming previous trade suggestion"
+  "trades": [],
+  "config_changes": {"maxPosition": 5000},
+  "reasoning": "User requested limit increase",
+  "consultation_response": "✅ Position limit increased to €5000.",
+  "market_context": ""
 }`;
 
     try {
@@ -343,21 +342,61 @@ Response: {
 
       const { intent, requires_consultation, trades, config_changes, consultation_response } = analysis;
 
-      // Check for direct action intent - only proceed if no consultation required
-      if (intent === 'trade' && !requires_consultation) {
-        console.log('💬 Processing direct trade request...');
+      // First, handle config changes if any
+      if (config_changes && Object.keys(config_changes).length > 0) {
+        console.log('🔧 UPDATING STRATEGY CONFIG:', config_changes);
         
-        // Direct trade execution
+        // Update the strategy configuration
+        const { error: updateError } = await supabase
+          .from('trading_strategies')
+          .update(config_changes)
+          .eq('id', strategyId)
+          .eq('user_id', userId);
+          
+        if (updateError) {
+          console.error('❌ CONFIG UPDATE FAILED:', updateError);
+        } else {
+          console.log('✅ STRATEGY CONFIG UPDATED SUCCESSFULLY');
+        }
+      }
+
+      // Check for direct action intent - execute trades immediately
+      if ((intent === 'trade' || intent === 'config_change') && !requires_consultation) {
+        console.log('💬 Processing direct action request...');
+        
+        // If there are trades to execute
         if (trades && trades.length > 0) {
           console.log('💬 Executing trade:', trades[0]);
-          // Execute the trade and return the result
-          const tradeResult = await executeTrade(trades[0], userId, authToken);
+          
+          // Update the trade request with new config if needed
+          const updatedTrade = {
+            ...trades[0],
+            strategyId: strategyId,
+            testMode: testMode
+          };
+          
+          const tradeResult = await executeTrade(updatedTrade, userId, authToken);
           
           return new Response(
             JSON.stringify({ 
               action: 'trade_executed',
               message: tradeResult,
+              config_updated: !!config_changes,
               trades: trades
+            }), 
+            { 
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+            }
+          );
+        }
+        
+        // If only config changes (no trades)
+        if (config_changes && Object.keys(config_changes).length > 0) {
+          return new Response(
+            JSON.stringify({ 
+              action: 'config_updated',
+              message: consultation_response || '✅ Strategy configuration updated successfully.',
+              config_changes: config_changes
             }), 
             { 
               headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
