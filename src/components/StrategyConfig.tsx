@@ -81,9 +81,18 @@ export const StrategyConfig = () => {
 
   // Load all strategies, performance data, and mock trades
   useEffect(() => {
+    console.log('🔄 Main loadStrategies effect triggered', { user: !!user });
+    
     const loadStrategies = async () => {
-      if (!user) return;
+      if (!user) {
+        console.log('🔄 No user, clearing strategies');
+        setAllStrategies([]);
+        setHasActiveStrategy(false);
+        setActiveStrategy(null);
+        return;
+      }
       
+      console.log('🔄 Fetching strategies from database');
       const { data, error } = await supabase
         .from('trading_strategies')
         .select('*')
@@ -91,7 +100,10 @@ export const StrategyConfig = () => {
         .order('created_at', { ascending: false });
 
       if (data && !error) {
+        console.log('🔄 Fetched strategies:', data.length);
         setAllStrategies(data);
+        
+        // Don't automatically set active strategy here - let the testMode effect handle it
         const activeStrategyData = data.find(s => 
           testMode ? s.is_active_test : s.is_active_live
         );
@@ -113,6 +125,7 @@ export const StrategyConfig = () => {
           setActiveStrategy(null);
         }
       } else {
+        console.log('🔄 Error or no data, clearing strategies');
         setHasActiveStrategy(false);
         setActiveStrategy(null);
         setAllStrategies([]);
@@ -120,7 +133,7 @@ export const StrategyConfig = () => {
     };
 
     loadStrategies();
-  }, [user, testMode]);
+  }, [user]); // ONLY depend on user, not testMode
 
   // Refresh active strategy when testMode changes to update UI immediately
   useEffect(() => {
