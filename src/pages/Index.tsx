@@ -7,6 +7,7 @@ import { ConversationPanel } from '@/components/ConversationPanel';
 import { MergedPortfolioDisplay } from '@/components/MergedPortfolioDisplay';
 import { TradingHistory } from '@/components/TradingHistory';
 import { StrategyConfig } from '@/components/StrategyConfig';
+import { TestStrategyConfig } from '@/components/TestStrategyConfig';
 import { PerformanceOverview } from '@/components/PerformanceOverview';
 import { AdminPage } from '@/components/admin/AdminPage';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -106,7 +107,7 @@ const Index = () => {
                     onCreateStrategy={() => setActiveTab('strategy')}
                   />
                 )}
-                {activeTab === 'strategy' && <StrategyConfig />}
+                {activeTab === 'strategy' && <TestStrategyConfig />}
                 {activeTab === 'performance' && (
                   <PerformanceOverview 
                     hasActiveStrategy={hasActiveStrategy}
