@@ -523,7 +523,7 @@ export const StrategyConfig = () => {
             <p className="text-white font-medium">{strategyConfig.stopLossPercentage || 3}%</p>
           </div>
         </div>
-        </Card>
+      </Card>
 
         {/* Recent Trades Display */}
         {mockTrades.length > 0 && (
@@ -676,7 +676,6 @@ export const StrategyConfig = () => {
                          </AlertDialogFooter>
                          </AlertDialogContent>
                        </AlertDialog>
-                      </div>
 
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -717,6 +716,8 @@ export const StrategyConfig = () => {
              </div>
            </Card>
          )}
+      </div>
+    );
   
   // Create Strategy View - Shows existing strategies when no strategy is active
   const CreateStrategyView = () => (
