@@ -51,7 +51,7 @@ interface StrategyFormData {
   maxWalletExposure: number;
   enableLiveTrading: boolean;
   enableTestTrading: boolean;
-  simulationMode: boolean;
+  
   notes: string;
   selectedCoins: string[];
   maxActiveCoins: number;
@@ -167,7 +167,6 @@ export const ComprehensiveStrategyConfig = ({
   
   const [activeSection, setActiveSection] = useState('basic-settings');
   const [showLiveConfirmation, setShowLiveConfirmation] = useState(false);
-  const [advancedExpanded, setAdvancedExpanded] = useState(false);
   
   const [formData, setFormData] = useState<StrategyFormData>({
     strategyName: existingStrategy?.strategy_name || '',
@@ -175,7 +174,7 @@ export const ComprehensiveStrategyConfig = ({
     maxWalletExposure: 50,
     enableLiveTrading: false,
     enableTestTrading: true,
-    simulationMode: true,
+    
     notes: '',
     selectedCoins: ['BTC', 'ETH'],
     maxActiveCoins: 5,
@@ -441,15 +440,6 @@ export const ComprehensiveStrategyConfig = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <TooltipField tooltip="Use virtual balance for backtesting or demo trading">
-              <Label>Simulation Mode</Label>
-            </TooltipField>
-            <Switch 
-              checked={formData.simulationMode} 
-              onCheckedChange={(value) => updateFormData('simulationMode', value)}
-            />
-          </div>
 
           <div className="space-y-2">
             <TooltipField tooltip="Optional: Describe your strategy goals or logic">
@@ -823,11 +813,11 @@ export const ComprehensiveStrategyConfig = ({
             </Select>
           </div>
 
-          <Collapsible open={advancedExpanded} onOpenChange={setAdvancedExpanded}>
+          <Collapsible>
             <CollapsibleTrigger asChild>
               <Button variant="ghost" className="w-full justify-between">
                 Advanced Settings
-                {advancedExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                <ChevronRight className="h-4 w-4" />
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-4 mt-4">
@@ -986,69 +976,64 @@ export const ComprehensiveStrategyConfig = ({
                      formData.riskProfile === 'high' ? 'Aggressive' : 'Custom';
     
     const selectedCoinsCount = formData.selectedCoins?.length || 0;
+    const currentMode = formData.enableLiveTrading ? 'Live Trading' : 'Test Mode';
     
     return (
-      <Card className="p-6 bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/30">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <BarChart3 className="h-5 w-5" />
-          Strategy Summary
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-          <div>
-            <span className="text-muted-foreground">Name:</span>
-            <span className="ml-2 font-medium">{formData.strategyName || 'Unnamed Strategy'}</span>
+      <div className="bg-gradient-to-r from-primary/5 to-accent/5 border border-primary/20 rounded-lg p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-primary" />
+            Strategy Summary
+          </h3>
+          <Badge variant={formData.enableLiveTrading ? "destructive" : "secondary"} className="px-3 py-1">
+            {currentMode}
+          </Badge>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-4">
+          <div className="space-y-1">
+            <span className="text-sm text-muted-foreground">Strategy Name</span>
+            <p className="font-semibold text-foreground">{formData.strategyName || 'Unnamed Strategy'}</p>
           </div>
-          <div>
-            <span className="text-muted-foreground">Risk Level:</span>
-            <span className="ml-2 font-medium">{riskLevel}</span>
+          <div className="space-y-1">
+            <span className="text-sm text-muted-foreground">Risk Profile</span>
+            <p className="font-semibold text-foreground">{riskLevel}</p>
           </div>
-          <div>
-            <span className="text-muted-foreground">Coins:</span>
-            <span className="ml-2 font-medium">{selectedCoinsCount} selected</span>
+          <div className="space-y-1">
+            <span className="text-sm text-muted-foreground">Selected Coins</span>
+            <p className="font-semibold text-foreground">{selectedCoinsCount} coins</p>
           </div>
-          <div>
-            <span className="text-muted-foreground">Wallet Exposure:</span>
-            <span className="ml-2 font-medium">{formData.maxWalletExposure}%</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Take Profit:</span>
-            <span className="ml-2 text-green-600 font-medium">{formData.takeProfitPercentage}%</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Stop Loss:</span>
-            <span className="ml-2 text-red-600 font-medium">{formData.stopLossPercentage}%</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Mode:</span>
-            <span className="ml-2 font-medium">
-              {formData.enableLiveTrading ? 'Live' : 'Test'} Trading
-              {formData.backtestingMode && ' + Backtest'}
-            </span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">DCA:</span>
-            <span className="ml-2 font-medium">
-              {formData.enableDCA ? `Every ${formData.dcaIntervalHours}h` : 'Disabled'}
-            </span>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Frequency:</span>
-            <span className="ml-2 font-medium">
-              {formData.buyFrequency === 'signal_based' ? 'Signal-based' : 
-               formData.buyFrequency === 'daily' ? 'Daily' : 
-               formData.buyFrequency === 'interval' ? `Every ${formData.buyIntervalMinutes}min` : 'Once'}
-            </span>
+          <div className="space-y-1">
+            <span className="text-sm text-muted-foreground">Wallet Exposure</span>
+            <p className="font-semibold text-foreground">{formData.maxWalletExposure}%</p>
           </div>
         </div>
         
-        <div className="mt-4 p-3 bg-muted rounded-lg">
-          <p className="text-xs text-muted-foreground">
-            <strong>Strategy Logic:</strong> {riskLevel} approach with {formData.sellOrderType === 'trailing_stop' ? 'trailing stops to let gains run while protecting profits' : 'fixed targets for consistent gains'}. 
-            {formData.enableDCA && ' Dollar-cost averaging enabled to reduce timing risk.'} 
-            {formData.enableAutoCoinSelection && ' Auto-coin selection will adapt to market conditions.'}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
+          <div className="space-y-1">
+            <span className="text-sm text-muted-foreground">Take Profit</span>
+            <p className="font-semibold text-green-600">{formData.takeProfitPercentage}%</p>
+          </div>
+          <div className="space-y-1">
+            <span className="text-sm text-muted-foreground">Stop Loss</span>
+            <p className="font-semibold text-red-600">{formData.stopLossPercentage}%</p>
+          </div>
+          <div className="space-y-1">
+            <span className="text-sm text-muted-foreground">DCA Settings</span>
+            <p className="font-semibold text-foreground">
+              {formData.enableDCA ? `Every ${formData.dcaIntervalHours}h` : 'Disabled'}
+            </p>
+          </div>
+        </div>
+        
+        <div className="p-4 bg-muted/50 rounded-lg border-l-4 border-l-primary">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            <span className="font-medium text-foreground">Strategy Logic:</span> {riskLevel} risk approach using {formData.sellOrderType === 'trailing_stop' ? 'trailing stops to maximize gains while protecting profits' : 'fixed profit targets for consistent returns'}. 
+            {formData.enableDCA && ' Dollar-cost averaging is enabled to reduce market timing risk.'} 
+            {!formData.enableLiveTrading && ' Currently in test mode using simulated funds.'}
           </p>
         </div>
-      </Card>
+      </div>
     );
   };
 
@@ -1088,18 +1073,19 @@ export const ComprehensiveStrategyConfig = ({
         </div>
         
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Advanced:</span>
-            <Switch />
-          </div>
-          <Button onClick={handleSubmit} className="bg-green-600 hover:bg-green-700">
+          <Button onClick={handleSubmit} className="bg-green-500 hover:bg-green-600 text-white">
             <Save className="h-4 w-4 mr-2" />
-            Save
+            Save Strategy
           </Button>
-          <Button variant="destructive" onClick={onBack}>
+          <Button variant="outline" onClick={onBack}>
             Cancel
           </Button>
         </div>
+      </div>
+
+      {/* Strategy Summary at the top */}
+      <div className="p-6 border-b bg-muted/30">
+        {renderSummary()}
       </div>
 
       <div className="flex">
@@ -1108,7 +1094,6 @@ export const ComprehensiveStrategyConfig = ({
         <div className="flex-1 p-6 overflow-auto">
           <form onSubmit={handleSubmit} className="space-y-6">
             {renderCurrentSection()}
-            {renderSummary()}
           </form>
         </div>
       </div>
