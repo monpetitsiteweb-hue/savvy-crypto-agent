@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { ComprehensiveStrategyConfig } from './strategy/ComprehensiveStrategyConfig';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1313,7 +1314,13 @@ export const StrategyConfig = () => {
 
   // Main render logic
   if (viewMode === 'configure') {
-    return <ConfigurationView />;
+    return (
+      <ComprehensiveStrategyConfig 
+        onBack={handleBackToOverview}
+        existingStrategy={activeStrategy}
+        isEditing={isEditing}
+      />
+    );
   }
 
   if (hasActiveStrategy) {
