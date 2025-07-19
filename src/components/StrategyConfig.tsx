@@ -472,24 +472,19 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
         </div>
       </Card>
 
-      {/* Add strategy button - always visible */}
-      <Card className="p-6 bg-slate-700/30 border-slate-600">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-white">Create New Strategy</h3>
-          <Button 
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              alert('BUTTON CLICKED!');
-              handleCreateStrategy();
-            }}
-            className="bg-green-600 hover:bg-green-700 text-white"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add a strategy
-          </Button>
-        </div>
-      </Card>
+      {/* Debug: Always visible Add Strategy button */}
+      <div className="text-center py-4">
+        <Button 
+          onClick={() => {
+            alert(`Strategies count: ${allStrategies.length}, testMode: ${testMode}`);
+            handleCreateStrategy();
+          }}
+          className="bg-cyan-500 hover:bg-cyan-600 text-white"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add Strategy (Always Visible)
+        </Button>
+      </div>
 
       {/* All strategies list */}
       {allStrategies.length > 0 && (
