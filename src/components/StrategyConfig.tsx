@@ -724,21 +724,17 @@ export const StrategyConfig = () => {
                     </p>
                   </div>
                   
-                   <div className="flex items-center gap-3">
-                     <AlertDialog>
-                       <AlertDialogTrigger asChild>
-                         <Button
-                           size="sm"
-                           className="bg-green-500 hover:bg-green-600 text-white"
-                           onClick={(e) => {
-                             e.preventDefault();
-                             e.stopPropagation();
-                           }}
-                         >
-                           <Play className="w-4 h-4 mr-2" />
-                           Activate
-                         </Button>
-                       </AlertDialogTrigger>
+                     <div className="flex items-center gap-3">
+                       <AlertDialog>
+                         <AlertDialogTrigger asChild>
+                           <Button
+                             size="sm"
+                             className="bg-green-500 hover:bg-green-600 text-white"
+                           >
+                             <Play className="w-4 h-4 mr-2" />
+                             Activate
+                           </Button>
+                         </AlertDialogTrigger>
                         <AlertDialogContent className="bg-slate-800 border-slate-700">
                           <AlertDialogHeader>
                             <AlertDialogTitle className="text-white">Activate Strategy</AlertDialogTitle>
