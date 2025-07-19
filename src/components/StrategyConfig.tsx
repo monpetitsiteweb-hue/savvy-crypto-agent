@@ -596,59 +596,67 @@ export const StrategyConfig = () => {
                       </Button>
                     )}
                     
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={`${
-                            ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
-                              ? 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30' 
-                              : 'bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500'
-                          }`}
-                        >
-                          {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? (
-                            <>
-                              <Pause className="w-4 h-4 mr-2" />
-                              Deactivate
-                            </>
-                          ) : (
-                            <>
-                              <Play className="w-4 h-4 mr-2" />
-                              Activate
-                            </>
-                          )}
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="bg-slate-800 border-slate-700">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle className="text-white">
-                            {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? 'Deactivate Strategy' : 'Activate Strategy'}
-                          </AlertDialogTitle>
-                          <AlertDialogDescription className="text-slate-400">
-                            {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
-                              ? `Are you sure you want to deactivate the strategy "${strategy.strategy_name}" in ${testMode ? 'Test' : 'Live'} mode? This will stop all automated trading.`
-                              : `Are you sure you want to activate the strategy "${strategy.strategy_name}" in ${testMode ? 'Test' : 'Live'} mode? This will automatically deactivate any other active strategy in this mode.`
-                            }
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                            Cancel
-                          </AlertDialogCancel>
-                          <AlertDialogAction 
-                            onClick={() => handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))}
-                            className={`${
-                              ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
-                                ? 'bg-red-600 hover:bg-red-700' 
-                                : 'bg-green-600 hover:bg-green-700'
-                            } text-white`}
-                          >
-                            {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? 'Deactivate' : 'Activate'}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                     <AlertDialog>
+                       <AlertDialogTrigger asChild>
+                         <Button
+                           variant="outline"
+                           size="sm"
+                           className={`${
+                             ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
+                               ? 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30' 
+                               : 'bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500'
+                           }`}
+                           onClick={(e) => {
+                             e.preventDefault();
+                             e.stopPropagation();
+                           }}
+                         >
+                           {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? (
+                             <>
+                               <Pause className="w-4 h-4 mr-2" />
+                               Deactivate
+                             </>
+                           ) : (
+                             <>
+                               <Play className="w-4 h-4 mr-2" />
+                               Activate
+                             </>
+                           )}
+                         </Button>
+                       </AlertDialogTrigger>
+                       <AlertDialogContent className="bg-slate-800 border-slate-700">
+                         <AlertDialogHeader>
+                           <AlertDialogTitle className="text-white">
+                             {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? 'Deactivate Strategy' : 'Activate Strategy'}
+                           </AlertDialogTitle>
+                           <AlertDialogDescription className="text-slate-400">
+                             {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
+                               ? `Are you sure you want to deactivate the strategy "${strategy.strategy_name}" in ${testMode ? 'Test' : 'Live'} mode? This will stop all automated trading.`
+                               : `Are you sure you want to activate the strategy "${strategy.strategy_name}" in ${testMode ? 'Test' : 'Live'} mode? This will automatically deactivate any other active strategy in this mode.`
+                             }
+                           </AlertDialogDescription>
+                         </AlertDialogHeader>
+                         <AlertDialogFooter>
+                           <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                             Cancel
+                           </AlertDialogCancel>
+                           <AlertDialogAction 
+                             onClick={(e) => {
+                               e.preventDefault();
+                               e.stopPropagation();
+                               handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live));
+                             }}
+                             className={`${
+                               ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
+                                 ? 'bg-red-600 hover:bg-red-700' 
+                                 : 'bg-green-600 hover:bg-green-700'
+                             } text-white`}
+                           >
+                             {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? 'Deactivate' : 'Activate'}
+                           </AlertDialogAction>
+                         </AlertDialogFooter>
+                       </AlertDialogContent>
+                     </AlertDialog>
 
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
@@ -693,98 +701,114 @@ export const StrategyConfig = () => {
       </div>
     );
   
-  // Create Strategy View - Modifié pour montrer les stratégies existantes
+  // Create Strategy View - Shows existing strategies when no strategy is active
   const CreateStrategyView = () => (
     <div className="space-y-6">
       {allStrategies.length > 0 ? (
         <>
           <div className="text-center">
-            <h3 className="text-xl font-semibold text-white mb-2">Aucune stratégie active</h3>
-            <p className="text-slate-400 mb-6">Activez une stratégie existante ou créez-en une nouvelle</p>
+            <h3 className="text-xl font-semibold text-white mb-2">No Active Strategy</h3>
+            <p className="text-slate-400 mb-6">Activate an existing strategy or create a new one</p>
             <Button onClick={handleCreateStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
               <Plus className="w-4 h-4 mr-2" />
-              Créer une nouvelle stratégie
+              Create New Strategy
             </Button>
           </div>
           
           <Card className="p-6 bg-slate-700/30 border-slate-600">
-            <h3 className="text-lg font-semibold text-white mb-4">Stratégies existantes</h3>
+            <h3 className="text-lg font-semibold text-white mb-4">Existing Strategies</h3>
             <div className="space-y-3">
               {allStrategies.map((strategy) => (
                 <div key={strategy.id} className="flex items-center justify-between p-4 bg-slate-800/30 rounded-lg border border-slate-600">
                   <div className="flex-1">
                     <h4 className="text-white font-medium">{strategy.strategy_name}</h4>
                     <p className="text-slate-400 text-sm mt-1">
-                      Créée le {new Date(strategy.created_at).toLocaleDateString()}
+                      Created on {new Date(strategy.created_at).toLocaleDateString()}
                     </p>
                   </div>
                   
-                  <div className="flex items-center gap-3">
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          size="sm"
-                          className="bg-green-500 hover:bg-green-600 text-white"
-                        >
-                          <Play className="w-4 h-4 mr-2" />
-                          Activate
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="bg-slate-800 border-slate-700">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle className="text-white">Activate Strategy</AlertDialogTitle>
-                          <AlertDialogDescription className="text-slate-400">
-                            Are you sure you want to activate the strategy "{strategy.strategy_name}" in {testMode ? 'Test' : 'Live'} mode? This will start automated trading according to the defined configuration.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                            Cancel
-                          </AlertDialogCancel>
-                          <AlertDialogAction 
-                            onClick={() => handleToggleStrategy(strategy.id, false)}
-                            className="bg-green-600 hover:bg-green-700 text-white"
-                          >
-                            Activate
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                   <div className="flex items-center gap-3">
+                     <AlertDialog>
+                       <AlertDialogTrigger asChild>
+                         <Button
+                           size="sm"
+                           className="bg-green-500 hover:bg-green-600 text-white"
+                           onClick={(e) => {
+                             e.preventDefault();
+                             e.stopPropagation();
+                           }}
+                         >
+                           <Play className="w-4 h-4 mr-2" />
+                           Activate
+                         </Button>
+                       </AlertDialogTrigger>
+                       <AlertDialogContent className="bg-slate-800 border-slate-700">
+                         <AlertDialogHeader>
+                           <AlertDialogTitle className="text-white">Activate Strategy</AlertDialogTitle>
+                           <AlertDialogDescription className="text-slate-400">
+                             Are you sure you want to activate the strategy "{strategy.strategy_name}" in {testMode ? 'Test' : 'Live'} mode? This will start automated trading according to the defined configuration.
+                           </AlertDialogDescription>
+                         </AlertDialogHeader>
+                         <AlertDialogFooter>
+                           <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                             Cancel
+                           </AlertDialogCancel>
+                           <AlertDialogAction 
+                             onClick={(e) => {
+                               e.preventDefault();
+                               e.stopPropagation();
+                               handleToggleStrategy(strategy.id, false);
+                             }}
+                             className="bg-green-600 hover:bg-green-700 text-white"
+                           >
+                             Activate
+                           </AlertDialogAction>
+                         </AlertDialogFooter>
+                       </AlertDialogContent>
+                     </AlertDialog>
 
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Delete
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="bg-slate-800 border-slate-700">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle className="text-white">
-                            Delete Strategy
-                          </AlertDialogTitle>
-                          <AlertDialogDescription className="text-slate-400">
-                            Are you sure you want to permanently delete the strategy "{strategy.strategy_name}"? 
-                            This action is irreversible and will delete all associated data.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                            Cancel
-                          </AlertDialogCancel>
-                          <AlertDialogAction 
-                            onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
-                            className="bg-red-600 hover:bg-red-700 text-white"
-                          >
-                            Delete Permanently
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                     <AlertDialog>
+                       <AlertDialogTrigger asChild>
+                         <Button
+                           variant="outline"
+                           size="sm"
+                           className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
+                           onClick={(e) => {
+                             e.preventDefault();
+                             e.stopPropagation();
+                           }}
+                         >
+                           <Trash2 className="w-4 h-4 mr-2" />
+                           Delete
+                         </Button>
+                       </AlertDialogTrigger>
+                       <AlertDialogContent className="bg-slate-800 border-slate-700">
+                         <AlertDialogHeader>
+                           <AlertDialogTitle className="text-white">
+                             Delete Strategy
+                           </AlertDialogTitle>
+                           <AlertDialogDescription className="text-slate-400">
+                             Are you sure you want to permanently delete the strategy "{strategy.strategy_name}"? 
+                             This action is irreversible and will delete all associated data.
+                           </AlertDialogDescription>
+                         </AlertDialogHeader>
+                         <AlertDialogFooter>
+                           <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
+                             Cancel
+                           </AlertDialogCancel>
+                           <AlertDialogAction 
+                             onClick={(e) => {
+                               e.preventDefault();
+                               e.stopPropagation();
+                               handleDeleteStrategy(strategy.id, strategy.strategy_name);
+                             }}
+                             className="bg-red-600 hover:bg-red-700 text-white"
+                           >
+                             Delete Permanently
+                           </AlertDialogAction>
+                         </AlertDialogFooter>
+                       </AlertDialogContent>
+                     </AlertDialog>
                   </div>
                 </div>
               ))}
@@ -795,11 +819,11 @@ export const StrategyConfig = () => {
         <div className="flex items-center justify-center h-full">
           <Card className="p-8 bg-slate-700/30 border-slate-600 text-center max-w-md">
             <TrendingUp className="w-16 h-16 mx-auto mb-4 text-cyan-400" />
-            <h3 className="text-xl font-semibold text-white mb-2">Aucune stratégie</h3>
-            <p className="text-slate-400 mb-6">Créez votre première stratégie de trading pour commencer</p>
+            <h3 className="text-xl font-semibold text-white mb-2">No Strategies</h3>
+            <p className="text-slate-400 mb-6">Create your first trading strategy to get started</p>
             <Button onClick={handleCreateStrategy} className="bg-cyan-500 hover:bg-cyan-600 text-white">
               <Plus className="w-4 h-4 mr-2" />
-              Créer une nouvelle stratégie
+              Create New Strategy
             </Button>
           </Card>
         </div>

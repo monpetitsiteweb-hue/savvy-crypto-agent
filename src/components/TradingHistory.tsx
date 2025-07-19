@@ -158,7 +158,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           .from('trading_history')
           .select('*')
           .eq('user_id', user.id)
-          .eq('is_sandbox', false)
+          .eq('trade_environment', 'live')
           .order('executed_at', { ascending: false })
           .limit(50);
         
@@ -316,7 +316,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             <p className="text-slate-400">
               {testMode 
                 ? "No test trades yet. Create a strategy and enable test mode to start automated trading." 
-                : "Historical trades will appear here automatically when available."
+                : "No trading history available. In Live mode, trades from your connected Coinbase account will appear here once they occur."
               }
             </p>
           </div>
