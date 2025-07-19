@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useTestMode } from "@/hooks/useTestMode";
 import { TrendingUp, TrendingDown, DollarSign, Activity, Target, TestTube } from "lucide-react";
+import { NoActiveStrategyState } from "./NoActiveStrategyState";
 
 interface PerformanceMetrics {
   totalTrades: number;
@@ -15,7 +16,12 @@ interface PerformanceMetrics {
   totalFees: number;
 }
 
-export const PerformanceOverview = () => {
+interface PerformanceOverviewProps {
+  hasActiveStrategy: boolean;
+  onCreateStrategy?: () => void;
+}
+
+export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: PerformanceOverviewProps) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const [metrics, setMetrics] = useState<PerformanceMetrics>({
@@ -92,6 +98,15 @@ export const PerformanceOverview = () => {
       setLoading(false);
     }
   };
+
+  if (!hasActiveStrategy) {
+    return (
+      <NoActiveStrategyState 
+        onCreateStrategy={onCreateStrategy}
+        className="min-h-[400px]"
+      />
+    );
+  }
 
   if (loading) {
     return (

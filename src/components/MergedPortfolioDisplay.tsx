@@ -9,6 +9,7 @@ import { useMockWallet } from '@/hooks/useMockWallet';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 import { supabase } from '@/integrations/supabase/client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { NoActiveStrategyState } from './NoActiveStrategyState';
 
 interface PortfolioData {
   accounts: Array<{
@@ -28,7 +29,12 @@ interface Connection {
   connected_at: string;
 }
 
-export const MergedPortfolioDisplay = () => {
+interface MergedPortfolioDisplayProps {
+  hasActiveStrategy: boolean;
+  onCreateStrategy?: () => void;
+}
+
+export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: MergedPortfolioDisplayProps) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { balances: mockBalances } = useMockWallet();
@@ -187,6 +193,15 @@ export const MergedPortfolioDisplay = () => {
       </Card>
     );
   };
+
+  if (!hasActiveStrategy) {
+    return (
+      <NoActiveStrategyState 
+        onCreateStrategy={onCreateStrategy}
+        className="min-h-[400px]"
+      />
+    );
+  }
 
   return (
     <Card className={`p-6 bg-slate-800/50 border-slate-600 ${testMode ? "border-orange-500/20" : ""}`}>

@@ -9,6 +9,7 @@ import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useMockWallet } from '@/hooks/useMockWallet';
+import { NoActiveStrategyState } from './NoActiveStrategyState';
 
 interface Trade {
   id: string;
@@ -26,11 +27,17 @@ interface Trade {
   profit_loss?: number;
 }
 
-export const TradingHistory = () => {
+interface TradingHistoryProps {
+  hasActiveStrategy: boolean;
+  onCreateStrategy?: () => void;
+}
+
+export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
   const { user } = useAuth();
-  const { toast } = useToast();
   const { testMode } = useTestMode();
+  const { toast } = useToast();
   const { getTotalValue } = useMockWallet();
+  
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<any[]>([]);
@@ -237,6 +244,15 @@ export const TradingHistory = () => {
     const date = new Date(dateString);
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  if (!hasActiveStrategy) {
+    return (
+      <NoActiveStrategyState 
+        onCreateStrategy={onCreateStrategy}
+        className="min-h-[400px]"
+      />
+    );
+  }
 
   if (loading) {
     return (

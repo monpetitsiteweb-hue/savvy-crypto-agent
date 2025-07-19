@@ -12,6 +12,7 @@ import { AdminPage } from '@/components/admin/AdminPage';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useTestMode } from '@/hooks/useTestMode';
 import { useTestTrading } from '@/hooks/useTestTrading';
+import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { Switch } from '@/components/ui/switch';
 import { useState } from 'react';
 
@@ -19,6 +20,7 @@ const Index = () => {
   const { user, loading } = useAuth();
   const { role, loading: roleLoading } = useUserRole();
   const { testMode, setTestMode } = useTestMode();
+  const { hasActiveStrategy } = useActiveStrategy();
   const [activeTab, setActiveTab] = useState('dashboard');
   
   // Initialize test trading when component mounts
@@ -92,10 +94,25 @@ const Index = () => {
               
               {/* Tab Content */}
               <div className="p-6 flex-1 overflow-y-auto min-h-0">
-                {activeTab === 'dashboard' && <MergedPortfolioDisplay />}
-                {activeTab === 'history' && <TradingHistory />}
+                {activeTab === 'dashboard' && (
+                  <MergedPortfolioDisplay 
+                    hasActiveStrategy={hasActiveStrategy}
+                    onCreateStrategy={() => setActiveTab('strategy')}
+                  />
+                )}
+                {activeTab === 'history' && (
+                  <TradingHistory 
+                    hasActiveStrategy={hasActiveStrategy}
+                    onCreateStrategy={() => setActiveTab('strategy')}
+                  />
+                )}
                 {activeTab === 'strategy' && <StrategyConfig />}
-                {activeTab === 'performance' && <PerformanceOverview />}
+                {activeTab === 'performance' && (
+                  <PerformanceOverview 
+                    hasActiveStrategy={hasActiveStrategy}
+                    onCreateStrategy={() => setActiveTab('strategy')}
+                  />
+                )}
               </div>
             </div>
           </div>

@@ -5,6 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Send, Bot, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
+import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { useProductionTrading, ProductionTradeDetails } from '@/hooks/useProductionTrading';
 import { ProductionTradeConfirmation } from './ProductionTradeConfirmation';
 import { supabase } from '@/integrations/supabase/client';
@@ -28,17 +29,30 @@ export const ConversationPanel = () => {
   console.log('ConversationPanel component loaded');
   const { user } = useAuth();
   const { testMode } = useTestMode();
+  const { hasActiveStrategy } = useActiveStrategy();
   const { executeProductionTrade, validateProductionReadiness, isProcessing } = useProductionTrading();
-  const [messages, setMessages] = useState<Message[]>([
-    {
+  
+  const [messages, setMessages] = useState<Message[]>([]);
+  
+  // Update messages when strategy state changes
+  useEffect(() => {
+    const getInitialMessage = () => {
+      if (!hasActiveStrategy) {
+        return "Hello! I'm your AI trading assistant. Currently on standby as no strategy is active. Enable a strategy in Test Mode or Live Mode to begin automated trading and I'll help you monitor and optimize your trades!";
+      }
+      
+      return testMode 
+        ? "Hello! I'm your AI trading assistant in **TEST MODE** 🧪. I can help you practice trading safely with mock money, analyze strategies, and provide advice. Try asking me to 'buy 1000 euros of BTC' or 'change stop loss to 2.5%' - all trades will be simulated!"
+        : "Hello! I'm your AI trading assistant. Currently in LIVE MODE - production trading is under development. Please enable Test Mode to safely practice trading features. I can analyze your strategies and provide trading advice!";
+    };
+
+    setMessages([{
       id: '1',
       type: 'ai',
-      content: testMode 
-        ? "Hello! I'm your AI trading assistant in **TEST MODE** 🧪. I can help you practice trading safely with mock money, analyze strategies, and provide advice. Try asking me to 'buy 1000 euros of BTC' or 'change stop loss to 2.5%' - all trades will be simulated!"
-        : "Hello! I'm your AI trading assistant. Currently in LIVE MODE - production trading is under development. Please enable Test Mode to safely practice trading features. I can analyze your strategies and provide trading advice!",
+      content: getInitialMessage(),
       timestamp: new Date()
-    }
-  ]);
+    }]);
+  }, [hasActiveStrategy, testMode]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [userStrategies, setUserStrategies] = useState<StrategyData[]>([]);
