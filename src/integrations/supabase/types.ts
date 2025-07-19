@@ -297,6 +297,48 @@ export type Database = {
         }
         Relationships: []
       }
+      data_sources: {
+        Row: {
+          content: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          last_updated: string | null
+          metadata: Json | null
+          name: string
+          type: string
+          updated_at: string
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          content?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_updated?: string | null
+          metadata?: Json | null
+          name: string
+          type: string
+          updated_at?: string
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          content?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_updated?: string | null
+          metadata?: Json | null
+          name?: string
+          type?: string
+          updated_at?: string
+          url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       external_market_data: {
         Row: {
           category_context: Json | null
