@@ -246,7 +246,9 @@ export const ComprehensiveStrategyConfig = ({
         description: formData.notes || null,
         configuration: formData as any,
         test_mode: testMode,
-        is_active: false,
+        is_active: false, // Keep for backward compatibility
+        is_active_test: false,
+        is_active_live: false,
         updated_at: new Date().toISOString()
       };
 

@@ -21,8 +21,11 @@ interface StrategyData {
   id: string;
   strategy_name: string;
   configuration: any;
-  is_active: boolean;
+  is_active: boolean; // Keep for backward compatibility
+  is_active_test: boolean;
+  is_active_live: boolean;
   created_at: string;
+  test_mode: boolean;
 }
 
 export const ConversationPanel = () => {
@@ -98,7 +101,9 @@ export const ConversationPanel = () => {
 
   const analyzeUserQuestion = (question: string): string => {
     const lowerQuestion = question.toLowerCase();
-    const activeStrategy = userStrategies.find(s => s.is_active);
+    const activeStrategy = userStrategies.find(s => 
+      testMode ? s.is_active_test : s.is_active_live
+    );
     
     if (!activeStrategy) {
       return "I notice you don't have an active trading strategy yet. I'd recommend creating one first by clicking 'Create New Strategy' in the Strategy tab. Once you have a strategy configured, I'll be able to provide detailed analysis and suggestions based on your specific settings.";
@@ -241,7 +246,9 @@ export const ConversationPanel = () => {
     }
 
     try {
-      const activeStrategy = userStrategies.find(s => s.is_active);
+      const activeStrategy = userStrategies.find(s => 
+        testMode ? s.is_active_test : s.is_active_live
+      );
       
       console.log('Calling AI assistant with:', {
         message: currentInput,
@@ -461,7 +468,7 @@ export const ConversationPanel = () => {
         </h2>
         <p className="text-sm text-slate-300 mt-1">
           {userStrategies.length > 0 
-            ? `Analyzing your ${userStrategies.filter(s => s.is_active).length > 0 ? 'active' : ''} trading strategies`
+            ? `Analyzing your ${userStrategies.filter(s => testMode ? s.is_active_test : s.is_active_live).length > 0 ? 'active' : ''} trading strategies`
             : 'Ask me about trading strategies and risk management'
           }
         </p>

@@ -92,7 +92,9 @@ export const StrategyConfig = () => {
 
       if (data && !error) {
         setAllStrategies(data);
-        const activeStrategyData = data.find(s => s.is_active);
+        const activeStrategyData = data.find(s => 
+          testMode ? s.is_active_test : s.is_active_live
+        );
         
         if (activeStrategyData) {
           setHasActiveStrategy(true);
@@ -218,12 +220,13 @@ export const StrategyConfig = () => {
         description: "Your trading strategy has been saved successfully.",
       });
       
-      // Refresh the active strategy state
+      // Refresh the active strategy state for current mode
+      const activeField = testMode ? 'is_active_test' : 'is_active_live';
       const { data } = await supabase
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
-        .eq('is_active', true)
+        .eq(activeField, true)
         .maybeSingle();
       
       if (data) {
@@ -269,7 +272,9 @@ export const StrategyConfig = () => {
 
       if (data) {
         setAllStrategies(data);
-        const activeStrategyData = data.find(s => s.is_active);
+        const activeStrategyData = data.find(s => 
+          testMode ? s.is_active_test : s.is_active_live
+        );
         
         if (activeStrategyData) {
           setHasActiveStrategy(true);
