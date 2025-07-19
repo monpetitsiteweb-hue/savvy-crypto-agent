@@ -724,41 +724,15 @@ export const StrategyConfig = () => {
                     </p>
                   </div>
                   
-                     <div className="flex items-center gap-3">
-                       <AlertDialog>
-                         <AlertDialogTrigger asChild>
-                           <Button
-                             size="sm"
-                             className="bg-green-500 hover:bg-green-600 text-white"
-                           >
-                             <Play className="w-4 h-4 mr-2" />
-                             Activate
-                           </Button>
-                         </AlertDialogTrigger>
-                        <AlertDialogContent className="bg-slate-800 border-slate-700">
-                          <AlertDialogHeader>
-                            <AlertDialogTitle className="text-white">Activate Strategy</AlertDialogTitle>
-                            <AlertDialogDescription className="text-slate-400">
-                              Are you sure you want to activate the strategy "{strategy.strategy_name}" in {testMode ? 'Test' : 'Live'} mode? This will start automated trading according to the defined configuration.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                              Cancel
-                            </AlertDialogCancel>
-                            <AlertDialogAction 
-                              onClick={async (e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                await handleToggleStrategy(strategy.id, false);
-                              }}
-                              className="bg-green-600 hover:bg-green-700 text-white"
-                            >
-                              Activate
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                     </AlertDialog>
+                   <div className="flex items-center gap-3">
+                     <Button
+                       size="sm"
+                       className="bg-green-500 hover:bg-green-600 text-white"
+                       onClick={() => handleToggleStrategy(strategy.id, false)}
+                     >
+                       <Play className="w-4 h-4 mr-2" />
+                       Activate
+                     </Button>
 
                      <AlertDialog>
                        <AlertDialogTrigger asChild>
