@@ -26,12 +26,14 @@ export const useActiveStrategy = () => {
     }
 
     try {
+      // Query based on the current mode - look for strategies active in test or live mode
+      const activeField = testMode ? 'is_active_test' : 'is_active_live';
+      
       const { data, error } = await supabase
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
-        .eq('is_active', true)
-        .eq('test_mode', testMode)
+        .eq(activeField, true)
         .single();
 
       if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"

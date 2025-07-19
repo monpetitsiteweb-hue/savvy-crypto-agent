@@ -665,6 +665,8 @@ export type Database = {
           description: string | null
           id: string
           is_active: boolean
+          is_active_live: boolean | null
+          is_active_test: boolean | null
           strategy_name: string
           test_mode: boolean | null
           updated_at: string
@@ -676,6 +678,8 @@ export type Database = {
           description?: string | null
           id?: string
           is_active?: boolean
+          is_active_live?: boolean | null
+          is_active_test?: boolean | null
           strategy_name: string
           test_mode?: boolean | null
           updated_at?: string
@@ -687,6 +691,8 @@ export type Database = {
           description?: string | null
           id?: string
           is_active?: boolean
+          is_active_live?: boolean | null
+          is_active_test?: boolean | null
           strategy_name?: string
           test_mode?: boolean | null
           updated_at?: string
