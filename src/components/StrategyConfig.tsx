@@ -472,30 +472,6 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
         </div>
       </Card>
 
-      {/* CRITICAL DEBUG: Check for overlay issues */}
-      <div 
-        className="text-center py-4 space-y-2 relative z-50" 
-        style={{ pointerEvents: 'all', position: 'relative' }}
-        onClick={(e) => {
-          e.stopPropagation();
-          console.log('🟢 CONTAINER CLICKED');
-        }}
-      >
-        <div style={{ border: '2px solid red', padding: '10px', background: 'rgba(255,0,0,0.1)' }}>
-          <button 
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              alert('HTML BUTTON WORKS!');
-              console.log('🟢 HTML BUTTON CLICKED');
-            }}
-            className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
-            style={{ pointerEvents: 'all', zIndex: 9999, position: 'relative' }}
-          >
-            HTML Button Test
-          </button>
-        </div>
-      </div>
 
       {/* All strategies list */}
       {allStrategies.length > 0 && (
@@ -503,18 +479,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-white">All Strategies</h3>
             <Button 
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                alert('BUTTON CLICKED IN TEST MODE!');
-                console.log('🔴 TEST MODE BUTTON CLICKED!', { testMode, allStrategies: allStrategies.length });
-                console.log('🔴 About to call handleCreateStrategy...');
-                handleCreateStrategy();
-                console.log('🔴 handleCreateStrategy called!');
-              }}
+              onClick={handleCreateStrategy}
               className="bg-green-600 hover:bg-green-700 text-white"
-              disabled={false}
-              style={{ pointerEvents: 'auto' }}
             >
               <Plus className="w-4 h-4 mr-2" />
               Add a strategy
