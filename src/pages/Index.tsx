@@ -94,7 +94,16 @@ const Index = () => {
               </div>
               
               {/* Tab Content */}
-              <div className="p-6 flex-1 overflow-y-auto min-h-0">
+              <div className="p-6 flex-1 overflow-y-auto min-h-0 relative">
+                {/* CRITICAL DEBUG: Test if this container blocks clicks */}
+                <div 
+                  className="absolute top-0 left-0 z-50 bg-blue-500 text-white p-2 cursor-pointer"
+                  onClick={() => alert('CONTAINER OVERLAY WORKS!')}
+                  style={{ pointerEvents: 'all' }}
+                >
+                  CLICK TEST
+                </div>
+                
                 {activeTab === 'dashboard' && (
                   <MergedPortfolioDisplay 
                     hasActiveStrategy={hasActiveStrategy}
