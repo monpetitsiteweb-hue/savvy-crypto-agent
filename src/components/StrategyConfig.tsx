@@ -320,6 +320,7 @@ export const StrategyConfig = () => {
     if (!user) return;
     
     console.log('🔄 handleToggleStrategy called:', { strategyId, currentlyActive, testMode });
+    console.log('🆔 User ID:', user.id);
     
     try {
       const activeField = testMode ? 'is_active_test' : 'is_active_live';
@@ -728,7 +729,10 @@ export const StrategyConfig = () => {
                      <Button
                        size="sm"
                        className="bg-green-500 hover:bg-green-600 text-white"
-                       onClick={() => handleToggleStrategy(strategy.id, false)}
+                       onClick={() => {
+                         console.log('🔘 ACTIVATE BUTTON CLICKED!', strategy.id);
+                         handleToggleStrategy(strategy.id, false);
+                       }}
                      >
                        <Play className="w-4 h-4 mr-2" />
                        Activate
