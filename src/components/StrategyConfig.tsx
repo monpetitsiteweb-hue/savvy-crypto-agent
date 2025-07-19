@@ -479,7 +479,11 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-white">All Strategies</h3>
             <Button 
-              onClick={handleCreateStrategy}
+              onClick={(e) => {
+                console.log('🔥 CREATE BUTTON CLICKED!');
+                alert('CREATE BUTTON CLICKED!');
+                handleCreateStrategy();
+              }}
               className="bg-green-600 hover:bg-green-700 text-white"
             >
               <Plus className="w-4 h-4 mr-2" />
