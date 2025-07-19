@@ -52,6 +52,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   useEffect(() => {
     if (user) {
+      // Clear trades immediately when switching modes to prevent cached data display
+      setTrades([]);
+      
       if (!testMode) {
         fetchConnections();
       }
@@ -167,6 +170,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         
         data = result.data;
         error = result.error;
+        
+        // Clear any cached data first
+        setTrades([]);
         
         // In live mode, get portfolio value from Coinbase API or stored value
         // For now, we'll calculate it from available balance data
