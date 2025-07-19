@@ -99,7 +99,7 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
     // Create WebSocket connection to our edge function
     const connectWebSocket = () => {
       try {
-        const wsUrl = `wss://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/real-time-market-data`;
+        const wsUrl = `wss://fuieplftlcxdfkxyqzlt.functions.supabase.co/real-time-market-data`;
         const websocket = new WebSocket(wsUrl);
 
         websocket.onopen = () => {
