@@ -480,7 +480,9 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
             <Button 
               onClick={() => {
                 console.log('🔴 TEST MODE BUTTON CLICKED!', { testMode, allStrategies: allStrategies.length });
+                console.log('🔴 About to call handleCreateStrategy...');
                 handleCreateStrategy();
+                console.log('🔴 handleCreateStrategy called!');
               }}
               className="bg-green-600 hover:bg-green-700 text-white"
             >
