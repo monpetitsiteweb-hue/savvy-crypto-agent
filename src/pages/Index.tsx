@@ -116,7 +116,18 @@ const Index = () => {
                     onCreateStrategy={() => setActiveTab('strategy')}
                   />
                 )}
-                {activeTab === 'strategy' && <StrategyConfig />}
+                {activeTab === 'strategy' && (
+                  <div className="space-y-4">
+                    <h1 className="text-white text-2xl">MINIMAL STRATEGY TEST</h1>
+                    <button 
+                      onClick={() => alert('MINIMAL BUTTON WORKS!')}
+                      className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded"
+                    >
+                      Minimal Test Button
+                    </button>
+                    <StrategyConfig />
+                  </div>
+                )}
                 {activeTab === 'performance' && (
                   <PerformanceOverview 
                     hasActiveStrategy={hasActiveStrategy}
