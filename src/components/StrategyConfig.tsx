@@ -472,36 +472,28 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
         </div>
       </Card>
 
-      {/* DEBUG: Test all button types */}
-      <div className="text-center py-4 space-y-2">
-        <div>
+      {/* CRITICAL DEBUG: Check for overlay issues */}
+      <div 
+        className="text-center py-4 space-y-2 relative z-50" 
+        style={{ pointerEvents: 'all', position: 'relative' }}
+        onClick={(e) => {
+          e.stopPropagation();
+          console.log('🟢 CONTAINER CLICKED');
+        }}
+      >
+        <div style={{ border: '2px solid red', padding: '10px', background: 'rgba(255,0,0,0.1)' }}>
           <button 
-            onClick={() => alert('HTML BUTTON WORKS!')}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              alert('HTML BUTTON WORKS!');
+              console.log('🟢 HTML BUTTON CLICKED');
+            }}
             className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
+            style={{ pointerEvents: 'all', zIndex: 9999, position: 'relative' }}
           >
             HTML Button Test
           </button>
-        </div>
-        <div>
-          <Button 
-            onClick={() => alert('SHADCN BUTTON WORKS!')}
-            className="bg-green-500 hover:bg-green-600 text-white"
-          >
-            Shadcn Button Test
-          </Button>
-        </div>
-        <div>
-          <Button 
-            onClick={() => {
-              console.log('🔴 CREATE STRATEGY CLICKED!');
-              alert(`Create Strategy clicked! Strategies: ${allStrategies.length}, testMode: ${testMode}`);
-              handleCreateStrategy();
-            }}
-            className="bg-cyan-500 hover:bg-cyan-600 text-white"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Create Strategy (DEBUG)
-          </Button>
         </div>
       </div>
 
