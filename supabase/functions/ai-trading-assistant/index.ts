@@ -228,9 +228,30 @@ serve(async (req) => {
       });
     }
     
-    console.log('STEP 4 SUCCESS: LLM configuration loaded');
+     console.log('STEP 4 SUCCESS: LLM configuration loaded');
 
-    // Step 5: Analyze user intent with AI
+    // Step 5: Collect enhanced knowledge from user's data sources
+    console.log('STEP 5: Collecting enhanced market intelligence...');
+    let enhancedKnowledge = '';
+    
+    try {
+      const { data: knowledgeData, error: knowledgeError } = await supabase.functions.invoke('knowledge-collector', {
+        body: { userId: userId }
+      });
+      
+      if (knowledgeData && knowledgeData.knowledge) {
+        enhancedKnowledge = knowledgeData.knowledge;
+        console.log('✅ STEP 5 SUCCESS: Enhanced knowledge collected');
+      } else {
+        console.log('⚠️ STEP 5 WARNING: No enhanced knowledge available');
+        enhancedKnowledge = 'No additional market intelligence sources configured.';
+      }
+    } catch (knowledgeError) {
+      console.error('❌ STEP 5 FAILED: Knowledge collection error:', knowledgeError);
+      enhancedKnowledge = 'Enhanced market intelligence temporarily unavailable.';
+    }
+
+    // Step 6: Analyze user intent with AI
     console.log('💬 Using AI to analyze user intent...');
     
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
@@ -246,8 +267,11 @@ serve(async (req) => {
       });
     }
 
-    // AI Analysis System Prompt - DECISIVE BEHAVIOR
-    const analysisPrompt = `You are a DECISIVE cryptocurrency trading assistant. BE DIRECT AND ACTION-ORIENTED.
+    // AI Analysis System Prompt - DECISIVE BEHAVIOR WITH ENHANCED KNOWLEDGE
+    const analysisPrompt = `You are a DECISIVE cryptocurrency trading assistant with access to enhanced market intelligence. BE DIRECT AND ACTION-ORIENTED.
+
+ENHANCED MARKET INTELLIGENCE:
+${enhancedKnowledge}
 
 CRITICAL RULES:
 1. ALWAYS execute what user asks - don't ask permission
@@ -255,15 +279,23 @@ CRITICAL RULES:
 3. If user asks to increase limits - just do it, no consultation needed
 4. If user is frustrated (using strong language) - be MORE decisive, less talking
 5. Multi-step requests: handle limit increase AND trade execution in one response
+6. USE THE ENHANCED INTELLIGENCE ABOVE to inform your decisions
+7. Consider insights from all configured data sources when making recommendations
 
-Current Limits: Max Position €${currentConfig.maxPosition || 10}
+Current Strategy Context:
+- Max Position: €${currentConfig.maxPosition || 10}
+- Risk Level: ${currentConfig.riskLevel || 'medium'}
+- Stop Loss: ${currentConfig.stopLossPercentage || 3}%
+- Test Mode: ${testMode ? 'Yes' : 'No'}
+
 User Message: "${message}"
 
-DECISION LOGIC:
+DECISION LOGIC (now informed by enhanced intelligence):
 - "buy 1000 euros of XRP" + current limit €10 = increase limit to 1000+ AND execute trade
 - "increase limit" = set maxPosition to 5000
 - "increase limit to X" = set maxPosition to X
 - any buy/sell command = execute immediately
+- Factor in insights from your data sources when suggesting amounts or timing
 
 Respond with VALID JSON ONLY:
 {
@@ -271,9 +303,9 @@ Respond with VALID JSON ONLY:
   "requires_consultation": false,
   "trades": [{"tradeType": "BUY", "cryptocurrency": "XRP", "amount": 1000, "orderType": "market"}],
   "config_changes": {"maxPosition": 5000},
-  "reasoning": "User wants to buy €1000 XRP, increased limit and executing trade",
-  "consultation_response": "✅ Limit increased to €5000. Executing €1000 XRP purchase now.",
-  "market_context": ""
+  "reasoning": "User wants to buy €1000 XRP, increased limit and executing trade. Based on enhanced intelligence, XRP shows positive sentiment.",
+  "consultation_response": "✅ Limit increased to €5000. Executing €1000 XRP purchase now. Enhanced intelligence suggests favorable conditions.",
+  "market_context": "Intelligence from configured sources supports this decision"
 }
 
 EXAMPLES:
@@ -284,9 +316,9 @@ EXAMPLES:
   "requires_consultation": false,
   "trades": [{"tradeType": "BUY", "cryptocurrency": "XRP", "amount": 1000, "orderType": "market"}],
   "config_changes": {"maxPosition": 5000},
-  "reasoning": "Increasing limit and executing trade as requested",
-  "consultation_response": "✅ Position limit increased to €5000. Executing €1000 XRP buy order.",
-  "market_context": ""
+  "reasoning": "Increasing limit and executing trade as requested. Enhanced intelligence analysis supports XRP position.",
+  "consultation_response": "✅ Position limit increased to €5000. Executing €1000 XRP buy order based on positive intelligence signals.",
+  "market_context": "Data sources indicate favorable conditions for XRP"
 }
 
 "increase limit":

@@ -38,3 +38,18 @@ verify_jwt = true
 
 [functions.trading-scheduler]
 verify_jwt = true
+
+[functions.knowledge-collector]
+verify_jwt = true
+
+[functions.ai-learning-engine]
+verify_jwt = true
+
+[functions.external-data-collector]
+verify_jwt = true
+
+[functions.parse-strategy]
+verify_jwt = true
+
+[functions.oauth-callback]
+verify_jwt = false
