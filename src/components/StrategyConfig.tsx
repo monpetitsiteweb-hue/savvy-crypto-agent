@@ -637,13 +637,7 @@ export const StrategyConfig = () => {
                       </Button>
                     )}
                     
-                      <div 
-                        onClick={(e) => {
-                          console.log('🎯 WRAPPER DIV CLICKED!', { testMode, target: e.target });
-                          e.stopPropagation();
-                        }}
-                        style={{ border: '2px solid red' }}
-                      >
+                       <div>
                         <AlertDialog>
                          <AlertDialogTrigger asChild>
                            <Button
@@ -793,16 +787,12 @@ export const StrategyConfig = () => {
                        Activate
                      </Button>
 
-                     <AlertDialog>
-                       <AlertDialogTrigger asChild>
-                         <Button
-                           variant="outline"
-                           size="sm"
-                           className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
-                           onClick={(e) => {
-                             e.preventDefault();
-                             e.stopPropagation();
-                           }}
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
                          >
                            <Trash2 className="w-4 h-4 mr-2" />
                            Delete
@@ -822,12 +812,8 @@ export const StrategyConfig = () => {
                            <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
                              Cancel
                            </AlertDialogCancel>
-                           <AlertDialogAction 
-                             onClick={(e) => {
-                               e.preventDefault();
-                               e.stopPropagation();
-                               handleDeleteStrategy(strategy.id, strategy.strategy_name);
-                             }}
+                            <AlertDialogAction 
+                              onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
                              className="bg-red-600 hover:bg-red-700 text-white"
                            >
                              Delete Permanently
