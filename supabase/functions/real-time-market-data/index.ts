@@ -45,9 +45,9 @@ serve(async (req) => {
           try {
             console.log(`Fetching current data for ${symbol}`)
             
-            // Get current ticker data
+            // Get current ticker data from Coinbase Pro API (public)
             const tickerResponse = await fetch(
-              `https://api.coinbase.com/api/v3/brokerage/market/products/${symbol}/ticker`
+              `https://api.exchange.coinbase.com/products/${symbol}/ticker`
             )
             
             if (tickerResponse.ok) {
@@ -56,7 +56,7 @@ serve(async (req) => {
               
               // Get 24h stats
               const statsResponse = await fetch(
-                `https://api.coinbase.com/api/v3/brokerage/market/products/${symbol}/stats`
+                `https://api.exchange.coinbase.com/products/${symbol}/stats`
               )
               
               let statsData = null
