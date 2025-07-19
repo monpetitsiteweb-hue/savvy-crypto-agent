@@ -154,6 +154,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         setPortfolioValue(getTotalValue());
       } else {
         // In live mode, fetch from trading_history table
+        console.log('🔍 Fetching live trading history for user:', user.id);
         const result = await supabase
           .from('trading_history')
           .select('*')
@@ -161,6 +162,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           .eq('is_sandbox', false)
           .order('executed_at', { ascending: false })
           .limit(50);
+        
+        console.log('📊 Live trading history result:', { data: result.data, error: result.error });
         
         data = result.data;
         error = result.error;

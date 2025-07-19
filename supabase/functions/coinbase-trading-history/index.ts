@@ -81,23 +81,42 @@ serve(async (req) => {
         
         console.log('Processing Ed25519 key for Coinbase Advanced Trading API');
         
-        // Extract the base64 key content
-        // Clean up the key by removing PEM headers and whitespace, but keep line breaks for proper base64
-        const cleanPrivateKey = privateKeyBase64
-          .replace(/-----BEGIN PRIVATE KEY-----/, '')
-          .replace(/-----END PRIVATE KEY-----/, '')
-          .replace(/\n/g, '')
-          .replace(/\r/g, '')
-          .replace(/\s+/g, '');
+        // Extract the base64 key content - handle both PEM and raw base64 formats
+        let cleanPrivateKey = privateKeyBase64;
+        
+        // Remove PEM headers if present
+        if (cleanPrivateKey.includes('-----BEGIN PRIVATE KEY-----')) {
+          cleanPrivateKey = cleanPrivateKey
+            .replace(/-----BEGIN PRIVATE KEY-----/, '')
+            .replace(/-----END PRIVATE KEY-----/, '')
+            .replace(/\n/g, '')
+            .replace(/\r/g, '')
+            .replace(/\s+/g, '');
+        } else {
+          // Already base64, just clean whitespace
+          cleanPrivateKey = cleanPrivateKey.replace(/\s+/g, '');
+        }
         
         console.log('Base64 key extracted, length:', cleanPrivateKey.length);
         
         let privateKeyBytes;
         try {
+          // Try to decode the base64
           privateKeyBytes = Uint8Array.from(atob(cleanPrivateKey), c => c.charCodeAt(0));
+          console.log('Successfully decoded private key, bytes length:', privateKeyBytes.length);
         } catch (decodeError) {
           console.error('Base64 decode error:', decodeError);
-          throw new Error('Invalid private key format - cannot decode base64');
+          console.log('Attempting to use key as-is for Coinbase API...');
+          
+          // For Coinbase API keys, sometimes they're stored as-is, not base64 encoded
+          // Let's try using the original key directly
+          try {
+            privateKeyBytes = new TextEncoder().encode(connection.api_private_key_encrypted);
+            console.log('Using raw key as text, length:', privateKeyBytes.length);
+          } catch (textError) {
+            console.error('Failed to use key as text:', textError);
+            throw new Error('Invalid private key format - cannot decode or use as text');
+          }
         }
         console.log('Private key bytes length:', privateKeyBytes.length);
         

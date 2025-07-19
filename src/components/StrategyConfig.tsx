@@ -319,8 +319,11 @@ export const StrategyConfig = () => {
   const handleToggleStrategy = async (strategyId: string, currentlyActive: boolean) => {
     if (!user) return;
     
+    console.log('🔄 handleToggleStrategy called:', { strategyId, currentlyActive, testMode });
+    
     try {
       const activeField = testMode ? 'is_active_test' : 'is_active_live';
+      console.log('📊 activeField:', activeField);
       
       if (currentlyActive) {
         // Deactivate the strategy in the current mode
@@ -598,19 +601,15 @@ export const StrategyConfig = () => {
                     
                      <AlertDialog>
                        <AlertDialogTrigger asChild>
-                         <Button
-                           variant="outline"
-                           size="sm"
-                           className={`${
-                             ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
-                               ? 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30' 
-                               : 'bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500'
-                           }`}
-                           onClick={(e) => {
-                             e.preventDefault();
-                             e.stopPropagation();
-                           }}
-                         >
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`${
+                              ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
+                                ? 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30' 
+                                : 'bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500'
+                            }`}
+                          >
                            {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? (
                              <>
                                <Pause className="w-4 h-4 mr-2" />
@@ -640,12 +639,10 @@ export const StrategyConfig = () => {
                            <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
                              Cancel
                            </AlertDialogCancel>
-                           <AlertDialogAction 
-                             onClick={(e) => {
-                               e.preventDefault();
-                               e.stopPropagation();
-                               handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live));
-                             }}
+                            <AlertDialogAction 
+                              onClick={() => {
+                                handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live));
+                              }}
                              className={`${
                                ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
                                  ? 'bg-red-600 hover:bg-red-700' 
