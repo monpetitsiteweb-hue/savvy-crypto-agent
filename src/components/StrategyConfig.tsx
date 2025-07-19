@@ -478,13 +478,18 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-white">All Strategies</h3>
             <Button 
-              onClick={() => {
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                alert('BUTTON CLICKED IN TEST MODE!');
                 console.log('🔴 TEST MODE BUTTON CLICKED!', { testMode, allStrategies: allStrategies.length });
                 console.log('🔴 About to call handleCreateStrategy...');
                 handleCreateStrategy();
                 console.log('🔴 handleCreateStrategy called!');
               }}
               className="bg-green-600 hover:bg-green-700 text-white"
+              disabled={false}
+              style={{ pointerEvents: 'auto' }}
             >
               <Plus className="w-4 h-4 mr-2" />
               Add a strategy
