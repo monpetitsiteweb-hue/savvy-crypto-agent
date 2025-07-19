@@ -208,13 +208,17 @@ export const useTestTrading = () => {
   };
 
   useEffect(() => {
+    console.log('🔧 useTestTrading useEffect triggered', { testMode, user: !!user });
+    
     if (testMode && user) {
-      // Monitor market data every 10 seconds to check strategy conditions
-      marketMonitorRef.current = setInterval(checkStrategiesAndExecute, 10000);
+      console.log('🔧 Starting test trading monitoring - DISABLED FOR DEBUGGING');
+      // TEMPORARILY DISABLED - Monitor market data every 10 seconds to check strategy conditions
+      // marketMonitorRef.current = setInterval(checkStrategiesAndExecute, 10000);
       
-      // Check immediately
-      setTimeout(checkStrategiesAndExecute, 2000);
+      // Check immediately - DISABLED
+      // setTimeout(checkStrategiesAndExecute, 2000);
     } else {
+      console.log('🔧 Stopping test trading monitoring');
       // Stop market monitoring
       if (marketMonitorRef.current) {
         clearInterval(marketMonitorRef.current);
