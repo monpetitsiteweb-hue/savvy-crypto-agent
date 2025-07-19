@@ -298,11 +298,13 @@ export const StrategyConfig = () => {
     if (!user) return;
     
     try {
+      const activeField = testMode ? 'is_active_test' : 'is_active_live';
+      
       if (currentlyActive) {
-        // Deactivate the strategy
+        // Deactivate the strategy in the current mode
         const { error } = await supabase
           .from('trading_strategies')
-          .update({ is_active: false })
+          .update({ [activeField]: false })
           .eq('id', strategyId)
           .eq('user_id', user.id);
 
@@ -310,19 +312,19 @@ export const StrategyConfig = () => {
 
         toast({
           title: "Stratégie désactivée",
-          description: "Votre stratégie de trading a été désactivée.",
+          description: `Votre stratégie de trading a été désactivée en mode ${testMode ? 'Test' : 'Live'}.`,
         });
       } else {
-        // Deactivate all other strategies first
+        // Deactivate all other strategies in the current mode first
         await supabase
           .from('trading_strategies')
-          .update({ is_active: false })
+          .update({ [activeField]: false })
           .eq('user_id', user.id);
 
-        // Activer la stratégie sélectionnée
+        // Activate the selected strategy in the current mode
         const { error } = await supabase
           .from('trading_strategies')
-          .update({ is_active: true })
+          .update({ [activeField]: true })
           .eq('id', strategyId)
           .eq('user_id', user.id);
 
@@ -330,11 +332,11 @@ export const StrategyConfig = () => {
 
         toast({
           title: "Stratégie activée",
-          description: "Votre stratégie de trading a été activée.",
+          description: `Votre stratégie de trading a été activée en mode ${testMode ? 'Test' : 'Live'}.`,
         });
       }
 
-      // Recharger les stratégies
+      // Reload strategies
       const { data } = await supabase
         .from('trading_strategies')
         .select('*')
@@ -343,7 +345,9 @@ export const StrategyConfig = () => {
 
       if (data) {
         setAllStrategies(data);
-        const activeStrategyData = data.find(s => s.is_active);
+        const activeStrategyData = data.find(s => 
+          testMode ? s.is_active_test : s.is_active_live
+        );
         
         if (activeStrategyData) {
           setHasActiveStrategy(true);
@@ -533,10 +537,12 @@ export const StrategyConfig = () => {
                   <div className="flex-1">
                     <div className="flex items-center gap-3">
                       <h4 className="text-white font-medium">{strategy.strategy_name}</h4>
-                      {strategy.is_active && (
+                      {/* Show Active badge based on current mode */}
+                      {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) && (
                         <Badge className="bg-green-500 text-white">Active</Badge>
                       )}
-                      {testMode && (
+                      {/* Show mode badge based on where strategy was created or can be activated */}
+                      {strategy.test_mode && (
                         <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
                           <TestTube className="h-3 w-3 mr-1" />
                           Test
@@ -549,7 +555,8 @@ export const StrategyConfig = () => {
                   </div>
                   
                   <div className="flex items-center gap-3">
-                    {!strategy.is_active && (
+                    {/* Only show edit for inactive strategies */}
+                    {!((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -573,12 +580,12 @@ export const StrategyConfig = () => {
                           variant="outline"
                           size="sm"
                           className={`${
-                            strategy.is_active 
+                            ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
                               ? 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30' 
                               : 'bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500'
                           }`}
                         >
-                          {strategy.is_active ? (
+                          {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? (
                             <>
                               <Pause className="w-4 h-4 mr-2" />
                               Deactivate
@@ -594,12 +601,12 @@ export const StrategyConfig = () => {
                       <AlertDialogContent className="bg-slate-800 border-slate-700">
                         <AlertDialogHeader>
                           <AlertDialogTitle className="text-white">
-                            {strategy.is_active ? 'Deactivate Strategy' : 'Activate Strategy'}
+                            {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? 'Deactivate Strategy' : 'Activate Strategy'}
                           </AlertDialogTitle>
                           <AlertDialogDescription className="text-slate-400">
-                            {strategy.is_active 
-                              ? `Are you sure you want to deactivate the strategy "${strategy.strategy_name}"? This will stop all automated trading.`
-                              : `Are you sure you want to activate the strategy "${strategy.strategy_name}"? This will automatically deactivate any other active strategy.`
+                            {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
+                              ? `Are you sure you want to deactivate the strategy "${strategy.strategy_name}" in ${testMode ? 'Test' : 'Live'} mode? This will stop all automated trading.`
+                              : `Are you sure you want to activate the strategy "${strategy.strategy_name}" in ${testMode ? 'Test' : 'Live'} mode? This will automatically deactivate any other active strategy in this mode.`
                             }
                           </AlertDialogDescription>
                         </AlertDialogHeader>
@@ -608,14 +615,14 @@ export const StrategyConfig = () => {
                             Annuler
                           </AlertDialogCancel>
                           <AlertDialogAction 
-                            onClick={() => handleToggleStrategy(strategy.id, strategy.is_active)}
+                            onClick={() => handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))}
                             className={`${
-                              strategy.is_active 
+                              ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
                                 ? 'bg-red-600 hover:bg-red-700' 
                                 : 'bg-green-600 hover:bg-green-700'
                             } text-white`}
                           >
-                            {strategy.is_active ? 'Deactivate' : 'Activate'}
+                            {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? 'Deactivate' : 'Activate'}
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
