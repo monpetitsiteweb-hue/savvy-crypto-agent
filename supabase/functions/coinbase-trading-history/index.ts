@@ -82,13 +82,23 @@ serve(async (req) => {
         console.log('Processing Ed25519 key for Coinbase Advanced Trading API');
         
         // Extract the base64 key content
-        const base64Key = privateKeyBase64.replace(/-----BEGIN PRIVATE KEY-----/, '')
-                                         .replace(/-----END PRIVATE KEY-----/, '')
-                                         .replace(/\s/g, '');
+        // Clean up the key by removing PEM headers and whitespace, but keep line breaks for proper base64
+        const cleanPrivateKey = privateKeyBase64
+          .replace(/-----BEGIN PRIVATE KEY-----/, '')
+          .replace(/-----END PRIVATE KEY-----/, '')
+          .replace(/\n/g, '')
+          .replace(/\r/g, '')
+          .replace(/\s+/g, '');
         
-        console.log('Base64 key extracted, length:', base64Key.length);
+        console.log('Base64 key extracted, length:', cleanPrivateKey.length);
         
-        const privateKeyBytes = Uint8Array.from(atob(base64Key), c => c.charCodeAt(0));
+        let privateKeyBytes;
+        try {
+          privateKeyBytes = Uint8Array.from(atob(cleanPrivateKey), c => c.charCodeAt(0));
+        } catch (decodeError) {
+          console.error('Base64 decode error:', decodeError);
+          throw new Error('Invalid private key format - cannot decode base64');
+        }
         console.log('Private key bytes length:', privateKeyBytes.length);
         
         // For Ed25519, we need the raw 32-byte private key (skip the ASN.1 wrapper if present)

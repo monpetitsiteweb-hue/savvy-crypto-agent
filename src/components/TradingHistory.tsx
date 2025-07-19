@@ -158,7 +158,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           .from('trading_history')
           .select('*')
           .eq('user_id', user.id)
-          .eq('trade_environment', 'live')
+          .eq('is_sandbox', false)
           .order('executed_at', { ascending: false })
           .limit(50);
         
