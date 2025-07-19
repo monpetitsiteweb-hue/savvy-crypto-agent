@@ -107,7 +107,7 @@ const Index = () => {
                     onCreateStrategy={() => setActiveTab('strategy')}
                   />
                 )}
-                {activeTab === 'strategy' && <TestStrategyConfig />}
+                {activeTab === 'strategy' && <StrategyConfig />}
                 {activeTab === 'performance' && (
                   <PerformanceOverview 
                     hasActiveStrategy={hasActiveStrategy}

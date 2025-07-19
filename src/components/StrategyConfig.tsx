@@ -553,95 +553,41 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
                       </Button>
                     )}
                     
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={`${
-                            ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
-                              ? 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30' 
-                              : 'bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500'
-                          }`}
-                        >
-                         {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? (
-                           <>
-                             <Pause className="w-4 h-4 mr-2" />
-                             Deactivate
-                           </>
-                         ) : (
-                           <>
-                             <Play className="w-4 h-4 mr-2" />
-                             Activate
-                           </>
-                         )}
-                       </Button>
-                     </AlertDialogTrigger>
-                    <AlertDialogContent className="bg-slate-800 border-slate-700">
-                      <AlertDialogHeader>
-                        <AlertDialogTitle className="text-white">
-                          {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? 'Deactivate Strategy' : 'Activate Strategy'}
-                        </AlertDialogTitle>
-                        <AlertDialogDescription className="text-slate-400">
-                          {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
-                            ? `Are you sure you want to deactivate the strategy "${strategy.strategy_name}" in ${testMode ? 'Test' : 'Live'} mode? This will stop all automated trading.`
-                            : `Are you sure you want to activate the strategy "${strategy.strategy_name}" in ${testMode ? 'Test' : 'Live'} mode? This will automatically deactivate any other active strategy in this mode.`
-                          }
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                          Cancel
-                        </AlertDialogCancel>
-                          <AlertDialogAction 
-                            onClick={() => handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))}
-                          className={`${
-                            ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
-                              ? 'bg-red-600 hover:bg-red-700' 
-                              : 'bg-green-600 hover:bg-green-700'
-                          } text-white`}
-                        >
-                          {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? 'Deactivate' : 'Activate'}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                     </AlertDialogContent>
-                   </AlertDialog>
+                     <Button
+                       variant="outline"
+                       size="sm"
+                       onClick={() => handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))}
+                       className={`${
+                         ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
+                           ? 'bg-green-500/20 border-green-500 text-green-400 hover:bg-green-500/30' 
+                           : 'bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500'
+                       }`}
+                     >
+                      {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? (
+                        <>
+                          <Pause className="w-4 h-4 mr-2" />
+                          Deactivate
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-4 h-4 mr-2" />
+                          Activate
+                        </>
+                      )}
+                    </Button>
 
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent className="bg-slate-800 border-slate-700">
-                      <AlertDialogHeader>
-                        <AlertDialogTitle className="text-white">Delete Strategy</AlertDialogTitle>
-                        <AlertDialogDescription className="text-slate-400">
-                          Are you sure you want to delete "{strategy.strategy_name}"? 
-                          This action is irreversible and will delete all associated data.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                          Cancel
-                        </AlertDialogCancel>
-                        <AlertDialogAction 
-                          onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
-                          className="bg-red-600 hover:bg-red-700 text-white"
-                        >
-                          Delete Permanently
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                   <Button
+                     variant="outline"
+                     size="sm"
+                     onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
+                     className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
+                   >
+                     <Trash2 className="w-4 h-4 mr-2" />
+                     Delete
+                   </Button>
+                  </div>
                 </div>
-              </div>
-            </Card>
+              </Card>
             ))}
           </div>
         </Card>
@@ -694,38 +640,15 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
                          Activate
                        </Button>
 
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Delete
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent className="bg-slate-800 border-slate-700">
-                            <AlertDialogHeader>
-                              <AlertDialogTitle className="text-white">Delete Strategy</AlertDialogTitle>
-                              <AlertDialogDescription className="text-slate-400">
-                                Are you sure you want to delete "{strategy.strategy_name}"? 
-                                This action is irreversible and will delete all associated data.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                                Cancel
-                              </AlertDialogCancel>
-                              <AlertDialogAction 
-                                onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
-                                className="bg-red-600 hover:bg-red-700 text-white"
-                              >
-                                Delete Permanently
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                         <Button
+                           variant="outline"
+                           size="sm"
+                           onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
+                           className="bg-red-500/20 border-red-500 text-red-400 hover:bg-red-500/30"
+                         >
+                           <Trash2 className="w-4 h-4 mr-2" />
+                           Delete
+                         </Button>
                       </div>
                     </div>
                   </Card>
