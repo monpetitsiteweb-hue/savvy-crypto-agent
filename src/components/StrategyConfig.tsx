@@ -124,20 +124,27 @@ export const StrategyConfig = () => {
 
   // Refresh active strategy when testMode changes to update UI immediately
   useEffect(() => {
+    console.log('🔄 testMode effect triggered', { testMode, strategiesCount: allStrategies.length });
+    
     if (user && allStrategies.length > 0) {
       const activeStrategyData = allStrategies.find(s => 
         testMode ? s.is_active_test : s.is_active_live
       );
       
-      if (activeStrategyData) {
+      console.log('🔄 Active strategy check', { activeStrategyData: !!activeStrategyData, currentActive: !!activeStrategy });
+      
+      // Only update if there's actually a change to prevent unnecessary re-renders
+      if (activeStrategyData && activeStrategyData.id !== activeStrategy?.id) {
+        console.log('🔄 Setting new active strategy');
         setHasActiveStrategy(true);
         setActiveStrategy(activeStrategyData);
-      } else {
+      } else if (!activeStrategyData && activeStrategy) {
+        console.log('🔄 Clearing active strategy');
         setHasActiveStrategy(false);
         setActiveStrategy(null);
       }
     }
-  }, [testMode, allStrategies, user]);
+  }, [testMode]); // REMOVED allStrategies and user from dependencies to prevent unnecessary re-renders
 
   const loadStrategyPerformance = async (strategyId: string) => {
     try {
