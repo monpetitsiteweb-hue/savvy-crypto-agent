@@ -156,28 +156,40 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         // Get current portfolio value from mock wallet
         setPortfolioValue(getTotalValue());
       } else {
-        // In live mode, fetch from trading_history table
-        console.log('🔍 Fetching live trading history for user:', user.id);
-        const result = await supabase
-          .from('trading_history')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('is_sandbox', false)
-          .order('executed_at', { ascending: false })
-          .limit(50);
+        // In live mode, fetch directly from Coinbase API
+        console.log('🔍 Fetching live trading history directly from Coinbase API');
         
-        console.log('📊 Live trading history result:', { data: result.data, error: result.error });
+        if (!selectedConnection) {
+          console.log('No connection selected, clearing trades');
+          setTrades([]);
+          setPortfolioValue(0);
+          setStats({ totalTrades: 0, totalVolume: 0, netProfitLoss: 0 });
+          return;
+        }
+
+        try {
+          const { data: coinbaseData, error: coinbaseError } = await supabase.functions.invoke('coinbase-trading-history', {
+            body: { 
+              connectionId: selectedConnection,
+              testMode: false
+            }
+          });
+
+          if (coinbaseError) throw coinbaseError;
+
+          console.log('📊 Coinbase API response:', coinbaseData);
+          
+          // Use the trading history directly from Coinbase API response
+          data = coinbaseData.tradingHistory || [];
+          error = null;
+        } catch (apiError) {
+          console.error('Error fetching from Coinbase API:', apiError);
+          data = [];
+          error = null; // Don't treat API errors as fatal
+        }
         
-        data = result.data;
-        error = result.error;
-        
-        // Clear any cached data first
-        setTrades([]);
-        
-        // In live mode, get portfolio value from Coinbase API or stored value
-        // For now, we'll calculate it from available balance data
-        // TODO: Integrate with real Coinbase portfolio value
-        setPortfolioValue(0); // Will be updated when Coinbase integration is complete
+        // In live mode, portfolio value would come from Coinbase portfolio API
+        setPortfolioValue(0); // Will be updated when Coinbase portfolio integration is complete
       }
 
       if (error) throw error;
@@ -210,43 +222,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   };
 
   const fetchFromCoinbase = async () => {
-    if (!selectedConnection) {
-      toast({
-        title: "No Connection Selected",
-        description: "Please select a Coinbase connection first",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setFetching(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('coinbase-trading-history', {
-        body: { 
-          connectionId: selectedConnection,
-          testMode: testMode
-        }
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: "Success",
-        description: `Fetched ${data.trades} trades from Coinbase`,
-      });
-      
-      // Refresh local data
-      await fetchTradingHistory();
-    } catch (error) {
-      console.error('Error fetching from Coinbase:', error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch trading history from Coinbase",
-        variant: "destructive",
-      });
-    } finally {
-      setFetching(false);
-    }
+    // In live mode, this just refreshes the data since we always fetch from Coinbase API
+    await fetchTradingHistory();
+    
+    toast({
+      title: "Refreshed",
+      description: "Trading history refreshed from Coinbase",
+    });
   };
 
   const formatTime = (dateString: string) => {

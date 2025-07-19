@@ -279,7 +279,8 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         message: 'Trading history fetched successfully',
-        trades: tradingHistory.length
+        trades: tradingHistory.length,
+        tradingHistory: tradingHistory // Return the actual trading history data
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
