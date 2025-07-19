@@ -1,11 +1,11 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.5'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.5';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+};
 
 interface StrategyUpdateRequest {
   message: string;
@@ -15,138 +15,78 @@ interface StrategyUpdateRequest {
 }
 
 interface TradeRequest {
-  tradeType: 'buy' | 'sell';
+  tradeType: 'BUY' | 'SELL';
   cryptocurrency: string;
   amount: number;
+  orderType?: string;
   strategyId: string;
-  orderType: 'market' | 'limit';
   testMode?: boolean;
 }
 
-// Trade execution function
-async function executeTrade(supabase: any, userId: string, trade: TradeRequest, authToken?: string): Promise<string> {
-  console.log('🔄 TRADE STEP 1: Starting trade execution...');
-  console.log('Trade details:', JSON.stringify(trade, null, 2));
-
+async function executeTrade(trade: TradeRequest, userId: string, authToken: string): Promise<string> {
   try {
-    // Step 1B: For BUY orders only, check max position limit (sell orders should never be limited)
-    if (trade.tradeType === 'buy') {
-      console.log('🔄 TRADE STEP 1B: Checking max position limit for BUY order...');
-      const { data: strategy, error: strategyError } = await supabase
-        .from('trading_strategies')
-        .select('configuration')
-        .eq('id', trade.strategyId)
-        .single();
-
-      if (strategyError) {
-        console.error('Strategy error:', strategyError);
-        return `❌ **Strategy Access Failed**\n\nCould not retrieve strategy configuration. Please try again.`;
-      }
-
-      const config = strategy.configuration;
-      const maxPosition = config.maxPosition || 5000;
-      
-      if (trade.amount > maxPosition) {
-        console.log(`⚠️ BUY order amount €${trade.amount} exceeds max position €${maxPosition}`);
-        return `❌ **Position Limit Exceeded**\n\nYour maximum position is set to €${maxPosition}, but you're trying to buy €${trade.amount}. Please increase your max position limit first or reduce the trade amount.`;
-      }
-
-      console.log(`✅ Position check passed for BUY: €${trade.amount} ≤ €${maxPosition}`);
-    } else {
-      console.log(`✅ SELL order detected - no position limits apply (selling reduces exposure)`);
-    }
-
-    // Step 2: Get user's fee rate from profile
-    console.log('🔄 TRADE STEP 2A: Getting user fee configuration...');
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('fee_rate')
-      .eq('id', userId)
-      .single();
-
-    if (profileError) {
-      console.error('Profile error:', profileError);
-      return `❌ **Profile Access Failed**\n\nCould not retrieve your fee settings. Please try again.`;
-    }
-
-    const userFeeRate = profile?.fee_rate || 0.0000;
-    console.log(`💰 User fee rate: ${(userFeeRate * 100).toFixed(2)}%`);
-
-    // Step 2B: Check for active Coinbase connections
-    console.log('🔄 TRADE STEP 2B: Looking for active Coinbase connections...');
-    const { data: connections, error: connectionError } = await supabase
-      .from('user_coinbase_connections')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_active', true)
-      .limit(1);
-
-    if (connectionError || !connections || connections.length === 0) {
-      return `❌ **No Coinbase Connection Found**\n\nPlease connect your Coinbase account first in the Admin section to enable trading.`;
-    }
-
-    console.log('✅ TRADE STEP 2 SUCCESS: Found active connection');
-
-    // Step 3: Prepare trade parameters
-    console.log('🔄 TRADE STEP 3: Preparing trade parameters...');
+    console.log('🔄 TRADE STEP 1: Validating trade parameters...');
     
-    const mockPrices = {
-      BTC: 113620, // EUR price (example - should be fetched from real EUR market data)
-      ETH: 3400,   // EUR price (example - should be fetched from real EUR market data)
-      XRP: 3.3     // EUR price (example - should be fetched from real EUR market data)
-    };
-
-    // No conversion needed - prices are already in EUR
-    const cryptoPrice = mockPrices[trade.cryptocurrency.toUpperCase() as keyof typeof mockPrices] || 50000;
-    const cryptoAmount = trade.amount / cryptoPrice; // Calculate crypto amount from EUR
+    if (!trade.cryptocurrency || !trade.amount || trade.amount <= 0) {
+      console.error('❌ TRADE STEP 1 FAILED: Invalid trade parameters');
+      return `❌ **Trading Parameters Invalid**\n\nError: Missing or invalid trading parameters\n\nRequired: cryptocurrency and amount > 0`;
+    }
     
-    // Calculate fees based on user's fee rate
-    const fees = trade.amount * userFeeRate;
+    console.log('✅ TRADE STEP 1 SUCCESS: Parameters validated');
+    console.log('🔄 TRADE STEP 2: Fetching real-time market data...');
 
-    console.log('Environment:', trade.testMode ? 'TEST' : 'LIVE');
-    console.log('Test Mode:', trade.testMode);
-    console.log(`Mock trade: ${trade.tradeType} ${cryptoAmount} ${trade.cryptocurrency} at €${cryptoPrice} (total: €${trade.amount})`);
-    if (fees > 0) {
-      console.log(`Fees: €${fees.toFixed(2)} (${(userFeeRate * 100).toFixed(2)}%)`);
-    } else {
-      console.log('Fees: €0.00 (Fee-free account)');
+    // Step 2: Get market data for validation
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { data: marketData, error: marketError } = await supabase.functions.invoke('real-time-market-data', {
+      body: { symbol: trade.cryptocurrency }
+    });
+
+    if (marketError) {
+      console.error('❌ TRADE STEP 2 FAILED: Market data fetch error:', marketError);
+      return `❌ **Market Data Unavailable**\n\nError: Unable to fetch current market data for ${trade.cryptocurrency}\n\nDetails: ${marketError.message}`;
     }
 
-    console.log('✅ TRADE STEP 3 SUCCESS: Trade parameters prepared');
+    const cryptoPrice = parseFloat(marketData.price) || 1; // Fallback price
+    const cryptoAmount = trade.amount / cryptoPrice;
+    
+    console.log('✅ TRADE STEP 2 SUCCESS: Market data retrieved');
+    console.log(`📊 Current ${trade.cryptocurrency} price: €${cryptoPrice.toFixed(2)}`);
 
-    // Step 4: Execute trade (test mode or live)
+    // Step 3: Record the trade in mock_trades table for test mode or trading_history for live
+    console.log('🔄 TRADE STEP 3: Recording trade...');
+    
     if (trade.testMode) {
-      console.log('🔄 TRADE STEP 4: Test mode detected - executing mock trade locally (no Coinbase API call)');
-      
-      // Insert mock trade record
+      // Test mode: insert into mock_trades
       const { error: insertError } = await supabase
         .from('mock_trades')
         .insert({
           user_id: userId,
           strategy_id: trade.strategyId,
-          cryptocurrency: trade.cryptocurrency.toLowerCase(),
           trade_type: trade.tradeType,
+          cryptocurrency: trade.cryptocurrency,
           amount: cryptoAmount,
           price: cryptoPrice,
           total_value: trade.amount,
-          fees: fees,
+          fees: 0, // Fee-free account
+          executed_at: new Date().toISOString(),
           is_test_mode: true,
-          notes: `AI-executed ${trade.tradeType} order`,
           market_conditions: {
-            price_at_execution: cryptoPrice,
-            market_type: 'simulated',
+            price: cryptoPrice,
             timestamp: new Date().toISOString()
           }
         });
 
       if (insertError) {
-        console.error('Mock trade insert error:', insertError);
-        return `❌ **Trade Recording Failed**\n\nError: ${insertError.message}`;
+        console.error('❌ TRADE STEP 3 FAILED: Mock trade recording error:', insertError);
+        return `❌ **Trade Recording Failed**\n\nError: Unable to record test trade\n\nDetails: ${insertError.message}`;
       }
-
-      console.log('✅ TRADE STEP 4 SUCCESS: Mock trade executed and recorded (no external API call made)');
+      
+      console.log('✅ TRADE STEP 3 SUCCESS: Mock trade recorded');
     } else {
-      console.log('🔄 TRADE STEP 4: Live mode detected - calling Coinbase live trade function');
+      console.log('🔄 TRADE STEP 4: Executing live trade via Coinbase...');
       
       // Call live trading function
       const { data: liveTradeResult, error: liveTradeError } = await supabase.functions.invoke('coinbase-live-trade', {
@@ -248,518 +188,262 @@ serve(async (req) => {
     
     console.log('STEP 2 SUCCESS: User ID found:', userId);
 
-    // Step 3: Initialize Supabase client
+    // Step 3: Initialize database connection
     console.log('STEP 3: Initializing database connection...');
-    let supabase;
-    try {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL');
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-      
-      if (!supabaseUrl || !supabaseKey) {
-        throw new Error('Missing Supabase configuration');
-      }
-      
-      supabase = createClient(supabaseUrl, supabaseKey);
-      console.log('STEP 3 SUCCESS: Database client initialized');
-    } catch (dbError) {
-      console.error('STEP 3 FAILED: Database initialization error:', dbError);
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('STEP 3 FAILED: Missing Supabase configuration');
       return new Response(JSON.stringify({ 
-        error: 'Database connection failed',
+        error: 'Database configuration missing',
         step: 'STEP_3_DATABASE_INIT',
-        message: `❌ **Step 3 Failed**: Could not connect to database\n\n**Error:** ${dbError.message}`
+        message: `❌ **Step 3 Failed**: Database configuration is missing\n\n**Required:** Supabase URL and Service Key must be configured`
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    console.log('STEP 3 SUCCESS: Database client initialized');
+
+    // Step 4: Load LLM configuration
+    console.log('STEP 4: Loading LLM configuration...');
+    const { data: llmConfig, error: llmError } = await supabase
+      .from('llm_configurations')
+      .select('*')
+      .eq('is_active', true)
+      .single();
+
+    if (llmError || !llmConfig) {
+      console.error('STEP 4 FAILED: LLM configuration not found:', llmError);
+      return new Response(JSON.stringify({ 
+        error: 'LLM configuration missing',
+        step: 'STEP_4_LLM_CONFIG',
+        message: `❌ **Step 4 Failed**: LLM configuration not found\n\n**Required:** Active LLM configuration must be set up in admin panel`
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    console.log('STEP 4 SUCCESS: LLM configuration loaded');
+
+    // Step 5: Analyze user intent with AI
+    console.log('💬 Using AI to analyze user intent...');
+    
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!openaiApiKey) {
+      console.error('STEP 5 FAILED: OpenAI API key missing');
+      return new Response(JSON.stringify({ 
+        error: 'OpenAI API key missing',
+        step: 'STEP_5_AI_ANALYSIS',
+        message: `❌ **Step 5 Failed**: OpenAI API key not configured\n\n**Required:** OpenAI API key must be set up for AI analysis`
       }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Step 4: Load LLM configuration
-    console.log('STEP 4: Loading LLM configuration...');
-    let llmConfig = null;
-    let openAIApiKey = null;
-    
-    try {
-      const { data: configs } = await supabase
-        .from('llm_configurations')
-        .select('*')
-        .eq('is_active', true)
-        .limit(1);
-      
-      llmConfig = configs?.[0] || null;
-      openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-      
-      console.log('STEP 4 SUCCESS: LLM configuration loaded');
-    } catch (llmError) {
-      console.log('STEP 4 WARNING: Could not load LLM config, continuing with basic functionality');
-    }
+    // AI Analysis System Prompt
+    const analysisPrompt = `You are an expert cryptocurrency trading assistant analyzing user messages to determine intent and provide intelligent responses.
 
-    // Main processing logic - Use OpenAI to understand user intent
-    const lowerMessage = message.toLowerCase();
-    let configUpdates: any = {};
-    let responseMessage = '';
+CRITICAL BEHAVIOR RULES:
+1. For DIRECT TRADE COMMANDS (like "buy X euros of Y", "sell Z amount of Y"), provide SIMPLE CONFIRMATION instead of lengthy advice
+2. For complex strategy questions, provide detailed expert guidance
+3. Always check if user is confirming a previous trade request
 
-    // Check if this might be a trading request or configuration change
-    if (openAIApiKey && llmConfig) {
-      console.log('💬 Using AI to analyze user intent...');
-      
-      try {
-        const analysisResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${openAIApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: llmConfig.model || 'gpt-4.1-2025-04-14',
-            messages: [
-              {
-                role: 'system',
-                content: `You are the world's leading cryptocurrency expert and master of this advanced trading platform. You are a living encyclopedia of crypto knowledge with unmatched expertise in:
+Current Strategy Context:
+- Max Position: €${currentConfig.maxPosition || 10}
+- Risk Level: ${currentConfig.riskLevel || 'medium'}
+- Stop Loss: ${currentConfig.stopLossPercentage || 3}%
+- Test Mode: ${testMode ? 'Yes' : 'No'}
 
-🌟 ULTIMATE CRYPTO MASTERY:
-• Market cycles, technical analysis, and price prediction models
-• Whale tracking: BlackRock, MicroStrategy, Grayscale, institutional flows
-• Social sentiment: Twitter influencers, Reddit communities, Discord alpha
-• News analysis: regulatory updates, adoption news, market catalysts  
-• DeFi ecosystems: yield farming, liquidity mining, protocol analysis
-• Cross-chain opportunities and arbitrage strategies
-• Macroeconomic impact: Fed policy, inflation, traditional market correlation
-• Historical patterns and behavioral finance in crypto markets
+User Message: "${message}"
 
-🚀 PLATFORM EXPERTISE (THIS TOOL):
-• Position limits: €${currentConfig.maxPosition} max per BUY order (sells unrestricted)
-• Risk management: ${currentConfig.riskLevel} level, stop-loss ${currentConfig.stopLoss ? 'enabled' : 'disabled'}
-• Strategy optimization: take-profit, trailing stops, auto-trading
-• Portfolio tracking and P&L analysis capabilities
-• Real-time market data integration and execution systems
-• Test vs production mode differences and implications
-
-🧠 INTELLIGENT CONSULTATION APPROACH:
-When users ask for trading strategies or advice, you MUST be pedagogical and comprehensive:
-
-1. **ASK CLARIFYING QUESTIONS** when needed:
-   - Investment timeline (day trading vs long-term holding)
-   - Risk tolerance (how much can they afford to lose)
-   - Portfolio allocation preferences (concentrated vs diversified)
-   - Market outlook and experience level
-
-2. **PROVIDE MULTIPLE OPTIONS** with detailed explanations:
-   - Conservative approach: Lower risk, steady returns
-   - Balanced approach: Moderate risk-reward with market adaptation
-   - Aggressive approach: Higher risk for maximum returns
-   - Explain pros/cons and ideal market conditions for each
-
-3. **STRATEGIC REASONING** for recommendations:
-   - Current market conditions analysis
-   - Why this approach fits their situation
-   - How to adapt during bull runs or bear markets
-   - Position sizing and risk management rationale
-
-For strategy questions like "make me 1% per day", you should:
-• Explain the mathematical impossibility/difficulty
-• Discuss realistic return expectations
-• Offer multiple strategic approaches
-• Ask about risk tolerance and timeframe
-• Suggest portfolio allocation methods
-• Mention when to deviate from rules (bull runs, crashes)
-
-EXAMPLE EXPERT RESPONSE STRUCTURE:
-"🔍 **Understanding Your Goal**
-Daily 1% returns would mean 3,678% annual returns - this is extremely ambitious and risky. Let me offer realistic strategic approaches:
-
-📊 **Market Analysis**: [Current conditions]
-
-🎯 **Strategic Options**:
-**Option A: Conservative Swing Trading**
-- Target: 10-20% monthly returns
-- Method: Buy dips, sell resistance levels
-- Allocation: 30% BTC, 30% ETH, 40% cash for opportunities
-- Pros: Lower risk, sustainable
-- Cons: Lower returns, requires patience
-
-**Option B: Aggressive Day Trading**
-- Target: 30-50% monthly (closer to your goal)
-- Method: Leverage, high-frequency trades
-- Risk: Very high, could lose 50%+ quickly
-- Allocation: All-in strategies with tight stops
-
-⚙️ **Recommended Configuration**: [Specific settings]
-⚠️ **Risk Considerations**: [What could go wrong]
-🧠 **Market Intelligence**: [Additional insights]"
-
-Return ONLY valid JSON for intent classification:
+Analyze this message and respond with a JSON object containing:
 {
-  "intent": "trade" | "config" | "conversation" | "strategy_consultation",
+  "intent": "trade" | "strategy_advice" | "confirmation" | "general",
   "requires_consultation": boolean,
-  "market_context": "Current market analysis relevant to request",
-  "reasoning": "Detailed expert analysis combining technical, fundamental, and sentiment factors",
-  "trades": [...],
-  "config_changes": {...},
-  "consultation_response": "Full expert response if requires_consultation=true",
-  "market_insights": "Additional expert intelligence and recommendations"
-}`
-              },
-              {
-                role: 'user',
-                content: message
-              }
-            ],
-            temperature: 0.2,
-            max_tokens: 1500
-          }),
-        });
+  "trades": [array of trade objects if intent is trade],
+  "config_changes": {},
+  "reasoning": "explanation of your analysis",
+  "consultation_response": "response text for complex queries only",
+  "market_context": "brief market analysis if relevant"
+}
 
-        const analysisData = await analysisResponse.json();
-        const analysis = JSON.parse(analysisData.choices[0].message.content);
-        
-        console.log('🧠 AI Analysis:', analysis);
+EXAMPLES:
 
-        // Handle strategy consultation responses first
-        if (analysis.requires_consultation && analysis.consultation_response) {
-          console.log('🎓 STRATEGY CONSULTATION: Providing expert guidance');
-          responseMessage = analysis.consultation_response;
-        } else if (analysis.intent === 'trade' && analysis.trades?.length > 0) {
-          console.log('🛒 TRADE REQUEST: AI detected trading intent');
-          
-          // Check if trade exceeds maxPosition limit
-          const { data: currentStrategy } = await supabase
-            .from('trading_strategies')
-            .select('configuration')
-            .eq('id', strategyId)
-            .single();
+Direct Trade Command: "buy 50 euros of bitcoin"
+Response: {
+  "intent": "trade",
+  "requires_consultation": false,
+  "trades": [{"tradeType": "BUY", "cryptocurrency": "BTC", "amount": 50, "orderType": "market"}],
+  "reasoning": "Clear direct trade command",
+  "consultation_response": "⚡ **Ready to Execute**\n\nBuy €50 of Bitcoin (BTC) at current market price?\n\n**Current Strategy Limits:** €${currentConfig.maxPosition || 10} max per order\n**Environment:** ${testMode ? 'Test Mode' : 'Live Trading'}\n\nConfirm to proceed."
+}
 
-          const maxPosition = currentStrategy?.configuration?.maxPosition || 5000;
-          
-          for (const trade of analysis.trades) {
-            // Only check position limits for BUY orders, not SELL orders
-            if (trade.action === 'buy' && trade.amount_eur && trade.amount_eur > maxPosition) {
-              responseMessage = `❌ **Position Limit Exceeded**\n\nYour current strategy has a maximum position limit of €${maxPosition.toLocaleString()}. You're trying to ${trade.action} €${trade.amount_eur.toLocaleString()} of ${trade.cryptocurrency.toUpperCase()}.\n\n**Would you like me to increase the maxPosition limit to €${trade.amount_eur.toLocaleString()}?**\n\nJust say "Yes" or "Change max position to ${trade.amount_eur}"`;
-              break;
-            }
-          }
-          
-          if (!responseMessage) {
-            const results = [];
-            for (const trade of analysis.trades) {
-            if (trade.action === 'sell' && trade.amount_crypto === 'all') {
-              // Handle "sell all" command
-              try {
-                const { data: balanceData } = await supabase
-                  .from('mock_trades')
-                  .select('amount, trade_type, cryptocurrency')
-                  .eq('user_id', userId)
-                  .eq('is_test_mode', testMode)
-                  .eq('cryptocurrency', trade.cryptocurrency);
-                
-                let currentBalance = 0;
-                if (balanceData) {
-                  balanceData.forEach(tradeRecord => {
-                    if (tradeRecord.trade_type === 'buy') {
-                      currentBalance += tradeRecord.amount;
-                    } else if (tradeRecord.trade_type === 'sell') {
-                      currentBalance -= tradeRecord.amount;
-                    }
-                  });
-                }
-                
-                if (currentBalance <= 0) {
-                  results.push(`❌ **No ${trade.cryptocurrency.toUpperCase()} to sell**\n\nYou don't have any ${trade.cryptocurrency.toUpperCase()} in your portfolio to sell.`);
-                } else {
-                  // Calculate EUR value for sell order
-                  const mockPrices = { BTC: 113620, ETH: 3400, XRP: 3.3 };
-                  const cryptoPrice = mockPrices[trade.cryptocurrency.toUpperCase() as keyof typeof mockPrices] || 50000;
-                  const totalEurValue = currentBalance * cryptoPrice;
-                  
-                  const result = await executeTrade(supabase, userId, {
-                    tradeType: 'sell',
-                    cryptocurrency: trade.cryptocurrency,
-                    amount: totalEurValue,
-                    strategyId: strategyId,
-                    orderType: 'market',
-                    testMode: testMode
-                  }, authToken);
-                  results.push(result);
-                }
-              } catch (error) {
-                results.push(`❌ **Could not check balance**\n\nError retrieving your ${trade.cryptocurrency.toUpperCase()} balance. Please try again.`);
-              }
-            } else {
-              // Regular buy/sell with specific amount
-              const result = await executeTrade(supabase, userId, {
-                tradeType: trade.action,
-                cryptocurrency: trade.cryptocurrency,
-                amount: trade.amount_eur || trade.amount_crypto,
-                strategyId: strategyId,
-                orderType: 'market',
-                testMode: testMode
-              }, authToken);
-              results.push(result);
-            }
-            }
-            
-            responseMessage = results.join('\n\n---\n\n');
-          }
-        } else if (analysis.intent === 'config' && analysis.config_changes) {
-          console.log('⚙️ CONFIG REQUEST: AI detected configuration intent');
-          configUpdates = analysis.config_changes;
-          
-          // Update the strategy configuration in the database
-          try {
-            const { data: currentStrategy, error: fetchError } = await supabase
-              .from('trading_strategies')
-              .select('configuration')
-              .eq('id', strategyId)
-              .single();
+Complex Strategy Question: "how can I make 1% daily profit"
+Response: {
+  "intent": "strategy_advice", 
+  "requires_consultation": true,
+  "trades": [],
+  "reasoning": "Complex strategy question requiring expert guidance",
+  "consultation_response": "🎯 **Daily 1% Profit Strategy Analysis**\n\n**Reality Check:** 1% daily = 3,778% annually - this is extremely aggressive...[detailed analysis]"
+}
 
-            if (fetchError) throw fetchError;
+Confirmation: "yes" or "confirm" after a trade suggestion
+Response: {
+  "intent": "confirmation",
+  "requires_consultation": false,
+  "trades": [extract trade from context],
+  "reasoning": "User confirming previous trade suggestion"
+}`;
 
-            const updatedConfig = {
-              ...currentStrategy.configuration,
-              ...configUpdates
-            };
+    try {
+      const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: llmConfig.model || 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: analysisPrompt },
+            { role: 'user', content: message }
+          ],
+          temperature: llmConfig.temperature || 0.3,
+          max_tokens: llmConfig.max_tokens || 2000,
+        }),
+      });
 
-            const { error: updateError } = await supabase
-              .from('trading_strategies')
-              .update({ configuration: updatedConfig })
-              .eq('id', strategyId);
-
-            if (updateError) throw updateError;
-
-            const changes = [];
-            if (configUpdates.stopLoss !== undefined) {
-              changes.push(`Stop-loss ${configUpdates.stopLoss ? 'enabled' : 'disabled'}`);
-              if (configUpdates.stopLossPercentage) {
-                changes.push(`set to ${configUpdates.stopLossPercentage}%`);
-              }
-            }
-            if (configUpdates.takeProfit) {
-              changes.push(`Take profit set to ${configUpdates.takeProfit}%`);
-            }
-            if (configUpdates.riskLevel) {
-              changes.push(`Risk level changed to ${configUpdates.riskLevel}`);
-            }
-            if (configUpdates.maxPosition) {
-              changes.push(`Maximum position limit increased to €${configUpdates.maxPosition.toLocaleString()}`);
-            }
-            
-            responseMessage = `✅ **Strategy Configuration Updated**\n\n${changes.join('\n• ')}`;
-          } catch (configError) {
-            console.error('Configuration update error:', configError);
-            responseMessage = `❌ **Configuration Update Failed**\n\nError: ${configError.message}`;
-          }
-        }
-        
-      } catch (aiError) {
-        console.error('AI analysis error:', aiError);
-        console.log('🔄 Falling back to pattern matching...');
+      if (!aiResponse.ok) {
+        throw new Error(`OpenAI API error: ${aiResponse.status}`);
       }
-    }
 
-    // Fallback to pattern matching if AI analysis failed or wasn't available
-    if (!responseMessage) {
-      // Pattern matching fallback logic
-      if (lowerMessage.includes('buy') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum') || lowerMessage.includes('ripple'))) {
-        console.log('💰 TRADE REQUEST: Buy detected via fallback');
-        responseMessage = 'I understand you want to make a purchase. Please use the format: "Buy [amount] euros of [crypto]" (e.g., "Buy 1000 euros of BTC")';
-      } else if (lowerMessage.includes('sell') && (lowerMessage.includes('btc') || lowerMessage.includes('eth') || lowerMessage.includes('xrp') || lowerMessage.includes('bitcoin') || lowerMessage.includes('ethereum') || lowerMessage.includes('ripple'))) {
-        console.log('💸 TRADE REQUEST: Sell detected');
-        
-        // Extract crypto currency
-        let cryptoMatch = message.match(/\b(btc|bitcoin|eth|ethereum|xrp|ripple)\b/i);
-        if (!cryptoMatch) {
-          responseMessage = `I understand you want to sell crypto, but I need to know which cryptocurrency. Try: "Sell 0.5 BTC" or "Sell all my XRP"`;
-        } else {
-          let crypto = cryptoMatch[1].toLowerCase();
-          
-          // Normalize crypto names
-          if (crypto === 'bitcoin') crypto = 'btc';
-          if (crypto === 'ethereum') crypto = 'eth';
-          if (crypto === 'ripple') crypto = 'xrp';
-          
-          // Check if "sell all" or similar
-          if (lowerMessage.includes('all') || lowerMessage.includes('everything')) {
-            console.log('💸 SELL ALL detected for crypto:', crypto);
-            
-            // Get current balance for this crypto from user's mock trades
-            try {
-              const { data: balanceData } = await supabase
-                .from('mock_trades')
-                .select('amount, trade_type, cryptocurrency')
-                .eq('user_id', userId)
-                .eq('is_test_mode', testMode)
-                .eq('cryptocurrency', crypto);
-              
-              let currentBalance = 0;
-              if (balanceData) {
-                balanceData.forEach(trade => {
-                  if (trade.trade_type === 'buy') {
-                    currentBalance += trade.amount;
-                  } else if (trade.trade_type === 'sell') {
-                    currentBalance -= trade.amount;
-                  }
-                });
-              }
-              
-              if (currentBalance <= 0) {
-                responseMessage = `❌ **No ${crypto.toUpperCase()} to sell**\n\nYou don't have any ${crypto.toUpperCase()} in your portfolio to sell.`;
-              } else {
-                console.log(`💸 EXECUTING SELL ALL: ${currentBalance} ${crypto}`);
-                
-                // Use current market price to calculate EUR value
-                const mockPrices = {
-                  BTC: 113620, // EUR price
-                  ETH: 3400,   // EUR price
-                  XRP: 3.3     // EUR price
-                };
-                const cryptoPrice = mockPrices[crypto.toUpperCase() as keyof typeof mockPrices] || 50000;
-                const totalEurValue = currentBalance * cryptoPrice;
-                
-                responseMessage = await executeTrade(supabase, userId, {
-                  tradeType: 'sell',
-                  cryptocurrency: crypto,
-                  amount: totalEurValue, // Use EUR value for consistency
-                  strategyId: strategyId,
-                  orderType: 'market',
-                  testMode: testMode
-                }, authToken);
-              }
-            } catch (balanceError) {
-              console.error('Error getting balance:', balanceError);
-              responseMessage = `❌ **Could not check balance**\n\nError retrieving your ${crypto.toUpperCase()} balance. Please try again.`;
-            }
-          } else {
-            // Regular sell with specific amount
-            const amountMatch = message.match(/(\d+(?:\.\d+)?)/);
-            if (amountMatch) {
-              const amount = parseFloat(amountMatch[1]);
-              
-              console.log('💸 EXECUTING REGULAR SELL:', { amount, crypto, testMode });
-              responseMessage = await executeTrade(supabase, userId, {
-                tradeType: 'sell',
-                cryptocurrency: crypto,
-                amount: amount,
-                strategyId: strategyId,
-                orderType: 'market',
-                testMode: testMode
-              }, authToken);
-            } else {
-              responseMessage = `I understand you want to sell ${crypto.toUpperCase()}, but I need to know how much. Try: "Sell 0.5 ${crypto.toUpperCase()}" or "Sell all my ${crypto.toUpperCase()}"`;
-            }
-          }
-        }
-      }
-      // Priority 2: Configuration changes  
-      else if (lowerMessage.includes('stop loss') || lowerMessage.includes('stop-loss')) {
-        const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
-        if (percentageMatch) {
-          const newPercentage = parseFloat(percentageMatch[1]);
-          configUpdates.stopLoss = true;
-          configUpdates.stopLossPercentage = newPercentage;
-          responseMessage = `Updated stop-loss to ${newPercentage}% and enabled it. This will help protect your capital by automatically selling if positions drop by ${newPercentage}% or more.`;
-        }
-      }
-      else if (lowerMessage.includes('take profit')) {
-        const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
-        if (percentageMatch) {
-          const newPercentage = parseFloat(percentageMatch[1]);
-          configUpdates.takeProfit = newPercentage;
-          responseMessage = `✅ Updated take profit target to ${newPercentage}%. Your strategy will now automatically sell positions when they reach ${newPercentage}% profit.`;
-        }
-      }
-      else if (lowerMessage.includes('risk')) {
-        if (lowerMessage.includes('low') || lowerMessage.includes('conservative')) {
-          configUpdates.riskLevel = 'low';
-          responseMessage = `✅ Changed risk tolerance to Conservative. This setting prioritizes capital preservation over aggressive gains.`;
-        } else if (lowerMessage.includes('high') || lowerMessage.includes('aggressive')) {
-          configUpdates.riskLevel = 'high';
-          responseMessage = `✅ Changed risk tolerance to Aggressive. This allows for higher potential returns but also higher risk of losses.`;
-        } else if (lowerMessage.includes('medium') || lowerMessage.includes('moderate')) {
-          configUpdates.riskLevel = 'medium';
-          responseMessage = `✅ Set risk tolerance to Moderate. This balances risk and reward appropriately.`;
-        }
-      }
-      // If no pattern matched, use default response
-      else {
-        responseMessage = 'Hello! I can help you with your trading strategy and execute trades. What would you like to do?';
-      }
-    }
-
-    // Update strategy configuration if there are changes
-    if (Object.keys(configUpdates).length > 0 && strategyId) {
-      const newConfig = { ...currentConfig, ...configUpdates };
+      const aiData = await aiResponse.json();
+      const analysisContent = aiData.choices[0].message.content;
       
-      const { error } = await supabase
-        .from('trading_strategies')
-        .update({
-          configuration: newConfig,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', strategyId);
+      console.log('🧠 AI Analysis:', analysisContent);
       
-      if (error) {
-        console.error('Strategy update error:', error);
-        responseMessage += '\n\n⚠️ Note: Configuration changes could not be saved.';
+      // Parse the AI response
+      let analysis;
+      try {
+        analysis = JSON.parse(analysisContent);
+      } catch (parseError) {
+        console.error('Failed to parse AI response:', parseError);
+        analysis = {
+          intent: 'general',
+          requires_consultation: true,
+          consultation_response: analysisContent
+        };
       }
-    }
 
-    return new Response(JSON.stringify({ 
-      success: true, 
-      message: responseMessage,
-      configUpdates: configUpdates 
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+      const { intent, requires_consultation, trades, config_changes, consultation_response } = analysis;
+
+      // Check for direct action intent - only proceed if no consultation required
+      if (intent === 'trade' && !requires_consultation) {
+        console.log('💬 Processing direct trade request...');
+        
+        // Direct trade execution
+        if (trades && trades.length > 0) {
+          console.log('💬 Executing trade:', trades[0]);
+          // Execute the trade and return the result
+          const tradeResult = await executeTrade(trades[0], userId, authToken);
+          
+          return new Response(
+            JSON.stringify({ 
+              action: 'trade_executed',
+              message: tradeResult,
+              trades: trades
+            }), 
+            { 
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+            }
+          );
+        }
+      }
+      
+      // Check for confirmation response
+      if (intent === 'confirmation' || message.toLowerCase().includes('yes') || message.toLowerCase().includes('confirm') || message.toLowerCase().includes('proceed')) {
+        // Parse the context to find pending trade
+        const buyMatch = message.match(/(\d+)\s*euros?\s+of\s+(\w+)/i);
+        if (buyMatch) {
+          const [, amount, crypto] = buyMatch;
+          const trade = {
+            tradeType: 'BUY' as const,
+            cryptocurrency: crypto.toUpperCase(),
+            amount: parseFloat(amount),
+            orderType: currentConfig.orderType || 'market',
+            strategyId: strategyId,
+            testMode: testMode
+          };
+          
+          console.log('💬 Executing confirmed trade:', trade);
+          const tradeResult = await executeTrade(trade, userId, authToken);
+          
+          return new Response(
+            JSON.stringify({ 
+              action: 'trade_executed',
+              message: tradeResult,
+              trades: [trade]
+            }), 
+            { 
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+            }
+          );
+        }
+      }
+
+      // For consultation responses or strategy advice
+      if (requires_consultation || intent === 'strategy_advice') {
+        console.log('🎓 STRATEGY CONSULTATION: Providing expert guidance');
+        
+        return new Response(
+          JSON.stringify({ 
+            action: 'consultation',
+            message: consultation_response || analysis.consultation_response || analysisContent,
+            config_changes: config_changes || {},
+            market_insights: analysis.market_context
+          }), 
+          { 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+
+      // Default response for unhandled cases
+      return new Response(
+        JSON.stringify({ 
+          action: 'general_response',
+          message: consultation_response || analysisContent,
+        }), 
+        { 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      );
+
+    } catch (aiError) {
+      console.error('AI Analysis Error:', aiError);
+      return new Response(JSON.stringify({ 
+        error: 'AI analysis failed',
+        message: `❌ **AI Analysis Failed**\n\nError: ${aiError.message}\n\nPlease try again or contact support if the issue persists.`
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
   } catch (error) {
-    console.error('Error in ai-trading-assistant function:', error);
+    console.error('Function error:', error);
     return new Response(JSON.stringify({ 
-      success: false, 
-      error: error.message,
-      message: 'I encountered an error processing your request. Please try again.'
+      error: 'Function execution failed',
+      message: `❌ **Function Error**\n\nError: ${error.message}\n\nPlease try again or contact support if the issue persists.`
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
-
-async function getCuratedMarketIntelligence(supabase: any, userId: string) {
-  try {
-    // Get enabled categories only
-    const { data: enabledCategories } = await supabase
-      .from('ai_data_categories')
-      .select('*')
-      .eq('is_enabled', true)
-      .order('importance_score', { ascending: false });
-
-    if (!enabledCategories || enabledCategories.length === 0) {
-      return { activeCategories: [], recentSignals: [] };
-    }
-
-    // Get recent market data from enabled categories only (last 24 hours)
-    const twentyFourHoursAgo = new Date();
-    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
-
-    const { data: recentSignals } = await supabase
-      .from('external_market_data')
-      .select(`
-        *,
-        ai_data_sources!inner(
-          category_id,
-          ai_data_categories!inner(*)
-        )
-      `)
-      .gte('timestamp', twentyFourHoursAgo.toISOString())
-      .in('ai_data_sources.category_id', enabledCategories.map(c => c.id))
-      .order('timestamp', { ascending: false })
-      .limit(20);
-
-    return {
-      activeCategories: enabledCategories,
-      recentSignals: recentSignals || []
-    };
-  } catch (error) {
-    console.error('Error getting curated market intelligence:', error);
-    return { activeCategories: [], recentSignals: [] };
-  }
-}
