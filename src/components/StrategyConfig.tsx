@@ -356,7 +356,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
 
   // Performance Overview Component
   const PerformanceOverview = () => (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ pointerEvents: 'auto' }}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Activity className="w-6 h-6 text-green-400" />
@@ -578,7 +578,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
   
   // Create Strategy View - Shows existing strategies when no strategy is active
   const CreateStrategyView = () => (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ pointerEvents: 'auto' }}>
       {allStrategies.length > 0 ? (
         <>
           <div className="text-center">
