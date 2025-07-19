@@ -41,7 +41,7 @@ async function executeTrade(trade: TradeRequest, userId: string, authToken: stri
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const { data: marketData, error: marketError } = await supabase.functions.invoke('real-time-market-data', {
-      body: { symbol: trade.cryptocurrency }
+      body: { symbols: [`${trade.cryptocurrency}-EUR`], action: 'get_current' }
     });
 
     if (marketError) {
@@ -49,7 +49,10 @@ async function executeTrade(trade: TradeRequest, userId: string, authToken: stri
       return `❌ **Market Data Unavailable**\n\nError: Unable to fetch current market data for ${trade.cryptocurrency}\n\nDetails: ${marketError.message}`;
     }
 
-    const cryptoPrice = parseFloat(marketData.price) || 1; // Fallback price
+    console.log('✅ TRADE STEP 2 SUCCESS: Market data received:', marketData);
+    const cryptoSymbol = `${trade.cryptocurrency}-EUR`;
+    const cryptoData = marketData.data?.[cryptoSymbol];
+    const cryptoPrice = parseFloat(cryptoData?.price) || 1; // Fallback price
     const cryptoAmount = trade.amount / cryptoPrice;
     
     console.log('✅ TRADE STEP 2 SUCCESS: Market data retrieved');
