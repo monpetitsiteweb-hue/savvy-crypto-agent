@@ -640,10 +640,11 @@ export const StrategyConfig = () => {
                            <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
                              Cancel
                            </AlertDialogCancel>
-                            <AlertDialogAction 
-                              onClick={() => {
-                                handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live));
-                              }}
+                             <AlertDialogAction 
+                               onClick={() => {
+                                 console.log('🔘 REAL ACTIVATE BUTTON CLICKED!', strategy.id, { testMode, is_active_test: strategy.is_active_test, is_active_live: strategy.is_active_live });
+                                 handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live));
+                               }}
                              className={`${
                                ((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))
                                  ? 'bg-red-600 hover:bg-red-700' 
