@@ -599,8 +599,8 @@ export const StrategyConfig = () => {
                       </Button>
                     )}
                     
-                     <AlertDialog>
-                       <AlertDialogTrigger asChild>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
                           <Button
                             variant="outline"
                             size="sm"
@@ -610,19 +610,19 @@ export const StrategyConfig = () => {
                                 : 'bg-slate-600 border-slate-500 text-slate-300 hover:bg-slate-500'
                             }`}
                           >
-                           {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? (
-                             <>
-                               <Pause className="w-4 h-4 mr-2" />
-                               Deactivate
-                             </>
-                           ) : (
-                             <>
-                               <Play className="w-4 h-4 mr-2" />
-                               Activate
-                             </>
-                           )}
-                         </Button>
-                       </AlertDialogTrigger>
+                            {((testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live)) ? (
+                              <>
+                                <Pause className="w-4 h-4 mr-2" />
+                                Deactivate
+                              </>
+                            ) : (
+                              <>
+                                <Play className="w-4 h-4 mr-2" />
+                                Activate
+                              </>
+                            )}
+                          </Button>
+                        </AlertDialogTrigger>
                        <AlertDialogContent className="bg-slate-800 border-slate-700">
                          <AlertDialogHeader>
                            <AlertDialogTitle className="text-white">

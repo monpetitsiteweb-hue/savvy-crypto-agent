@@ -212,89 +212,68 @@ serve(async (req) => {
       }
     } catch (apiError) {
       console.error('Error fetching from Coinbase API:', apiError);
-      console.log('Falling back to mock data for demonstration');
       
-      // Fallback to mock data that looks like real Coinbase orders
-      tradingHistory = [
-        {
-          order_id: `cb_${Date.now()}_1`,
-          product_id: 'BTC-EUR',
-          side: 'BUY',
-          order_type: 'MARKET_ORDER',
-          filled_size: '0.001',
-          filled_value: '45.00',
-          total_fees: '0.50',
-          created_time: new Date(Date.now() - 86400000).toISOString(),
-          completion_percentage: '100',
-          status: 'FILLED'
-        },
-        {
-          order_id: `cb_${Date.now()}_2`,
-          product_id: 'ETH-EUR', 
-          side: 'SELL',
-          order_type: 'MARKET_ORDER',
-          filled_size: '0.1',
-          filled_value: '300.00',
-          total_fees: '1.50',
-          created_time: new Date(Date.now() - 172800000).toISOString(),
-          completion_percentage: '100',
-          status: 'FILLED'
-        }
-      ];
+      // DO NOT insert mock data - return empty array if API fails
+      console.log('API failed, returning empty trading history instead of mock data');
+      tradingHistory = [];
     }
 
-    // Insert mock data into trading_history table for this user
-    console.log('About to insert trading history for user:', connection.user_id);
-    
-    // First, delete any existing data for this connection to avoid duplicates
-    const { error: deleteError } = await supabase
-      .from('trading_history')
-      .delete()
-      .eq('user_coinbase_connection_id', connectionId);
-
-    if (deleteError) {
-      console.error('Delete error:', deleteError);
-      // Don't fail on delete error, just log it
-    }
-
-    // Convert Coinbase API format to our database format
-    const tradesData = tradingHistory.map(order => {
-      const cryptocurrency = order.product_id.split('-')[0]; // Extract crypto from pair like 'BTC-EUR'
-      const price = parseFloat(order.filled_value) / parseFloat(order.filled_size);
+    // Only insert data if we have actual trading history from Coinbase
+    if (tradingHistory.length > 0) {
+      console.log('About to insert trading history for user:', connection.user_id);
       
-      return {
-        trade_type: order.side.toLowerCase(), // Convert 'BUY'/'SELL' to 'buy'/'sell'
-        cryptocurrency: cryptocurrency,
-        amount: parseFloat(order.filled_size),
-        price: price,
-        total_value: parseFloat(order.filled_value),
-        executed_at: order.created_time,
-        fees: parseFloat(order.total_fees || order.fill_fees || '0'),
-        notes: `Coinbase ${order.order_type || 'market'} order`,
-        user_id: connection.user_id,
-        user_coinbase_connection_id: connectionId,
-        coinbase_order_id: order.order_id,
-        is_sandbox: testMode,
-        trade_environment: testMode ? 'sandbox' : 'live'
-      };
-    });
+      // First, delete any existing data for this connection to avoid duplicates
+      const { error: deleteError } = await supabase
+        .from('trading_history')
+        .delete()
+        .eq('user_coinbase_connection_id', connectionId);
 
-    console.log('About to insert trades data:', tradesData);
+      if (deleteError) {
+        console.error('Delete error:', deleteError);
+        // Don't fail on delete error, just log it
+      }
 
-    // Insert the trading history data
-    const { error: insertError } = await supabase
-      .from('trading_history')
-      .insert(tradesData);
+      // Convert Coinbase API format to our database format
+      const tradesData = tradingHistory.map(order => {
+        const cryptocurrency = order.product_id.split('-')[0]; // Extract crypto from pair like 'BTC-EUR'
+        const price = parseFloat(order.filled_value) / parseFloat(order.filled_size);
+        
+        return {
+          trade_type: order.side.toLowerCase(), // Convert 'BUY'/'SELL' to 'buy'/'sell'
+          cryptocurrency: cryptocurrency,
+          amount: parseFloat(order.filled_size),
+          price: price,
+          total_value: parseFloat(order.filled_value),
+          executed_at: order.created_time,
+          fees: parseFloat(order.total_fees || order.fill_fees || '0'),
+          notes: `Coinbase ${order.order_type || 'market'} order`,
+          user_id: connection.user_id,
+          user_coinbase_connection_id: connectionId,
+          coinbase_order_id: order.order_id,
+          is_sandbox: testMode,
+          trade_environment: testMode ? 'sandbox' : 'live'
+        };
+      });
 
-    if (insertError) {
-      console.error('Insert error:', insertError);
-      return new Response(
-        JSON.stringify({ error: 'Failed to save trading history', details: insertError.message }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.log('About to insert trades data:', tradesData);
+
+      // Insert the trading history data
+      const { error: insertError } = await supabase
+        .from('trading_history')
+        .insert(tradesData);
+
+      if (insertError) {
+        console.error('Insert error:', insertError);
+        return new Response(
+          JSON.stringify({ error: 'Failed to save trading history', details: insertError.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log('Successfully inserted trading history');
+    } else {
+      console.log('No trading history from Coinbase API, not inserting any data');
     }
-
-    console.log('Successfully inserted trading history');
 
     return new Response(
       JSON.stringify({ 
