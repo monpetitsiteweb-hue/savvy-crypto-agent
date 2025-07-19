@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Send, Bot, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
@@ -427,7 +428,7 @@ export const ConversationPanel = () => {
   }
 
   return (
-    <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col">
+    <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full max-h-screen flex flex-col">
       {/* Header */}
       <div className="p-4 border-b border-slate-700 flex-shrink-0">
         <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
@@ -462,8 +463,8 @@ export const ConversationPanel = () => {
         )}
       </div>
 
-      {/* Messages - Scrollable Area */}
-      <div className="flex-1 overflow-y-auto min-h-0">
+      {/* Messages - Scrollable Area with Fixed Height */}
+      <ScrollArea className="flex-1 h-0">
         <div className="p-4 space-y-4">
           {messages.map((message) => (
             <div
@@ -514,7 +515,7 @@ export const ConversationPanel = () => {
           
           <div ref={messagesEndRef} />
         </div>
-      </div>
+      </ScrollArea>
 
       {/* Input - Fixed at bottom */}
       <div className="p-4 border-t border-slate-700 flex-shrink-0">
