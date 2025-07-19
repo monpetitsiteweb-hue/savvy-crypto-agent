@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { useMockWallet } from '@/hooks/useMockWallet';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
+import { usePersistentDashboardData } from '@/hooks/usePersistentDashboardData';
 import { supabase } from '@/integrations/supabase/client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
@@ -39,8 +40,8 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
   const { testMode } = useTestMode();
   const { balances: mockBalances } = useMockWallet();
   const { marketData, getCurrentData } = useRealTimeMarketData();
+  const { portfolioData, updatePortfolioData, shouldRefresh } = usePersistentDashboardData();
   
-  const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [loading, setLoading] = useState(false);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
@@ -67,9 +68,9 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
           }
         }))
       };
-      setPortfolioData(mockPortfolio);
+      updatePortfolioData(mockPortfolio);
     }
-  }, [testMode, mockBalances]);
+  }, [testMode, mockBalances, updatePortfolioData]);
 
   // Fetch real-time prices every 30 seconds
   useEffect(() => {
@@ -115,8 +116,11 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     }
   };
 
-  const fetchProductionPortfolio = async () => {
+  const fetchProductionPortfolio = async (force = false) => {
     if (!selectedConnectionId) return;
+    
+    // Don't fetch if we have recent data unless forced
+    if (!force && !shouldRefresh()) return;
     
     setLoading(true);
     try {
@@ -125,13 +129,21 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
       });
 
       if (error) throw error;
-      setPortfolioData(data);
+      updatePortfolioData(data);
     } catch (error) {
       console.error('Error fetching portfolio:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  // Auto-fetch on mount or when connection changes if we need fresh data
+  useEffect(() => {
+    if (!testMode && selectedConnectionId && shouldRefresh()) {
+      fetchProductionPortfolio();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConnectionId, testMode, shouldRefresh]);
 
   const getTotalPortfolioValue = () => {
     if (!portfolioData) return 0;
@@ -237,7 +249,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
           
           {!testMode && (
             <Button 
-              onClick={fetchProductionPortfolio}
+              onClick={() => fetchProductionPortfolio(true)}
               disabled={!selectedConnectionId || loading}
               size="sm"
               className="bg-blue-500 hover:bg-blue-600"

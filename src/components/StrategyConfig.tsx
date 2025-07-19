@@ -120,7 +120,24 @@ export const StrategyConfig = () => {
     };
 
     loadStrategies();
-  }, [user]);
+  }, [user, testMode]);
+
+  // Refresh active strategy when testMode changes to update UI immediately
+  useEffect(() => {
+    if (user && allStrategies.length > 0) {
+      const activeStrategyData = allStrategies.find(s => 
+        testMode ? s.is_active_test : s.is_active_live
+      );
+      
+      if (activeStrategyData) {
+        setHasActiveStrategy(true);
+        setActiveStrategy(activeStrategyData);
+      } else {
+        setHasActiveStrategy(false);
+        setActiveStrategy(null);
+      }
+    }
+  }, [testMode, allStrategies, user]);
 
   const loadStrategyPerformance = async (strategyId: string) => {
     try {
@@ -316,8 +333,8 @@ export const StrategyConfig = () => {
         if (error) throw error;
 
         toast({
-          title: "Stratégie désactivée",
-          description: `Votre stratégie de trading a été désactivée en mode ${testMode ? 'Test' : 'Live'}.`,
+          title: "Strategy Deactivated",
+          description: `Your trading strategy has been deactivated in ${testMode ? 'Test' : 'Live'} mode.`,
         });
       } else {
         // Deactivate all other strategies in the current mode first
@@ -336,8 +353,8 @@ export const StrategyConfig = () => {
         if (error) throw error;
 
         toast({
-          title: "Stratégie activée",
-          description: `Votre stratégie de trading a été activée en mode ${testMode ? 'Test' : 'Live'}.`,
+          title: "Strategy Activated",
+          description: `Your trading strategy has been activated in ${testMode ? 'Test' : 'Live'} mode.`,
         });
       }
 
@@ -365,8 +382,8 @@ export const StrategyConfig = () => {
     } catch (error) {
       console.error('Error toggling strategy:', error);
       toast({
-        title: "Erreur",
-        description: "Impossible de modifier l'état de la stratégie.",
+        title: "Error",
+        description: "Unable to modify strategy status.",
         variant: "destructive",
       });
     }
@@ -526,11 +543,11 @@ export const StrategyConfig = () => {
           </Card>
         )}
 
-        {/* Liste de toutes les stratégies */}
+        {/* All strategies list */}
         {allStrategies.length > 0 && (
           <Card className="p-6 bg-slate-700/30 border-slate-600">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Toutes les stratégies</h3>
+              <h3 className="text-lg font-semibold text-white">All Strategies</h3>
               <Button onClick={handleCreateStrategy} className="bg-green-600 hover:bg-green-700 text-white">
                 <Plus className="w-4 h-4 mr-2" />
                 Add a strategy
@@ -598,7 +615,7 @@ export const StrategyConfig = () => {
                           ) : (
                             <>
                               <Play className="w-4 h-4 mr-2" />
-                              Activer
+                              Activate
                             </>
                           )}
                         </Button>
@@ -617,7 +634,7 @@ export const StrategyConfig = () => {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                            Annuler
+                            Cancel
                           </AlertDialogCancel>
                           <AlertDialogAction 
                             onClick={() => handleToggleStrategy(strategy.id, (testMode && strategy.is_active_test) || (!testMode && strategy.is_active_live))}
@@ -656,7 +673,7 @@ export const StrategyConfig = () => {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                            Annuler
+                            Cancel
                           </AlertDialogCancel>
                           <AlertDialogAction 
                             onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
@@ -710,25 +727,25 @@ export const StrategyConfig = () => {
                           className="bg-green-500 hover:bg-green-600 text-white"
                         >
                           <Play className="w-4 h-4 mr-2" />
-                          Activer
+                          Activate
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent className="bg-slate-800 border-slate-700">
                         <AlertDialogHeader>
-                          <AlertDialogTitle className="text-white">Activer la stratégie</AlertDialogTitle>
+                          <AlertDialogTitle className="text-white">Activate Strategy</AlertDialogTitle>
                           <AlertDialogDescription className="text-slate-400">
-                            Êtes-vous sûr de vouloir activer la stratégie "{strategy.strategy_name}" ? Cela commencera les trades automatiques selon la configuration définie.
+                            Are you sure you want to activate the strategy "{strategy.strategy_name}" in {testMode ? 'Test' : 'Live'} mode? This will start automated trading according to the defined configuration.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                            Annuler
+                            Cancel
                           </AlertDialogCancel>
                           <AlertDialogAction 
                             onClick={() => handleToggleStrategy(strategy.id, false)}
                             className="bg-green-600 hover:bg-green-700 text-white"
                           >
-                            Activer
+                            Activate
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
@@ -757,7 +774,7 @@ export const StrategyConfig = () => {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel className="bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600">
-                            Annuler
+                            Cancel
                           </AlertDialogCancel>
                           <AlertDialogAction 
                             onClick={() => handleDeleteStrategy(strategy.id, strategy.strategy_name)}
