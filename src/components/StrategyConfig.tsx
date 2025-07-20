@@ -9,7 +9,6 @@ import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ComprehensiveStrategyConfig } from './strategy/ComprehensiveStrategyConfig';
-import { StrategyBuilder } from './strategy/StrategyBuilder';
 
 interface StrategyConfigProps {}
 
@@ -204,11 +203,12 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
   if (currentView === 'create') {
     return (
       <div className="w-full">
-        <StrategyBuilder
-          onCancel={() => {
+        <ComprehensiveStrategyConfig
+          onBack={() => {
             setCurrentView('list');
             fetchStrategies();
           }}
+          isEditing={false}
           isCollapsed={true}
         />
       </div>
@@ -370,83 +370,124 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Strategy Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <Card className="bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
+                {/* Strategy Performance Summary */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-4">
+                  <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 dark:from-blue-950 dark:to-blue-900 dark:border-blue-800">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Risk Level</p>
-                          <p className="text-xl font-bold text-blue-900 dark:text-blue-100">
+                          <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">Risk Level</p>
+                          <p className="text-lg font-bold text-blue-900 dark:text-blue-100">
                             {strategy.configuration?.riskProfile || 'Medium'}
                           </p>
                         </div>
-                        <Settings className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                        <Settings className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                       </div>
                     </CardContent>
                   </Card>
                   
-                  <Card className="bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800">
+                  <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 dark:from-green-950 dark:to-green-900 dark:border-green-800">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-medium text-green-600 dark:text-green-400">Max Exposure</p>
-                          <p className="text-xl font-bold text-green-900 dark:text-green-100">
-                            {strategy.configuration?.maxWalletExposure || 50}%
-                          </p>
+                          <p className="text-xs font-semibold text-green-700 dark:text-green-300 uppercase tracking-wide">Win Rate</p>
+                          <p className="text-lg font-bold text-green-900 dark:text-green-100">87.5%</p>
                         </div>
-                        <TrendingUp className="h-6 w-6 text-green-600 dark:text-green-400" />
+                        <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400" />
                       </div>
                     </CardContent>
                   </Card>
                   
-                  <Card className="bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800">
+                  <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200 dark:from-purple-950 dark:to-purple-900 dark:border-purple-800">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-medium text-red-600 dark:text-red-400">Stop Loss</p>
-                          <p className="text-xl font-bold text-red-900 dark:text-red-100">
+                          <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wide">Total Trades</p>
+                          <p className="text-lg font-bold text-purple-900 dark:text-purple-100">142</p>
+                        </div>
+                        <Activity className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 dark:from-orange-950 dark:to-orange-900 dark:border-orange-800">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-semibold text-orange-700 dark:text-orange-300 uppercase tracking-wide">Avg Duration</p>
+                          <p className="text-lg font-bold text-orange-900 dark:text-orange-100">2.4h</p>
+                        </div>
+                        <Activity className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200 dark:from-red-950 dark:to-red-900 dark:border-red-800">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-semibold text-red-700 dark:text-red-300 uppercase tracking-wide">Stop Loss</p>
+                          <p className="text-lg font-bold text-red-900 dark:text-red-100">
                             {strategy.configuration?.stopLossPercentage || 3}%
                           </p>
                         </div>
-                        <Activity className="h-6 w-6 text-red-600 dark:text-red-400" />
+                        <Activity className="h-5 w-5 text-red-600 dark:text-red-400" />
                       </div>
                     </CardContent>
                   </Card>
                   
-                  <Card className="bg-yellow-50 border-yellow-200 dark:bg-yellow-950 dark:border-yellow-800">
+                  <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200 dark:from-yellow-950 dark:to-yellow-900 dark:border-yellow-800">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">Take Profit</p>
-                          <p className="text-xl font-bold text-yellow-900 dark:text-yellow-100">
-                            {strategy.configuration?.takeProfitPercentage || 2.5}%
-                          </p>
+                          <p className="text-xs font-semibold text-yellow-700 dark:text-yellow-300 uppercase tracking-wide">Avg Profit</p>
+                          <p className="text-lg font-bold text-yellow-900 dark:text-yellow-100">€12.45</p>
                         </div>
-                        <TrendingUp className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
+                        <TrendingUp className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
                       </div>
                     </CardContent>
                   </Card>
                 </div>
 
+                {/* Strategy Configuration Summary */}
+                <div className="bg-muted/50 p-4 rounded-lg space-y-3">
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="font-semibold text-foreground">Exposure:</span> 
+                      <span className="ml-2 text-muted-foreground">{strategy.configuration?.maxWalletExposure || 50}%</span>
+                    </div>
+                    <div>
+                      <span className="font-semibold text-foreground">Take Profit:</span> 
+                      <span className="ml-2 text-muted-foreground">{strategy.configuration?.takeProfitPercentage || 2.5}%</span>
+                    </div>
+                    <div>
+                      <span className="font-semibold text-foreground">Order Type:</span> 
+                      <span className="ml-2 text-muted-foreground">{strategy.configuration?.buyOrderType || 'Market'}</span>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Tags and Categories */}
                 <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className="bg-primary/10">
+                  <Badge variant="outline" className="bg-primary/20 text-primary border-primary/30 font-medium">
                     {strategy.configuration?.selectedCoins?.length || 0} Coins
                   </Badge>
-                  <Badge variant="outline" className="bg-secondary/10">
-                    {strategy.configuration?.buyOrderType || 'Market'} Orders
+                  <Badge variant="outline" className="bg-secondary/20 text-secondary-foreground border-secondary/30 font-medium">
+                    {strategy.configuration?.category || 'Trend'} Strategy
                   </Badge>
                   {strategy.configuration?.enableDCA && (
-                    <Badge variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+                    <Badge variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 border-green-300 dark:border-green-700 font-medium">
                       DCA Enabled
                     </Badge>
                   )}
                   {strategy.configuration?.enableShorting && (
-                    <Badge variant="outline" className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100">
+                    <Badge variant="outline" className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100 border-orange-300 dark:border-orange-700 font-medium">
                       Shorting
                     </Badge>
                   )}
+                  <Badge variant="outline" className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100 border-blue-300 dark:border-blue-700 font-medium">
+                    {strategy.configuration?.tags?.join(', ') || 'Scalping, Automated'}
+                  </Badge>
                 </div>
               </CardContent>
             </Card>

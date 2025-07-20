@@ -93,6 +93,9 @@ interface StrategyFormData {
   stopLossTimeoutMinutes: number;
   useTrailingStopOnly: boolean;
   resetStopLossAfterFail: boolean;
+  // Tags and categories
+  category: string;
+  tags: string[];
 }
 
 interface ComprehensiveStrategyConfigProps {
@@ -214,7 +217,9 @@ export const ComprehensiveStrategyConfig = ({
     enableStopLossTimeout: false,
     stopLossTimeoutMinutes: 120,
     useTrailingStopOnly: false,
-    resetStopLossAfterFail: false
+    resetStopLossAfterFail: false,
+    category: 'trend',
+    tags: ['automated', 'scalping']
   });
 
   // Apply risk profile presets
@@ -328,7 +333,7 @@ export const ComprehensiveStrategyConfig = ({
       <div className="space-y-6">
         {MENU_SECTIONS.map((section) => (
           <div key={section.id}>
-            <h3 className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider">
+            <h3 className="text-xs font-bold text-foreground mb-3 uppercase tracking-wider">
               {section.title}
             </h3>
             <div className="space-y-1">
@@ -341,10 +346,10 @@ export const ComprehensiveStrategyConfig = ({
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 border ${
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 border ${
                       isActive 
-                        ? 'bg-primary text-primary-foreground border-primary shadow-lg' 
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/50 border-transparent hover:border-border'
+                        ? 'bg-primary text-primary-foreground border-primary shadow-lg transform scale-[1.02]' 
+                        : 'text-foreground hover:text-primary hover:bg-primary/5 border-transparent hover:border-primary/20 hover:shadow-sm'
                     }`}
                   >
                     <div className="flex items-center gap-3">
@@ -352,7 +357,7 @@ export const ComprehensiveStrategyConfig = ({
                       <span>{item.label}</span>
                     </div>
                     {hasGreenDot && (
-                      <div className="w-2 h-2 rounded-full bg-green-500" />
+                      <div className="w-2 h-2 rounded-full bg-green-500 shadow-sm" />
                     )}
                   </button>
                 );
@@ -449,8 +454,41 @@ export const ComprehensiveStrategyConfig = ({
           </div>
 
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <TooltipField tooltip="Categorize your strategy type. Say things like: 'This is a scalping strategy' or 'Make this a trend following bot'">
+                <Label>Strategy Category</Label>
+              </TooltipField>
+              <Select value={formData.category || ''} onValueChange={(value) => updateFormData('category', value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="scalping">Scalping</SelectItem>
+                  <SelectItem value="trend">Trend Following</SelectItem>
+                  <SelectItem value="swing">Swing Trading</SelectItem>
+                  <SelectItem value="dca">Dollar Cost Averaging</SelectItem>
+                  <SelectItem value="arbitrage">Arbitrage</SelectItem>
+                  <SelectItem value="momentum">Momentum</SelectItem>
+                  <SelectItem value="reversal">Mean Reversion</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <TooltipField tooltip="Add tags for easy filtering. Say things like: 'Tag this as high-frequency' or 'Add automated tag'">
+                <Label>Tags (comma-separated)</Label>
+              </TooltipField>
+              <Input 
+                value={formData.tags?.join(', ') || ''}
+                onChange={(e) => updateFormData('tags', e.target.value.split(',').map(tag => tag.trim()).filter(Boolean))}
+                placeholder="e.g., automated, high-frequency, conservative"
+              />
+            </div>
+          </div>
+
           <div className="space-y-2">
-            <TooltipField tooltip="Optional: Describe your strategy goals or logic">
+            <TooltipField tooltip="Optional: Describe your strategy goals or logic. Say things like: 'Explain my strategy logic' or 'Add notes about risk tolerance'">
               <Label>Notes</Label>
             </TooltipField>
             <Textarea 
@@ -1245,11 +1283,11 @@ export const ComprehensiveStrategyConfig = ({
         </div>
         
         <div className="flex items-center gap-3">
-          <Button onClick={handleSubmit} className="bg-green-500 hover:bg-green-600 text-white">
+          <Button onClick={handleSubmit} className="bg-green-500 hover:bg-green-600 text-white px-8">
             <Save className="h-4 w-4 mr-2" />
-            Save Strategy
+            {isEditing ? 'Update Strategy' : 'Save Strategy'}
           </Button>
-          <Button variant="outline" onClick={onBack}>
+          <Button variant="outline" onClick={onBack} className="px-6">
             Cancel
           </Button>
         </div>
