@@ -588,10 +588,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   );
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <>
       {/* Mode Selection Modal */}
       {showModeSelection && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[9999]">
           <Card className="w-full max-w-2xl mx-4 bg-gradient-to-br from-card via-card/95 to-muted/20 border-2 border-primary/20 shadow-2xl">
             <CardHeader className="relative overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-r from-primary/10 via-transparent to-primary/10" />
@@ -666,54 +666,49 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         </div>
       )}
 
-      {/* AI Agent Interface */}
-      {!showModeSelection && createMode === CREATE_MODES.AI_AGENT && (
-        <div className="flex-1 p-6">
-          <NaturalLanguageStrategy
-            onStrategyParsed={(parsedStrategy) => {
-              // Convert parsed strategy to form data
-              const config = parsedStrategy.configuration || {};
-              setFormData(prev => ({
-                ...prev,
-                strategyName: parsedStrategy.strategy_name,
-                notes: parsedStrategy.parsing_metadata.original_prompt,
-                // Map configuration fields to form data
-                selectedCoins: config.selectedCoins || prev.selectedCoins,
-                buyOrderType: config.buyOrderType || prev.buyOrderType,
-                sellOrderType: config.sellOrderType || prev.sellOrderType,
-                takeProfitPercentage: config.takeProfitPercentage || prev.takeProfitPercentage,
-                stopLossPercentage: config.stopLossPercentage || prev.stopLossPercentage,
-                maxOpenPositions: config.maxOpenPositions || prev.maxOpenPositions,
-                perTradeAllocation: config.perTradeAllocation || prev.perTradeAllocation,
-                allocationUnit: config.allocationUnit || prev.allocationUnit,
-                maxWalletExposure: config.maxWalletExposure || prev.maxWalletExposure,
-                buyFrequency: config.buyFrequency || prev.buyFrequency,
-                enableDCA: config.enableDCA || prev.enableDCA,
-                dcaIntervalHours: config.dcaIntervalHours || prev.dcaIntervalHours,
-                dcaSteps: config.dcaSteps || prev.dcaSteps,
-                category: parsedStrategy.required_categories?.[0] || prev.category,
-                // Set risk profile based on parsed risk level
-                riskProfile: parsedStrategy.risk_level?.toLowerCase() === 'low' ? 'low' : 
-                           parsedStrategy.risk_level?.toLowerCase() === 'high' ? 'high' : 'medium'
-              }));
-              
-              // Switch to manual mode to show the configuration
-              setCreateMode(CREATE_MODES.MANUAL);
-              toast({
-                title: "Strategy Generated!",
-                description: "AI has created your strategy. Review and adjust the settings as needed.",
-              });
-            }}
-            onCancel={() => {
-              setShowModeSelection(true);
-              setCreateMode(CREATE_MODES.MANUAL);
-            }}
-          />
-        </div>
-      )}
+        {/* AI Agent Interface */}
+        {!showModeSelection && createMode === CREATE_MODES.AI_AGENT && (
+          <div className="flex-1 p-6">
+            <NaturalLanguageStrategy
+              onStrategyParsed={(parsedStrategy) => {
+                const config = parsedStrategy.configuration || {};
+                setFormData(prev => ({
+                  ...prev,
+                  strategyName: parsedStrategy.strategy_name,
+                  notes: parsedStrategy.parsing_metadata.original_prompt,
+                  selectedCoins: config.selectedCoins || prev.selectedCoins,
+                  buyOrderType: config.buyOrderType || prev.buyOrderType,
+                  sellOrderType: config.sellOrderType || prev.sellOrderType,
+                  takeProfitPercentage: config.takeProfitPercentage || prev.takeProfitPercentage,
+                  stopLossPercentage: config.stopLossPercentage || prev.stopLossPercentage,
+                  maxOpenPositions: config.maxOpenPositions || prev.maxOpenPositions,
+                  perTradeAllocation: config.perTradeAllocation || prev.perTradeAllocation,
+                  allocationUnit: config.allocationUnit || prev.allocationUnit,
+                  maxWalletExposure: config.maxWalletExposure || prev.maxWalletExposure,
+                  buyFrequency: config.buyFrequency || prev.buyFrequency,
+                  enableDCA: config.enableDCA || prev.enableDCA,
+                  dcaIntervalHours: config.dcaIntervalHours || prev.dcaIntervalHours,
+                  dcaSteps: config.dcaSteps || prev.dcaSteps,
+                  category: parsedStrategy.required_categories?.[0] || prev.category,
+                  riskProfile: parsedStrategy.risk_level?.toLowerCase() === 'low' ? 'low' : 
+                             parsedStrategy.risk_level?.toLowerCase() === 'high' ? 'high' : 'medium'
+                }));
+                setCreateMode(CREATE_MODES.MANUAL);
+                toast({
+                  title: "Strategy Generated!",
+                  description: "AI has created your strategy. Review and adjust the settings as needed.",
+                });
+              }}
+              onCancel={() => {
+                setShowModeSelection(true);
+                setCreateMode(CREATE_MODES.MANUAL);
+              }}
+            />
+          </div>
+        )}
 
-      {/* Manual Configuration Interface */}
-      {!showModeSelection && createMode === CREATE_MODES.MANUAL && (
+        {/* Manual Configuration Interface */}
+        {!showModeSelection && createMode === CREATE_MODES.MANUAL && (
         <>
           {/* Header */}
           <div className="flex items-center justify-between p-6 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-10">
