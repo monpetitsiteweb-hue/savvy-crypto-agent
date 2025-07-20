@@ -36,7 +36,8 @@ import {
   AlertTriangle,
   Check,
   Trash2,
-  MessageCircle
+  MessageCircle,
+  X
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
@@ -491,7 +492,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   if (!isEditing && showModeSelection) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-background to-muted/20 flex items-center justify-center p-6">
-        <Card className="w-full max-w-2xl border-primary/20 shadow-xl">
+        <Card className="w-full max-w-2xl border-primary/20 shadow-xl relative">
           <CardHeader className="text-center pb-8">
             <Button 
               variant="ghost" 
@@ -501,6 +502,15 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={onBack}
+              className="absolute top-4 right-4 hover:bg-muted p-2"
+              title="Close"
+            >
+              <X className="h-4 w-4" />
             </Button>
             <CardTitle className="text-3xl font-bold text-primary mb-2">Create New Strategy</CardTitle>
             <p className="text-muted-foreground text-lg">Choose how you'd like to build your trading strategy</p>
