@@ -304,7 +304,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       } else {
         const { data, error } = await supabase
           .from('trading_strategies')
-          .insert(strategyData)
+          .insert({
+            ...strategyData,
+            test_mode: true // Ensure all new strategies are created as test strategies
+          })
           .select()
           .single();
 

@@ -60,7 +60,19 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setStrategies(data || []);
+      
+      // Filter strategies based on current view mode
+      const filteredStrategies = (data || []).filter(strategy => {
+        if (testMode) {
+          // Test View: Only show test strategies (test_mode = true)
+          return strategy.test_mode === true;
+        } else {
+          // Live View: Only show production strategies (test_mode = false)
+          return strategy.test_mode === false;
+        }
+      });
+      
+      setStrategies(filteredStrategies);
     } catch (error) {
       console.error('Error fetching strategies:', error);
       toast({
@@ -150,21 +162,30 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     if (!user) return;
 
     try {
+      // Create a copy in production (not move)
+      const productionStrategy = {
+        user_id: user.id,
+        strategy_name: strategy.strategy_name,
+        description: strategy.description,
+        configuration: strategy.configuration,
+        test_mode: false, // This marks it as production
+        is_active: false,
+        is_active_test: false,
+        is_active_live: false, // Not automatically activated
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
       const { error } = await supabase
         .from('trading_strategies')
-        .update({ 
-          is_active_live: true,
-          is_active_test: false
-        })
-        .eq('id', strategy.id)
-        .eq('user_id', user.id);
+        .insert(productionStrategy);
 
       if (error) throw error;
 
       await fetchStrategies();
       toast({
         title: "Strategy Pushed to Production",
-        description: `${strategy.strategy_name} is now live and will execute real trades`,
+        description: `${strategy.strategy_name} has been copied to Production. Switch to Live View to activate it.`,
       });
     } catch (error) {
       console.error('Error pushing strategy to production:', error);
@@ -231,7 +252,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
         <div>
           <h2 className="text-2xl font-bold text-white">Trading Strategies</h2>
           <p className="text-white/80 font-medium">
-            Manage your automated trading strategies {testMode ? '(Test Mode)' : '(Live Mode)'}
+            {testMode ? 'Test View - Simulation Environment' : 'Live View - Production Environment'}
           </p>
         </div>
         <div className="flex gap-2">
@@ -333,7 +354,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                    {!strategy.is_active_live && (
+                    {/* Push to Production button - only show for test strategies that are active */}
+                    {testMode && strategy.is_active_test && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
@@ -353,10 +375,13 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                             </AlertDialogTitle>
                             <AlertDialogDescription className="space-y-3">
                               <p className="font-bold text-red-600">
-                                ⚠️ This strategy will now execute real trades using your Coinbase funds. Are you sure?
+                                ⚠️ This strategy will now be moved to Production.
                               </p>
                               <p className="text-sm text-muted-foreground">
-                                Strategy: "{strategy.strategy_name}" will be activated in Live Mode.
+                                It will be visible in Live mode but not active until you manually activate it.
+                              </p>
+                              <p className="text-sm font-semibold text-red-600">
+                                You will be trading with real funds once activated.
                               </p>
                             </AlertDialogDescription>
                           </AlertDialogHeader>
