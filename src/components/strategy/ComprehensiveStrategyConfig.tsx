@@ -645,9 +645,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
           </Card>
         </div>
       )}
-
+      
+      <div className="h-full flex flex-col bg-background">
         {/* AI Agent Interface */}
-        {!showModeSelection && createMode === CREATE_MODES.AI_AGENT && (
+        {createMode === CREATE_MODES.AI_AGENT && (
           <div className="flex-1 p-6">
             <NaturalLanguageStrategy
               onStrategyParsed={(parsedStrategy) => {
@@ -688,7 +689,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         )}
 
         {/* Manual Configuration Interface */}
-        {!showModeSelection && createMode === CREATE_MODES.MANUAL && (
+        {createMode === CREATE_MODES.MANUAL && (
         <>
           {/* Header */}
           <div className="flex items-center justify-between p-6 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-10">
