@@ -539,21 +539,29 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
               </Card>
 
               <Card 
-                className="cursor-pointer border-2 border-transparent hover:border-primary/50 transition-all duration-300 hover:shadow-lg"
+                className="cursor-pointer border-2 border-transparent hover:border-primary/50 transition-all duration-300 hover:shadow-lg bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20 relative overflow-hidden"
                 onClick={() => {
                   setCreateMode(CREATE_MODES.AI_AGENT);
                   setShowModeSelection(false);
                 }}
               >
+                <div className="absolute top-3 right-3">
+                  <Badge variant="secondary" className="bg-primary/20 text-primary border-primary/30 font-semibold">
+                    AI Powered
+                  </Badge>
+                </div>
                 <CardContent className="p-8 text-center space-y-4">
-                  <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
+                  <div className="w-16 h-16 mx-auto bg-gradient-to-br from-primary/20 to-primary/30 rounded-full flex items-center justify-center shadow-lg">
                     <MessageCircle className="h-8 w-8 text-primary" />
                   </div>
                   <h3 className="text-xl font-bold text-foreground">Talk to an Agent</h3>
                   <p className="text-muted-foreground">
                     Describe your strategy in natural language and let AI configure it for you
                   </p>
-                  <Button className="w-full">
+                  <div className="text-xs text-primary font-medium bg-primary/10 px-3 py-1 rounded-full inline-block">
+                    ✨ Simple • Fast • Intelligent
+                  </div>
+                  <Button className="w-full bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-lg">
                     Talk Normally
                   </Button>
                 </CardContent>
