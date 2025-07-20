@@ -229,18 +229,18 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Trading Strategies</h2>
-          <p className="text-muted-foreground">
+          <h2 className="text-2xl font-bold text-foreground">Trading Strategies</h2>
+          <p className="text-foreground/80 font-medium">
             Manage your automated trading strategies {testMode ? '(Test Mode)' : '(Live Mode)'}
           </p>
         </div>
         <div className="flex gap-2">
           <Button 
             onClick={() => setCurrentView('create')}
-            className="flex items-center gap-2 w-auto px-6"
+            className="px-6 py-2 max-w-xs"
           >
-            <Plus className="h-4 w-4" />
-            🤖 Create Your Strategy by Talking Naturally
+            <Plus className="h-4 w-4 mr-2" />
+            Create Strategy
           </Button>
         </div>
       </div>
