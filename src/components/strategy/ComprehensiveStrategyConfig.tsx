@@ -484,7 +484,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   );
 
   if (currentView === 'comprehensive') {
-    return <PerformancePanel onBack={onBack} />;
+    return <PerformancePanel />;
   }
 
   // Mode Selection Screen (only for create, not edit)
