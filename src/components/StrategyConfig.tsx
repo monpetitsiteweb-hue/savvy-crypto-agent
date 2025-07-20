@@ -229,8 +229,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-foreground">Trading Strategies</h2>
-          <p className="text-foreground/80 font-medium">
+          <h2 className="text-2xl font-bold text-white">Trading Strategies</h2>
+          <p className="text-white/80 font-medium">
             Manage your automated trading strategies {testMode ? '(Test Mode)' : '(Live Mode)'}
           </p>
         </div>
