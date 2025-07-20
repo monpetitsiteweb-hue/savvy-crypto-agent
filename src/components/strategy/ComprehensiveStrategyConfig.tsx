@@ -249,6 +249,16 @@ export const ComprehensiveStrategyConfig = ({
     e.preventDefault();
     if (!user) return;
 
+    // Validation
+    if (!formData.strategyName?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Strategy name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       const strategyData = {
         user_id: user.id,
@@ -329,11 +339,11 @@ export const ComprehensiveStrategyConfig = ({
   };
 
   const renderSidebar = () => (
-    <div className={`${isCollapsed ? 'w-0 overflow-hidden' : 'w-80'} bg-background border-r border-border p-4 overflow-y-auto transition-all duration-300`}>
+    <div className={`${isCollapsed ? 'hidden' : 'w-80'} bg-background border-r border-border p-4 overflow-y-auto transition-all duration-300`}>
       <div className="space-y-6">
         {MENU_SECTIONS.map((section) => (
           <div key={section.id}>
-            <h3 className="text-xs font-bold text-foreground mb-3 uppercase tracking-wider">
+            <h3 className="text-sm font-bold text-primary mb-3 uppercase tracking-wider border-b border-border pb-2">
               {section.title}
             </h3>
             <div className="space-y-1">
@@ -373,28 +383,32 @@ export const ComprehensiveStrategyConfig = ({
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="h-5 w-5" />
+          <CardTitle className="flex items-center gap-2 text-xl font-bold text-foreground">
+            <Settings className="h-6 w-6" />
             Basic Settings
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <TooltipField tooltip="Name your strategy for easy reference">
-                <Label>Strategy Name</Label>
+              <TooltipField tooltip="Name your strategy for easy reference. Say things like: 'Name this My Bitcoin Bot' or 'Call it Scalping Strategy'">
+                <Label className="text-sm font-semibold text-foreground">Strategy Name</Label>
               </TooltipField>
               <Input 
                 value={formData.strategyName}
                 onChange={(e) => updateFormData('strategyName', e.target.value)}
                 placeholder="My Strategy Carlos" 
                 required
+                className={!formData.strategyName?.trim() ? 'border-destructive' : ''}
               />
+              {!formData.strategyName?.trim() && (
+                <p className="text-sm text-destructive">Strategy name is required</p>
+              )}
             </div>
 
             <div className="space-y-2">
-              <TooltipField tooltip="Choose a risk level; presets will be applied, or customize manually">
-                <Label>Risk Profile</Label>
+              <TooltipField tooltip="Choose a risk level; presets will be applied, or customize manually. Say things like: 'Make this high risk' or 'Set to conservative mode'">
+                <Label className="text-sm font-semibold text-foreground">Risk Profile</Label>
               </TooltipField>
               <Select value={formData.riskProfile} onValueChange={(value: any) => updateFormData('riskProfile', value)}>
                 <SelectTrigger>
@@ -411,8 +425,8 @@ export const ComprehensiveStrategyConfig = ({
           </div>
 
           <div className="space-y-2">
-            <TooltipField tooltip="Percentage of your wallet this strategy can use">
-              <Label>Max Wallet Exposure (%)</Label>
+            <TooltipField tooltip="Percentage of your wallet this strategy can use. Say things like: 'Only use 25% of my funds' or 'Limit exposure to 50%'">
+              <Label className="text-sm font-semibold text-foreground">Max Wallet Exposure (%)</Label>
             </TooltipField>
             <div className="space-y-2">
               <Slider
@@ -433,8 +447,8 @@ export const ComprehensiveStrategyConfig = ({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="flex items-center justify-between p-4 border rounded-lg">
-              <TooltipField tooltip="Enable trading in live mode with real funds">
-                <Label>Enable Live Trading</Label>
+              <TooltipField tooltip="Enable trading in live mode with real funds. Say things like: 'Go live with this strategy' or 'Enable real trading'">
+                <Label className="text-sm font-semibold text-foreground">Enable Live Trading</Label>
               </TooltipField>
               <Switch 
                 checked={formData.enableLiveTrading} 
@@ -443,8 +457,8 @@ export const ComprehensiveStrategyConfig = ({
             </div>
 
             <div className="flex items-center justify-between p-4 border rounded-lg">
-              <TooltipField tooltip="Enable trading in test mode for practice">
-                <Label>Enable Test Trading</Label>
+              <TooltipField tooltip="Enable trading in test mode for practice. Say things like: 'Start testing this strategy' or 'Enable simulation mode'">
+                <Label className="text-sm font-semibold text-foreground">Enable Test Trading</Label>
               </TooltipField>
               <Switch 
                 checked={formData.enableTestTrading} 
@@ -1275,19 +1289,19 @@ export const ComprehensiveStrategyConfig = ({
             Back to Overview
           </Button>
           <div>
-            <h2 className="text-2xl font-bold">
+            <h2 className="text-3xl font-bold text-foreground">
               {isEditing ? 'Edit Strategy' : 'Create Strategy'}
             </h2>
-            <p className="text-muted-foreground">Configure your comprehensive trading strategy</p>
+            <p className="text-sm text-muted-foreground">Configure your comprehensive trading strategy</p>
           </div>
         </div>
         
         <div className="flex items-center gap-3">
-          <Button onClick={handleSubmit} className="bg-green-500 hover:bg-green-600 text-white px-8">
+          <Button onClick={handleSubmit} className="bg-green-500 hover:bg-green-600 text-white w-auto px-6">
             <Save className="h-4 w-4 mr-2" />
             {isEditing ? 'Update Strategy' : 'Save Strategy'}
           </Button>
-          <Button variant="outline" onClick={onBack} className="px-6">
+          <Button variant="outline" onClick={onBack} className="w-auto px-6">
             Cancel
           </Button>
         </div>
@@ -1301,7 +1315,7 @@ export const ComprehensiveStrategyConfig = ({
       <div className="flex">
         {renderSidebar()}
         
-        <div className="flex-1 p-6 overflow-auto">
+        <div className={`${isCollapsed ? 'w-full' : 'flex-1'} p-6 overflow-auto`}>
           <form onSubmit={handleSubmit} className="space-y-6">
             {renderCurrentSection()}
           </form>

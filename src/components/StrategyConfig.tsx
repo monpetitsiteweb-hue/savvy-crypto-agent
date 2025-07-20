@@ -200,32 +200,17 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
     }
   };
 
-  if (currentView === 'create') {
+  if (currentView === 'create' || currentView === 'comprehensive') {
     return (
-      <div className="w-full">
-        <ComprehensiveStrategyConfig
-          onBack={() => {
-            setCurrentView('list');
-            fetchStrategies();
-          }}
-          isEditing={false}
-          isCollapsed={true}
-        />
-      </div>
-    );
-  }
-
-  if (currentView === 'comprehensive') {
-    return (
-      <div className="w-full">
+      <div className="w-full h-screen">
         <ComprehensiveStrategyConfig
           onBack={() => {
             setCurrentView('list');
             setSelectedStrategy(null);
             fetchStrategies();
           }}
-          existingStrategy={selectedStrategy}
-          isEditing={!!selectedStrategy}
+          existingStrategy={currentView === 'comprehensive' ? selectedStrategy : null}
+          isEditing={currentView === 'comprehensive'}
           isCollapsed={true}
         />
       </div>
@@ -244,10 +229,10 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
         <div className="flex gap-2">
           <Button 
             onClick={() => setCurrentView('create')}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 w-auto px-6"
           >
             <Plus className="h-4 w-4" />
-            Create Strategy
+            🤖 Create Your Strategy by Talking Naturally
           </Button>
         </div>
       </div>
@@ -312,6 +297,34 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
                     >
                       <Edit className="h-4 w-4" />
                     </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          title="Delete Strategy"
+                        >
+                          <AlertTriangle className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Strategy</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete "{strategy.strategy_name}"? This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => deleteStrategy(strategy.id)}
+                            className="bg-red-600 hover:bg-red-700"
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                     {strategy.is_active_test && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
