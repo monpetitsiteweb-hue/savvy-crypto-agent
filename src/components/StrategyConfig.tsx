@@ -34,6 +34,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
   const [currentView, setCurrentView] = useState<'list' | 'create' | 'edit' | 'comprehensive'>('list');
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showProductionActivationModal, setShowProductionActivationModal] = useState(false);
+  const [strategyToActivate, setStrategyToActivate] = useState<Strategy | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -83,6 +85,30 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleStrategyToggle = (strategy: Strategy, isTest: boolean) => {
+    if (!isTest && !strategy.is_active_live) {
+      // For Live mode activation, show production confirmation
+      setStrategyToActivate(strategy);
+      setShowProductionActivationModal(true);
+    } else {
+      // For Test mode or deactivation, toggle directly
+      toggleStrategy(strategy, isTest);
+    }
+  };
+
+  const handleProductionActivation = () => {
+    if (strategyToActivate) {
+      toggleStrategy(strategyToActivate, false);
+      setShowProductionActivationModal(false);
+      setStrategyToActivate(null);
+    }
+  };
+
+  const handleCancelProductionActivation = () => {
+    setShowProductionActivationModal(false);
+    setStrategyToActivate(null);
   };
 
   const toggleStrategy = async (strategy: Strategy, isTest: boolean) => {
@@ -400,7 +426,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                     <Button
                       variant={testMode ? (strategy.is_active_test ? "destructive" : "default") : (strategy.is_active_live ? "destructive" : "default")}
                       size="sm"
-                      onClick={() => toggleStrategy(strategy, testMode)}
+                      onClick={() => handleStrategyToggle(strategy, testMode)}
                     >
                       {testMode ? (
                         strategy.is_active_test ? (
@@ -544,6 +570,72 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
           ))}
         </div>
       )}
+
+      {/* Production Activation Confirmation Modal */}
+      <AlertDialog open={showProductionActivationModal} onOpenChange={setShowProductionActivationModal}>
+        <AlertDialogContent className="bg-gradient-to-br from-card via-card/95 to-red-50/10 border-2 border-red-500/30 shadow-2xl">
+          <AlertDialogHeader className="relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 via-transparent to-red-500/10" />
+            <AlertDialogTitle className="flex items-center gap-3 text-xl relative z-10">
+              <div className="h-10 w-10 rounded-full bg-red-500/20 flex items-center justify-center">
+                <AlertTriangle className="h-5 w-5 text-red-500" />
+              </div>
+              <span className="bg-gradient-to-r from-red-600 to-red-500 bg-clip-text text-transparent">
+                Activate Strategy in Live Trading
+              </span>
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-4 text-base relative z-10">
+              <div className="bg-red-50/80 dark:bg-red-950/50 p-4 rounded-lg border border-red-200/50 dark:border-red-800/50">
+                <p className="font-bold text-red-700 dark:text-red-300 text-lg mb-2">
+                  ⚠️ REAL MONEY TRADING WARNING
+                </p>
+                <p className="text-red-600 dark:text-red-400 font-medium">
+                  You are about to activate "{strategyToActivate?.strategy_name}" with real funds from your connected Coinbase account.
+                </p>
+              </div>
+              
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 bg-red-500 rounded-full"></div>
+                  <span>This will execute real trades with actual money</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 bg-red-500 rounded-full"></div>
+                  <span>You can incur real financial losses</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 bg-red-500 rounded-full"></div>
+                  <span>Make sure you've thoroughly tested this strategy first</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 bg-red-500 rounded-full"></div>
+                  <span>Monitor your positions actively</span>
+                </div>
+              </div>
+
+              <div className="bg-amber-50/80 dark:bg-amber-950/50 p-3 rounded-lg border border-amber-200/50 dark:border-amber-800/50">
+                <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
+                  💡 Recommendation: Only activate strategies that have performed well in Test Mode.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-3 pt-4">
+            <AlertDialogCancel 
+              onClick={handleCancelProductionActivation}
+              className="hover:bg-muted/50"
+            >
+              Cancel - Keep Safe
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleProductionActivation}
+              className="bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white font-bold shadow-lg"
+            >
+              I Understand - Activate with Real Money
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
