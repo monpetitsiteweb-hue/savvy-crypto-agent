@@ -588,6 +588,63 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
   return (
     <div className="h-full flex flex-col bg-background">
+      {/* Mode Selection Modal */}
+      {showModeSelection && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <Card className="w-full max-w-2xl mx-4">
+            <CardHeader>
+              <CardTitle className="text-center text-2xl">Choose Creation Method</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card 
+                  className={`cursor-pointer transition-all duration-200 hover:shadow-lg ${
+                    createMode === CREATE_MODES.MANUAL 
+                      ? 'ring-2 ring-primary bg-primary/5' 
+                      : 'hover:bg-muted/50'
+                  }`}
+                  onClick={() => setCreateMode(CREATE_MODES.MANUAL)}
+                >
+                  <CardContent className="p-6 text-center">
+                    <Settings className="h-12 w-12 mx-auto mb-4 text-primary" />
+                    <h3 className="text-lg font-semibold mb-2">Manual Configuration</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Configure all strategy parameters manually with full control over every setting
+                    </p>
+                  </CardContent>
+                </Card>
+                
+                <Card 
+                  className={`cursor-pointer transition-all duration-200 hover:shadow-lg ${
+                    createMode === CREATE_MODES.AI_AGENT 
+                      ? 'ring-2 ring-primary bg-primary/5' 
+                      : 'hover:bg-muted/50'
+                  }`}
+                  onClick={() => setCreateMode(CREATE_MODES.AI_AGENT)}
+                >
+                  <CardContent className="p-6 text-center">
+                    <MessageCircle className="h-12 w-12 mx-auto mb-4 text-primary" />
+                    <h3 className="text-lg font-semibold mb-2">AI Agent Assistant</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Let AI help you create and optimize your strategy based on your goals
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+              
+              <div className="flex justify-center gap-4">
+                <Button variant="outline" onClick={onBack}>
+                  Cancel
+                </Button>
+                <Button onClick={() => setShowModeSelection(false)}>
+                  Continue with {createMode === CREATE_MODES.MANUAL ? 'Manual' : 'AI Agent'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between p-6 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-10">
         <div className="flex items-center gap-4">
