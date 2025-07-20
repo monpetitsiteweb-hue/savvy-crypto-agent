@@ -339,7 +339,7 @@ export const ComprehensiveStrategyConfig = ({
   };
 
   const renderSidebar = () => (
-    <div className={`${isCollapsed ? 'hidden' : 'w-80'} bg-background border-r border-border p-4 overflow-y-auto transition-all duration-300`}>
+    <div className="w-80 bg-background border-r border-border p-4 overflow-y-auto transition-all duration-300">
       <div className="space-y-6">
         {MENU_SECTIONS.map((section) => (
           <div key={section.id}>

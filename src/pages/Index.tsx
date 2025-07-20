@@ -23,6 +23,7 @@ const Index = () => {
   const { testMode, setTestMode } = useTestMode();
   const { hasActiveStrategy } = useActiveStrategy();
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
   // Initialize test trading when component mounts
   useTestTrading();
@@ -44,14 +45,16 @@ const Index = () => {
       <Header />
       
       <div className="container mx-auto px-4 py-6 flex-1">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-[calc(100vh-200px)]">
+        <div className={`${isStrategyFullWidth && activeTab === 'strategy' ? 'w-full' : 'grid grid-cols-1 lg:grid-cols-3 gap-6'} min-h-[calc(100vh-200px)]`}>
           {/* Left Panel - Conversation */}
-          <div className="lg:col-span-1">
-            <ConversationPanel />
-          </div>
+          {!(isStrategyFullWidth && activeTab === 'strategy') && (
+            <div className="lg:col-span-1">
+              <ConversationPanel />
+            </div>
+          )}
           
           {/* Right Panel - Dashboard/History/Config */}
-          <div className="lg:col-span-2">
+          <div className={isStrategyFullWidth && activeTab === 'strategy' ? 'w-full' : 'lg:col-span-2'}>
             <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col">
               {/* Tab Navigation */}
               <div className="flex justify-between items-center border-b border-slate-700 flex-shrink-0">
@@ -107,7 +110,9 @@ const Index = () => {
                     onCreateStrategy={() => setActiveTab('strategy')}
                   />
                 )}
-                {activeTab === 'strategy' && <StrategyConfig />}
+                {activeTab === 'strategy' && (
+                  <StrategyConfig onLayoutChange={setIsStrategyFullWidth} />
+                )}
                 {activeTab === 'performance' && (
                   <PerformanceOverview 
                     hasActiveStrategy={hasActiveStrategy}

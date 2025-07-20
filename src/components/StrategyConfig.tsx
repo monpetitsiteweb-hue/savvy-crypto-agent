@@ -10,7 +10,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ComprehensiveStrategyConfig } from './strategy/ComprehensiveStrategyConfig';
 
-interface StrategyConfigProps {}
+interface StrategyConfigProps {
+  onLayoutChange?: (isFullWidth: boolean) => void;
+}
 
 interface Strategy {
   id: string;
@@ -24,7 +26,7 @@ interface Strategy {
   updated_at: string;
 }
 
-export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
+export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { toast } = useToast();
@@ -38,6 +40,14 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
       fetchStrategies();
     }
   }, [user, testMode]);
+
+  // Notify parent component when view changes to full-width
+  useEffect(() => {
+    const isFullWidth = currentView === 'create' || currentView === 'comprehensive';
+    if (onLayoutChange) {
+      onLayoutChange(isFullWidth);
+    }
+  }, [currentView, onLayoutChange]);
 
   const fetchStrategies = async () => {
     if (!user) return;
@@ -202,18 +212,16 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
 
   if (currentView === 'create' || currentView === 'comprehensive') {
     return (
-      <div className="w-full h-screen">
-        <ComprehensiveStrategyConfig
-          onBack={() => {
-            setCurrentView('list');
-            setSelectedStrategy(null);
-            fetchStrategies();
-          }}
-          existingStrategy={currentView === 'comprehensive' ? selectedStrategy : null}
-          isEditing={currentView === 'comprehensive'}
-          isCollapsed={true}
-        />
-      </div>
+      <ComprehensiveStrategyConfig
+        onBack={() => {
+          setCurrentView('list');
+          setSelectedStrategy(null);
+          fetchStrategies();
+        }}
+        existingStrategy={currentView === 'comprehensive' ? selectedStrategy : null}
+        isEditing={currentView === 'comprehensive'}
+        isCollapsed={false}
+      />
     );
   }
 
