@@ -132,8 +132,7 @@ const MENU_SECTIONS = [
     title: 'GENERAL',
     items: [
       { id: 'basic-settings', label: 'Basic settings', icon: Settings },
-      { id: 'notifications', label: 'Notifications', icon: Bell },
-      { id: 'performance', label: 'Performance', icon: BarChart3 }
+      { id: 'notifications', label: 'Notifications', icon: Bell }
     ]
   },
   {
@@ -342,15 +341,15 @@ export const ComprehensiveStrategyConfig = ({
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`w-full flex items-center justify-between px-3 py-3 rounded-lg text-sm transition-all duration-200 border ${
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 border ${
                       isActive 
-                        ? 'bg-primary text-primary-foreground border-primary shadow-md' 
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted border-transparent hover:border-border'
+                        ? 'bg-primary text-primary-foreground border-primary shadow-lg' 
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/50 border-transparent hover:border-border'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <Icon className="h-4 w-4" />
-                      <span className="font-medium">{item.label}</span>
+                      <span>{item.label}</span>
                     </div>
                     {hasGreenDot && (
                       <div className="w-2 h-2 rounded-full bg-green-500" />
@@ -903,20 +902,321 @@ export const ComprehensiveStrategyConfig = ({
     );
   };
 
+  const renderStrategySettings = () => (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="h-5 w-5" />
+            Strategy Settings
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Choose a strategy for your bot.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <TooltipField tooltip="Choose your strategy type">
+              <Label>Strategy</Label>
+            </TooltipField>
+            <Select defaultValue="bollinger-bands">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="bollinger-bands">Bollinger Bands Advanced</SelectItem>
+                <SelectItem value="rsi">RSI Strategy</SelectItem>
+                <SelectItem value="macd">MACD Strategy</SelectItem>
+                <SelectItem value="custom">Custom Strategy</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <TooltipField tooltip="Only execute signals">
+              <Label>Signals only</Label>
+            </TooltipField>
+            <Switch />
+          </div>
+
+          <div className="space-y-2">
+            <TooltipField tooltip="Number of targets to buy">
+              <Label>Number of targets to buy</Label>
+            </TooltipField>
+            <Input type="number" defaultValue="5" min="1" />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <TooltipField tooltip="Bollinger Bands candle size">
+                <Label>Bollinger Bands Candle Size</Label>
+              </TooltipField>
+              <Select defaultValue="5min">
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1min">1 minute</SelectItem>
+                  <SelectItem value="5min">5 minutes</SelectItem>
+                  <SelectItem value="15min">15 minutes</SelectItem>
+                  <SelectItem value="30min">30 minutes</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <TooltipField tooltip="Bollinger Bands period">
+                <Label>Bollinger Bands Period</Label>
+              </TooltipField>
+              <Input type="number" defaultValue="20" min="1" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <TooltipField tooltip="Bollinger Bands deviation">
+              <Label>Bollinger Bands Deviation</Label>
+            </TooltipField>
+            <Input type="number" defaultValue="2.0" step="0.1" min="0" />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const renderTrailingStopBuy = () => (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Timer className="h-5 w-5" />
+            Trailing Stop-Buy
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Trailing stop-buy will track the currency price downwards.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <TooltipField tooltip="Enable trailing stop-buy">
+              <Label>Enable</Label>
+            </TooltipField>
+            <Switch />
+          </div>
+
+          <div className="space-y-2">
+            <TooltipField tooltip="Trailing stop-buy percentage">
+              <Label>Trailing stop-buy percentage</Label>
+            </TooltipField>
+            <Input 
+              type="number"
+              value={formData.trailingBuyPercentage}
+              onChange={(e) => updateFormData('trailingBuyPercentage', parseFloat(e.target.value) || 0)}
+              step="0.1"
+              min="0"
+            />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const renderSellStrategy = () => (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Sell Strategy
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Configure your hopper to sell based on your strategy.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <TooltipField tooltip="Sell based on strategy">
+              <Label>Sell based on strategy</Label>
+            </TooltipField>
+            <Switch />
+          </div>
+
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <TooltipField tooltip="Only sell in profit">
+              <Label>Only sell in profit</Label>
+            </TooltipField>
+            <Switch defaultChecked />
+          </div>
+
+          <div className="space-y-2">
+            <TooltipField tooltip="Minimum profit percentage">
+              <Label>Minimum profit %</Label>
+            </TooltipField>
+            <Input 
+              type="number"
+              defaultValue="1"
+              step="0.1"
+              min="0"
+            />
+          </div>
+
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <TooltipField tooltip="Hold assets when new target is the same">
+              <Label>Hold assets when new target is the same</Label>
+            </TooltipField>
+            <Switch />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const renderTrailingStopLoss = () => (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Timer className="h-5 w-5" />
+            Trailing Stop-Loss
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Enabling trailing stop-loss will trail the profit percentage upwards.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <TooltipField tooltip="Enable trailing stop-loss">
+              <Label>Enable</Label>
+            </TooltipField>
+            <Switch />
+          </div>
+
+          <div className="space-y-2">
+            <TooltipField tooltip="Trailing stop-loss percentage">
+              <Label>Trailing stop-loss percentage</Label>
+            </TooltipField>
+            <Input 
+              type="number"
+              value={formData.trailingStopLossPercentage}
+              onChange={(e) => updateFormData('trailingStopLossPercentage', parseFloat(e.target.value) || 0)}
+              step="0.1"
+              min="0"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <TooltipField tooltip="Arm trailing stop-loss at percentage">
+              <Label>Arm trailing stop-loss at</Label>
+            </TooltipField>
+            <Input 
+              type="number"
+              defaultValue="2.5"
+              step="0.1"
+              min="0"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <TooltipField tooltip="Trailing stop-loss timeout">
+              <Label>Trailing stop-loss timeout</Label>
+            </TooltipField>
+            <Select defaultValue="minute">
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="minute">Minute(s)</SelectItem>
+                <SelectItem value="hour">Hour(s)</SelectItem>
+                <SelectItem value="day">Day(s)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <TooltipField tooltip="Use trailing stop-loss only (disable take profit & sell-based on strategy)">
+              <Label>Use trailing stop-loss only</Label>
+            </TooltipField>
+            <Switch 
+              checked={formData.useTrailingStopOnly}
+              onCheckedChange={(value) => updateFormData('useTrailingStopOnly', value)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <TooltipField tooltip="Reset stop-loss after failed orders">
+              <Label>Reset stop-loss after failed orders</Label>
+            </TooltipField>
+            <Switch 
+              checked={formData.resetStopLossAfterFail}
+              onCheckedChange={(value) => updateFormData('resetStopLossAfterFail', value)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <TooltipField tooltip="Only sell with profit">
+              <Label>Only sell with profit</Label>
+            </TooltipField>
+            <Switch />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const renderAutoClose = () => (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5" />
+            Auto Close
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            With Auto Close you can automatically close positions after X amount of time.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between p-4 border rounded-lg">
+            <TooltipField tooltip="Enable auto close">
+              <Label>Enable</Label>
+            </TooltipField>
+            <Switch />
+          </div>
+
+          <div className="space-y-2">
+            <TooltipField tooltip="Close positions after X time open">
+              <Label>Close positions after X time open</Label>
+            </TooltipField>
+            <Select defaultValue="6days">
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="6days">After 6 days</SelectItem>
+                <SelectItem value="12hours">After 12 hours</SelectItem>
+                <SelectItem value="24hours">After 24 hours</SelectItem>
+                <SelectItem value="3days">After 3 days</SelectItem>
+                <SelectItem value="1week">After 1 week</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
   const renderCurrentSection = () => {
     switch (activeSection) {
       case 'basic-settings': return renderBasicSettings();
       case 'notifications': return renderNotifications();
-      case 'performance': return <PerformancePanel strategyId={existingStrategy?.id} />;
       case 'buy-settings': return renderBuySettings();
       case 'coins-amounts': return renderCoinsAndAmounts();
+      case 'strategy': return renderStrategySettings();
+      case 'trailing-stop-buy': return renderTrailingStopBuy();
       case 'sell-settings': return renderSellSettings();
-      case 'sell-strategy': return renderSellSettings(); // Same as sell-settings for now
+      case 'sell-strategy': return renderSellStrategy();
       case 'stop-loss': return renderStopLoss();
-      case 'trailing-stop-loss': return renderStopLoss(); // Similar logic
-      case 'auto-close': return renderSellSettings(); // Part of sell settings
-      case 'strategy': return renderBuySettings(); // Similar to buy settings
-      case 'trailing-stop-buy': return renderBuySettings(); // Part of buy settings
+      case 'trailing-stop-loss': return renderTrailingStopLoss();
+      case 'auto-close': return renderAutoClose();
       case 'shorting-settings': return renderShortingSettings();
       case 'dollar-cost-averaging': return renderDCA();
       default: return renderBasicSettings();

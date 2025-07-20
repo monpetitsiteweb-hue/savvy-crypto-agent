@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Settings, Activity, TrendingUp, Play, Pause, Edit } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Plus, Settings, Activity, TrendingUp, Play, Pause, Edit, Copy, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
@@ -136,28 +137,98 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
     setCurrentView('comprehensive');
   };
 
+  const handlePushToProduction = async (strategy: Strategy) => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from('trading_strategies')
+        .update({ 
+          is_active_live: true,
+          is_active_test: false
+        })
+        .eq('id', strategy.id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      await fetchStrategies();
+      toast({
+        title: "Strategy Pushed to Production",
+        description: `${strategy.strategy_name} is now live and will execute real trades`,
+      });
+    } catch (error) {
+      console.error('Error pushing strategy to production:', error);
+      toast({
+        title: "Error",
+        description: "Failed to push strategy to production",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCloneStrategy = async (strategy: Strategy) => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from('trading_strategies')
+        .insert({
+          user_id: user.id,
+          strategy_name: `${strategy.strategy_name} (Clone)`,
+          description: `Clone of ${strategy.strategy_name}`,
+          configuration: strategy.configuration,
+          test_mode: true,
+          is_active: false,
+          is_active_test: false,
+          is_active_live: false
+        });
+
+      if (error) throw error;
+
+      await fetchStrategies();
+      toast({
+        title: "Strategy Cloned",
+        description: `${strategy.strategy_name} has been cloned successfully`,
+      });
+    } catch (error) {
+      console.error('Error cloning strategy:', error);
+      toast({
+        title: "Error",
+        description: "Failed to clone strategy",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (currentView === 'create') {
     return (
-      <StrategyBuilder
-        onCancel={() => {
-          setCurrentView('list');
-          fetchStrategies();
-        }}
-      />
+      <div className="w-full">
+        <StrategyBuilder
+          onCancel={() => {
+            setCurrentView('list');
+            fetchStrategies();
+          }}
+          isCollapsed={true}
+        />
+      </div>
     );
   }
 
   if (currentView === 'comprehensive') {
     return (
-      <ComprehensiveStrategyConfig
-        onBack={() => {
-          setCurrentView('list');
-          setSelectedStrategy(null);
-          fetchStrategies();
-        }}
-        existingStrategy={selectedStrategy}
-        isEditing={!!selectedStrategy}
-      />
+      <div className="w-full">
+        <ComprehensiveStrategyConfig
+          onBack={() => {
+            setCurrentView('list');
+            setSelectedStrategy(null);
+            fetchStrategies();
+          }}
+          existingStrategy={selectedStrategy}
+          isEditing={!!selectedStrategy}
+          isCollapsed={true}
+        />
+      </div>
     );
   }
 
@@ -228,10 +299,54 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={() => handleCloneStrategy(strategy)}
+                      title="Clone Strategy"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => handleStrategyEdit(strategy)}
+                      title="Edit Strategy"
                     >
                       <Edit className="h-4 w-4" />
                     </Button>
+                    {strategy.is_active_test && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700"
+                            title="Push to Production"
+                          >
+                            <TrendingUp className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="flex items-center gap-2">
+                              <AlertTriangle className="h-5 w-5 text-yellow-500" />
+                              Push Strategy to Production
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              ⚠️ This strategy will now execute real trades using your Coinbase funds. 
+                              Are you sure you want to enable live trading for "{strategy.strategy_name}"?
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handlePushToProduction(strategy)}
+                              className="bg-red-600 hover:bg-red-700"
+                            >
+                              Yes, Push to Live
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                     <Button
                       variant={testMode ? (strategy.is_active_test ? "destructive" : "default") : (strategy.is_active_live ? "destructive" : "default")}
                       size="sm"
@@ -254,24 +369,84 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Risk Level:</span>
-                    <p className="font-medium">{strategy.configuration?.riskProfile || 'Medium'}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Max Exposure:</span>
-                    <p className="font-medium">{strategy.configuration?.maxWalletExposure || 50}%</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Stop Loss:</span>
-                    <p className="font-medium">{strategy.configuration?.stopLossPercentage || 3}%</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Take Profit:</span>
-                    <p className="font-medium">{strategy.configuration?.takeProfitPercentage || 2.5}%</p>
-                  </div>
+              <CardContent className="space-y-4">
+                {/* Strategy Summary Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <Card className="bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-blue-600 dark:text-blue-400">Risk Level</p>
+                          <p className="text-xl font-bold text-blue-900 dark:text-blue-100">
+                            {strategy.configuration?.riskProfile || 'Medium'}
+                          </p>
+                        </div>
+                        <Settings className="h-6 w-6 text-blue-600 dark:text-blue-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card className="bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-green-600 dark:text-green-400">Max Exposure</p>
+                          <p className="text-xl font-bold text-green-900 dark:text-green-100">
+                            {strategy.configuration?.maxWalletExposure || 50}%
+                          </p>
+                        </div>
+                        <TrendingUp className="h-6 w-6 text-green-600 dark:text-green-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card className="bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-red-600 dark:text-red-400">Stop Loss</p>
+                          <p className="text-xl font-bold text-red-900 dark:text-red-100">
+                            {strategy.configuration?.stopLossPercentage || 3}%
+                          </p>
+                        </div>
+                        <Activity className="h-6 w-6 text-red-600 dark:text-red-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card className="bg-yellow-50 border-yellow-200 dark:bg-yellow-950 dark:border-yellow-800">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">Take Profit</p>
+                          <p className="text-xl font-bold text-yellow-900 dark:text-yellow-100">
+                            {strategy.configuration?.takeProfitPercentage || 2.5}%
+                          </p>
+                        </div>
+                        <TrendingUp className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Tags and Categories */}
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline" className="bg-primary/10">
+                    {strategy.configuration?.selectedCoins?.length || 0} Coins
+                  </Badge>
+                  <Badge variant="outline" className="bg-secondary/10">
+                    {strategy.configuration?.buyOrderType || 'Market'} Orders
+                  </Badge>
+                  {strategy.configuration?.enableDCA && (
+                    <Badge variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">
+                      DCA Enabled
+                    </Badge>
+                  )}
+                  {strategy.configuration?.enableShorting && (
+                    <Badge variant="outline" className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100">
+                      Shorting
+                    </Badge>
+                  )}
                 </div>
               </CardContent>
             </Card>
