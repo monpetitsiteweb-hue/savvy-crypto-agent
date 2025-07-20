@@ -43,6 +43,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import NaturalLanguageStrategy from './NaturalLanguageStrategy';
 
 // Coinbase-compatible coins list
 const COINBASE_COINS = [
@@ -665,250 +666,301 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-10">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onBack}
-            className="hover:bg-primary/10"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Strategies
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">
-              {isEditing ? 'Edit Strategy' : 'Create Strategy'}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {isEditing ? 'Modify your existing trading strategy' : 'Design your automated trading strategy'}
-            </p>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-4">
-          {isEditing && (
-            <AlertDialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm" className="text-red-500 border-red-500 hover:bg-red-500/10">
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Strategy</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Are you sure you want to delete this strategy? This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
-                    Delete Strategy
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-          
-          <Button 
-            onClick={handleSubmit}
-            className="px-6"
-            disabled={!formData.strategyName?.trim()}
-          >
-            <Save className="h-4 w-4 mr-2" />
-            {isEditing ? 'Update Strategy' : 'Save Strategy'}
-          </Button>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        {renderSidebar()}
-        
-        {/* Content Area */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-6">
-            <form onSubmit={handleSubmit} className="max-w-4xl space-y-8">
+      {/* AI Agent Interface */}
+      {!showModeSelection && createMode === CREATE_MODES.AI_AGENT && (
+        <div className="flex-1 p-6">
+          <NaturalLanguageStrategy
+            onStrategyParsed={(parsedStrategy) => {
+              // Convert parsed strategy to form data
+              const config = parsedStrategy.configuration || {};
+              setFormData(prev => ({
+                ...prev,
+                strategyName: parsedStrategy.strategy_name,
+                notes: parsedStrategy.parsing_metadata.original_prompt,
+                // Map configuration fields to form data
+                selectedCoins: config.selectedCoins || prev.selectedCoins,
+                buyOrderType: config.buyOrderType || prev.buyOrderType,
+                sellOrderType: config.sellOrderType || prev.sellOrderType,
+                takeProfitPercentage: config.takeProfitPercentage || prev.takeProfitPercentage,
+                stopLossPercentage: config.stopLossPercentage || prev.stopLossPercentage,
+                maxOpenPositions: config.maxOpenPositions || prev.maxOpenPositions,
+                perTradeAllocation: config.perTradeAllocation || prev.perTradeAllocation,
+                allocationUnit: config.allocationUnit || prev.allocationUnit,
+                maxWalletExposure: config.maxWalletExposure || prev.maxWalletExposure,
+                buyFrequency: config.buyFrequency || prev.buyFrequency,
+                enableDCA: config.enableDCA || prev.enableDCA,
+                dcaIntervalHours: config.dcaIntervalHours || prev.dcaIntervalHours,
+                dcaSteps: config.dcaSteps || prev.dcaSteps,
+                category: parsedStrategy.required_categories?.[0] || prev.category,
+                // Set risk profile based on parsed risk level
+                riskProfile: parsedStrategy.risk_level?.toLowerCase() === 'low' ? 'low' : 
+                           parsedStrategy.risk_level?.toLowerCase() === 'high' ? 'high' : 'medium'
+              }));
               
-              {/* Basic Settings Section */}
-              {activeSection === 'basic-settings' && (
-                <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Settings className="h-5 w-5" />
-                        Basic Strategy Settings
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      {/* Strategy Name */}
-                      <div className="space-y-2">
-                        <TooltipField tooltip="Choose a descriptive name for your trading strategy">
-                          <Label htmlFor="strategyName">Strategy Name *</Label>
-                        </TooltipField>
-                        <Input
-                          id="strategyName"
-                          value={formData.strategyName}
-                          onChange={(e) => updateFormData('strategyName', e.target.value)}
-                          placeholder="e.g., BTC Conservative Growth"
-                          className="text-base"
-                        />
-                      </div>
-
-                      {/* Strategy Notes */}
-                      <div className="space-y-2">
-                        <TooltipField tooltip="Add notes about your strategy approach, market conditions, or goals">
-                          <Label htmlFor="notes">Strategy Notes</Label>
-                        </TooltipField>
-                        <Textarea
-                          id="notes"
-                          value={formData.notes}
-                          onChange={(e) => updateFormData('notes', e.target.value)}
-                          placeholder="Describe your strategy, market outlook, or any special considerations..."
-                          rows={4}
-                        />
-                      </div>
-
-                      {/* Risk Profile */}
-                      <div className="space-y-4">
-                        <TooltipField tooltip="Risk profile automatically adjusts multiple settings. Choose 'Custom' to manually configure all parameters">
-                          <Label>Risk Profile</Label>
-                        </TooltipField>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                          {(['low', 'medium', 'high', 'custom'] as const).map((risk) => (
-                            <Card 
-                              key={risk}
-                              className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
-                                formData.riskProfile === risk 
-                                  ? 'ring-2 ring-primary bg-primary/5' 
-                                  : 'hover:bg-muted/50'
-                              }`}
-                              onClick={() => updateFormData('riskProfile', risk)}
-                            >
-                              <CardContent className="p-4 text-center">
-                                <div className="mb-2">
-                                  <Badge 
-                                    variant={risk === 'high' ? 'destructive' : risk === 'medium' ? 'default' : risk === 'low' ? 'secondary' : 'outline'}
-                                    className="font-bold"
-                                  >
-                                    {risk.toUpperCase()}
-                                  </Badge>
-                                </div>
-                                <div className="text-xs text-muted-foreground space-y-1">
-                                  {risk === 'low' && (
-                                    <>
-                                      <div>Stop Loss: 2%</div>
-                                      <div>Take Profit: 1.5%</div>
-                                      <div>Max Positions: 3</div>
-                                    </>
-                                  )}
-                                  {risk === 'medium' && (
-                                    <>
-                                      <div>Stop Loss: 3%</div>
-                                      <div>Take Profit: 2.5%</div>
-                                      <div>Max Positions: 5</div>
-                                    </>
-                                  )}
-                                  {risk === 'high' && (
-                                    <>
-                                      <div>Stop Loss: 5%</div>
-                                      <div>Take Profit: 4%</div>
-                                      <div>Max Positions: 8</div>
-                                    </>
-                                  )}
-                                  {risk === 'custom' && (
-                                    <div>Manual configuration</div>
-                                  )}
-                                </div>
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Strategy Performance Preview */}
-                  {renderStrategyDetails()}
-                </div>
-              )}
-
-              {/* Coins and Amounts Panel */}
-              {activeSection === 'coins-amounts' && (
-                <CoinsAmountsPanel 
-                  formData={formData} 
-                  updateFormData={updateFormData} 
-                />
-              )}
-
-              {/* Sell Settings Panel */}
-              {activeSection === 'sell-settings' && (
-                <SellSettingsPanel 
-                  formData={formData} 
-                  updateFormData={updateFormData} 
-                />
-              )}
-            </form>
-          </div>
+              // Switch to manual mode to show the configuration
+              setCreateMode(CREATE_MODES.MANUAL);
+              toast({
+                title: "Strategy Generated!",
+                description: "AI has created your strategy. Review and adjust the settings as needed.",
+              });
+            }}
+            onCancel={() => {
+              setShowModeSelection(true);
+              setCreateMode(CREATE_MODES.MANUAL);
+            }}
+          />
         </div>
-      </div>
+      )}
 
-      {/* Confirmation Dialogs */}
-      <AlertDialog open={showLiveConfirmation} onOpenChange={setShowLiveConfirmation}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-              Enable Live Trading
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              ⚠️ <strong>Warning:</strong> Live trading will use real money from your connected Coinbase account. 
-              Make sure you've thoroughly tested this strategy before enabling live trading.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setShowLiveConfirmation(false)}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={confirmLiveTrading} className="bg-red-600 hover:bg-red-700">
-              I Understand - Enable Live Trading
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Manual Configuration Interface */}
+      {!showModeSelection && createMode === CREATE_MODES.MANUAL && (
+        <>
+          {/* Header */}
+          <div className="flex items-center justify-between p-6 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-10">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onBack}
+                className="hover:bg-primary/10"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Strategies
+              </Button>
+              <div>
+                <h1 className="text-2xl font-bold text-foreground">
+                  {isEditing ? 'Edit Strategy' : 'Create Strategy'}
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  {isEditing ? 'Modify your existing trading strategy' : 'Design your automated trading strategy'}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-4">
+              {isEditing && (
+                <AlertDialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="sm" className="text-red-500 border-red-500 hover:bg-red-500/10">
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete Strategy</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to delete this strategy? This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+                        Delete Strategy
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              
+              <Button 
+                onClick={handleSubmit}
+                className="px-6"
+                disabled={!formData.strategyName?.trim()}
+              >
+                <Save className="h-4 w-4 mr-2" />
+                {isEditing ? 'Update Strategy' : 'Save Strategy'}
+              </Button>
+            </div>
+          </div>
 
-      {/* Test Mode Activation Dialog */}
-      <AlertDialog open={showActivateTestModal} onOpenChange={setShowActivateTestModal}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <Check className="h-5 w-5 text-green-600" />
-              Strategy Created Successfully
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-base">
-              Your strategy has been created and is ready to use.
-              <br /><br />
-              <strong>Would you like to activate this strategy in Test Mode now?</strong>
-              <br /><br />
-              <span className="text-sm text-muted-foreground">
-                Test Mode uses simulated trading to validate your strategy before going live.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleSkipActivation}>
-              Skip - Keep Inactive
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={handleActivateInTestMode} className="bg-green-600 hover:bg-green-700">
-              Yes, Activate in Test Mode
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          {/* Main Content */}
+          <div className="flex-1 flex overflow-hidden">
+            {/* Sidebar */}
+            {renderSidebar()}
+            
+            {/* Content Area */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-6">
+                <form onSubmit={handleSubmit} className="max-w-4xl space-y-8">
+                  
+                  {/* Basic Settings Section */}
+                  {activeSection === 'basic-settings' && (
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Settings className="h-5 w-5" />
+                            Basic Strategy Settings
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          {/* Strategy Name */}
+                          <div className="space-y-2">
+                            <TooltipField tooltip="Choose a descriptive name for your trading strategy">
+                              <Label htmlFor="strategyName">Strategy Name *</Label>
+                            </TooltipField>
+                            <Input
+                              id="strategyName"
+                              value={formData.strategyName}
+                              onChange={(e) => updateFormData('strategyName', e.target.value)}
+                              placeholder="e.g., BTC Conservative Growth"
+                              className="text-base"
+                            />
+                          </div>
+
+                          {/* Strategy Notes */}
+                          <div className="space-y-2">
+                            <TooltipField tooltip="Add notes about your strategy approach, market conditions, or goals">
+                              <Label htmlFor="notes">Strategy Notes</Label>
+                            </TooltipField>
+                            <Textarea
+                              id="notes"
+                              value={formData.notes}
+                              onChange={(e) => updateFormData('notes', e.target.value)}
+                              placeholder="Describe your strategy, market outlook, or any special considerations..."
+                              rows={4}
+                            />
+                          </div>
+
+                          {/* Risk Profile */}
+                          <div className="space-y-4">
+                            <TooltipField tooltip="Risk profile automatically adjusts multiple settings. Choose 'Custom' to manually configure all parameters">
+                              <Label>Risk Profile</Label>
+                            </TooltipField>
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                              {(['low', 'medium', 'high', 'custom'] as const).map((risk) => (
+                                <Card 
+                                  key={risk}
+                                  className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
+                                    formData.riskProfile === risk 
+                                      ? 'ring-2 ring-primary bg-primary/5' 
+                                      : 'hover:bg-muted/50'
+                                  }`}
+                                  onClick={() => updateFormData('riskProfile', risk)}
+                                >
+                                  <CardContent className="p-4 text-center">
+                                    <div className="mb-2">
+                                      <Badge 
+                                        variant={risk === 'high' ? 'destructive' : risk === 'medium' ? 'default' : risk === 'low' ? 'secondary' : 'outline'}
+                                        className="font-bold"
+                                      >
+                                        {risk.toUpperCase()}
+                                      </Badge>
+                                    </div>
+                                    <div className="text-xs text-muted-foreground space-y-1">
+                                      {risk === 'low' && (
+                                        <>
+                                          <div>Stop Loss: 2%</div>
+                                          <div>Take Profit: 1.5%</div>
+                                          <div>Max Positions: 3</div>
+                                        </>
+                                      )}
+                                      {risk === 'medium' && (
+                                        <>
+                                          <div>Stop Loss: 3%</div>
+                                          <div>Take Profit: 2.5%</div>
+                                          <div>Max Positions: 5</div>
+                                        </>
+                                      )}
+                                      {risk === 'high' && (
+                                        <>
+                                          <div>Stop Loss: 5%</div>
+                                          <div>Take Profit: 4%</div>
+                                          <div>Max Positions: 8</div>
+                                        </>
+                                      )}
+                                      {risk === 'custom' && (
+                                        <div>Manual configuration</div>
+                                      )}
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              ))}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Strategy Performance Preview */}
+                      {renderStrategyDetails()}
+                    </div>
+                  )}
+
+                  {/* Coins and Amounts Panel */}
+                  {activeSection === 'coins-amounts' && (
+                    <CoinsAmountsPanel 
+                      formData={formData} 
+                      updateFormData={updateFormData} 
+                    />
+                  )}
+
+                  {/* Sell Settings Panel */}
+                  {activeSection === 'sell-settings' && (
+                    <SellSettingsPanel 
+                      formData={formData} 
+                      updateFormData={updateFormData} 
+                    />
+                  )}
+                </form>
+              </div>
+            </div>
+          </div>
+
+          {/* Confirmation Dialogs */}
+          <AlertDialog open={showLiveConfirmation} onOpenChange={setShowLiveConfirmation}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-red-500" />
+                  Enable Live Trading
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  ⚠️ <strong>Warning:</strong> Live trading will use real money from your connected Coinbase account. 
+                  Make sure you've thoroughly tested this strategy before enabling live trading.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => setShowLiveConfirmation(false)}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction onClick={confirmLiveTrading} className="bg-red-600 hover:bg-red-700">
+                  I Understand - Enable Live Trading
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* Test Mode Activation Dialog */}
+          <AlertDialog open={showActivateTestModal} onOpenChange={setShowActivateTestModal}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2">
+                  <Check className="h-5 w-5 text-green-600" />
+                  Strategy Created Successfully
+                </AlertDialogTitle>
+                <AlertDialogDescription className="text-base">
+                  Your strategy has been created and is ready to use.
+                  <br /><br />
+                  <strong>Would you like to activate this strategy in Test Mode now?</strong>
+                  <br /><br />
+                  <span className="text-sm text-muted-foreground">
+                    Test Mode uses simulated trading to validate your strategy before going live.
+                  </span>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={handleSkipActivation}>
+                  Skip - Keep Inactive
+                </AlertDialogCancel>
+                <AlertDialogAction onClick={handleActivateInTestMode} className="bg-green-600 hover:bg-green-700">
+                  Yes, Activate in Test Mode
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      )}
     </div>
   );
 };
