@@ -956,6 +956,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
           </AlertDialog>
         </>
       )}
-    </div>
+    </>
   );
 };
