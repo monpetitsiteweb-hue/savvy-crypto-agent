@@ -407,7 +407,15 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const TooltipField = ({ children, tooltip }: { children: React.ReactNode; tooltip: string }) => (
+  const TooltipField = ({ 
+    children, 
+    description, 
+    examples 
+  }: { 
+    children: React.ReactNode; 
+    description: string;
+    examples?: string[];
+  }) => (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
@@ -416,8 +424,22 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
             <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
           </div>
         </TooltipTrigger>
-        <TooltipContent className="max-w-xs">
-          <p className="text-sm">{tooltip}</p>
+        <TooltipContent className="max-w-sm p-4">
+          <div className="space-y-2">
+            <p className="text-sm font-medium">{description}</p>
+            {examples && examples.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-medium">Say:</p>
+                <div className="space-y-1">
+                  {examples.map((example, index) => (
+                    <p key={index} className="text-xs text-muted-foreground italic">
+                      "{example}"
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -773,7 +795,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                         <CardContent className="space-y-6">
                           {/* Strategy Name */}
                           <div className="space-y-2">
-                            <TooltipField tooltip="Choose a descriptive name for your trading strategy">
+                            <TooltipField 
+                              description="Name your strategy to recognize it later."
+                              examples={["Call this my scalping strategy", "Name it medium test bot"]}
+                            >
                               <Label htmlFor="strategyName">Strategy Name *</Label>
                             </TooltipField>
                             <Input
@@ -787,7 +812,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                           {/* Strategy Notes */}
                           <div className="space-y-2">
-                            <TooltipField tooltip="Add notes about your strategy approach, market conditions, or goals">
+                            <TooltipField 
+                              description="Describe your strategy goals, ideas, or market assumptions."
+                              examples={["Note that this strategy follows bullish breakouts", "This is my DCA swing bot"]}
+                            >
                               <Label htmlFor="notes">Strategy Notes</Label>
                             </TooltipField>
                             <Textarea
@@ -801,7 +829,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                           {/* Risk Profile */}
                           <div className="space-y-4">
-                            <TooltipField tooltip="Risk profile automatically adjusts multiple settings. Choose 'Custom' to manually configure all parameters">
+                            <TooltipField 
+                              description="Choose a risk level to set your default stop-loss, take-profit, and position limits."
+                              examples={["I want a medium-risk setup", "Make it aggressive", "Use a conservative approach"]}
+                            >
                               <Label>Risk Profile</Label>
                             </TooltipField>
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -888,7 +919,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                           <div className="space-y-4">
                             <div className="flex items-center justify-between">
                               <div className="space-y-1">
-                                <TooltipField tooltip="Get notified when trades are executed, closed, or when positions change">
+                                <TooltipField 
+                                  description="Get alerts when your strategy buys or sells."
+                                  examples={["Let me know when a trade happens", "Notify me on every execution"]}
+                                >
                                   <Label>Trade Notifications</Label>
                                 </TooltipField>
                                 <p className="text-sm text-muted-foreground">Notify on buy/sell executions</p>
@@ -901,7 +935,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                             <div className="flex items-center justify-between">
                               <div className="space-y-1">
-                                <TooltipField tooltip="Receive alerts when errors occur in strategy execution or market data issues">
+                                <TooltipField 
+                                  description="Be alerted if there's a problem with order execution or system logic."
+                                  examples={["Tell me if something fails", "Warn me if a trade can't go through"]}
+                                >
                                   <Label>Error Notifications</Label>
                                 </TooltipField>
                                 <p className="text-sm text-muted-foreground">Alert on trading errors or issues</p>
@@ -914,7 +951,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                             <div className="flex items-center justify-between">
                               <div className="space-y-1">
-                                <TooltipField tooltip="Get notified when profit targets or stop-loss levels are reached">
+                                <TooltipField 
+                                  description="Receive alerts when profit or loss targets are hit."
+                                  examples={["Notify me when I hit my profit goal", "Let me know if a stop-loss triggers"]}
+                                >
                                   <Label>Target Notifications</Label>
                                 </TooltipField>
                                 <p className="text-sm text-muted-foreground">Alert on profit/loss targets hit</p>
@@ -945,7 +985,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                         </CardHeader>
                         <CardContent className="space-y-6">
                           <div className="space-y-4">
-                            <TooltipField tooltip="Choose how buy orders are executed: Market (instant), Limit (at specific price), or Trailing Buy (follows price down)">
+                            <TooltipField 
+                              description="Decide how buy orders are placed — instantly, at a fixed price, or after a price drop."
+                              examples={["Buy instantly", "Use trailing buy", "Set a limit to enter at a lower price"]}
+                            >
                               <Label>Buy Order Type</Label>
                             </TooltipField>
                             <Select value={formData.buyOrderType} onValueChange={(value: any) => updateFormData('buyOrderType', value)}>
@@ -960,7 +1003,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             </Select>
 
                             <div className="space-y-2">
-                              <TooltipField tooltip="How often the strategy should look for buying opportunities">
+                              <TooltipField 
+                                description="Choose how often your strategy should buy — on signals, schedules, or once."
+                                examples={["Buy on signals only", "Buy every 15 minutes", "Just buy once"]}
+                              >
                                 <Label>Buy Frequency</Label>
                               </TooltipField>
                               <Select value={formData.buyFrequency} onValueChange={(value: any) => updateFormData('buyFrequency', value)}>
@@ -978,7 +1024,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                             {formData.buyFrequency === 'interval' && (
                               <div className="space-y-2">
-                                <TooltipField tooltip="Minutes between buy attempts when using interval-based buying">
+                                <TooltipField 
+                                  description="Minutes between buy attempts when using interval-based buying."
+                                  examples={["Buy every 15 minutes", "Set interval to 60 minutes"]}
+                                >
                                   <Label>Buy Interval (minutes)</Label>
                                 </TooltipField>
                                 <Input
@@ -992,9 +1041,12 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             )}
 
                             <div className="space-y-2">
-                              <TooltipField tooltip="Minimum time to wait after a buy before considering another buy for the same coin">
-                                <Label>Buy Cooldown (minutes)</Label>
-                              </TooltipField>
+                                <TooltipField 
+                                  description="Add a delay between buys to prevent overtrading."
+                                  examples={["Wait 30 minutes before buying again", "Add a cooldown of 1 hour"]}
+                                >
+                                  <Label>Buy Cooldown (minutes)</Label>
+                                </TooltipField>
                               <Input
                                 type="number"
                                 value={formData.buyCooldownMinutes}
@@ -1026,7 +1078,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-4">
                               <div className="space-y-2">
-                                <TooltipField tooltip="Maximum number of coins that can have open positions simultaneously">
+                                <TooltipField 
+                                  description="Limit how many trades can run at the same time."
+                                  examples={["Don't open more than 3 trades", "Allow up to 5 active positions"]}
+                                >
                                   <Label>Max Active Positions</Label>
                                 </TooltipField>
                                 <Input
@@ -1039,7 +1094,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                               </div>
 
                               <div className="space-y-2">
-                                <TooltipField tooltip="Maximum percentage of your total wallet that can be allocated to trading">
+                                <TooltipField 
+                                  description="Cap how much of your capital this strategy is allowed to use."
+                                  examples={["Use up to 50% of my funds", "Don't go over 20%"]}
+                                >
                                   <Label>Max Wallet Exposure (%)</Label>
                                 </TooltipField>
                                 <Slider
@@ -1056,7 +1114,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                               </div>
 
                               <div className="space-y-2">
-                                <TooltipField tooltip="Time to wait between any trades to prevent overtrading">
+                                <TooltipField 
+                                  description="Add a delay between closing a trade and opening a new one."
+                                  examples={["Wait 10 minutes before re-entering", "Give it time before starting a new position"]}
+                                >
                                   <Label>Trade Cooldown (minutes)</Label>
                                 </TooltipField>
                                 <Input
@@ -1071,7 +1132,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                             <div className="space-y-4">
                               <div className="space-y-2">
-                                <TooltipField tooltip="Daily profit target - strategy may become more conservative after reaching this">
+                                <TooltipField 
+                                  description="Stop trading once this daily profit level is reached."
+                                  examples={["Stop trading after 3% gain", "Pause the bot when it earns enough for the day"]}
+                                >
                                   <Label>Daily Profit Target (%)</Label>
                                 </TooltipField>
                                 <Input
@@ -1085,7 +1149,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                               </div>
 
                               <div className="space-y-2">
-                                <TooltipField tooltip="Daily loss limit - strategy will stop trading for the day after reaching this">
+                                <TooltipField 
+                                  description="Pause trading if this loss threshold is hit in a day."
+                                  examples={["Limit daily loss to 2%", "Shut it down if I lose 5%"]}
+                                >
                                   <Label>Daily Loss Limit (%)</Label>
                                 </TooltipField>
                                 <Input
@@ -1100,7 +1167,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                               <div className="flex items-center justify-between">
                                 <div className="space-y-1">
-                                  <TooltipField tooltip="Enable backtesting mode to test strategy on historical data">
+                                  <TooltipField 
+                                    description="Run the strategy on past market data to validate performance before going live."
+                                    examples={["Test this on historical charts", "Backtest it first"]}
+                                  >
                                     <Label>Backtesting Mode</Label>
                                   </TooltipField>
                                   <p className="text-sm text-muted-foreground">Test on historical data</p>
@@ -1133,7 +1203,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                         <CardContent className="space-y-6">
                           <div className="space-y-4">
                             <div className="space-y-2">
-                              <TooltipField tooltip="Percentage below the lowest price seen that the trailing buy order will trigger">
+                              <TooltipField 
+                                description="Percentage below the lowest price seen that the trailing buy order will trigger."
+                                examples={["Trail by 1.5%", "Set trailing buy at 2%"]}
+                              >
                                 <Label>Trailing Buy Percentage (%)</Label>
                               </TooltipField>
                               <Slider
@@ -1180,7 +1253,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                         <CardContent className="space-y-6">
                           <div className="space-y-4">
                             <div className="space-y-2">
-                              <TooltipField tooltip="Choose how sell orders are executed when closing positions">
+                              <TooltipField 
+                                description="Choose how the strategy should close a trade — instantly, at a target, or using price trailing."
+                                examples={["Sell at market price", "Use a trailing stop to exit", "Set a profit target"]}
+                              >
                                 <Label>Sell Order Strategy</Label>
                               </TooltipField>
                               <Select value={formData.sellOrderType} onValueChange={(value: any) => updateFormData('sellOrderType', value)}>
@@ -1198,7 +1274,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                             <div className="flex items-center justify-between">
                               <div className="space-y-1">
-                                <TooltipField tooltip="Use only trailing stop-loss, disable fixed stop-loss">
+                                <TooltipField 
+                                  description="Use only trailing stop-loss, disable fixed stop-loss."
+                                  examples={["Only use trailing stops", "Disable fixed stops"]}
+                                >
                                   <Label>Trailing Stop Only</Label>
                                 </TooltipField>
                                 <p className="text-sm text-muted-foreground">Disable fixed stop-loss</p>
@@ -1211,7 +1290,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                             <div className="flex items-center justify-between">
                               <div className="space-y-1">
-                                <TooltipField tooltip="Reset stop-loss to original level if it fails to execute">
+                                <TooltipField 
+                                  description="Reset stop-loss to original level if it fails to execute."
+                                  examples={["Reset stops if they fail", "Retry failed stop orders"]}
+                                >
                                   <Label>Reset Stop-Loss After Fail</Label>
                                 </TooltipField>
                                 <p className="text-sm text-muted-foreground">Retry failed stop-losses</p>
@@ -1243,7 +1325,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                         <CardContent className="space-y-6">
                           <div className="space-y-4">
                             <div className="space-y-2">
-                              <TooltipField tooltip="Percentage loss at which the position will be automatically closed">
+                              <TooltipField 
+                                description="Automatically closes a trade when the price drops by this percentage — protects you from big losses."
+                                examples={["Cut my losses at 2%", "Don't let it drop more than 1.5%", "Add a stop-loss"]}
+                              >
                                 <Label>Stop-Loss Percentage (%)</Label>
                               </TooltipField>
                               <Slider
@@ -1261,7 +1346,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                             <div className="flex items-center justify-between">
                               <div className="space-y-1">
-                                <TooltipField tooltip="Add time-based stop-loss that triggers after a set period regardless of price">
+                                <TooltipField 
+                                  description="Add time-based stop-loss that triggers after a set period regardless of price."
+                                  examples={["Auto-close after 2 hours", "Time-based exit"]}
+                                >
                                   <Label>Enable Stop-Loss Timeout</Label>
                                 </TooltipField>
                                 <p className="text-sm text-muted-foreground">Time-based stop-loss</p>
@@ -1274,7 +1362,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                             {formData.enableStopLossTimeout && (
                               <div className="space-y-2">
-                                <TooltipField tooltip="Minutes after which the position will be closed regardless of profit/loss">
+                                <TooltipField 
+                                  description="Minutes after which the position will be closed regardless of profit/loss."
+                                  examples={["Close after 120 minutes", "Time limit of 2 hours"]}
+                                >
                                   <Label>Stop-Loss Timeout (minutes)</Label>
                                 </TooltipField>
                                 <Input
@@ -1316,7 +1407,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                         <CardContent className="space-y-6">
                           <div className="space-y-4">
                             <div className="space-y-2">
-                              <TooltipField tooltip="Percentage below the highest price seen that will trigger the trailing stop-loss">
+                              <TooltipField 
+                                description="Tracks price as it rises and closes the trade if it drops by this percentage from the peak."
+                                examples={["Let the profits ride", "Use a trailing stop of 2%", "Sell if it drops after going up"]}
+                              >
                                 <Label>Trailing Stop-Loss Percentage (%)</Label>
                               </TooltipField>
                               <Slider
@@ -1384,7 +1478,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                         <CardContent className="space-y-6">
                           <div className="space-y-4">
                             <div className="space-y-2">
-                              <TooltipField tooltip="Hours after which positions will be automatically closed, regardless of profit/loss">
+                              <TooltipField 
+                                description="Closes the trade after a fixed time, no matter the result."
+                                examples={["Exit after 6 hours", "Close trades after 1 day", "Don't hold for too long"]}
+                              >
                                 <Label>Auto-Close After (hours)</Label>
                               </TooltipField>
                               <Input
@@ -1475,7 +1572,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                           <div className="space-y-4">
                             <div className="flex items-center justify-between">
                               <div className="space-y-1">
-                                <TooltipField tooltip="Enable short selling to profit from declining prices">
+                                <TooltipField 
+                                  description="Enable short selling to profit from declining prices."
+                                  examples={["Allow shorting", "Enable betting against price"]}
+                                >
                                   <Label>Enable Shorting</Label>
                                 </TooltipField>
                                 <p className="text-sm text-muted-foreground">Allow short positions</p>
@@ -1489,7 +1589,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             {formData.enableShorting && (
                               <>
                                 <div className="space-y-2">
-                                  <TooltipField tooltip="Maximum number of short positions that can be open simultaneously">
+                                  <TooltipField 
+                                    description="Maximum number of short positions that can be open simultaneously."
+                                    examples={["Allow 3 short positions max", "Limit shorts to 2"]}
+                                  >
                                     <Label>Max Short Positions</Label>
                                   </TooltipField>
                                   <Input
@@ -1502,7 +1605,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                 </div>
 
                                 <div className="space-y-2">
-                                  <TooltipField tooltip="Minimum profit percentage to target when shorting">
+                                  <TooltipField 
+                                    description="Minimum profit percentage to target when shorting."
+                                    examples={["Target 2% profit on shorts", "Set short profit goal"]}
+                                  >
                                     <Label>Shorting Min Profit (%)</Label>
                                   </TooltipField>
                                   <Slider
@@ -1520,7 +1626,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                                 <div className="flex items-center justify-between">
                                   <div className="space-y-1">
-                                    <TooltipField tooltip="Automatically close short positions when conditions are met">
+                                    <TooltipField 
+                                      description="Automatically close short positions when conditions are met."
+                                      examples={["Auto-close when profitable", "Exit shorts automatically"]}
+                                    >
                                       <Label>Auto-Close Shorts</Label>
                                     </TooltipField>
                                     <p className="text-sm text-muted-foreground">Automatic short position closing</p>
@@ -1565,7 +1674,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                           <div className="space-y-4">
                             <div className="flex items-center justify-between">
                               <div className="space-y-1">
-                                <TooltipField tooltip="Enable Dollar Cost Averaging to spread purchases over time">
+                                <TooltipField 
+                                  description="Enable Dollar Cost Averaging to spread purchases over time."
+                                  examples={["Use DCA to average down", "Enable dollar cost averaging"]}
+                                >
                                   <Label>Enable DCA</Label>
                                 </TooltipField>
                                 <p className="text-sm text-muted-foreground">Spread purchases over time</p>
@@ -1579,7 +1691,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             {formData.enableDCA && (
                               <>
                                 <div className="space-y-2">
-                                  <TooltipField tooltip="Hours between each DCA purchase">
+                                  <TooltipField 
+                                    description="Hours between each DCA purchase."
+                                    examples={["Buy every 12 hours", "DCA every 24 hours"]}
+                                  >
                                     <Label>DCA Interval (hours)</Label>
                                   </TooltipField>
                                   <Select 
@@ -1602,7 +1717,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                 </div>
 
                                 <div className="space-y-2">
-                                  <TooltipField tooltip="Number of DCA steps to complete the full position">
+                                  <TooltipField 
+                                    description="Number of DCA steps to complete the full position."
+                                    examples={["Use 5 DCA steps", "Complete in 3 purchases"]}
+                                  >
                                     <Label>DCA Steps</Label>
                                   </TooltipField>
                                   <Input

@@ -20,7 +20,15 @@ interface SellSettingsPanelProps {
   updateFormData: (field: string, value: any) => void;
 }
 
-const TooltipField = ({ children, tooltip }: { children: React.ReactNode; tooltip: string }) => (
+const TooltipField = ({ 
+  children, 
+  description, 
+  examples 
+}: { 
+  children: React.ReactNode; 
+  description: string;
+  examples?: string[];
+}) => (
   <TooltipProvider>
     <Tooltip>
       <TooltipTrigger asChild>
@@ -29,8 +37,22 @@ const TooltipField = ({ children, tooltip }: { children: React.ReactNode; toolti
           <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
         </div>
       </TooltipTrigger>
-      <TooltipContent className="max-w-xs">
-        <p className="text-sm">{tooltip}</p>
+      <TooltipContent className="max-w-sm p-4">
+        <div className="space-y-2">
+          <p className="text-sm font-medium">{description}</p>
+          {examples && examples.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground font-medium">Say:</p>
+              <div className="space-y-1">
+                {examples.map((example, index) => (
+                  <p key={index} className="text-xs text-muted-foreground italic">
+                    "{example}"
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </TooltipContent>
     </Tooltip>
   </TooltipProvider>
@@ -50,7 +72,10 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <TooltipField tooltip="👁 Type of sell order to execute. Say things like: 'Use market orders for quick sells' or 'Set limit orders for better prices'">
+              <TooltipField 
+                description="Choose how the strategy should close a trade — instantly, at a target, or using price trailing."
+                examples={["Sell at market price", "Use a trailing stop to exit", "Set a profit target"]}
+              >
                 <Label>Sell Order Type</Label>
               </TooltipField>
               <Select 
@@ -70,7 +95,10 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
             </div>
 
             <div className="space-y-2">
-              <TooltipField tooltip="👁 Automatically close positions after this many hours. Say things like: 'Close trades after 24 hours' or 'Hold for maximum 48 hours'">
+              <TooltipField 
+                description="Closes the trade after a fixed time, no matter the result."
+                examples={["Exit after 6 hours", "Close trades after 1 day", "Don't hold for too long"]}
+              >
                 <Label>Auto Close After (hours)</Label>
               </TooltipField>
               <Input
@@ -95,7 +123,10 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
-            <TooltipField tooltip="👁 Percentage gain at which to automatically sell and take profits. Say things like: 'Take profits at 5% gain' or 'Sell when up 3%'">
+            <TooltipField 
+              description="The gain percentage at which the trade should close to secure profits."
+              examples={["Take profits at 5%", "Sell once I make 3%", "Close when I hit my target"]}
+            >
               <Label>Take Profit Percentage (%)</Label>
             </TooltipField>
             <div className="space-y-2">
@@ -127,7 +158,10 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
-            <TooltipField tooltip="👁 Percentage loss at which to automatically sell to limit losses. Say things like: 'Stop loss at 3%' or 'Cut losses at 2% down'">
+            <TooltipField 
+              description="Automatically closes a trade when the price drops by this percentage — protects you from big losses."
+              examples={["Cut my losses at 2%", "Don't let it drop more than 1.5%", "Add a stop-loss"]}
+            >
               <Label>Stop Loss Percentage (%)</Label>
             </TooltipField>
             <div className="space-y-2">
@@ -149,7 +183,10 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="flex items-center justify-between p-4 border rounded-lg">
-              <TooltipField tooltip="👁 Cancel stop loss after a timeout period. Say things like: 'Remove stop loss after 2 hours' or 'Disable timeout protection'">
+              <TooltipField 
+                description="Cancel stop loss after a timeout period."
+                examples={["Remove stop loss after 2 hours", "Disable timeout protection"]}
+              >
                 <Label>Stop Loss Timeout</Label>
               </TooltipField>
               <Switch 
@@ -183,7 +220,10 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
-            <TooltipField tooltip="👁 Dynamic stop loss that follows price upward but stops at a percentage below peak. Say things like: 'Trail stop 2% below peak' or 'Follow price with 1.5% buffer'">
+            <TooltipField 
+              description="Tracks price as it rises and closes the trade if it drops by this percentage from the peak."
+              examples={["Let the profits ride", "Use a trailing stop of 2%", "Sell if it drops after going up"]}
+            >
               <Label>Trailing Stop Percentage (%)</Label>
             </TooltipField>
             <div className="space-y-2">
@@ -204,7 +244,10 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
           </div>
 
           <div className="flex items-center justify-between p-4 border rounded-lg">
-            <TooltipField tooltip="👁 Use only trailing stop loss, disable fixed stop loss. Say things like: 'Only use trailing stops' or 'Disable fixed stop loss'">
+            <TooltipField 
+              description="Use only trailing stop loss, disable fixed stop loss."
+              examples={["Only use trailing stops", "Disable fixed stop loss"]}
+            >
               <Label>Use Trailing Stop Only</Label>
             </TooltipField>
             <Switch 
@@ -226,7 +269,10 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <TooltipField tooltip="👁 Maximum number of open positions at the same time. Say things like: 'Hold max 5 positions' or 'Limit to 3 open trades'">
+              <TooltipField 
+                description="Maximum number of open positions at the same time."
+                examples={["Hold max 5 positions", "Limit to 3 open trades"]}
+              >
                 <Label>Max Open Positions</Label>
               </TooltipField>
               <div className="space-y-2">
@@ -247,7 +293,10 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
             </div>
 
             <div className="space-y-2">
-              <TooltipField tooltip="👁 Cooldown period between trades to avoid overtrading. Say things like: 'Wait 30 minutes between trades' or 'Cool down for 1 hour'">
+              <TooltipField 
+                description="Cooldown period between trades to avoid overtrading."
+                examples={["Wait 30 minutes between trades", "Cool down for 1 hour"]}
+              >
                 <Label>Trade Cooldown (minutes)</Label>
               </TooltipField>
               <Input
