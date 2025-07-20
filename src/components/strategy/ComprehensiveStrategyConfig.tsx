@@ -590,23 +590,33 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     <div className="h-full flex flex-col bg-background">
       {/* Mode Selection Modal */}
       {showModeSelection && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-          <Card className="w-full max-w-2xl mx-4">
-            <CardHeader>
-              <CardTitle className="text-center text-2xl">Choose Creation Method</CardTitle>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50">
+          <Card className="w-full max-w-2xl mx-4 bg-gradient-to-br from-card via-card/95 to-muted/20 border-2 border-primary/20 shadow-2xl">
+            <CardHeader className="relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-primary/10 via-transparent to-primary/10" />
+              <CardTitle className="text-center text-2xl bg-gradient-to-r from-primary to-primary/80 bg-clip-text text-transparent relative z-10">
+                Choose Creation Method
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-6 relative">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <Card 
-                  className={`cursor-pointer transition-all duration-200 hover:shadow-lg ${
+                  className={`cursor-pointer transition-all duration-300 hover:shadow-xl hover:scale-[1.02] group relative overflow-hidden ${
                     createMode === CREATE_MODES.MANUAL 
-                      ? 'ring-2 ring-primary bg-primary/5' 
-                      : 'hover:bg-muted/50'
+                      ? 'ring-2 ring-primary bg-gradient-to-br from-primary/10 to-primary/5 shadow-lg' 
+                      : 'hover:bg-gradient-to-br hover:from-muted/50 hover:to-muted/30'
                   }`}
                   onClick={() => setCreateMode(CREATE_MODES.MANUAL)}
                 >
-                  <CardContent className="p-6 text-center">
-                    <Settings className="h-12 w-12 mx-auto mb-4 text-primary" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-transparent to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  <CardContent className="p-6 text-center relative z-10">
+                    <div className={`h-12 w-12 mx-auto mb-4 rounded-full flex items-center justify-center transition-all duration-300 ${
+                      createMode === CREATE_MODES.MANUAL 
+                        ? 'bg-primary/20 text-primary' 
+                        : 'bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary'
+                    }`}>
+                      <Settings className="h-6 w-6" />
+                    </div>
                     <h3 className="text-lg font-semibold mb-2">Manual Configuration</h3>
                     <p className="text-sm text-muted-foreground">
                       Configure all strategy parameters manually with full control over every setting
@@ -615,15 +625,22 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                 </Card>
                 
                 <Card 
-                  className={`cursor-pointer transition-all duration-200 hover:shadow-lg ${
+                  className={`cursor-pointer transition-all duration-300 hover:shadow-xl hover:scale-[1.02] group relative overflow-hidden ${
                     createMode === CREATE_MODES.AI_AGENT 
-                      ? 'ring-2 ring-primary bg-primary/5' 
-                      : 'hover:bg-muted/50'
+                      ? 'ring-2 ring-primary bg-gradient-to-br from-primary/10 to-primary/5 shadow-lg' 
+                      : 'hover:bg-gradient-to-br hover:from-muted/50 hover:to-muted/30'
                   }`}
                   onClick={() => setCreateMode(CREATE_MODES.AI_AGENT)}
                 >
-                  <CardContent className="p-6 text-center">
-                    <MessageCircle className="h-12 w-12 mx-auto mb-4 text-primary" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-transparent to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  <CardContent className="p-6 text-center relative z-10">
+                    <div className={`h-12 w-12 mx-auto mb-4 rounded-full flex items-center justify-center transition-all duration-300 ${
+                      createMode === CREATE_MODES.AI_AGENT 
+                        ? 'bg-primary/20 text-primary' 
+                        : 'bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary'
+                    }`}>
+                      <MessageCircle className="h-6 w-6" />
+                    </div>
                     <h3 className="text-lg font-semibold mb-2">AI Agent Assistant</h3>
                     <p className="text-sm text-muted-foreground">
                       Let AI help you create and optimize your strategy based on your goals
@@ -632,11 +649,14 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                 </Card>
               </div>
               
-              <div className="flex justify-center gap-4">
-                <Button variant="outline" onClick={onBack}>
+              <div className="flex justify-center gap-4 pt-4">
+                <Button variant="outline" onClick={onBack} className="hover:bg-muted/50">
                   Cancel
                 </Button>
-                <Button onClick={() => setShowModeSelection(false)}>
+                <Button 
+                  onClick={() => setShowModeSelection(false)}
+                  className="bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary/80 shadow-lg"
+                >
                   Continue with {createMode === CREATE_MODES.MANUAL ? 'Manual' : 'AI Agent'}
                 </Button>
               </div>
