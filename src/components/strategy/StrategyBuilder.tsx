@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { Bot, Settings, TrendingUp, Target, AlertTriangle, ArrowLeft, MessageSquare } from 'lucide-react';
+import { Bot, Settings, TrendingUp, Target, AlertTriangle, ArrowLeft, Brain } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -21,7 +21,7 @@ interface StrategyBuilderProps {
 export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [activeMode, setActiveMode] = useState<'manual' | 'ai' | 'natural'>('manual');
+  const [activeMode, setActiveMode] = useState<'manual' | 'natural'>('manual');
   const [aiPrompt, setAiPrompt] = useState('');
   const [strategyConfig, setStrategyConfig] = useState({
     name: '',
@@ -176,25 +176,16 @@ export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
             className="transition-colors duration-200 hover:bg-primary/20 hover:border-primary/50"
           >
             <Settings className="w-4 h-4 mr-2" />
-            Manual
+            Manual Configuration
           </Button>
           <Button
             variant={activeMode === 'natural' ? 'default' : 'outline'}
             onClick={() => setActiveMode('natural')}
-            size="sm"
-            className="transition-colors duration-200 hover:bg-primary/20 hover:border-primary/50"
+            size="lg"
+            className="transition-colors duration-200 hover:bg-primary/20 hover:border-primary/50 bg-gradient-to-r from-blue-600 to-purple-600 text-white border-0"
           >
-            <MessageSquare className="w-4 h-4 mr-2" />
-            Natural Language
-          </Button>
-          <Button
-            variant={activeMode === 'ai' ? 'default' : 'outline'}
-            onClick={() => setActiveMode('ai')}
-            size="sm"
-            className="transition-colors duration-200 hover:bg-primary/20 hover:border-primary/50"
-          >
-            <Bot className="w-4 h-4 mr-2" />
-            AI Assistant
+            <Brain className="w-5 h-5 mr-2" />
+            🧠 Create Your Strategy by Talking Naturally
           </Button>
         </div>
       </div>
@@ -204,33 +195,6 @@ export const StrategyBuilder = ({ onCancel }: StrategyBuilderProps) => {
           onStrategyParsed={handleStrategyParsed}
           onCancel={onCancel}
         />
-      ) : activeMode === 'ai' ? (
-        <Card className="p-6 bg-slate-700/30 border-slate-600">
-          <div className="space-y-4">
-            <div className="flex items-start gap-3">
-              <Bot className="w-6 h-6 text-blue-400 mt-1" />
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-white mb-2">AI Strategy Assistant</h3>
-                <p className="text-sm text-slate-400 mb-4">
-                  Describe your trading strategy in natural language and our AI will generate the optimal configuration for you.
-                </p>
-                
-                <Textarea
-                  placeholder="e.g., 'I want a conservative strategy that buys Bitcoin when it dips 5% and sells when it gains 3%. Use RSI indicators and never risk more than 2% of my portfolio.'"
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  className="mb-4 bg-slate-800 border-slate-600 text-white"
-                  rows={4}
-                />
-                
-                <Button onClick={generateAIStrategy} className="bg-blue-500 hover:bg-blue-600">
-                  <Bot className="w-4 h-4 mr-2" />
-                  Generate Strategy
-                </Button>
-              </div>
-            </div>
-          </div>
-        </Card>
       ) : (
         <Tabs defaultValue="basic" className="space-y-4">
           <TabsList className="grid w-full grid-cols-4 bg-slate-800">

@@ -70,6 +70,16 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
       const field = isTest ? 'is_active_test' : 'is_active_live';
       const currentValue = isTest ? strategy.is_active_test : strategy.is_active_live;
       
+      // If activating, first deactivate all other strategies in the same environment
+      if (!currentValue) {
+        const deactivateField = isTest ? 'is_active_test' : 'is_active_live';
+        await supabase
+          .from('trading_strategies')
+          .update({ [deactivateField]: false })
+          .eq('user_id', user.id)
+          .neq('id', strategy.id);
+      }
+      
       const { error } = await supabase
         .from('trading_strategies')
         .update({ [field]: !currentValue })
@@ -167,14 +177,6 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = () => {
           >
             <Plus className="h-4 w-4" />
             Create Strategy
-          </Button>
-          <Button 
-            onClick={() => setCurrentView('comprehensive')}
-            variant="outline"
-            className="flex items-center gap-2"
-          >
-            <Settings className="h-4 w-4" />
-            Advanced Config
           </Button>
         </div>
       </div>

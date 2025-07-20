@@ -12,6 +12,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { CoinsAmountsPanel } from './CoinsAmountsPanel';
+import { PerformancePanel } from './PerformancePanel';
+import { SellSettingsPanel } from './SellSettingsPanel';
 import { 
   Save, 
   ArrowLeft, 
@@ -96,6 +99,7 @@ interface ComprehensiveStrategyConfigProps {
   onBack: () => void;
   existingStrategy?: any;
   isEditing?: boolean;
+  isCollapsed?: boolean;
 }
 
 const RISK_PRESETS = {
@@ -128,7 +132,8 @@ const MENU_SECTIONS = [
     title: 'GENERAL',
     items: [
       { id: 'basic-settings', label: 'Basic settings', icon: Settings },
-      { id: 'notifications', label: 'Notifications', icon: Bell }
+      { id: 'notifications', label: 'Notifications', icon: Bell },
+      { id: 'performance', label: 'Performance', icon: BarChart3 }
     ]
   },
   {
@@ -159,7 +164,8 @@ const MENU_SECTIONS = [
 export const ComprehensiveStrategyConfig = ({ 
   onBack, 
   existingStrategy, 
-  isEditing = false 
+  isEditing = false,
+  isCollapsed = false
 }: ComprehensiveStrategyConfigProps) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
@@ -314,11 +320,12 @@ export const ComprehensiveStrategyConfig = ({
 
   const confirmLiveTrading = () => {
     updateFormData('enableLiveTrading', true);
+    updateFormData('enableTestTrading', false); // Disable test when enabling live
     setShowLiveConfirmation(false);
   };
 
   const renderSidebar = () => (
-    <div className="w-80 bg-background border-r border-border p-4 overflow-y-auto">
+    <div className={`${isCollapsed ? 'w-0 overflow-hidden' : 'w-80'} bg-background border-r border-border p-4 overflow-y-auto transition-all duration-300`}>
       <div className="space-y-6">
         {MENU_SECTIONS.map((section) => (
           <div key={section.id}>
@@ -335,15 +342,15 @@ export const ComprehensiveStrategyConfig = ({
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                    className={`w-full flex items-center justify-between px-3 py-3 rounded-lg text-sm transition-all duration-200 border ${
                       isActive 
-                        ? 'bg-primary text-primary-foreground' 
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                        ? 'bg-primary text-primary-foreground border-primary shadow-md' 
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted border-transparent hover:border-border'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <Icon className="h-4 w-4" />
-                      <span>{item.label}</span>
+                      <span className="font-medium">{item.label}</span>
                     </div>
                     {hasGreenDot && (
                       <div className="w-2 h-2 rounded-full bg-green-500" />
@@ -610,160 +617,17 @@ export const ComprehensiveStrategyConfig = ({
   );
 
   const renderCoinsAndAmounts = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Coins className="h-5 w-5" />
-            Coins and Amounts
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Select a quote currency as well as the coins you want your bot to start trading.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <TooltipField tooltip="Base currency for trading">
-              <Label>Quote Currency</Label>
-            </TooltipField>
-            <Select defaultValue="EUR">
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="EUR">EUR</SelectItem>
-                <SelectItem value="USD">USD</SelectItem>
-                <SelectItem value="USDT">USDT</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <TooltipField tooltip="Pick from coins available in your Coinbase account">
-                <Label>Available Coins</Label>
-              </TooltipField>
-              <div className="h-64 border rounded-lg p-4 overflow-y-auto">
-                <div className="space-y-2">
-                  {COINBASE_COINS.slice(0, 10).map((coin) => (
-                    <div key={coin} className="flex items-center justify-between p-2 hover:bg-muted rounded">
-                      <span className="text-sm">{coin}</span>
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => {
-                          if (!formData.selectedCoins.includes(coin)) {
-                            updateFormData('selectedCoins', [...formData.selectedCoins, coin]);
-                          }
-                        }}
-                      >
-                        →
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <TooltipField tooltip="Selected coins for trading">
-                <Label>Selected Coins ({formData.selectedCoins.length})</Label>
-              </TooltipField>
-              <div className="h-64 border rounded-lg p-4 overflow-y-auto">
-                <div className="space-y-2">
-                  {formData.selectedCoins.map((coin) => (
-                    <div key={coin} className="flex items-center justify-between p-2 bg-muted rounded">
-                      <span className="text-sm font-medium">{coin}</span>
-                      <Button 
-                        size="sm" 
-                        variant="ghost"
-                        onClick={() => {
-                          updateFormData('selectedCoins', formData.selectedCoins.filter(c => c !== coin));
-                        }}
-                      >
-                        ×
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <TooltipField tooltip="Maximum EUR amount allocated for trading">
-              <Label>Maximum EUR Amount Allocated</Label>
-            </TooltipField>
-            <Input 
-              type="number"
-              defaultValue="16000"
-              min="1"
-            />
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+    <CoinsAmountsPanel 
+      formData={formData} 
+      updateFormData={updateFormData} 
+    />
   );
 
   const renderSellSettings = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingDown className="h-5 w-5" />
-            Sell Settings
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Configure the sell settings of your hopper.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <TooltipField tooltip="Target gain percentage before selling">
-                <Label>Take Profit At *</Label>
-              </TooltipField>
-              <Input 
-                type="number"
-                value={formData.takeProfitPercentage}
-                onChange={(e) => updateFormData('takeProfitPercentage', parseFloat(e.target.value) || 0)}
-                step="0.1"
-                min="0"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <TooltipField tooltip="Order type for selling">
-                <Label>Order Type</Label>
-              </TooltipField>
-              <Select value={formData.sellOrderType} onValueChange={(value: any) => updateFormData('sellOrderType', value)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="market">Market</SelectItem>
-                  <SelectItem value="limit">Limit</SelectItem>
-                  <SelectItem value="trailing_stop">Trailing Stop</SelectItem>
-                  <SelectItem value="auto_close">Auto Close</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <TooltipField tooltip="Maximum time to keep position open">
-              <Label>Max Open Time Sell *</Label>
-            </TooltipField>
-            <Input 
-              type="number"
-              value={formData.autoCloseAfterHours}
-              onChange={(e) => updateFormData('autoCloseAfterHours', parseInt(e.target.value) || 0)}
-              min="1"
-            />
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+    <SellSettingsPanel 
+      formData={formData} 
+      updateFormData={updateFormData} 
+    />
   );
 
   const renderStopLoss = () => (
@@ -1043,10 +907,16 @@ export const ComprehensiveStrategyConfig = ({
     switch (activeSection) {
       case 'basic-settings': return renderBasicSettings();
       case 'notifications': return renderNotifications();
+      case 'performance': return <PerformancePanel strategyId={existingStrategy?.id} />;
       case 'buy-settings': return renderBuySettings();
       case 'coins-amounts': return renderCoinsAndAmounts();
       case 'sell-settings': return renderSellSettings();
+      case 'sell-strategy': return renderSellSettings(); // Same as sell-settings for now
       case 'stop-loss': return renderStopLoss();
+      case 'trailing-stop-loss': return renderStopLoss(); // Similar logic
+      case 'auto-close': return renderSellSettings(); // Part of sell settings
+      case 'strategy': return renderBuySettings(); // Similar to buy settings
+      case 'trailing-stop-buy': return renderBuySettings(); // Part of buy settings
       case 'shorting-settings': return renderShortingSettings();
       case 'dollar-cost-averaging': return renderDCA();
       default: return renderBasicSettings();
