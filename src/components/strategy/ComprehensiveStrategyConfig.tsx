@@ -871,6 +871,791 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                     />
                   )}
 
+                  {/* Notifications Section */}
+                  {activeSection === 'notifications' && (
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Bell className="h-5 w-5" />
+                            Notification Settings
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Configure when and how you'll be notified about trading activities. Smart notifications help you stay informed without overwhelming you.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <TooltipField tooltip="Get notified when trades are executed, closed, or when positions change">
+                                  <Label>Trade Notifications</Label>
+                                </TooltipField>
+                                <p className="text-sm text-muted-foreground">Notify on buy/sell executions</p>
+                              </div>
+                              <Switch
+                                checked={formData.notifyOnTrade}
+                                onCheckedChange={(checked) => updateFormData('notifyOnTrade', checked)}
+                              />
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <TooltipField tooltip="Receive alerts when errors occur in strategy execution or market data issues">
+                                  <Label>Error Notifications</Label>
+                                </TooltipField>
+                                <p className="text-sm text-muted-foreground">Alert on trading errors or issues</p>
+                              </div>
+                              <Switch
+                                checked={formData.notifyOnError}
+                                onCheckedChange={(checked) => updateFormData('notifyOnError', checked)}
+                              />
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <TooltipField tooltip="Get notified when profit targets or stop-loss levels are reached">
+                                  <Label>Target Notifications</Label>
+                                </TooltipField>
+                                <p className="text-sm text-muted-foreground">Alert on profit/loss targets hit</p>
+                              </div>
+                              <Switch
+                                checked={formData.notifyOnTargets}
+                                onCheckedChange={(checked) => updateFormData('notifyOnTargets', checked)}
+                              />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Buy Settings Section */}
+                  {activeSection === 'buy-settings' && (
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <TrendingUp className="h-5 w-5" />
+                            Buy Settings
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Control how your strategy enters positions. These settings determine order types, timing, and execution behavior for buy orders.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="space-y-4">
+                            <TooltipField tooltip="Choose how buy orders are executed: Market (instant), Limit (at specific price), or Trailing Buy (follows price down)">
+                              <Label>Buy Order Type</Label>
+                            </TooltipField>
+                            <Select value={formData.buyOrderType} onValueChange={(value: any) => updateFormData('buyOrderType', value)}>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="market">Market Order</SelectItem>
+                                <SelectItem value="limit">Limit Order</SelectItem>
+                                <SelectItem value="trailing_buy">Trailing Buy</SelectItem>
+                              </SelectContent>
+                            </Select>
+
+                            <div className="space-y-2">
+                              <TooltipField tooltip="How often the strategy should look for buying opportunities">
+                                <Label>Buy Frequency</Label>
+                              </TooltipField>
+                              <Select value={formData.buyFrequency} onValueChange={(value: any) => updateFormData('buyFrequency', value)}>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="once">One-time purchase</SelectItem>
+                                  <SelectItem value="daily">Daily</SelectItem>
+                                  <SelectItem value="interval">Custom interval</SelectItem>
+                                  <SelectItem value="signal_based">Signal-based</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {formData.buyFrequency === 'interval' && (
+                              <div className="space-y-2">
+                                <TooltipField tooltip="Minutes between buy attempts when using interval-based buying">
+                                  <Label>Buy Interval (minutes)</Label>
+                                </TooltipField>
+                                <Input
+                                  type="number"
+                                  value={formData.buyIntervalMinutes}
+                                  onChange={(e) => updateFormData('buyIntervalMinutes', parseInt(e.target.value) || 60)}
+                                  min={1}
+                                  max={1440}
+                                />
+                              </div>
+                            )}
+
+                            <div className="space-y-2">
+                              <TooltipField tooltip="Minimum time to wait after a buy before considering another buy for the same coin">
+                                <Label>Buy Cooldown (minutes)</Label>
+                              </TooltipField>
+                              <Input
+                                type="number"
+                                value={formData.buyCooldownMinutes}
+                                onChange={(e) => updateFormData('buyCooldownMinutes', parseInt(e.target.value) || 60)}
+                                min={0}
+                                max={1440}
+                              />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Strategy Section */}
+                  {activeSection === 'strategy' && (
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Target className="h-5 w-5" />
+                            Strategy Configuration
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Core strategy parameters that define your trading approach, risk management, and position sizing. These settings form the foundation of your automated trading behavior.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <TooltipField tooltip="Maximum number of coins that can have open positions simultaneously">
+                                  <Label>Max Active Positions</Label>
+                                </TooltipField>
+                                <Input
+                                  type="number"
+                                  value={formData.maxOpenPositions}
+                                  onChange={(e) => updateFormData('maxOpenPositions', parseInt(e.target.value) || 1)}
+                                  min={1}
+                                  max={20}
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                <TooltipField tooltip="Maximum percentage of your total wallet that can be allocated to trading">
+                                  <Label>Max Wallet Exposure (%)</Label>
+                                </TooltipField>
+                                <Slider
+                                  value={[formData.maxWalletExposure]}
+                                  onValueChange={([value]) => updateFormData('maxWalletExposure', value)}
+                                  max={100}
+                                  min={1}
+                                  step={1}
+                                  className="w-full"
+                                />
+                                <div className="text-sm text-muted-foreground">
+                                  Current: {formData.maxWalletExposure}%
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <TooltipField tooltip="Time to wait between any trades to prevent overtrading">
+                                  <Label>Trade Cooldown (minutes)</Label>
+                                </TooltipField>
+                                <Input
+                                  type="number"
+                                  value={formData.tradeCooldownMinutes}
+                                  onChange={(e) => updateFormData('tradeCooldownMinutes', parseInt(e.target.value) || 0)}
+                                  min={0}
+                                  max={1440}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <TooltipField tooltip="Daily profit target - strategy may become more conservative after reaching this">
+                                  <Label>Daily Profit Target (%)</Label>
+                                </TooltipField>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={formData.dailyProfitTarget}
+                                  onChange={(e) => updateFormData('dailyProfitTarget', parseFloat(e.target.value) || 0)}
+                                  min={0}
+                                  max={100}
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                <TooltipField tooltip="Daily loss limit - strategy will stop trading for the day after reaching this">
+                                  <Label>Daily Loss Limit (%)</Label>
+                                </TooltipField>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={formData.dailyLossLimit}
+                                  onChange={(e) => updateFormData('dailyLossLimit', parseFloat(e.target.value) || 0)}
+                                  min={0}
+                                  max={100}
+                                />
+                              </div>
+
+                              <div className="flex items-center justify-between">
+                                <div className="space-y-1">
+                                  <TooltipField tooltip="Enable backtesting mode to test strategy on historical data">
+                                    <Label>Backtesting Mode</Label>
+                                  </TooltipField>
+                                  <p className="text-sm text-muted-foreground">Test on historical data</p>
+                                </div>
+                                <Switch
+                                  checked={formData.backtestingMode}
+                                  onCheckedChange={(checked) => updateFormData('backtestingMode', checked)}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Trailing Stop-Buy Section */}
+                  {activeSection === 'trailing-stop-buy' && (
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Timer className="h-5 w-5" />
+                            Trailing Stop-Buy
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Configure trailing buy orders that follow the price downward, helping you enter positions at better prices during market dips.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <TooltipField tooltip="Percentage below the lowest price seen that the trailing buy order will trigger">
+                                <Label>Trailing Buy Percentage (%)</Label>
+                              </TooltipField>
+                              <Slider
+                                value={[formData.trailingBuyPercentage]}
+                                onValueChange={([value]) => updateFormData('trailingBuyPercentage', value)}
+                                max={10}
+                                min={0.1}
+                                step={0.1}
+                                className="w-full"
+                              />
+                              <div className="text-sm text-muted-foreground">
+                                Current: {formData.trailingBuyPercentage}%
+                              </div>
+                            </div>
+
+                            <div className="bg-muted/30 p-4 rounded-lg">
+                              <h4 className="font-medium mb-2">How Trailing Buy Works:</h4>
+                              <ul className="text-sm text-muted-foreground space-y-1">
+                                <li>• Monitors price as it falls from the initial trigger point</li>
+                                <li>• Adjusts buy order to stay {formData.trailingBuyPercentage}% below the lowest price seen</li>
+                                <li>• Executes when price starts rising again</li>
+                                <li>• Helps catch better entry points during market dips</li>
+                              </ul>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Sell Strategy Section */}
+                  {activeSection === 'sell-strategy' && (
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <BarChart3 className="h-5 w-5" />
+                            Sell Strategy
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Advanced selling configuration that defines when and how positions are closed. These settings work together with your basic sell settings to optimize exit timing.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <TooltipField tooltip="Choose how sell orders are executed when closing positions">
+                                <Label>Sell Order Strategy</Label>
+                              </TooltipField>
+                              <Select value={formData.sellOrderType} onValueChange={(value: any) => updateFormData('sellOrderType', value)}>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="market">Market Order (Instant)</SelectItem>
+                                  <SelectItem value="limit">Limit Order (At Target)</SelectItem>
+                                  <SelectItem value="trailing_stop">Trailing Stop</SelectItem>
+                                  <SelectItem value="auto_close">Auto Close (Time-based)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <TooltipField tooltip="Use only trailing stop-loss, disable fixed stop-loss">
+                                  <Label>Trailing Stop Only</Label>
+                                </TooltipField>
+                                <p className="text-sm text-muted-foreground">Disable fixed stop-loss</p>
+                              </div>
+                              <Switch
+                                checked={formData.useTrailingStopOnly}
+                                onCheckedChange={(checked) => updateFormData('useTrailingStopOnly', checked)}
+                              />
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <TooltipField tooltip="Reset stop-loss to original level if it fails to execute">
+                                  <Label>Reset Stop-Loss After Fail</Label>
+                                </TooltipField>
+                                <p className="text-sm text-muted-foreground">Retry failed stop-losses</p>
+                              </div>
+                              <Switch
+                                checked={formData.resetStopLossAfterFail}
+                                onCheckedChange={(checked) => updateFormData('resetStopLossAfterFail', checked)}
+                              />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Stop-Loss Section */}
+                  {activeSection === 'stop-loss' && (
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Shield className="h-5 w-5" />
+                            Stop-Loss Protection
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Configure automatic loss protection to limit downside risk. Stop-loss orders automatically close positions when losses reach your defined threshold.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <TooltipField tooltip="Percentage loss at which the position will be automatically closed">
+                                <Label>Stop-Loss Percentage (%)</Label>
+                              </TooltipField>
+                              <Slider
+                                value={[formData.stopLossPercentage]}
+                                onValueChange={([value]) => updateFormData('stopLossPercentage', value)}
+                                max={20}
+                                min={0.5}
+                                step={0.1}
+                                className="w-full"
+                              />
+                              <div className="text-sm text-muted-foreground">
+                                Current: {formData.stopLossPercentage}%
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <TooltipField tooltip="Add time-based stop-loss that triggers after a set period regardless of price">
+                                  <Label>Enable Stop-Loss Timeout</Label>
+                                </TooltipField>
+                                <p className="text-sm text-muted-foreground">Time-based stop-loss</p>
+                              </div>
+                              <Switch
+                                checked={formData.enableStopLossTimeout}
+                                onCheckedChange={(checked) => updateFormData('enableStopLossTimeout', checked)}
+                              />
+                            </div>
+
+                            {formData.enableStopLossTimeout && (
+                              <div className="space-y-2">
+                                <TooltipField tooltip="Minutes after which the position will be closed regardless of profit/loss">
+                                  <Label>Stop-Loss Timeout (minutes)</Label>
+                                </TooltipField>
+                                <Input
+                                  type="number"
+                                  value={formData.stopLossTimeoutMinutes}
+                                  onChange={(e) => updateFormData('stopLossTimeoutMinutes', parseInt(e.target.value) || 120)}
+                                  min={1}
+                                  max={10080}
+                                />
+                              </div>
+                            )}
+
+                            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-200 dark:border-red-800">
+                              <h4 className="font-medium text-red-800 dark:text-red-200 mb-2">Risk Warning:</h4>
+                              <p className="text-sm text-red-700 dark:text-red-300">
+                                Stop-loss orders help protect your capital but are not guaranteed in extreme market conditions. 
+                                Set appropriate levels based on your risk tolerance.
+                              </p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Trailing Stop-Loss Section */}
+                  {activeSection === 'trailing-stop-loss' && (
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Timer className="h-5 w-5" />
+                            Trailing Stop-Loss
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Dynamic stop-loss that follows the price upward, locking in profits while still providing downside protection. Great for capturing gains during trending markets.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <TooltipField tooltip="Percentage below the highest price seen that will trigger the trailing stop-loss">
+                                <Label>Trailing Stop-Loss Percentage (%)</Label>
+                              </TooltipField>
+                              <Slider
+                                value={[formData.trailingStopLossPercentage]}
+                                onValueChange={([value]) => updateFormData('trailingStopLossPercentage', value)}
+                                max={10}
+                                min={0.5}
+                                step={0.1}
+                                className="w-full"
+                              />
+                              <div className="text-sm text-muted-foreground">
+                                Current: {formData.trailingStopLossPercentage}%
+                              </div>
+                            </div>
+
+                            <div className="bg-muted/30 p-4 rounded-lg">
+                              <h4 className="font-medium mb-2">How Trailing Stop-Loss Works:</h4>
+                              <ul className="text-sm text-muted-foreground space-y-1">
+                                <li>• Follows price upward as position becomes profitable</li>
+                                <li>• Maintains {formData.trailingStopLossPercentage}% distance below highest price reached</li>
+                                <li>• Never moves downward, only upward with profitable price movement</li>
+                                <li>• Triggers if price drops {formData.trailingStopLossPercentage}% from peak</li>
+                                <li>• Protects profits while allowing for continued upside capture</li>
+                              </ul>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
+                                <h5 className="font-medium text-green-800 dark:text-green-200 mb-1">Benefits:</h5>
+                                <ul className="text-sm text-green-700 dark:text-green-300 space-y-1">
+                                  <li>• Locks in profits automatically</li>
+                                  <li>• Lets profits run in trending markets</li>
+                                  <li>• Reduces emotional trading decisions</li>
+                                </ul>
+                              </div>
+                              
+                              <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-lg border border-amber-200 dark:border-amber-800">
+                                <h5 className="font-medium text-amber-800 dark:text-amber-200 mb-1">Considerations:</h5>
+                                <ul className="text-sm text-amber-700 dark:text-amber-300 space-y-1">
+                                  <li>• Can exit early in volatile markets</li>
+                                  <li>• Requires careful percentage tuning</li>
+                                  <li>• Works best in trending conditions</li>
+                                </ul>
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Auto-Close Section */}
+                  {activeSection === 'auto-close' && (
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Zap className="h-5 w-5" />
+                            Auto-Close Settings
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Time-based position management that automatically closes trades after a specified duration, regardless of profit or loss. Useful for strategies with strict time limits.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <TooltipField tooltip="Hours after which positions will be automatically closed, regardless of profit/loss">
+                                <Label>Auto-Close After (hours)</Label>
+                              </TooltipField>
+                              <Input
+                                type="number"
+                                value={formData.autoCloseAfterHours}
+                                onChange={(e) => updateFormData('autoCloseAfterHours', parseInt(e.target.value) || 24)}
+                                min={1}
+                                max={168}
+                              />
+                              <div className="text-sm text-muted-foreground">
+                                Positions will close after {formData.autoCloseAfterHours} hours
+                              </div>
+                            </div>
+
+                            <div className="bg-muted/30 p-4 rounded-lg">
+                              <h4 className="font-medium mb-2">Auto-Close Use Cases:</h4>
+                              <ul className="text-sm text-muted-foreground space-y-1">
+                                <li>• <strong>Scalping strategies:</strong> Quick in-and-out trades (1-4 hours)</li>
+                                <li>• <strong>Day trading:</strong> Close all positions by end of day (8-12 hours)</li>
+                                <li>• <strong>Swing trading:</strong> Medium-term holds (24-72 hours)</li>
+                                <li>• <strong>Risk management:</strong> Prevent indefinite position holding</li>
+                              </ul>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <Card 
+                                className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
+                                  formData.autoCloseAfterHours === 4 
+                                    ? 'ring-2 ring-primary bg-primary/5' 
+                                    : 'hover:bg-muted/50'
+                                }`}
+                                onClick={() => updateFormData('autoCloseAfterHours', 4)}
+                              >
+                                <CardContent className="p-4 text-center">
+                                  <h5 className="font-medium">Scalping</h5>
+                                  <p className="text-sm text-muted-foreground">4 hours</p>
+                                </CardContent>
+                              </Card>
+                              
+                              <Card 
+                                className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
+                                  formData.autoCloseAfterHours === 12 
+                                    ? 'ring-2 ring-primary bg-primary/5' 
+                                    : 'hover:bg-muted/50'
+                                }`}
+                                onClick={() => updateFormData('autoCloseAfterHours', 12)}
+                              >
+                                <CardContent className="p-4 text-center">
+                                  <h5 className="font-medium">Day Trading</h5>
+                                  <p className="text-sm text-muted-foreground">12 hours</p>
+                                </CardContent>
+                              </Card>
+                              
+                              <Card 
+                                className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
+                                  formData.autoCloseAfterHours === 48 
+                                    ? 'ring-2 ring-primary bg-primary/5' 
+                                    : 'hover:bg-muted/50'
+                                }`}
+                                onClick={() => updateFormData('autoCloseAfterHours', 48)}
+                              >
+                                <CardContent className="p-4 text-center">
+                                  <h5 className="font-medium">Swing Trading</h5>
+                                  <p className="text-sm text-muted-foreground">48 hours</p>
+                                </CardContent>
+                              </Card>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Shorting Settings Section */}
+                  {activeSection === 'shorting-settings' && (
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <TrendingDown className="h-5 w-5" />
+                            Shorting Settings
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Configure short selling capabilities to profit from declining markets. Advanced feature requiring careful risk management and market knowledge.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <TooltipField tooltip="Enable short selling to profit from declining prices">
+                                  <Label>Enable Shorting</Label>
+                                </TooltipField>
+                                <p className="text-sm text-muted-foreground">Allow short positions</p>
+                              </div>
+                              <Switch
+                                checked={formData.enableShorting}
+                                onCheckedChange={(checked) => updateFormData('enableShorting', checked)}
+                              />
+                            </div>
+
+                            {formData.enableShorting && (
+                              <>
+                                <div className="space-y-2">
+                                  <TooltipField tooltip="Maximum number of short positions that can be open simultaneously">
+                                    <Label>Max Short Positions</Label>
+                                  </TooltipField>
+                                  <Input
+                                    type="number"
+                                    value={formData.maxShortPositions}
+                                    onChange={(e) => updateFormData('maxShortPositions', parseInt(e.target.value) || 1)}
+                                    min={1}
+                                    max={10}
+                                  />
+                                </div>
+
+                                <div className="space-y-2">
+                                  <TooltipField tooltip="Minimum profit percentage to target when shorting">
+                                    <Label>Shorting Min Profit (%)</Label>
+                                  </TooltipField>
+                                  <Slider
+                                    value={[formData.shortingMinProfitPercentage]}
+                                    onValueChange={([value]) => updateFormData('shortingMinProfitPercentage', value)}
+                                    max={10}
+                                    min={0.5}
+                                    step={0.1}
+                                    className="w-full"
+                                  />
+                                  <div className="text-sm text-muted-foreground">
+                                    Current: {formData.shortingMinProfitPercentage}%
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between">
+                                  <div className="space-y-1">
+                                    <TooltipField tooltip="Automatically close short positions when conditions are met">
+                                      <Label>Auto-Close Shorts</Label>
+                                    </TooltipField>
+                                    <p className="text-sm text-muted-foreground">Automatic short position closing</p>
+                                  </div>
+                                  <Switch
+                                    checked={formData.autoCloseShorts}
+                                    onCheckedChange={(checked) => updateFormData('autoCloseShorts', checked)}
+                                  />
+                                </div>
+
+                                <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-200 dark:border-red-800">
+                                  <h4 className="font-medium text-red-800 dark:text-red-200 mb-2">⚠️ Shorting Risks:</h4>
+                                  <ul className="text-sm text-red-700 dark:text-red-300 space-y-1">
+                                    <li>• Unlimited loss potential (prices can rise indefinitely)</li>
+                                    <li>• Requires borrowing fees and margin requirements</li>
+                                    <li>• Higher complexity and risk than long positions</li>
+                                    <li>• Not suitable for beginners</li>
+                                  </ul>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* Dollar Cost Averaging Section */}
+                  {activeSection === 'dollar-cost-averaging' && (
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <DollarSign className="h-5 w-5" />
+                            Dollar Cost Averaging (DCA)
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Reduce timing risk by splitting purchases into smaller, regular intervals. DCA helps smooth out market volatility and potentially improve average entry prices.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <TooltipField tooltip="Enable Dollar Cost Averaging to spread purchases over time">
+                                  <Label>Enable DCA</Label>
+                                </TooltipField>
+                                <p className="text-sm text-muted-foreground">Spread purchases over time</p>
+                              </div>
+                              <Switch
+                                checked={formData.enableDCA}
+                                onCheckedChange={(checked) => updateFormData('enableDCA', checked)}
+                              />
+                            </div>
+
+                            {formData.enableDCA && (
+                              <>
+                                <div className="space-y-2">
+                                  <TooltipField tooltip="Hours between each DCA purchase">
+                                    <Label>DCA Interval (hours)</Label>
+                                  </TooltipField>
+                                  <Select 
+                                    value={formData.dcaIntervalHours.toString()} 
+                                    onValueChange={(value) => updateFormData('dcaIntervalHours', parseInt(value))}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="1">1 hour</SelectItem>
+                                      <SelectItem value="4">4 hours</SelectItem>
+                                      <SelectItem value="8">8 hours</SelectItem>
+                                      <SelectItem value="12">12 hours</SelectItem>
+                                      <SelectItem value="24">24 hours (daily)</SelectItem>
+                                      <SelectItem value="72">72 hours (3 days)</SelectItem>
+                                      <SelectItem value="168">168 hours (weekly)</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <TooltipField tooltip="Number of DCA steps to complete the full position">
+                                    <Label>DCA Steps</Label>
+                                  </TooltipField>
+                                  <Input
+                                    type="number"
+                                    value={formData.dcaSteps}
+                                    onChange={(e) => updateFormData('dcaSteps', parseInt(e.target.value) || 3)}
+                                    min={2}
+                                    max={20}
+                                  />
+                                  <div className="text-sm text-muted-foreground">
+                                    Each step will be {(100 / formData.dcaSteps).toFixed(1)}% of the total allocation
+                                  </div>
+                                </div>
+
+                                <div className="bg-muted/30 p-4 rounded-lg">
+                                  <h4 className="font-medium mb-2">DCA Schedule Preview:</h4>
+                                  <div className="text-sm text-muted-foreground space-y-1">
+                                    <p>• Total steps: {formData.dcaSteps}</p>
+                                    <p>• Per step: {(100 / formData.dcaSteps).toFixed(1)}% of allocation</p>
+                                    <p>• Interval: Every {formData.dcaIntervalHours} hours</p>
+                                    <p>• Total duration: {(formData.dcaSteps - 1) * formData.dcaIntervalHours} hours</p>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
+                                    <h5 className="font-medium text-green-800 dark:text-green-200 mb-1">DCA Benefits:</h5>
+                                    <ul className="text-sm text-green-700 dark:text-green-300 space-y-1">
+                                      <li>• Reduces timing risk</li>
+                                      <li>• Smooths out volatility</li>
+                                      <li>• Disciplined approach</li>
+                                      <li>• Lower average cost in choppy markets</li>
+                                    </ul>
+                                  </div>
+                                  
+                                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                                    <h5 className="font-medium text-blue-800 dark:text-blue-200 mb-1">Best For:</h5>
+                                    <ul className="text-sm text-blue-700 dark:text-blue-300 space-y-1">
+                                      <li>• Long-term accumulation</li>
+                                      <li>• Volatile markets</li>
+                                      <li>• Large position sizes</li>
+                                      <li>• Risk-averse strategies</li>
+                                    </ul>
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
                   {/* Sell Settings Panel */}
                   {activeSection === 'sell-settings' && (
                     <SellSettingsPanel 
