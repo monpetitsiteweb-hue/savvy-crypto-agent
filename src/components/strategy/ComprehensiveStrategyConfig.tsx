@@ -186,6 +186,8 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   const [activeSection, setActiveSection] = useState('basic-settings');
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [showLiveConfirmation, setShowLiveConfirmation] = useState(false);
+  const [showActivateTestModal, setShowActivateTestModal] = useState(false);
+  const [createdStrategyId, setCreatedStrategyId] = useState<string | null>(null);
   const [createMode, setCreateMode] = useState<CreateMode>(CREATE_MODES.MANUAL);
   const [showModeSelection, setShowModeSelection] = useState(!isEditing);
   const [currentView, setCurrentView] = useState<'list' | 'create' | 'comprehensive'>('create');
@@ -313,37 +315,14 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
         if (error) throw error;
 
-        // Show confirmation and ask if user wants to activate in test mode
         toast({
           title: "Strategy created",
           description: `Your strategy "${formData.strategyName}" has been created.`,
         });
 
-        // Ask user if they want to activate in test mode
-        const shouldActivate = window.confirm("Would you like to activate this strategy in Test Mode now?");
-        
-        if (shouldActivate && data) {
-          // Deactivate any existing test strategies
-          await supabase
-            .from('trading_strategies')
-            .update({ is_active_test: false })
-            .eq('user_id', user.id)
-            .neq('id', data.id);
-
-          // Activate the new strategy in test mode
-          await supabase
-            .from('trading_strategies')
-            .update({ is_active_test: true })
-            .eq('id', data.id)
-            .eq('user_id', user.id);
-
-          toast({
-            title: "Strategy activated",
-            description: `${formData.strategyName} is now active in Test Mode`,
-          });
-        }
-        
-        onBack();
+        // Store the created strategy ID and show activation modal
+        setCreatedStrategyId(data.id);
+        setShowActivateTestModal(true);
       }
     } catch (error) {
       console.error('Error saving strategy:', error);
@@ -353,6 +332,46 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         variant: "destructive",
       });
     }
+  };
+
+  const handleActivateInTestMode = async () => {
+    if (!user || !createdStrategyId) return;
+
+    try {
+      // Deactivate any existing test strategies
+      await supabase
+        .from('trading_strategies')
+        .update({ is_active_test: false })
+        .eq('user_id', user.id)
+        .neq('id', createdStrategyId);
+
+      // Activate the new strategy in test mode
+      await supabase
+        .from('trading_strategies')
+        .update({ is_active_test: true })
+        .eq('id', createdStrategyId)
+        .eq('user_id', user.id);
+
+      toast({
+        title: "Strategy activated",
+        description: `${formData.strategyName} is now active in Test Mode`,
+      });
+
+      setShowActivateTestModal(false);
+      onBack();
+    } catch (error) {
+      console.error('Error activating strategy:', error);
+      toast({
+        title: "Error",
+        description: "Failed to activate strategy in Test Mode",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSkipActivation = () => {
+    setShowActivateTestModal(false);
+    onBack();
   };
 
   const handleDelete = async () => {
@@ -501,40 +520,65 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
             </div>
             
             <div className="bg-background border border-border rounded-lg p-4 shadow-sm">
-              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Max Exposure</Label>
-              <p className="text-2xl font-bold text-primary mt-1">{formData.maxWalletExposure}%</p>
-            </div>
-            
-            <div className="bg-background border border-border rounded-lg p-4 shadow-sm">
-              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</Label>
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Allocation</Label>
               <div className="mt-2">
-                <Badge variant={formData.enableLiveTrading ? 'default' : formData.enableTestTrading ? 'secondary' : 'outline'} className="font-bold">
-                  {formData.enableLiveTrading ? 'LIVE' : formData.enableTestTrading ? 'TEST' : 'INACTIVE'}
-                </Badge>
+                <span className="text-lg font-bold text-foreground">
+                  {formData.allocationUnit === 'euro' ? `€${formData.perTradeAllocation}` : `${formData.perTradeAllocation}%`}
+                </span>
               </div>
             </div>
             
             <div className="bg-background border border-border rounded-lg p-4 shadow-sm">
-              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Active Coins</Label>
-              <p className="text-2xl font-bold text-primary mt-1">{formData.selectedCoins.length}</p>
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Max Positions</Label>
+              <div className="mt-2">
+                <span className="text-lg font-bold text-foreground">{formData.maxOpenPositions}</span>
+              </div>
+            </div>
+            
+            <div className="bg-background border border-border rounded-lg p-4 shadow-sm">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Coins Selected</Label>
+              <div className="mt-2">
+                <span className="text-lg font-bold text-foreground">{formData.selectedCoins.length}</span>
+              </div>
             </div>
           </div>
-          
-          {/* Trading Parameters */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-              <Label className="text-xs font-semibold text-green-700 dark:text-green-300 uppercase tracking-wider">Take Profit</Label>
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">{formData.takeProfitPercentage}%</p>
+
+          {/* Strategy Configuration Overview */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <h4 className="font-semibold text-foreground border-b border-border pb-2">Risk Management</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Stop Loss:</span>
+                  <span className="font-medium text-red-400">{formData.stopLossPercentage}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Take Profit:</span>
+                  <span className="font-medium text-green-400">{formData.takeProfitPercentage}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Wallet Exposure:</span>
+                  <span className="font-medium">{formData.maxWalletExposure}%</span>
+                </div>
+              </div>
             </div>
             
-            <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-              <Label className="text-xs font-semibold text-red-700 dark:text-red-300 uppercase tracking-wider">Stop Loss</Label>
-              <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">{formData.stopLossPercentage}%</p>
-            </div>
-            
-            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <Label className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wider">Max Positions</Label>
-              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{formData.maxOpenPositions}</p>
+            <div className="space-y-4">
+              <h4 className="font-semibold text-foreground border-b border-border pb-2">Trading Behavior</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Buy Frequency:</span>
+                  <span className="font-medium capitalize">{formData.buyFrequency.replace('_', ' ')}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Order Type:</span>
+                  <span className="font-medium capitalize">{formData.buyOrderType}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">DCA Enabled:</span>
+                  <span className="font-medium">{formData.enableDCA ? 'Yes' : 'No'}</span>
+                </div>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -542,514 +586,189 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     </div>
   );
 
-  if (currentView === 'comprehensive') {
-    return <PerformancePanel />;
-  }
-
-  // Mode Selection Screen (only for create, not edit)
-  if (!isEditing && showModeSelection) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-background to-muted/20 flex items-center justify-center p-6">
-        <Card className="w-full max-w-2xl border-primary/20 shadow-xl relative">
-          <CardHeader className="text-center pb-8">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={onBack}
-              className="absolute top-4 left-4 hover:bg-muted"
-            >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={onBack}
-              className="absolute top-4 right-4 hover:bg-muted p-2"
-              title="Close"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-            <CardTitle className="text-3xl font-bold text-primary mb-2">Create New Strategy</CardTitle>
-            <p className="text-muted-foreground text-lg">Choose how you'd like to build your trading strategy</p>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card 
-                className="cursor-pointer border-2 border-transparent hover:border-primary/50 transition-all duration-300 hover:shadow-lg"
-                onClick={() => {
-                  setCreateMode(CREATE_MODES.MANUAL);
-                  setShowModeSelection(false);
-                }}
-              >
-                <CardContent className="p-8 text-center space-y-4">
-                  <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
-                    <Settings className="h-8 w-8 text-primary" />
-                  </div>
-                  <h3 className="text-xl font-bold text-foreground">Manual Configuration</h3>
-                  <p className="text-muted-foreground">
-                    Build your strategy step-by-step with detailed configuration options
-                  </p>
-                  <Button className="w-full">
-                    Configure Manually
-                  </Button>
-                </CardContent>
-              </Card>
-
-              <Card 
-                className="cursor-pointer border-2 border-transparent hover:border-primary/50 transition-all duration-300 hover:shadow-lg bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20 relative overflow-hidden"
-                onClick={() => {
-                  setCreateMode(CREATE_MODES.AI_AGENT);
-                  setShowModeSelection(false);
-                }}
-              >
-                <div className="absolute top-3 right-3">
-                  <Badge variant="secondary" className="bg-primary/20 text-primary border-primary/30 font-semibold">
-                    AI Powered
-                  </Badge>
-                </div>
-                <CardContent className="p-8 text-center space-y-4">
-                  <div className="w-16 h-16 mx-auto bg-gradient-to-br from-primary/20 to-primary/30 rounded-full flex items-center justify-center shadow-lg">
-                    <MessageCircle className="h-8 w-8 text-primary" />
-                  </div>
-                  <h3 className="text-xl font-bold text-foreground">Talk to an Agent</h3>
-                  <p className="text-muted-foreground">
-                    Describe your strategy in natural language and let AI configure it for you
-                  </p>
-                  <div className="text-xs text-primary font-medium bg-primary/10 px-3 py-1 rounded-full inline-block">
-                    ✨ Simple • Fast • Intelligent
-                  </div>
-                  <Button className="w-full bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-lg">
-                    Talk Normally
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // AI Agent Mode
-  if (!isEditing && createMode === CREATE_MODES.AI_AGENT) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-background to-muted/20 flex items-center justify-center p-6">
-        <Card className="w-full max-w-4xl border-primary/20 shadow-xl">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => setShowModeSelection(true)}
-                className="hover:bg-muted"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Options
-              </Button>
-              <Badge variant="secondary">AI Strategy Builder</Badge>
-            </div>
-            <CardTitle className="text-2xl font-bold text-primary text-center">
-              Describe Your Trading Strategy
-            </CardTitle>
-            <p className="text-muted-foreground text-center">
-              Tell me what kind of strategy you want to create and I'll configure it for you
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="bg-muted/50 rounded-lg p-6">
-              <h3 className="font-semibold text-foreground mb-4">Examples you can say:</h3>
-              <div className="space-y-2 text-sm text-muted-foreground">
-                <p>• "Create a conservative Bitcoin strategy with 2% stop loss"</p>
-                <p>• "I want to scalp ETH and BTC with quick 1% profits"</p>
-                <p>• "Build a DCA strategy for top 10 coins, buying every 4 hours"</p>
-                <p>• "Make a high-risk strategy with trailing stops for altcoins"</p>
-              </div>
-            </div>
-            
-            <Textarea
-              placeholder="Describe your trading strategy here..."
-              className="min-h-[120px] text-base"
-              rows={6}
-            />
-            
-            <div className="flex gap-4">
-              <Button className="flex-1" size="lg">
-                <MessageCircle className="h-4 w-4 mr-2" />
-                Generate Strategy
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={() => {
-                  setCreateMode(CREATE_MODES.MANUAL);
-                  setShowModeSelection(false);
-                }}
-              >
-                Manual Setup Instead
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  // Main configuration view
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background to-muted/20 flex">
-      <div className="w-full flex">
+    <div className="h-full flex flex-col bg-background">
+      {/* Header */}
+      <div className="flex items-center justify-between p-6 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-10">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onBack}
+            className="hover:bg-primary/10"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Strategies
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">
+              {isEditing ? 'Edit Strategy' : 'Create Strategy'}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {isEditing ? 'Modify your existing trading strategy' : 'Design your automated trading strategy'}
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-4">
+          {isEditing && (
+            <AlertDialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="text-red-500 border-red-500 hover:bg-red-500/10">
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Strategy</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to delete this strategy? This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+                    Delete Strategy
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          
+          <Button 
+            onClick={handleSubmit}
+            className="px-6"
+            disabled={!formData.strategyName?.trim()}
+          >
+            <Save className="h-4 w-4 mr-2" />
+            {isEditing ? 'Update Strategy' : 'Save Strategy'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar */}
         {renderSidebar()}
         
-        <div className="flex-1 bg-background overflow-hidden">
-          {/* Header */}
-          <div className="bg-background border-b border-border p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={onBack}
-                  className="hover:bg-muted"
-                >
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back
-                </Button>
-                <div>
-                  <h1 className="text-2xl font-bold text-foreground">
-                    {isEditing ? 'Edit Strategy' : 'Create Strategy'}
-                  </h1>
-                  <p className="text-foreground/70 font-medium">
-                    {isEditing ? 'Modify your trading strategy configuration' : 'Build your automated trading strategy'}
-                  </p>
-                </div>
-              </div>
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-6">
+            <form onSubmit={handleSubmit} className="max-w-4xl space-y-8">
               
-              <div className="flex gap-3">
-                <Button 
-                  type="submit" 
-                  className="px-6 py-2 max-w-xs"
-                  disabled={!formData.strategyName?.trim()}
-                  onClick={handleSubmit}
-                >
-                  <Save className="h-4 w-4 mr-2" />
-                  {isEditing ? 'Update Strategy' : 'Save Strategy'}
-                </Button>
-                
-                {isEditing && (
-                  <AlertDialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="destructive" size="sm">
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Strategy</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Are you sure you want to delete this strategy? This action cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                          Delete Strategy
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          {/* Content */}
-          <div className="p-6 overflow-y-auto">
-            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Basic Settings Section */}
               {activeSection === 'basic-settings' && (
                 <div className="space-y-6">
-                  {renderStrategyDetails()}
-                  
                   <Card>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2 text-xl font-bold text-foreground">
-                        <Settings className="h-6 w-6" />
-                        Basic Settings
+                      <CardTitle className="flex items-center gap-2">
+                        <Settings className="h-5 w-5" />
+                        Basic Strategy Settings
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                          <TooltipField tooltip="Name your strategy for easy reference. Say things like: 'Name this My Bitcoin Bot' or 'Call it Scalping Strategy'">
-                            <Label className="text-sm font-semibold text-foreground">Strategy Name</Label>
-                          </TooltipField>
-                          <Input 
-                            value={formData.strategyName}
-                            onChange={(e) => updateFormData('strategyName', e.target.value)}
-                            placeholder="My Strategy Carlos" 
-                            required
-                            className={!formData.strategyName?.trim() ? 'border-destructive' : ''}
-                          />
-                          {!formData.strategyName?.trim() && (
-                            <p className="text-sm text-destructive">Strategy name is required</p>
-                          )}
-                        </div>
-
-                        <div className="space-y-2">
-                          <TooltipField tooltip="Choose a risk level; presets will be applied, or customize manually. Say things like: 'Make this high risk' or 'Set to conservative mode'">
-                            <Label className="text-sm font-semibold text-foreground">Risk Profile</Label>
-                          </TooltipField>
-                          <Select value={formData.riskProfile} onValueChange={(value: any) => updateFormData('riskProfile', value)}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="low">Low (Conservative)</SelectItem>
-                              <SelectItem value="medium">Medium (Balanced)</SelectItem>
-                              <SelectItem value="high">High (Aggressive)</SelectItem>
-                              <SelectItem value="custom">Custom</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
+                      {/* Strategy Name */}
                       <div className="space-y-2">
-                        <TooltipField tooltip="Percentage of your wallet this strategy can use. Say things like: 'Only use 25% of my funds' or 'Limit exposure to 50%'">
-                          <Label className="text-sm font-semibold text-foreground">Max Wallet Exposure (%)</Label>
+                        <TooltipField tooltip="Choose a descriptive name for your trading strategy">
+                          <Label htmlFor="strategyName">Strategy Name *</Label>
                         </TooltipField>
-                        <div className="space-y-2">
-                          <Slider
-                            min={1}
-                            max={100}
-                            step={1}
-                            value={[formData.maxWalletExposure]}
-                            onValueChange={(value) => updateFormData('maxWalletExposure', value[0])}
-                            className="w-full"
-                          />
-                          <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>1%</span>
-                            <span className="font-medium">{formData.maxWalletExposure}%</span>
-                            <span>100%</span>
-                          </div>
-                        </div>
+                        <Input
+                          id="strategyName"
+                          value={formData.strategyName}
+                          onChange={(e) => updateFormData('strategyName', e.target.value)}
+                          placeholder="e.g., BTC Conservative Growth"
+                          className="text-base"
+                        />
                       </div>
 
-                      <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                        <div className="flex items-center gap-3">
-                          <TestTube className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                          <div>
-                            <Label className="text-sm font-semibold text-blue-900 dark:text-blue-100">Test Mode</Label>
-                            <p className="text-xs text-blue-700 dark:text-blue-300">Strategies are always created in Test Mode first. Use "Push to Production" to go live after testing.</p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                          <TooltipField tooltip="Categorize your strategy type. Say things like: 'This is a scalping strategy' or 'Make this a trend following bot'">
-                            <Label className="text-sm font-semibold text-foreground">Strategy Category</Label>
-                          </TooltipField>
-                          <Select value={formData.category || ''} onValueChange={(value) => updateFormData('category', value)}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="scalping">Scalping</SelectItem>
-                              <SelectItem value="trend">Trend Following</SelectItem>
-                              <SelectItem value="swing">Swing Trading</SelectItem>
-                              <SelectItem value="dca">Dollar Cost Averaging</SelectItem>
-                              <SelectItem value="arbitrage">Arbitrage</SelectItem>
-                              <SelectItem value="momentum">Momentum</SelectItem>
-                              <SelectItem value="reversal">Mean Reversion</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <TooltipField tooltip="Add tags for easy filtering. Say things like: 'Tag this as high-frequency' or 'Add automated tag'">
-                            <Label className="text-sm font-semibold text-foreground">Tags (comma-separated)</Label>
-                          </TooltipField>
-                          <Input 
-                            value={formData.tags?.join(', ') || ''}
-                            onChange={(e) => updateFormData('tags', e.target.value.split(',').map(tag => tag.trim()).filter(Boolean))}
-                            placeholder="e.g., automated, high-frequency, conservative"
-                          />
-                        </div>
-                      </div>
-
+                      {/* Strategy Notes */}
                       <div className="space-y-2">
-                        <TooltipField tooltip="Optional: Describe your strategy goals or logic. Say things like: 'Explain my strategy logic' or 'Add notes about risk tolerance'">
-                          <Label className="text-sm font-semibold text-foreground">Notes</Label>
+                        <TooltipField tooltip="Add notes about your strategy approach, market conditions, or goals">
+                          <Label htmlFor="notes">Strategy Notes</Label>
                         </TooltipField>
-                        <Textarea 
+                        <Textarea
+                          id="notes"
                           value={formData.notes}
                           onChange={(e) => updateFormData('notes', e.target.value)}
-                          placeholder="Describe your strategy goals or logic..."
-                          className="min-h-[80px]"
+                          placeholder="Describe your strategy, market outlook, or any special considerations..."
+                          rows={4}
                         />
+                      </div>
+
+                      {/* Risk Profile */}
+                      <div className="space-y-4">
+                        <TooltipField tooltip="Risk profile automatically adjusts multiple settings. Choose 'Custom' to manually configure all parameters">
+                          <Label>Risk Profile</Label>
+                        </TooltipField>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                          {(['low', 'medium', 'high', 'custom'] as const).map((risk) => (
+                            <Card 
+                              key={risk}
+                              className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
+                                formData.riskProfile === risk 
+                                  ? 'ring-2 ring-primary bg-primary/5' 
+                                  : 'hover:bg-muted/50'
+                              }`}
+                              onClick={() => updateFormData('riskProfile', risk)}
+                            >
+                              <CardContent className="p-4 text-center">
+                                <div className="mb-2">
+                                  <Badge 
+                                    variant={risk === 'high' ? 'destructive' : risk === 'medium' ? 'default' : risk === 'low' ? 'secondary' : 'outline'}
+                                    className="font-bold"
+                                  >
+                                    {risk.toUpperCase()}
+                                  </Badge>
+                                </div>
+                                <div className="text-xs text-muted-foreground space-y-1">
+                                  {risk === 'low' && (
+                                    <>
+                                      <div>Stop Loss: 2%</div>
+                                      <div>Take Profit: 1.5%</div>
+                                      <div>Max Positions: 3</div>
+                                    </>
+                                  )}
+                                  {risk === 'medium' && (
+                                    <>
+                                      <div>Stop Loss: 3%</div>
+                                      <div>Take Profit: 2.5%</div>
+                                      <div>Max Positions: 5</div>
+                                    </>
+                                  )}
+                                  {risk === 'high' && (
+                                    <>
+                                      <div>Stop Loss: 5%</div>
+                                      <div>Take Profit: 4%</div>
+                                      <div>Max Positions: 8</div>
+                                    </>
+                                  )}
+                                  {risk === 'custom' && (
+                                    <div>Manual configuration</div>
+                                  )}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
-                </div>
-              )}
-              
-              {activeSection === 'notifications' && (
-                <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Bell className="h-5 w-5" />
-                        Notifications
-                      </CardTitle>
-                      <p className="text-sm text-muted-foreground">
-                        Get notified by email about your bot trades.
-                      </p>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <TooltipField tooltip="Receive notifications when trades are executed">
-                          <Label>Notification on trade</Label>
-                        </TooltipField>
-                        <Switch 
-                          checked={formData.notifyOnTrade} 
-                          onCheckedChange={(value) => updateFormData('notifyOnTrade', value)}
-                        />
-                      </div>
 
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <TooltipField tooltip="Receive notifications when trade errors occur">
-                          <Label>Notification on trade error</Label>
-                        </TooltipField>
-                        <Switch 
-                          checked={formData.notifyOnError} 
-                          onCheckedChange={(value) => updateFormData('notifyOnError', value)}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <TooltipField tooltip="Receive notifications when profit/loss targets are reached">
-                          <Label>Notify on target reached</Label>
-                        </TooltipField>
-                        <Switch 
-                          checked={formData.notifyOnTargets} 
-                          onCheckedChange={(value) => updateFormData('notifyOnTargets', value)}
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
+                  {/* Strategy Performance Preview */}
+                  {renderStrategyDetails()}
                 </div>
               )}
 
-              {activeSection === 'buy-settings' && (
-                <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <TrendingUp className="h-5 w-5" />
-                        Buy Settings
-                      </CardTitle>
-                      <p className="text-sm text-muted-foreground">
-                        Configure the buy settings for your hopper.
-                      </p>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                          <TooltipField tooltip="Choose how buy orders are placed">
-                            <Label>Order Type</Label>
-                          </TooltipField>
-                          <Select value={formData.buyOrderType} onValueChange={(value: any) => updateFormData('buyOrderType', value)}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="market">Market</SelectItem>
-                              <SelectItem value="limit">Limit</SelectItem>
-                              <SelectItem value="trailing_buy">Trailing Buy</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <TooltipField tooltip="Amount invested per trade">
-                            <Label>Per-Trade Allocation (€)</Label>
-                          </TooltipField>
-                          <Input 
-                            type="number"
-                            value={formData.perTradeAllocation}
-                            onChange={(e) => updateFormData('perTradeAllocation', parseFloat(e.target.value) || 0)}
-                            min="1"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                          <TooltipField tooltip="Max number of concurrent trades">
-                            <Label>Max Open Positions</Label>
-                          </TooltipField>
-                          <div className="space-y-2">
-                            <Slider
-                              min={1}
-                              max={20}
-                              step={1}
-                              value={[formData.maxOpenPositions]}
-                              onValueChange={(value) => updateFormData('maxOpenPositions', value[0])}
-                              className="w-full"
-                            />
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>1</span>
-                              <span className="font-medium">{formData.maxOpenPositions}</span>
-                              <span>20</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <TooltipField tooltip="Minimum wait time after a buy before next buy">
-                            <Label>Buy Cooldown (minutes)</Label>
-                          </TooltipField>
-                          <Input 
-                            type="number"
-                            value={formData.buyCooldownMinutes}
-                            onChange={(e) => updateFormData('buyCooldownMinutes', parseInt(e.target.value) || 0)}
-                            min="0"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <TooltipField tooltip="Only allow one open buy order per coin">
-                          <Label>Only 1 open buy order per coin</Label>
-                        </TooltipField>
-                        <Switch defaultChecked />
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <TooltipField tooltip="Only buy when there are positive pairs in the timeframe">
-                          <Label>Only buy when there are positive pairs</Label>
-                        </TooltipField>
-                        <Switch defaultChecked />
-                      </div>
-
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <TooltipField tooltip="Only buy if not already in positions">
-                          <Label>Only buy if not already in positions</Label>
-                        </TooltipField>
-                        <Switch defaultChecked />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
+              {/* Coins and Amounts Panel */}
               {activeSection === 'coins-amounts' && (
                 <CoinsAmountsPanel 
                   formData={formData} 
                   updateFormData={updateFormData} 
                 />
               )}
-              
+
+              {/* Sell Settings Panel */}
               {activeSection === 'sell-settings' && (
                 <SellSettingsPanel 
                   formData={formData} 
@@ -1061,26 +780,54 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         </div>
       </div>
 
-      {/* Live Trading Confirmation Dialog */}
+      {/* Confirmation Dialogs */}
       <AlertDialog open={showLiveConfirmation} onOpenChange={setShowLiveConfirmation}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
-              <AlertTriangle className="h-5 w-5" />
-              ⚠ Enable Live Trading
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              Enable Live Trading
             </AlertDialogTitle>
-            <AlertDialogDescription className="text-base">
-              <strong>This strategy will now execute real trades using your Coinbase funds. Are you sure?</strong>
-              <br /><br />
-              Live trading involves real money and actual market risks. Make sure you have thoroughly tested this strategy in Test Mode first.
+            <AlertDialogDescription>
+              ⚠️ <strong>Warning:</strong> Live trading will use real money from your connected Coinbase account. 
+              Make sure you've thoroughly tested this strategy before enabling live trading.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setShowLiveConfirmation(false)}>
-              Cancel - Keep Testing
+              Cancel
             </AlertDialogCancel>
-            <AlertDialogAction onClick={confirmLiveTrading} className="bg-red-600 hover:bg-red-700 text-white">
-              Yes, Go Live with Real Money
+            <AlertDialogAction onClick={confirmLiveTrading} className="bg-red-600 hover:bg-red-700">
+              I Understand - Enable Live Trading
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Test Mode Activation Dialog */}
+      <AlertDialog open={showActivateTestModal} onOpenChange={setShowActivateTestModal}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Check className="h-5 w-5 text-green-600" />
+              Strategy Created Successfully
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-base">
+              Your strategy has been created and is ready to use.
+              <br /><br />
+              <strong>Would you like to activate this strategy in Test Mode now?</strong>
+              <br /><br />
+              <span className="text-sm text-muted-foreground">
+                Test Mode uses simulated trading to validate your strategy before going live.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleSkipActivation}>
+              Skip - Keep Inactive
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleActivateInTestMode} className="bg-green-600 hover:bg-green-700">
+              Yes, Activate in Test Mode
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

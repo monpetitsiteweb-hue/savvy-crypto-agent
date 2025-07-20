@@ -86,7 +86,7 @@ const Index = () => {
                 {/* Global Test Mode Toggle */}
                 <div className="flex items-center gap-3 px-6 py-4">
                   <span className={`text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
-                    {testMode ? 'Test Mode' : 'Live Mode'}
+                    {testMode ? 'Test View' : 'Live View'}
                   </span>
                   <Switch
                     checked={testMode}
