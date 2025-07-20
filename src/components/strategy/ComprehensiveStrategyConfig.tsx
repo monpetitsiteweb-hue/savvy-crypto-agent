@@ -194,8 +194,8 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     strategyName: existingStrategy?.strategy_name || '',
     riskProfile: 'medium',
     maxWalletExposure: 50,
-    enableLiveTrading: false, // Always start with Live disabled
-    enableTestTrading: true,  // Always start with Test enabled
+    enableLiveTrading: false, // Strategies must be created in Test Mode first
+    enableTestTrading: true,  // Always start in Test Mode
     
     notes: '',
     selectedCoins: ['BTC', 'ETH'],
@@ -279,10 +279,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         strategy_name: formData.strategyName,
         description: formData.notes || null,
         configuration: formData as any,
-        test_mode: testMode,
+        test_mode: true, // Always create in test mode
         is_active: false, // Keep for backward compatibility
-        is_active_test: false,
-        is_active_live: false,
+        is_active_test: false, // Created but not activated
+        is_active_live: false, // Never allow direct creation in live mode
         updated_at: new Date().toISOString()
       };
 
@@ -294,20 +294,54 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
           .eq('user_id', user.id);
 
         if (error) throw error;
+        
+        toast({
+          title: "Strategy updated",
+          description: `Your strategy "${formData.strategyName}" has been updated successfully.`,
+        });
+        
+        onBack();
       } else {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('trading_strategies')
-          .insert(strategyData);
+          .insert(strategyData)
+          .select()
+          .single();
 
         if (error) throw error;
-      }
 
-      toast({
-        title: "Strategy saved",
-        description: `Your strategy "${formData.strategyName}" has been saved successfully.`,
-      });
-      
-      onBack();
+        // Show confirmation and ask if user wants to activate in test mode
+        toast({
+          title: "Strategy created",
+          description: `Your strategy "${formData.strategyName}" has been created.`,
+        });
+
+        // Ask user if they want to activate in test mode
+        const shouldActivate = window.confirm("Would you like to activate this strategy in Test Mode now?");
+        
+        if (shouldActivate && data) {
+          // Deactivate any existing test strategies
+          await supabase
+            .from('trading_strategies')
+            .update({ is_active_test: false })
+            .eq('user_id', user.id)
+            .neq('id', data.id);
+
+          // Activate the new strategy in test mode
+          await supabase
+            .from('trading_strategies')
+            .update({ is_active_test: true })
+            .eq('id', data.id)
+            .eq('user_id', user.id);
+
+          toast({
+            title: "Strategy activated",
+            description: `${formData.strategyName} is now active in Test Mode`,
+          });
+        }
+        
+        onBack();
+      }
     } catch (error) {
       console.error('Error saving strategy:', error);
       toast({
@@ -797,25 +831,13 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="flex items-center justify-between p-4 border rounded-lg">
-                          <TooltipField tooltip="Enable trading in test mode for practice and validation. Strategies should always be tested before going live.">
-                            <Label className="text-sm font-semibold text-foreground">Enable Test Mode</Label>
-                          </TooltipField>
-                          <Switch 
-                            checked={formData.enableTestTrading} 
-                            onCheckedChange={handleTestToggle}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between p-4 border rounded-lg">
-                          <TooltipField tooltip="Enable trading in live mode with real funds. Only enable after thorough testing in Test Mode.">
-                            <Label className="text-sm font-semibold text-foreground">Enable Live Trading</Label>
-                          </TooltipField>
-                          <Switch 
-                            checked={formData.enableLiveTrading} 
-                            onCheckedChange={handleLiveToggle}
-                          />
+                      <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                        <div className="flex items-center gap-3">
+                          <TestTube className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                          <div>
+                            <Label className="text-sm font-semibold text-blue-900 dark:text-blue-100">Test Mode</Label>
+                            <p className="text-xs text-blue-700 dark:text-blue-300">Strategies are always created in Test Mode first. Use "Push to Production" to go live after testing.</p>
+                          </div>
                         </div>
                       </div>
 

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Plus, Settings, Activity, TrendingUp, Play, Pause, Edit, Copy, AlertTriangle } from 'lucide-react';
+import { Plus, Settings, Activity, TrendingUp, Play, Pause, Edit, Copy, AlertTriangle, Trash2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
@@ -308,11 +308,11 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
-                          variant="destructive"
+                          variant="outline"
                           size="sm"
                           title="Delete Strategy"
                         >
-                          <AlertTriangle className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
@@ -333,36 +333,40 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                    {strategy.is_active_test && (
+                    {!strategy.is_active_live && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
                             variant="default"
                             size="sm"
-                            className="bg-green-600 hover:bg-green-700"
+                            className="bg-orange-600 hover:bg-orange-700 font-bold"
                             title="Push to Production"
                           >
-                            <TrendingUp className="h-4 w-4" />
+                            Push to Production
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle className="flex items-center gap-2">
-                              <AlertTriangle className="h-5 w-5 text-yellow-500" />
+                              <AlertTriangle className="h-5 w-5 text-red-500" />
                               Push Strategy to Production
                             </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              ⚠️ This strategy will now execute real trades using your Coinbase funds. 
-                              Are you sure you want to enable live trading for "{strategy.strategy_name}"?
+                            <AlertDialogDescription className="space-y-3">
+                              <p className="font-bold text-red-600">
+                                ⚠️ This strategy will now execute real trades using your Coinbase funds. Are you sure?
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                Strategy: "{strategy.strategy_name}" will be activated in Live Mode.
+                              </p>
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogCancel>Cancel – Keep Testing</AlertDialogCancel>
                             <AlertDialogAction
                               onClick={() => handlePushToProduction(strategy)}
                               className="bg-red-600 hover:bg-red-700"
                             >
-                              Yes, Push to Live
+                              Yes, Go Live with Real Money
                             </AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
