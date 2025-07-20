@@ -194,8 +194,8 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     strategyName: existingStrategy?.strategy_name || '',
     riskProfile: 'medium',
     maxWalletExposure: 50,
-    enableLiveTrading: false,
-    enableTestTrading: true,
+    enableLiveTrading: false, // Always start with Live disabled
+    enableTestTrading: true,  // Always start with Test enabled
     
     notes: '',
     selectedCoins: ['BTC', 'ETH'],
@@ -371,6 +371,27 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       setShowLiveConfirmation(true);
     } else {
       updateFormData('enableLiveTrading', false);
+      // When disabling live, automatically enable test mode
+      updateFormData('enableTestTrading', true);
+    }
+  };
+
+  const handleTestToggle = (value: boolean) => {
+    if (value) {
+      // When enabling test, disable live mode
+      updateFormData('enableTestTrading', true);
+      updateFormData('enableLiveTrading', false);
+    } else {
+      // Prevent disabling test mode if live mode is also disabled
+      if (!formData.enableLiveTrading) {
+        toast({
+          title: "Invalid Configuration",
+          description: "Strategy must have either Test Mode or Live Mode enabled",
+          variant: "destructive",
+        });
+        return;
+      }
+      updateFormData('enableTestTrading', false);
     }
   };
 
@@ -778,22 +799,22 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="flex items-center justify-between p-4 border rounded-lg">
-                          <TooltipField tooltip="Enable trading in live mode with real funds. Say things like: 'Go live with this strategy' or 'Enable real trading'">
+                          <TooltipField tooltip="Enable trading in test mode for practice and validation. Strategies should always be tested before going live.">
+                            <Label className="text-sm font-semibold text-foreground">Enable Test Mode</Label>
+                          </TooltipField>
+                          <Switch 
+                            checked={formData.enableTestTrading} 
+                            onCheckedChange={handleTestToggle}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between p-4 border rounded-lg">
+                          <TooltipField tooltip="Enable trading in live mode with real funds. Only enable after thorough testing in Test Mode.">
                             <Label className="text-sm font-semibold text-foreground">Enable Live Trading</Label>
                           </TooltipField>
                           <Switch 
                             checked={formData.enableLiveTrading} 
                             onCheckedChange={handleLiveToggle}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between p-4 border rounded-lg">
-                          <TooltipField tooltip="Enable trading in test mode for practice. Say things like: 'Start testing this strategy' or 'Enable simulation mode'">
-                            <Label className="text-sm font-semibold text-foreground">Enable Test Trading</Label>
-                          </TooltipField>
-                          <Switch 
-                            checked={formData.enableTestTrading} 
-                            onCheckedChange={(value) => updateFormData('enableTestTrading', value)}
                           />
                         </div>
                       </div>
@@ -1019,20 +1040,22 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       <AlertDialog open={showLiveConfirmation} onOpenChange={setShowLiveConfirmation}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-              Enable Live Trading
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              ⚠ Enable Live Trading
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              This will place real trades using your actual funds. Are you sure you want to enable live trading?
+            <AlertDialogDescription className="text-base">
+              <strong>This strategy will now execute real trades using your Coinbase funds. Are you sure?</strong>
+              <br /><br />
+              Live trading involves real money and actual market risks. Make sure you have thoroughly tested this strategy in Test Mode first.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setShowLiveConfirmation(false)}>
-              Cancel
+              Cancel - Keep Testing
             </AlertDialogCancel>
-            <AlertDialogAction onClick={confirmLiveTrading} className="bg-red-600 hover:bg-red-700">
-              Yes, Enable Live Trading
+            <AlertDialogAction onClick={confirmLiveTrading} className="bg-red-600 hover:bg-red-700 text-white">
+              Yes, Go Live with Real Money
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
