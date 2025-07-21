@@ -590,8 +590,8 @@ export function DataSourcesPanel() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-bold">External Data Sources</h2>
-              <p className="text-muted-foreground">Connect to external APIs to enhance AI learning with market intelligence</p>
+              <h2 className="text-2xl font-bold text-white">External Data Sources</h2>
+              <p className="text-white/80">Connect to external APIs to enhance AI learning with market intelligence</p>
             </div>
             <Button onClick={() => setShowAddForm(true)}>
               <Plus className="h-4 w-4 mr-2" />
@@ -671,7 +671,7 @@ export function DataSourcesPanel() {
                     const missingFields = requiredFields.filter(field => !config[field]?.trim?.() && !config[field]);
                     
                     return (
-                      <div key={source.id} className="flex items-center justify-between p-4 bg-muted/50 rounded-lg border border-border hover:bg-muted/70 transition-colors">
+                      <div key={source.id} className="flex items-center justify-between p-4 bg-slate-700/30 rounded-lg border border-slate-600 hover:bg-slate-600/40 transition-colors">
                         <div className="flex items-center gap-3">
                           {getSourceIcon(source.source_name)}
                           <div>
