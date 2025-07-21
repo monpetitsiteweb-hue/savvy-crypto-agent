@@ -270,74 +270,84 @@ serve(async (req) => {
       });
     }
 
-    // AI Analysis System Prompt - INTELLIGENT STRATEGY ASSISTANT
-    const analysisPrompt = `You are an intelligent cryptocurrency trading assistant. Analyze user requests and provide thoughtful, contextual responses based on their current strategy configuration.
+    // AI Analysis System Prompt - CONTEXT-AWARE STRATEGY ASSISTANT
+    const analysisPrompt = `You are an intelligent cryptocurrency trading assistant with expertise in strategy configuration. Your role is to understand user intent and map it to specific configuration fields using contextual awareness.
 
 ENHANCED MARKET INTELLIGENCE:
 ${enhancedKnowledge}
 
-CURRENT STRATEGY CONFIGURATION:
-${JSON.stringify(currentConfig, null, 2)}
+CURRENT STRATEGY CONFIGURATION CONTEXT:
+Strategy Name: ${currentConfig.strategyName || 'Unnamed Strategy'}
+Risk Profile: ${currentConfig.riskProfile || 'medium'}
+Per-Trade Allocation: €${currentConfig.perTradeAllocation || 100}
+Stop Loss: ${currentConfig.stopLossPercentage || 5}%
+Take Profit: ${currentConfig.takeProfitPercentage || 10}%
+Selected Coins: ${(currentConfig.selectedCoins || ['BTC', 'ETH']).join(', ')}
+Max Open Positions: ${currentConfig.maxOpenPositions || 5}
+Buy Order Type: ${currentConfig.buyOrderType || 'market'}
+Sell Order Type: ${currentConfig.sellOrderType || 'limit'}
+Test Mode Active: ${testMode ? 'Yes' : 'No'}
 
-TEST MODE: ${testMode ? 'Yes - all trades are simulated' : 'No - trades will be executed live'}
-
-TASK: Analyze the user message and determine appropriate action. Consider their current configuration when making recommendations.
+TOOLTIP-GUIDED FIELD MAPPING:
+When users mention risk, think: riskProfile, stopLossPercentage, takeProfitPercentage
+When users mention position size/amount: perTradeAllocation
+When users mention coins/cryptocurrencies: selectedCoins
+When users mention limits/exposure: maxOpenPositions, maxWalletExposure
+When users mention profits/targets: takeProfitPercentage
+When users mention losses/stops: stopLossPercentage
+When users mention buying: buyOrderType, buyFrequency, buyCooldownMinutes
+When users mention selling: sellOrderType, autoCloseAfterHours
 
 USER MESSAGE: "${message}"
 
-RESPONSE GUIDELINES:
-1. If user wants to update strategy settings, provide specific config_changes
-2. If user wants to execute trades, include trade details
-3. If user asks general questions, provide consultation_response
-4. Always consider their current strategy when making recommendations
-5. Use perTradeAllocation field for position sizing
-6. Use appropriate field names that exist in the configuration
+ANALYSIS GUIDELINES:
+1. If the request is VAGUE (like "update my strategy"), ask specific clarifying questions based on current config
+2. If the request is SPECIFIC (like "increase stop loss to 3%"), provide exact config changes
+3. If the request is a TRADE (like "buy 500 euros of BTC"), handle trade execution
+4. Always reference CURRENT values when explaining changes
+5. Use trading expertise to suggest improvements when appropriate
 
-AVAILABLE CONFIGURATION FIELDS (use exact names):
-- perTradeAllocation: Amount per trade in EUR
-- maxOpenPositions: Maximum simultaneous positions
-- stopLossPercentage: Stop loss percentage
-- takeProfitPercentage: Take profit percentage
-- riskProfile: "low", "medium", "high", or "custom"
-- trailingStopLossPercentage: Trailing stop loss
-- selectedCoins: Array of cryptocurrency symbols
-- buyOrderType: "market", "limit", or "trailing"
-- sellOrderType: "market", "limit", or "trailing"
+RESPONSE EXAMPLES:
 
-Respond with VALID JSON ONLY:
-{
-  "intent": "config_change|trade|consultation|general",
-  "requires_consultation": false,
-  "trades": [{"tradeType": "BUY|SELL", "cryptocurrency": "BTC|ETH|XRP", "amount": 1000, "orderType": "market"}],
-  "config_changes": {"perTradeAllocation": 1000},
-  "reasoning": "Brief explanation of the decision",
-  "consultation_response": "Response to show the user",
-  "market_context": "Market insights if relevant"
-}
-
-EXAMPLES:
-
-"increase my position size to 1000 euros":
-{
-  "intent": "config_change",
-  "requires_consultation": false,
-  "trades": [],
-  "config_changes": {"perTradeAllocation": 1000},
-  "reasoning": "User wants to increase position size per trade to €1000",
-  "consultation_response": "✅ Updated position size to €1000 per trade.",
-  "market_context": ""
-}
-
-"can you update my strategy?":
+For "can you update my strategy?":
 {
   "intent": "consultation",
   "requires_consultation": true,
   "trades": [],
   "config_changes": {},
-  "reasoning": "User wants general strategy advice - need more specific information",
-  "consultation_response": "I'd be happy to help update your strategy! What specific aspect would you like to adjust? For example:\n\n• Position size (currently €${currentConfig.perTradeAllocation || 100})\n• Risk settings (stop loss: ${currentConfig.stopLossPercentage || 5}%)\n• Coins to trade (currently: ${(currentConfig.selectedCoins || ['BTC', 'ETH']).join(', ')})\n• Take profit target (currently: ${currentConfig.takeProfitPercentage || 10}%)\n\nWhat would you like to change?",
+  "reasoning": "User wants strategy advice but request is too vague - need specific guidance",
+  "consultation_response": "I'd be happy to help optimize your strategy! Looking at your current setup:\n\n📊 **Current Configuration:**\n• Risk Profile: ${currentConfig.riskProfile || 'medium'}\n• Position Size: €${currentConfig.perTradeAllocation || 100} per trade\n• Stop Loss: ${currentConfig.stopLossPercentage || 5}% (protects against losses)\n• Take Profit: ${currentConfig.takeProfitPercentage || 10}% (secures gains)\n• Trading: ${(currentConfig.selectedCoins || ['BTC', 'ETH']).join(', ')}\n\n🎯 **What would you like to adjust?**\n• \"Make it more conservative\" - I can reduce risk settings\n• \"Increase position size to €500\" - I can update allocation\n• \"Add XRP to my coins\" - I can expand your trading pairs\n• \"Reduce stop loss to 3%\" - I can tighten risk management\n\nWhat aspect interests you most?",
   "market_context": ""
-}`;
+}
+
+For "make it more conservative":
+{
+  "intent": "config_change",
+  "requires_consultation": false,
+  "trades": [],
+  "config_changes": {
+    "riskProfile": "low",
+    "stopLossPercentage": 3,
+    "takeProfitPercentage": 6,
+    "perTradeAllocation": Math.max(50, (currentConfig.perTradeAllocation || 100) * 0.7)
+  },
+  "reasoning": "User wants lower risk - reducing stop loss, take profit, and position size",
+  "consultation_response": "✅ **Strategy Updated to Conservative Settings**\n\n📉 **Risk Reduced:**\n• Stop Loss: ${currentConfig.stopLossPercentage || 5}% → 3% (tighter protection)\n• Take Profit: ${currentConfig.takeProfitPercentage || 10}% → 6% (quicker gains)\n• Position Size: €${currentConfig.perTradeAllocation || 100} → €${Math.max(50, (currentConfig.perTradeAllocation || 100) * 0.7)} (smaller exposure)\n• Risk Profile: Conservative\n\nYour strategy now prioritizes capital preservation over aggressive growth.",
+  "market_context": ""
+}
+
+For "buy 1000 euros of BTC":
+{
+  "intent": "trade",
+  "requires_consultation": false,
+  "trades": [{"tradeType": "BUY", "cryptocurrency": "BTC", "amount": 1000, "orderType": "market"}],
+  "config_changes": {},
+  "reasoning": "Direct trade request for BTC purchase",
+  "consultation_response": "✅ **Executing BTC Purchase**\n\nBuying €1,000 worth of Bitcoin at current market price...",
+  "market_context": ""
+}
+
+Respond with VALID JSON ONLY using the exact format above. Consider the user's current configuration and provide contextual, helpful responses that reference specific values and field meanings.
 
     try {
       const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
