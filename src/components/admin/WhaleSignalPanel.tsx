@@ -355,7 +355,19 @@ export function WhaleSignalPanel() {
                   <Button 
                     variant="outline" 
                     className="mt-4"
-                    onClick={() => window.location.hash = '#data-sources'}
+                    onClick={() => {
+                      const dataSources = document.querySelector('[data-tab="data-sources"]') as HTMLElement;
+                      if (dataSources) {
+                        dataSources.click();
+                      } else {
+                        // Fallback: navigate to admin page and trigger data sources tab
+                        window.location.href = '/admin';
+                        setTimeout(() => {
+                          const tab = document.querySelector('[data-tab="data-sources"]') as HTMLElement;
+                          if (tab) tab.click();
+                        }, 100);
+                      }
+                    }}
                   >
                     <ExternalLink className="h-4 w-4 mr-2" />
                     Configure Data Sources

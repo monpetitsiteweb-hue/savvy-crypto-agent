@@ -472,6 +472,69 @@ export function DataSourcesPanel() {
           </div>
         </div>
 
+        {/* Add Source Modal/Form */}
+        {showAddForm && (
+          <Card className="border-2 border-primary/20">
+            <CardHeader>
+              <CardTitle>Add New Data Source</CardTitle>
+              <CardDescription>Select a template and configure your data source</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="template">Select Data Source Template</Label>
+                <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a data source..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(DATA_SOURCE_TEMPLATES).map(([key, template]) => (
+                      <SelectItem key={key} value={key}>
+                        <div className="flex items-center gap-2">
+                          <template.icon className="h-4 w-4" />
+                          {template.name}
+                          <Badge variant="outline" className="ml-auto">
+                            {template.cost}
+                          </Badge>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {selectedTemplate && (
+                <div className="space-y-4 border-t pt-4">
+                  {DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES].fields.map((field) => (
+                    <div key={field}>
+                      <Label htmlFor={field}>{field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
+                      <Input
+                        id={field}
+                        type={field.includes('secret') || field.includes('token') ? 'password' : 'text'}
+                        placeholder={`Enter ${field.replace(/_/g, ' ')}`}
+                        value={formData[field] || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, [field]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-4">
+                <Button onClick={addDataSource} disabled={!selectedTemplate}>
+                  Add Data Source
+                </Button>
+                <Button variant="outline" onClick={() => {
+                  setShowAddForm(false);
+                  setSelectedTemplate('');
+                  setFormData({});
+                }}>
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Data Source Status Dashboard */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card className="p-4">
