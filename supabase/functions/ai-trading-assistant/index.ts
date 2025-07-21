@@ -7,6 +7,74 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// 🧠 ADVANCED ANALYTICS FUNCTIONS
+function getBestPerformingCoin(tradingHistory: any[]): string {
+  if (!tradingHistory || tradingHistory.length === 0) return 'N/A';
+  
+  const coinPerformance = tradingHistory.reduce((acc, trade) => {
+    const coin = trade.cryptocurrency;
+    if (!acc[coin]) acc[coin] = { profit: 0, count: 0 };
+    acc[coin].profit += trade.profit_loss || 0;
+    acc[coin].count++;
+    return acc;
+  }, {});
+  
+  const best = Object.entries(coinPerformance)
+    .sort(([,a], [,b]) => (b as any).profit - (a as any).profit)[0];
+  
+  return best ? best[0] : 'N/A';
+}
+
+function calculateVolatilityTrends(tradingHistory: any[]): any {
+  if (!tradingHistory || tradingHistory.length < 7) return { trend: 'insufficient_data' };
+  
+  const recentTrades = tradingHistory.slice(0, 50);
+  const avgVolatility = recentTrades.reduce((sum, trade) => {
+    const volatility = trade.market_conditions?.volatility || 0;
+    return sum + volatility;
+  }, 0) / recentTrades.length;
+  
+  return {
+    trend: avgVolatility > 5 ? 'high' : avgVolatility > 2 ? 'medium' : 'low',
+    value: avgVolatility.toFixed(2)
+  };
+}
+
+function analyzeVolatility(marketData: any): any[] {
+  return Object.keys(marketData).map(symbol => {
+    const data = marketData[symbol];
+    if (!data) return null;
+    
+    const priceChange = ((data.price - data.low) / data.low) * 100;
+    const volatility = ((data.high - data.low) / data.low) * 100;
+    
+    return {
+      symbol,
+      price: data.price,
+      change: priceChange.toFixed(2),
+      volatility: volatility.toFixed(2),
+      volume: data.volume,
+      risk_level: volatility > 5 ? 'high' : volatility > 2 ? 'medium' : 'low'
+    };
+  }).filter(Boolean);
+}
+
+function analyzeTrends(marketData: any): any[] {
+  return Object.keys(marketData).map(symbol => {
+    const data = marketData[symbol];
+    if (!data) return null;
+    
+    const priceChange = ((data.price - data.low) / data.low) * 100;
+    
+    return {
+      symbol,
+      trend: priceChange > 2 ? 'bullish' : priceChange < -2 ? 'bearish' : 'neutral',
+      strength: Math.abs(priceChange) > 5 ? 'strong' : Math.abs(priceChange) > 2 ? 'moderate' : 'weak',
+      change_percent: priceChange.toFixed(2)
+    };
+  }).filter(Boolean);
+}
+
 interface StrategyUpdateRequest {
   message: string;
   userId: string;
@@ -233,25 +301,130 @@ serve(async (req) => {
     
      console.log('STEP 4 SUCCESS: LLM configuration loaded');
 
-    // Step 5: Collect enhanced knowledge from user's data sources
-    console.log('STEP 5: Collecting enhanced market intelligence...');
+    // Step 5: 🧠 ADVANCED MARKET INTELLIGENCE COLLECTION
+    console.log('STEP 5: Collecting comprehensive market intelligence...');
     let enhancedKnowledge = '';
+    let marketIntelligence = {};
     
     try {
+      // Multi-source intelligence gathering
+      console.log('📊 Gathering external market data...');
+      const { data: externalData } = await supabase
+        .from('external_market_data')
+        .select(`
+          *,
+          ai_data_sources (
+            source_name,
+            source_type,
+            configuration
+          )
+        `)
+        .order('timestamp', { ascending: false })
+        .limit(100);
+
+      console.log('📈 Gathering trading history for backtesting...');
+      const { data: tradingHistory } = await supabase
+        .from('mock_trades')
+        .select('*')
+        .eq('user_id', userId)
+        .order('executed_at', { ascending: false })
+        .limit(500);
+
+      console.log('🎯 Gathering performance metrics...');
+      const { data: performance } = await supabase
+        .from('strategy_performance')
+        .select('*')
+        .eq('user_id', userId)
+        .order('execution_date', { ascending: false })
+        .limit(90);
+
+      console.log('🤖 Gathering AI learning insights...');
+      const { data: aiLearning } = await supabase
+        .from('ai_learning_sessions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      // Enhanced knowledge collection
       const { data: knowledgeData, error: knowledgeError } = await supabase.functions.invoke('knowledge-collector', {
         body: { userId: userId }
       });
       
       if (knowledgeData && knowledgeData.knowledge) {
         enhancedKnowledge = knowledgeData.knowledge;
-        console.log('✅ STEP 5 SUCCESS: Enhanced knowledge collected');
-      } else {
-        console.log('⚠️ STEP 5 WARNING: No enhanced knowledge available');
-        enhancedKnowledge = 'No additional market intelligence sources configured.';
       }
-    } catch (knowledgeError) {
-      console.error('❌ STEP 5 FAILED: Knowledge collection error:', knowledgeError);
+
+      // Real-time market data for current strategy
+      const currentCoins = currentConfig?.selectedCoins || ['BTC', 'ETH'];
+      const symbols = currentCoins.map(coin => `${coin}-EUR`);
+      
+      let realtimeMarketData = {};
+      try {
+        const { data: marketData } = await supabase.functions.invoke('real-time-market-data', {
+          body: { symbols, action: 'get_current' }
+        });
+        realtimeMarketData = marketData?.data || {};
+      } catch (marketError) {
+        console.log('Real-time market data not available:', marketError);
+      }
+
+      // 📊 ADVANCED MARKET ANALYSIS
+      marketIntelligence = {
+        // External signals and sentiment
+        externalSignals: {
+          count: externalData?.length || 0,
+          recentSentiment: externalData?.filter(d => d.data_type === 'sentiment_score').slice(0, 10) || [],
+          whaleActivity: externalData?.filter(d => d.data_type === 'whale_transaction').slice(0, 5) || [],
+          institutionalFlow: externalData?.filter(d => d.data_type === 'institutional_flow').slice(0, 5) || []
+        },
+        
+        // Historical performance analysis
+        performanceAnalysis: {
+          totalTrades: tradingHistory?.length || 0,
+          recentWinRate: performance?.[0]?.win_rate || 0,
+          totalProfitLoss: performance?.reduce((sum, p) => sum + (p.total_profit_loss || 0), 0) || 0,
+          avgDailyTrades: tradingHistory?.filter(t => {
+            const tradeDate = new Date(t.executed_at);
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            return tradeDate >= yesterday;
+          })?.length || 0,
+          bestPerformingCoin: getBestPerformingCoin(tradingHistory),
+          volatilityTrends: calculateVolatilityTrends(tradingHistory)
+        },
+
+        // Real-time market conditions
+        marketConditions: {
+          currentCoins,
+          marketData: realtimeMarketData,
+          volatilityAnalysis: analyzeVolatility(realtimeMarketData),
+          trendAnalysis: analyzeTrends(realtimeMarketData)
+        },
+
+        // AI learning insights
+        learningInsights: {
+          sessionsCount: aiLearning?.length || 0,
+          recentPatterns: aiLearning?.slice(0, 10).map(session => ({
+            pattern: session.market_context?.pattern,
+            outcome: session.performance_impact,
+            confidence: session.confidence_score
+          })) || []
+        }
+      };
+
+      console.log('✅ STEP 5 SUCCESS: Comprehensive market intelligence collected');
+      console.log('📊 Market Intelligence Summary:', {
+        externalSignals: marketIntelligence.externalSignals.count,
+        totalTrades: marketIntelligence.performanceAnalysis.totalTrades,
+        winRate: marketIntelligence.performanceAnalysis.recentWinRate,
+        learningInsights: marketIntelligence.learningInsights.sessionsCount
+      });
+      
+    } catch (error) {
+      console.error('❌ STEP 5 FAILED: Market intelligence collection error:', error);
       enhancedKnowledge = 'Enhanced market intelligence temporarily unavailable.';
+      marketIntelligence = { error: error.message };
     }
 
     // Step 6: Analyze user intent with AI
@@ -270,11 +443,37 @@ serve(async (req) => {
       });
     }
 
-    // AI Analysis System Prompt - DECISIVE STRATEGY ASSISTANT
-    const analysisPrompt = `You are an expert cryptocurrency trading assistant with deep knowledge of trading strategies and risk management. Your role is to DECISIVELY help users optimize their trading configurations based on their goals.
+    // 🧠 ENHANCED AI ANALYSIS SYSTEM PROMPT - ADVANCED CRYPTO TRADING AGENT
+    const analysisPrompt = `You are the most advanced AI cryptocurrency trading assistant with exceptional market analysis capabilities and strategic reasoning. Your expertise combines deep learning from multiple data sources, real-time market intelligence, and sophisticated pattern recognition to provide optimal trading strategies.
 
-ENHANCED MARKET INTELLIGENCE:
-${enhancedKnowledge}
+🧠 COMPREHENSIVE MARKET INTELLIGENCE:
+External Market Signals: ${marketIntelligence.externalSignals?.count || 0} active sources
+Recent Sentiment Analysis: ${marketIntelligence.externalSignals?.recentSentiment?.length || 0} sentiment readings
+Whale Activity Detected: ${marketIntelligence.externalSignals?.whaleActivity?.length || 0} large transactions
+Institutional Flows: ${marketIntelligence.externalSignals?.institutionalFlow?.length || 0} institutional movements
+
+📊 PERFORMANCE INTELLIGENCE:
+Historical Trades: ${marketIntelligence.performanceAnalysis?.totalTrades || 0} trades analyzed
+Current Win Rate: ${marketIntelligence.performanceAnalysis?.recentWinRate || 0}%
+Total P&L: €${marketIntelligence.performanceAnalysis?.totalProfitLoss || 0}
+Best Performing Asset: ${marketIntelligence.performanceAnalysis?.bestPerformingCoin || 'N/A'}
+Volatility Trend: ${marketIntelligence.performanceAnalysis?.volatilityTrends?.trend || 'unknown'}
+Daily Trade Volume: ${marketIntelligence.performanceAnalysis?.avgDailyTrades || 0} trades/day
+
+🎯 REAL-TIME MARKET CONDITIONS:
+Market Data Available: ${marketIntelligence.marketConditions?.currentCoins?.length || 0} coins tracked
+Volatility Analysis: ${marketIntelligence.marketConditions?.volatilityAnalysis?.length || 0} assets analyzed
+Trend Analysis: ${marketIntelligence.marketConditions?.trendAnalysis?.length || 0} trend signals
+Market Volatility Levels: ${JSON.stringify(marketIntelligence.marketConditions?.volatilityAnalysis?.map(v => `${v.symbol}: ${v.risk_level}`) || [])}
+Current Trends: ${JSON.stringify(marketIntelligence.marketConditions?.trendAnalysis?.map(t => `${t.symbol}: ${t.trend}`) || [])}
+
+🤖 AI LEARNING INSIGHTS:
+Learning Sessions: ${marketIntelligence.learningInsights?.sessionsCount || 0} AI training cycles
+Pattern Recognition: ${marketIntelligence.learningInsights?.recentPatterns?.length || 0} patterns identified
+Performance Predictions: Enhanced by continuous learning algorithms
+
+📚 ENHANCED KNOWLEDGE BASE:
+${enhancedKnowledge || 'Base cryptocurrency knowledge + real-time market feeds'}
 
 CURRENT STRATEGY CONFIGURATION:
 Strategy Name: ${currentConfig.strategyName || 'Unnamed Strategy'}
