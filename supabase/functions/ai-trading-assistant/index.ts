@@ -487,6 +487,87 @@ Buy Order Type: ${currentConfig.buyOrderType || 'market'}
 Sell Order Type: ${currentConfig.sellOrderType || 'limit'}
 Test Mode Active: ${testMode ? 'Yes' : 'No'}
 
+🧠 AI INTELLIGENCE CONFIGURATION:
+AI Override Enabled: ${currentConfig.aiIntelligenceConfig?.enableAIOverride ? 'Yes' : 'No'}
+AI Autonomy Level: ${currentConfig.aiIntelligenceConfig?.aiAutonomyLevel || 30}% ${
+  (currentConfig.aiIntelligenceConfig?.aiAutonomyLevel || 30) <= 20 ? '(Conservative - suggestions only)' :
+  (currentConfig.aiIntelligenceConfig?.aiAutonomyLevel || 30) <= 40 ? '(Cautious - minor adjustments)' :
+  (currentConfig.aiIntelligenceConfig?.aiAutonomyLevel || 30) <= 60 ? '(Balanced - moderate independence)' :
+  (currentConfig.aiIntelligenceConfig?.aiAutonomyLevel || 30) <= 80 ? '(Adaptive - high autonomy)' :
+  '(Autonomous - full independence)'
+}
+AI Confidence Threshold: ${currentConfig.aiIntelligenceConfig?.aiConfidenceThreshold || 70}%
+Decision Mode: ${currentConfig.aiIntelligenceConfig?.decisionMode || 'balanced'}
+Pattern Recognition: ${currentConfig.aiIntelligenceConfig?.enablePatternRecognition ? 'Enabled' : 'Disabled'}
+External Signals Processing: ${currentConfig.aiIntelligenceConfig?.enableExternalSignals ? 'Enabled' : 'Disabled'}
+${currentConfig.aiIntelligenceConfig?.enableExternalSignals ? `
+Signal Weights:
+- Whale Activity: ${currentConfig.aiIntelligenceConfig?.whaleActivityWeight || 25}%
+- Market Sentiment: ${currentConfig.aiIntelligenceConfig?.sentimentWeight || 20}%
+- News Impact: ${currentConfig.aiIntelligenceConfig?.newsImpactWeight || 30}%
+- Social Signals: ${currentConfig.aiIntelligenceConfig?.socialSignalsWeight || 15}%` : ''}
+Risk Override Allowed: ${currentConfig.aiIntelligenceConfig?.riskOverrideAllowed ? 'Yes' : 'No'}
+Learning Enabled: ${currentConfig.aiIntelligenceConfig?.enableLearning ? 'Yes' : 'No'}
+Escalation Threshold: ${currentConfig.aiIntelligenceConfig?.escalationThreshold || 80}%
+Custom Instructions: ${currentConfig.aiIntelligenceConfig?.customInstructions || 'None'}
+
+🤖 AI INTELLIGENCE BEHAVIOR GUIDELINES:
+Based on your AI Intelligence Configuration, follow these decision-making protocols:
+
+AUTONOMY LEVEL BEHAVIOR (${currentConfig.aiIntelligenceConfig?.aiAutonomyLevel || 30}%):
+${(currentConfig.aiIntelligenceConfig?.aiAutonomyLevel || 30) <= 20 ? 
+  '• CONSERVATIVE: Only suggest changes, never execute automatically\n• Always ask for user confirmation before any action\n• Explain all recommendations in detail\n• Focus on education and explanation' :
+  (currentConfig.aiIntelligenceConfig?.aiAutonomyLevel || 30) <= 40 ?
+  '• CAUTIOUS: Make minor adjustments within strict parameters\n• Can adjust position sizes by ±25% without confirmation\n• Require confirmation for risk parameter changes\n• Explain reasoning for all adjustments' :
+  (currentConfig.aiIntelligenceConfig?.aiAutonomyLevel || 30) <= 60 ?
+  '• BALANCED: Moderate independence in decision-making\n• Can modify timing and allocation settings freely\n• Require confirmation for major risk changes (>50% adjustment)\n• Proactively suggest optimizations' :
+  (currentConfig.aiIntelligenceConfig?.aiAutonomyLevel || 30) <= 80 ?
+  '• ADAPTIVE: High autonomy, can override rules when justified\n• Can make significant strategy adjustments\n• Only escalate when confidence < ${currentConfig.aiIntelligenceConfig?.escalationThreshold || 80}%\n• Act independently for market opportunities' :
+  '• AUTONOMOUS: Full independence in decision-making\n• Can override any parameter when market conditions warrant\n• Make real-time adjustments without user confirmation\n• Only alert user to major changes or exceptional situations'
+}
+
+CONFIDENCE THRESHOLD (${currentConfig.aiIntelligenceConfig?.aiConfidenceThreshold || 70}%):
+• Only act when confidence >= ${currentConfig.aiIntelligenceConfig?.aiConfidenceThreshold || 70}%
+• Below threshold: Provide analysis but ask for confirmation
+• Above threshold: Execute recommended actions based on autonomy level
+
+DECISION MODE (${currentConfig.aiIntelligenceConfig?.decisionMode || 'balanced'}):
+${currentConfig.aiIntelligenceConfig?.decisionMode === 'conservative' ?
+  '• Prioritize capital preservation over opportunity\n• Require multiple confirmations for aggressive moves\n• Default to smaller position sizes and tighter stops\n• Avoid high-volatility opportunities' :
+  currentConfig.aiIntelligenceConfig?.decisionMode === 'aggressive' ?
+  '• Prioritize opportunities over preservation\n• React quickly to market signals\n• Use larger position sizes when justified\n• Embrace calculated risks for higher returns' :
+  '• Balance opportunity and risk equally\n• Use standard decision-making processes\n• Moderate position sizing and risk parameters\n• Balanced approach to market timing'
+}
+
+EXTERNAL SIGNALS INTEGRATION:
+${currentConfig.aiIntelligenceConfig?.enableExternalSignals ? `
+• Whale Activity Weight: ${currentConfig.aiIntelligenceConfig?.whaleActivityWeight || 25}% - ${
+  (currentConfig.aiIntelligenceConfig?.whaleActivityWeight || 25) > 40 ? 'HIGH priority on large wallet movements' :
+  (currentConfig.aiIntelligenceConfig?.whaleActivityWeight || 25) > 20 ? 'MODERATE consideration of whale activity' :
+  'LOW impact from whale movements'
+}
+• Market Sentiment Weight: ${currentConfig.aiIntelligenceConfig?.sentimentWeight || 20}% - ${
+  (currentConfig.aiIntelligenceConfig?.sentimentWeight || 20) > 40 ? 'HEAVILY influenced by market sentiment' :
+  (currentConfig.aiIntelligenceConfig?.sentimentWeight || 20) > 20 ? 'MODERATELY consider sentiment data' :
+  'LIMITED sentiment influence'
+}
+• News Impact Weight: ${currentConfig.aiIntelligenceConfig?.newsImpactWeight || 30}% - ${
+  (currentConfig.aiIntelligenceConfig?.newsImpactWeight || 30) > 40 ? 'STRONG reaction to news events' :
+  (currentConfig.aiIntelligenceConfig?.newsImpactWeight || 30) > 20 ? 'BALANCED news consideration' :
+  'MINIMAL news impact'
+}
+• Social Signals Weight: ${currentConfig.aiIntelligenceConfig?.socialSignalsWeight || 15}% - ${
+  (currentConfig.aiIntelligenceConfig?.socialSignalsWeight || 15) > 30 ? 'HIGH social media influence' :
+  (currentConfig.aiIntelligenceConfig?.socialSignalsWeight || 15) > 15 ? 'MODERATE social consideration' :
+  'LOW social signal impact'
+}` : '• External signals processing is DISABLED - rely only on technical analysis and strategy rules'}
+
+PATTERN RECOGNITION: ${currentConfig.aiIntelligenceConfig?.enablePatternRecognition ? 
+  `ENABLED - Analyze ${currentConfig.aiIntelligenceConfig?.patternLookbackHours || 168} hours of historical data for patterns` : 
+  'DISABLED - Use only current market data'}
+
+CUSTOM INSTRUCTIONS: ${currentConfig.aiIntelligenceConfig?.customInstructions || 'None - use standard AI behavior'}
+
 DECISION FRAMEWORK - BE PROACTIVE:
 - When user says "1.5% daily gains" → IMMEDIATELY propose: takeProfitPercentage: 1.5, buyIntervalMinutes: 30, increase position sizing
 - When user says "more conservative" → IMMEDIATELY propose: riskProfile: "medium", stopLossPercentage: 3, reduce position size

@@ -44,6 +44,7 @@ import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import NaturalLanguageStrategy from './NaturalLanguageStrategy';
+import AIIntelligenceSettings, { AIIntelligenceConfig } from './AIIntelligenceSettings';
 
 // Coinbase-compatible coins list
 const COINBASE_COINS = [
@@ -100,6 +101,8 @@ interface StrategyFormData {
   // Tags and categories
   category: string;
   tags: string[];
+  // AI Intelligence settings
+  aiIntelligenceConfig: AIIntelligenceConfig;
 }
 
 interface ComprehensiveStrategyConfigProps {
@@ -148,6 +151,13 @@ const MENU_SECTIONS = [
     items: [
       { id: 'basic-settings', label: 'Basic settings', icon: Settings },
       { id: 'notifications', label: 'Notifications', icon: Bell }
+    ]
+  },
+  {
+    id: 'intelligence',
+    title: 'AI INTELLIGENCE',
+    items: [
+      { id: 'ai-intelligence', label: 'AI Intelligence Settings', icon: MessageCircle }
     ]
   },
   {
@@ -236,7 +246,31 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     useTrailingStopOnly: false,
     resetStopLossAfterFail: false,
     category: 'trend',
-    tags: ['automated', 'scalping']
+    tags: ['automated', 'scalping'],
+    aiIntelligenceConfig: {
+      enableAIOverride: false,
+      aiAutonomyLevel: 30,
+      aiConfidenceThreshold: 70,
+      enablePatternRecognition: true,
+      patternLookbackHours: 168,
+      crossAssetCorrelation: true,
+      marketStructureAnalysis: true,
+      enableExternalSignals: true,
+      whaleActivityWeight: 25,
+      sentimentWeight: 20,
+      newsImpactWeight: 30,
+      socialSignalsWeight: 15,
+      decisionMode: 'balanced' as const,
+      escalationThreshold: 80,
+      riskOverrideAllowed: false,
+      enableLearning: true,
+      adaptToPerformance: true,
+      learningRate: 50,
+      explainDecisions: true,
+      alertOnAnomalies: true,
+      alertOnOverrides: true,
+      customInstructions: ''
+    }
   });
 
   // Apply risk profile presets
@@ -967,6 +1001,16 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                           </div>
                         </CardContent>
                       </Card>
+                    </div>
+                  )}
+
+                  {/* AI Intelligence Section */}
+                  {activeSection === 'ai-intelligence' && (
+                    <div className="space-y-6">
+                      <AIIntelligenceSettings
+                        config={formData.aiIntelligenceConfig}
+                        onConfigChange={(newConfig) => updateFormData('aiIntelligenceConfig', newConfig)}
+                      />
                     </div>
                   )}
 

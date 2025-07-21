@@ -67,6 +67,7 @@ Parse the user's prompt and extract:
 5. Frequency/schedule
 6. Thresholds and risk controls
 7. Required data categories
+8. AI intelligence preferences (autonomy level, signal weights, decision style)
 
 Return a JSON object with this exact structure:
 {
@@ -101,6 +102,30 @@ Return a JSON object with this exact structure:
       "BTC": 60,
       "ETH": 30,
       "XRP": 10
+    },
+    "aiIntelligenceConfig": {
+      "enableAIOverride": true,
+      "aiAutonomyLevel": 50,
+      "aiConfidenceThreshold": 70,
+      "enablePatternRecognition": true,
+      "patternLookbackHours": 168,
+      "crossAssetCorrelation": true,
+      "marketStructureAnalysis": true,
+      "enableExternalSignals": true,
+      "whaleActivityWeight": 25,
+      "sentimentWeight": 20,
+      "newsImpactWeight": 30,
+      "socialSignalsWeight": 15,
+      "decisionMode": "balanced",
+      "escalationThreshold": 80,
+      "riskOverrideAllowed": false,
+      "enableLearning": true,
+      "adaptToPerformance": true,
+      "learningRate": 50,
+      "explainDecisions": true,
+      "alertOnAnomalies": true,
+      "alertOnOverrides": true,
+      "customInstructions": ""
     }
   },
   "required_categories": ["Social Sentiment", "Market Data"],
@@ -108,7 +133,15 @@ Return a JSON object with this exact structure:
   "complexity": "simple|intermediate|advanced"
 }
 
-Be precise and extract all relevant information. If information is missing, use reasonable defaults.`;
+AI Intelligence Configuration Guidelines:
+- If the user mentions "be conservative" or "careful", set aiAutonomyLevel lower (20-40)
+- If they want "aggressive" or "fast decisions", set aiAutonomyLevel higher (60-80)
+- If they mention specific external signals (whale moves, sentiment, news), increase those weights
+- If they want explanations or transparency, enable explainDecisions
+- For complex strategies requiring pattern recognition, enable relevant AI features
+- Set decisionMode based on user's risk appetite: conservative/balanced/aggressive
+
+Be precise and extract all relevant information. If information is missing, use reasonable defaults based on the strategy's complexity and risk level.`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
