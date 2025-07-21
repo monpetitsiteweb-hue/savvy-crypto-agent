@@ -46,7 +46,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.external-data-collector]
-verify_jwt = true
+verify_jwt = false
 
 [functions.parse-strategy]
 verify_jwt = true
