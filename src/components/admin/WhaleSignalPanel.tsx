@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, ExternalLink, RefreshCw, TrendingUp, AlertCircle, CheckCircle } from "lucide-react";
+import { Activity, ExternalLink, RefreshCw, TrendingUp, AlertCircle, CheckCircle, Settings, Trash2 } from "lucide-react";
 
 interface WhaleSignalEvent {
   id: string;
@@ -38,6 +38,7 @@ export function WhaleSignalPanel() {
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncingSource, setSyncingSource] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -83,12 +84,11 @@ export function WhaleSignalPanel() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Trigger external data collection for whale signals
+      // Trigger external data collection for all active whale signal sources
       const { error } = await supabase.functions.invoke('external-data-collector', {
         body: { 
-          action: 'collect_whale_signals', 
-          userId: user.id,
-          sources: dataSources.filter(s => s.is_active).map(s => s.id)
+          action: 'sync_all_sources', 
+          userId: user.id
         }
       });
 
@@ -110,6 +110,66 @@ export function WhaleSignalPanel() {
       });
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const syncSingleSource = async (sourceId: string, sourceName: string) => {
+    setSyncingSource(sourceId);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { error } = await supabase.functions.invoke('external-data-collector', {
+        body: { 
+          action: 'sync_source', 
+          sourceId: sourceId 
+        }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Synchronized",
+        description: `${sourceName} synced successfully`,
+      });
+
+      // Reload data after sync
+      await loadData();
+    } catch (error) {
+      console.error('Error syncing source:', error);
+      toast({
+        title: "Error",
+        description: `Failed to sync ${sourceName}`,
+        variant: "destructive",
+      });
+    } finally {
+      setSyncingSource(null);
+    }
+  };
+
+  const deleteDataSource = async (sourceId: string, sourceName: string) => {
+    try {
+      const { error } = await supabase
+        .from('ai_data_sources')
+        .delete()
+        .eq('id', sourceId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: `${sourceName} deleted successfully`,
+      });
+
+      // Reload data after deletion
+      await loadData();
+    } catch (error) {
+      console.error('Error deleting source:', error);
+      toast({
+        title: "Error",
+        description: `Failed to delete ${sourceName}`,
+        variant: "destructive",
+      });
     }
   };
 
@@ -321,6 +381,53 @@ export function WhaleSignalPanel() {
                           ) : (
                             <Badge className="bg-red-100 text-red-800">Inactive</Badge>
                           )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => syncSingleSource(source.id, source.source_name)}
+                            disabled={syncingSource === source.id}
+                          >
+                            {syncingSource === source.id ? (
+                              <>
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary mr-2"></div>
+                                Syncing...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="h-3 w-3 mr-1" />
+                                Sync Now
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              // Navigate to data sources panel for editing
+                              const dataSources = document.querySelector('[data-tab="data-sources"]') as HTMLElement;
+                              if (dataSources) {
+                                dataSources.click();
+                              } else {
+                                window.location.href = '/admin';
+                                setTimeout(() => {
+                                  const tab = document.querySelector('[data-tab="data-sources"]') as HTMLElement;
+                                  if (tab) tab.click();
+                                }, 100);
+                              }
+                            }}
+                          >
+                            <Settings className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => deleteDataSource(source.id, source.source_name)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
                         </div>
                       </div>
                       
