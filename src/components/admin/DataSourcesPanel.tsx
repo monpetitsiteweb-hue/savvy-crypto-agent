@@ -7,9 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap, CheckCircle, XCircle, Clock, ExternalLinkIcon, Wrench } from "lucide-react";
+import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap, CheckCircle, XCircle, Clock, ExternalLinkIcon, Wrench, Edit, RefreshCw } from "lucide-react";
 
 interface DataSource {
   id: string;
@@ -218,6 +219,9 @@ export function DataSourcesPanel() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [formData, setFormData] = useState<any>({});
   const [syncing, setSyncing] = useState(false);
+  const [syncingSource, setSyncingSource] = useState<string | null>(null);
+  const [editingSource, setEditingSource] = useState<DataSource | null>(null);
+  const [editFormData, setEditFormData] = useState<any>({});
   const { toast } = useToast();
 
   useEffect(() => {
@@ -364,6 +368,84 @@ export function DataSourcesPanel() {
         description: "Failed to delete data source",
         variant: "destructive",
       });
+    }
+  };
+
+  const openEditDialog = (source: DataSource) => {
+    setEditingSource(source);
+    setEditFormData({ 
+      ...source.configuration,
+      is_active: source.is_active,
+      update_frequency: source.update_frequency 
+    });
+  };
+
+  const updateDataSource = async () => {
+    if (!editingSource) return;
+
+    try {
+      const { is_active, update_frequency, ...configuration } = editFormData;
+      
+      const { error } = await supabase
+        .from('ai_data_sources')
+        .update({
+          configuration: configuration,
+          is_active: is_active ?? editingSource.is_active,
+          update_frequency: update_frequency ?? editingSource.update_frequency,
+        })
+        .eq('id', editingSource.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Data source updated successfully",
+      });
+
+      setEditingSource(null);
+      setEditFormData({});
+      loadDataSources();
+    } catch (error) {
+      console.error('Error updating source:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update data source",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const syncDataSource = async (sourceId: string, sourceName: string) => {
+    setSyncingSource(sourceId);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { error } = await supabase.functions.invoke('external-data-collector', {
+        body: { 
+          action: 'sync_source', 
+          sourceId: sourceId,
+          userId: user.id
+        }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "✅ Synchronized",
+        description: `${sourceName} synced successfully`,
+      });
+
+      loadDataSources();
+    } catch (error) {
+      console.error('Error syncing source:', error);
+      toast({
+        title: "Error",
+        description: `Failed to sync ${sourceName}`,
+        variant: "destructive",
+      });
+    } finally {
+      setSyncingSource(null);
     }
   };
 
@@ -685,19 +767,106 @@ export function DataSourcesPanel() {
                       <Button
                         variant="outline"
                         size="sm"
+                        onClick={() => syncDataSource(source.id, template?.name || source.source_name)}
+                        disabled={syncingSource === source.id}
                         className="flex-1"
-                        onClick={() => {
-                          supabase.functions.invoke('external-data-collector', {
-                            body: { action: 'sync_source', sourceId: source.id }
-                          });
-                          toast({
-                            title: "Sync Started",
-                            description: `Syncing ${template?.name}...`,
-                          });
-                        }}
                       >
-                        Sync Now
+                        {syncingSource === source.id ? (
+                          <>
+                            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary mr-2"></div>
+                            Syncing...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            Sync Now
+                          </>
+                        )}
                       </Button>
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openEditDialog(source)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-2xl">
+                          <DialogHeader>
+                            <DialogTitle>Edit: {template?.name || source.source_name}</DialogTitle>
+                          </DialogHeader>
+                          {editingSource && (
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <Label htmlFor="is_active">Active</Label>
+                                  <Switch
+                                    id="is_active"
+                                    checked={editFormData.is_active ?? editingSource.is_active}
+                                    onCheckedChange={(checked) => 
+                                      setEditFormData({ ...editFormData, is_active: checked })
+                                    }
+                                  />
+                                </div>
+                                <div>
+                                  <Label htmlFor="update_frequency">Update Frequency</Label>
+                                  <Select
+                                    value={editFormData.update_frequency ?? editingSource.update_frequency}
+                                    onValueChange={(value) => 
+                                      setEditFormData({ ...editFormData, update_frequency: value })
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="realtime">Real-time</SelectItem>
+                                      <SelectItem value="hourly">Hourly</SelectItem>
+                                      <SelectItem value="daily">Daily</SelectItem>
+                                      <SelectItem value="weekly">Weekly</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+
+                              {/* Dynamic form fields based on source configuration */}
+                              <div className="space-y-3">
+                                {Object.entries(editingSource.configuration || {}).map(([key, value]) => (
+                                  <div key={key}>
+                                    <Label htmlFor={key}>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
+                                    <Input
+                                      id={key}
+                                      type={key.includes('secret') || key.includes('token') ? 'password' : 'text'}
+                                      value={editFormData[key] ?? value}
+                                      onChange={(e) => 
+                                        setEditFormData({ ...editFormData, [key]: e.target.value })
+                                      }
+                                      placeholder={`Enter ${key.replace(/_/g, ' ')}`}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  onClick={() => {
+                                    setEditingSource(null);
+                                    setEditFormData({});
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button onClick={updateDataSource}>
+                                  Save Changes
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </DialogContent>
+                      </Dialog>
                       <Button
                         variant="outline"
                         size="sm"
@@ -857,19 +1026,108 @@ export function DataSourcesPanel() {
                         <Button
                           variant="outline"
                           size="sm"
+                          onClick={() => syncDataSource(source.id, template?.name || source.source_name)}
+                          disabled={syncingSource === source.id}
                           className="flex-1"
-                          onClick={() => {
-                            supabase.functions.invoke('external-data-collector', {
-                              body: { action: 'sync_source', sourceId: source.id }
-                            });
-                            toast({
-                              title: "Sync Started",
-                              description: `Syncing ${template?.name}...`,
-                            });
-                          }}
                         >
-                          Sync Now
+                          {syncingSource === source.id ? (
+                            <>
+                              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary mr-2"></div>
+                              Syncing...
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="h-3 w-3 mr-1" />
+                              Sync Now
+                            </>
+                          )}
                         </Button>
+                      )}
+                      {!isDocument && (
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openEditDialog(source)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-2xl">
+                            <DialogHeader>
+                              <DialogTitle>Edit: {template?.name || source.source_name}</DialogTitle>
+                            </DialogHeader>
+                            {editingSource && (
+                              <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <Label htmlFor="is_active">Active</Label>
+                                    <Switch
+                                      id="is_active"
+                                      checked={editFormData.is_active ?? editingSource.is_active}
+                                      onCheckedChange={(checked) => 
+                                        setEditFormData({ ...editFormData, is_active: checked })
+                                      }
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label htmlFor="update_frequency">Update Frequency</Label>
+                                    <Select
+                                      value={editFormData.update_frequency ?? editingSource.update_frequency}
+                                      onValueChange={(value) => 
+                                        setEditFormData({ ...editFormData, update_frequency: value })
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="realtime">Real-time</SelectItem>
+                                        <SelectItem value="hourly">Hourly</SelectItem>
+                                        <SelectItem value="daily">Daily</SelectItem>
+                                        <SelectItem value="weekly">Weekly</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+
+                                {/* Dynamic form fields based on source configuration */}
+                                <div className="space-y-3">
+                                  {Object.entries(editingSource.configuration || {}).map(([key, value]) => (
+                                    <div key={key}>
+                                      <Label htmlFor={key}>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
+                                      <Input
+                                        id={key}
+                                        type={key.includes('secret') || key.includes('token') ? 'password' : 'text'}
+                                        value={editFormData[key] ?? value}
+                                        onChange={(e) => 
+                                          setEditFormData({ ...editFormData, [key]: e.target.value })
+                                        }
+                                        placeholder={`Enter ${key.replace(/_/g, ' ')}`}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                      setEditingSource(null);
+                                      setEditFormData({});
+                                    }}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button onClick={updateDataSource}>
+                                    Save Changes
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </DialogContent>
+                        </Dialog>
                       )}
                       <Button
                         variant="outline"
