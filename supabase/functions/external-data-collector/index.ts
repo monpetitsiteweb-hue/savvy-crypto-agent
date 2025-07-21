@@ -309,36 +309,67 @@ async function syncFearGreedIndex(supabaseClient: any, source: any) {
 
 async function syncCoinbaseInstitutional(supabaseClient: any, source: any) {
   try {
-    // Mock institutional flow data
-    const cryptos = ['BTC-USD', 'ETH-USD'];
+    const apiKey = Deno.env.get('COINBASE_API_KEY');
+    const apiSecret = Deno.env.get('COINBASE_API_SECRET');
     
-    for (const crypto of cryptos) {
-      const mockVolume = Math.random() * 10000000; // Random volume
-      
-      await supabaseClient
-        .from('external_market_data')
-        .insert({
-          source_id: source.id,
-          data_type: 'institutional_flow',
-          entity: 'coinbase_institutional',
-          cryptocurrency: crypto.split('-')[0],
-          data_value: mockVolume,
-          metadata: {
-            product_id: crypto,
-            volume_24h: mockVolume,
-            type: 'institutional_volume'
-          },
-          category_context: {
-            category_name: 'Institutional Flow',
-            category_type: 'institutional',
-            signal_strength: mockVolume > 5000000 ? 'high' : 'medium',
-            market_impact: 'neutral'
-          },
-          timestamp: new Date().toISOString()
-        });
+    if (!apiKey || !apiSecret) {
+      console.log('⚠️ Coinbase API credentials not configured');
+      return;
     }
 
-    console.log('✅ Synced Coinbase institutional data');
+    const cryptos = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
+    
+    for (const crypto of cryptos) {
+      try {
+        // Fetch real 24h stats from Coinbase Advanced Trade API
+        const statsResponse = await fetch(`https://api.exchange.coinbase.com/products/${crypto}/stats`);
+        const stats = await statsResponse.json();
+        
+        // Fetch recent large trades (potential institutional activity)
+        const tradesResponse = await fetch(`https://api.exchange.coinbase.com/products/${crypto}/trades?limit=100`);
+        const trades = await tradesResponse.json();
+        
+        // Analyze for institutional patterns
+        const largeTrades = trades.filter((trade: any) => parseFloat(trade.size) * parseFloat(trade.price) > 100000); // Trades > $100k
+        const totalLargeTradeVolume = largeTrades.reduce((sum: number, trade: any) => 
+          sum + (parseFloat(trade.size) * parseFloat(trade.price)), 0);
+        
+        const volume24h = parseFloat(stats.volume);
+        const institutionalRatio = totalLargeTradeVolume / (volume24h * parseFloat(stats.last));
+        
+        await supabaseClient
+          .from('external_market_data')
+          .insert({
+            source_id: source.id,
+            data_type: 'institutional_flow',
+            entity: 'coinbase_institutional',
+            cryptocurrency: crypto.split('-')[0],
+            data_value: totalLargeTradeVolume,
+            metadata: {
+              product_id: crypto,
+              volume_24h: volume24h,
+              large_trades_count: largeTrades.length,
+              institutional_ratio: institutionalRatio,
+              price_last: parseFloat(stats.last),
+              price_change_24h: parseFloat(stats.volume_30day || 0),
+              type: 'real_institutional_analysis'
+            },
+            category_context: {
+              category_name: 'Institutional Flow',
+              category_type: 'institutional',
+              signal_strength: institutionalRatio > 0.3 ? 'high' : institutionalRatio > 0.15 ? 'medium' : 'low',
+              market_impact: institutionalRatio > 0.25 ? 'bullish' : 'neutral'
+            },
+            timestamp: new Date().toISOString()
+          });
+          
+        console.log(`✅ Synced real Coinbase institutional data for ${crypto}: ${largeTrades.length} large trades, $${totalLargeTradeVolume.toFixed(0)} volume`);
+      } catch (error) {
+        console.error(`Failed to sync ${crypto}:`, error);
+      }
+    }
+
+    console.log('✅ Completed Coinbase institutional flow analysis using real API data');
   } catch (error) {
     console.error('Failed to sync Coinbase institutional data:', error);
   }
