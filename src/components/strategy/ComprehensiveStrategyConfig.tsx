@@ -185,6 +185,43 @@ const MENU_SECTIONS = [
   }
 ];
 
+// Define TooltipField outside the component to prevent recreation on every render
+const TooltipField = ({ 
+  children, 
+  description, 
+  examples 
+}: { 
+  children: React.ReactNode; 
+  description: string;
+  examples?: string[];
+}) => (
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <div className="flex items-center gap-2">
+        {children}
+        <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
+      </div>
+    </TooltipTrigger>
+    <TooltipContent className="max-w-sm p-4">
+      <div className="space-y-2">
+        <p className="text-sm font-medium">{description}</p>
+        {examples && examples.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground font-medium">Say:</p>
+            <div className="space-y-1">
+              {examples.map((example, index) => (
+                <p key={index} className="text-xs text-muted-foreground italic">
+                  "{example}"
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </TooltipContent>
+  </Tooltip>
+);
+
 export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigProps> = ({ 
   onBack, 
   existingStrategy, 
@@ -441,41 +478,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const TooltipField = ({ 
-    children, 
-    description, 
-    examples 
-  }: { 
-    children: React.ReactNode; 
-    description: string;
-    examples?: string[];
-  }) => (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div className="flex items-center gap-2">
-          {children}
-          <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
-        </div>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-sm p-4">
-        <div className="space-y-2">
-          <p className="text-sm font-medium">{description}</p>
-          {examples && examples.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground font-medium">Say:</p>
-              <div className="space-y-1">
-                {examples.map((example, index) => (
-                  <p key={index} className="text-xs text-muted-foreground italic">
-                    "{example}"
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </TooltipContent>
-    </Tooltip>
-  );
 
   const handleLiveToggle = (value: boolean) => {
     if (value) {
