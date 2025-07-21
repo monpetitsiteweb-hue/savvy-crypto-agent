@@ -453,7 +453,19 @@ export function DataSourcesPanel() {
   const getUnconfiguredSources = () => {
     return dataSources.filter(s => {
       const template = getSourceTemplate(s.source_name);
-      return template && !['fear_greed_index', 'coinbase_institutional', 'custom_website', 'document_upload'].includes(s.source_name);
+      if (!template) return false;
+      
+      // Skip sources that don't need configuration
+      if (['fear_greed_index', 'coinbase_institutional', 'custom_website', 'document_upload'].includes(s.source_name)) {
+        return false;
+      }
+      
+      // Check if any required fields are missing or empty
+      const requiredFields = template.fields.filter(field => field !== 'document_file');
+      const config = s.configuration || {};
+      const missingFields = requiredFields.filter(field => !config[field]?.trim?.() && !config[field]);
+      
+      return missingFields.length > 0;
     });
   };
 
@@ -642,23 +654,30 @@ export function DataSourcesPanel() {
 
           {/* Expandable setup status details */}
           {showSetupStatus && getUnconfiguredSources().length > 0 && (
-            <Card className="border-orange-200 bg-orange-50/50">
+            <Card className="border-border bg-card">
               <CardHeader>
-                <CardTitle className="text-orange-700">Sources Needing Setup</CardTitle>
+                <CardTitle className="flex items-center gap-2 text-foreground">
+                  <Wrench className="h-5 w-5" />
+                  Sources Needing Setup
+                </CardTitle>
                 <CardDescription>The following sources require configuration to become active</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
                   {getUnconfiguredSources().map((source) => {
                     const template = getSourceTemplate(source.source_name);
+                    const config = source.configuration || {};
+                    const requiredFields = template?.fields.filter(field => field !== 'document_file') || [];
+                    const missingFields = requiredFields.filter(field => !config[field]?.trim?.() && !config[field]);
+                    
                     return (
-                      <div key={source.id} className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                      <div key={source.id} className="flex items-center justify-between p-4 bg-muted/50 rounded-lg border border-border hover:bg-muted/70 transition-colors">
                         <div className="flex items-center gap-3">
                           {getSourceIcon(source.source_name)}
                           <div>
-                            <div className="font-medium">{template?.name || source.source_name}</div>
+                            <div className="font-medium text-foreground">{template?.name || source.source_name}</div>
                             <div className="text-sm text-muted-foreground">
-                              Missing: {template?.fields.join(', ') || 'API configuration'}
+                              Missing: {missingFields.join(', ') || 'API configuration'}
                             </div>
                           </div>
                         </div>
@@ -666,7 +685,9 @@ export function DataSourcesPanel() {
                           variant="outline"
                           size="sm"
                           onClick={() => openEditDialog(source)}
+                          className="hover:bg-primary hover:text-primary-foreground transition-colors"
                         >
+                          <Settings className="h-4 w-4 mr-1" />
                           Configure
                         </Button>
                       </div>
