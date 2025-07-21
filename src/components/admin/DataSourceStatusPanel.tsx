@@ -14,6 +14,7 @@ interface DataSourceStatus {
 }
 
 const DATA_SOURCE_STATUS: DataSourceStatus[] = [
+  // Ready to use sources
   {
     name: "Fear & Greed Index",
     category: "Market Sentiment",
@@ -32,31 +33,64 @@ const DATA_SOURCE_STATUS: DataSourceStatus[] = [
     description: "Track institutional trading volumes",
     priority: 'medium'
   },
+  
+  // Existing premium sources with potential upgrades
   {
     name: "Arkham Intelligence",
-    category: "Whale Tracking",
+    category: "Whale Tracking (Premium)",
     status: 'premium_required',
     cost: '$99+/month',
     setupUrl: "https://app.arkhamintelligence.com/api",
-    description: "Track whale wallets (BlackRock, MicroStrategy, etc.)",
+    description: "🎯 Whale wallets: BlackRock, MicroStrategy, Tesla, Trump - Critical for AI intelligence",
     priority: 'critical'
   },
   {
     name: "Whale Alert",
-    category: "Large Transactions",
+    category: "Large Transactions (Premium)",
     status: 'premium_required',
     cost: '$50+/month',
     setupUrl: "https://whale-alert.io/api",
-    description: "Real-time large transactions (>$100K)",
+    description: "🚨 Real-time large transactions (>$100K) - High priority for market signals",
     priority: 'high'
   },
+  
+  // New whale signal providers
+  {
+    name: "Cryptocurrency Alerting",
+    category: "Whale Signals (Webhooks)",
+    status: 'needs_setup',
+    cost: 'Free tier + Premium',
+    setupUrl: "https://cryptocurrencyalerting.com/webhook-setup",
+    description: "🔔 Webhook-based whale alerts with custom thresholds - Recommended alternative",
+    priority: 'high'
+  },
+  {
+    name: "Bitquery API",
+    category: "Whale Signals (Queries)",
+    status: 'needs_setup',
+    cost: 'Free (1000 queries/month)',
+    setupUrl: "https://bitquery.io/docs/start/",
+    description: "📊 Advanced blockchain queries for whale detection - Great free option",
+    priority: 'high'
+  },
+  {
+    name: "QuickNode Webhooks",
+    category: "Whale Signals (Real-time)",
+    status: 'needs_setup',
+    cost: 'Pay-per-use',
+    setupUrl: "https://www.quicknode.com/guides/quicknode-streams/how-to-use-quicknode-streams",
+    description: "⚡ Real-time blockchain webhooks with expression filters - Most advanced",
+    priority: 'high'
+  },
+  
+  // Social and content sources
   {
     name: "Twitter/X API",
     category: "Social Sentiment",
     status: 'premium_required',
     cost: '$100+/month',
     setupUrl: "https://developer.twitter.com/en/portal/dashboard",
-    description: "Crypto influencer sentiment analysis",
+    description: "🐦 Crypto influencer sentiment analysis",
     priority: 'medium'
   },
   {
@@ -65,7 +99,7 @@ const DATA_SOURCE_STATUS: DataSourceStatus[] = [
     status: 'needs_setup',
     cost: 'Free tier available',
     setupUrl: "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
-    description: "Track crypto analysis videos",
+    description: "📺 Track crypto analysis videos",
     priority: 'medium'
   },
   {
@@ -74,7 +108,7 @@ const DATA_SOURCE_STATUS: DataSourceStatus[] = [
     status: 'needs_setup',
     cost: 'Free tier available',
     setupUrl: "https://www.reddit.com/prefs/apps",
-    description: "Monitor r/cryptocurrency, r/bitcoin",
+    description: "💬 Monitor r/cryptocurrency, r/bitcoin",
     priority: 'medium'
   }
 ];
@@ -171,13 +205,23 @@ export function DataSourceStatusPanel() {
         ))}
         
         <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <h4 className="font-semibold text-blue-900 mb-2">📋 Next Actions Required:</h4>
-          <ol className="text-sm text-blue-800 space-y-1">
-            <li>1. ✅ <strong>Ready Sources:</strong> Fear & Greed Index, Coinbase Institutional (working now)</li>
-            <li>2. 🔧 <strong>Free Setup:</strong> Get YouTube Data API & Reddit API keys (free tiers available)</li>
-            <li>3. 💰 <strong>Premium Priority:</strong> Arkham Intelligence for whale tracking ($99/month)</li>
-            <li>4. 📈 <strong>Advanced Setup:</strong> Whale Alert & Twitter API for comprehensive coverage</li>
+          <h4 className="font-semibold text-blue-900 mb-2">📋 Recommended Setup Priority:</h4>
+          <ol className="text-sm text-blue-800 space-y-2">
+            <li>1. ✅ <strong>Ready Now:</strong> Fear & Greed Index, Coinbase Institutional (working immediately)</li>
+            <li>2. 🔔 <strong>Start Here:</strong> Cryptocurrency Alerting or Bitquery (free whale signals)</li>
+            <li>3. ⚡ <strong>Advanced:</strong> QuickNode Webhooks for real-time alerts</li>
+            <li>4. 💰 <strong>Premium Upgrade:</strong> Arkham Intelligence ($99/month) for institutional tracking</li>
+            <li>5. 📱 <strong>Social Layer:</strong> YouTube & Reddit APIs for sentiment analysis</li>
           </ol>
+        </div>
+        
+        <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+          <h4 className="font-semibold text-purple-900 mb-2">🐋 Whale Signal Strategy:</h4>
+          <div className="text-sm text-purple-800 space-y-1">
+            <p><strong>Free Route:</strong> Start with Cryptocurrency Alerting + Bitquery (covers most whale activity)</p>
+            <p><strong>Premium Route:</strong> Arkham Intelligence + QuickNode (institutional + real-time feeds)</p>
+            <p><strong>Complete Setup:</strong> All sources for maximum AI market intelligence</p>
+          </div>
         </div>
       </CardContent>
     </Card>

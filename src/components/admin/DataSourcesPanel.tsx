@@ -24,18 +24,21 @@ interface DataSource {
 }
 
   const DATA_SOURCE_TEMPLATES = {
+  // Existing sources with potential premium upgrades
   arkham_intelligence: {
     name: "Arkham Intelligence",
     type: "blockchain_analytics",
     endpoint: "https://api.arkhamintelligence.com",
     description: "🐋 Track whale movements and institutional flows from BlackRock, Trump, MicroStrategy (Premium: $99+/month)",
-    fields: ["api_key"],
+    fields: ["api_key", "threshold_amount", "entities"],
     entities: ["blackrock", "microstrategy", "tesla", "trump", "biden"],
     icon: Shield,
     needsApiKey: true,
-    cost: "Premium",
+    cost: "Premium ($99+/month)",
     setupUrl: "https://app.arkhamintelligence.com/api",
-    priority: "critical"
+    priority: "critical",
+    supportsWebhooks: false,
+    premiumUpgrade: true
   },
   fear_greed_index: {
     name: "Fear & Greed Index",
@@ -48,7 +51,9 @@ interface DataSource {
     needsApiKey: false,
     cost: "Free",
     setupUrl: "https://alternative.me/crypto/fear-and-greed-index/",
-    priority: "ready"
+    priority: "ready",
+    supportsWebhooks: false,
+    premiumUpgrade: false
   },
   coinbase_institutional: {
     name: "Coinbase Institutional Flows",
@@ -61,20 +66,73 @@ interface DataSource {
     needsApiKey: false,
     cost: "Free",
     setupUrl: "https://docs.cloud.coinbase.com/exchange/docs",
-    priority: "ready"
+    priority: "ready",
+    supportsWebhooks: false,
+    premiumUpgrade: false
   },
   whale_alerts: {
     name: "Whale Alert",
     type: "blockchain_analytics", 
     endpoint: "https://api.whale-alert.io",
     description: "🚨 Real-time large transactions (>$100K) monitoring (Premium: $50+/month)",
-    fields: ["api_key"],
+    fields: ["api_key", "threshold_amount", "blockchain_networks"],
     entities: ["whale_transactions"],
     icon: Activity,
     needsApiKey: true,
-    cost: "Premium",
+    cost: "Premium ($50+/month)",
     setupUrl: "https://whale-alert.io/api",
-    priority: "high"
+    priority: "high",
+    supportsWebhooks: false,
+    premiumUpgrade: true
+  },
+  
+  // New Whale Signal Providers
+  cryptocurrency_alerting: {
+    name: "Cryptocurrency Alerting",
+    type: "whale_signals",
+    endpoint: "https://cryptocurrencyalerting.com/api",
+    description: "🔔 Webhook-based whale alerts with custom thresholds (Free tier + Premium features)",
+    fields: ["webhook_url", "threshold_amount", "blockchain_networks", "api_key"],
+    entities: ["whale_webhooks", "threshold_alerts"],
+    icon: AlertTriangle,
+    needsApiKey: true,
+    cost: "Free tier available",
+    setupUrl: "https://cryptocurrencyalerting.com/webhook-setup",
+    priority: "high",
+    supportsWebhooks: true,
+    premiumUpgrade: false
+  },
+  
+  bitquery_api: {
+    name: "Bitquery API",
+    type: "whale_signals",
+    endpoint: "https://graphql.bitquery.io",
+    description: "📊 Advanced blockchain data queries with whale detection (Free tier: 1000 queries/month)",
+    fields: ["api_key", "threshold_amount", "blockchain_networks", "query_config"],
+    entities: ["blockchain_queries", "whale_data"],
+    icon: BarChart3,
+    needsApiKey: true,
+    cost: "Free tier (1000 queries/month)",
+    setupUrl: "https://bitquery.io/docs/start/",
+    priority: "high",
+    supportsWebhooks: false,
+    premiumUpgrade: false
+  },
+  
+  quicknode_webhooks: {
+    name: "QuickNode Webhooks",
+    type: "whale_signals", 
+    endpoint: "https://api.quicknode.com",
+    description: "⚡ Real-time blockchain webhooks with expression filters (Pay-per-use pricing)",
+    fields: ["api_key", "webhook_url", "blockchain_networks", "expression_filter", "webhook_secret"],
+    entities: ["realtime_webhooks", "expression_alerts"],
+    icon: Zap,
+    needsApiKey: true,
+    cost: "Pay-per-use",
+    setupUrl: "https://www.quicknode.com/guides/quicknode-streams/how-to-use-quicknode-streams",
+    priority: "high", 
+    supportsWebhooks: true,
+    premiumUpgrade: false
   },
   twitter_sentiment: {
     name: "Twitter/X Account",
@@ -87,7 +145,9 @@ interface DataSource {
     needsApiKey: true,
     cost: "Premium",
     setupUrl: "https://developer.twitter.com/en/portal/dashboard",
-    priority: "medium"
+    priority: "medium",
+    supportsWebhooks: false,
+    premiumUpgrade: true
   },
   youtube_channels: {
     name: "YouTube Channel",
@@ -100,7 +160,9 @@ interface DataSource {
     needsApiKey: true,
     cost: "Free tier available",
     setupUrl: "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
-    priority: "medium"
+    priority: "medium",
+    supportsWebhooks: false,
+    premiumUpgrade: false
   },
   reddit_crypto: {
     name: "Reddit Community",
@@ -113,7 +175,9 @@ interface DataSource {
     needsApiKey: true,
     cost: "Free tier available",
     setupUrl: "https://www.reddit.com/prefs/apps",
-    priority: "medium"
+    priority: "medium",
+    supportsWebhooks: false,
+    premiumUpgrade: false
   },
   custom_website: {
     name: "Custom Website",
@@ -126,7 +190,9 @@ interface DataSource {
     needsApiKey: false,
     cost: "Free",
     setupUrl: "",
-    priority: "ready"
+    priority: "ready",
+    supportsWebhooks: false,
+    premiumUpgrade: false
   },
   document_upload: {
     name: "Document Upload",
@@ -139,7 +205,9 @@ interface DataSource {
     needsApiKey: false,
     cost: "Free",
     setupUrl: "",
-    priority: "ready"
+    priority: "ready",
+    supportsWebhooks: false,
+    premiumUpgrade: false
   }
 };
 
@@ -347,6 +415,7 @@ export function DataSourcesPanel() {
       case 'social_sentiment': return 'bg-orange-500/10 text-orange-700';
       case 'custom_content': return 'bg-indigo-500/10 text-indigo-700';
       case 'knowledge_base': return 'bg-blue-500/10 text-blue-700';
+      case 'whale_signals': return 'bg-purple-500/10 text-purple-700';
       default: return 'bg-gray-500/10 text-gray-700';
     }
   };
@@ -475,6 +544,7 @@ export function DataSourcesPanel() {
                         {template?.priority === 'ready' && <CheckCircle className="h-4 w-4 text-green-500" />}
                         {template?.priority === 'critical' && <AlertTriangle className="h-4 w-4 text-red-500" />}
                         {template?.priority === 'high' && <Clock className="h-4 w-4 text-orange-500" />}
+                        {template?.supportsWebhooks && <Zap className="h-4 w-4 text-purple-500" />}
                         {template?.needsApiKey && !template?.priority?.includes('ready') && <Wrench className="h-4 w-4 text-blue-500" />}
                       </div>
                       <Switch

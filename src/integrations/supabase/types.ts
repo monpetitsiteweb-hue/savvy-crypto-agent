@@ -109,45 +109,60 @@ export type Database = {
       ai_data_sources: {
         Row: {
           api_endpoint: string | null
+          blockchain_networks: string[] | null
           category_id: string | null
           configuration: Json | null
           created_at: string
+          filter_config: Json | null
           id: string
           is_active: boolean
           last_sync: string | null
           source_name: string
           source_type: string
+          threshold_amount: number | null
           update_frequency: string
           updated_at: string
           user_id: string
+          webhook_secret: string | null
+          webhook_url: string | null
         }
         Insert: {
           api_endpoint?: string | null
+          blockchain_networks?: string[] | null
           category_id?: string | null
           configuration?: Json | null
           created_at?: string
+          filter_config?: Json | null
           id?: string
           is_active?: boolean
           last_sync?: string | null
           source_name: string
           source_type: string
+          threshold_amount?: number | null
           update_frequency?: string
           updated_at?: string
           user_id: string
+          webhook_secret?: string | null
+          webhook_url?: string | null
         }
         Update: {
           api_endpoint?: string | null
+          blockchain_networks?: string[] | null
           category_id?: string | null
           configuration?: Json | null
           created_at?: string
+          filter_config?: Json | null
           id?: string
           is_active?: boolean
           last_sync?: string | null
           source_name?: string
           source_type?: string
+          threshold_amount?: number | null
           update_frequency?: string
           updated_at?: string
           user_id?: string
+          webhook_secret?: string | null
+          webhook_url?: string | null
         }
         Relationships: [
           {
@@ -773,6 +788,65 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      whale_signal_events: {
+        Row: {
+          amount: number | null
+          blockchain: string | null
+          created_at: string
+          event_type: string
+          from_address: string | null
+          id: string
+          processed: boolean | null
+          raw_data: Json | null
+          source_id: string
+          timestamp: string
+          to_address: string | null
+          token_symbol: string | null
+          transaction_hash: string | null
+          user_id: string
+        }
+        Insert: {
+          amount?: number | null
+          blockchain?: string | null
+          created_at?: string
+          event_type: string
+          from_address?: string | null
+          id?: string
+          processed?: boolean | null
+          raw_data?: Json | null
+          source_id: string
+          timestamp?: string
+          to_address?: string | null
+          token_symbol?: string | null
+          transaction_hash?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number | null
+          blockchain?: string | null
+          created_at?: string
+          event_type?: string
+          from_address?: string | null
+          id?: string
+          processed?: boolean | null
+          raw_data?: Json | null
+          source_id?: string
+          timestamp?: string
+          to_address?: string | null
+          token_symbol?: string | null
+          transaction_hash?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whale_signal_events_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "ai_data_sources"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

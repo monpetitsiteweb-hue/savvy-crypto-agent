@@ -6,8 +6,9 @@ import { CoinbaseSandboxPanel } from '@/components/admin/CoinbaseSandboxPanel';
 import { LLMConfigPanel } from '@/components/admin/LLMConfigPanel';
 import { DataSourcesPanel } from '@/components/admin/DataSourcesPanel';
 import { DataSourceStatusPanel } from '@/components/admin/DataSourceStatusPanel';
+import { WhaleSignalPanel } from '@/components/admin/WhaleSignalPanel';
 import { useUserRole } from '@/hooks/useUserRole';
-import { Settings, Bot, Database, Shield, TrendingUp, ExternalLink, Key } from 'lucide-react';
+import { Settings, Bot, Database, Shield, TrendingUp, ExternalLink, Key, Activity } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 
@@ -26,6 +27,7 @@ const AdminPage = () => {
     { id: 'oauth-setup', label: 'OAuth Setup', icon: <Settings className="w-4 h-4" /> },
     { id: 'llm-config', label: 'AI Configuration', icon: <Bot className="w-4 h-4" /> },
     { id: 'data-sources', label: 'Data Sources', icon: <Database className="w-4 h-4" /> },
+    { id: 'whale-signals', label: 'Whale Signals', icon: <Activity className="w-4 h-4" /> },
     { id: 'data-status', label: 'Setup Guide', icon: <TrendingUp className="w-4 h-4" /> },
     { id: 'sandbox-api', label: 'Sandbox API', icon: <Key className="w-4 h-4" /> },
   ];
@@ -89,6 +91,7 @@ const AdminPage = () => {
             {activeTab === 'oauth-setup' && <CoinbaseOAuthPanel />}
             {activeTab === 'llm-config' && <LLMConfigPanel />}
             {activeTab === 'data-sources' && <DataSourcesPanel />}
+            {activeTab === 'whale-signals' && <WhaleSignalPanel />}
             {activeTab === 'data-status' && <DataSourceStatusPanel />}
             {activeTab === 'sandbox-api' && <CoinbaseSandboxPanel />}
           </div>
