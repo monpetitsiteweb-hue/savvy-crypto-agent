@@ -480,7 +480,7 @@ export function DataSourcesPanel() {
   const getSourceIcon = (sourceName: string) => {
     const template = getSourceTemplate(sourceName);
     const IconComponent = template?.icon || Database;
-    return <IconComponent className="h-4 w-4" />;
+    return <IconComponent className="h-4 w-4 text-slate-300" />;
   };
 
   const getSourceColor = (sourceType: string) => {
@@ -691,7 +691,7 @@ export function DataSourcesPanel() {
                               variant="outline"
                               size="sm"
                               onClick={() => openEditDialog(source)}
-                              className="hover:bg-slate-600 hover:text-white transition-colors"
+                              className="border-slate-600 text-slate-300 hover:bg-slate-600 hover:text-white hover:border-slate-500 transition-colors"
                             >
                               <Settings className="h-4 w-4 mr-1" />
                               Configure
