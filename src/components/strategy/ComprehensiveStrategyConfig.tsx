@@ -449,15 +449,12 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     children: React.ReactNode; 
     description: string;
     examples?: string[];
-  }) => {
-    console.log('TooltipField rendered:', description);
-    return (
+  }) => (
+    <div className="flex items-center gap-2">
+      {children}
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="flex items-center gap-2">
-            {children}
-            <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
-          </div>
+          <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
         </TooltipTrigger>
         <TooltipContent className="max-w-sm p-4">
           <div className="space-y-2">
@@ -477,8 +474,8 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
           </div>
         </TooltipContent>
       </Tooltip>
-    );
-  };
+    </div>
+  );
 
   const handleLiveToggle = (value: boolean) => {
     if (value) {
