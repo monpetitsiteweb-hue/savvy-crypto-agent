@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -450,33 +450,31 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     description: string;
     examples?: string[];
   }) => (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="flex items-center gap-2">
-            {children}
-            <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
-          </div>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-sm p-4">
-          <div className="space-y-2">
-            <p className="text-sm font-medium">{description}</p>
-            {examples && examples.length > 0 && (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="flex items-center gap-2">
+          {children}
+          <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-sm p-4">
+        <div className="space-y-2">
+          <p className="text-sm font-medium">{description}</p>
+          {examples && examples.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground font-medium">Say:</p>
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground font-medium">Say:</p>
-                <div className="space-y-1">
-                  {examples.map((example, index) => (
-                    <p key={index} className="text-xs text-muted-foreground italic">
-                      "{example}"
-                    </p>
-                  ))}
-                </div>
+                {examples.map((example, index) => (
+                  <p key={index} className="text-xs text-muted-foreground italic">
+                    "{example}"
+                  </p>
+                ))}
               </div>
-            )}
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+            </div>
+          )}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 
   const handleLiveToggle = (value: boolean) => {

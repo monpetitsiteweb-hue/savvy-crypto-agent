@@ -4,7 +4,7 @@ import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { Brain, Info, AlertTriangle, TrendingUp, Eye, Zap } from 'lucide-react';
@@ -90,19 +90,17 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
     children: React.ReactNode; 
     description: string;
   }) => (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="flex items-center gap-2">
-            {children}
-            <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
-          </div>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-sm p-4">
-          <p className="text-sm">{description}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="flex items-center gap-2">
+          {children}
+          <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-sm p-4">
+        <p className="text-sm">{description}</p>
+      </TooltipContent>
+    </Tooltip>
   );
 
   const getAutonomyDescription = (level: number) => {

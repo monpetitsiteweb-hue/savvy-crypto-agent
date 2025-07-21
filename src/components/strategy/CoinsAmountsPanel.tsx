@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { 
   Coins, 
   Plus, 
@@ -30,19 +30,17 @@ interface CoinsAmountsPanelProps {
 }
 
 const TooltipField = ({ children, tooltip }: { children: React.ReactNode; tooltip: string }) => (
-  <TooltipProvider>
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div className="flex items-center gap-2">
-          {children}
-          <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
-        </div>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-xs">
-        <p className="text-sm">{tooltip}</p>
-      </TooltipContent>
-    </Tooltip>
-  </TooltipProvider>
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <div className="flex items-center gap-2">
+        {children}
+        <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
+      </div>
+    </TooltipTrigger>
+    <TooltipContent className="max-w-xs">
+      <p className="text-sm">{tooltip}</p>
+    </TooltipContent>
+  </Tooltip>
 );
 
 export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPanelProps) => {

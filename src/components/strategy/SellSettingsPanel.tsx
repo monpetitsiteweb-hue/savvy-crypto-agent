@@ -4,7 +4,7 @@ import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { 
   TrendingDown, 
   Info,
@@ -29,33 +29,31 @@ const TooltipField = ({
   description: string;
   examples?: string[];
 }) => (
-  <TooltipProvider>
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div className="flex items-center gap-2">
-          {children}
-          <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
-        </div>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-sm p-4">
-        <div className="space-y-2">
-          <p className="text-sm font-medium">{description}</p>
-          {examples && examples.length > 0 && (
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <div className="flex items-center gap-2">
+        {children}
+        <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
+      </div>
+    </TooltipTrigger>
+    <TooltipContent className="max-w-sm p-4">
+      <div className="space-y-2">
+        <p className="text-sm font-medium">{description}</p>
+        {examples && examples.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground font-medium">Say:</p>
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground font-medium">Say:</p>
-              <div className="space-y-1">
-                {examples.map((example, index) => (
-                  <p key={index} className="text-xs text-muted-foreground italic">
-                    "{example}"
-                  </p>
-                ))}
-              </div>
+              {examples.map((example, index) => (
+                <p key={index} className="text-xs text-muted-foreground italic">
+                  "{example}"
+                </p>
+              ))}
             </div>
-          )}
-        </div>
-      </TooltipContent>
-    </Tooltip>
-  </TooltipProvider>
+          </div>
+        )}
+      </div>
+    </TooltipContent>
+  </Tooltip>
 );
 
 export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPanelProps) => {
