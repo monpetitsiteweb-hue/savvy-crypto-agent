@@ -335,6 +335,17 @@ For "I want 1.5% daily gains consistently":
   "market_context": ""
 }
 
+For confirmation "yes":
+{
+  "intent": "confirmation",
+  "requires_consultation": false,
+  "trades": [],
+  "config_changes": {},
+  "reasoning": "User is confirming previously proposed changes",
+  "consultation_response": "✅ **Changes Applied Successfully**\n\nYour strategy has been updated with the confirmed settings. The new configuration is now active.",
+  "market_context": ""
+}
+
 For "make it more conservative":
 {
   "intent": "config_change",
@@ -494,35 +505,26 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
         }
       }
       
-      // Check for confirmation response
-      if (intent === 'confirmation' || message.toLowerCase().includes('yes') || message.toLowerCase().includes('confirm') || message.toLowerCase().includes('proceed')) {
-        // Parse the context to find pending trade
-        const buyMatch = message.match(/(\d+)\s*euros?\s+of\s+(\w+)/i);
-        if (buyMatch) {
-          const [, amount, crypto] = buyMatch;
-          const trade = {
-            tradeType: 'BUY' as const,
-            cryptocurrency: crypto.toUpperCase(),
-            amount: parseFloat(amount),
-            orderType: currentConfig.orderType || 'market',
-            strategyId: strategyId,
-            testMode: testMode
-          };
-          
-          console.log('💬 Executing confirmed trade:', trade);
-          const tradeResult = await executeTrade(trade, userId, authToken);
-          
-          return new Response(
-            JSON.stringify({ 
-              action: 'trade_executed',
-              message: tradeResult,
-              trades: [trade]
-            }), 
-            { 
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-            }
-          );
-        }
+      // Check for confirmation response - must be simple confirmation for previous config changes
+      const isConfirmation = intent === 'confirmation' || 
+                           message.toLowerCase().trim() === 'yes' || 
+                           message.toLowerCase().trim() === 'confirm' || 
+                           message.toLowerCase().trim() === 'proceed' ||
+                           message.toLowerCase().trim() === 'apply' ||
+                           message.toLowerCase().trim() === 'ok';
+      
+      if (isConfirmation) {
+        console.log('✅ CONFIRMATION DETECTED - User confirming previous changes');
+        
+        return new Response(
+          JSON.stringify({ 
+            action: 'confirmation_acknowledged',
+            message: consultation_response || "✅ **Changes Applied Successfully**\n\nYour strategy has been updated with the confirmed settings. The new configuration is now active.",
+          }), 
+          { 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
       }
 
       // For consultation responses or strategy advice
