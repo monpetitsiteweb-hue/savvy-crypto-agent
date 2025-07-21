@@ -52,7 +52,13 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('External Data Collector Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    console.error('Error stack:', error.stack);
+    console.error('Error details:', JSON.stringify(error, null, 2));
+    return new Response(JSON.stringify({ 
+      error: error.message,
+      stack: error.stack,
+      details: error
+    }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
@@ -107,15 +113,25 @@ async function syncAllDataSources(supabaseClient: any, userId: string) {
 }
 
 async function syncDataSource(supabaseClient: any, sourceId: string) {
-  const { data: source } = await supabaseClient
+  console.log(`🔄 Starting sync for source ID: ${sourceId}`);
+  
+  const { data: source, error: sourceError } = await supabaseClient
     .from('ai_data_sources')
     .select('*')
     .eq('id', sourceId)
     .single();
 
-  if (!source) throw new Error('Data source not found');
+  if (sourceError) {
+    console.error('Error fetching source:', sourceError);
+    throw new Error(`Failed to fetch source: ${sourceError.message}`);
+  }
 
-  console.log(`🔄 Syncing ${source.source_name}...`);
+  if (!source) {
+    console.error('Source not found for ID:', sourceId);
+    throw new Error('Data source not found');
+  }
+
+  console.log(`🔄 Syncing ${source.source_name} (ID: ${sourceId})...`);
 
   switch (source.source_name) {
     case 'arkham_intelligence':
@@ -148,10 +164,22 @@ async function syncDataSource(supabaseClient: any, sourceId: string) {
   }
 
   // Update last sync time
-  await supabaseClient
-    .from('ai_data_sources')
-    .update({ last_sync: new Date().toISOString() })
-    .eq('id', sourceId);
+  try {
+    const { error: updateError } = await supabaseClient
+      .from('ai_data_sources')
+      .update({ last_sync: new Date().toISOString() })
+      .eq('id', sourceId);
+      
+    if (updateError) {
+      console.error('Error updating last_sync:', updateError);
+      throw new Error(`Failed to update last_sync: ${updateError.message}`);
+    }
+    
+    console.log(`✅ Successfully synced and updated last_sync for ${source.source_name}`);
+  } catch (error) {
+    console.error('Error in last_sync update:', error);
+    throw error;
+  }
 }
 
 async function syncArkhemIntelligence(supabaseClient: any, source: any) {
@@ -337,6 +365,7 @@ async function syncWhaleAlerts(supabaseClient: any, source: any) {
 
 async function syncQuickNodeWebhooks(supabaseClient: any, source: any) {
   console.log('⚡ Syncing QuickNode webhook configuration...');
+  console.log('Source details:', JSON.stringify(source, null, 2));
   
   try {
     // For webhook sources, the sync is mainly about testing the configuration
@@ -353,31 +382,42 @@ async function syncQuickNodeWebhooks(supabaseClient: any, source: any) {
     console.log(`🔗 QuickNode webhook configured: ${webhookUrl}`);
     
     // Create a test event to verify webhook is working
-    await supabaseClient
-      .from('whale_signal_events')
-      .insert({
-        user_id: source.user_id,
-        source_id: source.id,
-        event_type: 'sync_test',
-        transaction_hash: `test_${Date.now()}`,
-        amount: 0,
-        from_address: 'test_sync',
-        to_address: 'test_sync',
-        token_symbol: 'TEST',
-        blockchain: 'test',
-        raw_data: { 
-          sync_test: true, 
-          timestamp: new Date().toISOString(),
-          webhook_url: webhookUrl,
-          has_secret: !!webhookSecret
-        },
+    const testEventData = {
+      user_id: source.user_id,
+      source_id: source.id,
+      event_type: 'sync_test',
+      transaction_hash: `test_${Date.now()}`,
+      amount: 0,
+      from_address: 'test_sync',
+      to_address: 'test_sync',
+      token_symbol: 'TEST',
+      blockchain: 'test',
+      raw_data: { 
+        sync_test: true, 
         timestamp: new Date().toISOString(),
-        processed: true
-      });
+        webhook_url: webhookUrl,
+        has_secret: !!webhookSecret
+      },
+      timestamp: new Date().toISOString(),
+      processed: true
+    };
     
-    console.log('✅ QuickNode webhook sync completed - test event created');
+    console.log('Inserting test event:', JSON.stringify(testEventData, null, 2));
+    
+    const { data: insertedData, error: insertError } = await supabaseClient
+      .from('whale_signal_events')
+      .insert(testEventData)
+      .select();
+    
+    if (insertError) {
+      console.error('Error inserting test event:', insertError);
+      throw new Error(`Failed to insert test event: ${insertError.message}`);
+    }
+    
+    console.log('✅ QuickNode webhook sync completed - test event created:', insertedData);
   } catch (error) {
     console.error('Failed to sync QuickNode webhook:', error);
+    console.error('Error details:', JSON.stringify(error, null, 2));
     throw error;
   }
 }
