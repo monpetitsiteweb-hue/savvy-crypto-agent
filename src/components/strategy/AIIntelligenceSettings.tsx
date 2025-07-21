@@ -85,10 +85,12 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
 
   const TooltipField = ({ 
     children, 
-    description 
+    description, 
+    examples 
   }: { 
     children: React.ReactNode; 
     description: string;
+    examples?: string[];
   }) => (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -98,7 +100,21 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
         </div>
       </TooltipTrigger>
       <TooltipContent className="max-w-sm p-4">
-        <p className="text-sm">{description}</p>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">{description}</p>
+          {examples && examples.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground font-medium">Say:</p>
+              <div className="space-y-1">
+                {examples.map((example, index) => (
+                  <p key={index} className="text-xs text-muted-foreground italic">
+                    "{example}"
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </TooltipContent>
     </Tooltip>
   );
@@ -132,7 +148,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="flex items-center justify-between">
-            <TooltipField description="Master switch: Allow AI to override strategy rules when market conditions warrant it. When enabled, AI can modify trades, timing, and parameters beyond the basic strategy rules. Natural language: 'Give the AI more control', 'Let AI make decisions', 'Enable AI override', 'Allow AI independence'">
+            <TooltipField 
+              description="Master switch: Allow AI to override strategy rules when market conditions warrant it. When enabled, AI can modify trades, timing, and parameters beyond the basic strategy rules." 
+              examples={["Give the AI more control", "Let AI make decisions", "Enable AI override", "Allow AI independence"]}
+            >
               <Label htmlFor="ai-override">Enable AI Decision Override</Label>
             </TooltipField>
             <Switch
@@ -145,7 +164,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
           {config.enableAIOverride && (
             <div className="space-y-4 border-l-2 border-primary/20 pl-4">
               <div className="space-y-2">
-                <TooltipField description="How much autonomy the AI has to make decisions independently. Higher values = more AI freedom. Natural language: 'Give you more autonomy', 'I want you to be more independent', 'Make your own decisions', 'Be more/less autonomous', 'Take more control'">
+                <TooltipField 
+                  description="How much autonomy the AI has to make decisions independently. Higher values = more AI freedom." 
+                  examples={["Give you more autonomy", "I want you to be more independent", "Make your own decisions", "Be more/less autonomous", "Take more control"]}
+                >
                   <Label>AI Autonomy Level: {config.aiAutonomyLevel}%</Label>
                 </TooltipField>
                 <Slider
@@ -161,7 +183,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               </div>
 
               <div className="space-y-2">
-                <TooltipField description="Minimum confidence level required for AI to take action. Higher values = AI only acts when very confident. Natural language: 'Be more confident before acting', 'Only act when you're sure', 'Be more/less cautious', 'Increase/decrease confidence threshold'">
+                <TooltipField 
+                  description="Minimum confidence level required for AI to take action. Higher values = AI only acts when very confident." 
+                  examples={["Be more confident before acting", "Only act when you're sure", "Be more/less cautious", "Increase/decrease confidence threshold"]}
+                >
                   <Label>Confidence Threshold: {config.aiConfidenceThreshold}%</Label>
                 </TooltipField>
                 <Slider
@@ -174,7 +199,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               </div>
 
               <div className="space-y-2">
-                <TooltipField description="When AI should escalate vs act independently. Below this threshold: AI acts alone. Above: AI asks for approval. Natural language: 'Ask me before big decisions', 'Only escalate important things', 'Handle more things yourself'">
+                <TooltipField 
+                  description="When AI should escalate vs act independently. Below this threshold: AI acts alone. Above: AI asks for approval." 
+                  examples={["Ask me before big decisions", "Only escalate important things", "Handle more things yourself"]}
+                >
                   <Label>Escalation Threshold: {config.escalationThreshold}%</Label>
                 </TooltipField>
                 <Slider
@@ -190,7 +218,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               </div>
 
               <div className="flex items-center justify-between">
-                <TooltipField description="Allow AI to override risk parameters (stop-loss, position size) when opportunity justifies it. Natural language: 'Override risk settings when needed', 'Break risk rules for good opportunities', 'Strict risk management only'">
+                <TooltipField 
+                  description="Allow AI to override risk parameters (stop-loss, position size) when opportunity justifies it." 
+                  examples={["Override risk settings when needed", "Break risk rules for good opportunities", "Strict risk management only"]}
+                >
                   <Label htmlFor="risk-override">Allow Risk Parameter Override</Label>
                 </TooltipField>
                 <Switch
@@ -203,7 +234,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
           )}
 
           <div className="space-y-2">
-            <TooltipField description="AI decision-making style and risk approach. Conservative: safety first. Balanced: moderate risk. Aggressive: opportunity focused. Natural language: 'Be more conservative/aggressive', 'Take more/fewer risks', 'Focus on safety/opportunities'">
+            <TooltipField 
+              description="AI decision-making style and risk approach. Conservative: safety first. Balanced: moderate risk. Aggressive: opportunity focused." 
+              examples={["Be more conservative/aggressive", "Take more/fewer risks", "Focus on safety/opportunities"]}
+            >
               <Label>Decision Making Mode</Label>
             </TooltipField>
             <Select
@@ -236,7 +270,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
-            <TooltipField description="Enable AI to recognize and act on historical patterns">
+            <TooltipField 
+              description="Enable AI to recognize and act on historical patterns" 
+              examples={["Use pattern recognition", "Analyze historical trends", "Find market patterns"]}
+            >
               <Label htmlFor="pattern-recognition">Enable Pattern Recognition</Label>
             </TooltipField>
             <Switch
@@ -249,7 +286,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
           {config.enablePatternRecognition && (
             <div className="space-y-4 border-l-2 border-primary/20 pl-4">
               <div className="space-y-2">
-                <TooltipField description="How far back to analyze for patterns (in hours)">
+                <TooltipField 
+                  description="How far back to analyze for patterns (in hours)" 
+                  examples={["Look back 7 days", "Analyze past week patterns", "Use 2 weeks of data"]}
+                >
                   <Label>Pattern Analysis Lookback: {config.patternLookbackHours} hours</Label>
                 </TooltipField>
                 <Slider
@@ -263,7 +303,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               </div>
 
               <div className="flex items-center justify-between">
-                <TooltipField description="Analyze correlations between different assets">
+                <TooltipField 
+                  description="Analyze correlations between different assets" 
+                  examples={["Check how BTC affects altcoins", "Analyze asset correlations", "Find related movements"]}
+                >
                   <Label htmlFor="cross-asset">Cross-Asset Correlation Analysis</Label>
                 </TooltipField>
                 <Switch
@@ -274,7 +317,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               </div>
 
               <div className="flex items-center justify-between">
-                <TooltipField description="Analyze market structure and liquidity patterns">
+                <TooltipField 
+                  description="Analyze market structure and liquidity patterns" 
+                  examples={["Check market depth", "Analyze order book patterns", "Monitor liquidity changes"]}
+                >
                   <Label htmlFor="market-structure">Market Structure Analysis</Label>
                 </TooltipField>
                 <Switch
@@ -298,7 +344,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
-            <TooltipField description="Process and act on external market signals">
+            <TooltipField 
+              description="Process and act on external market signals" 
+              examples={["Use whale alerts", "Monitor news signals", "Process external data"]}
+            >
               <Label htmlFor="external-signals">Enable External Signal Processing</Label>
             </TooltipField>
             <Switch
@@ -312,7 +361,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
             <div className="space-y-4 border-l-2 border-primary/20 pl-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <TooltipField description="Weight given to whale activity signals">
+                  <TooltipField 
+                    description="Weight given to whale activity signals" 
+                    examples={["Focus on whale movements", "Weight whale signals higher", "Ignore whale activity"]}
+                  >
                     <Label>Whale Activity: {config.whaleActivityWeight}%</Label>
                   </TooltipField>
                   <Slider
@@ -325,7 +377,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 </div>
 
                 <div className="space-y-2">
-                  <TooltipField description="Weight given to market sentiment signals">
+                  <TooltipField 
+                    description="Weight given to market sentiment signals" 
+                    examples={["Track market sentiment", "Use sentiment indicators", "Monitor fear and greed"]}
+                  >
                     <Label>Market Sentiment: {config.sentimentWeight}%</Label>
                   </TooltipField>
                   <Slider
@@ -338,7 +393,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 </div>
 
                 <div className="space-y-2">
-                  <TooltipField description="Weight given to news impact signals">
+                  <TooltipField 
+                    description="Weight given to news impact signals" 
+                    examples={["React to breaking news", "Consider news impact", "Follow financial news"]}
+                  >
                     <Label>News Impact: {config.newsImpactWeight}%</Label>
                   </TooltipField>
                   <Slider
@@ -351,7 +409,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 </div>
 
                 <div className="space-y-2">
-                  <TooltipField description="Weight given to social media signals">
+                  <TooltipField 
+                    description="Weight given to social media signals" 
+                    examples={["Monitor social trends", "Use Twitter sentiment", "Follow social signals"]}
+                  >
                     <Label>Social Signals: {config.socialSignalsWeight}%</Label>
                   </TooltipField>
                   <Slider
@@ -388,7 +449,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
-            <TooltipField description="Allow AI to learn from trading results and adapt strategies">
+            <TooltipField 
+              description="Allow AI to learn from trading results and adapt strategies" 
+              examples={["Enable AI learning", "Adapt from results", "Learn from mistakes"]}
+            >
               <Label htmlFor="learning">Enable AI Learning</Label>
             </TooltipField>
             <Switch
@@ -401,7 +465,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
           {config.enableLearning && (
             <div className="space-y-4 border-l-2 border-primary/20 pl-4">
               <div className="flex items-center justify-between">
-                <TooltipField description="Adapt strategy parameters based on performance">
+                <TooltipField 
+                  description="Adapt strategy parameters based on performance" 
+                  examples={["Adjust based on performance", "Learn from wins/losses", "Adapt strategy parameters"]}
+                >
                   <Label htmlFor="adapt-performance">Adapt to Performance</Label>
                 </TooltipField>
                 <Switch
@@ -412,7 +479,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               </div>
 
               <div className="space-y-2">
-                <TooltipField description="How quickly AI adapts to new information">
+                <TooltipField 
+                  description="How quickly AI adapts to new information" 
+                  examples={["Learn faster", "Adapt quickly", "Slower learning rate"]}
+                >
                   <Label>Learning Rate: {config.learningRate}%</Label>
                 </TooltipField>
                 <Slider
@@ -440,7 +510,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
-            <TooltipField description="AI explains its decisions and reasoning">
+            <TooltipField 
+              description="AI explains its decisions and reasoning" 
+              examples={["Explain your decisions", "Tell me why you acted", "Provide reasoning"]}
+            >
               <Label htmlFor="explain-decisions">Explain AI Decisions</Label>
             </TooltipField>
             <Switch
@@ -451,7 +524,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
           </div>
 
           <div className="flex items-center justify-between">
-            <TooltipField description="Alert when AI detects market anomalies">
+            <TooltipField 
+              description="Alert when AI detects market anomalies" 
+              examples={["Alert on strange market behavior", "Notify about anomalies", "Warn about unusual patterns"]}
+            >
               <Label htmlFor="alert-anomalies">Alert on Anomalies</Label>
             </TooltipField>
             <Switch
@@ -462,7 +538,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
           </div>
 
           <div className="flex items-center justify-between">
-            <TooltipField description="Alert when AI overrides strategy rules">
+            <TooltipField 
+              description="Alert when AI overrides strategy rules" 
+              examples={["Notify when you override rules", "Alert when breaking strategy", "Tell me when you deviate"]}
+            >
               <Label htmlFor="alert-overrides">Alert on Rule Overrides</Label>
             </TooltipField>
             <Switch
@@ -473,7 +552,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
           </div>
 
           <div className="space-y-2">
-            <TooltipField description="Custom instructions for AI behavior and decision-making">
+            <TooltipField 
+              description="Custom instructions for AI behavior and decision-making" 
+              examples={["Be extra cautious during news", "Focus on BTC signals", "Prioritize safety over profits"]}
+            >
               <Label>Custom AI Instructions</Label>
             </TooltipField>
             <Textarea

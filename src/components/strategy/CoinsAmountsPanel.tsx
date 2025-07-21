@@ -29,7 +29,15 @@ interface CoinsAmountsPanelProps {
   updateFormData: (field: string, value: any) => void;
 }
 
-const TooltipField = ({ children, tooltip }: { children: React.ReactNode; tooltip: string }) => (
+const TooltipField = ({ 
+  children, 
+  description, 
+  examples 
+}: { 
+  children: React.ReactNode; 
+  description: string;
+  examples?: string[];
+}) => (
   <Tooltip>
     <TooltipTrigger asChild>
       <div className="flex items-center gap-2">
@@ -37,8 +45,22 @@ const TooltipField = ({ children, tooltip }: { children: React.ReactNode; toolti
         <Info className="h-4 w-4 text-muted-foreground hover:text-foreground cursor-help" />
       </div>
     </TooltipTrigger>
-    <TooltipContent className="max-w-xs">
-      <p className="text-sm">{tooltip}</p>
+    <TooltipContent className="max-w-sm p-4">
+      <div className="space-y-2">
+        <p className="text-sm font-medium">{description}</p>
+        {examples && examples.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground font-medium">Say:</p>
+            <div className="space-y-1">
+              {examples.map((example, index) => (
+                <p key={index} className="text-xs text-muted-foreground italic">
+                  "{example}"
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </TooltipContent>
   </Tooltip>
 );
@@ -110,7 +132,7 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
 
             {/* Selected Coins */}
             <div className="space-y-4">
-              <TooltipField tooltip="👁 These are the cryptocurrencies your strategy will trade. Say things like: 'Trade Bitcoin and Ethereum' or 'Add Solana to my portfolio'">
+              <TooltipField description="These are the cryptocurrencies your strategy will trade." examples={["Trade Bitcoin and Ethereum", "Add Solana to my portfolio", "Include XRP in the strategy"]}>
                 <Label>Selected Coins ({formData.selectedCoins.length})</Label>
               </TooltipField>
               
@@ -145,7 +167,7 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <TooltipField tooltip="👁 Maximum number of different cryptocurrencies that can be actively traded at once. Say things like: 'Focus on 3 coins max' or 'Trade up to 5 cryptos simultaneously'">
+              <TooltipField description="Maximum number of different cryptocurrencies that can be actively traded at once." examples={["Focus on 3 coins max", "Trade up to 5 cryptos simultaneously", "Limit to 2 active coins"]}>
                 <Label>Max Active Coins</Label>
               </TooltipField>
               <div className="space-y-2">
@@ -166,7 +188,7 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
             </div>
 
             <div className="flex items-center justify-between p-4 border rounded-lg">
-              <TooltipField tooltip="👁 Let the AI automatically choose which coins to trade based on market conditions. Say things like: 'Auto-select best performing coins' or 'Let AI pick cryptos for me'">
+              <TooltipField description="Let the AI automatically choose which coins to trade based on market conditions." examples={["Auto-select best performing coins", "Let AI pick cryptos for me", "Enable automatic coin selection"]}>
                 <Label>Auto Coin Selection</Label>
               </TooltipField>
               <Checkbox 
@@ -178,7 +200,7 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <TooltipField tooltip="👁 How much money to use per individual trade. Say things like: 'Use 100 euros per trade' or 'Risk 5% of portfolio per position'">
+              <TooltipField description="How much money to use per individual trade." examples={["Use 100 euros per trade", "Risk 5% of portfolio per position", "Allocate 50 euros per trade"]}>
                 <Label>Amount Per Trade</Label>
               </TooltipField>
               <div className="flex gap-2">
@@ -204,7 +226,7 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
             </div>
 
             <div className="space-y-2">
-              <TooltipField tooltip="👁 How often the strategy should execute buy orders. Say things like: 'Buy once daily' or 'Trade based on signals only'">
+              <TooltipField description="How often the strategy should execute buy orders." examples={["Buy once daily", "Trade based on signals only", "Execute trades every hour"]}>
                 <Label>Buy Frequency</Label>
               </TooltipField>
               <Select 
@@ -226,7 +248,7 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
 
           {formData.buyFrequency === 'interval' && (
             <div className="space-y-2">
-              <TooltipField tooltip="👁 Minutes between automated buy orders when using interval buying. Say things like: 'Buy every hour' or 'Space trades 30 minutes apart'">
+              <TooltipField description="Minutes between automated buy orders when using interval buying." examples={["Buy every hour", "Space trades 30 minutes apart", "Trade every 90 minutes"]}>
                 <Label>Buy Interval (minutes)</Label>
               </TooltipField>
               <Input
