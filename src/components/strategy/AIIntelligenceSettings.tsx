@@ -134,7 +134,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="flex items-center justify-between">
-            <TooltipField description="Allow AI to override strategy rules when market conditions warrant it">
+            <TooltipField description="Master switch: Allow AI to override strategy rules when market conditions warrant it. When enabled, AI can modify trades, timing, and parameters beyond the basic strategy rules. Natural language: 'Give the AI more control', 'Let AI make decisions', 'Enable AI override', 'Allow AI independence'">
               <Label htmlFor="ai-override">Enable AI Decision Override</Label>
             </TooltipField>
             <Switch
@@ -147,7 +147,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
           {config.enableAIOverride && (
             <div className="space-y-4 border-l-2 border-primary/20 pl-4">
               <div className="space-y-2">
-                <TooltipField description="How much autonomy the AI has to make decisions independently">
+                <TooltipField description="How much autonomy the AI has to make decisions independently. Higher values = more AI freedom. Natural language: 'Give you more autonomy', 'I want you to be more independent', 'Make your own decisions', 'Be more/less autonomous', 'Take more control'">
                   <Label>AI Autonomy Level: {config.aiAutonomyLevel}%</Label>
                 </TooltipField>
                 <Slider
@@ -163,7 +163,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               </div>
 
               <div className="space-y-2">
-                <TooltipField description="Minimum confidence level required for AI to take action">
+                <TooltipField description="Minimum confidence level required for AI to take action. Higher values = AI only acts when very confident. Natural language: 'Be more confident before acting', 'Only act when you're sure', 'Be more/less cautious', 'Increase/decrease confidence threshold'">
                   <Label>Confidence Threshold: {config.aiConfidenceThreshold}%</Label>
                 </TooltipField>
                 <Slider
@@ -176,7 +176,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               </div>
 
               <div className="space-y-2">
-                <TooltipField description="When AI should escalate vs act independently">
+                <TooltipField description="When AI should escalate vs act independently. Below this threshold: AI acts alone. Above: AI asks for approval. Natural language: 'Ask me before big decisions', 'Only escalate important things', 'Handle more things yourself'">
                   <Label>Escalation Threshold: {config.escalationThreshold}%</Label>
                 </TooltipField>
                 <Slider
@@ -192,7 +192,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               </div>
 
               <div className="flex items-center justify-between">
-                <TooltipField description="Allow AI to override risk parameters when opportunity justifies it">
+                <TooltipField description="Allow AI to override risk parameters (stop-loss, position size) when opportunity justifies it. Natural language: 'Override risk settings when needed', 'Break risk rules for good opportunities', 'Strict risk management only'">
                   <Label htmlFor="risk-override">Allow Risk Parameter Override</Label>
                 </TooltipField>
                 <Switch
@@ -205,7 +205,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
           )}
 
           <div className="space-y-2">
-            <TooltipField description="AI decision-making style and risk approach">
+            <TooltipField description="AI decision-making style and risk approach. Conservative: safety first. Balanced: moderate risk. Aggressive: opportunity focused. Natural language: 'Be more conservative/aggressive', 'Take more/fewer risks', 'Focus on safety/opportunities'">
               <Label>Decision Making Mode</Label>
             </TooltipField>
             <Select
