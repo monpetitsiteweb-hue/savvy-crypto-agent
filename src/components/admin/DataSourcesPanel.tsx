@@ -752,9 +752,12 @@ export function DataSourcesPanel() {
                         </p>
                       )}
                       
-                      <p className="text-xs text-muted-foreground">
-                        Updates: {source.update_frequency}
-                      </p>
+                      {/* Hide frequency for webhook sources */}
+                      {!template?.supportsWebhooks && (
+                        <p className="text-xs text-muted-foreground">
+                          Updates: {source.update_frequency}
+                        </p>
+                      )}
                       
                       {source.last_sync && (
                         <p className="text-xs text-muted-foreground">

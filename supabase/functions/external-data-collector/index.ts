@@ -401,56 +401,143 @@ async function syncQuickNodeWebhooks(supabaseClient: any, source: any) {
   console.log('Source details:', JSON.stringify(source, null, 2));
   
   try {
-    // For webhook sources, the sync is mainly about testing the configuration
-    // and possibly triggering a test webhook or checking connectivity
-    
     const webhookUrl = source.configuration?.webhook_url;
     const webhookSecret = source.configuration?.webhook_secret;
     
     if (!webhookUrl) {
-      console.log('⚠️ QuickNode webhook URL not configured');
-      return;
+      throw new Error('QuickNode webhook URL not configured');
     }
     
-    console.log(`🔗 QuickNode webhook configured: ${webhookUrl}`);
+    console.log(`🔗 Validating QuickNode webhook: ${webhookUrl}`);
     
-    // Create a test event to verify webhook is working
-    const testEventData = {
+    // 1. Validate webhook URL format
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(webhookUrl);
+      if (!parsedUrl.protocol.startsWith('http')) {
+        throw new Error('Webhook URL must use HTTP or HTTPS');
+      }
+    } catch (urlError) {
+      throw new Error(`Invalid webhook URL format: ${urlError.message}`);
+    }
+    
+    // 2. Test our own endpoint to ensure it's reachable and responds correctly
+    console.log('🔍 Testing webhook endpoint reachability...');
+    
+    try {
+      // Send a test payload to our own endpoint to verify it works
+      const testPayload = {
+        test: true,
+        source: 'quicknode_sync_test',
+        timestamp: new Date().toISOString(),
+        matchingTransactions: [
+          {
+            hash: '0xtest123',
+            from: '0xtest456',
+            to: '0xtest789',
+            value: '0x16345785d8a0000', // 0.1 ETH in hex
+            chainId: '0x1' // Ethereum mainnet
+          }
+        ]
+      };
+      
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'QuickNode-Webhook-Sync-Test',
+          ...(webhookSecret && { 'X-Webhook-Secret': webhookSecret })
+        },
+        body: JSON.stringify(testPayload)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Webhook endpoint returned ${response.status}: ${response.statusText}`);
+      }
+      
+      const responseText = await response.text();
+      console.log('✅ Webhook endpoint test successful:', responseText);
+      
+    } catch (fetchError) {
+      throw new Error(`Webhook endpoint unreachable: ${fetchError.message}`);
+    }
+    
+    // 3. Create validation result record
+    const validationData = {
       user_id: source.user_id,
       source_id: source.id,
-      event_type: 'sync_test',
-      transaction_hash: `test_${Date.now()}`,
+      event_type: 'webhook_validation',
+      transaction_hash: `validation_${Date.now()}`,
       amount: 0,
-      from_address: 'test_sync',
-      to_address: 'test_sync',
-      token_symbol: 'TEST',
+      from_address: 'validation_test',
+      to_address: 'validation_test',
+      token_symbol: 'VALIDATION',
       blockchain: 'test',
       raw_data: { 
-        sync_test: true, 
+        validation_test: true,
         timestamp: new Date().toISOString(),
         webhook_url: webhookUrl,
-        has_secret: !!webhookSecret
+        has_secret: !!webhookSecret,
+        url_valid: true,
+        endpoint_reachable: true,
+        status: 'validated'
       },
       timestamp: new Date().toISOString(),
       processed: true
     };
     
-    console.log('Inserting test event:', JSON.stringify(testEventData, null, 2));
+    console.log('Inserting validation event:', JSON.stringify(validationData, null, 2));
     
     const { data: insertedData, error: insertError } = await supabaseClient
       .from('whale_signal_events')
-      .insert(testEventData)
+      .insert(validationData)
       .select();
     
     if (insertError) {
-      console.error('Error inserting test event:', insertError);
-      throw new Error(`Failed to insert test event: ${insertError.message}`);
+      console.error('Error inserting validation event:', insertError);
+      throw new Error(`Failed to store validation result: ${insertError.message}`);
     }
     
-    console.log('✅ QuickNode webhook sync completed - test event created:', insertedData);
+    console.log('✅ QuickNode webhook validation completed successfully:', insertedData);
+    
+    return {
+      url_valid: true,
+      endpoint_reachable: true,
+      has_secret: !!webhookSecret,
+      last_validated: new Date().toISOString()
+    };
+    
   } catch (error) {
-    console.error('Failed to sync QuickNode webhook:', error);
+    console.error('Failed to validate QuickNode webhook:', error);
     console.error('Error details:', JSON.stringify(error, null, 2));
+    
+    // Store failed validation
+    try {
+      await supabaseClient
+        .from('whale_signal_events')
+        .insert({
+          user_id: source.user_id,
+          source_id: source.id,
+          event_type: 'webhook_validation_failed',
+          transaction_hash: `validation_failed_${Date.now()}`,
+          amount: 0,
+          from_address: 'validation_failed',
+          to_address: 'validation_failed',
+          token_symbol: 'ERROR',
+          blockchain: 'test',
+          raw_data: { 
+            validation_failed: true,
+            error: error.message,
+            timestamp: new Date().toISOString(),
+            webhook_url: source.configuration?.webhook_url
+          },
+          timestamp: new Date().toISOString(),
+          processed: true
+        });
+    } catch (insertError) {
+      console.error('Failed to store validation failure:', insertError);
+    }
+    
     throw error;
   }
 }
