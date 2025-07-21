@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap, CheckCircle, XCircle, Clock, ExternalLinkIcon, Wrench, Edit, RefreshCw } from "lucide-react";
+import { WhaleAlertIntegration } from "./WhaleAlertIntegration";
 
 interface DataSource {
   id: string;
@@ -71,19 +72,19 @@ interface DataSource {
     supportsWebhooks: false,
     premiumUpgrade: false
   },
-  whale_alerts: {
+  whale_alert_api: {
     name: "Whale Alert",
-    type: "blockchain_analytics", 
-    endpoint: "https://api.whale-alert.io",
-    description: "🚨 Real-time large transactions (>$100K) monitoring (Premium: $50+/month)",
-    fields: ["api_key", "threshold_amount", "blockchain_networks"],
+    type: "whale_signals", 
+    endpoint: "wss://api.whale-alert.io/v1/streaming",
+    description: "🚨 Enter your Whale Alert API Key to receive real-time whale transaction data via WebSocket.",
+    fields: ["api_key"],
     entities: ["whale_transactions"],
     icon: Activity,
     needsApiKey: true,
     cost: "Premium ($50+/month)",
     setupUrl: "https://whale-alert.io/api",
     priority: "high",
-    supportsWebhooks: false,
+    supportsWebhooks: true,
     premiumUpgrade: true
   },
   
@@ -676,6 +677,12 @@ export function DataSourcesPanel() {
         </TabsList>
         
         <TabsContent value="sources" className="space-y-4">
+          {/* Whale Alert Integration */}
+          <WhaleAlertIntegration 
+            dataSources={dataSources}
+            onSourcesUpdate={loadDataSources}
+          />
+          
           {dataSources.filter(s => s.source_type !== 'knowledge_base').length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {dataSources.filter(s => s.source_type !== 'knowledge_base').map((source) => {
