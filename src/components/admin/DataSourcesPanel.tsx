@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap, CheckCircle, XCircle, Clock, ExternalLinkIcon, Wrench, Edit, RefreshCw } from "lucide-react";
@@ -223,6 +223,7 @@ export function DataSourcesPanel() {
   const [editingSource, setEditingSource] = useState<DataSource | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const [showSetupStatus, setShowSetupStatus] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -384,6 +385,7 @@ export function DataSourcesPanel() {
   const updateDataSource = async () => {
     if (!editingSource) return;
 
+    setIsUpdating(true);
     try {
       const { is_active, update_frequency, ...configuration } = editFormData;
       
@@ -413,6 +415,8 @@ export function DataSourcesPanel() {
         description: "Failed to update data source",
         variant: "destructive",
       });
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -671,7 +675,7 @@ export function DataSourcesPanel() {
                     const missingFields = requiredFields.filter(field => !config[field]?.trim?.() && !config[field]);
                     
                     return (
-                      <div key={source.id} className="flex items-center justify-between p-4 bg-slate-700/30 rounded-lg border border-slate-600 hover:bg-slate-600/40 transition-colors">
+                      <div key={source.id} className="flex items-center justify-between p-4 bg-slate-800/40 rounded-lg border border-slate-600/50 hover:bg-slate-700/50 transition-colors">
                         <div className="flex items-center gap-3">
                           {getSourceIcon(source.source_name)}
                           <div>
@@ -681,15 +685,78 @@ export function DataSourcesPanel() {
                             </div>
                           </div>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openEditDialog(source)}
-                          className="hover:bg-primary hover:text-primary-foreground transition-colors"
-                        >
-                          <Settings className="h-4 w-4 mr-1" />
-                          Configure
-                        </Button>
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openEditDialog(source)}
+                              className="hover:bg-slate-600 hover:text-white transition-colors"
+                            >
+                              <Settings className="h-4 w-4 mr-1" />
+                              Configure
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-2xl">
+                            <DialogHeader>
+                              <DialogTitle>Edit: {template?.name || source.source_name}</DialogTitle>
+                            </DialogHeader>
+                            {editingSource && (
+                              <div className="space-y-4">
+                                {template?.fields?.map((field) => (
+                                  <div key={field.name} className="space-y-2">
+                                    <Label htmlFor={field.name}>{field.label}</Label>
+                                    <Input
+                                      id={field.name}
+                                      type={field.type === 'password' ? 'password' : 'text'}
+                                      value={editFormData[field.name] || ''}
+                                      onChange={(e) => setEditFormData({ ...editFormData, [field.name]: e.target.value })}
+                                      placeholder={field.placeholder}
+                                    />
+                                    {field.description && (
+                                      <p className="text-sm text-muted-foreground">{field.description}</p>
+                                    )}
+                                  </div>
+                                ))}
+                                <div className="space-y-2">
+                                  <Label htmlFor="is_active">Active</Label>
+                                  <div className="flex items-center space-x-2">
+                                    <Switch
+                                      id="is_active"
+                                      checked={editFormData.is_active || false}
+                                      onCheckedChange={(checked) => setEditFormData({ ...editFormData, is_active: checked })}
+                                    />
+                                    <span className="text-sm">{editFormData.is_active ? 'Active' : 'Inactive'}</span>
+                                  </div>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor="update_frequency">Update Frequency (hours)</Label>
+                                  <Input
+                                    id="update_frequency"
+                                    type="number"
+                                    min="1"
+                                    value={editFormData.update_frequency || 24}
+                                    onChange={(e) => setEditFormData({ ...editFormData, update_frequency: parseInt(e.target.value) })}
+                                  />
+                                </div>
+                                <DialogFooter>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => setEditingSource(null)}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button
+                                    onClick={updateDataSource}
+                                    disabled={isUpdating}
+                                  >
+                                    {isUpdating ? 'Updating...' : 'Update'}
+                                  </Button>
+                                </DialogFooter>
+                              </div>
+                            )}
+                          </DialogContent>
+                        </Dialog>
                       </div>
                     );
                   })}
