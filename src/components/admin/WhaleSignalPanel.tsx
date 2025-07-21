@@ -3,9 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Activity, ExternalLink, RefreshCw, TrendingUp, AlertCircle, CheckCircle, Settings, Trash2 } from "lucide-react";
+import { Activity, ExternalLink, RefreshCw, TrendingUp, AlertCircle, CheckCircle, Settings, Trash2, Edit, Clock } from "lucide-react";
 
 interface WhaleSignalEvent {
   id: string;
@@ -28,9 +33,13 @@ interface DataSource {
   id: string;
   source_name: string;
   source_type: string;
+  api_endpoint?: string;
   is_active: boolean;
+  update_frequency: string;
   configuration: any;
   last_sync?: string;
+  last_webhook_received?: string;
+  webhook_success?: boolean;
 }
 
 export function WhaleSignalPanel() {
@@ -39,6 +48,8 @@ export function WhaleSignalPanel() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingSource, setSyncingSource] = useState<string | null>(null);
+  const [editingSource, setEditingSource] = useState<DataSource | null>(null);
+  const [editFormData, setEditFormData] = useState<any>({});
   const { toast } = useToast();
 
   useEffect(() => {
@@ -119,22 +130,91 @@ export function WhaleSignalPanel() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const { error } = await supabase.functions.invoke('external-data-collector', {
-        body: { 
-          action: 'sync_source', 
-          sourceId: sourceId 
-        }
-      });
+      // For webhook sources, listen for incoming payload
+      if (dataSources.find(s => s.id === sourceId)?.configuration?.webhook_url) {
+        // Update source to mark webhook listening started
+        await supabase
+          .from('ai_data_sources')
+          .update({ 
+            last_sync: new Date().toISOString(),
+            configuration: { 
+              ...dataSources.find(s => s.id === sourceId)?.configuration,
+              last_test_initiated: new Date().toISOString()
+            }
+          })
+          .eq('id', sourceId);
 
-      if (error) throw error;
+        // Set up real-time subscription to listen for webhook events
+        const subscription = supabase
+          .channel('webhook-events')
+          .on('postgres_changes', 
+            { event: 'INSERT', schema: 'public', table: 'whale_signal_events', filter: `source_id=eq.${sourceId}` },
+            async (payload) => {
+              console.log('Webhook event received:', payload);
+              
+              // Update source with success timestamp
+              await supabase
+                .from('ai_data_sources')
+                .update({ 
+                  last_webhook_received: new Date().toISOString(),
+                  webhook_success: true,
+                  configuration: {
+                    ...dataSources.find(s => s.id === sourceId)?.configuration,
+                    last_event_preview: payload.new
+                  }
+                })
+                .eq('id', sourceId);
 
-      toast({
-        title: "Synchronized",
-        description: `${sourceName} synced successfully`,
-      });
+              toast({
+                title: "✅ Webhook Received",
+                description: `Successfully received test payload from ${sourceName}`,
+              });
 
-      // Reload data after sync
-      await loadData();
+              // Reload data to show updated status
+              await loadData();
+              setSyncingSource(null);
+              subscription.unsubscribe();
+            }
+          )
+          .subscribe();
+
+        // Set a timeout to stop listening after 30 seconds
+        setTimeout(() => {
+          if (syncingSource === sourceId) {
+            subscription.unsubscribe();
+            setSyncingSource(null);
+            toast({
+              title: "Timeout",
+              description: "No webhook payload received within 30 seconds",
+              variant: "destructive",
+            });
+          }
+        }, 30000);
+
+        toast({
+          title: "Listening for Webhook",
+          description: `Waiting for test payload from ${sourceName} (30s timeout)...`,
+        });
+      } else {
+        // Regular API sync
+        const { error } = await supabase.functions.invoke('external-data-collector', {
+          body: { 
+            action: 'sync_source', 
+            sourceId: sourceId 
+          }
+        });
+
+        if (error) throw error;
+
+        toast({
+          title: "Synchronized",
+          description: `${sourceName} synced successfully`,
+        });
+
+        // Reload data after sync
+        await loadData();
+        setSyncingSource(null);
+      }
     } catch (error) {
       console.error('Error syncing source:', error);
       toast({
@@ -142,8 +222,45 @@ export function WhaleSignalPanel() {
         description: `Failed to sync ${sourceName}`,
         variant: "destructive",
       });
-    } finally {
       setSyncingSource(null);
+    }
+  };
+
+  const openEditDialog = (source: DataSource) => {
+    setEditingSource(source);
+    setEditFormData({ ...source.configuration });
+  };
+
+  const updateDataSource = async () => {
+    if (!editingSource) return;
+
+    try {
+      const { error } = await supabase
+        .from('ai_data_sources')
+        .update({
+          configuration: editFormData,
+          is_active: editFormData.is_active ?? editingSource.is_active,
+          update_frequency: editFormData.update_frequency ?? editingSource.update_frequency,
+        })
+        .eq('id', editingSource.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Data source updated successfully",
+      });
+
+      setEditingSource(null);
+      setEditFormData({});
+      await loadData();
+    } catch (error) {
+      console.error('Error updating source:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update data source",
+        variant: "destructive",
+      });
     }
   };
 
@@ -401,25 +518,89 @@ export function WhaleSignalPanel() {
                               </>
                             )}
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              // Navigate to data sources panel for editing
-                              const dataSources = document.querySelector('[data-tab="data-sources"]') as HTMLElement;
-                              if (dataSources) {
-                                dataSources.click();
-                              } else {
-                                window.location.href = '/admin';
-                                setTimeout(() => {
-                                  const tab = document.querySelector('[data-tab="data-sources"]') as HTMLElement;
-                                  if (tab) tab.click();
-                                }, 100);
-                              }
-                            }}
-                          >
-                            <Settings className="h-3 w-3" />
-                          </Button>
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openEditDialog(source)}
+                              >
+                                <Edit className="h-3 w-3" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-2xl">
+                              <DialogHeader>
+                                <DialogTitle>Edit Data Source: {editingSource?.source_name}</DialogTitle>
+                              </DialogHeader>
+                              {editingSource && (
+                                <div className="space-y-4">
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                      <Label htmlFor="is_active">Active</Label>
+                                      <Switch
+                                        id="is_active"
+                                        checked={editFormData.is_active ?? editingSource.is_active}
+                                        onCheckedChange={(checked) => 
+                                          setEditFormData({ ...editFormData, is_active: checked })
+                                        }
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label htmlFor="update_frequency">Update Frequency</Label>
+                                      <Select
+                                        value={editFormData.update_frequency ?? editingSource.update_frequency}
+                                        onValueChange={(value) => 
+                                          setEditFormData({ ...editFormData, update_frequency: value })
+                                        }
+                                      >
+                                        <SelectTrigger>
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="realtime">Real-time</SelectItem>
+                                          <SelectItem value="hourly">Hourly</SelectItem>
+                                          <SelectItem value="daily">Daily</SelectItem>
+                                          <SelectItem value="weekly">Weekly</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  </div>
+
+                                  {/* Dynamic form fields based on source configuration */}
+                                  <div className="space-y-3">
+                                    {Object.entries(editingSource.configuration || {}).map(([key, value]) => (
+                                      <div key={key}>
+                                        <Label htmlFor={key}>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
+                                        <Input
+                                          id={key}
+                                          value={editFormData[key] ?? value}
+                                          onChange={(e) => 
+                                            setEditFormData({ ...editFormData, [key]: e.target.value })
+                                          }
+                                          placeholder={`Enter ${key.replace(/_/g, ' ')}`}
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  <div className="flex justify-end gap-2">
+                                    <Button
+                                      variant="outline"
+                                      onClick={() => {
+                                        setEditingSource(null);
+                                        setEditFormData({});
+                                      }}
+                                    >
+                                      Cancel
+                                    </Button>
+                                    <Button onClick={updateDataSource}>
+                                      Save Changes
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                            </DialogContent>
+                          </Dialog>
                           <Button
                             variant="outline"
                             size="sm"
@@ -447,11 +628,25 @@ export function WhaleSignalPanel() {
                         </div>
                       )}
                       
-                      {source.last_sync && (
-                        <div className="text-xs text-muted-foreground mt-2">
-                          Last sync: {new Date(source.last_sync).toLocaleString()}
-                        </div>
-                      )}
+                      <div className="space-y-1 mt-2">
+                        {source.last_sync && (
+                          <div className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            Last sync: {new Date(source.last_sync).toLocaleString()}
+                          </div>
+                        )}
+                        {source.last_webhook_received && (
+                          <div className="text-xs text-green-600 flex items-center gap-1">
+                            <CheckCircle className="h-3 w-3" />
+                            Last webhook: {new Date(source.last_webhook_received).toLocaleString()}
+                          </div>
+                        )}
+                        {source.configuration?.last_event_preview && (
+                          <div className="text-xs text-muted-foreground">
+                            Preview: {JSON.stringify(source.configuration.last_event_preview).slice(0, 100)}...
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
