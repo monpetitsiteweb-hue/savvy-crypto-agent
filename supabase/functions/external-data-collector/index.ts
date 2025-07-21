@@ -15,40 +15,73 @@ serve(async (req) => {
   try {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', // Use service role for system operations
     );
 
     const requestBody = await req.json();
     console.log(`📡 External Data Collector received:`, JSON.stringify(requestBody));
 
     // Check if this is a webhook payload (QuickNode, etc.)
-    if (requestBody.webhook || requestBody.data || !requestBody.action) {
+    // Webhook payloads typically don't have an 'action' field and have specific structures
+    const hasAction = requestBody.action && typeof requestBody.action === 'string';
+    const isWebhookPayload = !hasAction || 
+                            requestBody.webhook || 
+                            requestBody.data || 
+                            requestBody.matchingTransactions ||
+                            requestBody.event_type ||
+                            requestBody.webhook_type;
+    
+    if (isWebhookPayload && !hasAction) {
       console.log('🔗 Processing webhook payload...');
       await processWebhookPayload(supabaseClient, requestBody, req.headers);
-      return new Response(JSON.stringify({ success: true }), {
+      return new Response(JSON.stringify({ success: true, message: 'Webhook processed' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
     // Handle admin panel actions
     const { action, sourceId, userId } = requestBody;
+    
+    if (!action) {
+      console.error('No action specified in request body');
+      return new Response(JSON.stringify({ error: 'No action specified' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+    
     console.log(`📡 External Data Collector: ${action} for user ${userId}`);
 
     if (action === 'sync_all_sources') {
+      if (!userId) {
+        return new Response(JSON.stringify({ error: 'User ID required for sync_all_sources' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
       await syncAllDataSources(supabaseClient, userId);
-      return new Response(JSON.stringify({ success: true }), {
+      return new Response(JSON.stringify({ success: true, message: 'All sources synced' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
     if (action === 'sync_source') {
+      if (!sourceId) {
+        return new Response(JSON.stringify({ error: 'Source ID required for sync_source' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
       await syncDataSource(supabaseClient, sourceId);
-      return new Response(JSON.stringify({ success: true }), {
+      return new Response(JSON.stringify({ success: true, message: 'Source synced' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    throw new Error('Invalid action');
+    return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
 
   } catch (error) {
     console.error('External Data Collector Error:', error);
