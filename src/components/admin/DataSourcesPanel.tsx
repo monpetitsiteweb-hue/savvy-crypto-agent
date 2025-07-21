@@ -219,10 +219,10 @@ export function DataSourcesPanel() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [formData, setFormData] = useState<any>({});
-  const [syncing, setSyncing] = useState(false);
   const [syncingSource, setSyncingSource] = useState<string | null>(null);
   const [editingSource, setEditingSource] = useState<DataSource | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
+  const [showSetupStatus, setShowSetupStatus] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -450,34 +450,11 @@ export function DataSourcesPanel() {
     }
   };
 
-  const syncAllSources = async () => {
-    setSyncing(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-
-      const { error } = await supabase.functions.invoke('external-data-collector', {
-        body: { action: 'sync_all_sources', userId: user.id }
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: "Success",
-        description: "All data sources synced successfully",
-      });
-
-      loadDataSources();
-    } catch (error) {
-      console.error('Error syncing data sources:', error);
-      toast({
-        title: "Error",
-        description: "Failed to sync data sources",
-        variant: "destructive",
-      });
-    } finally {
-      setSyncing(false);
-    }
+  const getUnconfiguredSources = () => {
+    return dataSources.filter(s => {
+      const template = getSourceTemplate(s.source_name);
+      return template && !['fear_greed_index', 'coinbase_institutional', 'custom_website', 'document_upload'].includes(s.source_name);
+    });
   };
 
   const getSourceTemplate = (sourceName: string) => {
@@ -523,150 +500,184 @@ export function DataSourcesPanel() {
 
   return (
     <div className="space-y-6">
-      {/* Header with Status Overview */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold">External Data Sources</h2>
-            <p className="text-muted-foreground">Connect to external APIs to enhance AI learning with market intelligence</p>
-          </div>
-          <div className="flex gap-2">
-            <Button 
-              onClick={syncAllSources} 
-              disabled={syncing || dataSources.length === 0}
-              variant="outline"
-            >
-              {syncing ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
-                  Syncing...
-                </>
-              ) : (
-                <>
-                  <Zap className="h-4 w-4 mr-2" />
-                  Sync All
-                </>
-              )}
-            </Button>
+      {/* Add Source Section - Moved to top when active */}
+      {showAddForm && (
+        <Card className="border-2 border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-white">External Data Sources</CardTitle>
+            <CardDescription className="text-white/80">Connect to external APIs to enhance AI learning with market intelligence</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Card-style source selection */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Object.entries(DATA_SOURCE_TEMPLATES).map(([key, template]) => (
+                <Card 
+                  key={key} 
+                  className={`cursor-pointer transition-colors hover:border-primary/50 ${
+                    selectedTemplate === key ? 'border-primary bg-primary/5' : ''
+                  }`}
+                  onClick={() => setSelectedTemplate(key)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <template.icon className="h-5 w-5 mt-1" />
+                      <div className="flex-1">
+                        <h3 className="font-medium mb-1">{template.name}</h3>
+                        <p className="text-sm text-muted-foreground mb-2">{template.description}</p>
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant={template.cost === 'Free' ? 'default' : 'outline'} className="text-xs">
+                            {template.cost}
+                          </Badge>
+                          {template.needsApiKey && (
+                            <Badge variant="outline" className="text-xs">Requires API Key</Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {selectedTemplate && (
+              <div className="space-y-4 border-t pt-4">
+                <h4 className="font-medium">Configure {DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES].name}</h4>
+                {DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES].fields.map((field) => (
+                  <div key={field}>
+                    <Label htmlFor={field}>{field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
+                    <Input
+                      id={field}
+                      type={field.includes('secret') || field.includes('token') ? 'password' : 'text'}
+                      placeholder={`Enter ${field.replace(/_/g, ' ')}`}
+                      value={formData[field] || ''}
+                      onChange={(e) => setFormData(prev => ({ ...prev, [field]: e.target.value }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-4">
+              <Button onClick={addDataSource} disabled={!selectedTemplate}>
+                Add Data Source
+              </Button>
+              <Button variant="outline" onClick={() => {
+                setShowAddForm(false);
+                setSelectedTemplate('');
+                setFormData({});
+              }}>
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Header with Status Overview - Only show when not adding */}
+      {!showAddForm && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold">External Data Sources</h2>
+              <p className="text-muted-foreground">Connect to external APIs to enhance AI learning with market intelligence</p>
+            </div>
             <Button onClick={() => setShowAddForm(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Add Source
             </Button>
           </div>
-        </div>
 
-        {/* Add Source Modal/Form */}
-        {showAddForm && (
-          <Card className="border-2 border-primary/20">
-            <CardHeader>
-              <CardTitle>Add New Data Source</CardTitle>
-              <CardDescription>Select a template and configure your data source</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="template">Select Data Source Template</Label>
-                <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a data source..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(DATA_SOURCE_TEMPLATES).map(([key, template]) => (
-                      <SelectItem key={key} value={key}>
-                        <div className="flex items-center gap-2">
-                          <template.icon className="h-4 w-4" />
-                          {template.name}
-                          <Badge variant="outline" className="ml-auto">
-                            {template.cost}
-                          </Badge>
+
+          {/* Data Source Status Dashboard */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="p-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-500" />
+                <div>
+                  <div className="text-2xl font-bold text-green-600">
+                    {dataSources.filter(s => ['fear_greed_index', 'coinbase_institutional', 'custom_website', 'document_upload'].includes(s.source_name) && s.is_active).length}
+                  </div>
+                  <div className="text-sm text-muted-foreground">Ready Sources</div>
+                </div>
+              </div>
+            </Card>
+            
+            <Card 
+              className="p-4 cursor-pointer hover:bg-accent/50" 
+              onClick={() => setShowSetupStatus(!showSetupStatus)}
+            >
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-orange-500" />
+                <div>
+                  <div className="text-2xl font-bold text-orange-600">
+                    {getUnconfiguredSources().length}
+                  </div>
+                  <div className="text-sm text-muted-foreground">Need Setup</div>
+                </div>
+              </div>
+            </Card>
+            
+            <Card className="p-4">
+              <div className="flex items-center gap-2">
+                <XCircle className="h-5 w-5 text-red-500" />
+                <div>
+                  <div className="text-2xl font-bold text-red-600">
+                    {dataSources.filter(s => !s.is_active).length}
+                  </div>
+                  <div className="text-sm text-muted-foreground">Inactive</div>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-4">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-blue-500" />
+                <div>
+                  <div className="text-2xl font-bold text-blue-600">{dataSources.length}</div>
+                  <div className="text-sm text-muted-foreground">Total Sources</div>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* Expandable setup status details */}
+          {showSetupStatus && getUnconfiguredSources().length > 0 && (
+            <Card className="border-orange-200 bg-orange-50/50">
+              <CardHeader>
+                <CardTitle className="text-orange-700">Sources Needing Setup</CardTitle>
+                <CardDescription>The following sources require configuration to become active</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {getUnconfiguredSources().map((source) => {
+                    const template = getSourceTemplate(source.source_name);
+                    return (
+                      <div key={source.id} className="flex items-center justify-between p-3 bg-white rounded-lg border">
+                        <div className="flex items-center gap-3">
+                          {getSourceIcon(source.source_name)}
+                          <div>
+                            <div className="font-medium">{template?.name || source.source_name}</div>
+                            <div className="text-sm text-muted-foreground">
+                              Missing: {template?.fields.join(', ') || 'API configuration'}
+                            </div>
+                          </div>
                         </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {selectedTemplate && (
-                <div className="space-y-4 border-t pt-4">
-                  {DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES].fields.map((field) => (
-                    <div key={field}>
-                      <Label htmlFor={field}>{field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
-                      <Input
-                        id={field}
-                        type={field.includes('secret') || field.includes('token') ? 'password' : 'text'}
-                        placeholder={`Enter ${field.replace(/_/g, ' ')}`}
-                        value={formData[field] || ''}
-                        onChange={(e) => setFormData(prev => ({ ...prev, [field]: e.target.value }))}
-                      />
-                    </div>
-                  ))}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEditDialog(source)}
+                        >
+                          Configure
+                        </Button>
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
-
-              <div className="flex gap-2 pt-4">
-                <Button onClick={addDataSource} disabled={!selectedTemplate}>
-                  Add Data Source
-                </Button>
-                <Button variant="outline" onClick={() => {
-                  setShowAddForm(false);
-                  setSelectedTemplate('');
-                  setFormData({});
-                }}>
-                  Cancel
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Data Source Status Dashboard */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="p-4">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-500" />
-              <div>
-                <div className="text-2xl font-bold text-green-600">
-                  {dataSources.filter(s => ['fear_greed_index', 'coinbase_institutional', 'custom_website', 'document_upload'].includes(s.source_name) && s.is_active).length}
-                </div>
-                <div className="text-sm text-muted-foreground">Ready Sources</div>
-              </div>
-            </div>
-          </Card>
-          
-          <Card className="p-4">
-            <div className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-orange-500" />
-              <div>
-                <div className="text-2xl font-bold text-orange-600">
-                  {dataSources.filter(s => !['fear_greed_index', 'coinbase_institutional', 'custom_website', 'document_upload'].includes(s.source_name) && s.is_active).length}
-                </div>
-                <div className="text-sm text-muted-foreground">Need Setup</div>
-              </div>
-            </div>
-          </Card>
-          
-          <Card className="p-4">
-            <div className="flex items-center gap-2">
-              <XCircle className="h-5 w-5 text-red-500" />
-              <div>
-                <div className="text-2xl font-bold text-red-600">
-                  {dataSources.filter(s => !s.is_active).length}
-                </div>
-                <div className="text-sm text-muted-foreground">Inactive</div>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-blue-500" />
-              <div>
-                <div className="text-2xl font-bold text-blue-600">{dataSources.length}</div>
-                <div className="text-sm text-muted-foreground">Total Sources</div>
-              </div>
-            </div>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Tabs for Knowledge Base Organization */}
       <Tabs defaultValue="sources" className="w-full">
@@ -677,12 +688,6 @@ export function DataSourcesPanel() {
         </TabsList>
         
         <TabsContent value="sources" className="space-y-4">
-          {/* Whale Alert Integration */}
-          <WhaleAlertIntegration 
-            dataSources={dataSources}
-            onSourcesUpdate={loadDataSources}
-          />
-          
           {dataSources.filter(s => s.source_type !== 'knowledge_base').length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {dataSources.filter(s => s.source_type !== 'knowledge_base').map((source) => {
