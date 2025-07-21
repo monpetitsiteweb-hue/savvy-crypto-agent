@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap } from "lucide-react";
+import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap, CheckCircle, XCircle, Clock, ExternalLinkIcon, Wrench } from "lucide-react";
 
 interface DataSource {
   id: string;
@@ -23,96 +23,123 @@ interface DataSource {
   created_at: string;
 }
 
-const DATA_SOURCE_TEMPLATES = {
+  const DATA_SOURCE_TEMPLATES = {
   arkham_intelligence: {
     name: "Arkham Intelligence",
     type: "blockchain_analytics",
     endpoint: "https://api.arkhamintelligence.com",
-    description: "Track whale movements, institutional flows, and major wallet activities from BlackRock, Trump, MicroStrategy, etc.",
+    description: "🐋 Track whale movements and institutional flows from BlackRock, Trump, MicroStrategy (Premium: $99+/month)",
     fields: ["api_key"],
     entities: ["blackrock", "microstrategy", "tesla", "trump", "biden"],
     icon: Shield,
-    needsApiKey: true
+    needsApiKey: true,
+    cost: "Premium",
+    setupUrl: "https://app.arkhamintelligence.com/api",
+    priority: "critical"
   },
   fear_greed_index: {
     name: "Fear & Greed Index",
     type: "sentiment",
     endpoint: "https://api.alternative.me/fng",
-    description: "Market sentiment analysis based on Fear & Greed Index - free API",
+    description: "📊 Market sentiment analysis (0-100 scale) - FREE, no API key required ✅",
     fields: [],
     entities: ["market_sentiment"],
     icon: TrendingUp,
-    needsApiKey: false
+    needsApiKey: false,
+    cost: "Free",
+    setupUrl: "https://alternative.me/crypto/fear-and-greed-index/",
+    priority: "ready"
   },
   coinbase_institutional: {
     name: "Coinbase Institutional Flows",
     type: "institutional_tracking",
     endpoint: "https://api.exchange.coinbase.com/products",
-    description: "Track large institutional trades and volume patterns - free API",
+    description: "💼 Track institutional trading volumes and patterns - FREE, no API key ✅",
     fields: [],
     entities: ["institutional_flows"],
     icon: BarChart3,
-    needsApiKey: false
+    needsApiKey: false,
+    cost: "Free",
+    setupUrl: "https://docs.cloud.coinbase.com/exchange/docs",
+    priority: "ready"
   },
   whale_alerts: {
     name: "Whale Alert",
     type: "blockchain_analytics", 
     endpoint: "https://api.whale-alert.io",
-    description: "Real-time large transaction monitoring across blockchains",
+    description: "🚨 Real-time large transactions (>$100K) monitoring (Premium: $50+/month)",
     fields: ["api_key"],
     entities: ["whale_transactions"],
     icon: Activity,
-    needsApiKey: true
+    needsApiKey: true,
+    cost: "Premium",
+    setupUrl: "https://whale-alert.io/api",
+    priority: "high"
   },
   twitter_sentiment: {
     name: "Twitter/X Account",
     type: "social_sentiment",
-    endpoint: "https://twitter.com",
-    description: "Monitor crypto sentiment on X/Twitter from specific accounts",
-    fields: ["account_username"],
+    endpoint: "https://api.twitter.com/2",
+    description: "🐦 Monitor crypto sentiment from key influencers (X API Premium: $100+/month)",
+    fields: ["account_username", "api_key", "bearer_token"],
     entities: ["social_sentiment", "influencer_activity"],
     icon: TrendingUp,
-    needsApiKey: false
+    needsApiKey: true,
+    cost: "Premium",
+    setupUrl: "https://developer.twitter.com/en/portal/dashboard",
+    priority: "medium"
   },
   youtube_channels: {
     name: "YouTube Channel",
     type: "social_sentiment",
-    endpoint: "https://youtube.com",
-    description: "Track videos from specific crypto YouTubers and analysts",
-    fields: ["channel_url", "channel_name"],
+    endpoint: "https://www.googleapis.com/youtube/v3",
+    description: "📺 Track crypto analysis videos and sentiment (YouTube Data API v3 required)",
+    fields: ["channel_url", "channel_name", "youtube_api_key"],
     entities: ["video_content", "channel_sentiment"],
     icon: Activity,
-    needsApiKey: false
+    needsApiKey: true,
+    cost: "Free tier available",
+    setupUrl: "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
+    priority: "medium"
   },
   reddit_crypto: {
     name: "Reddit Community",
     type: "social_sentiment",
-    endpoint: "https://reddit.com",
-    description: "Monitor specific subreddits and crypto communities",
-    fields: ["subreddit_name"],
+    endpoint: "https://www.reddit.com/api/v1",
+    description: "💬 Monitor r/cryptocurrency, r/bitcoin sentiment (Reddit API credentials required)",
+    fields: ["subreddit_name", "reddit_client_id", "reddit_client_secret"],
     entities: ["reddit_sentiment", "community_discussions"],
     icon: TrendingUp,
-    needsApiKey: false
+    needsApiKey: true,
+    cost: "Free tier available",
+    setupUrl: "https://www.reddit.com/prefs/apps",
+    priority: "medium"
   },
   custom_website: {
     name: "Custom Website",
     type: "custom_content",
     endpoint: "",
-    description: "Add any website URL for content monitoring and analysis",
+    description: "🌐 Monitor any website for trading insights and market news - FREE ✅",
     fields: ["website_url", "website_name"],
     entities: ["custom_content"],
     icon: ExternalLink,
-    needsApiKey: false
+    needsApiKey: false,
+    cost: "Free",
+    setupUrl: "",
+    priority: "ready"
   },
   document_upload: {
     name: "Document Upload",
     type: "knowledge_base",
     endpoint: "local",
-    description: "Upload documents (PDF, DOC, TXT) for AI knowledge base",
+    description: "📄 Upload trading strategies, market analysis PDFs for AI knowledge - FREE ✅",
     fields: ["document_file"],
     entities: ["document_content"],
     icon: Database,
-    needsApiKey: false
+    needsApiKey: false,
+    cost: "Free",
+    setupUrl: "",
+    priority: "ready"
   }
 };
 
@@ -344,34 +371,85 @@ export function DataSourcesPanel() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">External Data Sources</h2>
-          <p className="text-muted-foreground">Connect to external APIs to enhance AI learning with market intelligence</p>
+      {/* Header with Status Overview */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">External Data Sources</h2>
+            <p className="text-muted-foreground">Connect to external APIs to enhance AI learning with market intelligence</p>
+          </div>
+          <div className="flex gap-2">
+            <Button 
+              onClick={syncAllSources} 
+              disabled={syncing || dataSources.length === 0}
+              variant="outline"
+            >
+              {syncing ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
+                  Syncing...
+                </>
+              ) : (
+                <>
+                  <Zap className="h-4 w-4 mr-2" />
+                  Sync All
+                </>
+              )}
+            </Button>
+            <Button onClick={() => setShowAddForm(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Source
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button 
-            onClick={syncAllSources} 
-            disabled={syncing || dataSources.length === 0}
-            variant="outline"
-          >
-            {syncing ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
-                Syncing...
-              </>
-            ) : (
-              <>
-                <Zap className="h-4 w-4 mr-2" />
-                Sync All
-              </>
-            )}
-          </Button>
-          <Button onClick={() => setShowAddForm(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Source
-          </Button>
+
+        {/* Data Source Status Dashboard */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card className="p-4">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-500" />
+              <div>
+                <div className="text-2xl font-bold text-green-600">
+                  {dataSources.filter(s => ['fear_greed_index', 'coinbase_institutional', 'custom_website', 'document_upload'].includes(s.source_name) && s.is_active).length}
+                </div>
+                <div className="text-sm text-muted-foreground">Ready Sources</div>
+              </div>
+            </div>
+          </Card>
+          
+          <Card className="p-4">
+            <div className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-orange-500" />
+              <div>
+                <div className="text-2xl font-bold text-orange-600">
+                  {dataSources.filter(s => !['fear_greed_index', 'coinbase_institutional', 'custom_website', 'document_upload'].includes(s.source_name) && s.is_active).length}
+                </div>
+                <div className="text-sm text-muted-foreground">Need Setup</div>
+              </div>
+            </div>
+          </Card>
+          
+          <Card className="p-4">
+            <div className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-red-500" />
+              <div>
+                <div className="text-2xl font-bold text-red-600">
+                  {dataSources.filter(s => !s.is_active).length}
+                </div>
+                <div className="text-sm text-muted-foreground">Inactive</div>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-4">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-blue-500" />
+              <div>
+                <div className="text-2xl font-bold text-blue-600">{dataSources.length}</div>
+                <div className="text-sm text-muted-foreground">Total Sources</div>
+              </div>
+            </div>
+          </Card>
         </div>
       </div>
 
@@ -394,6 +472,10 @@ export function DataSourcesPanel() {
                       <div className="flex items-center gap-2">
                         {getSourceIcon(source.source_name)}
                         <h3 className="font-semibold">{template?.name || source.source_name}</h3>
+                        {template?.priority === 'ready' && <CheckCircle className="h-4 w-4 text-green-500" />}
+                        {template?.priority === 'critical' && <AlertTriangle className="h-4 w-4 text-red-500" />}
+                        {template?.priority === 'high' && <Clock className="h-4 w-4 text-orange-500" />}
+                        {template?.needsApiKey && !template?.priority?.includes('ready') && <Wrench className="h-4 w-4 text-blue-500" />}
                       </div>
                       <Switch
                         checked={source.is_active}
@@ -402,12 +484,30 @@ export function DataSourcesPanel() {
                     </div>
 
                     <div className="space-y-2 mb-4">
-                      <Badge 
-                        variant="secondary" 
-                        className={getSourceColor(source.source_type)}
-                      >
-                        {source.source_type.replace('_', ' ')}
-                      </Badge>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge 
+                          variant="secondary" 
+                          className={getSourceColor(source.source_type)}
+                        >
+                          {source.source_type.replace('_', ' ')}
+                        </Badge>
+                        {template?.cost && (
+                          <Badge variant={template.cost === 'Free' ? 'default' : 'outline'}>
+                            {template.cost}
+                          </Badge>
+                        )}
+                        {template?.setupUrl && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-6 px-2"
+                            onClick={() => window.open(template.setupUrl, '_blank')}
+                          >
+                            <ExternalLinkIcon className="h-3 w-3" />
+                            Setup
+                          </Button>
+                        )}
+                      </div>
                       
                       <p className="text-sm text-muted-foreground">
                         {template?.description || 'External data source'}
