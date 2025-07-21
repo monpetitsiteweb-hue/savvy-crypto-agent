@@ -350,7 +350,7 @@ async function processWebhookPayload(supabaseClient: any, payload: any, headers:
 async function processQuickNodeWebhook(supabaseClient: any, payload: any, headers: Headers) {
   console.log('⚡ Processing QuickNode webhook');
   
-  // Find the QuickNode data source (we'll need to match by webhook URL or headers)
+  // Find the QuickNode data source
   const { data: sources } = await supabaseClient
     .from('ai_data_sources')
     .select('*')
@@ -362,39 +362,49 @@ async function processQuickNodeWebhook(supabaseClient: any, payload: any, header
     return;
   }
   
-  // Use the first active source (could be enhanced to match by webhook URL)
   const source = sources[0];
   
   // Verify webhook signature if secret is configured
   const webhookSecret = source.configuration?.webhook_secret;
   if (webhookSecret) {
-    // Add signature verification logic here if needed
     console.log('🔐 Webhook secret configured, signature verification would happen here');
   }
   
-  // Extract transaction data from QuickNode payload
-  const transactionData = payload.data || payload;
+  // Process matching transactions from QuickNode payload
+  const matchingTransactions = payload.matchingTransactions || [];
   
-  if (transactionData.value && transactionData.hash) {
-    // Store whale signal event
-    await supabaseClient
-      .from('whale_signal_events')
-      .insert({
-        user_id: source.user_id,
-        source_id: source.id,
-        event_type: 'large_transaction',
-        transaction_hash: transactionData.hash,
-        amount: parseFloat(transactionData.value) || 0,
-        from_address: transactionData.from,
-        to_address: transactionData.to,
-        token_symbol: transactionData.token?.symbol || 'ETH',
-        blockchain: transactionData.network || 'ethereum',
-        raw_data: payload,
-        timestamp: new Date().toISOString(),
-        processed: false
-      });
+  for (const transaction of matchingTransactions) {
+    try {
+      // Convert hex value to decimal (Wei to ETH)
+      const valueInWei = parseInt(transaction.value, 16);
+      const valueInEth = valueInWei / Math.pow(10, 18);
       
-    console.log(`🐋 Stored whale signal: ${transactionData.value} ${transactionData.token?.symbol || 'ETH'}`);
+      // Determine blockchain from chainId
+      const chainId = parseInt(transaction.chainId, 16);
+      const blockchain = getBlockchainName(chainId);
+      
+      // Store whale signal event
+      await supabaseClient
+        .from('whale_signal_events')
+        .insert({
+          user_id: source.user_id,
+          source_id: source.id,
+          event_type: 'large_transaction',
+          transaction_hash: transaction.hash,
+          amount: valueInEth,
+          from_address: transaction.from,
+          to_address: transaction.to,
+          token_symbol: 'ETH', // QuickNode typically tracks ETH, can be enhanced
+          blockchain: blockchain,
+          raw_data: transaction,
+          timestamp: new Date().toISOString(),
+          processed: false
+        });
+        
+      console.log(`🐋 Stored whale signal: ${valueInEth.toFixed(4)} ETH on ${blockchain} (${transaction.hash})`);
+    } catch (error) {
+      console.error('❌ Error processing transaction:', error);
+    }
   }
 }
 
@@ -436,4 +446,18 @@ async function processGenericWebhook(supabaseClient: any, payload: any, headers:
     });
     
   console.log('📊 Stored generic webhook data');
+}
+
+function getBlockchainName(chainId: number): string {
+  const blockchainMap: { [key: number]: string } = {
+    1: 'ethereum',
+    56: 'binance_smart_chain',
+    137: 'polygon',
+    43114: 'avalanche',
+    250: 'fantom',
+    42161: 'arbitrum',
+    10: 'optimism'
+  };
+  
+  return blockchainMap[chainId] || `chain_${chainId}`;
 }
