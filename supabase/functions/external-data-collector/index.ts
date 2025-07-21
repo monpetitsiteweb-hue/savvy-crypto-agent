@@ -18,7 +18,20 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
     );
 
-    const { action, sourceId, userId } = await req.json();
+    const requestBody = await req.json();
+    console.log(`📡 External Data Collector received:`, JSON.stringify(requestBody));
+
+    // Check if this is a webhook payload (QuickNode, etc.)
+    if (requestBody.webhook || requestBody.data || !requestBody.action) {
+      console.log('🔗 Processing webhook payload...');
+      await processWebhookPayload(supabaseClient, requestBody, req.headers);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Handle admin panel actions
+    const { action, sourceId, userId } = requestBody;
     console.log(`📡 External Data Collector: ${action} for user ${userId}`);
 
     if (action === 'sync_all_sources') {
@@ -307,4 +320,120 @@ async function syncWhaleAlerts(supabaseClient: any, source: any) {
   } catch (error) {
     console.error('Failed to sync Whale Alert data:', error);
   }
+}
+
+async function processWebhookPayload(supabaseClient: any, payload: any, headers: Headers) {
+  console.log('🔗 Processing webhook payload:', JSON.stringify(payload));
+  
+  try {
+    // Determine the source type based on payload structure or headers
+    const userAgent = headers.get('user-agent') || '';
+    const webhookSource = headers.get('x-webhook-source') || '';
+    
+    if (userAgent.includes('QuickNode') || webhookSource.includes('quicknode')) {
+      await processQuickNodeWebhook(supabaseClient, payload, headers);
+    } else if (payload.webhook_type || payload.event_type) {
+      // Handle other webhook sources (Cryptocurrency Alerting, etc.)
+      await processGenericWebhook(supabaseClient, payload, headers);
+    } else {
+      console.log('⚠️ Unknown webhook format, storing as generic data');
+      await processGenericWebhook(supabaseClient, payload, headers);
+    }
+    
+    console.log('✅ Webhook payload processed successfully');
+  } catch (error) {
+    console.error('❌ Failed to process webhook payload:', error);
+    throw error;
+  }
+}
+
+async function processQuickNodeWebhook(supabaseClient: any, payload: any, headers: Headers) {
+  console.log('⚡ Processing QuickNode webhook');
+  
+  // Find the QuickNode data source (we'll need to match by webhook URL or headers)
+  const { data: sources } = await supabaseClient
+    .from('ai_data_sources')
+    .select('*')
+    .eq('source_name', 'quicknode_webhooks')
+    .eq('is_active', true);
+    
+  if (!sources || sources.length === 0) {
+    console.log('⚠️ No active QuickNode sources found');
+    return;
+  }
+  
+  // Use the first active source (could be enhanced to match by webhook URL)
+  const source = sources[0];
+  
+  // Verify webhook signature if secret is configured
+  const webhookSecret = source.configuration?.webhook_secret;
+  if (webhookSecret) {
+    // Add signature verification logic here if needed
+    console.log('🔐 Webhook secret configured, signature verification would happen here');
+  }
+  
+  // Extract transaction data from QuickNode payload
+  const transactionData = payload.data || payload;
+  
+  if (transactionData.value && transactionData.hash) {
+    // Store whale signal event
+    await supabaseClient
+      .from('whale_signal_events')
+      .insert({
+        user_id: source.user_id,
+        source_id: source.id,
+        event_type: 'large_transaction',
+        transaction_hash: transactionData.hash,
+        amount: parseFloat(transactionData.value) || 0,
+        from_address: transactionData.from,
+        to_address: transactionData.to,
+        token_symbol: transactionData.token?.symbol || 'ETH',
+        blockchain: transactionData.network || 'ethereum',
+        raw_data: payload,
+        timestamp: new Date().toISOString(),
+        processed: false
+      });
+      
+    console.log(`🐋 Stored whale signal: ${transactionData.value} ${transactionData.token?.symbol || 'ETH'}`);
+  }
+}
+
+async function processGenericWebhook(supabaseClient: any, payload: any, headers: Headers) {
+  console.log('📊 Processing generic webhook');
+  
+  // Try to find a matching source based on headers or payload structure
+  const { data: sources } = await supabaseClient
+    .from('ai_data_sources')
+    .select('*')
+    .eq('is_active', true)
+    .in('source_name', ['cryptocurrency_alerting', 'bitquery_api']);
+    
+  if (!sources || sources.length === 0) {
+    console.log('⚠️ No matching webhook sources found');
+    return;
+  }
+  
+  // Use the first matching source (enhance this logic as needed)
+  const source = sources[0];
+  
+  // Store as external market data
+  await supabaseClient
+    .from('external_market_data')
+    .insert({
+      source_id: source.id,
+      data_type: 'webhook_event',
+      entity: 'external_webhook',
+      cryptocurrency: payload.symbol || payload.coin || 'UNKNOWN',
+      data_value: payload.amount || payload.value || 0,
+      metadata: payload,
+      category_context: {
+        category_name: 'External Webhook',
+        category_type: 'webhook',
+        signal_strength: 'medium',
+        market_impact: 'neutral'
+      },
+      timestamp: new Date().toISOString()
+    });
+    
+  console.log('📊 Stored generic webhook data');
 }
