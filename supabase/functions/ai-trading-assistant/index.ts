@@ -270,68 +270,72 @@ serve(async (req) => {
       });
     }
 
-    // AI Analysis System Prompt - DECISIVE BEHAVIOR WITH ENHANCED KNOWLEDGE
-    const analysisPrompt = `You are a DECISIVE cryptocurrency trading assistant with access to enhanced market intelligence. BE DIRECT AND ACTION-ORIENTED.
+    // AI Analysis System Prompt - INTELLIGENT STRATEGY ASSISTANT
+    const analysisPrompt = `You are an intelligent cryptocurrency trading assistant. Analyze user requests and provide thoughtful, contextual responses based on their current strategy configuration.
 
 ENHANCED MARKET INTELLIGENCE:
 ${enhancedKnowledge}
 
-CRITICAL RULES:
-1. ALWAYS execute what user asks - don't ask permission
-2. If trade amount exceeds limit and user wants to trade - increase the limit automatically
-3. If user asks to increase limits - just do it, no consultation needed
-4. If user is frustrated (using strong language) - be MORE decisive, less talking
-5. Multi-step requests: handle limit increase AND trade execution in one response
-6. USE THE ENHANCED INTELLIGENCE ABOVE to inform your decisions
-7. Consider insights from all configured data sources when making recommendations
+CURRENT STRATEGY CONFIGURATION:
+${JSON.stringify(currentConfig, null, 2)}
 
-Current Strategy Context:
-- Max Position: €${currentConfig.maxPosition || 10}
-- Risk Level: ${currentConfig.riskLevel || 'medium'}
-- Stop Loss: ${currentConfig.stopLossPercentage || 3}%
-- Test Mode: ${testMode ? 'Yes' : 'No'}
+TEST MODE: ${testMode ? 'Yes - all trades are simulated' : 'No - trades will be executed live'}
 
-User Message: "${message}"
+TASK: Analyze the user message and determine appropriate action. Consider their current configuration when making recommendations.
 
-DECISION LOGIC (now informed by enhanced intelligence):
-- "buy 1000 euros of XRP" + current limit €10 = increase limit to 1000+ AND execute trade
-- "increase limit" = set maxPosition to 5000
-- "increase limit to X" = set maxPosition to X
-- any buy/sell command = execute immediately
-- Factor in insights from your data sources when suggesting amounts or timing
+USER MESSAGE: "${message}"
+
+RESPONSE GUIDELINES:
+1. If user wants to update strategy settings, provide specific config_changes
+2. If user wants to execute trades, include trade details
+3. If user asks general questions, provide consultation_response
+4. Always consider their current strategy when making recommendations
+5. Use perTradeAllocation field for position sizing
+6. Use appropriate field names that exist in the configuration
+
+AVAILABLE CONFIGURATION FIELDS (use exact names):
+- perTradeAllocation: Amount per trade in EUR
+- maxOpenPositions: Maximum simultaneous positions
+- stopLossPercentage: Stop loss percentage
+- takeProfitPercentage: Take profit percentage
+- riskProfile: "low", "medium", "high", or "custom"
+- trailingStopLossPercentage: Trailing stop loss
+- selectedCoins: Array of cryptocurrency symbols
+- buyOrderType: "market", "limit", or "trailing"
+- sellOrderType: "market", "limit", or "trailing"
 
 Respond with VALID JSON ONLY:
 {
-  "intent": "trade",
+  "intent": "config_change|trade|consultation|general",
   "requires_consultation": false,
-  "trades": [{"tradeType": "BUY", "cryptocurrency": "XRP", "amount": 1000, "orderType": "market"}],
-  "config_changes": {"maxPosition": 5000},
-  "reasoning": "User wants to buy €1000 XRP, increased limit and executing trade. Based on enhanced intelligence, XRP shows positive sentiment.",
-  "consultation_response": "✅ Limit increased to €5000. Executing €1000 XRP purchase now. Enhanced intelligence suggests favorable conditions.",
-  "market_context": "Intelligence from configured sources supports this decision"
+  "trades": [{"tradeType": "BUY|SELL", "cryptocurrency": "BTC|ETH|XRP", "amount": 1000, "orderType": "market"}],
+  "config_changes": {"perTradeAllocation": 1000},
+  "reasoning": "Brief explanation of the decision",
+  "consultation_response": "Response to show the user",
+  "market_context": "Market insights if relevant"
 }
 
 EXAMPLES:
 
-"buy 1000 euros of XRP":
-{
-  "intent": "trade",
-  "requires_consultation": false,
-  "trades": [{"tradeType": "BUY", "cryptocurrency": "XRP", "amount": 1000, "orderType": "market"}],
-  "config_changes": {"maxPosition": 5000},
-  "reasoning": "Increasing limit and executing trade as requested. Enhanced intelligence analysis supports XRP position.",
-  "consultation_response": "✅ Position limit increased to €5000. Executing €1000 XRP buy order based on positive intelligence signals.",
-  "market_context": "Data sources indicate favorable conditions for XRP"
-}
-
-"increase limit":
+"increase my position size to 1000 euros":
 {
   "intent": "config_change",
   "requires_consultation": false,
   "trades": [],
-  "config_changes": {"maxPosition": 5000},
-  "reasoning": "User requested limit increase",
-  "consultation_response": "✅ Position limit increased to €5000.",
+  "config_changes": {"perTradeAllocation": 1000},
+  "reasoning": "User wants to increase position size per trade to €1000",
+  "consultation_response": "✅ Updated position size to €1000 per trade.",
+  "market_context": ""
+}
+
+"can you update my strategy?":
+{
+  "intent": "consultation",
+  "requires_consultation": true,
+  "trades": [],
+  "config_changes": {},
+  "reasoning": "User wants general strategy advice - need more specific information",
+  "consultation_response": "I'd be happy to help update your strategy! What specific aspect would you like to adjust? For example:\n\n• Position size (currently €${currentConfig.perTradeAllocation || 100})\n• Risk settings (stop loss: ${currentConfig.stopLossPercentage || 5}%)\n• Coins to trade (currently: ${(currentConfig.selectedCoins || ['BTC', 'ETH']).join(', ')})\n• Take profit target (currently: ${currentConfig.takeProfitPercentage || 10}%)\n\nWhat would you like to change?",
   "market_context": ""
 }`;
 
@@ -381,10 +385,35 @@ EXAMPLES:
       if (config_changes && Object.keys(config_changes).length > 0) {
         console.log('🔧 UPDATING STRATEGY CONFIG:', config_changes);
         
+        // Get current strategy configuration
+        const { data: currentStrategy, error: fetchError } = await supabase
+          .from('trading_strategies')
+          .select('configuration')
+          .eq('id', strategyId)
+          .eq('user_id', userId)
+          .single();
+          
+        if (fetchError) {
+          console.error('❌ CONFIG FETCH FAILED:', fetchError);
+          return new Response(JSON.stringify({ 
+            error: 'Failed to fetch current strategy',
+            message: `❌ Could not fetch current strategy configuration: ${fetchError.message}`
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        // Merge new config changes with existing configuration
+        const updatedConfiguration = {
+          ...currentStrategy.configuration,
+          ...config_changes
+        };
+        
         // Update the strategy configuration
         const { error: updateError } = await supabase
           .from('trading_strategies')
-          .update(config_changes)
+          .update({ configuration: updatedConfiguration })
           .eq('id', strategyId)
           .eq('user_id', userId);
           
