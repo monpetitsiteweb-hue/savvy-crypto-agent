@@ -347,7 +347,7 @@ For "buy 1000 euros of BTC":
   "market_context": ""
 }
 
-Respond with VALID JSON ONLY using the exact format above. Consider the user's current configuration and provide contextual, helpful responses that reference specific values and field meanings.
+Respond with VALID JSON ONLY using the exact format above. Consider the user's current configuration and provide contextual, helpful responses that reference specific values and field meanings.`;
 
     try {
       const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
