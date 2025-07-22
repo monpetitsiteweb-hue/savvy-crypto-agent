@@ -525,17 +525,19 @@ Latest Whale Event: ${marketIntelligence.learningInsights?.whaleActivity?.recent
 Total Trades in Memory: ${marketIntelligence.performanceAnalysis?.totalTrades || 0} trades analyzed
 
 📚 CONVERSATION CONTEXT & MEMORY:
-Recent conversation history: ${conversationHistory?.length || 0} messages
-Previous context: ${conversationHistory?.slice(0, 3).map(h => `${h.message_type}: ${h.content.substring(0, 100)}...`).join('\n') || 'No previous conversation'}
+Recent conversation history (${conversationHistory?.length || 0} messages in chronological order):
+${conversationHistory?.reverse().map((h, i) => `${i + 1}. ${h.message_type.toUpperCase()}: "${h.content}"`).join('\n') || 'No previous conversation'}
 
 CRITICAL INSTRUCTIONS FOR RESPONSES:
 1. You have access to REAL market data above - use it! When asked about prices, refer to the "Current Market Prices" section.
 2. When asked about whale activity, refer to the specific whale events listed in "Latest Whale Event".
 3. When asked about trades, refer to the "Total Trades in Memory" data.
-4. Maintain conversation context using the "CONVERSATION CONTEXT" provided - remember previous questions and topics.
+4. MAINTAIN CONVERSATION CONTEXT: When users ask "what did I just ask?" or "and before that?" look at the CONVERSATION CONTEXT above to see the exact sequence of questions and provide accurate answers.
 5. You are an expert cryptocurrency trading assistant with access to real-time data, whale signals, and market intelligence.
 6. ALWAYS provide specific data when available instead of saying "data not available".
-7. When users ask follow-up questions, use the conversation history to understand context.
+7. When users ask follow-up questions like "And BTC?" after asking about XRP, understand they want the same information (price) for BTC.
+8. For questions like "what currency did I ask about before BTC?" - look at the conversation history and identify the specific currency mentioned in previous messages.
+9. Be conversationally intelligent - understand pronouns, follow-up questions, and maintain the flow of conversation naturally.
 
 USER MESSAGE: "${message}"
 
