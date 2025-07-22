@@ -49,19 +49,9 @@ const AdminPage = () => {
       <Header />
       
       <div className="container mx-auto px-4 py-6">
-        <Alert className="mb-6 border-green-600 bg-green-950/20">
-          <AlertDescription className="text-green-300">
+        <Alert className="mb-6 bg-white border-0">
+          <AlertDescription className="text-black">
             Admin Dashboard - Manage system configurations and integrations.
-          </AlertDescription>
-        </Alert>
-        
-        <Alert className="mb-6 border-blue-600 bg-blue-950/20">
-          <AlertDescription className="flex items-center justify-between text-blue-300">
-            <span>Looking for Strategy Configuration? It's in the main user interface.</span>
-            <Button variant="outline" size="sm" onClick={() => window.location.href = '/'} className="ml-4 border-blue-600 text-blue-400 hover:bg-blue-500/10">
-              <ExternalLink className="w-4 h-4 mr-2" />
-              Go to Main Dashboard
-            </Button>
           </AlertDescription>
         </Alert>
         
