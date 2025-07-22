@@ -536,7 +536,7 @@ export function DataSourcesPanel() {
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
-                      <template.icon className="h-5 w-5 mt-1" />
+                      <template.icon className="h-5 w-5 mt-1 text-slate-300" />
                       <div className="flex-1">
                         <h3 className="font-medium mb-1">{template.name}</h3>
                         <p className="text-sm text-muted-foreground mb-2">{template.description}</p>
@@ -818,7 +818,7 @@ export function DataSourcesPanel() {
                             className="h-6 px-2"
                             onClick={() => window.open(template.setupUrl, '_blank')}
                           >
-                            <ExternalLinkIcon className="h-3 w-3" />
+                            <ExternalLinkIcon className="h-3 w-3 text-slate-300" />
                             Setup
                           </Button>
                         )}
@@ -1291,7 +1291,7 @@ export function DataSourcesPanel() {
                     }}
                   >
                     <div className="flex items-start gap-3">
-                      <IconComponent className="h-6 w-6 text-primary mt-1" />
+                      <IconComponent className="h-6 w-6 text-slate-300 mt-1" />
                       <div>
                         <h4 className="font-semibold">{template.name}</h4>
                         <p className="text-sm text-muted-foreground mt-1">
