@@ -487,13 +487,13 @@ Market Data Available: ${marketIntelligence.marketConditions?.currentCoins?.leng
 Volatility Analysis: ${marketIntelligence.marketConditions?.volatilityAnalysis?.length || 0} assets analyzed
 Trend Analysis: ${marketIntelligence.marketConditions?.trendAnalysis?.length || 0} trend signals
 Market Volatility Levels: ${JSON.stringify(marketIntelligence.marketConditions?.volatilityAnalysis?.map(v => `${v.symbol}: ${v.risk_level}`) || [])}
-Current Trends: ${JSON.stringify(marketIntelligence.marketConditions?.trendAnalysis?.map(t => `${t.symbol}: ${t.trend}`) || [])}
+Current Market Prices: BTC: €${marketIntelligence.marketConditions?.marketData?.['BTC-EUR']?.price || 'N/A'}, ETH: €${marketIntelligence.marketConditions?.marketData?.['ETH-EUR']?.price || 'N/A'}, XRP: €${marketIntelligence.marketConditions?.marketData?.['XRP-EUR']?.price || 'N/A'}
 
 🤖 AI LEARNING INSIGHTS:
 Knowledge Base Insights: ${marketIntelligence.learningInsights?.knowledgeCount || 0} AI-generated insights
-Recent AI Insights: ${marketIntelligence.learningInsights?.insights?.map(i => `${i.type}: ${i.title}`).join('; ') || 'Building knowledge base...'}
 Whale Activity Intelligence: ${marketIntelligence.learningInsights?.whaleActivity?.count || 0} whale events tracked
-Live Market Signals: External data feeds providing real-time market intelligence
+Latest Whale Event: ${marketIntelligence.learningInsights?.whaleActivity?.recentEvents?.[0] ? `${marketIntelligence.learningInsights.whaleActivity.recentEvents[0].amount} ${marketIntelligence.learningInsights.whaleActivity.recentEvents[0].token} at ${marketIntelligence.learningInsights.whaleActivity.recentEvents[0].timestamp}` : 'No recent whale activity'}
+Total Trades in Memory: ${marketIntelligence.tradeHistory?.totalTrades || 0} trades analyzed
 
 📚 ENHANCED KNOWLEDGE BASE:
 ${enhancedKnowledge || 'Base cryptocurrency knowledge + real-time market feeds'}
