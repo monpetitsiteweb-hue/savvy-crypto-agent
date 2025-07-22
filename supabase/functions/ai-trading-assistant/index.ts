@@ -439,8 +439,21 @@ serve(async (req) => {
         externalSignals: marketIntelligence.externalSignals.count,
         totalTrades: marketIntelligence.performanceAnalysis.totalTrades,
         winRate: marketIntelligence.performanceAnalysis.recentWinRate,
-        learningInsights: marketIntelligence.learningInsights.sessionsCount
+        learningInsights: marketIntelligence.learningInsights?.knowledgeCount
       });
+
+      // Store conversation history for memory
+      try {
+        await supabase.from('conversation_history').insert({
+          user_id: userId,
+          strategy_id: strategyId,
+          message_type: 'user',
+          content: message,
+          metadata: { timestamp: new Date().toISOString() }
+        });
+      } catch (error) {
+        console.error('Failed to store user message:', error);
+      }
       
     } catch (error) {
       console.error('❌ STEP 5 FAILED: Market intelligence collection error:', error);
@@ -448,7 +461,19 @@ serve(async (req) => {
       marketIntelligence = { error: error.message };
     }
 
-    // Step 6: Analyze user intent with AI
+    // Step 6: Get conversation history for context
+    console.log('📚 STEP 6: Loading conversation history for context...');
+    const { data: conversationHistory } = await supabase
+      .from('conversation_history')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('strategy_id', strategyId)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    console.log(`📚 STEP 6 SUCCESS: Found ${conversationHistory?.length || 0} recent messages`);
+
+    // Step 7: Analyze user intent with AI
     console.log('💬 Using AI to analyze user intent...');
     
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
@@ -493,7 +518,22 @@ Current Market Prices: BTC: €${marketIntelligence.marketConditions?.marketData
 Knowledge Base Insights: ${marketIntelligence.learningInsights?.knowledgeCount || 0} AI-generated insights
 Whale Activity Intelligence: ${marketIntelligence.learningInsights?.whaleActivity?.count || 0} whale events tracked
 Latest Whale Event: ${marketIntelligence.learningInsights?.whaleActivity?.recentEvents?.[0] ? `${marketIntelligence.learningInsights.whaleActivity.recentEvents[0].amount} ${marketIntelligence.learningInsights.whaleActivity.recentEvents[0].token} at ${marketIntelligence.learningInsights.whaleActivity.recentEvents[0].timestamp}` : 'No recent whale activity'}
-Total Trades in Memory: ${marketIntelligence.tradeHistory?.totalTrades || 0} trades analyzed
+Total Trades in Memory: ${marketIntelligence.performanceAnalysis?.totalTrades || 0} trades analyzed
+
+📚 CONVERSATION CONTEXT & MEMORY:
+Recent conversation history: ${conversationHistory?.length || 0} messages
+Previous context: ${conversationHistory?.slice(0, 3).map(h => `${h.message_type}: ${h.content.substring(0, 100)}...`).join('\n') || 'No previous conversation'}
+
+CRITICAL INSTRUCTIONS FOR RESPONSES:
+1. You have access to REAL market data above - use it! When asked about prices, refer to the "Current Market Prices" section.
+2. When asked about whale activity, refer to the specific whale events listed in "Latest Whale Event".
+3. When asked about trades, refer to the "Total Trades in Memory" data.
+4. Maintain conversation context using the "CONVERSATION CONTEXT" provided - remember previous questions and topics.
+5. You are an expert cryptocurrency trading assistant with access to real-time data, whale signals, and market intelligence.
+6. ALWAYS provide specific data when available instead of saying "data not available".
+7. When users ask follow-up questions, use the conversation history to understand context.
+
+USER MESSAGE: "${message}"
 
 📚 ENHANCED KNOWLEDGE BASE:
 ${enhancedKnowledge || 'Base cryptocurrency knowledge + real-time market feeds'}
@@ -830,6 +870,24 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
         );
       }
 
+      // Store AI response in conversation history
+      const responseMessage = consultation_response || analysis.consultation_response || analysisContent;
+      try {
+        await supabase.from('conversation_history').insert({
+          user_id: userId,
+          strategy_id: strategyId,
+          message_type: 'assistant',
+          content: responseMessage,
+          metadata: { 
+            timestamp: new Date().toISOString(),
+            intent: intent,
+            requires_consultation: requires_consultation
+          }
+        });
+      } catch (error) {
+        console.error('Failed to store AI response:', error);
+      }
+
       // For consultation responses or strategy advice
       if (requires_consultation || intent === 'strategy_advice') {
         console.log('🎓 STRATEGY CONSULTATION: Providing expert guidance');
@@ -837,7 +895,7 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
         return new Response(
           JSON.stringify({ 
             action: 'consultation',
-            message: consultation_response || analysis.consultation_response || analysisContent,
+            message: responseMessage,
             config_changes: config_changes || {},
             market_insights: analysis.market_context
           }), 
@@ -851,7 +909,7 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
       return new Response(
         JSON.stringify({ 
           action: 'general_response',
-          message: consultation_response || analysisContent,
+          message: responseMessage,
         }), 
         { 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
