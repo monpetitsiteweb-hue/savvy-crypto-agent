@@ -99,17 +99,158 @@ export const ConversationPanel = () => {
     loadStrategies();
   }, [user]);
 
-  const analyzeUserQuestion = (question: string): string => {
+  // Helper function to update strategy configuration
+  const updateStrategyConfig = async (strategy: StrategyData, field: string, value: any, displayName: string) => {
+    try {
+      const updatedConfig = { ...strategy.configuration, [field]: value };
+      
+      const { error } = await supabase
+        .from('trading_strategies')
+        .update({
+          configuration: updatedConfig,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', strategy.id)
+        .eq('user_id', user?.id);
+
+      if (error) {
+        console.error('Strategy update error:', error);
+        return `❌ Failed to update ${displayName}. Please try again.`;
+      }
+      
+      // Update local strategy state
+      setUserStrategies(prev => prev.map(s => 
+        s.id === strategy.id 
+          ? { ...s, configuration: updatedConfig }
+          : s
+      ));
+      
+      if (field === 'riskLevel') {
+        // For risk level changes, also update related settings
+        const riskSettings = value === 'high' 
+          ? { stopLossPercentage: 1, takeProfitPercentage: 2, perTradeAllocation: 150 }
+          : value === 'medium'
+          ? { stopLossPercentage: 2, takeProfitPercentage: 1.5, perTradeAllocation: 100 }
+          : { stopLossPercentage: 3, takeProfitPercentage: 1, perTradeAllocation: 50 };
+          
+        const fullConfig = { ...updatedConfig, ...riskSettings };
+        
+        await supabase
+          .from('trading_strategies')
+          .update({ configuration: fullConfig })
+          .eq('id', strategy.id)
+          .eq('user_id', user?.id);
+          
+        setUserStrategies(prev => prev.map(s => 
+          s.id === strategy.id 
+            ? { ...s, configuration: fullConfig }
+            : s
+        ));
+        
+        return `✅ **Strategy Updated Successfully**\n\n${displayName} updated to **${value}** for "${strategy.strategy_name}". I've also optimized your:\n• Stop Loss: ${riskSettings.stopLossPercentage}%\n• Take Profit: ${riskSettings.takeProfitPercentage}%\n• Position Size: €${riskSettings.perTradeAllocation}`;
+      }
+      
+      return `✅ **Strategy Updated Successfully**\n\n${displayName} updated for "${strategy.strategy_name}".`;
+    } catch (error) {
+      console.error('Strategy update exception:', error);
+      return `❌ Failed to update ${displayName}. Please try again.`;
+    }
+  };
+
+  // Helper function to execute test trades
+  const executeTestTrade = async (tradeRequest: ProductionTradeDetails, strategy: StrategyData): Promise<string> => {
+    try {
+      // Get current market price (simplified - using mock price for now)
+      const cryptoSymbol = tradeRequest.cryptocurrency.toUpperCase();
+      const mockPrices = { BTC: 101367, ETH: 3176, XRP: 2.99 };
+      const currentPrice = mockPrices[cryptoSymbol] || 1;
+      
+      const cryptoAmount = tradeRequest.action === 'buy' 
+        ? tradeRequest.amount / currentPrice
+        : tradeRequest.amount;
+      
+      // Record the trade in mock_trades table
+      const { error } = await supabase
+        .from('mock_trades')
+        .insert({
+          user_id: user?.id,
+          strategy_id: strategy.id,
+          trade_type: tradeRequest.action,
+          cryptocurrency: cryptoSymbol,
+          amount: cryptoAmount,
+          price: currentPrice,
+          total_value: tradeRequest.action === 'buy' ? tradeRequest.amount : tradeRequest.amount * currentPrice,
+          fees: 0,
+          executed_at: new Date().toISOString(),
+          is_test_mode: true,
+          market_conditions: {
+            price: currentPrice,
+            timestamp: new Date().toISOString()
+          }
+        });
+
+      if (error) {
+        console.error('Test trade recording error:', error);
+        return `❌ **Test Trade Failed**\n\nError recording the trade: ${error.message}`;
+      }
+
+      return `✅ **${tradeRequest.action.toUpperCase()} Order Executed Successfully** 🧪\n\n**Details:**\n• Amount: ${cryptoAmount.toFixed(6)} ${cryptoSymbol}\n• Value: €${tradeRequest.action === 'buy' ? tradeRequest.amount.toLocaleString() : (tradeRequest.amount * currentPrice).toLocaleString()}\n• Price: €${currentPrice.toLocaleString()} per ${cryptoSymbol}\n• Environment: 🧪 Test Mode (Simulated)\n\n**Note:** This was a simulated trade for testing purposes. Check your Dashboard to see the updated mock portfolio!`;
+    } catch (error) {
+      console.error('Test trade execution error:', error);
+      return `❌ **Test Trade Failed**\n\nError: ${error.message}`;
+    }
+  };
+
+  const analyzeUserQuestion = async (question: string): Promise<string> => {
     const lowerQuestion = question.toLowerCase();
-    const activeStrategy = userStrategies.find(s => 
+    
+    // Check for multiple strategies and no active strategy
+    const activeStrategies = userStrategies.filter(s => 
       testMode ? s.is_active_test : s.is_active_live
     );
     
-    if (!activeStrategy) {
-      return "I notice you don't have an active trading strategy yet. I'd recommend creating one first by clicking 'Create New Strategy' in the Strategy tab. Once you have a strategy configured, I'll be able to provide detailed analysis and suggestions based on your specific settings.";
+    if (activeStrategies.length === 0 && userStrategies.length > 0) {
+      return "I notice you have strategies but none are currently active. Please activate a strategy first by going to the Strategy tab and toggling one to active. Once you have an active strategy, I'll be able to analyze it and execute trades for you.";
     }
-
+    
+    if (activeStrategies.length === 0) {
+      return "I notice you don't have any trading strategies yet. I'd recommend creating one first by clicking 'Create New Strategy' in the Strategy tab. Once you have a strategy configured and activated, I'll be able to provide detailed analysis and execute trades for you.";
+    }
+    
+    if (activeStrategies.length > 1) {
+      const strategyNames = activeStrategies.map(s => s.strategy_name).join(', ');
+      return `I notice you have multiple active strategies: ${strategyNames}. For safety, please keep only one strategy active at a time. You can deactivate the others in the Strategy tab.`;
+    }
+    
+    const activeStrategy = activeStrategies[0];
     const config = activeStrategy.configuration || {};
+    
+    // Handle configuration change requests
+    const configChangeMatch = question.toLowerCase().match(/(?:change|set|update|increase|decrease)\s+(?:my\s+)?(?:risk\s+(?:level|profile)\s+to\s+|stop\s+loss\s+to\s+|take\s+profit\s+to\s+)(\w+|[\d.]+%?)/);
+    
+    if (configChangeMatch) {
+      const value = configChangeMatch[1];
+      
+      if (lowerQuestion.includes('risk')) {
+        return await updateStrategyConfig(activeStrategy, 'riskLevel', value, 'Risk Level');
+      } else if (lowerQuestion.includes('stop loss')) {
+        const percentage = parseFloat(value.replace('%', ''));
+        if (!isNaN(percentage) && percentage > 0 && percentage <= 10) {
+          await updateStrategyConfig(activeStrategy, 'stopLossPercentage', percentage, 'Stop Loss');
+          return `✅ **Strategy Updated Successfully**\n\nStop Loss updated to ${percentage}% for "${activeStrategy.strategy_name}". This will help limit your losses when trades move against you.`;
+        } else {
+          return `❌ Invalid stop loss percentage. Please specify a number between 0.1% and 10%.`;
+        }
+      } else if (lowerQuestion.includes('take profit')) {
+        const percentage = parseFloat(value.replace('%', ''));
+        if (!isNaN(percentage) && percentage > 0 && percentage <= 20) {
+          await updateStrategyConfig(activeStrategy, 'takeProfitPercentage', percentage, 'Take Profit');
+          return `✅ **Strategy Updated Successfully**\n\nTake Profit updated to ${percentage}% for "${activeStrategy.strategy_name}". Trades will automatically close when this profit target is reached.`;
+        } else {
+          return `❌ Invalid take profit percentage. Please specify a number between 0.1% and 20%.`;
+        }
+      }
+    }
     
     // Strategy analysis questions
     if (lowerQuestion.includes('stop loss') || lowerQuestion.includes('stop-loss')) {
@@ -230,8 +371,9 @@ export const ConversationPanel = () => {
     setInput('');
     setIsLoading(true);
 
-    // Check if this is a trade request and we're not in test mode
+    // Check if this is a trade request
     const tradeRequest = detectTradeRequest(currentInput);
+    
     if (tradeRequest && !testMode) {
       // Production trade detected - show warning that we're focusing on test mode for now
       const productionWarning: Message = {
@@ -243,6 +385,46 @@ export const ConversationPanel = () => {
       setMessages(prev => [...prev, productionWarning]);
       setIsLoading(false);
       return;
+    }
+
+    // Handle test mode trades directly
+    if (tradeRequest && testMode) {
+      const activeStrategy = userStrategies.find(s => s.is_active_test);
+      
+      if (!activeStrategy) {
+        const noStrategyMessage: Message = {
+          id: Date.now().toString(),
+          type: 'ai',
+          content: "❌ **No Active Strategy**\n\nI can't execute trades without an active strategy. Please activate a strategy in the Strategy tab first, then try your trade again.",
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, noStrategyMessage]);
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const tradeResult = await executeTestTrade(tradeRequest, activeStrategy);
+        const tradeMessage: Message = {
+          id: Date.now().toString(),
+          type: 'ai',
+          content: tradeResult,
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, tradeMessage]);
+        setIsLoading(false);
+        return;
+      } catch (error) {
+        const errorMessage: Message = {
+          id: Date.now().toString(),
+          type: 'ai',
+          content: `❌ **Test Trade Failed**\n\nError: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, errorMessage]);
+        setIsLoading(false);
+        return;
+      }
     }
 
     try {
@@ -354,7 +536,7 @@ export const ConversationPanel = () => {
       
       // Fallback to local analysis only if no AI response
       if (!aiMessage) {
-        aiMessage = analyzeUserQuestion(currentInput);
+        aiMessage = await analyzeUserQuestion(currentInput);
       }
       
       const aiResponse: Message = {
@@ -372,7 +554,7 @@ export const ConversationPanel = () => {
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         type: 'ai',
-        content: analyzeUserQuestion(currentInput),
+        content: await analyzeUserQuestion(currentInput),
         timestamp: new Date()
       };
       setMessages(prev => [...prev, aiResponse]);
