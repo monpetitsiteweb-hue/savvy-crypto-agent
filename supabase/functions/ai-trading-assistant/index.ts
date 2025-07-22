@@ -339,11 +339,19 @@ serve(async (req) => {
         .limit(90);
 
       console.log('🤖 Gathering AI learning insights...');
-      const { data: aiLearning } = await supabase
-        .from('ai_learning_sessions')
+      const { data: aiKnowledge } = await supabase
+        .from('ai_knowledge_base')
         .select('*')
         .eq('user_id', userId)
-        .order('created_at', { ascending: false })
+        .order('confidence_score', { ascending: false })
+        .limit(20);
+
+      console.log('🐋 Gathering whale signal events...');
+      const { data: whaleSignals } = await supabase
+        .from('whale_signal_events')
+        .select('*')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false })
         .limit(50);
 
       // Enhanced knowledge collection
@@ -402,14 +410,27 @@ serve(async (req) => {
           trendAnalysis: analyzeTrends(realtimeMarketData)
         },
 
-        // AI learning insights
+        // AI learning insights and whale activity
         learningInsights: {
-          sessionsCount: aiLearning?.length || 0,
-          recentPatterns: aiLearning?.slice(0, 10).map(session => ({
-            pattern: session.market_context?.pattern,
-            outcome: session.performance_impact,
-            confidence: session.confidence_score
-          })) || []
+          knowledgeCount: aiKnowledge?.length || 0,
+          insights: aiKnowledge?.slice(0, 5).map(insight => ({
+            type: insight.knowledge_type,
+            title: insight.title,
+            content: insight.content.substring(0, 200),
+            confidence: insight.confidence_score,
+            dataPoints: insight.data_points
+          })) || [],
+          whaleActivity: {
+            count: whaleSignals?.length || 0,
+            recentEvents: whaleSignals?.slice(0, 10).map(signal => ({
+              type: signal.event_type,
+              amount: signal.amount,
+              token: signal.token_symbol,
+              blockchain: signal.blockchain,
+              timestamp: signal.timestamp,
+              processed: signal.processed
+            })) || []
+          }
         }
       };
 
@@ -449,7 +470,8 @@ serve(async (req) => {
 🧠 COMPREHENSIVE MARKET INTELLIGENCE:
 External Market Signals: ${marketIntelligence.externalSignals?.count || 0} active sources
 Recent Sentiment Analysis: ${marketIntelligence.externalSignals?.recentSentiment?.length || 0} sentiment readings
-Whale Activity Detected: ${marketIntelligence.externalSignals?.whaleActivity?.length || 0} large transactions
+ACTUAL Whale Activity: ${marketIntelligence.learningInsights?.whaleActivity?.count || 0} recent whale events
+Latest Whale Transactions: ${marketIntelligence.learningInsights?.whaleActivity?.recentEvents?.slice(0,3).map(e => `${e.amount} ${e.token}`).join(', ') || 'None recent'}
 Institutional Flows: ${marketIntelligence.externalSignals?.institutionalFlow?.length || 0} institutional movements
 
 📊 PERFORMANCE INTELLIGENCE:
@@ -468,9 +490,10 @@ Market Volatility Levels: ${JSON.stringify(marketIntelligence.marketConditions?.
 Current Trends: ${JSON.stringify(marketIntelligence.marketConditions?.trendAnalysis?.map(t => `${t.symbol}: ${t.trend}`) || [])}
 
 🤖 AI LEARNING INSIGHTS:
-Learning Sessions: ${marketIntelligence.learningInsights?.sessionsCount || 0} AI training cycles
-Pattern Recognition: ${marketIntelligence.learningInsights?.recentPatterns?.length || 0} patterns identified
-Performance Predictions: Enhanced by continuous learning algorithms
+Knowledge Base Insights: ${marketIntelligence.learningInsights?.knowledgeCount || 0} AI-generated insights
+Recent AI Insights: ${marketIntelligence.learningInsights?.insights?.map(i => `${i.type}: ${i.title}`).join('; ') || 'Building knowledge base...'}
+Whale Activity Intelligence: ${marketIntelligence.learningInsights?.whaleActivity?.count || 0} whale events tracked
+Live Market Signals: External data feeds providing real-time market intelligence
 
 📚 ENHANCED KNOWLEDGE BASE:
 ${enhancedKnowledge || 'Base cryptocurrency knowledge + real-time market feeds'}
