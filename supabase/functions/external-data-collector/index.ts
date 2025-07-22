@@ -21,18 +21,16 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log(`📡 External Data Collector received:`, JSON.stringify(requestBody));
 
-    // Check if this is a webhook payload (QuickNode, etc.)
-    // Webhook payloads typically don't have an 'action' field and have specific structures
-    const hasAction = requestBody.action && typeof requestBody.action === 'string';
-    const isWebhookPayload = !hasAction || 
-                            requestBody.webhook || 
-                            requestBody.data || 
-                            requestBody.matchingTransactions ||
-                            requestBody.event_type ||
-                            requestBody.webhook_type;
+    // Check if this is a webhook payload from external services
+    // Admin actions have specific structure: { action: "sync_all_sources", userId: "..." }
+    const hasAdminAction = requestBody.action && 
+                          typeof requestBody.action === 'string' && 
+                          (requestBody.action === 'sync_all_sources' || requestBody.action === 'sync_source') &&
+                          (requestBody.userId || requestBody.sourceId);
     
-    if (isWebhookPayload && !hasAction) {
-      console.log('🔗 Processing webhook payload...');
+    // If it's not an admin action, treat it as a webhook payload
+    if (!hasAdminAction) {
+      console.log('🔗 Processing webhook payload (not admin action)...');
       await processWebhookPayload(supabaseClient, requestBody, req.headers);
       return new Response(JSON.stringify({ success: true, message: 'Webhook processed' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
