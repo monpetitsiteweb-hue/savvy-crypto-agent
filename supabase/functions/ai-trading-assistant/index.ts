@@ -363,9 +363,11 @@ serve(async (req) => {
         enhancedKnowledge = knowledgeData.knowledge;
       }
 
-      // Real-time market data for current strategy
+      // Real-time market data for current strategy and common coins
       const currentCoins = currentConfig?.selectedCoins || ['BTC', 'ETH'];
-      const symbols = currentCoins.map(coin => `${coin}-EUR`);
+      // Always include major coins for comprehensive market analysis
+      const allCoins = [...new Set([...currentCoins, 'BTC', 'ETH', 'XRP'])];
+      const symbols = allCoins.map(coin => `${coin}-EUR`);
       
       let realtimeMarketData = {};
       try {
@@ -373,6 +375,8 @@ serve(async (req) => {
           body: { symbols, action: 'get_current' }
         });
         realtimeMarketData = marketData?.data || {};
+        console.log('🔍 Market data fetched for symbols:', symbols);
+        console.log('📊 Available market data keys:', Object.keys(realtimeMarketData));
       } catch (marketError) {
         console.log('Real-time market data not available:', marketError);
       }
