@@ -926,8 +926,32 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
           // Normalize the key to handle different naming conventions
           const normalizedKey = key.toLowerCase();
           
+          // Special bulk operations
+          if (normalizedKey.includes('all') && normalizedKey.includes('coin')) {
+            // Handle "add all coins", "enable all coins", etc.
+            const COINBASE_COINS = [
+              'BTC', 'ETH', 'ADA', 'DOGE', 'XRP', 'LTC', 'BCH', 'LINK', 'DOT', 'UNI',
+              'SOL', 'MATIC', 'AVAX', 'ICP', 'XLM', 'VET', 'ALGO', 'ATOM', 'FIL', 'TRX',
+              'ETC', 'THETA', 'XMR', 'XTZ', 'COMP', 'AAVE', 'MKR', 'SNX', 'CRV', 'YFI'
+            ];
+            rootLevelChanges['selectedCoins'] = COINBASE_COINS;
+            console.log('🪙 ALL COINS SELECTED:', COINBASE_COINS.length, 'coins');
+          } else if (normalizedKey.includes('disable') && normalizedKey.includes('notification')) {
+            // Handle "disable all notifications"
+            rootLevelChanges['notifyOnTrade'] = false;
+            rootLevelChanges['notifyOnError'] = false;
+            rootLevelChanges['notifyOnTargets'] = false;
+            console.log('🔕 ALL NOTIFICATIONS DISABLED');
+          } else if (normalizedKey.includes('enable') && normalizedKey.includes('notification')) {
+            // Handle "enable all notifications" 
+            rootLevelChanges['notifyOnTrade'] = true;
+            rootLevelChanges['notifyOnError'] = true;
+            rootLevelChanges['notifyOnTargets'] = true;
+            console.log('🔔 ALL NOTIFICATIONS ENABLED');
+          }
+          
           // AI Intelligence Config Fields
-          if (key === 'AIOverrideEnabled' || key === 'enableAIOverride' || normalizedKey === 'aioverrideenabled') {
+          else if (key === 'AIOverrideEnabled' || key === 'enableAIOverride' || normalizedKey === 'aioverrideenabled') {
             aiIntelligenceChanges['enableAIOverride'] = value;
           } else if (key === 'AIAutonomyLevel' || key === 'aiAutonomyLevel' || normalizedKey === 'aiautonomylevel' || normalizedKey === 'autonomylevel') {
             aiIntelligenceChanges['aiAutonomyLevel'] = value;
@@ -978,8 +1002,9 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
             rootLevelChanges['strategyName'] = value;
           } else if (key === 'riskProfile' || key === 'RiskProfile' || normalizedKey === 'riskprofile' || normalizedKey === 'risk') {
             rootLevelChanges['riskProfile'] = value;
-          } else if (key === 'maxWalletExposure' || key === 'MaxWalletExposure' || normalizedKey === 'maxwalletexposure' || normalizedKey === 'walletexposure') {
-            rootLevelChanges['maxWalletExposure'] = value;
+          } else if (key === 'maxWalletExposure' || key === 'MaxWalletExposure' || normalizedKey === 'maxwalletexposure' || normalizedKey === 'walletexposure' || normalizedKey === 'exposure') {
+            // Ensure proper numeric conversion for percentages
+            rootLevelChanges['maxWalletExposure'] = typeof value === 'string' ? parseFloat(value) : value;
           } else if (key === 'enableLiveTrading' || key === 'EnableLiveTrading' || normalizedKey === 'enablelivetrading' || normalizedKey === 'livetrading') {
             rootLevelChanges['enableLiveTrading'] = value;
           } else if (key === 'enableTestTrading' || key === 'EnableTestTrading' || normalizedKey === 'enabletesttrading' || normalizedKey === 'testtrading') {
@@ -991,8 +1016,9 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
           // Coins and Amounts
           else if (key === 'selectedCoins' || key === 'SelectedCoins' || normalizedKey === 'selectedcoins' || normalizedKey === 'coins') {
             rootLevelChanges['selectedCoins'] = value;
-          } else if (key === 'maxActiveCoins' || key === 'MaxActiveCoins' || normalizedKey === 'maxactivecoins') {
-            rootLevelChanges['maxActiveCoins'] = value;
+          } else if (key === 'maxActiveCoins' || key === 'MaxActiveCoins' || normalizedKey === 'maxactivecoins' || normalizedKey === 'activecoins') {
+            // Ensure proper numeric conversion
+            rootLevelChanges['maxActiveCoins'] = typeof value === 'string' ? parseInt(value) : value;
           } else if (key === 'enableAutoCoinSelection' || key === 'EnableAutoCoinSelection' || normalizedKey === 'enableautocoinselection' || normalizedKey === 'autocoinselection') {
             rootLevelChanges['enableAutoCoinSelection'] = value;
           } else if (key === 'perTradeAllocation' || key === 'PerTradeAllocation' || normalizedKey === 'pertradeallocation' || normalizedKey === 'allocation') {
@@ -1012,10 +1038,12 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
             rootLevelChanges['buyOrderType'] = value;
           } else if (key === 'sellOrderType' || key === 'SellOrderType' || normalizedKey === 'sellordertype') {
             rootLevelChanges['sellOrderType'] = value;
-          } else if (key === 'takeProfitPercentage' || key === 'TakeProfitPercentage' || normalizedKey === 'takeprofitpercentage' || normalizedKey === 'takeprofit') {
-            rootLevelChanges['takeProfitPercentage'] = value;
+          } else if (key === 'takeProfitPercentage' || key === 'TakeProfitPercentage' || normalizedKey === 'takeprofitpercentage' || normalizedKey === 'takeprofit' || normalizedKey === 'profit') {
+            // Ensure proper numeric conversion for percentages
+            rootLevelChanges['takeProfitPercentage'] = typeof value === 'string' ? parseFloat(value) : value;
           } else if (key === 'stopLossPercentage' || key === 'StopLossPercentage' || normalizedKey === 'stoplosspercentage' || normalizedKey === 'stoploss') {
-            rootLevelChanges['stopLossPercentage'] = value;
+            // Ensure proper numeric conversion for percentages
+            rootLevelChanges['stopLossPercentage'] = typeof value === 'string' ? parseFloat(value) : value;
           } else if (key === 'trailingStopLossPercentage' || key === 'TrailingStopLossPercentage' || normalizedKey === 'trailingstoplosspercentage' || normalizedKey === 'trailingstoploss') {
             rootLevelChanges['trailingStopLossPercentage'] = value;
           } else if (key === 'trailingBuyPercentage' || key === 'TrailingBuyPercentage' || normalizedKey === 'trailingbuypercentage' || normalizedKey === 'trailingbuy') {
@@ -1025,8 +1053,9 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
           }
           
           // Position Management
-          else if (key === 'maxOpenPositions' || key === 'MaxOpenPositions' || normalizedKey === 'maxopenpositions') {
-            rootLevelChanges['maxOpenPositions'] = value;
+          else if (key === 'maxOpenPositions' || key === 'MaxOpenPositions' || normalizedKey === 'maxopenpositions' || normalizedKey === 'openpositions' || normalizedKey === 'positions') {
+            // Ensure proper numeric conversion
+            rootLevelChanges['maxOpenPositions'] = typeof value === 'string' ? parseInt(value) : value;
           } else if (key === 'dailyProfitTarget' || key === 'DailyProfitTarget' || normalizedKey === 'dailyprofittarget') {
             rootLevelChanges['dailyProfitTarget'] = value;
           } else if (key === 'dailyLossLimit' || key === 'DailyLossLimit' || normalizedKey === 'dailylosslimit') {
@@ -1093,6 +1122,20 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
           aiIntelligenceChanges,
           rootLevelChanges
         });
+        
+        // Debug logging for specific fields that were failing
+        if (rootLevelChanges.hasOwnProperty('maxWalletExposure')) {
+          console.log('💰 MAX WALLET EXPOSURE UPDATE:', rootLevelChanges.maxWalletExposure, typeof rootLevelChanges.maxWalletExposure);
+        }
+        if (rootLevelChanges.hasOwnProperty('takeProfitPercentage')) {
+          console.log('🎯 TAKE PROFIT UPDATE:', rootLevelChanges.takeProfitPercentage, typeof rootLevelChanges.takeProfitPercentage);
+        }
+        if (rootLevelChanges.hasOwnProperty('maxActiveCoins')) {
+          console.log('🪙 MAX ACTIVE COINS UPDATE:', rootLevelChanges.maxActiveCoins, typeof rootLevelChanges.maxActiveCoins);
+        }
+        if (rootLevelChanges.hasOwnProperty('maxOpenPositions')) {
+          console.log('📊 MAX OPEN POSITIONS UPDATE:', rootLevelChanges.maxOpenPositions, typeof rootLevelChanges.maxOpenPositions);
+        }
         
         // Merge new config changes with existing configuration
         const updatedConfiguration = {
