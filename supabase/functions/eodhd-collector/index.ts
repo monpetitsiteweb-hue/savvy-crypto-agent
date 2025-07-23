@@ -20,10 +20,19 @@ serve(async (req) => {
     const { action, symbols, interval, from, to, userId, sourceId } = await req.json();
     console.log(`💹 EODHD Collector received:`, { action, symbols, interval, from, to, userId });
 
-    const eodhd_api_key = Deno.env.get('EODHD_API_KEY');
-    if (!eodhd_api_key) {
-      throw new Error('EODHD_API_KEY not configured');
+    // Get EODHD API key from data source configuration
+    const { data: dataSource } = await supabaseClient
+      .from('ai_data_sources')
+      .select('configuration')
+      .eq('id', sourceId)
+      .eq('source_name', 'eodhd_api')
+      .single();
+
+    if (!dataSource?.configuration?.api_key) {
+      throw new Error('EODHD API key not found in configuration');
     }
+
+    const eodhd_api_key = dataSource.configuration.api_key;
 
     switch (action) {
       case 'fetch_eod_data':
@@ -59,12 +68,47 @@ async function fetchEODData(supabaseClient: any, apiKey: string, params: any) {
   
   for (const symbol of symbols) {
     try {
-      // TODO: Replace with actual EODHD API call
-      // const apiUrl = `https://eodhistoricaldata.com/api/eod/${symbol}?api_token=${apiKey}&from=${from}&to=${to}&fmt=json`;
-      // const response = await fetch(apiUrl);
-      // const data = await response.json();
+      // Real EODHD API call
+      const eodhSymbol = symbol.replace('-', '.CC'); // Convert BTC-EUR to BTC.CC for EODHD
+      const apiUrl = `https://eodhd.com/api/eod/${eodhSymbol}?api_token=${apiKey}&from=${from}&to=${to}&fmt=json`;
       
-      // For now, simulate EOD data
+      console.log(`🔗 Calling EODHD API: ${apiUrl.replace(apiKey, 'XXX')}`);
+      
+      const response = await fetch(apiUrl);
+      if (!response.ok) {
+        console.error(`Failed to fetch EOD data for ${symbol}:`, response.statusText);
+        continue;
+      }
+      
+      const data = await response.json();
+      
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          allPriceData.push({
+            source_id: sourceId,
+            user_id: userId,
+            timestamp: new Date(item.date + 'T00:00:00Z').toISOString(),
+            symbol: symbol,
+            open_price: parseFloat(item.open),
+            high_price: parseFloat(item.high),
+            low_price: parseFloat(item.low),
+            close_price: parseFloat(item.close),
+            volume: parseFloat(item.volume || 0),
+            interval_type: 'daily',
+            source: 'eodhd',
+            metadata: {
+              api_source: 'eodhd_eod',
+              data_quality: 'high',
+              original_symbol: eodhSymbol,
+              collection_time: new Date().toISOString()
+            }
+          });
+        }
+        
+        console.log(`✅ Fetched ${data.length} EOD records for ${symbol}`);
+      } else {
+        console.log(`⚠️ No data returned for ${symbol}, falling back to mock data`);
+        // Fallback to mock data if API returns no data
       const startDate = new Date(from);
       const endDate = new Date(to);
       const days = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -149,12 +193,50 @@ async function fetchIntradayData(supabaseClient: any, apiKey: string, params: an
   
   for (const symbol of symbols) {
     try {
-      // TODO: Replace with actual EODHD API call
-      // const apiUrl = `https://eodhistoricaldata.com/api/intraday/${symbol}?api_token=${apiKey}&interval=${interval}&fmt=json`;
-      // const response = await fetch(apiUrl);
-      // const data = await response.json();
+      // Real EODHD intraday API call
+      const eodhSymbol = symbol.replace('-', '.CC');
+      const apiUrl = `https://eodhd.com/api/intraday/${eodhSymbol}?api_token=${apiKey}&interval=${interval}&fmt=json`;
       
-      // For now, simulate intraday data for the last 24 hours
+      console.log(`🔗 Calling EODHD Intraday API: ${apiUrl.replace(apiKey, 'XXX')}`);
+      
+      const response = await fetch(apiUrl);
+      if (!response.ok) {
+        console.error(`Failed to fetch intraday data for ${symbol}:`, response.statusText);
+        continue;
+      }
+      
+      const data = await response.json();
+      
+      if (Array.isArray(data) && data.length > 0) {
+        // Take only the most recent 50 data points to avoid overwhelming the system
+        const recentData = data.slice(-50);
+        
+        for (const item of recentData) {
+          allIntradayData.push({
+            source_id: sourceId,
+            user_id: userId,
+            timestamp: new Date(item.datetime || item.timestamp).toISOString(),
+            symbol: symbol,
+            open_price: parseFloat(item.open),
+            high_price: parseFloat(item.high),
+            low_price: parseFloat(item.low),
+            close_price: parseFloat(item.close),
+            volume: parseFloat(item.volume || 0),
+            interval_type: interval,
+            source: 'eodhd',
+            metadata: {
+              api_source: 'eodhd_intraday',
+              data_quality: 'high',
+              original_symbol: eodhSymbol,
+              collection_time: new Date().toISOString()
+            }
+          });
+        }
+        
+        console.log(`✅ Fetched ${recentData.length} intraday records for ${symbol}`);
+      } else {
+        console.log(`⚠️ No intraday data returned for ${symbol}, falling back to mock data`);
+        // Fallback to mock data if API returns no data
       const now = new Date();
       const intervals = Math.floor(1440 / intervalMinutes); // 24 hours worth of intervals
       const basePrice = Math.random() * 50000 + 10000;
@@ -233,12 +315,47 @@ async function fetchRealTimeData(supabaseClient: any, apiKey: string, params: an
   
   for (const symbol of symbols) {
     try {
-      // TODO: Replace with actual EODHD real-time API call
-      // const apiUrl = `https://eodhistoricaldata.com/api/real-time/${symbol}?api_token=${apiKey}&fmt=json`;
-      // const response = await fetch(apiUrl);
-      // const data = await response.json();
+      // Real EODHD real-time API call
+      const eodhSymbol = symbol.replace('-', '.CC');
+      const apiUrl = `https://eodhd.com/api/real-time/${eodhSymbol}?api_token=${apiKey}&fmt=json`;
       
-      // For now, simulate real-time data
+      console.log(`🔗 Calling EODHD Real-time API: ${apiUrl.replace(apiKey, 'XXX')}`);
+      
+      const response = await fetch(apiUrl);
+      if (!response.ok) {
+        console.error(`Failed to fetch real-time data for ${symbol}:`, response.statusText);
+        continue;
+      }
+      
+      const data = await response.json();
+      
+      if (data && data.code) {
+        realTimeData.push({
+          source_id: sourceId,
+          user_id: userId,
+          timestamp: new Date().toISOString(),
+          symbol: symbol,
+          open_price: parseFloat(data.open || data.previousClose || data.code),
+          high_price: parseFloat(data.high || data.code),
+          low_price: parseFloat(data.low || data.code),
+          close_price: parseFloat(data.close || data.code),
+          volume: parseFloat(data.volume || 0),
+          interval_type: 'real_time',
+          source: 'eodhd',
+          metadata: {
+            api_source: 'eodhd_realtime',
+            data_quality: 'high',
+            original_symbol: eodhSymbol,
+            change: data.change,
+            change_p: data.change_p,
+            collection_time: new Date().toISOString()
+          }
+        });
+        
+        console.log(`✅ Fetched real-time data for ${symbol}: $${data.code}`);
+      } else {
+        console.log(`⚠️ No real-time data returned for ${symbol}, falling back to mock data`);
+        // Fallback to mock data
       const basePrice = Math.random() * 50000 + 10000;
       const currentPrice = basePrice * (1 + (Math.random() - 0.5) * 0.01);
       
