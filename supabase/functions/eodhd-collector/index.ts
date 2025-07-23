@@ -319,15 +319,26 @@ async function fetchRealTimeData(supabaseClient: any, apiKey: string, params: an
       const data = await response.json();
       
       if (data && data.code) {
+        const currentPrice = parseFloat(data.close || data.code);
+        const openPrice = parseFloat(data.open || data.previousClose || data.close || data.code);
+        const highPrice = parseFloat(data.high || data.close || data.code);
+        const lowPrice = parseFloat(data.low || data.close || data.code);
+        
+        // Ensure all price values are valid numbers
+        if (isNaN(currentPrice) || isNaN(openPrice) || isNaN(highPrice) || isNaN(lowPrice)) {
+          console.log(`⚠️ Invalid price data for ${symbol}, skipping...`);
+          continue;
+        }
+        
         realTimeData.push({
           source_id: sourceId,
           user_id: userId,
           timestamp: new Date().toISOString(),
           symbol: symbol,
-          open_price: parseFloat(data.open || data.previousClose || data.code),
-          high_price: parseFloat(data.high || data.code),
-          low_price: parseFloat(data.low || data.code),
-          close_price: parseFloat(data.close || data.code),
+          open_price: openPrice,
+          high_price: highPrice,
+          low_price: lowPrice,
+          close_price: currentPrice,
           volume: parseFloat(data.volume || 0),
           interval_type: 'real_time',
           source: 'eodhd',
@@ -335,8 +346,8 @@ async function fetchRealTimeData(supabaseClient: any, apiKey: string, params: an
             api_source: 'eodhd_realtime',
             data_quality: 'high',
             original_symbol: eodhSymbol,
-            change: data.change,
-            change_p: data.change_p,
+            change: data.change || 'NA',
+            change_p: data.change_p || 'NA',
             collection_time: new Date().toISOString()
           }
         });
