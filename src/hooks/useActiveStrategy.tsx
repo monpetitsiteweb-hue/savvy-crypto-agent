@@ -53,6 +53,33 @@ export const useActiveStrategy = () => {
     loadActiveStrategy();
   }, [user, testMode]);
 
+  // Set up real-time subscription for strategy updates
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('strategy-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'trading_strategies',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('Strategy updated via real-time:', payload);
+          // Reload the active strategy when any strategy for this user is updated
+          loadActiveStrategy();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
   const hasActiveStrategy = !!activeStrategy;
 
   return {
