@@ -43,6 +43,33 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     }
   }, [user, testMode]);
 
+  // Set up real-time subscription for strategy updates
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('strategy-list-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'trading_strategies',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('Strategy list updated via real-time:', payload);
+          // Refresh the strategy list when any strategy for this user is updated
+          fetchStrategies();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
   // Notify parent component when view changes to full-width
   useEffect(() => {
     const isFullWidth = currentView === 'create' || currentView === 'comprehensive';
