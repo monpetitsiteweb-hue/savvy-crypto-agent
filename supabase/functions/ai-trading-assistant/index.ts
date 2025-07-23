@@ -936,14 +936,16 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
             ];
             rootLevelChanges['selectedCoins'] = COINBASE_COINS;
             console.log('🪙 ALL COINS SELECTED:', COINBASE_COINS.length, 'coins');
-          } else if (normalizedKey.includes('disable') && normalizedKey.includes('notification')) {
-            // Handle "disable all notifications"
+          } else if ((normalizedKey.includes('disable') && normalizedKey.includes('notification')) || 
+                     (key === 'notificationsEnabled' && value === false)) {
+            // Handle "disable all notifications" OR notificationsEnabled: false
             rootLevelChanges['notifyOnTrade'] = false;
             rootLevelChanges['notifyOnError'] = false;
             rootLevelChanges['notifyOnTargets'] = false;
             console.log('🔕 ALL NOTIFICATIONS DISABLED');
-          } else if (normalizedKey.includes('enable') && normalizedKey.includes('notification')) {
-            // Handle "enable all notifications" 
+          } else if ((normalizedKey.includes('enable') && normalizedKey.includes('notification') && !normalizedKey.includes('disable')) || 
+                     (key === 'notificationsEnabled' && value === true)) {
+            // Handle "enable all notifications" OR notificationsEnabled: true
             rootLevelChanges['notifyOnTrade'] = true;
             rootLevelChanges['notifyOnError'] = true;
             rootLevelChanges['notifyOnTargets'] = true;
