@@ -176,9 +176,6 @@ const MENU_SECTIONS = [
     items: [
       { id: 'sell-settings', label: 'Sell settings', icon: TrendingDown },
       { id: 'sell-strategy', label: 'Sell strategy', icon: BarChart3 },
-      { id: 'stop-loss', label: 'Stop-loss', icon: Shield },
-      { id: 'trailing-stop-loss', label: 'Trailing stop-loss', icon: Timer },
-      { id: 'auto-close', label: 'Auto close', icon: Zap },
       { id: 'shorting-settings', label: 'Shorting settings', icon: TrendingDown },
       { id: 'dollar-cost-averaging', label: 'Dollar Cost Averaging', icon: DollarSign }
     ]
@@ -526,7 +523,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
               {section.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeSection === item.id;
-                const hasGreenDot = ['strategy', 'trailing-stop-buy', 'stop-loss', 'trailing-stop-loss', 'auto-close', 'shorting-settings', 'dollar-cost-averaging'].includes(item.id);
+                const hasGreenDot = ['strategy', 'trailing-stop-buy', 'shorting-settings', 'dollar-cost-averaging'].includes(item.id);
                 
                 return (
                   <button
@@ -1123,22 +1120,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             <div className="space-y-4">
                               <div className="space-y-2">
                                 <TooltipField 
-                                  description="Limit how many trades can run at the same time."
-                                  examples={["Don't open more than 3 trades", "Allow up to 5 active positions"]}
-                                >
-                                  <Label>Max Active Positions</Label>
-                                </TooltipField>
-                                <Input
-                                  type="number"
-                                  value={formData.maxOpenPositions}
-                                  onChange={(e) => updateFormData('maxOpenPositions', parseInt(e.target.value) || 1)}
-                                  min={1}
-                                  max={20}
-                                />
-                              </div>
-
-                              <div className="space-y-2">
-                                <TooltipField 
                                   description="Cap how much of your capital this strategy is allowed to use."
                                   examples={["Use up to 50% of my funds", "Don't go over 20%"]}
                                 >
@@ -1155,22 +1136,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                 <div className="text-sm text-muted-foreground">
                                   Current: {formData.maxWalletExposure}%
                                 </div>
-                              </div>
-
-                              <div className="space-y-2">
-                                <TooltipField 
-                                  description="Add a delay between closing a trade and opening a new one."
-                                  examples={["Wait 10 minutes before re-entering", "Give it time before starting a new position"]}
-                                >
-                                  <Label>Trade Cooldown (minutes)</Label>
-                                </TooltipField>
-                                <Input
-                                  type="number"
-                                  value={formData.tradeCooldownMinutes}
-                                  onChange={(e) => updateFormData('tradeCooldownMinutes', parseInt(e.target.value) || 0)}
-                                  min={0}
-                                  max={1440}
-                                />
                               </div>
                             </div>
 
@@ -1296,25 +1261,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                         </CardHeader>
                         <CardContent className="space-y-6">
                           <div className="space-y-4">
-                            <div className="space-y-2">
-                              <TooltipField 
-                                description="Choose how the strategy should close a trade — instantly, at a target, or using price trailing."
-                                examples={["Sell at market price", "Use a trailing stop to exit", "Set a profit target"]}
-                              >
-                                <Label>Sell Order Strategy</Label>
-                              </TooltipField>
-                              <Select value={formData.sellOrderType} onValueChange={(value: any) => updateFormData('sellOrderType', value)}>
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="market">Market Order (Instant)</SelectItem>
-                                  <SelectItem value="limit">Limit Order (At Target)</SelectItem>
-                                  <SelectItem value="trailing_stop">Trailing Stop</SelectItem>
-                                  <SelectItem value="auto_close">Auto Close (Time-based)</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
 
                             <div className="flex items-center justify-between">
                               <div className="space-y-1">
@@ -1353,251 +1299,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                     </div>
                   )}
 
-                  {/* Stop-Loss Section */}
-                  {activeSection === 'stop-loss' && (
-                    <div className="space-y-6">
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Shield className="h-5 w-5" />
-                            Stop-Loss Protection
-                          </CardTitle>
-                          <p className="text-sm text-muted-foreground">
-                            Configure automatic loss protection to limit downside risk. Stop-loss orders automatically close positions when losses reach your defined threshold.
-                          </p>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                          <div className="space-y-4">
-                            <div className="space-y-2">
-                              <TooltipField 
-                                description="Automatically closes a trade when the price drops by this percentage — protects you from big losses."
-                                examples={["Cut my losses at 2%", "Don't let it drop more than 1.5%", "Add a stop-loss"]}
-                              >
-                                <Label>Stop-Loss Percentage (%)</Label>
-                              </TooltipField>
-                              <Slider
-                                value={[formData.stopLossPercentage]}
-                                onValueChange={([value]) => updateFormData('stopLossPercentage', value)}
-                                max={20}
-                                min={0.5}
-                                step={0.1}
-                                className="w-full"
-                              />
-                              <div className="text-sm text-muted-foreground">
-                                Current: {formData.stopLossPercentage}%
-                              </div>
-                            </div>
 
-                            <div className="flex items-center justify-between">
-                              <div className="space-y-1">
-                                <TooltipField 
-                                  description="Add time-based stop-loss that triggers after a set period regardless of price."
-                                  examples={["Auto-close after 2 hours", "Time-based exit"]}
-                                >
-                                  <Label>Enable Stop-Loss Timeout</Label>
-                                </TooltipField>
-                                <p className="text-sm text-muted-foreground">Time-based stop-loss</p>
-                              </div>
-                              <Switch
-                                checked={formData.enableStopLossTimeout}
-                                onCheckedChange={(checked) => updateFormData('enableStopLossTimeout', checked)}
-                              />
-                            </div>
-
-                            {formData.enableStopLossTimeout && (
-                              <div className="space-y-2">
-                                <TooltipField 
-                                  description="Minutes after which the position will be closed regardless of profit/loss."
-                                  examples={["Close after 120 minutes", "Time limit of 2 hours"]}
-                                >
-                                  <Label>Stop-Loss Timeout (minutes)</Label>
-                                </TooltipField>
-                                <Input
-                                  type="number"
-                                  value={formData.stopLossTimeoutMinutes}
-                                  onChange={(e) => updateFormData('stopLossTimeoutMinutes', parseInt(e.target.value) || 120)}
-                                  min={1}
-                                  max={10080}
-                                />
-                              </div>
-                            )}
-
-                            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-200 dark:border-red-800">
-                              <h4 className="font-medium text-red-800 dark:text-red-200 mb-2">Risk Warning:</h4>
-                              <p className="text-sm text-red-700 dark:text-red-300">
-                                Stop-loss orders help protect your capital but are not guaranteed in extreme market conditions. 
-                                Set appropriate levels based on your risk tolerance.
-                              </p>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  )}
-
-                  {/* Trailing Stop-Loss Section */}
-                  {activeSection === 'trailing-stop-loss' && (
-                    <div className="space-y-6">
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Timer className="h-5 w-5" />
-                            Trailing Stop-Loss
-                          </CardTitle>
-                          <p className="text-sm text-muted-foreground">
-                            Dynamic stop-loss that follows the price upward, locking in profits while still providing downside protection. Great for capturing gains during trending markets.
-                          </p>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                          <div className="space-y-4">
-                            <div className="space-y-2">
-                              <TooltipField 
-                                description="Tracks price as it rises and closes the trade if it drops by this percentage from the peak."
-                                examples={["Let the profits ride", "Use a trailing stop of 2%", "Sell if it drops after going up"]}
-                              >
-                                <Label>Trailing Stop-Loss Percentage (%)</Label>
-                              </TooltipField>
-                              <Slider
-                                value={[formData.trailingStopLossPercentage]}
-                                onValueChange={([value]) => updateFormData('trailingStopLossPercentage', value)}
-                                max={10}
-                                min={0.5}
-                                step={0.1}
-                                className="w-full"
-                              />
-                              <div className="text-sm text-muted-foreground">
-                                Current: {formData.trailingStopLossPercentage}%
-                              </div>
-                            </div>
-
-                            <div className="bg-muted/30 p-4 rounded-lg">
-                              <h4 className="font-medium mb-2">How Trailing Stop-Loss Works:</h4>
-                              <ul className="text-sm text-muted-foreground space-y-1">
-                                <li>• Follows price upward as position becomes profitable</li>
-                                <li>• Maintains {formData.trailingStopLossPercentage}% distance below highest price reached</li>
-                                <li>• Never moves downward, only upward with profitable price movement</li>
-                                <li>• Triggers if price drops {formData.trailingStopLossPercentage}% from peak</li>
-                                <li>• Protects profits while allowing for continued upside capture</li>
-                              </ul>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
-                                <h5 className="font-medium text-green-800 dark:text-green-200 mb-1">Benefits:</h5>
-                                <ul className="text-sm text-green-700 dark:text-green-300 space-y-1">
-                                  <li>• Locks in profits automatically</li>
-                                  <li>• Lets profits run in trending markets</li>
-                                  <li>• Reduces emotional trading decisions</li>
-                                </ul>
-                              </div>
-                              
-                              <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-lg border border-amber-200 dark:border-amber-800">
-                                <h5 className="font-medium text-amber-800 dark:text-amber-200 mb-1">Considerations:</h5>
-                                <ul className="text-sm text-amber-700 dark:text-amber-300 space-y-1">
-                                  <li>• Can exit early in volatile markets</li>
-                                  <li>• Requires careful percentage tuning</li>
-                                  <li>• Works best in trending conditions</li>
-                                </ul>
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  )}
-
-                  {/* Auto-Close Section */}
-                  {activeSection === 'auto-close' && (
-                    <div className="space-y-6">
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Zap className="h-5 w-5" />
-                            Auto-Close Settings
-                          </CardTitle>
-                          <p className="text-sm text-muted-foreground">
-                            Time-based position management that automatically closes trades after a specified duration, regardless of profit or loss. Useful for strategies with strict time limits.
-                          </p>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                          <div className="space-y-4">
-                            <div className="space-y-2">
-                              <TooltipField 
-                                description="Closes the trade after a fixed time, no matter the result."
-                                examples={["Exit after 6 hours", "Close trades after 1 day", "Don't hold for too long"]}
-                              >
-                                <Label>Auto-Close After (hours)</Label>
-                              </TooltipField>
-                              <Input
-                                type="number"
-                                value={formData.autoCloseAfterHours}
-                                onChange={(e) => updateFormData('autoCloseAfterHours', parseInt(e.target.value) || 24)}
-                                min={1}
-                                max={168}
-                              />
-                              <div className="text-sm text-muted-foreground">
-                                Positions will close after {formData.autoCloseAfterHours} hours
-                              </div>
-                            </div>
-
-                            <div className="bg-muted/30 p-4 rounded-lg">
-                              <h4 className="font-medium mb-2">Auto-Close Use Cases:</h4>
-                              <ul className="text-sm text-muted-foreground space-y-1">
-                                <li>• <strong>Scalping strategies:</strong> Quick in-and-out trades (1-4 hours)</li>
-                                <li>• <strong>Day trading:</strong> Close all positions by end of day (8-12 hours)</li>
-                                <li>• <strong>Swing trading:</strong> Medium-term holds (24-72 hours)</li>
-                                <li>• <strong>Risk management:</strong> Prevent indefinite position holding</li>
-                              </ul>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              <Card 
-                                className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
-                                  formData.autoCloseAfterHours === 4 
-                                    ? 'ring-2 ring-primary bg-primary/5' 
-                                    : 'hover:bg-muted/50'
-                                }`}
-                                onClick={() => updateFormData('autoCloseAfterHours', 4)}
-                              >
-                                <CardContent className="p-4 text-center">
-                                  <h5 className="font-medium">Scalping</h5>
-                                  <p className="text-sm text-muted-foreground">4 hours</p>
-                                </CardContent>
-                              </Card>
-                              
-                              <Card 
-                                className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
-                                  formData.autoCloseAfterHours === 12 
-                                    ? 'ring-2 ring-primary bg-primary/5' 
-                                    : 'hover:bg-muted/50'
-                                }`}
-                                onClick={() => updateFormData('autoCloseAfterHours', 12)}
-                              >
-                                <CardContent className="p-4 text-center">
-                                  <h5 className="font-medium">Day Trading</h5>
-                                  <p className="text-sm text-muted-foreground">12 hours</p>
-                                </CardContent>
-                              </Card>
-                              
-                              <Card 
-                                className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
-                                  formData.autoCloseAfterHours === 48 
-                                    ? 'ring-2 ring-primary bg-primary/5' 
-                                    : 'hover:bg-muted/50'
-                                }`}
-                                onClick={() => updateFormData('autoCloseAfterHours', 48)}
-                              >
-                                <CardContent className="p-4 text-center">
-                                  <h5 className="font-medium">Swing Trading</h5>
-                                  <p className="text-sm text-muted-foreground">48 hours</p>
-                                </CardContent>
-                              </Card>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  )}
 
                   {/* Shorting Settings Section */}
                   {activeSection === 'shorting-settings' && (
