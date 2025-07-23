@@ -917,11 +917,36 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
           });
         }
         
+        // Handle AI intelligence config changes specifically
+        const aiIntelligenceChanges = {};
+        const rootLevelChanges = {};
+        
+        // Map AI-related config changes to the correct nested structure
+        for (const [key, value] of Object.entries(config_changes)) {
+          if (key === 'AIOverrideEnabled') {
+            aiIntelligenceChanges['enableAIOverride'] = value;
+          } else if (key === 'AIAutonomyLevel') {
+            aiIntelligenceChanges['aiAutonomyLevel'] = value;
+          } else if (key === 'AIConfidenceThreshold') {
+            aiIntelligenceChanges['aiConfidenceThreshold'] = value;
+          } else {
+            rootLevelChanges[key] = value;
+          }
+        }
+        
         // Merge new config changes with existing configuration
         const updatedConfiguration = {
           ...currentStrategy.configuration,
-          ...config_changes
+          ...rootLevelChanges
         };
+        
+        // Update AI intelligence config if there are AI-related changes
+        if (Object.keys(aiIntelligenceChanges).length > 0) {
+          updatedConfiguration.aiIntelligenceConfig = {
+            ...currentStrategy.configuration.aiIntelligenceConfig,
+            ...aiIntelligenceChanges
+          };
+        }
         
         // Update the strategy configuration
         console.log('🔧 ATTEMPTING CONFIG UPDATE:', {
