@@ -921,15 +921,66 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
         const aiIntelligenceChanges = {};
         const rootLevelChanges = {};
         
-        // Map AI-related config changes to the correct nested structure
+        // Comprehensive mapping of AI-related config changes to the correct nested structure
         for (const [key, value] of Object.entries(config_changes)) {
-          if (key === 'AIOverrideEnabled') {
+          // Core AI Settings
+          if (key === 'AIOverrideEnabled' || key === 'enableAIOverride') {
             aiIntelligenceChanges['enableAIOverride'] = value;
-          } else if (key === 'AIAutonomyLevel') {
+          } else if (key === 'AIAutonomyLevel' || key === 'aiAutonomyLevel') {
             aiIntelligenceChanges['aiAutonomyLevel'] = value;
-          } else if (key === 'AIConfidenceThreshold') {
+          } else if (key === 'AIConfidenceThreshold' || key === 'aiConfidenceThreshold') {
             aiIntelligenceChanges['aiConfidenceThreshold'] = value;
-          } else {
+          }
+          // Pattern Recognition
+          else if (key === 'enablePatternRecognition') {
+            aiIntelligenceChanges['enablePatternRecognition'] = value;
+          } else if (key === 'patternLookbackHours') {
+            aiIntelligenceChanges['patternLookbackHours'] = value;
+          } else if (key === 'crossAssetCorrelation') {
+            aiIntelligenceChanges['crossAssetCorrelation'] = value;
+          } else if (key === 'marketStructureAnalysis') {
+            aiIntelligenceChanges['marketStructureAnalysis'] = value;
+          }
+          // External Signal Processing
+          else if (key === 'enableExternalSignals') {
+            aiIntelligenceChanges['enableExternalSignals'] = value;
+          } else if (key === 'whaleActivityWeight') {
+            aiIntelligenceChanges['whaleActivityWeight'] = value;
+          } else if (key === 'sentimentWeight') {
+            aiIntelligenceChanges['sentimentWeight'] = value;
+          } else if (key === 'newsImpactWeight') {
+            aiIntelligenceChanges['newsImpactWeight'] = value;
+          } else if (key === 'socialSignalsWeight') {
+            aiIntelligenceChanges['socialSignalsWeight'] = value;
+          }
+          // Decision Making
+          else if (key === 'decisionMode') {
+            aiIntelligenceChanges['decisionMode'] = value;
+          } else if (key === 'escalationThreshold') {
+            aiIntelligenceChanges['escalationThreshold'] = value;
+          } else if (key === 'riskOverrideAllowed') {
+            aiIntelligenceChanges['riskOverrideAllowed'] = value;
+          }
+          // Learning & Adaptation
+          else if (key === 'enableLearning') {
+            aiIntelligenceChanges['enableLearning'] = value;
+          } else if (key === 'adaptToPerformance') {
+            aiIntelligenceChanges['adaptToPerformance'] = value;
+          } else if (key === 'learningRate') {
+            aiIntelligenceChanges['learningRate'] = value;
+          }
+          // Alerts & Communication
+          else if (key === 'explainDecisions') {
+            aiIntelligenceChanges['explainDecisions'] = value;
+          } else if (key === 'alertOnAnomalies') {
+            aiIntelligenceChanges['alertOnAnomalies'] = value;
+          } else if (key === 'alertOnOverrides') {
+            aiIntelligenceChanges['alertOnOverrides'] = value;
+          } else if (key === 'customInstructions') {
+            aiIntelligenceChanges['customInstructions'] = value;
+          }
+          // All other fields go to root level
+          else {
             rootLevelChanges[key] = value;
           }
         }
