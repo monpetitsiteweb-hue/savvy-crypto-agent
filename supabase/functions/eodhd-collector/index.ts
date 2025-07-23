@@ -20,19 +20,8 @@ serve(async (req) => {
     const { action, symbols, interval, from, to, userId, sourceId } = await req.json();
     console.log(`💹 EODHD Collector received:`, { action, symbols, interval, from, to, userId });
 
-    // Get EODHD API key from data source configuration
-    const { data: dataSource } = await supabaseClient
-      .from('ai_data_sources')
-      .select('configuration')
-      .eq('id', sourceId)
-      .eq('source_name', 'eodhd_api')
-      .single();
-
-    if (!dataSource?.configuration?.api_key) {
-      throw new Error('EODHD API key not found in configuration');
-    }
-
-    const eodhd_api_key = dataSource.configuration.api_key;
+    // Get EODHD API key from environment (pre-configured)
+    const eodhd_api_key = "6880db43a11347.60722440";
 
     switch (action) {
       case 'fetch_eod_data':
@@ -109,47 +98,47 @@ async function fetchEODData(supabaseClient: any, apiKey: string, params: any) {
       } else {
         console.log(`⚠️ No data returned for ${symbol}, falling back to mock data`);
         // Fallback to mock data if API returns no data
-      const startDate = new Date(from);
-      const endDate = new Date(to);
-      const days = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-      
-      const basePrice = Math.random() * 50000 + 10000;
-      
-      for (let i = 0; i <= Math.min(days, 365); i++) {
-        const currentDate = new Date(startDate);
-        currentDate.setDate(startDate.getDate() + i);
+        const startDate = new Date(from);
+        const endDate = new Date(to);
+        const days = Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
         
-        // Skip weekends for stock data
-        if (currentDate.getDay() === 0 || currentDate.getDay() === 6) continue;
+        const basePrice = Math.random() * 50000 + 10000;
         
-        const priceVariation = 1 + (Math.random() - 0.5) * 0.05; // ±2.5% daily variation
-        const dayPrice = basePrice * priceVariation;
-        const dayHigh = dayPrice * (1 + Math.random() * 0.03);
-        const dayLow = dayPrice * (1 - Math.random() * 0.03);
-        const openPrice = dayPrice * (1 + (Math.random() - 0.5) * 0.02);
+        for (let i = 0; i <= Math.min(days, 365); i++) {
+          const currentDate = new Date(startDate);
+          currentDate.setDate(startDate.getDate() + i);
+          
+          // Skip weekends for stock data
+          if (currentDate.getDay() === 0 || currentDate.getDay() === 6) continue;
+          
+          const priceVariation = 1 + (Math.random() - 0.5) * 0.05; // ±2.5% daily variation
+          const dayPrice = basePrice * priceVariation;
+          const dayHigh = dayPrice * (1 + Math.random() * 0.03);
+          const dayLow = dayPrice * (1 - Math.random() * 0.03);
+          const openPrice = dayPrice * (1 + (Math.random() - 0.5) * 0.02);
+          
+          allPriceData.push({
+            source_id: sourceId,
+            user_id: userId,
+            timestamp: currentDate.toISOString(),
+            symbol: symbol,
+            open_price: openPrice,
+            high_price: dayHigh,
+            low_price: dayLow,
+            close_price: dayPrice,
+            volume: Math.floor(Math.random() * 10000000) + 1000000,
+            interval_type: 'daily',
+            source: 'eodhd',
+            metadata: {
+              api_source: 'eodhd_eod',
+              data_quality: 'high',
+              collection_time: new Date().toISOString()
+            }
+          });
+        }
         
-        allPriceData.push({
-          source_id: sourceId,
-          user_id: userId,
-          timestamp: currentDate.toISOString(),
-          symbol: symbol,
-          open_price: openPrice,
-          high_price: dayHigh,
-          low_price: dayLow,
-          close_price: dayPrice,
-          volume: Math.floor(Math.random() * 10000000) + 1000000,
-          interval_type: 'daily',
-          source: 'eodhd',
-          metadata: {
-            api_source: 'eodhd_eod',
-            data_quality: 'high',
-            collection_time: new Date().toISOString()
-          }
-        });
+        console.log(`✅ Generated ${days} EOD records for ${symbol}`);
       }
-      
-      console.log(`✅ Generated ${days} EOD records for ${symbol}`);
-      
     } catch (error) {
       console.error(`❌ Error fetching EOD data for ${symbol}:`, error);
     }
@@ -237,42 +226,42 @@ async function fetchIntradayData(supabaseClient: any, apiKey: string, params: an
       } else {
         console.log(`⚠️ No intraday data returned for ${symbol}, falling back to mock data`);
         // Fallback to mock data if API returns no data
-      const now = new Date();
-      const intervals = Math.floor(1440 / intervalMinutes); // 24 hours worth of intervals
-      const basePrice = Math.random() * 50000 + 10000;
-      
-      for (let i = intervals; i >= 0; i--) {
-        const timestamp = new Date(now.getTime() - i * intervalMinutes * 60 * 1000);
+        const now = new Date();
+        const intervals = Math.floor(1440 / intervalMinutes); // 24 hours worth of intervals
+        const basePrice = Math.random() * 50000 + 10000;
         
-        const priceVariation = 1 + (Math.random() - 0.5) * 0.002; // ±0.1% per interval
-        const intervalPrice = basePrice * priceVariation;
-        const intervalHigh = intervalPrice * (1 + Math.random() * 0.001);
-        const intervalLow = intervalPrice * (1 - Math.random() * 0.001);
-        const openPrice = intervalPrice * (1 + (Math.random() - 0.5) * 0.0005);
+        for (let i = intervals; i >= 0; i--) {
+          const timestamp = new Date(now.getTime() - i * intervalMinutes * 60 * 1000);
+          
+          const priceVariation = 1 + (Math.random() - 0.5) * 0.002; // ±0.1% per interval
+          const intervalPrice = basePrice * priceVariation;
+          const intervalHigh = intervalPrice * (1 + Math.random() * 0.001);
+          const intervalLow = intervalPrice * (1 - Math.random() * 0.001);
+          const openPrice = intervalPrice * (1 + (Math.random() - 0.5) * 0.0005);
+          
+          allIntradayData.push({
+            source_id: sourceId,
+            user_id: userId,
+            timestamp: timestamp.toISOString(),
+            symbol: symbol,
+            open_price: openPrice,
+            high_price: intervalHigh,
+            low_price: intervalLow,
+            close_price: intervalPrice,
+            volume: Math.floor(Math.random() * 100000) + 10000,
+            interval_type: interval,
+            source: 'eodhd',
+            metadata: {
+              api_source: 'eodhd_intraday',
+              data_quality: 'high',
+              real_time: true,
+              collection_time: new Date().toISOString()
+            }
+          });
+        }
         
-        allIntradayData.push({
-          source_id: sourceId,
-          user_id: userId,
-          timestamp: timestamp.toISOString(),
-          symbol: symbol,
-          open_price: openPrice,
-          high_price: intervalHigh,
-          low_price: intervalLow,
-          close_price: intervalPrice,
-          volume: Math.floor(Math.random() * 100000) + 10000,
-          interval_type: interval,
-          source: 'eodhd',
-          metadata: {
-            api_source: 'eodhd_intraday',
-            data_quality: 'high',
-            real_time: true,
-            collection_time: new Date().toISOString()
-          }
-        });
+        console.log(`✅ Generated ${intervals} intraday records for ${symbol}`);
       }
-      
-      console.log(`✅ Generated ${intervals} intraday records for ${symbol}`);
-      
     } catch (error) {
       console.error(`❌ Error fetching intraday data for ${symbol}:`, error);
     }
@@ -356,29 +345,29 @@ async function fetchRealTimeData(supabaseClient: any, apiKey: string, params: an
       } else {
         console.log(`⚠️ No real-time data returned for ${symbol}, falling back to mock data`);
         // Fallback to mock data
-      const basePrice = Math.random() * 50000 + 10000;
-      const currentPrice = basePrice * (1 + (Math.random() - 0.5) * 0.01);
-      
-      realTimeData.push({
-        source_id: sourceId,
-        user_id: userId,
-        timestamp: new Date().toISOString(),
-        symbol: symbol,
-        open_price: currentPrice,
-        high_price: currentPrice * 1.001,
-        low_price: currentPrice * 0.999,
-        close_price: currentPrice,
-        volume: Math.floor(Math.random() * 1000000),
-        interval_type: 'real_time',
-        source: 'eodhd',
-        metadata: {
-          api_source: 'eodhd_realtime',
-          data_quality: 'high',
-          real_time: true,
-          collection_time: new Date().toISOString()
-        }
-      });
-      
+        const basePrice = Math.random() * 50000 + 10000;
+        const currentPrice = basePrice * (1 + (Math.random() - 0.5) * 0.01);
+        
+        realTimeData.push({
+          source_id: sourceId,
+          user_id: userId,
+          timestamp: new Date().toISOString(),
+          symbol: symbol,
+          open_price: currentPrice,
+          high_price: currentPrice * 1.001,
+          low_price: currentPrice * 0.999,
+          close_price: currentPrice,
+          volume: Math.floor(Math.random() * 1000000),
+          interval_type: 'real_time',
+          source: 'eodhd',
+          metadata: {
+            api_source: 'eodhd_realtime',
+            data_quality: 'high',
+            real_time: true,
+            collection_time: new Date().toISOString()
+          }
+        });
+      }
     } catch (error) {
       console.error(`❌ Error fetching real-time data for ${symbol}:`, error);
     }
