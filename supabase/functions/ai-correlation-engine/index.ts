@@ -87,7 +87,7 @@ async function analyzeCorrelations(supabaseClient: any, params: any) {
       .order('timestamp', { ascending: false });
     
     if (newsData && priceData && newsData.length > 0 && priceData.length > 0) {
-      const correlation = calculateNewsToPrice Correlation(newsData, priceData);
+      const correlation = calculateNewsToPriceCorrelation(newsData, priceData);
       
       correlations.push({
         symbol: symbol,
@@ -163,7 +163,7 @@ async function analyzeCorrelations(supabaseClient: any, params: any) {
   });
 }
 
-function calculateNewsToPrice Correlation(newsData: any[], priceData: any[]) {
+function calculateNewsToPriceCorrelation(newsData: any[], priceData: any[]) {
   // Group news and price data by time buckets (1-hour intervals)
   const timeBuckets = new Map();
   
