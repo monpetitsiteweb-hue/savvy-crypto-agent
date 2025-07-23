@@ -322,6 +322,14 @@ serve(async (req) => {
         .order('timestamp', { ascending: false })
         .limit(100);
 
+      console.log('🔌 Gathering configured data sources...');
+      const { data: dataSources } = await supabase
+        .from('ai_data_sources')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
       console.log('📈 Gathering trading history for backtesting...');
       const { data: tradingHistory } = await supabase
         .from('mock_trades')
@@ -417,6 +425,18 @@ serve(async (req) => {
 
       // 📊 ADVANCED MARKET ANALYSIS
       marketIntelligence = {
+        // Configured data sources
+        dataSources: {
+          sources: dataSources?.map(source => ({
+            name: source.source_name,
+            type: source.source_type,
+            isActive: source.is_active,
+            lastSync: source.last_sync,
+            configuration: source.configuration
+          })) || [],
+          count: dataSources?.length || 0
+        },
+
         // External signals and sentiment
         externalSignals: {
           count: externalData?.length || 0,
@@ -531,7 +551,15 @@ serve(async (req) => {
     const analysisPrompt = `You are the most advanced AI cryptocurrency trading assistant with exceptional market analysis capabilities and strategic reasoning. Your expertise combines deep learning from multiple data sources, real-time market intelligence, and sophisticated pattern recognition to provide optimal trading strategies.
 
 🧠 COMPREHENSIVE MARKET INTELLIGENCE:
-External Market Signals: ${marketIntelligence.externalSignals?.count || 0} active sources
+
+📊 CONFIGURED DATA SOURCES:
+I have access to ${marketIntelligence.dataSources?.count || 0} active data sources:
+${marketIntelligence.dataSources?.sources?.map(source => 
+  `• ${source.name} (${source.type}) - Last sync: ${source.lastSync ? new Date(source.lastSync).toLocaleString() : 'Never'}`
+).join('\n') || 'No data sources configured'}
+
+📈 MARKET DATA COLLECTION:
+External Market Signals: ${marketIntelligence.externalSignals?.count || 0} data points collected
 Recent Sentiment Analysis: ${marketIntelligence.externalSignals?.recentSentiment?.length || 0} sentiment readings
 ACTUAL Whale Activity: ${marketIntelligence.learningInsights?.whaleActivity?.count || 0} recent whale events
 Latest Whale Transactions: ${marketIntelligence.learningInsights?.whaleActivity?.recentEvents?.slice(0,3).map(e => `${e.amount} ${e.token}`).join(', ') || 'None recent'}
