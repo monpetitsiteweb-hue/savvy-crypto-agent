@@ -243,7 +243,7 @@ serve(async (req) => {
     const authToken = authHeader?.replace('Bearer ', '');
     console.log('STEP 2 INFO: Auth header present:', !!authHeader);
     
-    const { message, userId, strategyId, currentConfig, testMode }: StrategyUpdateRequest & { testMode?: boolean } = requestBody;
+    let { message, userId, strategyId, currentConfig, testMode } = requestBody;
     
     if (!userId) {
       console.error('STEP 2 FAILED: No userId provided');
@@ -258,6 +258,41 @@ serve(async (req) => {
     }
     
     console.log('STEP 2 SUCCESS: User ID found:', userId);
+
+    // Step 2.5: Auto-resolve active strategy if none provided
+    if (!strategyId) {
+      console.log('STEP 2.5: No strategy ID provided, auto-resolving active strategy...');
+      
+      const supabaseUrl = Deno.env.get('SUPABASE_URL');
+      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+      const supabase = createClient(supabaseUrl!, supabaseServiceKey!);
+      
+      // Determine active field based on test mode
+      const activeField = testMode ? 'is_active_test' : 'is_active_live';
+      
+      const { data: activeStrategy, error: strategyError } = await supabase
+        .from('trading_strategies')
+        .select('*')
+        .eq('user_id', userId)
+        .eq(activeField, true)
+        .single();
+      
+      if (strategyError || !activeStrategy) {
+        console.error('STEP 2.5 FAILED: No active strategy found:', strategyError);
+        return new Response(JSON.stringify({ 
+          error: 'No active strategy found',
+          step: 'STEP_2_5_STRATEGY_RESOLUTION',
+          message: `❌ **No Active Strategy**: You need to create and activate a trading strategy first.\n\n**Action Required:** Go to the Strategy tab and create a new strategy, then activate it.`
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      strategyId = activeStrategy.id;
+      currentConfig = activeStrategy.configuration;
+      console.log('STEP 2.5 SUCCESS: Active strategy resolved:', strategyId);
+    }
 
     // Step 3: Initialize database connection
     console.log('STEP 3: Initializing database connection...');
@@ -858,16 +893,36 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
         };
         
         // Update the strategy configuration
-        const { error: updateError } = await supabase
+        console.log('🔧 ATTEMPTING CONFIG UPDATE:', {
+          strategyId,
+          userId,
+          oldConfig: currentStrategy.configuration,
+          newConfig: updatedConfiguration
+        });
+        
+        const { data: updateResult, error: updateError } = await supabase
           .from('trading_strategies')
-          .update({ configuration: updatedConfiguration })
+          .update({ 
+            configuration: updatedConfiguration,
+            updated_at: new Date().toISOString()
+          })
           .eq('id', strategyId)
-          .eq('user_id', userId);
+          .eq('user_id', userId)
+          .select();
           
         if (updateError) {
           console.error('❌ CONFIG UPDATE FAILED:', updateError);
+          return new Response(JSON.stringify({ 
+            error: 'Failed to update strategy configuration',
+            message: `❌ Could not update strategy configuration: ${updateError.message}`,
+            details: updateError
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
         } else {
-          console.log('✅ STRATEGY CONFIG UPDATED SUCCESSFULLY');
+          console.log('✅ STRATEGY CONFIG UPDATED SUCCESSFULLY:', updateResult);
+          console.log('🔧 UPDATED STRATEGY DATA:', updateResult[0]?.configuration);
         }
       }
 
