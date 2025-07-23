@@ -180,6 +180,15 @@ async function syncDataSource(supabaseClient: any, sourceId: string) {
     case 'quicknode_webhooks':
       await syncQuickNodeWebhooks(supabaseClient, source);
       break;
+    case 'cryptonews_api':
+      await syncCryptoNewsAPI(supabaseClient, source);
+      break;
+    case 'eodhd_api':
+      await syncEODHDAPI(supabaseClient, source);
+      break;
+    case 'bigquery':
+      await syncBigQueryAPI(supabaseClient, source);
+      break;
     case 'cryptocurrency_alerting':
     case 'bitquery_api':
     case 'twitter_sentiment':
@@ -891,4 +900,76 @@ function getBlockchainName(chainId: number): string {
   };
   
   return blockchainMap[chainId] || `chain_${chainId}`;
+}
+
+async function syncCryptoNewsAPI(supabaseClient: any, source: any) {
+  console.log('📰 Syncing CryptoNews API...');
+  
+  try {
+    // Call the crypto-news-collector function
+    const { data, error } = await supabaseClient.functions.invoke('crypto-news-collector', {
+      body: {
+        action: 'fetch_latest_news',
+        sourceId: source.id,
+        userId: source.user_id
+      }
+    });
+
+    if (error) {
+      throw new Error(`CryptoNews API sync failed: ${error.message}`);
+    }
+
+    console.log('✅ CryptoNews API sync completed:', data);
+  } catch (error) {
+    console.error('Failed to sync CryptoNews API:', error);
+    throw error;
+  }
+}
+
+async function syncEODHDAPI(supabaseClient: any, source: any) {
+  console.log('📊 Syncing EODHD API...');
+  
+  try {
+    // Call the eodhd-collector function
+    const { data, error } = await supabaseClient.functions.invoke('eodhd-collector', {
+      body: {
+        action: 'fetch_realtime_data',
+        sourceId: source.id,
+        userId: source.user_id
+      }
+    });
+
+    if (error) {
+      throw new Error(`EODHD API sync failed: ${error.message}`);
+    }
+
+    console.log('✅ EODHD API sync completed:', data);
+  } catch (error) {
+    console.error('Failed to sync EODHD API:', error);
+    throw error;
+  }
+}
+
+async function syncBigQueryAPI(supabaseClient: any, source: any) {
+  console.log('🗄️ Syncing BigQuery...');
+  
+  try {
+    // Call the bigquery-collector function
+    const { data, error } = await supabaseClient.functions.invoke('bigquery-collector', {
+      body: {
+        action: 'sync_daily_data',
+        sourceId: source.id,
+        userId: source.user_id
+      }
+    });
+
+    if (error) {
+      throw new Error(`BigQuery sync failed: ${error.message}`);
+    }
+
+    console.log('✅ BigQuery sync completed:', data);
+  } catch (error) {
+    console.error('Failed to sync BigQuery:', error);
+    throw error;
+  }
 }
