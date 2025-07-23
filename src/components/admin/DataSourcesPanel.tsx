@@ -603,18 +603,71 @@ export function DataSourcesPanel() {
             {selectedTemplate && (
               <div className="space-y-4 border-t pt-4">
                 <h4 className="font-medium">Configure {DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES].name}</h4>
-                {DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES].fields.map((field) => (
-                  <div key={field}>
-                    <Label htmlFor={field}>{field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
-                    <Input
-                      id={field}
-                      type={field.includes('secret') || field.includes('token') ? 'password' : 'text'}
-                      placeholder={`Enter ${field.replace(/_/g, ' ')}`}
-                      value={formData[field] || ''}
-                      onChange={(e) => setFormData(prev => ({ ...prev, [field]: e.target.value }))}
-                    />
+                
+                {/* Special handling for BigQuery */}
+                {selectedTemplate === 'bigquery' ? (
+                  <div className="space-y-4">
+                    <div>
+                      <Label htmlFor="project_id">Google Cloud Project ID</Label>
+                      <Input
+                        id="project_id"
+                        type="text"
+                        placeholder="Enter your Google Cloud Project ID (e.g., my-project-123)"
+                        value={formData.project_id || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, project_id: e.target.value }))}
+                      />
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Find this in your Google Cloud Console project dashboard
+                      </p>
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="credentials_json">Service Account JSON Credentials</Label>
+                      <textarea
+                        id="credentials_json"
+                        className="w-full min-h-32 p-3 rounded-md border border-input bg-background text-sm"
+                        placeholder='Paste the entire service account JSON here:
+{
+  "type": "service_account",
+  "project_id": "your-project-id",
+  "private_key_id": "...",
+  "private_key": "-----BEGIN PRIVATE KEY-----...",
+  "client_email": "...",
+  "client_id": "...",
+  ...
+}'
+                        value={formData.credentials_json || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, credentials_json: e.target.value }))}
+                      />
+                      <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-md">
+                        <p className="text-sm text-blue-700 dark:text-blue-300 font-medium mb-2">
+                          📋 How to get BigQuery credentials:
+                        </p>
+                        <ol className="text-sm text-blue-600 dark:text-blue-400 space-y-1 list-decimal list-inside">
+                          <li>Go to Google Cloud Console → IAM & Admin → Service Accounts</li>
+                          <li>Create a new service account or select an existing one</li>
+                          <li>Grant "BigQuery Data Viewer" and "BigQuery Job User" roles</li>
+                          <li>Click "Add Key" → "Create new key" → JSON format</li>
+                          <li>Copy the entire JSON content and paste it above</li>
+                        </ol>
+                      </div>
+                    </div>
                   </div>
-                ))}
+                ) : (
+                  /* Standard field handling for other data sources */
+                  DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES].fields.map((field) => (
+                    <div key={field}>
+                      <Label htmlFor={field}>{field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
+                      <Input
+                        id={field}
+                        type={field.includes('secret') || field.includes('token') || field.includes('key') ? 'password' : 'text'}
+                        placeholder={`Enter ${field.replace(/_/g, ' ')}`}
+                        value={formData[field] || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, [field]: e.target.value }))}
+                      />
+                    </div>
+                  ))
+                )}
               </div>
             )}
 
