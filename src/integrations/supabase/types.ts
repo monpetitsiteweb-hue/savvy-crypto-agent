@@ -342,6 +342,57 @@ export type Database = {
         }
         Relationships: []
       }
+      crypto_news: {
+        Row: {
+          author: string | null
+          content: string | null
+          created_at: string
+          headline: string
+          id: string
+          metadata: Json | null
+          news_type: string | null
+          sentiment_score: number | null
+          source_id: string
+          source_name: string | null
+          symbol: string | null
+          timestamp: string
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          author?: string | null
+          content?: string | null
+          created_at?: string
+          headline: string
+          id?: string
+          metadata?: Json | null
+          news_type?: string | null
+          sentiment_score?: number | null
+          source_id: string
+          source_name?: string | null
+          symbol?: string | null
+          timestamp: string
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          author?: string | null
+          content?: string | null
+          created_at?: string
+          headline?: string
+          id?: string
+          metadata?: Json | null
+          news_type?: string | null
+          sentiment_score?: number | null
+          source_id?: string
+          source_name?: string | null
+          symbol?: string | null
+          timestamp?: string
+          url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       data_sources: {
         Row: {
           content: string | null
@@ -430,6 +481,93 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      historical_market_data: {
+        Row: {
+          created_at: string
+          exchange: string | null
+          id: string
+          market_cap: number | null
+          metadata: Json | null
+          price: number
+          source: string
+          source_id: string
+          symbol: string
+          timestamp: string
+          user_id: string
+          volume: number | null
+        }
+        Insert: {
+          created_at?: string
+          exchange?: string | null
+          id?: string
+          market_cap?: number | null
+          metadata?: Json | null
+          price: number
+          source?: string
+          source_id: string
+          symbol: string
+          timestamp: string
+          user_id: string
+          volume?: number | null
+        }
+        Update: {
+          created_at?: string
+          exchange?: string | null
+          id?: string
+          market_cap?: number | null
+          metadata?: Json | null
+          price?: number
+          source?: string
+          source_id?: string
+          symbol?: string
+          timestamp?: string
+          user_id?: string
+          volume?: number | null
+        }
+        Relationships: []
+      }
+      live_signals: {
+        Row: {
+          created_at: string
+          data: Json | null
+          id: string
+          processed: boolean | null
+          signal_strength: number
+          signal_type: string
+          source: string
+          source_id: string
+          symbol: string
+          timestamp: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json | null
+          id?: string
+          processed?: boolean | null
+          signal_strength?: number
+          signal_type: string
+          source: string
+          source_id: string
+          symbol: string
+          timestamp: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json | null
+          id?: string
+          processed?: boolean | null
+          signal_strength?: number
+          signal_type?: string
+          source?: string
+          source_id?: string
+          symbol?: string
+          timestamp?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       llm_configurations: {
         Row: {
@@ -528,6 +666,57 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      price_data: {
+        Row: {
+          close_price: number
+          created_at: string
+          high_price: number
+          id: string
+          interval_type: string
+          low_price: number
+          metadata: Json | null
+          open_price: number
+          source: string
+          source_id: string
+          symbol: string
+          timestamp: string
+          user_id: string
+          volume: number | null
+        }
+        Insert: {
+          close_price: number
+          created_at?: string
+          high_price: number
+          id?: string
+          interval_type: string
+          low_price: number
+          metadata?: Json | null
+          open_price: number
+          source?: string
+          source_id: string
+          symbol: string
+          timestamp: string
+          user_id: string
+          volume?: number | null
+        }
+        Update: {
+          close_price?: number
+          created_at?: string
+          high_price?: number
+          id?: string
+          interval_type?: string
+          low_price?: number
+          metadata?: Json | null
+          open_price?: number
+          source?: string
+          source_id?: string
+          symbol?: string
+          timestamp?: string
+          user_id?: string
+          volume?: number | null
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
