@@ -819,6 +819,34 @@ For "buy 1000 euros of BTC":
   "market_context": ""
 }
 
+For "disable all notifications":
+{
+  "intent": "config_change",
+  "requires_consultation": false,
+  "trades": [],
+  "config_changes": {
+    "notifyOnTrade": false,
+    "notifyOnError": false,
+    "notifyOnTargets": false
+  },
+  "reasoning": "User wants to disable all notification types",
+  "consultation_response": "✅ **All Notifications Disabled**\n\nYou will no longer receive any trading notifications.",
+  "market_context": ""
+}
+
+For "disable trade notifications":
+{
+  "intent": "config_change",
+  "requires_consultation": false,
+  "trades": [],
+  "config_changes": {
+    "notifyOnTrade": false
+  },
+  "reasoning": "User wants to disable trade notifications specifically",
+  "consultation_response": "✅ **Trade Notifications Disabled**\n\nYou will no longer receive notifications when trades are executed.",
+  "market_context": ""
+}
+
 Respond with VALID JSON ONLY using the exact format above. Consider the user's current configuration and provide contextual, helpful responses that reference specific values and field meanings.`;
 
     try {
