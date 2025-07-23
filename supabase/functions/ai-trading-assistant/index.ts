@@ -925,6 +925,7 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
         for (const [key, value] of Object.entries(config_changes)) {
           // Normalize the key to handle different naming conventions
           const normalizedKey = key.toLowerCase();
+          console.log(`🔧 PROCESSING CONFIG CHANGE: key="${key}", value=${JSON.stringify(value)}, normalizedKey="${normalizedKey}"`);
           
           // Special bulk operations
           if (normalizedKey.includes('all') && normalizedKey.includes('coin')) {
@@ -950,6 +951,14 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
             rootLevelChanges['notifyOnError'] = true;
             rootLevelChanges['notifyOnTargets'] = true;
             console.log('🔔 ALL NOTIFICATIONS ENABLED');
+          } else if (normalizedKey.includes('disable') && normalizedKey.includes('trade') && normalizedKey.includes('notification')) {
+            // Handle "disable trade notifications"
+            rootLevelChanges['notifyOnTrade'] = false;
+            console.log('🔕 TRADE NOTIFICATIONS DISABLED');
+          } else if (normalizedKey.includes('enable') && normalizedKey.includes('trade') && normalizedKey.includes('notification')) {
+            // Handle "enable trade notifications"
+            rootLevelChanges['notifyOnTrade'] = true;
+            console.log('🔔 TRADE NOTIFICATIONS ENABLED');
           }
           
           // AI Intelligence Config Fields
