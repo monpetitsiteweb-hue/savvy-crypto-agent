@@ -153,13 +153,10 @@ async function fetchHistoricalData(supabaseClient: any, credentials: any, params
       });
     }).flat();
 
-    // Insert historical data
+    // Insert historical data (using insert instead of upsert due to lack of unique constraint)
     const { data, error } = await supabaseClient
       .from('historical_market_data')
-      .upsert(mockHistoricalData, { 
-        onConflict: 'symbol,timestamp', 
-        ignoreDuplicates: true 
-      });
+      .insert(mockHistoricalData);
 
     if (error) {
       console.error('❌ Error inserting historical data:', error);
@@ -231,10 +228,7 @@ async function syncDailyData(supabaseClient: any, credentials: any, params: any)
 
     const { data, error } = await supabaseClient
       .from('historical_market_data')
-      .upsert(dailyData, { 
-        onConflict: 'symbol,timestamp', 
-        ignoreDuplicates: true 
-      });
+      .insert(dailyData);
 
     if (error) {
       console.error('❌ Error syncing daily data:', error);

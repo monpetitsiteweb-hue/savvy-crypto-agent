@@ -17,7 +17,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { action, symbols, hours, userId, sourceId } = await req.json();
+    const { action, symbols = ['BTC', 'ETH', 'SOL'], hours = 24, userId, sourceId, limit = 50 } = await req.json();
     console.log(`📰 CryptoNews Collector received:`, { action, symbols, hours, userId });
 
     // Get CryptoNews API key from data source configuration
@@ -64,7 +64,10 @@ async function fetchLatestNews(supabaseClient: any, apiKey: string, params: any)
   try {
     const newsData = [];
     
-    for (const symbol of symbols) {
+    // Ensure symbols is an array
+    const symbolsArray = Array.isArray(symbols) ? symbols : ['BTC', 'ETH', 'SOL'];
+    
+    for (const symbol of symbolsArray) {
       try {
         // Real CryptoNews API call
         const newsSymbol = symbol.split('-')[0]; // Convert BTC-EUR to BTC

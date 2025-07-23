@@ -910,6 +910,8 @@ async function syncCryptoNewsAPI(supabaseClient: any, source: any) {
     const { data, error } = await supabaseClient.functions.invoke('crypto-news-collector', {
       body: {
         action: 'fetch_latest_news',
+        symbols: ['BTC', 'ETH', 'SOL', 'ADA', 'DOT'],
+        hours: 24,
         sourceId: source.id,
         userId: source.user_id,
         limit: 50
@@ -934,11 +936,10 @@ async function syncEODHDAPI(supabaseClient: any, source: any) {
     // Call the eodhd-collector function with proper parameters
     const { data, error } = await supabaseClient.functions.invoke('eodhd-collector', {
       body: {
-        action: 'fetch_realtime_data',
+        action: 'fetch_real_time_data',
+        symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD', 'ADA-USD', 'DOT-USD'],
         sourceId: source.id,
-        userId: source.user_id,
-        symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD'],
-        exchange: 'CC'
+        userId: source.user_id
       }
     });
 

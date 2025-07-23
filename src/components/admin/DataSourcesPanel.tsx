@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap, CheckCircle, XCircle, Clock, ExternalLinkIcon, Wrench, Edit, RefreshCw, Newspaper } from "lucide-react";
+import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap, CheckCircle, XCircle, Clock, ExternalLinkIcon, Wrench, Edit, RefreshCw, Newspaper, HelpCircle, Info } from "lucide-react";
 import { WhaleAlertIntegration } from "./WhaleAlertIntegration";
 
 interface DataSource {
@@ -121,14 +121,14 @@ interface DataSource {
     name: "Google BigQuery",
     type: "data_warehouse",
     endpoint: "https://bigquery.googleapis.com/bigquery/v2",
-    description: "🗄️ Access large-scale blockchain and market datasets for comprehensive analysis",
+    description: "🗄️ Access Google's public crypto datasets for large-scale blockchain analysis (Demo mode: generates sample data)",
     fields: ["project_id", "credentials_json"],
     entities: ["blockchain_data", "market_analytics", "on_chain_metrics"],
     icon: Database,
-    needsApiKey: true,
-    cost: "Pay-per-query",
+    needsApiKey: false,
+    cost: "Demo mode (free)",
     setupUrl: "https://cloud.google.com/bigquery/docs/quickstarts",
-    priority: "medium",
+    priority: "ready",
     supportsWebhooks: false,
     premiumUpgrade: false
   },
@@ -269,6 +269,7 @@ export function DataSourcesPanel() {
   const [editFormData, setEditFormData] = useState<any>({});
   const [showSetupStatus, setShowSetupStatus] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [showHelpDialog, setShowHelpDialog] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -691,9 +692,79 @@ export function DataSourcesPanel() {
       {!showAddForm && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-white">External Data Sources</h2>
-              <p className="text-white/80">Connect to external APIs to enhance AI learning with market intelligence</p>
+            <div className="flex items-center gap-3">
+              <div>
+                <h2 className="text-2xl font-bold text-white">External Data Sources</h2>
+                <p className="text-white/80">Connect to external APIs to enhance AI learning with market intelligence</p>
+              </div>
+              <Dialog open={showHelpDialog} onOpenChange={setShowHelpDialog}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <HelpCircle className="h-4 w-4" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <Info className="h-5 w-5" />
+                      How Data Sources Work
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="grid gap-4">
+                      <div className="border rounded-lg p-4">
+                        <h3 className="font-semibold flex items-center gap-2 mb-2">
+                          <RefreshCw className="h-4 w-4" />
+                          Sync Now Button
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          Triggers immediate data collection from your configured APIs. This fetches the latest news, market data, or blockchain information based on the source type.
+                        </p>
+                      </div>
+                      
+                      <div className="border rounded-lg p-4">
+                        <h3 className="font-semibold flex items-center gap-2 mb-2">
+                          <Clock className="h-4 w-4" />
+                          Update Frequency
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          Controls automatic syncing intervals (hourly, daily, weekly). The system will automatically collect data at these intervals when the source is active.
+                        </p>
+                      </div>
+                      
+                      <div className="border rounded-lg p-4">
+                        <h3 className="font-semibold flex items-center gap-2 mb-2">
+                          <Newspaper className="h-4 w-4" />
+                          CryptoNews API
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          Fetches cryptocurrency news articles and performs sentiment analysis. Requires API key from cryptonews-api.com. Generates trading signals based on news sentiment.
+                        </p>
+                      </div>
+                      
+                      <div className="border rounded-lg p-4">
+                        <h3 className="font-semibold flex items-center gap-2 mb-2">
+                          <BarChart3 className="h-4 w-4" />
+                          EODHD Financial Data
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          Collects real-time and historical market data for crypto and stocks. Requires API key from eodhd.com. Provides price signals and technical analysis data.
+                        </p>
+                      </div>
+                      
+                      <div className="border rounded-lg p-4">
+                        <h3 className="font-semibold flex items-center gap-2 mb-2">
+                          <Database className="h-4 w-4" />
+                          Google BigQuery
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          Currently in demo mode - generates sample blockchain data. In production, connects to Google's public crypto datasets using service account credentials JSON for large-scale analysis.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
             <Button onClick={() => setShowAddForm(true)}>
               <Plus className="h-4 w-4 mr-2" />
