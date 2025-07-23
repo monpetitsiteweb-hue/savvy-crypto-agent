@@ -906,12 +906,13 @@ async function syncCryptoNewsAPI(supabaseClient: any, source: any) {
   console.log('📰 Syncing CryptoNews API...');
   
   try {
-    // Call the crypto-news-collector function
+    // Call the crypto-news-collector function with proper parameters
     const { data, error } = await supabaseClient.functions.invoke('crypto-news-collector', {
       body: {
         action: 'fetch_latest_news',
         sourceId: source.id,
-        userId: source.user_id
+        userId: source.user_id,
+        limit: 50
       }
     });
 
@@ -930,12 +931,14 @@ async function syncEODHDAPI(supabaseClient: any, source: any) {
   console.log('📊 Syncing EODHD API...');
   
   try {
-    // Call the eodhd-collector function
+    // Call the eodhd-collector function with proper parameters
     const { data, error } = await supabaseClient.functions.invoke('eodhd-collector', {
       body: {
         action: 'fetch_realtime_data',
         sourceId: source.id,
-        userId: source.user_id
+        userId: source.user_id,
+        symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD'],
+        exchange: 'CC'
       }
     });
 
@@ -954,10 +957,18 @@ async function syncBigQueryAPI(supabaseClient: any, source: any) {
   console.log('🗄️ Syncing BigQuery...');
   
   try {
-    // Call the bigquery-collector function
+    // Default symbols for crypto data
+    const symbols = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
+    const today = new Date();
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    // Call the bigquery-collector function with proper parameters
     const { data, error } = await supabaseClient.functions.invoke('bigquery-collector', {
       body: {
         action: 'sync_daily_data',
+        symbols: symbols,
+        startDate: weekAgo.toISOString().split('T')[0],
+        endDate: today.toISOString().split('T')[0],
         sourceId: source.id,
         userId: source.user_id
       }
