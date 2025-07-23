@@ -354,6 +354,40 @@ serve(async (req) => {
         .order('timestamp', { ascending: false })
         .limit(50);
 
+      // === NEW ENHANCED DATA SOURCES ===
+      console.log('📊 Gathering price data from EODHD...');
+      const { data: priceData } = await supabase
+        .from('price_data')
+        .select('*')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false })
+        .limit(100);
+
+      console.log('📰 Gathering crypto news with sentiment...');
+      const { data: newsData } = await supabase
+        .from('crypto_news')
+        .select('*')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false })
+        .limit(50);
+
+      console.log('📈 Gathering historical market data from BigQuery...');
+      const { data: historicalData } = await supabase
+        .from('historical_market_data')
+        .select('*')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false })
+        .limit(200);
+
+      console.log('🚨 Gathering live signals for autonomous decisions...');
+      const { data: liveSignals } = await supabase
+        .from('live_signals')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('processed', false)
+        .order('timestamp', { ascending: false })
+        .limit(30);
+
       // Enhanced knowledge collection
       const { data: knowledgeData, error: knowledgeError } = await supabase.functions.invoke('knowledge-collector', {
         body: { userId: userId }

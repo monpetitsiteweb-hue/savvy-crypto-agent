@@ -80,7 +80,7 @@ serve(async (req) => {
 });
 
 async function analyzeAndLearn(supabaseClient: any, userId: string) {
-  console.log('🔍 Starting analysis and learning process...');
+  console.log('🔍 Starting enhanced analysis and learning process...');
   
   // Get recent trading history and mock trades
   const { data: tradingHistory } = await supabaseClient
@@ -96,6 +96,35 @@ async function analyzeAndLearn(supabaseClient: any, userId: string) {
     .eq('user_id', userId)
     .order('executed_at', { ascending: false })
     .limit(100);
+
+  // Get new data sources for enhanced analysis
+  const { data: priceData } = await supabaseClient
+    .from('price_data')
+    .select('*')
+    .eq('user_id', userId)
+    .order('timestamp', { ascending: false })
+    .limit(200);
+
+  const { data: newsData } = await supabaseClient
+    .from('crypto_news')
+    .select('*')
+    .eq('user_id', userId)
+    .order('timestamp', { ascending: false })
+    .limit(100);
+
+  const { data: historicalData } = await supabaseClient
+    .from('historical_market_data')
+    .select('*')
+    .eq('user_id', userId)
+    .order('timestamp', { ascending: false })
+    .limit(500);
+
+  const { data: liveSignals } = await supabaseClient
+    .from('live_signals')
+    .select('*')
+    .eq('user_id', userId)
+    .order('timestamp', { ascending: false })
+    .limit(50);
 
   const { data: strategies } = await supabaseClient
     .from('trading_strategies')
@@ -140,6 +169,39 @@ async function analyzeAndLearn(supabaseClient: any, userId: string) {
     if (strategyInsight) {
       insights.push(strategyInsight);
       await saveInsight(supabaseClient, userId, strategyInsight);
+    }
+  }
+
+  // 5. Enhanced Analysis with New Data Sources
+  if (priceData && priceData.length > 0) {
+    const pricePatternInsight = analyzePricePatterns(priceData, allTrades);
+    if (pricePatternInsight) {
+      insights.push(pricePatternInsight);
+      await saveInsight(supabaseClient, userId, pricePatternInsight);
+    }
+  }
+
+  if (newsData && newsData.length > 0) {
+    const sentimentInsight = analyzeSentimentCorrelation(newsData, allTrades);
+    if (sentimentInsight) {
+      insights.push(sentimentInsight);
+      await saveInsight(supabaseClient, userId, sentimentInsight);
+    }
+  }
+
+  if (historicalData && historicalData.length > 0) {
+    const historicalPatternInsight = analyzeHistoricalPatterns(historicalData, allTrades);
+    if (historicalPatternInsight) {
+      insights.push(historicalPatternInsight);
+      await saveInsight(supabaseClient, userId, historicalPatternInsight);
+    }
+  }
+
+  if (liveSignals && liveSignals.length > 0) {
+    const signalEffectivenessInsight = analyzeSignalEffectiveness(liveSignals, allTrades);
+    if (signalEffectivenessInsight) {
+      insights.push(signalEffectivenessInsight);
+      await saveInsight(supabaseClient, userId, signalEffectivenessInsight);
     }
   }
 
@@ -524,4 +586,235 @@ function calculateInfluenceWeight(winRate: number, profitImpact: number, totalTr
   const volumeWeight = Math.min(1.0, totalTrades / 20) * 0.2;
   
   return Math.max(0.1, Math.min(1.0, winRateWeight + profitWeight + volumeWeight));
+}
+
+// ====== NEW ENHANCED ANALYSIS FUNCTIONS ======
+
+function analyzePricePatterns(priceData: any[], trades: any[]) {
+  if (!priceData || priceData.length < 10) return null;
+  
+  console.log('📊 Analyzing price patterns...');
+  
+  // Group price data by symbol
+  const symbolData = priceData.reduce((acc, data) => {
+    if (!acc[data.symbol]) acc[data.symbol] = [];
+    acc[data.symbol].push(data);
+    return acc;
+  }, {});
+  
+  const patterns = [];
+  
+  for (const [symbol, prices] of Object.entries(symbolData)) {
+    const sortedPrices = (prices as any[]).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    
+    if (sortedPrices.length < 5) continue;
+    
+    // Detect breakout patterns
+    const recent = sortedPrices.slice(-5);
+    const priceChanges = recent.map((p, i) => i === 0 ? 0 : ((p.close_price - recent[i-1].close_price) / recent[i-1].close_price) * 100);
+    const avgChange = priceChanges.reduce((sum, change) => sum + change, 0) / priceChanges.length;
+    
+    if (Math.abs(avgChange) > 3) {
+      patterns.push({
+        symbol,
+        pattern: avgChange > 0 ? 'bullish_breakout' : 'bearish_breakout',
+        strength: Math.abs(avgChange),
+        confidence: Math.min(0.9, 0.5 + Math.abs(avgChange) / 20)
+      });
+    }
+  }
+  
+  if (patterns.length > 0) {
+    const strongestPattern = patterns.sort((a, b) => b.strength - a.strength)[0];
+    
+    return {
+      type: 'price_pattern',
+      title: 'Price Pattern Analysis',
+      content: `Detected ${strongestPattern.pattern} pattern in ${strongestPattern.symbol} with ${strongestPattern.strength.toFixed(1)}% strength. This pattern historically correlates with ${strongestPattern.pattern.includes('bullish') ? 'positive' : 'negative'} trade outcomes.`,
+      confidence: strongestPattern.confidence,
+      dataPoints: priceData.length,
+      metadata: { patterns, strongestPattern }
+    };
+  }
+  
+  return null;
+}
+
+function analyzeSentimentCorrelation(newsData: any[], trades: any[]) {
+  if (!newsData || newsData.length < 5) return null;
+  
+  console.log('📰 Analyzing sentiment correlation...');
+  
+  // Find trades that occurred within 4 hours after news
+  const correlatedTrades = [];
+  
+  for (const trade of trades) {
+    const tradeTime = new Date(trade.executed_at);
+    
+    // Look for news within 4 hours before the trade
+    const relevantNews = newsData.filter(news => {
+      if (news.symbol !== trade.cryptocurrency) return false;
+      
+      const newsTime = new Date(news.timestamp);
+      const timeDiff = tradeTime.getTime() - newsTime.getTime();
+      return timeDiff >= 0 && timeDiff <= 4 * 60 * 60 * 1000; // 4 hours
+    });
+    
+    if (relevantNews.length > 0) {
+      const avgSentiment = relevantNews.reduce((sum, news) => sum + (news.sentiment_score || 0.5), 0) / relevantNews.length;
+      correlatedTrades.push({
+        ...trade,
+        sentiment: avgSentiment,
+        newsCount: relevantNews.length
+      });
+    }
+  }
+  
+  if (correlatedTrades.length >= 3) {
+    const positiveSentimentTrades = correlatedTrades.filter(t => t.sentiment > 0.6);
+    const negativeSentimentTrades = correlatedTrades.filter(t => t.sentiment < 0.4);
+    
+    const positiveProfitRate = positiveSentimentTrades.length > 0 
+      ? positiveSentimentTrades.filter(t => (t.profit_loss || 0) > 0).length / positiveSentimentTrades.length 
+      : 0;
+    
+    const negativeProfitRate = negativeSentimentTrades.length > 0 
+      ? negativeSentimentTrades.filter(t => (t.profit_loss || 0) > 0).length / negativeSentimentTrades.length 
+      : 0;
+    
+    if (Math.abs(positiveProfitRate - negativeProfitRate) > 0.2) {
+      return {
+        type: 'sentiment_correlation',
+        title: 'News Sentiment Trading Correlation',
+        content: `Strong correlation detected: Positive sentiment news leads to ${(positiveProfitRate * 100).toFixed(1)}% profitable trades vs ${(negativeProfitRate * 100).toFixed(1)}% for negative sentiment. Consider weighting sentiment analysis in trading decisions.`,
+        confidence: 0.8,
+        dataPoints: correlatedTrades.length,
+        metadata: { 
+          positiveProfitRate, 
+          negativeProfitRate, 
+          correlatedTrades: correlatedTrades.length,
+          totalNews: newsData.length
+        }
+      };
+    }
+  }
+  
+  return null;
+}
+
+function analyzeHistoricalPatterns(historicalData: any[], trades: any[]) {
+  if (!historicalData || historicalData.length < 50) return null;
+  
+  console.log('📈 Analyzing historical patterns...');
+  
+  // Group historical data by symbol
+  const symbolData = historicalData.reduce((acc, data) => {
+    if (!acc[data.symbol]) acc[data.symbol] = [];
+    acc[data.symbol].push(data);
+    return acc;
+  }, {});
+  
+  const insights = [];
+  
+  for (const [symbol, data] of Object.entries(symbolData)) {
+    const sortedData = (data as any[]).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    
+    if (sortedData.length < 30) continue;
+    
+    // Calculate historical volatility
+    const prices = sortedData.map(d => d.price);
+    const returns = prices.slice(1).map((price, i) => (price - prices[i]) / prices[i]);
+    const volatility = Math.sqrt(returns.reduce((sum, r) => sum + r * r, 0) / returns.length) * Math.sqrt(252) * 100;
+    
+    // Find trades in this symbol
+    const symbolTrades = trades.filter(t => t.cryptocurrency === symbol);
+    
+    if (symbolTrades.length >= 2) {
+      const avgProfit = symbolTrades.reduce((sum, t) => sum + (t.profit_loss || 0), 0) / symbolTrades.length;
+      
+      insights.push({
+        symbol,
+        volatility,
+        avgProfit,
+        tradeCount: symbolTrades.length,
+        riskAdjustedReturn: avgProfit / volatility
+      });
+    }
+  }
+  
+  if (insights.length > 0) {
+    const bestRiskAdjusted = insights.sort((a, b) => b.riskAdjustedReturn - a.riskAdjustedReturn)[0];
+    
+    return {
+      type: 'historical_pattern',
+      title: 'Historical Risk-Return Analysis',
+      content: `Based on historical data, ${bestRiskAdjusted.symbol} shows the best risk-adjusted returns (${bestRiskAdjusted.riskAdjustedReturn.toFixed(3)}) with ${bestRiskAdjusted.volatility.toFixed(1)}% volatility. Historical patterns suggest focusing on low-volatility, consistent performers.`,
+      confidence: 0.7,
+      dataPoints: historicalData.length,
+      metadata: { insights, bestPerformer: bestRiskAdjusted }
+    };
+  }
+  
+  return null;
+}
+
+function analyzeSignalEffectiveness(liveSignals: any[], trades: any[]) {
+  if (!liveSignals || liveSignals.length < 5) return null;
+  
+  console.log('🚨 Analyzing signal effectiveness...');
+  
+  // Find trades that occurred within 1 hour after signals
+  const signalTriggeredTrades = [];
+  
+  for (const trade of trades) {
+    const tradeTime = new Date(trade.executed_at);
+    
+    // Look for signals within 1 hour before the trade
+    const relevantSignals = liveSignals.filter(signal => {
+      if (signal.symbol !== trade.cryptocurrency) return false;
+      
+      const signalTime = new Date(signal.timestamp);
+      const timeDiff = tradeTime.getTime() - signalTime.getTime();
+      return timeDiff >= 0 && timeDiff <= 60 * 60 * 1000; // 1 hour
+    });
+    
+    if (relevantSignals.length > 0) {
+      signalTriggeredTrades.push({
+        ...trade,
+        signals: relevantSignals,
+        avgSignalStrength: relevantSignals.reduce((sum, s) => sum + s.signal_strength, 0) / relevantSignals.length
+      });
+    }
+  }
+  
+  if (signalTriggeredTrades.length >= 3) {
+    const strongSignalTrades = signalTriggeredTrades.filter(t => t.avgSignalStrength > 70);
+    const weakSignalTrades = signalTriggeredTrades.filter(t => t.avgSignalStrength < 30);
+    
+    const strongSignalProfitRate = strongSignalTrades.length > 0 
+      ? strongSignalTrades.filter(t => (t.profit_loss || 0) > 0).length / strongSignalTrades.length 
+      : 0;
+    
+    const weakSignalProfitRate = weakSignalTrades.length > 0 
+      ? weakSignalTrades.filter(t => (t.profit_loss || 0) > 0).length / weakSignalTrades.length 
+      : 0;
+    
+    if (strongSignalProfitRate > weakSignalProfitRate + 0.2) {
+      return {
+        type: 'signal_effectiveness',
+        title: 'Live Signal Performance Analysis',
+        content: `Strong signals (>70 strength) lead to ${(strongSignalProfitRate * 100).toFixed(1)}% profitable trades vs ${(weakSignalProfitRate * 100).toFixed(1)}% for weak signals. Focus on high-strength signals for better trade outcomes.`,
+        confidence: 0.8,
+        dataPoints: signalTriggeredTrades.length,
+        metadata: { 
+          strongSignalProfitRate, 
+          weakSignalProfitRate, 
+          signalTriggeredTrades: signalTriggeredTrades.length,
+          totalSignals: liveSignals.length
+        }
+      };
+    }
+  }
+  
+  return null;
 }
