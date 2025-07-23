@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap, CheckCircle, XCircle, Clock, ExternalLinkIcon, Wrench, Edit, RefreshCw } from "lucide-react";
+import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap, CheckCircle, XCircle, Clock, ExternalLinkIcon, Wrench, Edit, RefreshCw, Newspaper } from "lucide-react";
 import { WhaleAlertIntegration } from "./WhaleAlertIntegration";
 
 interface DataSource {
@@ -79,13 +79,58 @@ interface DataSource {
     description: "🚨 Enter your Whale Alert API Key to receive real-time whale transaction data via WebSocket.",
     fields: ["api_key"],
     entities: ["whale_transactions"],
-    icon: Activity,
+    icon: AlertTriangle,
     needsApiKey: true,
-    cost: "Premium ($50+/month)",
+    cost: "Premium",
     setupUrl: "https://whale-alert.io/api",
     priority: "high",
     supportsWebhooks: true,
-    premiumUpgrade: true
+    premiumUpgrade: false
+  },
+  eodhd_api: {
+    name: "EODHD Financial Data",
+    type: "market_data",
+    endpoint: "https://eodhd.com/api",
+    description: "📈 Historical and real-time financial market data for crypto, stocks, ETFs, and indices",
+    fields: ["api_key"],
+    entities: ["historical_prices", "real_time_data", "fundamental_data"],
+    icon: BarChart3,
+    needsApiKey: true,
+    cost: "Premium ($79.99+/month)",
+    setupUrl: "https://eodhd.com/financial-apis/",
+    priority: "high",
+    supportsWebhooks: false,
+    premiumUpgrade: false
+  },
+  cryptonews_api: {
+    name: "CryptoNews API",
+    type: "news_sentiment",
+    endpoint: "https://cryptonews-api.com/api/v1",
+    description: "📰 Real-time cryptocurrency news and sentiment analysis from multiple sources",
+    fields: ["api_key"],
+    entities: ["news_articles", "sentiment_analysis", "market_events"],
+    icon: Newspaper,
+    needsApiKey: true,
+    cost: "Premium ($29+/month)",
+    setupUrl: "https://cryptonews-api.com/",
+    priority: "high",
+    supportsWebhooks: false,
+    premiumUpgrade: false
+  },
+  bigquery: {
+    name: "Google BigQuery",
+    type: "data_warehouse",
+    endpoint: "https://bigquery.googleapis.com/bigquery/v2",
+    description: "🗄️ Access large-scale blockchain and market datasets for comprehensive analysis",
+    fields: ["project_id", "credentials_json"],
+    entities: ["blockchain_data", "market_analytics", "on_chain_metrics"],
+    icon: Database,
+    needsApiKey: true,
+    cost: "Pay-per-query",
+    setupUrl: "https://cloud.google.com/bigquery/docs/quickstarts",
+    priority: "medium",
+    supportsWebhooks: false,
+    premiumUpgrade: false
   },
   
   // New Whale Signal Providers
