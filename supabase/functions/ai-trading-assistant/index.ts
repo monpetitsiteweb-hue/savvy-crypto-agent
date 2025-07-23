@@ -851,14 +851,45 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
       // Parse the AI response
       let analysis;
       try {
-        analysis = JSON.parse(analysisContent);
+        // Clean the content to remove any control characters that might break JSON parsing
+        const cleanedContent = analysisContent
+          .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+          .replace(/\n/g, '\\n') // Escape newlines
+          .replace(/\r/g, '\\r') // Escape carriage returns
+          .replace(/\t/g, '\\t'); // Escape tabs
+        
+        console.log('🧹 CLEANED AI CONTENT:', cleanedContent);
+        analysis = JSON.parse(cleanedContent);
       } catch (parseError) {
         console.error('Failed to parse AI response:', parseError);
-        analysis = {
-          intent: 'general',
-          requires_consultation: true,
-          consultation_response: analysisContent
-        };
+        console.error('Raw AI content:', analysisContent);
+        
+        // Try to extract JSON from the response if it's wrapped in markdown or other text
+        const jsonMatch = analysisContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            const extractedJson = jsonMatch[0]
+              .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+              .replace(/\n/g, '\\n')
+              .replace(/\r/g, '\\r')
+              .replace(/\t/g, '\\t');
+            analysis = JSON.parse(extractedJson);
+            console.log('✅ SUCCESSFULLY PARSED EXTRACTED JSON');
+          } catch (extractError) {
+            console.error('Failed to parse extracted JSON:', extractError);
+            analysis = {
+              intent: 'general',
+              requires_consultation: true,
+              consultation_response: analysisContent
+            };
+          }
+        } else {
+          analysis = {
+            intent: 'general',
+            requires_consultation: true,
+            consultation_response: analysisContent
+          };
+        }
       }
 
       const { intent, requires_consultation, trades, config_changes, consultation_response } = analysis;
