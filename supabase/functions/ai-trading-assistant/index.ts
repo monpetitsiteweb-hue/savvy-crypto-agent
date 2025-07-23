@@ -917,73 +917,116 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
           });
         }
         
-        // Handle AI intelligence config changes specifically
+        // Handle comprehensive config field mapping
         const aiIntelligenceChanges = {};
         const rootLevelChanges = {};
         
-        // Comprehensive mapping of AI-related config changes to the correct nested structure
+        // Create comprehensive mapping for ALL strategy fields
         for (const [key, value] of Object.entries(config_changes)) {
-          // Core AI Settings
-          if (key === 'AIOverrideEnabled' || key === 'enableAIOverride') {
+          // Normalize the key to handle different naming conventions
+          const normalizedKey = key.toLowerCase();
+          
+          // AI Intelligence Config Fields
+          if (key === 'AIOverrideEnabled' || key === 'enableAIOverride' || normalizedKey === 'aioverrideenabled') {
             aiIntelligenceChanges['enableAIOverride'] = value;
-          } else if (key === 'AIAutonomyLevel' || key === 'aiAutonomyLevel') {
+          } else if (key === 'AIAutonomyLevel' || key === 'aiAutonomyLevel' || normalizedKey === 'aiautonomylevel' || normalizedKey === 'autonomylevel') {
             aiIntelligenceChanges['aiAutonomyLevel'] = value;
-          } else if (key === 'AIConfidenceThreshold' || key === 'aiConfidenceThreshold') {
+          } else if (key === 'AIConfidenceThreshold' || key === 'aiConfidenceThreshold' || normalizedKey === 'aiconfidencethreshold' || normalizedKey === 'confidencethreshold') {
             aiIntelligenceChanges['aiConfidenceThreshold'] = value;
-          }
-          // Pattern Recognition
-          else if (key === 'enablePatternRecognition') {
+          } else if (key === 'enablePatternRecognition' || normalizedKey === 'enablepatternrecognition' || normalizedKey === 'patternrecognition') {
             aiIntelligenceChanges['enablePatternRecognition'] = value;
-          } else if (key === 'patternLookbackHours') {
+          } else if (key === 'patternLookbackHours' || normalizedKey === 'patternlookbackhours' || normalizedKey === 'lookbackhours') {
             aiIntelligenceChanges['patternLookbackHours'] = value;
-          } else if (key === 'crossAssetCorrelation') {
+          } else if (key === 'crossAssetCorrelation' || normalizedKey === 'crossassetcorrelation') {
             aiIntelligenceChanges['crossAssetCorrelation'] = value;
-          } else if (key === 'marketStructureAnalysis') {
+          } else if (key === 'marketStructureAnalysis' || normalizedKey === 'marketstructureanalysis') {
             aiIntelligenceChanges['marketStructureAnalysis'] = value;
-          }
-          // External Signal Processing
-          else if (key === 'enableExternalSignals') {
+          } else if (key === 'enableExternalSignals' || normalizedKey === 'enableexternalsignals' || normalizedKey === 'externalsignals') {
             aiIntelligenceChanges['enableExternalSignals'] = value;
-          } else if (key === 'whaleActivityWeight') {
+          } else if (key === 'whaleActivityWeight' || normalizedKey === 'whaleactivityweight') {
             aiIntelligenceChanges['whaleActivityWeight'] = value;
-          } else if (key === 'sentimentWeight') {
+          } else if (key === 'sentimentWeight' || normalizedKey === 'sentimentweight') {
             aiIntelligenceChanges['sentimentWeight'] = value;
-          } else if (key === 'newsImpactWeight') {
+          } else if (key === 'newsImpactWeight' || normalizedKey === 'newsimpactweight') {
             aiIntelligenceChanges['newsImpactWeight'] = value;
-          } else if (key === 'socialSignalsWeight') {
+          } else if (key === 'socialSignalsWeight' || normalizedKey === 'socialsignalsweight') {
             aiIntelligenceChanges['socialSignalsWeight'] = value;
-          }
-          // Decision Making
-          else if (key === 'decisionMode') {
+          } else if (key === 'decisionMode' || normalizedKey === 'decisionmode') {
             aiIntelligenceChanges['decisionMode'] = value;
-          } else if (key === 'escalationThreshold') {
+          } else if (key === 'escalationThreshold' || normalizedKey === 'escalationthreshold') {
             aiIntelligenceChanges['escalationThreshold'] = value;
-          } else if (key === 'riskOverrideAllowed') {
+          } else if (key === 'riskOverrideAllowed' || normalizedKey === 'riskoverrideallowed') {
             aiIntelligenceChanges['riskOverrideAllowed'] = value;
-          }
-          // Learning & Adaptation
-          else if (key === 'enableLearning') {
+          } else if (key === 'enableLearning' || normalizedKey === 'enablelearning' || normalizedKey === 'learning') {
             aiIntelligenceChanges['enableLearning'] = value;
-          } else if (key === 'adaptToPerformance') {
+          } else if (key === 'adaptToPerformance' || normalizedKey === 'adapttoperformance') {
             aiIntelligenceChanges['adaptToPerformance'] = value;
-          } else if (key === 'learningRate') {
+          } else if (key === 'learningRate' || normalizedKey === 'learningrate') {
             aiIntelligenceChanges['learningRate'] = value;
-          }
-          // Alerts & Communication
-          else if (key === 'explainDecisions') {
+          } else if (key === 'explainDecisions' || normalizedKey === 'explaindecisions') {
             aiIntelligenceChanges['explainDecisions'] = value;
-          } else if (key === 'alertOnAnomalies') {
+          } else if (key === 'alertOnAnomalies' || normalizedKey === 'alertonanomalies') {
             aiIntelligenceChanges['alertOnAnomalies'] = value;
-          } else if (key === 'alertOnOverrides') {
+          } else if (key === 'alertOnOverrides' || normalizedKey === 'alertonoverrides') {
             aiIntelligenceChanges['alertOnOverrides'] = value;
-          } else if (key === 'customInstructions') {
+          } else if (key === 'customInstructions' || normalizedKey === 'custominstructions') {
             aiIntelligenceChanges['customInstructions'] = value;
           }
-          // All other fields go to root level
+          
+          // Main Strategy Fields - Map common variations to correct field names
+          else if (key === 'strategyName' || key === 'StrategyName' || normalizedKey === 'strategyname' || normalizedKey === 'name') {
+            rootLevelChanges['strategyName'] = value;
+          } else if (key === 'riskProfile' || key === 'RiskProfile' || normalizedKey === 'riskprofile' || normalizedKey === 'risk') {
+            rootLevelChanges['riskProfile'] = value;
+          } else if (key === 'maxWalletExposure' || key === 'MaxWalletExposure' || normalizedKey === 'maxwalletexposure' || normalizedKey === 'walletexposure') {
+            rootLevelChanges['maxWalletExposure'] = value;
+          } else if (key === 'enableLiveTrading' || key === 'EnableLiveTrading' || normalizedKey === 'enablelivetrading' || normalizedKey === 'livetrading') {
+            rootLevelChanges['enableLiveTrading'] = value;
+          } else if (key === 'enableTestTrading' || key === 'EnableTestTrading' || normalizedKey === 'enabletesttrading' || normalizedKey === 'testtrading') {
+            rootLevelChanges['enableTestTrading'] = value;
+          } else if (key === 'selectedCoins' || key === 'SelectedCoins' || normalizedKey === 'selectedcoins' || normalizedKey === 'coins') {
+            rootLevelChanges['selectedCoins'] = value;
+          } else if (key === 'maxActiveCoins' || key === 'MaxActiveCoins' || normalizedKey === 'maxactivecoins') {
+            rootLevelChanges['maxActiveCoins'] = value;
+          } else if (key === 'buyOrderType' || key === 'BuyOrderType' || normalizedKey === 'buyordertype') {
+            rootLevelChanges['buyOrderType'] = value;
+          } else if (key === 'sellOrderType' || key === 'SellOrderType' || normalizedKey === 'sellordertype') {
+            rootLevelChanges['sellOrderType'] = value;
+          } else if (key === 'perTradeAllocation' || key === 'PerTradeAllocation' || normalizedKey === 'pertradeallocation' || normalizedKey === 'allocation') {
+            rootLevelChanges['perTradeAllocation'] = value;
+          } else if (key === 'takeProfitPercentage' || key === 'TakeProfitPercentage' || normalizedKey === 'takeprofitpercentage' || normalizedKey === 'takeprofit') {
+            rootLevelChanges['takeProfitPercentage'] = value;
+          } else if (key === 'stopLossPercentage' || key === 'StopLossPercentage' || normalizedKey === 'stoplosspercentage' || normalizedKey === 'stoploss') {
+            rootLevelChanges['stopLossPercentage'] = value;
+          } else if (key === 'maxOpenPositions' || key === 'MaxOpenPositions' || normalizedKey === 'maxopenpositions') {
+            rootLevelChanges['maxOpenPositions'] = value;
+          } else if (key === 'dailyProfitTarget' || key === 'DailyProfitTarget' || normalizedKey === 'dailyprofittarget') {
+            rootLevelChanges['dailyProfitTarget'] = value;
+          } else if (key === 'dailyLossLimit' || key === 'DailyLossLimit' || normalizedKey === 'dailylosslimit') {
+            rootLevelChanges['dailyLossLimit'] = value;
+          } else if (key === 'backtestingMode' || key === 'BacktestingMode' || normalizedKey === 'backtestingmode' || normalizedKey === 'backtest') {
+            rootLevelChanges['backtestingMode'] = value;
+          } else if (key === 'enableDCA' || key === 'EnableDCA' || normalizedKey === 'enabledca' || normalizedKey === 'dca') {
+            rootLevelChanges['enableDCA'] = value;
+          } else if (key === 'enableShorting' || key === 'EnableShorting' || normalizedKey === 'enableshorting' || normalizedKey === 'shorting') {
+            rootLevelChanges['enableShorting'] = value;
+          } else if (key === 'notifyOnTrade' || key === 'NotifyOnTrade' || normalizedKey === 'notifyontrade') {
+            rootLevelChanges['notifyOnTrade'] = value;
+          } else if (key === 'notifyOnError' || key === 'NotifyOnError' || normalizedKey === 'notifyonerror') {
+            rootLevelChanges['notifyOnError'] = value;
+          } else if (key === 'notifyOnTargets' || key === 'NotifyOnTargets' || normalizedKey === 'notifyontargets') {
+            rootLevelChanges['notifyOnTargets'] = value;
+          }
+          // If no specific mapping found, use the original key (exact match)
           else {
             rootLevelChanges[key] = value;
           }
         }
+        
+        console.log('🔧 MAPPED CONFIG CHANGES:', {
+          aiIntelligenceChanges,
+          rootLevelChanges
+        });
         
         // Merge new config changes with existing configuration
         const updatedConfiguration = {
