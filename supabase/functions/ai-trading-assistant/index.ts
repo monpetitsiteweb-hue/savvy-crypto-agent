@@ -984,33 +984,99 @@ Respond with VALID JSON ONLY using the exact format above. Consider the user's c
             rootLevelChanges['enableLiveTrading'] = value;
           } else if (key === 'enableTestTrading' || key === 'EnableTestTrading' || normalizedKey === 'enabletesttrading' || normalizedKey === 'testtrading') {
             rootLevelChanges['enableTestTrading'] = value;
-          } else if (key === 'selectedCoins' || key === 'SelectedCoins' || normalizedKey === 'selectedcoins' || normalizedKey === 'coins') {
+          } else if (key === 'notes' || key === 'Notes' || normalizedKey === 'notes' || normalizedKey === 'description') {
+            rootLevelChanges['notes'] = value;
+          }
+          
+          // Coins and Amounts
+          else if (key === 'selectedCoins' || key === 'SelectedCoins' || normalizedKey === 'selectedcoins' || normalizedKey === 'coins') {
             rootLevelChanges['selectedCoins'] = value;
           } else if (key === 'maxActiveCoins' || key === 'MaxActiveCoins' || normalizedKey === 'maxactivecoins') {
             rootLevelChanges['maxActiveCoins'] = value;
-          } else if (key === 'buyOrderType' || key === 'BuyOrderType' || normalizedKey === 'buyordertype') {
+          } else if (key === 'enableAutoCoinSelection' || key === 'EnableAutoCoinSelection' || normalizedKey === 'enableautocoinselection' || normalizedKey === 'autocoinselection') {
+            rootLevelChanges['enableAutoCoinSelection'] = value;
+          } else if (key === 'perTradeAllocation' || key === 'PerTradeAllocation' || normalizedKey === 'pertradeallocation' || normalizedKey === 'allocation') {
+            rootLevelChanges['perTradeAllocation'] = value;
+          } else if (key === 'allocationUnit' || key === 'AllocationUnit' || normalizedKey === 'allocationunit' || normalizedKey === 'unit') {
+            rootLevelChanges['allocationUnit'] = value;
+          } else if (key === 'buyFrequency' || key === 'BuyFrequency' || normalizedKey === 'buyfrequency' || normalizedKey === 'frequency') {
+            rootLevelChanges['buyFrequency'] = value;
+          } else if (key === 'buyIntervalMinutes' || key === 'BuyIntervalMinutes' || normalizedKey === 'buyintervalminutes' || normalizedKey === 'buyinterval') {
+            rootLevelChanges['buyIntervalMinutes'] = value;
+          } else if (key === 'buyCooldownMinutes' || key === 'BuyCooldownMinutes' || normalizedKey === 'buycooldownminutes' || normalizedKey === 'buycooldown') {
+            rootLevelChanges['buyCooldownMinutes'] = value;
+          }
+          
+          // Buy/Sell Settings
+          else if (key === 'buyOrderType' || key === 'BuyOrderType' || normalizedKey === 'buyordertype') {
             rootLevelChanges['buyOrderType'] = value;
           } else if (key === 'sellOrderType' || key === 'SellOrderType' || normalizedKey === 'sellordertype') {
             rootLevelChanges['sellOrderType'] = value;
-          } else if (key === 'perTradeAllocation' || key === 'PerTradeAllocation' || normalizedKey === 'pertradeallocation' || normalizedKey === 'allocation') {
-            rootLevelChanges['perTradeAllocation'] = value;
           } else if (key === 'takeProfitPercentage' || key === 'TakeProfitPercentage' || normalizedKey === 'takeprofitpercentage' || normalizedKey === 'takeprofit') {
             rootLevelChanges['takeProfitPercentage'] = value;
           } else if (key === 'stopLossPercentage' || key === 'StopLossPercentage' || normalizedKey === 'stoplosspercentage' || normalizedKey === 'stoploss') {
             rootLevelChanges['stopLossPercentage'] = value;
-          } else if (key === 'maxOpenPositions' || key === 'MaxOpenPositions' || normalizedKey === 'maxopenpositions') {
+          } else if (key === 'trailingStopLossPercentage' || key === 'TrailingStopLossPercentage' || normalizedKey === 'trailingstoplosspercentage' || normalizedKey === 'trailingstoploss') {
+            rootLevelChanges['trailingStopLossPercentage'] = value;
+          } else if (key === 'trailingBuyPercentage' || key === 'TrailingBuyPercentage' || normalizedKey === 'trailingbuypercentage' || normalizedKey === 'trailingbuy') {
+            rootLevelChanges['trailingBuyPercentage'] = value;
+          } else if (key === 'autoCloseAfterHours' || key === 'AutoCloseAfterHours' || normalizedKey === 'autocloseafterhours' || normalizedKey === 'autoclose') {
+            rootLevelChanges['autoCloseAfterHours'] = value;
+          }
+          
+          // Position Management
+          else if (key === 'maxOpenPositions' || key === 'MaxOpenPositions' || normalizedKey === 'maxopenpositions') {
             rootLevelChanges['maxOpenPositions'] = value;
           } else if (key === 'dailyProfitTarget' || key === 'DailyProfitTarget' || normalizedKey === 'dailyprofittarget') {
             rootLevelChanges['dailyProfitTarget'] = value;
           } else if (key === 'dailyLossLimit' || key === 'DailyLossLimit' || normalizedKey === 'dailylosslimit') {
             rootLevelChanges['dailyLossLimit'] = value;
-          } else if (key === 'backtestingMode' || key === 'BacktestingMode' || normalizedKey === 'backtestingmode' || normalizedKey === 'backtest') {
+          } else if (key === 'tradeCooldownMinutes' || key === 'TradeCooldownMinutes' || normalizedKey === 'tradecooldownminutes' || normalizedKey === 'tradecooldown') {
+            rootLevelChanges['tradeCooldownMinutes'] = value;
+          }
+          
+          // DCA & Advanced
+          else if (key === 'backtestingMode' || key === 'BacktestingMode' || normalizedKey === 'backtestingmode' || normalizedKey === 'backtest') {
             rootLevelChanges['backtestingMode'] = value;
           } else if (key === 'enableDCA' || key === 'EnableDCA' || normalizedKey === 'enabledca' || normalizedKey === 'dca') {
             rootLevelChanges['enableDCA'] = value;
-          } else if (key === 'enableShorting' || key === 'EnableShorting' || normalizedKey === 'enableshorting' || normalizedKey === 'shorting') {
+          } else if (key === 'dcaIntervalHours' || key === 'DcaIntervalHours' || normalizedKey === 'dcaintervalhours' || normalizedKey === 'dcainterval') {
+            rootLevelChanges['dcaIntervalHours'] = value;
+          } else if (key === 'dcaSteps' || key === 'DcaSteps' || normalizedKey === 'dcasteps' || normalizedKey === 'steps') {
+            rootLevelChanges['dcaSteps'] = value;
+          }
+          
+          // Shorting
+          else if (key === 'enableShorting' || key === 'EnableShorting' || normalizedKey === 'enableshorting' || normalizedKey === 'shorting') {
             rootLevelChanges['enableShorting'] = value;
-          } else if (key === 'notifyOnTrade' || key === 'NotifyOnTrade' || normalizedKey === 'notifyontrade') {
+          } else if (key === 'maxShortPositions' || key === 'MaxShortPositions' || normalizedKey === 'maxshortpositions') {
+            rootLevelChanges['maxShortPositions'] = value;
+          } else if (key === 'shortingMinProfitPercentage' || key === 'ShortingMinProfitPercentage' || normalizedKey === 'shortingminprofitpercentage') {
+            rootLevelChanges['shortingMinProfitPercentage'] = value;
+          } else if (key === 'autoCloseShorts' || key === 'AutoCloseShorts' || normalizedKey === 'autocloseshorts') {
+            rootLevelChanges['autoCloseShorts'] = value;
+          }
+          
+          // Advanced Settings
+          else if (key === 'enableStopLossTimeout' || key === 'EnableStopLossTimeout' || normalizedKey === 'enablestopposstimeout') {
+            rootLevelChanges['enableStopLossTimeout'] = value;
+          } else if (key === 'stopLossTimeoutMinutes' || key === 'StopLossTimeoutMinutes' || normalizedKey === 'stoplosstimeoutminutes') {
+            rootLevelChanges['stopLossTimeoutMinutes'] = value;
+          } else if (key === 'useTrailingStopOnly' || key === 'UseTrailingStopOnly' || normalizedKey === 'usetrailingstoponly') {
+            rootLevelChanges['useTrailingStopOnly'] = value;
+          } else if (key === 'resetStopLossAfterFail' || key === 'ResetStopLossAfterFail' || normalizedKey === 'resetstoplossafterfail') {
+            rootLevelChanges['resetStopLossAfterFail'] = value;
+          }
+          
+          // Categories and Tags
+          else if (key === 'category' || key === 'Category' || normalizedKey === 'category') {
+            rootLevelChanges['category'] = value;
+          } else if (key === 'tags' || key === 'Tags' || normalizedKey === 'tags') {
+            rootLevelChanges['tags'] = value;
+          }
+          
+          // Notifications
+          else if (key === 'notifyOnTrade' || key === 'NotifyOnTrade' || normalizedKey === 'notifyontrade') {
             rootLevelChanges['notifyOnTrade'] = value;
           } else if (key === 'notifyOnError' || key === 'NotifyOnError' || normalizedKey === 'notifyonerror') {
             rootLevelChanges['notifyOnError'] = value;
