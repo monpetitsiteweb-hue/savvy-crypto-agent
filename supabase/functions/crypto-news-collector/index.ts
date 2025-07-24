@@ -72,7 +72,7 @@ async function fetchLatestNews(supabaseClient: any, apiKey: string, params: any)
     const symbolsArray = Array.isArray(symbols) ? symbols : ['BTC', 'ETH', 'SOL'];
     
     for (const symbol of symbolsArray) {
-      try {
+        try {
         // Real CryptoNews API call
         const newsSymbol = symbol.split('-')[0]; // Convert BTC-EUR to BTC
         const apiUrl = `https://cryptonews-api.com/api/v1/category?section=general&items=20&page=1&token=${apiKey}&extra_info=ranking&q=${newsSymbol}`;
@@ -80,8 +80,14 @@ async function fetchLatestNews(supabaseClient: any, apiKey: string, params: any)
         console.log(`🔗 Calling CryptoNews API for ${newsSymbol}: ${apiUrl.replace(apiKey, 'XXX')}`);
         
         const response = await fetch(apiUrl);
+        console.log(`📡 API Response Status: ${response.status} ${response.statusText} for ${newsSymbol}`);
+        
         if (!response.ok) {
-          console.error(`Failed to fetch news for ${symbol}:`, response.statusText);
+          const errorText = await response.text();
+          console.error(`❌ Failed to fetch news for ${symbol}: ${response.status} ${response.statusText}`);
+          console.error(`❌ Error body:`, errorText);
+          
+          // Continue to next symbol instead of breaking the whole process
           continue;
         }
         
