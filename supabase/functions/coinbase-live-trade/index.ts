@@ -13,7 +13,10 @@ serve(async (req) => {
   }
 
   try {
-    console.log('Coinbase LIVE trade function called');
+    // Security headers and logging
+    const clientIP = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown';
+    const userAgent = req.headers.get('user-agent') || 'unknown';
+    console.log(`🔐 LIVE Trade request from IP: ${clientIP}, User-Agent: ${userAgent}`);
     
     // Initialize Supabase client
     const supabaseClient = createClient(
@@ -21,7 +24,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Parse request body first to get user information
+    // Parse and validate request body
     const requestBody = await req.json();
     const { 
       connectionId, 
@@ -31,8 +34,39 @@ serve(async (req) => {
       price,
       strategyId,
       orderType = 'market',
-      userId // Add userId to the request body
+      userId
     } = requestBody;
+
+    // Input validation
+    if (!connectionId || typeof connectionId !== 'string') {
+      return new Response(JSON.stringify({ error: 'Valid connectionId is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!tradeType || !['buy', 'sell', 'portfolio'].includes(tradeType)) {
+      return new Response(JSON.stringify({ error: 'Valid tradeType is required (buy, sell, portfolio)' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (tradeType !== 'portfolio') {
+      if (!cryptocurrency || typeof cryptocurrency !== 'string' || cryptocurrency.length > 10) {
+        return new Response(JSON.stringify({ error: 'Valid cryptocurrency symbol is required' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+        return new Response(JSON.stringify({ error: 'Valid positive amount is required' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
 
     let user;
     

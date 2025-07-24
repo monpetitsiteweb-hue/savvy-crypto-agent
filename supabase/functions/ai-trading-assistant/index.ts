@@ -12,13 +12,42 @@ serve(async (req) => {
   }
 
   try {
+    // Security headers and logging
+    const clientIP = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown';
+    const userAgent = req.headers.get('user-agent') || 'unknown';
+    console.log(`🔐 AI Assistant request from IP: ${clientIP}, User-Agent: ${userAgent}`);
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { action, userId, symbols, confidenceThreshold = 0.7 } = await req.json();
-    console.log(`🤖 AI Trading Assistant: ${action}`);
+    const requestBody = await req.json();
+    const { action, userId, symbols, confidenceThreshold = 0.7 } = requestBody;
+    
+    // Input validation
+    if (!action || typeof action !== 'string') {
+      return new Response(JSON.stringify({ error: 'Valid action is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!userId || typeof userId !== 'string') {
+      return new Response(JSON.stringify({ error: 'Valid userId is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (typeof confidenceThreshold !== 'number' || confidenceThreshold < 0 || confidenceThreshold > 1) {
+      return new Response(JSON.stringify({ error: 'confidenceThreshold must be a number between 0 and 1' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    console.log(`🤖 AI Trading Assistant: ${action} for user: ${userId}`);
 
     if (action === 'analyze_opportunities') {
       // Get recent signals

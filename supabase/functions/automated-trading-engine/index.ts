@@ -12,13 +12,43 @@ serve(async (req) => {
   }
 
   try {
+    // Security headers and logging
+    const clientIP = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown';
+    const userAgent = req.headers.get('user-agent') || 'unknown';
+    console.log(`🔐 Request from IP: ${clientIP}, User-Agent: ${userAgent}`);
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { action, userId, strategyId, mode = 'mock' } = await req.json();
-    console.log(`🤖 Automated Trading Engine: ${action} (${mode} mode)`);
+    const requestBody = await req.json();
+    const { action, userId, strategyId, mode = 'mock' } = requestBody;
+    
+    // Input validation
+    if (!action || typeof action !== 'string') {
+      return new Response(JSON.stringify({ error: 'Valid action is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!userId || typeof userId !== 'string') {
+      return new Response(JSON.stringify({ error: 'Valid userId is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Validate mode
+    if (!['mock', 'live'].includes(mode)) {
+      return new Response(JSON.stringify({ error: 'Mode must be "mock" or "live"' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    console.log(`🤖 Automated Trading Engine: ${action} (${mode} mode) for user: ${userId}`);
 
     switch (action) {
       case 'process_signals':
