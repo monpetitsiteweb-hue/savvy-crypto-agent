@@ -26,11 +26,9 @@ serve(async (req) => {
   console.log(`=== Real-time Market Data Function Called ===`)
   console.log(`Request method: ${req.method}`)
   console.log(`Request URL: ${req.url}`)
-  console.log(`Request headers:`, Object.fromEntries(req.headers.entries()))
   
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    console.log(`Handling OPTIONS request`)
     return new Response(null, { headers: corsHeaders })
   }
 
@@ -40,25 +38,70 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
+    // Helper function to store price data in database
+    const storePriceData = async (marketData: any, sourceId: string, userId: string) => {
+      try {
+        const priceEntry = {
+          symbol: marketData.symbol,
+          timestamp: new Date(marketData.timestamp).toISOString(),
+          open_price: parseFloat(marketData.price),
+          high_price: parseFloat(marketData.high_24h || marketData.price),
+          low_price: parseFloat(marketData.low_24h || marketData.price),
+          close_price: parseFloat(marketData.price),
+          volume: parseFloat(marketData.volume || '0'),
+          source: marketData.source || 'coinbase_api',
+          source_id: sourceId,
+          user_id: userId,
+          interval_type: 'realtime',
+          metadata: {
+            bid: marketData.bid,
+            ask: marketData.ask,
+            change_24h: marketData.change_24h,
+            change_percentage_24h: marketData.change_percentage_24h
+          }
+        }
+        
+        const { error } = await supabase.from('price_data').insert(priceEntry)
+        if (error) {
+          console.error('Failed to store price data:', error)
+        } else {
+          console.log(`✅ Stored price data for ${marketData.symbol} at ${marketData.price}`)
+        }
+      } catch (error) {
+        console.error('Error storing price data:', error)
+      }
+    }
+
     if (req.method === 'POST') {
       const { symbols, action }: MarketDataRequest = await req.json()
       
       if (action === 'get_current') {
-        // Fetch current market data for multiple symbols
+        console.log(`📊 Fetching current market data for symbols: ${symbols.join(', ')}`)
         const marketData: Record<string, any> = {}
+        
+        // Get a data source ID for storage
+        const { data: dataSources } = await supabase
+          .from('ai_data_sources')
+          .select('id, user_id')
+          .eq('source_name', 'coinbase_api')
+          .eq('is_active', true)
+          .limit(1)
+        
+        const sourceId = dataSources?.[0]?.id || crypto.randomUUID()
+        const userId = dataSources?.[0]?.user_id || crypto.randomUUID()
         
         for (const symbol of symbols) {
           try {
-            console.log(`Fetching current data for ${symbol}`)
+            console.log(`🔍 Fetching data for ${symbol}`)
             
-            // Get current ticker data from Coinbase Pro API (public)
+            // Get current ticker data from Coinbase Pro API
             const tickerResponse = await fetch(
               `https://api.exchange.coinbase.com/products/${symbol}/ticker`
             )
             
             if (tickerResponse.ok) {
               const tickerData = await tickerResponse.json()
-              console.log(`Ticker data for ${symbol}:`, tickerData)
+              console.log(`📈 Ticker data for ${symbol}: Price=${tickerData.price}`)
               
               // Get 24h stats
               const statsResponse = await fetch(
@@ -68,48 +111,44 @@ serve(async (req) => {
               let statsData = null
               if (statsResponse.ok) {
                 statsData = await statsResponse.json()
-                console.log(`Stats data for ${symbol}:`, statsData)
+                console.log(`📊 Stats data for ${symbol}: High=${statsData.high}, Low=${statsData.low}`)
               }
               
-              marketData[symbol] = {
+              const currentData = {
                 symbol,
                 price: parseFloat(tickerData.price || '0'),
                 bid: parseFloat(tickerData.bid || '0'),
                 ask: parseFloat(tickerData.ask || '0'),
                 volume: parseFloat(tickerData.volume || '0'),
-                change_24h: statsData?.price_change_24h || '0',
-                change_percentage_24h: statsData?.price_change_percent_24h || '0',
-                high_24h: statsData?.high_24h || '0',
-                low_24h: statsData?.low_24h || '0',
+                change_24h: statsData?.open || '0',
+                change_percentage_24h: '0', // Calculate this
+                high_24h: statsData?.high || tickerData.price,
+                low_24h: statsData?.low || tickerData.price,
                 timestamp: new Date().toISOString(),
                 source: 'coinbase_public_api'
               }
+              
+              // Store in database
+              await storePriceData(currentData, sourceId, userId)
+              
+              marketData[symbol] = currentData
             } else {
-              console.error(`Failed to fetch ticker for ${symbol}:`, tickerResponse.status)
-              // Fallback mock data if API fails
+              console.error(`❌ Failed to fetch ticker for ${symbol}: HTTP ${tickerResponse.status}`)
+              // No fallback - report the actual error
               marketData[symbol] = {
                 symbol,
-                price: symbol === 'BTC-USD' ? 45000 : symbol === 'ETH-USD' ? 3000 : 100,
-                bid: symbol === 'BTC-USD' ? 44995 : symbol === 'ETH-USD' ? 2995 : 99.95,
-                ask: symbol === 'BTC-USD' ? 45005 : symbol === 'ETH-USD' ? 3005 : 100.05,
-                volume: 1000000,
-                change_24h: (Math.random() - 0.5) * 1000,
-                change_percentage_24h: (Math.random() - 0.5) * 10,
-                high_24h: symbol === 'BTC-USD' ? 46000 : symbol === 'ETH-USD' ? 3100 : 105,
-                low_24h: symbol === 'BTC-USD' ? 44000 : symbol === 'ETH-USD' ? 2900 : 95,
+                error: `API returned ${tickerResponse.status}`,
                 timestamp: new Date().toISOString(),
-                source: 'fallback_mock'
+                source: 'api_error'
               }
             }
           } catch (error) {
-            console.error(`Error fetching data for ${symbol}:`, error)
-            // Fallback data
+            console.error(`💥 Error fetching data for ${symbol}:`, error)
             marketData[symbol] = {
               symbol,
-              price: 0,
               error: error.message,
               timestamp: new Date().toISOString(),
-              source: 'error_fallback'
+              source: 'fetch_error'
             }
           }
         }
@@ -124,89 +163,104 @@ serve(async (req) => {
       }
     }
 
-    // WebSocket endpoint for real-time data
-    if (req.headers.get("upgrade") === "websocket") {
-      const { socket, response } = Deno.upgradeWebSocket(req)
+    // Polling endpoint for automated data collection
+    if (req.method === 'GET') {
+      console.log(`🔄 Starting automated price data collection`)
       
-      let coinbaseWs: WebSocket | null = null
+      const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'LTC-EUR', 'ADA-EUR', 'DOT-EUR', 'LINK-EUR', 'BCH-EUR', 'SOL-EUR', 'MATIC-EUR', 'AVAX-EUR']
+      const results = []
       
-      socket.onopen = () => {
-        console.log("Client WebSocket connected")
+      // Get or create data source
+      let { data: dataSource } = await supabase
+        .from('ai_data_sources')
+        .select('id, user_id')
+        .eq('source_name', 'coinbase_realtime')
+        .eq('is_active', true)
+        .single()
+      
+      if (!dataSource) {
+        // Create default data source
+        const { data: newSource } = await supabase
+          .from('ai_data_sources')
+          .insert({
+            source_name: 'coinbase_realtime',
+            source_type: 'price_feed',
+            api_endpoint: 'https://api.exchange.coinbase.com',
+            is_active: true,
+            update_frequency: 'realtime',
+            configuration: { symbols },
+            user_id: crypto.randomUUID()
+          })
+          .select()
+          .single()
         
-        // Connect to Coinbase WebSocket
-        coinbaseWs = new WebSocket('wss://advanced-trade-ws.coinbase.com')
-        
-        coinbaseWs.onopen = () => {
-          console.log("Connected to Coinbase WebSocket")
-          
-          // Subscribe to default symbols
-          const subscribeMessage = {
-            "type": "subscribe",
-            "product_ids": ["BTC-USD", "ETH-USD", "XRP-USD"],
-            "channel": "ticker"
-          }
-          
-          coinbaseWs?.send(JSON.stringify(subscribeMessage))
-        }
-        
-        coinbaseWs.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data)
-            
-            if (data.channel === 'ticker' && data.events) {
-              // Forward real-time data to client
-              socket.send(JSON.stringify({
-                type: 'market_update',
-                data: data.events[0]
-              }))
-            }
-          } catch (error) {
-            console.error("Error processing Coinbase message:", error)
-          }
-        }
-        
-        coinbaseWs.onerror = (error) => {
-          console.error("Coinbase WebSocket error:", error)
-          socket.send(JSON.stringify({
-            type: 'error',
-            message: 'Coinbase WebSocket connection failed'
-          }))
-        }
-        
-        coinbaseWs.onclose = () => {
-          console.log("Coinbase WebSocket closed")
-          socket.send(JSON.stringify({
-            type: 'disconnected',
-            message: 'Coinbase WebSocket disconnected'
-          }))
-        }
+        dataSource = newSource
       }
       
-      socket.onmessage = (event) => {
+      for (const symbol of symbols) {
         try {
-          const message = JSON.parse(event.data)
+          const tickerResponse = await fetch(
+            `https://api.exchange.coinbase.com/products/${symbol}/ticker`
+          )
           
-          if (message.type === 'subscribe' && message.symbols) {
-            // Update subscription
-            const subscribeMessage = {
-              "type": "subscribe",
-              "product_ids": message.symbols,
-              "channel": "ticker"
+          if (tickerResponse.ok) {
+            const tickerData = await tickerResponse.json()
+            
+            const statsResponse = await fetch(
+              `https://api.exchange.coinbase.com/products/${symbol}/stats`
+            )
+            
+            let statsData = null
+            if (statsResponse.ok) {
+              statsData = await statsResponse.json()
             }
             
-            coinbaseWs?.send(JSON.stringify(subscribeMessage))
+            const marketData = {
+              symbol,
+              price: parseFloat(tickerData.price || '0'),
+              bid: parseFloat(tickerData.bid || '0'),
+              ask: parseFloat(tickerData.ask || '0'),
+              volume: parseFloat(tickerData.volume || '0'),
+              high_24h: statsData?.high || tickerData.price,
+              low_24h: statsData?.low || tickerData.price,
+              timestamp: new Date().toISOString(),
+              source: 'automated_coinbase_poll'
+            }
+            
+            // Store in database
+            await storePriceData(marketData, dataSource.id, dataSource.user_id)
+            results.push({ symbol, status: 'success', price: marketData.price })
+            
+          } else {
+            console.error(`Failed to fetch ${symbol}: HTTP ${tickerResponse.status}`)
+            results.push({ symbol, status: 'failed', error: `HTTP ${tickerResponse.status}` })
           }
         } catch (error) {
-          console.error("Error processing client message:", error)
+          console.error(`Error fetching ${symbol}:`, error)
+          results.push({ symbol, status: 'error', error: error.message })
         }
       }
       
-      socket.onclose = () => {
-        console.log("Client WebSocket disconnected")
-        coinbaseWs?.close()
-      }
+      // Update last sync time
+      await supabase
+        .from('ai_data_sources')
+        .update({ last_sync: new Date().toISOString() })
+        .eq('id', dataSource.id)
       
-      return response
+      console.log(`✅ Automated collection complete. Results:`, results)
+      
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          message: 'Automated price data collection completed',
+          results,
+          timestamp: new Date().toISOString()
+        }),
+        { 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200 
+        }
+      )
     }
 
     return new Response(
