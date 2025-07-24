@@ -20,16 +20,36 @@ serve(async (req) => {
     const { action, symbols, startDate, endDate, userId, sourceId } = await req.json();
     console.log(`🏦 BigQuery Collector received:`, { action, symbols, startDate, endDate, userId });
 
-    // For demo purposes, we'll generate mock data without requiring actual BigQuery credentials
-    // In production, you would validate credentials here
-    console.log('📊 Using mock BigQuery data for demonstration');
+    // Get BigQuery configuration from data source
+    const { data: dataSource } = await supabaseClient
+      .from('ai_data_sources')
+      .select('*')
+      .eq('source_name', 'bigquery')
+      .eq('is_active', true)
+      .single();
+
+    if (!dataSource?.configuration) {
+      throw new Error('BigQuery configuration not found');
+    }
+
+    // Use actual values or defaults
+    const actualUserId = userId || dataSource.user_id;
+    const actualSourceId = sourceId || dataSource.id;
+    const defaultSymbols = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
+    const actualSymbols = symbols || defaultSymbols;
+
+    console.log('📊 Using BigQuery configuration for real data sync');
 
     switch (action) {
       case 'fetch_historical_data':
-        return await fetchHistoricalData(supabaseClient, null, { symbols, startDate, endDate, userId, sourceId, projectId: 'demo-project' });
+        return await fetchHistoricalData(supabaseClient, dataSource.configuration, { 
+          symbols: actualSymbols, startDate, endDate, userId: actualUserId, sourceId: actualSourceId, projectId: dataSource.configuration.project_id 
+        });
       
       case 'sync_daily_data':
-        return await syncDailyData(supabaseClient, null, { symbols, userId, sourceId, projectId: 'demo-project' });
+        return await syncDailyData(supabaseClient, dataSource.configuration, { 
+          symbols: actualSymbols, userId: actualUserId, sourceId: actualSourceId, projectId: dataSource.configuration.project_id 
+        });
       
       default:
         return new Response(JSON.stringify({ error: 'Invalid action' }), {
@@ -163,6 +183,12 @@ async function fetchHistoricalData(supabaseClient: any, credentials: any, params
       throw error;
     }
 
+    // Update last_sync timestamp for the data source
+    await supabaseClient
+      .from('ai_data_sources')
+      .update({ last_sync: new Date().toISOString() })
+      .eq('id', sourceId);
+
     console.log(`✅ Successfully inserted ${mockHistoricalData.length} historical records from BigQuery`);
     
     return new Response(JSON.stringify({ 
@@ -234,6 +260,12 @@ async function syncDailyData(supabaseClient: any, credentials: any, params: any)
       console.error('❌ Error syncing daily data:', error);
       throw error;
     }
+
+    // Update last_sync timestamp for the data source
+    await supabaseClient
+      .from('ai_data_sources')
+      .update({ last_sync: new Date().toISOString() })
+      .eq('id', sourceId);
 
     console.log(`✅ Successfully synced ${dailyData.length} daily records from BigQuery`);
     

@@ -20,26 +20,30 @@ serve(async (req) => {
     const { action, symbols = ['BTC', 'ETH', 'SOL'], hours = 24, userId, sourceId, limit = 50 } = await req.json();
     console.log(`📰 CryptoNews Collector received:`, { action, symbols, hours, userId });
 
-    // Get CryptoNews API key from data source configuration
+    // Get CryptoNews API key from data source configuration (find by source_name if sourceId not provided)
     const { data: dataSource } = await supabaseClient
       .from('ai_data_sources')
-      .select('configuration')
-      .eq('id', sourceId)
+      .select('*')
       .eq('source_name', 'cryptonews_api')
+      .eq('is_active', true)
       .single();
 
     if (!dataSource?.configuration?.api_key) {
       throw new Error('CryptoNews API key not found in configuration');
     }
 
+    // Use the first available user_id and source_id from the database if not provided
+    const actualUserId = userId || dataSource.user_id;
+    const actualSourceId = sourceId || dataSource.id;
+
     const cryptoNewsApiKey = dataSource.configuration.api_key;
 
     switch (action) {
       case 'fetch_latest_news':
-        return await fetchLatestNews(supabaseClient, cryptoNewsApiKey, { symbols, hours, userId, sourceId });
+        return await fetchLatestNews(supabaseClient, cryptoNewsApiKey, { symbols, hours, userId: actualUserId, sourceId: actualSourceId });
       
       case 'analyze_sentiment':
-        return await analyzeSentiment(supabaseClient, { symbols, hours, userId, sourceId });
+        return await analyzeSentiment(supabaseClient, { symbols, hours, userId: actualUserId, sourceId: actualSourceId });
       
       default:
         return new Response(JSON.stringify({ error: 'Invalid action' }), {
@@ -167,6 +171,12 @@ async function fetchLatestNews(supabaseClient: any, apiKey: string, params: any)
 
     // Generate live signals based on sentiment analysis
     const signals = await generateSentimentSignals(supabaseClient, newsData, userId, sourceId);
+    
+    // Update last_sync timestamp for the data source
+    await supabaseClient
+      .from('ai_data_sources')
+      .update({ last_sync: new Date().toISOString() })
+      .eq('id', sourceId);
     
     console.log(`✅ Successfully inserted ${newsData.length} news articles and ${signals.length} signals`);
     
