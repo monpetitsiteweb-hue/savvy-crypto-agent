@@ -73,21 +73,59 @@ async function fetchLatestNews(supabaseClient: any, apiKey: string, params: any)
     
     for (const symbol of symbolsArray) {
         try {
-        // Real CryptoNews API call
+        // Real CryptoNews API call - Try different auth methods
         const newsSymbol = symbol.split('-')[0]; // Convert BTC-EUR to BTC
-        const apiUrl = `https://cryptonews-api.com/api/v1/category?section=general&items=20&page=1&token=${apiKey}&extra_info=ranking&q=${newsSymbol}`;
         
-        console.log(`🔗 Calling CryptoNews API for ${newsSymbol}: ${apiUrl.replace(apiKey, 'XXX')}`);
+        // Method 1: Query parameter (current)
+        const apiUrl1 = `https://cryptonews-api.com/api/v1/category?section=general&items=3&page=1&token=${apiKey}&q=${newsSymbol}`;
         
-        const response = await fetch(apiUrl);
-        console.log(`📡 API Response Status: ${response.status} ${response.statusText} for ${newsSymbol}`);
+        // Method 2: Authorization header
+        const apiUrl2 = `https://cryptonews-api.com/api/v1/category?section=general&items=3&page=1&q=${newsSymbol}`;
         
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`❌ Failed to fetch news for ${symbol}: ${response.status} ${response.statusText}`);
-          console.error(`❌ Error body:`, errorText);
+        console.log(`🔗 Trying CryptoNews API for ${newsSymbol}`);
+        console.log(`📡 Method 1 URL: ${apiUrl1.replace(apiKey, 'XXX')}`);
+        
+        let response;
+        let apiMethod = 'query_param';
+        
+        try {
+          // Try method 1: Query parameter
+          response = await fetch(apiUrl1, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': 'TradingBot/1.0'
+            }
+          });
           
-          // Continue to next symbol instead of breaking the whole process
+          console.log(`📡 Method 1 Response: ${response.status} ${response.statusText}`);
+          
+          // If method 1 fails, try method 2: Authorization header
+          if (!response.ok) {
+            console.log(`🔄 Trying Method 2: Authorization header`);
+            response = await fetch(apiUrl2, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+                'User-Agent': 'TradingBot/1.0'
+              }
+            });
+            apiMethod = 'auth_header';
+            console.log(`📡 Method 2 Response: ${response.status} ${response.statusText}`);
+          }
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`❌ All methods failed for ${symbol}: ${response.status} ${response.statusText}`);
+            console.error(`❌ Final error body:`, errorText);
+            console.error(`❌ Used method: ${apiMethod}`);
+            
+            // Continue to next symbol instead of breaking the whole process
+            continue;
+          }
+        } catch (fetchError) {
+          console.error(`❌ Network error for ${symbol}:`, fetchError);
           continue;
         }
         

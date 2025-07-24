@@ -101,17 +101,45 @@ async function getAccessToken(credentials: any): Promise<string> {
 }
 
 async function createJWT(header: any, payload: any, privateKey: string): Promise<string> {
-  // This is a simplified JWT creation for demonstration
-  // In production, use a proper JWT library
-  const encoder = new TextEncoder();
+  const headerB64 = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  const payloadB64 = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
   
-  const headerB64 = btoa(JSON.stringify(header));
-  const payloadB64 = btoa(JSON.stringify(payload));
-  const unsignedToken = `${headerB64}.${payloadB64}`;
+  const message = `${headerB64}.${payloadB64}`;
   
-  // For now, return unsigned token (this won't work in production)
-  // You'd need to implement proper RSA signing here
-  return unsignedToken + '.signature';
+  try {
+    // Import the private key
+    const keyData = privateKey.replace(/-----BEGIN PRIVATE KEY-----\n?/, '')
+                             .replace(/\n?-----END PRIVATE KEY-----/, '')
+                             .replace(/\n/g, '');
+    
+    const binaryKey = Uint8Array.from(atob(keyData), c => c.charCodeAt(0));
+    
+    const cryptoKey = await crypto.subtle.importKey(
+      'pkcs8',
+      binaryKey,
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        hash: 'SHA-256'
+      },
+      false,
+      ['sign']
+    );
+    
+    // Sign the message
+    const signature = await crypto.subtle.sign(
+      'RSASSA-PKCS1-v1_5',
+      cryptoKey,
+      new TextEncoder().encode(message)
+    );
+    
+    const signatureB64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
+                          .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+    
+    return `${message}.${signatureB64}`;
+  } catch (error) {
+    console.error('❌ JWT signing error:', error);
+    throw new Error(`JWT signing failed: ${error.message}`);
+  }
 }
 
 async function fetchHistoricalData(supabaseClient: any, credentials: any, params: any) {
@@ -138,12 +166,66 @@ async function fetchHistoricalData(supabaseClient: any, credentials: any, params
       LIMIT 1000
     `;
     
-    // Note: In a real implementation, you would:
-    // 1. Get proper access token
-    // 2. Execute the BigQuery query
-    // 3. Process the results
+    // Execute actual BigQuery query
+    let realDataInserted = 0;
     
-    // For now, we'll generate sample data based on the query structure
+    try {
+      const accessToken = await getAccessToken(credentials);
+      
+      const queryResponse = await fetch(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query,
+          useLegacySql: false,
+          maxResults: 1000
+        })
+      });
+      
+      if (queryResponse.ok) {
+        const queryResult = await queryResponse.json();
+        if (queryResult.rows && queryResult.rows.length > 0) {
+          console.log(`✅ Got ${queryResult.rows.length} real records from BigQuery`);
+          
+          const realData = queryResult.rows.map((row: any) => ({
+            source_id: sourceId,
+            user_id: userId,
+            timestamp: row.f[1].v,
+            symbol: row.f[0].v,
+            price: parseFloat(row.f[6].v || '0'),
+            volume: parseFloat(row.f[7].v || '0'),
+            source: 'bigquery',
+            metadata: {
+              collection_time: new Date().toISOString(),
+              query_executed: true,
+              open: parseFloat(row.f[2].v || '0'),
+              high: parseFloat(row.f[3].v || '0'),
+              low: parseFloat(row.f[4].v || '0'),
+              close: parseFloat(row.f[5].v || '0')
+            }
+          }));
+          
+          const { error: realError } = await supabaseClient
+            .from('historical_market_data')
+            .insert(realData);
+          
+          if (!realError) {
+            realDataInserted = realData.length;
+            console.log(`✅ Inserted ${realDataInserted} real BigQuery records`);
+          }
+        }
+      } else {
+        const error = await queryResponse.text();
+        console.error('❌ BigQuery API failed:', error);
+      }
+    } catch (error) {
+      console.error('❌ BigQuery execution failed:', error);
+    }
+    
+    // Generate mock data as fallback
     const mockHistoricalData = symbols.map((symbol: string) => {
       const basePrice = Math.random() * 50000 + 10000;
       const daysInRange = Math.floor((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24));
