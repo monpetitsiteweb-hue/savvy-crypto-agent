@@ -361,25 +361,40 @@ async function executeStrategyFromSignal(supabaseClient: any, strategy: any, sig
 async function executeTrade(supabaseClient: any, tradeData: any) {
   const { strategy, signal, evaluation, marketData, mode, userId, trigger } = tradeData;
   
+  // First, check risk management constraints
+  const riskCheck = await checkRiskLimits(supabaseClient, userId, strategy, marketData);
+  if (!riskCheck.canExecute) {
+    console.log(`🚫 Trade blocked by risk management: ${riskCheck.reason}`);
+    return {
+      blocked: true,
+      reason: riskCheck.reason,
+      risk_assessment: riskCheck
+    };
+  }
+  
   const symbol = Object.keys(marketData)[0] || 'BTC-EUR';
   const price = marketData[symbol]?.price || 50000;
-  const tradeAmount = strategy.configuration?.trade_amount || 100;
+  
+  // Use risk-adjusted position size
+  const baseTradeAmount = strategy.configuration?.trade_amount || 100;
+  const adjustedAmount = riskCheck.adjustedPositionSize || baseTradeAmount;
   
   const trade = {
     user_id: userId,
     strategy_id: strategy.id,
     cryptocurrency: symbol.split('-')[0],
     trade_type: evaluation?.action || 'buy',
-    amount: tradeAmount / price,
+    amount: adjustedAmount / price,
     price: price,
-    total_value: tradeAmount,
+    total_value: adjustedAmount,
     is_test_mode: mode === 'mock',
     strategy_trigger: trigger,
-    notes: `${trigger}: ${evaluation?.reasoning || 'Manual execution'}`,
+    notes: `${trigger}: ${evaluation?.reasoning || 'Manual execution'} | Risk: ${riskCheck.riskLevel} | Stop: €${riskCheck.stopLoss?.toFixed(2)} | Max Loss: €${riskCheck.maxLoss?.toFixed(2)}`,
     market_conditions: {
       signal_data: signal,
       evaluation: evaluation,
       market_data: marketData[symbol],
+      risk_assessment: riskCheck,
       execution_time: new Date().toISOString()
     }
   };
@@ -400,7 +415,7 @@ async function executeTrade(supabaseClient: any, tradeData: any) {
     throw error;
   }
 
-  console.log(`✅ ${mode === 'live' ? 'Live' : 'Mock'} trade executed: ${trade.trade_type} ${trade.cryptocurrency} at ${price}`);
+  console.log(`✅ ${mode === 'live' ? 'Live' : 'Mock'} trade executed: ${trade.trade_type} ${trade.cryptocurrency} at ${price} | Risk: ${riskCheck.riskLevel}`);
   
   return {
     trade_id: tradeResult.id,
@@ -410,6 +425,7 @@ async function executeTrade(supabaseClient: any, tradeData: any) {
     price: trade.price,
     mode: mode,
     reasoning: evaluation?.reasoning || 'Manual execution',
+    risk_assessment: riskCheck,
     executed_at: new Date().toISOString()
   };
 }
@@ -537,6 +553,110 @@ async function runBacktestSimulation(strategy: any, signals: any[], prices: any[
     signals_analyzed: relevantSignals.length,
     strategy_effectiveness: relevantSignals.length > 0 ? (trades.length / relevantSignals.length) * 100 : 0
   };
+}
+
+async function checkRiskLimits(supabaseClient: any, userId: string, strategy: any, marketData: any) {
+  try {
+    // Get user preferences (stored in profile)
+    const { data: profile, error: profileError } = await supabaseClient
+      .from('profiles')
+      .select('username')
+      .eq('id', userId)
+      .single();
+
+    let userPrefs = null;
+    if (!profileError && profile?.username) {
+      try {
+        const parsed = JSON.parse(profile.username);
+        userPrefs = parsed.riskPreferences;
+      } catch (e) {
+        console.log('No risk preferences found, using defaults');
+      }
+    }
+
+    // Default risk limits
+    const riskLimits = userPrefs?.riskLimits || {
+      maxDailyLoss: 500,
+      maxTradesPerDay: 10,
+      maxPositionSize: 5,
+      stopLossPercentage: 3,
+      takeProfitPercentage: 6
+    };
+
+    // Check daily trading stats
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const { data: todayTrades, error: tradesError } = await supabaseClient
+      .from('mock_trades')
+      .select('profit_loss, total_value')
+      .eq('user_id', userId)
+      .gte('executed_at', today.toISOString());
+
+    const todayTradesCount = todayTrades?.length || 0;
+    const todayPnL = todayTrades?.reduce((sum, trade) => sum + (trade.profit_loss || 0), 0) || 0;
+
+    // Check limits
+    const blockingReasons = [];
+    
+    if (todayTradesCount >= riskLimits.maxTradesPerDay) {
+      blockingReasons.push(`Daily trade limit reached (${riskLimits.maxTradesPerDay})`);
+    }
+    
+    if (todayPnL < 0 && Math.abs(todayPnL) >= riskLimits.maxDailyLoss) {
+      blockingReasons.push(`Daily loss limit reached (€${riskLimits.maxDailyLoss})`);
+    }
+
+    // Calculate position sizing
+    const symbol = Object.keys(marketData)[0] || 'BTC-EUR';
+    const price = marketData[symbol]?.price || 50000;
+    const baseAmount = strategy.configuration?.trade_amount || 100;
+    
+    // Assume portfolio value of €10,000 (in real implementation, fetch actual value)
+    const portfolioValue = 10000;
+    const maxPositionValue = portfolioValue * (riskLimits.maxPositionSize / 100);
+    const adjustedPositionSize = Math.min(baseAmount, maxPositionValue);
+
+    // Calculate stop loss and take profit
+    const stopLoss = price * (1 - riskLimits.stopLossPercentage / 100);
+    const takeProfit = riskLimits.takeProfitPercentage 
+      ? price * (1 + riskLimits.takeProfitPercentage / 100) 
+      : null;
+    
+    const maxLoss = adjustedPositionSize * (riskLimits.stopLossPercentage / 100);
+
+    // Determine risk level
+    let riskLevel = 'low';
+    if (adjustedPositionSize / portfolioValue > 0.03 || todayTradesCount > 5) {
+      riskLevel = 'medium';
+    }
+    if (adjustedPositionSize / portfolioValue > 0.05 || todayTradesCount > 8 || Math.abs(todayPnL) > 200) {
+      riskLevel = 'high';
+    }
+
+    return {
+      canExecute: blockingReasons.length === 0,
+      reason: blockingReasons.join('; '),
+      adjustedPositionSize,
+      stopLoss,
+      takeProfit,
+      maxLoss,
+      riskLevel,
+      dailyStats: {
+        trades: todayTradesCount,
+        pnl: todayPnL
+      }
+    };
+
+  } catch (error) {
+    console.error('❌ Error checking risk limits:', error);
+    return {
+      canExecute: false,
+      reason: 'Risk management system error',
+      adjustedPositionSize: 0,
+      riskLevel: 'high'
+    };
+  }
 }
 
 async function storeBacktestResults(supabaseClient: any, data: any) {

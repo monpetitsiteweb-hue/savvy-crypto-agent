@@ -5,7 +5,8 @@ import { ComprehensiveStrategyConfig } from "@/components/strategy/Comprehensive
 import { StrategyBacktest } from "@/components/strategy/StrategyBacktest";
 import { PerformanceDashboard } from "@/components/strategy/PerformanceDashboard";
 import { StrategyAutomation } from "@/components/strategy/StrategyAutomation";
-import { Bot, BarChart3, Activity, Settings } from 'lucide-react';
+import { RiskManagementPanel } from "@/components/RiskManagementPanel";
+import { Bot, BarChart3, Activity, Settings, Shield } from 'lucide-react';
 
 export default function StrategyPage() {
   return (
@@ -18,7 +19,7 @@ export default function StrategyPage() {
       </div>
 
       <Tabs defaultValue="automation" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="automation" className="flex items-center gap-2">
             <Bot className="h-4 w-4" />
             Automation
@@ -34,6 +35,10 @@ export default function StrategyPage() {
           <TabsTrigger value="performance" className="flex items-center gap-2">
             <Activity className="h-4 w-4" />
             Performance
+          </TabsTrigger>
+          <TabsTrigger value="risk" className="flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            Risk Management
           </TabsTrigger>
         </TabsList>
 
@@ -51,6 +56,10 @@ export default function StrategyPage() {
 
         <TabsContent value="performance" className="space-y-6">
           <PerformanceDashboard />
+        </TabsContent>
+
+        <TabsContent value="risk" className="space-y-6">
+          <RiskManagementPanel />
         </TabsContent>
       </Tabs>
     </div>
