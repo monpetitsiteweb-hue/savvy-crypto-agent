@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,7 +31,7 @@ export const LLMConfigPanel = () => {
       whaleMovements: true
     }
   });
-  const [originalPrompt, setOriginalPrompt] = useState('');
+  const [originalConfig, setOriginalConfig] = useState(config);
   const [testing, setTesting] = useState(false);
 
   // Load LLM configuration from database
@@ -49,15 +50,16 @@ export const LLMConfigPanel = () => {
         }
 
         if (data) {
-          setConfig(prev => ({
-            ...prev,
+          const loadedConfig = {
+            ...config,
             systemPrompt: data.system_prompt,
             temperature: data.temperature,
             maxTokens: data.max_tokens,
             model: data.model,
             provider: data.provider,
-          }));
-          setOriginalPrompt(data.system_prompt);
+          };
+          setConfig(loadedConfig);
+          setOriginalConfig(loadedConfig);
         }
       } catch (error) {
         console.error('Error loading LLM config:', error);
@@ -69,7 +71,21 @@ export const LLMConfigPanel = () => {
 
   const handleSaveConfig = async () => {
     try {
-      // In a real implementation, this would save to the database
+      const { error } = await supabase
+        .from('llm_configurations')
+        .update({
+          system_prompt: config.systemPrompt,
+          temperature: config.temperature,
+          max_tokens: config.maxTokens,
+          model: config.model,
+          provider: config.provider,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('is_active', true);
+
+      if (error) throw error;
+
+      setOriginalConfig(config);
       toast({
         title: "Configuration Saved",
         description: "LLM settings have been updated successfully",
@@ -110,6 +126,8 @@ export const LLMConfigPanel = () => {
       setTesting(false);
     }
   };
+
+  const hasChanges = JSON.stringify(config) !== JSON.stringify(originalConfig);
 
   return (
     <div className="space-y-6">
@@ -221,40 +239,6 @@ export const LLMConfigPanel = () => {
                   This prompt defines how the AI interprets user requests and generates trading strategies
                 </span>
               </div>
-              <Button 
-                onClick={async () => {
-                  try {
-                    const { error } = await supabase
-                      .from('llm_configurations')
-                      .update({
-                        system_prompt: config.systemPrompt,
-                        temperature: config.temperature,
-                        max_tokens: config.maxTokens,
-                        updated_at: new Date().toISOString(),
-                      })
-                      .eq('is_active', true);
-
-                    if (error) throw error;
-
-                    setOriginalPrompt(config.systemPrompt);
-                    toast({
-                      title: "Configuration Saved",
-                      description: "System prompt has been updated successfully",
-                    });
-                  } catch (error) {
-                    toast({
-                      title: "Error",
-                      description: "Failed to save configuration. Please try again.",
-                      variant: "destructive",
-                    });
-                  }
-                }}
-                className="bg-green-500 hover:bg-green-600"
-                disabled={config.systemPrompt === originalPrompt}
-              >
-                <Save className="w-4 h-4 mr-2" />
-                Save Prompt
-              </Button>
             </div>
           </Card>
         </TabsContent>
@@ -404,7 +388,11 @@ export const LLMConfigPanel = () => {
         <Button variant="outline" className="border-slate-600 text-slate-300">
           Reset to Defaults
         </Button>
-        <Button onClick={handleSaveConfig} className="bg-green-500 hover:bg-green-600">
+        <Button 
+          onClick={handleSaveConfig} 
+          className="bg-green-500 hover:bg-green-600"
+          disabled={!hasChanges}
+        >
           <Save className="w-4 h-4 mr-2" />
           Save Configuration
         </Button>
