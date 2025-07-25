@@ -129,7 +129,7 @@ export const Header = () => {
                             </Badge>
                           )}
                         </div>
-                        <Button
+                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => {
@@ -140,6 +140,18 @@ export const Header = () => {
                         >
                           <User className="w-4 h-4 mr-2" />
                           My Profile
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            navigate('/settings');
+                            setShowDropdown(false);
+                          }}
+                          className="w-full justify-start text-slate-300 hover:text-white"
+                        >
+                          <Settings className="w-4 h-4 mr-2" />
+                          Settings
                         </Button>
                         <Button
                           variant="ghost"

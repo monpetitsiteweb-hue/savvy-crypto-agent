@@ -9,6 +9,7 @@ import { MockWalletProvider } from "@/hooks/useMockWallet";
 import Index from "./pages/Index";
 import AdminPage from "./pages/AdminPage";
 import ProfilePage from "./pages/ProfilePage";
+import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -26,6 +27,7 @@ const App = () => (
                 <Route path="/" element={<Index />} />
                 <Route path="/admin" element={<AdminPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/settings" element={<SettingsPage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>

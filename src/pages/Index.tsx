@@ -64,7 +64,8 @@ const Index = () => {
                     { id: 'dashboard', label: 'Dashboard' },
                     { id: 'history', label: 'History' },
                     { id: 'strategy', label: 'Strategy' },
-                    { id: 'performance', label: 'Performance' }
+                    { id: 'performance', label: 'Performance' },
+                    { id: 'settings', label: 'Settings' }
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -122,6 +123,22 @@ const Index = () => {
                     hasActiveStrategy={hasActiveStrategy}
                     onCreateStrategy={() => setActiveTab('strategy')}
                   />
+                )}
+                {activeTab === 'settings' && (
+                  <div className="space-y-6">
+                    <div className="text-center py-8">
+                      <h2 className="text-xl font-semibold text-white mb-2">Settings</h2>
+                      <p className="text-slate-400 mb-4">
+                        Visit the dedicated Settings page for full account management
+                      </p>
+                      <a 
+                        href="/settings" 
+                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        Go to Settings
+                      </a>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
