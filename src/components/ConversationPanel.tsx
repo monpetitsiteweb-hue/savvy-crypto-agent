@@ -282,19 +282,22 @@ export const ConversationPanel = () => {
 
       // Route ALL messages through the AI assistant
       console.log('🤖 Routing to AI assistant:', { 
-        userId: user?.id, 
+        userId: user.id, 
         message: currentInput,
         testMode,
         strategyContext 
       });
+      
+      // Get active strategy details for the AI
+      const activeStrategy = userStrategies.find(s => testMode ? s.is_active_test : s.is_active_live);
       
       const { data, error } = await supabase.functions.invoke('ai-trading-assistant', {
         body: {
           userId: user.id,
           message: currentInput,
           testMode,
-          strategyContext,
-          userStrategies
+          strategyId: activeStrategy?.id,
+          currentConfig: activeStrategy?.configuration
         }
       });
 
@@ -303,8 +306,8 @@ export const ConversationPanel = () => {
       if (error) {
         console.error('AI assistant error:', error);
         aiMessage = `❌ **AI Assistant Error**\n\nError: ${error.message || 'Unknown error occurred'}\n\nPlease try again or check the system logs for more details.`;
-      } else if (data && data.response) {
-        aiMessage = data.response;
+      } else if (data && data.message) {
+        aiMessage = data.message;
         
         // If the AI made configuration updates, refresh strategies
         if (data.configUpdated) {
@@ -319,7 +322,8 @@ export const ConversationPanel = () => {
           }
         }
       } else {
-        aiMessage = "I'm having trouble processing your request right now. Please try again in a moment.";
+        console.error('Unexpected response format:', data);
+        aiMessage = `❌ **Unexpected Response**\n\nReceived: ${JSON.stringify(data)}\n\nPlease try again.`;
       }
 
       const aiResponse: Message = {
