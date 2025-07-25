@@ -478,14 +478,28 @@ export const ConversationPanel = () => {
             errorDetails += `**Hint:** ${aiError.hint}\n`;
           }
           
-          // Check for specific error patterns
+          // Check for specific error patterns and get real error details
           if (aiError.message && aiError.message.includes('Edge Function returned a non-2xx status code')) {
+            // Log the full error for debugging
+            console.log('Full error object for debugging:', JSON.stringify(aiError, null, 2));
+            
             errorDetails += `\n**Debug Information:**\n`;
-            errorDetails += `- The Coinbase Sandbox API is currently unreachable\n`;
-            errorDetails += `- This may be a temporary connectivity issue\n`;
-            errorDetails += `- API endpoint: api.sandbox.coinbase.com\n`;
+            
+            // Check for common edge function errors
+            if (currentInput.toLowerCase().includes('strategy')) {
+              errorDetails += `- Strategy creation failed\n`;
+              errorDetails += `- This may be due to missing OpenAI API key configuration\n`;
+              errorDetails += `- Contact admin to configure required API keys\n`;
+            } else if (currentInput.toLowerCase().includes('risk')) {
+              errorDetails += `- Risk profile update failed\n`;
+              errorDetails += `- Check database connection and user permissions\n`;
+            } else {
+              errorDetails += `- Edge function error occurred\n`;
+              errorDetails += `- Check server logs for detailed error information\n`;
+            }
+            
             errorDetails += `- Test Mode: ${testMode ? 'Enabled' : 'Disabled'}\n`;
-            errorDetails += `- Try again in a few minutes or contact support if the issue persists\n`;
+            errorDetails += `- If this persists, contact support\n`;
           }
           
           aiMessage = `❌ **Trading Operation Failed**\n\n${errorDetails}`;
