@@ -217,16 +217,32 @@ export const ConversationPanel = () => {
   const analyzeUserQuestion = async (question: string): Promise<string> => {
     const lowerQuestion = question.toLowerCase();
     
+    // CRITICAL DEBUG: Log the actual state
+    console.log('🚨 ANALYZING QUESTION:', question);
+    console.log('🚨 userStrategies:', userStrategies);
+    console.log('🚨 testMode:', testMode);
+    
     // Check for multiple strategies and no active strategy
     const activeStrategies = userStrategies.filter(s => 
       testMode ? s.is_active_test : s.is_active_live
     );
     
+    console.log('🚨 activeStrategies:', activeStrategies);
+    console.log('🚨 activeStrategies.length:', activeStrategies.length);
+    
+    // FORCE CHECK: If NO strategies exist at all, immediately return
+    if (!userStrategies || userStrategies.length === 0) {
+      console.log('🚨 NO STRATEGIES AT ALL - returning create strategy message');
+      return "I notice you don't have any trading strategies yet. I'd recommend creating one first by clicking 'Create New Strategy' in the Strategy tab. Once you have a strategy configured and activated, I'll be able to provide detailed analysis and execute trades for you.";
+    }
+    
     if (activeStrategies.length === 0 && userStrategies.length > 0) {
+      console.log('🚨 STRATEGIES EXIST BUT NONE ACTIVE - returning activate strategy message');
       return "I notice you have strategies but none are currently active. Please activate a strategy first by going to the Strategy tab and toggling one to active. Once you have an active strategy, I'll be able to analyze it and execute trades for you.";
     }
     
     if (activeStrategies.length === 0) {
+      console.log('🚨 NO ACTIVE STRATEGIES - returning create strategy message');
       return "I notice you don't have any trading strategies yet. I'd recommend creating one first by clicking 'Create New Strategy' in the Strategy tab. Once you have a strategy configured and activated, I'll be able to provide detailed analysis and execute trades for you.";
     }
     
