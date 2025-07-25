@@ -48,7 +48,7 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
     }
   }, [strategyConfig]);
 
-  // Update price history when new market data arrives
+  // Update price history when new market data arrives  
   useEffect(() => {
     if (marketData) {
       setPriceHistory(prev => {
@@ -56,7 +56,9 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         Object.entries(marketData).forEach(([symbol, data]: [string, any]) => {
           if (data.price) {
             if (!updated[symbol]) updated[symbol] = [];
-            updated[symbol] = [...updated[symbol].slice(-200), data.price]; // Keep last 200 prices
+            // Add new price and keep last 200 prices for calculation
+            const newPrices = [...updated[symbol], data.price].slice(-200);
+            updated[symbol] = newPrices;
           }
         });
         return updated;

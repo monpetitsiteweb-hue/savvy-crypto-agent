@@ -178,14 +178,14 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
     };
   }, []);
 
-  // Get initial data on mount and update every 10 seconds for variation calculation
+  // Get initial data on mount and update more frequently for faster indicator calculation
   useEffect(() => {
     getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
     
-    // Update variation data every 10 seconds (not price - just variation)
+    // Update data every 5 seconds to accumulate price history faster
     const intervalId = setInterval(() => {
       getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
-    }, 10000); // 10 seconds
+    }, 5000); // 5 seconds for faster data accumulation
 
     return () => clearInterval(intervalId);
   }, [getCurrentData]);
