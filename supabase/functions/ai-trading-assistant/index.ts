@@ -233,7 +233,7 @@ VALID CONFIGURATION FIELDS:
 
 IMPORTANT: When enabling indicators like "enable RSI" or "enable RSI and MACD", immediately include current calculated values in your response for the user to see.`;
 
-      const userPrompt = `User message: "${message}"
+      const userPrompt = `User message: "${message.replace(/"/g, '\\"')}"
 
 Analyze this message and respond appropriately. Consider the current strategy context and provide:
 1. Configuration updates if this is a settings change request
