@@ -484,6 +484,7 @@ export const ConversationPanel = () => {
       // **FIRST TRY LOCAL ANALYSIS** - Handle config changes without edge function
       console.log('🔍 DEBUGGING: Trying local analysis first');
       const localResponse = await analyzeUserQuestion(currentInput);
+      console.log('🔍 DEBUGGING: Local response received:', localResponse);
       
       // If local analysis handled it (returns success or specific config response), use it and skip edge function
       if (localResponse && (localResponse.includes('✅') || localResponse.includes('❌') || localResponse.includes('Risk Profile') || localResponse.includes('Stop Loss') || localResponse.includes('Take Profit'))) {
@@ -498,6 +499,8 @@ export const ConversationPanel = () => {
         setIsLoading(false);
         return;
       }
+      
+      console.log('🔍 DEBUGGING: Local analysis did not handle request, proceeding to edge function');
       
       console.log('🔍 DEBUGGING: Local analysis did not handle request, calling edge function');
       
