@@ -6,7 +6,11 @@ import { TrendingUp, TrendingDown, Minus, Clock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 export const LiveIndicatorKPI = () => {
+  console.log('🚀 LiveIndicatorKPI component is rendering');
+  
   const { activeStrategy } = useActiveStrategy();
+  console.log('📋 Active strategy:', activeStrategy);
+  
   const { indicators, indicatorConfig } = useTechnicalIndicators(activeStrategy?.configuration);
   const [lastUpdated, setLastUpdated] = useState(new Date());
 
@@ -26,7 +30,13 @@ export const LiveIndicatorKPI = () => {
     }
   }, [indicators]);
 
+  const hasEnabledIndicators = Object.values(indicatorConfig).some(config => config.enabled);
+  const hasIndicatorData = Object.keys(indicators).length > 0;
+
+  console.log('🔍 Component state - activeStrategy:', !!activeStrategy, 'hasEnabledIndicators:', hasEnabledIndicators, 'hasIndicatorData:', hasIndicatorData);
+  
   if (!activeStrategy) {
+    console.log('⚠️ No active strategy, showing placeholder');
     return (
       <Card>
         <CardHeader>
@@ -42,10 +52,8 @@ export const LiveIndicatorKPI = () => {
     );
   }
 
-  const hasEnabledIndicators = Object.values(indicatorConfig).some(config => config.enabled);
-  const hasIndicatorData = Object.keys(indicators).length > 0;
-
   if (!hasEnabledIndicators) {
+    console.log('⚠️ No indicators enabled, showing placeholder');
     return (
       <Card>
         <CardHeader>
