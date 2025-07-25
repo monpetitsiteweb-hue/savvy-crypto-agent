@@ -9,6 +9,7 @@ import { TradingHistory } from '@/components/TradingHistory';
 import { StrategyConfig } from '@/components/StrategyConfig';
 import { TestStrategyConfig } from '@/components/TestStrategyConfig';
 import { PerformanceOverview } from '@/components/PerformanceOverview';
+import { LiveIndicatorKPI } from '@/components/strategy/LiveIndicatorKPI';
 import { AdminPage } from '@/components/admin/AdminPage';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useTestMode } from '@/hooks/useTestMode';
@@ -99,10 +100,13 @@ const Index = () => {
               {/* Tab Content */}
               <div className="p-6 flex-1 overflow-y-auto min-h-0">
                 {activeTab === 'dashboard' && (
-                  <MergedPortfolioDisplay 
-                    hasActiveStrategy={hasActiveStrategy}
-                    onCreateStrategy={() => setActiveTab('strategy')}
-                  />
+                  <div className="space-y-6">
+                    <MergedPortfolioDisplay 
+                      hasActiveStrategy={hasActiveStrategy}
+                      onCreateStrategy={() => setActiveTab('strategy')}
+                    />
+                    <LiveIndicatorKPI />
+                  </div>
                 )}
                 {activeTab === 'history' && (
                   <TradingHistory 

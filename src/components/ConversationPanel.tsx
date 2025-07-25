@@ -37,7 +37,7 @@ export const ConversationPanel = () => {
   const { activeStrategy, hasActiveStrategy } = useActiveStrategy();
   const { executeProductionTrade, validateProductionReadiness, isProcessing } = useProductionTrading();
   const { marketData } = useRealTimeMarketData();
-  const { indicators, indicatorConfig } = useTechnicalIndicators(activeStrategy?.configuration);
+  const { indicators, indicatorConfig, updateIndicatorConfig } = useTechnicalIndicators(activeStrategy?.configuration);
   
   const [messages, setMessages] = useState<Message[]>([]);
   
@@ -409,7 +409,7 @@ export const ConversationPanel = () => {
                                     data.configUpdates !== null &&
                                     Object.keys(data.configUpdates).length > 0 &&
                                     Object.keys(data.configUpdates).some(key => 
-                                      ['riskLevel', 'riskProfile', 'stopLoss', 'takeProfit', 'maxPositionSize'].includes(key)
+                                      ['riskLevel', 'riskProfile', 'stopLoss', 'takeProfit', 'maxPositionSize', 'technicalIndicators'].includes(key)
                                     );
 
         if (hasValidConfigUpdates && targetStrategy) {
@@ -458,6 +458,11 @@ export const ConversationPanel = () => {
               if (updatedStrategies && !refreshError) {
                 setUserStrategies(updatedStrategies);
                 console.log('✅ Strategies refreshed in state');
+                
+                // If technicalIndicators were updated, sync with the hook
+                if (data.configUpdates.technicalIndicators) {
+                  updateIndicatorConfig(data.configUpdates.technicalIndicators);
+                }
               }
               
               // Show specific update confirmation based on the config updates

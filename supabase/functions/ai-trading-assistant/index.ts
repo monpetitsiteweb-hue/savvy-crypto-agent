@@ -229,7 +229,9 @@ VALID CONFIGURATION FIELDS:
 - takeProfit: percentage value (e.g., 5.0 for 5.0%)
 - maxPositionSize: position sizing limits
 - strategyType: trend-following, mean-reverting, breakout, scalping, etc.
-- technicalIndicators: enable/disable and configure RSI, MACD, EMA, SMA, Bollinger Bands, ADX, Stochastic RSI`;
+- technicalIndicators: object with indicator configs (e.g., { rsi: { enabled: true, period: 14, buyThreshold: 30, sellThreshold: 70 } })
+
+IMPORTANT: When enabling indicators like "enable RSI" or "enable RSI and MACD", immediately include current calculated values in your response for the user to see.
 
       const userPrompt = `User message: "${message}"
 
@@ -247,7 +249,12 @@ For configuration changes, use this format:
   }
 }
 
-For strategy analysis, provide detailed explanations based on the actual configuration data provided above.`;
+For strategy analysis, provide detailed explanations based on the actual configuration data provided above.
+
+Special handling for indicator enablement:
+- If enabling indicators (e.g., "enable RSI", "enable MACD"), return configUpdates AND include current indicator values in your message
+- Example: "RSI is now enabled for your strategy. Current RSI for ETH: 27.2 (oversold - buy signal active)"
+- Use the live indicator data from the provided context to give immediate feedback
 
 
       try {
