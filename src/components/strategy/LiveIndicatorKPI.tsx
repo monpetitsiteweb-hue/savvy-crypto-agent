@@ -11,8 +11,15 @@ export const LiveIndicatorKPI = () => {
   const { activeStrategy } = useActiveStrategy();
   console.log('📋 Active strategy:', activeStrategy);
   
-  const { indicators, indicatorConfig } = useTechnicalIndicators(activeStrategy?.configuration);
+  const { indicators, indicatorConfig, isLoadingHistoricalData, priceHistory } = useTechnicalIndicators(activeStrategy?.configuration);
   const [lastUpdated, setLastUpdated] = useState(new Date());
+  
+  console.log('📊 Technical indicators state:', {
+    indicators: Object.keys(indicators),
+    isLoadingHistoricalData,
+    priceHistorySymbols: Object.keys(priceHistory),
+    indicatorConfig
+  });
 
   // Auto-refresh timestamp every 10 seconds
   useEffect(() => {

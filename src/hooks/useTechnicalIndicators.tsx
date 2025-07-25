@@ -51,13 +51,38 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         
         console.log('🔍 Loading historical price data for indicators...');
         
-        // Fetch recent price data for each symbol
+        // Check if we have pre-calculated indicators in database first
+        const { data: existingIndicators } = await supabase
+          .from('price_data')
+          .select('symbol, metadata')
+          .in('symbol', symbols)
+          .not('metadata->indicators', 'is', null)
+          .order('timestamp', { ascending: false })
+          .limit(symbols.length);
+        
+        // If we have cached indicators, use them for instant loading
+        if (existingIndicators && existingIndicators.length > 0) {
+          console.log('📊 Found cached indicators, loading instantly...');
+          const cachedIndicators: Record<string, any> = {};
+          existingIndicators.forEach(item => {
+            if (item.metadata && typeof item.metadata === 'object' && 'indicators' in item.metadata) {
+              cachedIndicators[item.symbol] = (item.metadata as any).indicators;
+            }
+          });
+          
+          if (Object.keys(cachedIndicators).length > 0) {
+            setIndicators(cachedIndicators);
+            console.log('✅ Loaded cached indicators for:', Object.keys(cachedIndicators));
+          }
+        }
+        
+        // Fetch recent price data for calculation/recalculation
         const { data: priceData, error } = await supabase
           .from('price_data')
           .select('symbol, close_price, timestamp')
           .in('symbol', symbols)
           .order('timestamp', { ascending: false })
-          .limit(50 * symbols.length); // Get 50 recent prices per symbol
+          .limit(100 * symbols.length); // Get more data points for better indicator calculation
         
         if (error) {
           console.error('❌ Error loading historical price data:', error);
@@ -77,7 +102,7 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
               .map(d => parseFloat(d.close_price.toString()));
             
             if (symbolData.length > 0) {
-              historyBySymbol[symbol] = symbolData.slice(-50); // Keep last 50 prices
+              historyBySymbol[symbol] = symbolData.slice(-100); // Keep more data for better calculations
             }
           });
           

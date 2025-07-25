@@ -270,6 +270,22 @@ Special handling for indicator enablement:
 - Example: "RSI is now enabled for your strategy. Current RSI for ETH: 27.2 (oversold - buy signal active)"
 - Use the live indicator data from the provided context to give immediate feedback`;
 
+      // Get LLM configuration from database to respect user's max token settings
+      const { data: llmConfig } = await supabaseClient
+        .from('llm_configurations')
+        .select('*')
+        .eq('is_active', true)
+        .single();
+
+      // Use configured settings or fallback to defaults
+      const modelSettings = {
+        model: llmConfig?.model || 'gpt-4.1-2025-04-14',
+        temperature: llmConfig?.temperature || 0.3,
+        max_tokens: llmConfig?.max_tokens || 2000
+      };
+
+      console.log(`🤖 Using LLM config - Model: ${modelSettings.model}, Max Tokens: ${modelSettings.max_tokens}, Temperature: ${modelSettings.temperature}`);
+
       try {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
@@ -278,13 +294,13 @@ Special handling for indicator enablement:
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'gpt-4.1-2025-04-14',
+            model: modelSettings.model,
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt }
             ],
-            temperature: 0.3,
-            max_tokens: 500,
+            temperature: modelSettings.temperature,
+            max_tokens: modelSettings.max_tokens,
           }),
         });
 
