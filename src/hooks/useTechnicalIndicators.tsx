@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { RSI, MACD, EMA, SMA, BollingerBands, ADX, StochasticRSI } from 'technicalindicators';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface IndicatorConfig {
   rsi: { enabled: boolean; period: number; buyThreshold: number; sellThreshold: number };
@@ -36,7 +37,56 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
   const [indicatorConfig, setIndicatorConfig] = useState<IndicatorConfig>(DEFAULT_CONFIG);
   const [indicators, setIndicators] = useState<Record<string, IndicatorValues>>({});
   const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({});
+  const [isLoadingHistoricalData, setIsLoadingHistoricalData] = useState(true);
   const { marketData } = useRealTimeMarketData();
+
+  // Bootstrap price history from existing price_data table on mount
+  useEffect(() => {
+    const loadHistoricalPriceData = async () => {
+      try {
+        setIsLoadingHistoricalData(true);
+        const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'LTC-EUR', 'ADA-EUR', 'DOT-EUR', 'LINK-EUR', 'BCH-EUR', 'SOL-EUR', 'MATIC-EUR', 'AVAX-EUR'];
+        
+        // Fetch recent price data for each symbol
+        const { data: priceData, error } = await supabase
+          .from('price_data')
+          .select('symbol, close_price, timestamp')
+          .in('symbol', symbols)
+          .order('timestamp', { ascending: false })
+          .limit(50 * symbols.length); // Get 50 recent prices per symbol
+        
+        if (error) {
+          console.error('Error loading historical price data:', error);
+          return;
+        }
+        
+        if (priceData && priceData.length > 0) {
+          const historyBySymbol: Record<string, number[]> = {};
+          
+          // Group data by symbol and sort by timestamp
+          symbols.forEach(symbol => {
+            const symbolData = priceData
+              .filter(d => d.symbol === symbol)
+              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+              .map(d => parseFloat(d.close_price.toString()));
+            
+            if (symbolData.length > 0) {
+              historyBySymbol[symbol] = symbolData.slice(-50); // Keep last 50 prices
+            }
+          });
+          
+          setPriceHistory(historyBySymbol);
+          console.log(`✅ Bootstrapped indicators with historical data:`, Object.keys(historyBySymbol).map(s => `${s}: ${historyBySymbol[s].length} prices`));
+        }
+      } catch (error) {
+        console.error('Failed to load historical price data:', error);
+      } finally {
+        setIsLoadingHistoricalData(false);
+      }
+    };
+    
+    loadHistoricalPriceData();
+  }, []);
 
   // Update indicator config from strategy configuration
   useEffect(() => {
@@ -334,6 +384,7 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
     indicatorConfig,
     updateIndicatorConfig,
     getIndicatorSummary,
-    priceHistory
+    priceHistory,
+    isLoadingHistoricalData
   };
 };

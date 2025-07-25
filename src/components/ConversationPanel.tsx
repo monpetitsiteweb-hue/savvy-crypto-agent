@@ -37,7 +37,7 @@ export const ConversationPanel = () => {
   const { activeStrategy, hasActiveStrategy } = useActiveStrategy();
   const { executeProductionTrade, validateProductionReadiness, isProcessing } = useProductionTrading();
   const { marketData } = useRealTimeMarketData();
-  const { indicators, indicatorConfig, updateIndicatorConfig } = useTechnicalIndicators(activeStrategy?.configuration);
+  const { indicators, indicatorConfig, updateIndicatorConfig, isLoadingHistoricalData } = useTechnicalIndicators(activeStrategy?.configuration);
   
   const [messages, setMessages] = useState<Message[]>([]);
   
@@ -356,7 +356,7 @@ export const ConversationPanel = () => {
         targetStrategy = userStrategies[0];
       }
       
-      // Check if indicators are still loading
+      // Check if indicators are still loading historical data
       const hasEnabledIndicators = indicatorConfig && (
         indicatorConfig.rsi?.enabled ||
         indicatorConfig.macd?.enabled ||
@@ -367,14 +367,27 @@ export const ConversationPanel = () => {
         indicatorConfig.stochasticRSI?.enabled
       );
       
+      // Use the new loading state from the hook
+      if (hasEnabledIndicators && isLoadingHistoricalData) {
+        const loadingMessage: Message = {
+          id: Date.now().toString(),
+          type: 'ai',
+          content: "📊 **Loading Historical Market Data**\n\nI'm retrieving recent price history from the database to calculate your technical indicators (RSI, MACD, EMA).\n\n⏳ This should complete within a few seconds...",
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, loadingMessage]);
+        setIsLoading(false);
+        return;
+      }
+      
       const hasIndicatorData = indicators && Object.keys(indicators).length > 0;
       
-      // If indicators are enabled but data is not ready, inform user to wait
+      // If indicators are enabled but calculations haven't finished yet
       if (hasEnabledIndicators && !hasIndicatorData) {
         const loadingMessage: Message = {
           id: Date.now().toString(),
           type: 'ai',
-          content: "📊 **Calculating Live Technical Indicators**\n\nI'm retrieving the latest RSI, MACD, and other indicator values from real-time market data. This takes a moment to ensure accuracy.\n\n⏳ Please try your question again in 30-60 seconds for the most current indicator analysis.",
+          content: "📊 **Calculating Technical Indicators**\n\nPrice data loaded, now calculating RSI, MACD, and other indicators. This requires a minimum of 26 data points per symbol.\n\n⏳ Please try your question again in a moment.",
           timestamp: new Date()
         };
         setMessages(prev => [...prev, loadingMessage]);
