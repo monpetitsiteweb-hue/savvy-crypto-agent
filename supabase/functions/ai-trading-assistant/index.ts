@@ -63,7 +63,7 @@ serve(async (req) => {
       let recentTradingContext = '';
       let marketContext = '';
       let whaleContext = '';
-      let indicatorContext = '';
+      let indicatorContextForPrompt = '';
       
       // Prepare market data context for AI
       if (marketData && typeof marketData === 'object') {
@@ -90,41 +90,51 @@ ${whaleEntries}
 `;
       }
       
-      // Prepare technical indicators context
+      // Prepare technical indicators context with structured data
+      let indicatorContextText = '';
+      let structuredIndicators = {};
+      
       if (indicatorContext && typeof indicatorContext === 'object') {
+        structuredIndicators = indicatorContext;
+        
         const indicatorEntries = Object.entries(indicatorContext).map(([symbol, indicators]: [string, any]) => {
           const indicatorsList = [];
           
           if (indicators.RSI) {
-            indicatorsList.push(`RSI: ${indicators.RSI.value} (${indicators.RSI.signal})`);
+            indicatorsList.push(`RSI: ${indicators.RSI.value || 'N/A'} (${indicators.RSI.signal || 'neutral'} - buy < ${indicators.RSI.buyThreshold || 30}, sell > ${indicators.RSI.sellThreshold || 70})`);
           }
           if (indicators.MACD) {
-            indicatorsList.push(`MACD: ${indicators.MACD.crossover} crossover (${indicators.MACD.histogram})`);
+            const crossover = indicators.MACD.crossover ? 'bullish crossover' : 'bearish crossover';
+            indicatorsList.push(`MACD: ${crossover} (histogram: ${indicators.MACD.histogram || 'N/A'})`);
           }
           if (indicators.EMA) {
-            indicatorsList.push(`EMA: ${indicators.EMA.short}/${indicators.EMA.long} (${indicators.EMA.direction})`);
+            const trend = indicators.EMA.short > indicators.EMA.long ? 'bullish' : 'bearish';
+            indicatorsList.push(`EMA: ${indicators.EMA.short}/${indicators.EMA.long} (${trend} trend)`);
           }
           if (indicators.SMA) {
-            indicatorsList.push(`SMA: ${indicators.SMA.value}`);
+            indicatorsList.push(`SMA: ${indicators.SMA.value || 'N/A'}`);
           }
           if (indicators.Bollinger) {
-            indicatorsList.push(`Bollinger: ${indicators.Bollinger.position} (width: ${indicators.Bollinger.width}%)`);
+            indicatorsList.push(`Bollinger: ${indicators.Bollinger.position || 'middle'} band (width: ${indicators.Bollinger.width || 'N/A'}%)`);
           }
           if (indicators.ADX) {
-            indicatorsList.push(`ADX: ${indicators.ADX.value} (${indicators.ADX.trendStrength} trend)`);
+            indicatorsList.push(`ADX: ${indicators.ADX.value || 'N/A'} (${indicators.ADX.trendStrength || 'weak'} trend strength)`);
           }
           if (indicators.StochasticRSI) {
-            indicatorsList.push(`Stoch RSI: ${indicators.StochasticRSI.k}/${indicators.StochasticRSI.d} (${indicators.StochasticRSI.signal})`);
+            indicatorsList.push(`Stoch RSI: K=${indicators.StochasticRSI.k || 'N/A'}, D=${indicators.StochasticRSI.d || 'N/A'} (${indicators.StochasticRSI.signal || 'neutral'})`);
           }
           
           return indicatorsList.length > 0 ? `- ${symbol}: ${indicatorsList.join(', ')}` : null;
         }).filter(Boolean).join('\n');
         
         if (indicatorEntries) {
-          indicatorContext = `
+          indicatorContextText = `
 LIVE TECHNICAL INDICATORS:
 ${indicatorEntries}
 Last calculated: ${new Date().toLocaleString()}
+
+STRUCTURED INDICATOR DATA:
+${JSON.stringify(structuredIndicators, null, 2)}
 `;
         }
       }
@@ -173,7 +183,7 @@ ${strategyAnalysis}
 ${recentTradingContext}
 ${marketContext}
 ${whaleContext}
-${indicatorContext}
+${indicatorContextText}
 
 Your core capabilities include:
 
@@ -209,7 +219,11 @@ Your core capabilities include:
    - "Is this a breakout or trend continuation?"
    - "What indicators triggered the last buy?"
    
-   Use the provided live technical indicators to give accurate analysis. Only reference indicators that are enabled in the current strategy configuration.
+   CRITICAL: Use the LIVE TECHNICAL INDICATORS data provided above. The structured indicator data contains real-time values for enabled indicators. When asked about specific indicators:
+   - Extract the exact value from the provided data (e.g., "RSI: 46.25")
+   - Include the signal interpretation (e.g., "neutral - buy < 30, sell > 70")
+   - Reference crossovers, trends, and thresholds from the live data
+   - Never say "Live RSI value not provided" - use the structured data provided
 
 5. GENERAL TRADING ASSISTANCE: Answer questions about market conditions, price movements, and trading advice
 
