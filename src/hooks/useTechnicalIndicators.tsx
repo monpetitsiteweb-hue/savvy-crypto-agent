@@ -34,6 +34,8 @@ const DEFAULT_CONFIG: IndicatorConfig = {
 };
 
 export const useTechnicalIndicators = (strategyConfig?: any) => {
+  console.log('🔧 useTechnicalIndicators hook initialized with config:', strategyConfig);
+  
   const [indicatorConfig, setIndicatorConfig] = useState<IndicatorConfig>(DEFAULT_CONFIG);
   const [indicators, setIndicators] = useState<Record<string, IndicatorValues>>({});
   const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({});
