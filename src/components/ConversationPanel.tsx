@@ -32,7 +32,7 @@ export const ConversationPanel = () => {
   console.log('ConversationPanel component loaded');
   const { user } = useAuth();
   const { testMode } = useTestMode();
-  const { hasActiveStrategy } = useActiveStrategy();
+  const { activeStrategy, hasActiveStrategy } = useActiveStrategy();
   const { executeProductionTrade, validateProductionReadiness, isProcessing } = useProductionTrading();
   
   const [messages, setMessages] = useState<Message[]>([]);
