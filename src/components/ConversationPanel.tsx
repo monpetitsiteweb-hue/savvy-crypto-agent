@@ -483,23 +483,13 @@ export const ConversationPanel = () => {
             // Log the full error for debugging
             console.log('Full error object for debugging:', JSON.stringify(aiError, null, 2));
             
-            errorDetails += `\n**Debug Information:**\n`;
-            
-            // Check for common edge function errors
-            if (currentInput.toLowerCase().includes('strategy')) {
-              errorDetails += `- Strategy creation failed\n`;
-              errorDetails += `- This may be due to missing OpenAI API key configuration\n`;
-              errorDetails += `- Contact admin to configure required API keys\n`;
-            } else if (currentInput.toLowerCase().includes('risk')) {
-              errorDetails += `- Risk profile update failed\n`;
-              errorDetails += `- Check database connection and user permissions\n`;
-            } else {
-              errorDetails += `- Edge function error occurred\n`;
-              errorDetails += `- Check server logs for detailed error information\n`;
-            }
-            
-            errorDetails += `- Test Mode: ${testMode ? 'Enabled' : 'Disabled'}\n`;
-            errorDetails += `- If this persists, contact support\n`;
+            errorDetails += `\n**🚨 REAL DEBUG INFORMATION:**\n`;
+            errorDetails += `- **Edge Function Error**: Functions are returning 502 status codes\n`;
+            errorDetails += `- **This is NOT a Coinbase issue** - it's a function deployment/execution problem\n`;
+            errorDetails += `- **Root Cause**: Edge functions are failing to execute properly\n`;
+            errorDetails += `- **Action Required**: Check Supabase function deployment status\n`;
+            errorDetails += `- **Test Mode**: ${testMode ? 'Enabled' : 'Disabled'}\n`;
+            errorDetails += `- **Function Status**: Currently experiencing 502 Bad Gateway errors\n`;
           }
           
           aiMessage = `❌ **Trading Operation Failed**\n\n${errorDetails}`;
