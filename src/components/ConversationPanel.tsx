@@ -255,38 +255,46 @@ export const ConversationPanel = () => {
     const config = activeStrategy.configuration || {};
     
     // Handle configuration change requests LOCALLY (no edge function needed)
-    const configChangeMatch = question.toLowerCase().match(/(?:change|set|update|increase|decrease)\s+(?:my\s+)?(?:risk\s+(?:level|profile)\s+to\s+|stop\s+loss\s+to\s+|take\s+profit\s+to\s+)(\w+|[\d.]+%?)/);
+    // More flexible regex to catch all risk profile change patterns
+    const riskChangeMatch = question.toLowerCase().match(/(?:change|set|update)\s+(?:my\s+)?risk\s+(?:level|profile)\s+to\s+(\w+)/);
+    const stopLossMatch = question.toLowerCase().match(/(?:change|set|update)\s+(?:my\s+)?stop\s+loss\s+to\s+([\d.]+%?)/);
+    const takeProfitMatch = question.toLowerCase().match(/(?:change|set|update)\s+(?:my\s+)?take\s+profit\s+to\s+([\d.]+%?)/);
     
-    console.log('🔍 DEBUGGING: configChangeMatch result:', configChangeMatch);
-    console.log('🔍 DEBUGGING: lowerQuestion contains risk:', lowerQuestion.includes('risk'));
+    console.log('🔍 DEBUGGING: riskChangeMatch result:', riskChangeMatch);
+    console.log('🔍 DEBUGGING: stopLossMatch result:', stopLossMatch);
+    console.log('🔍 DEBUGGING: takeProfitMatch result:', takeProfitMatch);
     
-    if (configChangeMatch) {
-      const value = configChangeMatch[1];
-      console.log('🔍 DEBUGGING: Config change detected, value:', value);
-      
-      if (lowerQuestion.includes('risk')) {
-        console.log('🔍 DEBUGGING: Risk change detected, calling updateStrategyConfig');
-        // Handle risk profile change directly - update BOTH riskLevel AND riskProfile for consistency
-        const updateResult = await updateStrategyConfig(activeStrategy, 'riskLevel', value, 'Risk Level');
-        // Also update riskProfile for UI consistency
-        await updateStrategyConfig(activeStrategy, 'riskProfile', value, 'Risk Profile');
-        return updateResult;
-      } else if (lowerQuestion.includes('stop loss')) {
-        const percentage = parseFloat(value.replace('%', ''));
-        if (!isNaN(percentage) && percentage > 0 && percentage <= 10) {
-          await updateStrategyConfig(activeStrategy, 'stopLossPercentage', percentage, 'Stop Loss');
-          return `✅ **Strategy Updated Successfully**\n\nStop Loss updated to ${percentage}% for "${activeStrategy.strategy_name}". This will help limit your losses when trades move against you.`;
-        } else {
-          return `❌ Invalid stop loss percentage. Please specify a number between 0.1% and 10%.`;
-        }
-      } else if (lowerQuestion.includes('take profit')) {
-        const percentage = parseFloat(value.replace('%', ''));
-        if (!isNaN(percentage) && percentage > 0 && percentage <= 20) {
-          await updateStrategyConfig(activeStrategy, 'takeProfitPercentage', percentage, 'Take Profit');
-          return `✅ **Strategy Updated Successfully**\n\nTake Profit updated to ${percentage}% for "${activeStrategy.strategy_name}". Trades will automatically close when this profit target is reached.`;
-        } else {
-          return `❌ Invalid take profit percentage. Please specify a number between 0.1% and 20%.`;
-        }
+    if (riskChangeMatch) {
+      const value = riskChangeMatch[1];
+      console.log('🔍 DEBUGGING: Risk change detected, value:', value);
+      // Handle risk profile change directly - update BOTH riskLevel AND riskProfile for consistency
+      const updateResult = await updateStrategyConfig(activeStrategy, 'riskLevel', value, 'Risk Level');
+      // Also update riskProfile for UI consistency
+      await updateStrategyConfig(activeStrategy, 'riskProfile', value, 'Risk Profile');
+      return updateResult;
+    }
+    
+    if (stopLossMatch) {
+      const value = stopLossMatch[1];
+      const percentage = parseFloat(value.replace('%', ''));
+      console.log('🔍 DEBUGGING: Stop Loss change detected, percentage:', percentage);
+      if (!isNaN(percentage) && percentage > 0 && percentage <= 10) {
+        await updateStrategyConfig(activeStrategy, 'stopLossPercentage', percentage, 'Stop Loss');
+        return `✅ **Strategy Updated Successfully**\n\nStop Loss updated to ${percentage}% for "${activeStrategy.strategy_name}". This will help limit your losses when trades move against you.`;
+      } else {
+        return `❌ Invalid stop loss percentage. Please specify a number between 0.1% and 10%.`;
+      }
+    }
+    
+    if (takeProfitMatch) {
+      const value = takeProfitMatch[1];
+      const percentage = parseFloat(value.replace('%', ''));
+      console.log('🔍 DEBUGGING: Take Profit change detected, percentage:', percentage);
+      if (!isNaN(percentage) && percentage > 0 && percentage <= 20) {
+        await updateStrategyConfig(activeStrategy, 'takeProfitPercentage', percentage, 'Take Profit');
+        return `✅ **Strategy Updated Successfully**\n\nTake Profit updated to ${percentage}% for "${activeStrategy.strategy_name}". Trades will automatically close when this profit target is reached.`;
+      } else {
+        return `❌ Invalid take profit percentage. Please specify a number between 0.1% and 20%.`;
       }
     }
     
