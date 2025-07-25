@@ -61,6 +61,7 @@ export const ConversationPanel = () => {
   const [userStrategies, setUserStrategies] = useState<StrategyData[]>([]);
   const [showProductionConfirmation, setShowProductionConfirmation] = useState(false);
   const [pendingTradeDetails, setPendingTradeDetails] = useState<ProductionTradeDetails | null>(null);
+  const [pendingConfigChanges, setPendingConfigChanges] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -277,6 +278,61 @@ export const ConversationPanel = () => {
     }
 
     try {
+      // Check if this is a confirmation for pending config changes
+      const isConfirmation = /^(ok|yes|do it|confirm|apply|proceed)$/i.test(currentInput.trim());
+      
+      if (isConfirmation && pendingConfigChanges && pendingConfigChanges.strategyId) {
+        console.log('🔄 Applying pending config changes:', pendingConfigChanges);
+        
+        // Apply the stored config changes
+        const { error: updateError } = await supabase
+          .from('trading_strategies')
+          .update({ 
+            configuration: {
+              ...pendingConfigChanges.currentConfig,
+              ...pendingConfigChanges.configUpdates
+            },
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', pendingConfigChanges.strategyId)
+          .eq('user_id', user.id);
+
+        if (updateError) {
+          console.error('Config update error:', updateError);
+          const errorMessage: Message = {
+            id: Date.now().toString(),
+            type: 'ai',
+            content: `❌ **Configuration Update Failed**\n\nError: ${updateError.message}`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, errorMessage]);
+        } else {
+          // Refresh strategies and show success
+          const { data: updatedStrategies } = await supabase
+            .from('trading_strategies')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+          
+          if (updatedStrategies) {
+            setUserStrategies(updatedStrategies);
+          }
+          
+          const successMessage: Message = {
+            id: Date.now().toString(),
+            type: 'ai',
+            content: `✅ **Strategy Configuration Updated Successfully**\n\nApplied changes: ${Object.keys(pendingConfigChanges.configUpdates).join(', ')}\n\nYour strategy settings have been saved and are now active.`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, successMessage]);
+        }
+        
+        // Clear pending changes
+        setPendingConfigChanges(null);
+        setIsLoading(false);
+        return;
+      }
+
       // Get strategy context for the AI
       const strategyContext = getActiveStrategyContext();
 
@@ -285,7 +341,8 @@ export const ConversationPanel = () => {
         userId: user.id, 
         message: currentInput,
         testMode,
-        strategyContext 
+        strategyContext,
+        pendingConfigChanges: !!pendingConfigChanges
       });
       
       // Get active strategy details for the AI
@@ -297,7 +354,8 @@ export const ConversationPanel = () => {
           message: currentInput,
           testMode,
           strategyId: activeStrategy?.id,
-          currentConfig: activeStrategy?.configuration
+          currentConfig: activeStrategy?.configuration,
+          pendingConfigChanges
         }
       });
 
@@ -309,7 +367,22 @@ export const ConversationPanel = () => {
       } else if (data && data.message) {
         aiMessage = data.message;
         
-        // If the AI made configuration updates, refresh strategies
+        // Store config updates for confirmation
+        if (data.configUpdates && activeStrategy) {
+          console.log('💾 Storing pending config changes:', data.configUpdates);
+          setPendingConfigChanges({
+            strategyId: activeStrategy.id,
+            currentConfig: activeStrategy.configuration,
+            configUpdates: data.configUpdates
+          });
+        }
+        
+        // Clear pending changes if this is a different request
+        if (!data.configUpdates && !isConfirmation) {
+          setPendingConfigChanges(null);
+        }
+        
+        // If the AI made configuration updates immediately, refresh strategies
         if (data.configUpdated) {
           const { data: updatedStrategies } = await supabase
             .from('trading_strategies')
