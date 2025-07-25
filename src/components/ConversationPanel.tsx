@@ -228,73 +228,38 @@ export const ConversationPanel = () => {
     // Handle configuration change requests LOCALLY (no edge function needed)
     const configChangeMatch = question.toLowerCase().match(/(?:change|set|update|increase|decrease)\s+(?:my\s+)?(?:risk\s+(?:level|profile)\s+to\s+|stop\s+loss\s+to\s+|take\s+profit\s+to\s+)(\w+|[\d.]+%?)/);
     
+    console.log('🔍 DEBUGGING: configChangeMatch result:', configChangeMatch);
+    console.log('🔍 DEBUGGING: lowerQuestion contains risk:', lowerQuestion.includes('risk'));
+    
     if (configChangeMatch) {
       const value = configChangeMatch[1];
+      console.log('🔍 DEBUGGING: Config change detected, value:', value);
       
       if (lowerQuestion.includes('risk')) {
+        console.log('🔍 DEBUGGING: Risk change detected, calling updateStrategyConfig');
         // Handle risk profile change directly - NO EDGE FUNCTION NEEDED
-        const riskResult = await updateStrategyConfig(activeStrategy, 'riskLevel', value, 'Risk Level');
+        await updateStrategyConfig(activeStrategy, 'riskLevel', value, 'Risk Level');
         
-        const aiMessage: Message = {
-          id: Date.now().toString(),
-          type: 'ai',
-          content: `✅ **Risk Profile Updated Successfully**\n\nRisk level changed to **${value.toUpperCase()}** for "${activeStrategy.strategy_name}". ${
-            value === 'high' ? 'This allows for higher potential returns but also higher losses.' :
-            value === 'low' ? 'This prioritizes capital preservation over aggressive gains.' :
-            'This balances risk and reward appropriately.'
-          }`,
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, aiMessage]);
-        setIsLoading(false);
-        return;
+        return `✅ **Risk Profile Updated Successfully**\n\nRisk level changed to **${value.toUpperCase()}** for "${activeStrategy.strategy_name}". ${
+          value === 'high' ? 'This allows for higher potential returns but also higher losses.' :
+          value === 'low' ? 'This prioritizes capital preservation over aggressive gains.' :
+          'This balances risk and reward appropriately.'
+        }`;
       } else if (lowerQuestion.includes('stop loss')) {
         const percentage = parseFloat(value.replace('%', ''));
         if (!isNaN(percentage) && percentage > 0 && percentage <= 10) {
           await updateStrategyConfig(activeStrategy, 'stopLossPercentage', percentage, 'Stop Loss');
-          const aiMessage: Message = {
-            id: Date.now().toString(),
-            type: 'ai',
-            content: `✅ **Strategy Updated Successfully**\n\nStop Loss updated to ${percentage}% for "${activeStrategy.strategy_name}". This will help limit your losses when trades move against you.`,
-            timestamp: new Date()
-          };
-          setMessages(prev => [...prev, aiMessage]);
-          setIsLoading(false);
-          return;
+          return `✅ **Strategy Updated Successfully**\n\nStop Loss updated to ${percentage}% for "${activeStrategy.strategy_name}". This will help limit your losses when trades move against you.`;
         } else {
-          const aiMessage: Message = {
-            id: Date.now().toString(),
-            type: 'ai',
-            content: `❌ Invalid stop loss percentage. Please specify a number between 0.1% and 10%.`,
-            timestamp: new Date()
-          };
-          setMessages(prev => [...prev, aiMessage]);
-          setIsLoading(false);
-          return;
+          return `❌ Invalid stop loss percentage. Please specify a number between 0.1% and 10%.`;
         }
       } else if (lowerQuestion.includes('take profit')) {
         const percentage = parseFloat(value.replace('%', ''));
         if (!isNaN(percentage) && percentage > 0 && percentage <= 20) {
           await updateStrategyConfig(activeStrategy, 'takeProfitPercentage', percentage, 'Take Profit');
-          const aiMessage: Message = {
-            id: Date.now().toString(),
-            type: 'ai',
-            content: `✅ **Strategy Updated Successfully**\n\nTake Profit updated to ${percentage}% for "${activeStrategy.strategy_name}". Trades will automatically close when this profit target is reached.`,
-            timestamp: new Date()
-          };
-          setMessages(prev => [...prev, aiMessage]);
-          setIsLoading(false);
-          return;
+          return `✅ **Strategy Updated Successfully**\n\nTake Profit updated to ${percentage}% for "${activeStrategy.strategy_name}". Trades will automatically close when this profit target is reached.`;
         } else {
-          const aiMessage: Message = {
-            id: Date.now().toString(),
-            type: 'ai',
-            content: `❌ Invalid take profit percentage. Please specify a number between 0.1% and 20%.`,
-            timestamp: new Date()
-          };
-          setMessages(prev => [...prev, aiMessage]);
-          setIsLoading(false);
-          return;
+          return `❌ Invalid take profit percentage. Please specify a number between 0.1% and 20%.`;
         }
       }
     }
@@ -406,6 +371,8 @@ export const ConversationPanel = () => {
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
+    console.log('🔍 DEBUGGING: handleSend called with input:', input);
+
     const userMessage: Message = {
       id: Date.now().toString(),
       type: 'user',
@@ -417,6 +384,8 @@ export const ConversationPanel = () => {
     const currentInput = input;
     setInput('');
     setIsLoading(true);
+
+    console.log('🔍 DEBUGGING: About to call analyzeQuestion with:', currentInput);
 
     // Check if this is a trade request
     const tradeRequest = detectTradeRequest(currentInput);
@@ -587,7 +556,22 @@ export const ConversationPanel = () => {
       
       // Fallback to local analysis only if no AI response
       if (!aiMessage) {
+        console.log('🔍 DEBUGGING: No AI message, calling local analyzeUserQuestion');
         aiMessage = await analyzeUserQuestion(currentInput);
+        
+        // If local analysis handled it (returned a response), don't call edge function
+        if (aiMessage && !aiMessage.includes('I can help you analyze')) {
+          console.log('🔍 DEBUGGING: Local analysis handled the request, skipping edge function');
+          const aiResponse: Message = {
+            id: (Date.now() + 1).toString(),
+            type: 'ai',
+            content: aiMessage,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev.slice(0, -1), aiResponse]);
+          setIsLoading(false);
+          return;
+        }
       }
       
       const aiResponse: Message = {
