@@ -47,6 +47,8 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         setIsLoadingHistoricalData(true);
         const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'LTC-EUR', 'ADA-EUR', 'DOT-EUR', 'LINK-EUR', 'BCH-EUR', 'SOL-EUR', 'MATIC-EUR', 'AVAX-EUR'];
         
+        console.log('🔍 Loading historical price data for indicators...');
+        
         // Fetch recent price data for each symbol
         const { data: priceData, error } = await supabase
           .from('price_data')
@@ -56,9 +58,11 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
           .limit(50 * symbols.length); // Get 50 recent prices per symbol
         
         if (error) {
-          console.error('Error loading historical price data:', error);
+          console.error('❌ Error loading historical price data:', error);
           return;
         }
+        
+        console.log(`📊 Fetched ${priceData?.length || 0} price data points from database`);
         
         if (priceData && priceData.length > 0) {
           const historyBySymbol: Record<string, number[]> = {};
@@ -77,9 +81,12 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
           
           setPriceHistory(historyBySymbol);
           console.log(`✅ Bootstrapped indicators with historical data:`, Object.keys(historyBySymbol).map(s => `${s}: ${historyBySymbol[s].length} prices`));
+          console.log('📈 Sample price data for ETH-EUR:', historyBySymbol['ETH-EUR']?.slice(-5));
+        } else {
+          console.log('⚠️ No price data found in database');
         }
       } catch (error) {
-        console.error('Failed to load historical price data:', error);
+        console.error('❌ Failed to load historical price data:', error);
       } finally {
         setIsLoadingHistoricalData(false);
       }
