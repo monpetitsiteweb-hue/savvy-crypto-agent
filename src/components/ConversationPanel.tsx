@@ -225,29 +225,76 @@ export const ConversationPanel = () => {
     const activeStrategy = activeStrategies[0];
     const config = activeStrategy.configuration || {};
     
-    // Handle configuration change requests
+    // Handle configuration change requests LOCALLY (no edge function needed)
     const configChangeMatch = question.toLowerCase().match(/(?:change|set|update|increase|decrease)\s+(?:my\s+)?(?:risk\s+(?:level|profile)\s+to\s+|stop\s+loss\s+to\s+|take\s+profit\s+to\s+)(\w+|[\d.]+%?)/);
     
     if (configChangeMatch) {
       const value = configChangeMatch[1];
       
       if (lowerQuestion.includes('risk')) {
-        return await updateStrategyConfig(activeStrategy, 'riskLevel', value, 'Risk Level');
+        // Handle risk profile change directly - NO EDGE FUNCTION NEEDED
+        const riskResult = await updateStrategyConfig(activeStrategy, 'riskLevel', value, 'Risk Level');
+        
+        const aiMessage: Message = {
+          id: Date.now().toString(),
+          type: 'ai',
+          content: `✅ **Risk Profile Updated Successfully**\n\nRisk level changed to **${value.toUpperCase()}** for "${activeStrategy.strategy_name}". ${
+            value === 'high' ? 'This allows for higher potential returns but also higher losses.' :
+            value === 'low' ? 'This prioritizes capital preservation over aggressive gains.' :
+            'This balances risk and reward appropriately.'
+          }`,
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, aiMessage]);
+        setIsLoading(false);
+        return;
       } else if (lowerQuestion.includes('stop loss')) {
         const percentage = parseFloat(value.replace('%', ''));
         if (!isNaN(percentage) && percentage > 0 && percentage <= 10) {
           await updateStrategyConfig(activeStrategy, 'stopLossPercentage', percentage, 'Stop Loss');
-          return `✅ **Strategy Updated Successfully**\n\nStop Loss updated to ${percentage}% for "${activeStrategy.strategy_name}". This will help limit your losses when trades move against you.`;
+          const aiMessage: Message = {
+            id: Date.now().toString(),
+            type: 'ai',
+            content: `✅ **Strategy Updated Successfully**\n\nStop Loss updated to ${percentage}% for "${activeStrategy.strategy_name}". This will help limit your losses when trades move against you.`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, aiMessage]);
+          setIsLoading(false);
+          return;
         } else {
-          return `❌ Invalid stop loss percentage. Please specify a number between 0.1% and 10%.`;
+          const aiMessage: Message = {
+            id: Date.now().toString(),
+            type: 'ai',
+            content: `❌ Invalid stop loss percentage. Please specify a number between 0.1% and 10%.`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, aiMessage]);
+          setIsLoading(false);
+          return;
         }
       } else if (lowerQuestion.includes('take profit')) {
         const percentage = parseFloat(value.replace('%', ''));
         if (!isNaN(percentage) && percentage > 0 && percentage <= 20) {
           await updateStrategyConfig(activeStrategy, 'takeProfitPercentage', percentage, 'Take Profit');
-          return `✅ **Strategy Updated Successfully**\n\nTake Profit updated to ${percentage}% for "${activeStrategy.strategy_name}". Trades will automatically close when this profit target is reached.`;
+          const aiMessage: Message = {
+            id: Date.now().toString(),
+            type: 'ai',
+            content: `✅ **Strategy Updated Successfully**\n\nTake Profit updated to ${percentage}% for "${activeStrategy.strategy_name}". Trades will automatically close when this profit target is reached.`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, aiMessage]);
+          setIsLoading(false);
+          return;
         } else {
-          return `❌ Invalid take profit percentage. Please specify a number between 0.1% and 20%.`;
+          const aiMessage: Message = {
+            id: Date.now().toString(),
+            type: 'ai',
+            content: `❌ Invalid take profit percentage. Please specify a number between 0.1% and 20%.`,
+            timestamp: new Date()
+          };
+          setMessages(prev => [...prev, aiMessage]);
+          setIsLoading(false);
+          return;
         }
       }
     }
