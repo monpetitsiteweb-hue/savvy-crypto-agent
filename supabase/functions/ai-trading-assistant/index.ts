@@ -231,7 +231,7 @@ VALID CONFIGURATION FIELDS:
 - strategyType: trend-following, mean-reverting, breakout, scalping, etc.
 - technicalIndicators: object with indicator configs (e.g., { rsi: { enabled: true, period: 14, buyThreshold: 30, sellThreshold: 70 } })
 
-IMPORTANT: When enabling indicators like "enable RSI" or "enable RSI and MACD", immediately include current calculated values in your response for the user to see.
+IMPORTANT: When enabling indicators like "enable RSI" or "enable RSI and MACD", immediately include current calculated values in your response for the user to see.`;
 
       const userPrompt = `User message: "${message}"
 
@@ -254,8 +254,7 @@ For strategy analysis, provide detailed explanations based on the actual configu
 Special handling for indicator enablement:
 - If enabling indicators (e.g., "enable RSI", "enable MACD"), return configUpdates AND include current indicator values in your message
 - Example: "RSI is now enabled for your strategy. Current RSI for ETH: 27.2 (oversold - buy signal active)"
-- Use the live indicator data from the provided context to give immediate feedback
-
+- Use the live indicator data from the provided context to give immediate feedback`;
 
       try {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
