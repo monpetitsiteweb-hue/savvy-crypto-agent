@@ -352,13 +352,30 @@ export const ConversationPanel = () => {
         targetStrategy = userStrategies[0];
       }
       
+      // Get recent trades for strategy context
+      let recentTrades = [];
+      if (targetStrategy?.id) {
+        const { data: trades } = await supabase
+          .from('mock_trades')
+          .select('*')
+          .eq('strategy_id', targetStrategy.id)
+          .eq('user_id', user.id)
+          .order('executed_at', { ascending: false })
+          .limit(5);
+        
+        if (trades) {
+          recentTrades = trades;
+        }
+      }
+      
       const { data, error } = await supabase.functions.invoke('ai-trading-assistant', {
         body: {
           userId: user.id,
           message: currentInput,
           strategyId: targetStrategy?.id || null,
           testMode,
-          currentConfig: targetStrategy?.configuration || {}
+          currentConfig: targetStrategy?.configuration || {},
+          recentTrades
         }
       });
 

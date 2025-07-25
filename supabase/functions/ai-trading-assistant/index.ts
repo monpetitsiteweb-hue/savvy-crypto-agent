@@ -26,7 +26,7 @@ serve(async (req) => {
     );
 
     const requestBody = await req.json();
-    const { action, userId, symbols, confidenceThreshold = 0.7, message, strategyId, currentConfig, testMode } = requestBody;
+    const { action, userId, symbols, confidenceThreshold = 0.7, message, strategyId, currentConfig, testMode, recentTrades } = requestBody;
     
     // Input validation - allow either action-based calls OR message-based calls
     if (!action && !message) {
@@ -58,49 +58,107 @@ serve(async (req) => {
         });
       }
 
-      // Get current strategy if available
-      let strategyContext = '';
+      // Get current strategy context and recent trading activity
+      let strategyAnalysis = '';
+      let recentTradingContext = '';
+      
       if (strategyId && currentConfig) {
-        strategyContext = `
-Current Strategy Configuration:
+        // Extract strategy details from configuration
+        const strategyType = currentConfig.strategyType || 'balanced';
+        const riskLevel = currentConfig.riskLevel || currentConfig.riskProfile || 'medium';
+        const stopLoss = currentConfig.stopLoss || currentConfig.stop_loss || 'not set';
+        const takeProfit = currentConfig.takeProfit || currentConfig.take_profit || 'not set';
+        const maxPositionSize = currentConfig.maxPositionSize || currentConfig.max_position_size || 'not set';
+        const indicators = currentConfig.indicators || currentConfig.technical_indicators || [];
+        const entryRules = currentConfig.entryRules || currentConfig.entry_conditions;
+        const exitRules = currentConfig.exitRules || currentConfig.exit_conditions;
+        
+        strategyAnalysis = `
+CURRENT STRATEGY ANALYSIS:
 - Strategy ID: ${strategyId}
-- Configuration: ${JSON.stringify(currentConfig, null, 2)}
+- Strategy Type: ${strategyType}
+- Risk Profile: ${riskLevel}
+- Stop Loss: ${stopLoss}${typeof stopLoss === 'number' ? '%' : ''}
+- Take Profit: ${takeProfit}${typeof takeProfit === 'number' ? '%' : ''}
+- Max Position Size: ${maxPositionSize}
+- Technical Indicators: ${Array.isArray(indicators) ? indicators.join(', ') : indicators || 'Standard indicators'}
+- Entry Rules: ${entryRules || 'Market-based entry conditions'}
+- Exit Rules: ${exitRules || 'Stop-loss and take-profit based exits'}
 - Test Mode: ${testMode}
+- Full Configuration: ${JSON.stringify(currentConfig, null, 2)}
 `;
+
+        // Get recent trades for context if available
+        if (recentTrades && Array.isArray(recentTrades) && recentTrades.length > 0) {
+          recentTradingContext = `
+RECENT TRADING ACTIVITY:
+${recentTrades.slice(0, 5).map(trade => 
+  `- ${trade.trade_type?.toUpperCase() || 'TRADE'} ${trade.cryptocurrency}: ${trade.amount} at €${trade.price} (P&L: €${trade.profit_loss || 0})`
+).join('\n')}
+`;
+        }
       }
 
-      // Use OpenAI to understand the user's intent and respond appropriately
-      const systemPrompt = `You are a cryptocurrency trading strategy assistant. 
+      // Enhanced system prompt with strategy reasoning capabilities
+      const systemPrompt = `You are an advanced cryptocurrency trading strategy assistant with deep analytical capabilities.
 
-${strategyContext}
+${strategyAnalysis}
+${recentTradingContext}
 
-Your job is to:
-1. Understand what the user wants to change about their trading strategy
-2. If they want to change configuration (risk profile, stop loss, take profit, etc.), extract the specific changes
-3. Respond with helpful information about their strategy
+Your core capabilities include:
 
-If the user wants to change their risk profile, stop loss, or take profit, you should:
-- Acknowledge the change
-- Explain what it means for their strategy
-- Return a JSON response that includes configUpdates
+1. STRATEGY CONFIGURATION: Handle requests to modify trading parameters (risk level, stop loss, take profit, position sizing)
 
-For risk profile changes, valid values are: low, medium, high
-For stop loss/take profit changes, accept percentage values
+2. STRATEGY ANALYSIS & REASONING: When users ask questions like:
+   - "Why are you buying/selling?"
+   - "Explain my strategy"
+   - "What model are you using?"
+   - "Are you trend-following or mean-reverting?"
+   - "Why this stop loss?"
+   
+   Provide intelligent explanations based on:
+   - The current strategy configuration and risk profile
+   - The strategy type and approach (trend-following, mean-reverting, breakout, etc.)
+   - Technical indicators being used
+   - Entry/exit rules and logic
+   - Risk management settings
+   - Recent trading context if available
 
-Be direct and concise. Do not use emojis or icons in your responses.`;
+3. GENERAL TRADING ASSISTANCE: Answer questions about market conditions, price movements, and trading advice
+
+RESPONSE GUIDELINES:
+- For configuration changes: Return JSON with "configUpdates" object containing the specific changes
+- For strategy explanations: Analyze the provided configuration and explain the reasoning behind current settings
+- For general questions: Provide helpful trading insights without configuration changes
+- Be direct, analytical, and avoid emojis
+- Base explanations on actual data provided, not hypothetical scenarios
+- If insufficient data is available, acknowledge limitations rather than making assumptions
+
+VALID CONFIGURATION FIELDS:
+- riskLevel/riskProfile: low, medium, high
+- stopLoss: percentage value (e.g., 2.5 for 2.5%)
+- takeProfit: percentage value (e.g., 5.0 for 5.0%)
+- maxPositionSize: position sizing limits
+- strategyType: trend-following, mean-reverting, breakout, scalping, etc.`;
 
       const userPrompt = `User message: "${message}"
 
-Please analyze this message and respond appropriately. If this is a configuration change request, include a "configUpdates" object in your response with the specific changes.
+Analyze this message and respond appropriately. Consider the current strategy context and provide:
+1. Configuration updates if this is a settings change request
+2. Strategic reasoning and explanation if this is an analysis question
+3. General trading assistance for other queries
 
-Example response format for config changes:
+For configuration changes, use this format:
 {
-  "message": "Risk profile updated to high. This means...",
+  "message": "Configuration updated. This change means...",
   "configUpdates": {
     "riskLevel": "high",
-    "riskProfile": "high"
+    "stopLoss": 3.0
   }
-}`;
+}
+
+For strategy analysis, provide detailed explanations based on the actual configuration data provided above.`;
+
 
       try {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
