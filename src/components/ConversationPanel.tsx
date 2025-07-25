@@ -367,32 +367,51 @@ export const ConversationPanel = () => {
       } else if (data && data.message) {
         aiMessage = data.message;
         
-        // Store config updates for confirmation
+        // Apply config updates immediately when AI returns them
         if (data.configUpdates && activeStrategy) {
-          console.log('💾 Storing pending config changes:', data.configUpdates);
-          setPendingConfigChanges({
-            strategyId: activeStrategy.id,
-            currentConfig: activeStrategy.configuration,
-            configUpdates: data.configUpdates
-          });
-        }
-        
-        // Clear pending changes if this is a different request
-        if (!data.configUpdates && !isConfirmation) {
+          console.log('🔄 Applying config updates immediately:', data.configUpdates);
+          
+          const updatedConfig = {
+            ...activeStrategy.configuration,
+            ...data.configUpdates
+          };
+          
+          const { error: updateError } = await supabase
+            .from('trading_strategies')
+            .update({ 
+              configuration: updatedConfig,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', activeStrategy.id)
+            .eq('user_id', user.id);
+
+          if (updateError) {
+            console.error('Config update error:', updateError);
+            aiMessage += `\n\n❌ **Database Update Failed**\n\nError: ${updateError.message}`;
+          } else {
+            console.log('✅ Config updated successfully in database');
+            
+            // Refresh strategies to reflect changes
+            const { data: updatedStrategies } = await supabase
+              .from('trading_strategies')
+              .select('*')
+              .eq('user_id', user.id)
+              .order('created_at', { ascending: false });
+            
+            if (updatedStrategies) {
+              setUserStrategies(updatedStrategies);
+            }
+            
+            aiMessage += `\n\n✅ **Strategy Configuration Updated Successfully**\n\nApplied changes: ${Object.keys(data.configUpdates).join(', ')}`;
+          }
+          
+          // Clear any pending changes since we applied them
           setPendingConfigChanges(null);
         }
         
-        // If the AI made configuration updates immediately, refresh strategies
-        if (data.configUpdated) {
-          const { data: updatedStrategies } = await supabase
-            .from('trading_strategies')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false });
-          
-          if (updatedStrategies) {
-            setUserStrategies(updatedStrategies);
-          }
+        // Clear pending changes if this is a different request  
+        if (!data.configUpdates && !isConfirmation) {
+          setPendingConfigChanges(null);
         }
       } else {
         console.error('Unexpected response format:', data);
