@@ -101,21 +101,34 @@ export const ConversationPanel = () => {
 
   // Helper function to update strategy configuration
   const updateStrategyConfig = async (strategy: StrategyData, field: string, value: any, displayName: string) => {
+    console.log('🔍 DEBUGGING updateStrategyConfig called with:', { strategy: strategy.id, field, value, displayName });
+    console.log('🔍 DEBUGGING strategy object:', strategy);
+    console.log('🔍 DEBUGGING user:', user?.id);
+    
     try {
       const updatedConfig = { ...strategy.configuration, [field]: value };
+      console.log('🔍 DEBUGGING updatedConfig:', updatedConfig);
       
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('trading_strategies')
         .update({
           configuration: updatedConfig,
           updated_at: new Date().toISOString(),
         })
         .eq('id', strategy.id)
-        .eq('user_id', user?.id);
+        .eq('user_id', user?.id)
+        .select();
+
+      console.log('🔍 DEBUGGING database update result:', { data, error });
 
       if (error) {
         console.error('Strategy update error:', error);
-        return `❌ Failed to update ${displayName}. Please try again.`;
+        return `❌ Failed to update ${displayName}. Database error: ${error.message}`;
+      }
+      
+      if (!data || data.length === 0) {
+        console.error('No rows updated - strategy not found or permission denied');
+        return `❌ Failed to update ${displayName}. Strategy not found or permission denied.`;
       }
       
       // Update local strategy state
