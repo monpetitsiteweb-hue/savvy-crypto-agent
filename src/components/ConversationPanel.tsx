@@ -290,7 +290,7 @@ export const ConversationPanel = () => {
       
       const { data, error } = await supabase.functions.invoke('ai-trading-assistant', {
         body: {
-          userId: user?.id,
+          userId: user.id,
           message: currentInput,
           testMode,
           strategyContext,
