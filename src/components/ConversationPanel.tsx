@@ -370,8 +370,16 @@ export const ConversationPanel = () => {
       } else if (data && data.message) {
         aiMessage = data.message;
         
-        // Apply config updates immediately when AI returns them
-        if (data.configUpdates && targetStrategy) {
+        // Only process config updates if they exist, are non-empty, and contain valid config keys
+        const hasValidConfigUpdates = data.configUpdates && 
+                                    typeof data.configUpdates === 'object' && 
+                                    data.configUpdates !== null &&
+                                    Object.keys(data.configUpdates).length > 0 &&
+                                    Object.keys(data.configUpdates).some(key => 
+                                      ['riskLevel', 'riskProfile', 'stopLoss', 'takeProfit', 'maxPositionSize'].includes(key)
+                                    );
+
+        if (hasValidConfigUpdates && targetStrategy) {
           console.log('🔄 ATTEMPTING CONFIG UPDATE:', {
             configUpdates: data.configUpdates,
             strategyId: targetStrategy.id,
