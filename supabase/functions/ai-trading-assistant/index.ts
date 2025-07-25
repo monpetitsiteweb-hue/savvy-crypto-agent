@@ -23,11 +23,11 @@ serve(async (req) => {
     );
 
     const requestBody = await req.json();
-    const { action, userId, symbols, confidenceThreshold = 0.7 } = requestBody;
+    const { action, userId, symbols, confidenceThreshold = 0.7, message, strategyId, currentConfig, testMode } = requestBody;
     
-    // Input validation
-    if (!action || typeof action !== 'string') {
-      return new Response(JSON.stringify({ error: 'Valid action is required' }), {
+    // Input validation - allow either action-based calls OR message-based calls
+    if (!action && !message) {
+      return new Response(JSON.stringify({ error: 'Either action or message is required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -47,8 +47,21 @@ serve(async (req) => {
       });
     }
 
-    console.log(`🤖 AI Trading Assistant: ${action} for user: ${userId}`);
+    console.log(`🤖 AI Trading Assistant: ${action || 'message'} for user: ${userId}`);
 
+    // Handle message-based requests (from conversation panel)
+    if (message && !action) {
+      console.log(`💬 Processing message: "${message}"`);
+      
+      // For now, return a simple response that the conversation can handle
+      return new Response(JSON.stringify({ 
+        message: `I received your message: "${message}". This is a placeholder response while the AI integration is being repaired.`,
+        configUpdates: {} // No config updates for now
+      }), { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+    
     if (action === 'analyze_opportunities') {
       // Get recent signals
       const { data: signals } = await supabaseClient
