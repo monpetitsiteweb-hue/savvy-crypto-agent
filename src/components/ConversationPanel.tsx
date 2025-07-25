@@ -266,14 +266,11 @@ export const ConversationPanel = () => {
       
       if (lowerQuestion.includes('risk')) {
         console.log('🔍 DEBUGGING: Risk change detected, calling updateStrategyConfig');
-        // Handle risk profile change directly - NO EDGE FUNCTION NEEDED
-        await updateStrategyConfig(activeStrategy, 'riskLevel', value, 'Risk Level');
-        
-        return `✅ **Risk Profile Updated Successfully**\n\nRisk level changed to **${value.toUpperCase()}** for "${activeStrategy.strategy_name}". ${
-          value === 'high' ? 'This allows for higher potential returns but also higher losses.' :
-          value === 'low' ? 'This prioritizes capital preservation over aggressive gains.' :
-          'This balances risk and reward appropriately.'
-        }`;
+        // Handle risk profile change directly - update BOTH riskLevel AND riskProfile for consistency
+        const updateResult = await updateStrategyConfig(activeStrategy, 'riskLevel', value, 'Risk Level');
+        // Also update riskProfile for UI consistency
+        await updateStrategyConfig(activeStrategy, 'riskProfile', value, 'Risk Profile');
+        return updateResult;
       } else if (lowerQuestion.includes('stop loss')) {
         const percentage = parseFloat(value.replace('%', ''));
         if (!isNaN(percentage) && percentage > 0 && percentage <= 10) {
