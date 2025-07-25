@@ -375,7 +375,17 @@ export const ConversationPanel = () => {
           strategyId: targetStrategy?.id || null,
           testMode,
           currentConfig: targetStrategy?.configuration || {},
-          recentTrades
+          recentTrades,
+          marketData: {
+            // Mock market data for Phase 3 - replace with real data from useRealTimeMarketData
+            'BTC-EUR': { price: 99369, change24h: 1.2, volume: 263.22, timestamp: new Date().toISOString() },
+            'ETH-EUR': { price: 3178, change24h: -0.5, volume: 4951.04, timestamp: new Date().toISOString() },
+            'XRP-EUR': { price: 2.6766, change24h: 2.1, volume: 4797886, timestamp: new Date().toISOString() }
+          },
+          whaleAlerts: [
+            { asset: 'BTC', amount: 1234, direction: 'exchange_inflow', timestamp: new Date().toISOString() },
+            { asset: 'ETH', amount: 5678, direction: 'exchange_outflow', timestamp: new Date().toISOString() }
+          ]
         }
       });
 

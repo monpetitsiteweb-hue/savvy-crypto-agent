@@ -26,7 +26,7 @@ serve(async (req) => {
     );
 
     const requestBody = await req.json();
-    const { action, userId, symbols, confidenceThreshold = 0.7, message, strategyId, currentConfig, testMode, recentTrades } = requestBody;
+    const { action, userId, symbols, confidenceThreshold = 0.7, message, strategyId, currentConfig, testMode, recentTrades, marketData, whaleAlerts } = requestBody;
     
     // Input validation - allow either action-based calls OR message-based calls
     if (!action && !message) {
@@ -61,6 +61,33 @@ serve(async (req) => {
       // Get current strategy context and recent trading activity
       let strategyAnalysis = '';
       let recentTradingContext = '';
+      let marketContext = '';
+      let whaleContext = '';
+      
+      // Prepare market data context for AI
+      if (marketData && typeof marketData === 'object') {
+        const marketEntries = Object.entries(marketData).map(([symbol, data]: [string, any]) => 
+          `- ${symbol}: €${data.price?.toLocaleString() || 'N/A'} (${data.change24h > 0 ? '+' : ''}${data.change24h?.toFixed(2) || 0}% 24h)`
+        ).join('\n');
+        
+        marketContext = `
+CURRENT MARKET DATA:
+${marketEntries}
+Last updated: ${new Date().toLocaleString()}
+`;
+      }
+      
+      // Prepare whale alerts context
+      if (whaleAlerts && Array.isArray(whaleAlerts) && whaleAlerts.length > 0) {
+        const whaleEntries = whaleAlerts.slice(0, 3).map(alert => 
+          `- ${alert.asset}: ${alert.amount?.toLocaleString() || 'N/A'} (${alert.direction || 'movement'})`
+        ).join('\n');
+        
+        whaleContext = `
+RECENT WHALE ALERTS:
+${whaleEntries}
+`;
+      }
       
       if (strategyId && currentConfig) {
         // Extract strategy details from configuration
@@ -99,11 +126,13 @@ ${recentTrades.slice(0, 5).map(trade =>
         }
       }
 
-      // Enhanced system prompt with strategy reasoning capabilities
-      const systemPrompt = `You are an advanced cryptocurrency trading strategy assistant with deep analytical capabilities.
+      // Enhanced system prompt with strategy reasoning capabilities and market awareness
+      const systemPrompt = `You are an advanced cryptocurrency trading strategy assistant with deep analytical capabilities and real-time market awareness.
 
 ${strategyAnalysis}
 ${recentTradingContext}
+${marketContext}
+${whaleContext}
 
 Your core capabilities include:
 
@@ -124,7 +153,15 @@ Your core capabilities include:
    - Risk management settings
    - Recent trading context if available
 
-3. GENERAL TRADING ASSISTANCE: Answer questions about market conditions, price movements, and trading advice
+3. MARKET DATA ANALYSIS: When users ask about:
+   - "What is the price of XRP?"
+   - "Is BTC going up or down?"
+   - "What are the whale alerts?"
+   - "Is the market bullish or bearish?"
+   
+   Use the provided real-time market data and whale alerts to give accurate, current information.
+
+4. GENERAL TRADING ASSISTANCE: Answer questions about market conditions, price movements, and trading advice
 
 RESPONSE GUIDELINES:
 - For configuration changes: Return JSON with "configUpdates" object containing the specific changes
