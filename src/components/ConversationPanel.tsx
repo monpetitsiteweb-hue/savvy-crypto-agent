@@ -369,44 +369,73 @@ export const ConversationPanel = () => {
         
         // Apply config updates immediately when AI returns them
         if (data.configUpdates && activeStrategy) {
-          console.log('🔄 Applying config updates immediately:', data.configUpdates);
+          console.log('🔄 ATTEMPTING CONFIG UPDATE:', {
+            configUpdates: data.configUpdates,
+            strategyId: activeStrategy.id,
+            userId: user.id,
+            currentConfig: activeStrategy.configuration
+          });
           
           const updatedConfig = {
             ...activeStrategy.configuration,
             ...data.configUpdates
           };
           
-          const { error: updateError } = await supabase
-            .from('trading_strategies')
-            .update({ 
-              configuration: updatedConfig,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', activeStrategy.id)
-            .eq('user_id', user.id);
-
-          if (updateError) {
-            console.error('Config update error:', updateError);
-            aiMessage += `\n\n❌ **Database Update Failed**\n\nError: ${updateError.message}`;
-          } else {
-            console.log('✅ Config updated successfully in database');
-            
-            // Refresh strategies to reflect changes
-            const { data: updatedStrategies } = await supabase
+          console.log('📝 New config to save:', updatedConfig);
+          
+          try {
+            const { data: updateResult, error: updateError } = await supabase
               .from('trading_strategies')
-              .select('*')
+              .update({ 
+                configuration: updatedConfig,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', activeStrategy.id)
               .eq('user_id', user.id)
-              .order('created_at', { ascending: false });
-            
-            if (updatedStrategies) {
-              setUserStrategies(updatedStrategies);
+              .select();
+
+            console.log('📊 Supabase update result:', { updateResult, updateError });
+
+            if (updateError) {
+              console.error('❌ CONFIG UPDATE FAILED:', updateError);
+              aiMessage += `\n\n❌ **Database Update Failed**\n\nError: ${updateError.message}`;
+            } else if (updateResult && updateResult.length > 0) {
+              console.log('✅ CONFIG UPDATE SUCCESS:', updateResult[0]);
+              
+              // Refresh strategies to reflect changes
+              const { data: updatedStrategies, error: refreshError } = await supabase
+                .from('trading_strategies')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false });
+              
+              console.log('🔄 Strategy refresh result:', { updatedStrategies, refreshError });
+              
+              if (updatedStrategies && !refreshError) {
+                setUserStrategies(updatedStrategies);
+                console.log('✅ Strategies refreshed in state');
+              }
+              
+              // Show specific update confirmation
+              const updatedFields = Object.keys(data.configUpdates).map(key => 
+                `${key}: ${data.configUpdates[key]}`
+              ).join(', ');
+              
+              aiMessage += `\n\n✅ **Strategy Configuration Updated Successfully**\n\nUpdated: ${updatedFields}\n\nChanges have been saved to the database.`;
+            } else {
+              console.error('❌ NO ROWS UPDATED - This indicates a database permission or query issue');
+              aiMessage += `\n\n❌ **Database Update Failed**\n\nNo rows were updated. Please check strategy permissions.`;
             }
-            
-            aiMessage += `\n\n✅ **Strategy Configuration Updated Successfully**\n\nApplied changes: ${Object.keys(data.configUpdates).join(', ')}`;
+          } catch (dbError) {
+            console.error('❌ DATABASE ERROR:', dbError);
+            aiMessage += `\n\n❌ **Database Update Failed**\n\nError: ${dbError instanceof Error ? dbError.message : 'Unknown database error'}`;
           }
           
-          // Clear any pending changes since we applied them
+          // Clear any pending changes since we attempted to apply them
           setPendingConfigChanges(null);
+        } else if (data.configUpdates && !activeStrategy) {
+          console.error('❌ CONFIG UPDATES RECEIVED BUT NO ACTIVE STRATEGY');
+          aiMessage += `\n\n❌ **No Active Strategy**\n\nCannot apply configuration changes without an active strategy.`;
         }
         
         // Clear pending changes if this is a different request  
