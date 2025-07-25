@@ -455,6 +455,26 @@ export const ConversationPanel = () => {
         hasConfig: !!activeStrategy?.configuration
       });
       
+      // **FIRST TRY LOCAL ANALYSIS** - Handle config changes without edge function
+      console.log('🔍 DEBUGGING: Trying local analysis first');
+      const localResponse = await analyzeUserQuestion(currentInput);
+      
+      // If local analysis handled it (returns success or specific config response), use it and skip edge function
+      if (localResponse && (localResponse.includes('✅') || localResponse.includes('❌') || localResponse.includes('Risk Profile') || localResponse.includes('Stop Loss') || localResponse.includes('Take Profit'))) {
+        console.log('🔍 DEBUGGING: Local analysis handled the request successfully');
+        const aiResponse: Message = {
+          id: (Date.now() + 1).toString(),
+          type: 'ai',
+          content: localResponse,
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, aiResponse]);
+        setIsLoading(false);
+        return;
+      }
+      
+      console.log('🔍 DEBUGGING: Local analysis did not handle request, calling edge function');
+      
       // Add a visual indicator that we're attempting to call AI
       const testResponse: Message = {
         id: (Date.now() + 0.5).toString(),
