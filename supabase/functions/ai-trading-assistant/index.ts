@@ -26,7 +26,7 @@ serve(async (req) => {
     );
 
     const requestBody = await req.json();
-    const { action, userId, symbols, confidenceThreshold = 0.7, message, strategyId, currentConfig, testMode, recentTrades, marketData, whaleAlerts } = requestBody;
+    const { action, userId, symbols, confidenceThreshold = 0.7, message, strategyId, currentConfig, testMode, recentTrades, marketData, whaleAlerts, indicatorContext, indicatorConfig } = requestBody;
     
     // Input validation - allow either action-based calls OR message-based calls
     if (!action && !message) {
@@ -63,6 +63,7 @@ serve(async (req) => {
       let recentTradingContext = '';
       let marketContext = '';
       let whaleContext = '';
+      let indicatorContext = '';
       
       // Prepare market data context for AI
       if (marketData && typeof marketData === 'object') {
@@ -87,6 +88,45 @@ Last updated: ${new Date().toLocaleString()}
 RECENT WHALE ALERTS:
 ${whaleEntries}
 `;
+      }
+      
+      // Prepare technical indicators context
+      if (indicatorContext && typeof indicatorContext === 'object') {
+        const indicatorEntries = Object.entries(indicatorContext).map(([symbol, indicators]: [string, any]) => {
+          const indicatorsList = [];
+          
+          if (indicators.RSI) {
+            indicatorsList.push(`RSI: ${indicators.RSI.value} (${indicators.RSI.signal})`);
+          }
+          if (indicators.MACD) {
+            indicatorsList.push(`MACD: ${indicators.MACD.crossover} crossover (${indicators.MACD.histogram})`);
+          }
+          if (indicators.EMA) {
+            indicatorsList.push(`EMA: ${indicators.EMA.short}/${indicators.EMA.long} (${indicators.EMA.direction})`);
+          }
+          if (indicators.SMA) {
+            indicatorsList.push(`SMA: ${indicators.SMA.value}`);
+          }
+          if (indicators.Bollinger) {
+            indicatorsList.push(`Bollinger: ${indicators.Bollinger.position} (width: ${indicators.Bollinger.width}%)`);
+          }
+          if (indicators.ADX) {
+            indicatorsList.push(`ADX: ${indicators.ADX.value} (${indicators.ADX.trendStrength} trend)`);
+          }
+          if (indicators.StochasticRSI) {
+            indicatorsList.push(`Stoch RSI: ${indicators.StochasticRSI.k}/${indicators.StochasticRSI.d} (${indicators.StochasticRSI.signal})`);
+          }
+          
+          return indicatorsList.length > 0 ? `- ${symbol}: ${indicatorsList.join(', ')}` : null;
+        }).filter(Boolean).join('\n');
+        
+        if (indicatorEntries) {
+          indicatorContext = `
+LIVE TECHNICAL INDICATORS:
+${indicatorEntries}
+Last calculated: ${new Date().toLocaleString()}
+`;
+        }
       }
       
       if (strategyId && currentConfig) {
@@ -133,6 +173,7 @@ ${strategyAnalysis}
 ${recentTradingContext}
 ${marketContext}
 ${whaleContext}
+${indicatorContext}
 
 Your core capabilities include:
 
@@ -161,14 +202,25 @@ Your core capabilities include:
    
    Use the provided real-time market data and whale alerts to give accurate, current information.
 
-4. GENERAL TRADING ASSISTANCE: Answer questions about market conditions, price movements, and trading advice
+4. TECHNICAL INDICATOR ANALYSIS: When users ask about indicators:
+   - "What is the RSI on ETH?"
+   - "Is RSI oversold?"
+   - "Why are you buying now?" (reference live indicators)
+   - "Is this a breakout or trend continuation?"
+   - "What indicators triggered the last buy?"
+   
+   Use the provided live technical indicators to give accurate analysis. Only reference indicators that are enabled in the current strategy configuration.
+
+5. GENERAL TRADING ASSISTANCE: Answer questions about market conditions, price movements, and trading advice
 
 RESPONSE GUIDELINES:
 - For configuration changes: Return JSON with "configUpdates" object containing the specific changes
 - For strategy explanations: Analyze the provided configuration and explain the reasoning behind current settings
+- For technical indicator questions: Use the live calculated values from the indicator context
 - For general questions: Provide helpful trading insights without configuration changes
 - Be direct, analytical, and avoid emojis
 - Base explanations on actual data provided, not hypothetical scenarios
+- Only reference indicators that are enabled and have live calculated values
 - If insufficient data is available, acknowledge limitations rather than making assumptions
 
 VALID CONFIGURATION FIELDS:
@@ -176,7 +228,8 @@ VALID CONFIGURATION FIELDS:
 - stopLoss: percentage value (e.g., 2.5 for 2.5%)
 - takeProfit: percentage value (e.g., 5.0 for 5.0%)
 - maxPositionSize: position sizing limits
-- strategyType: trend-following, mean-reverting, breakout, scalping, etc.`;
+- strategyType: trend-following, mean-reverting, breakout, scalping, etc.
+- technicalIndicators: enable/disable and configure RSI, MACD, EMA, SMA, Bollinger Bands, ADX, Stochastic RSI`;
 
       const userPrompt = `User message: "${message}"
 

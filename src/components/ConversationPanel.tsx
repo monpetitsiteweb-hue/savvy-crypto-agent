@@ -6,6 +6,8 @@ import { Send, Bot, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
+import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
+import { useTechnicalIndicators } from '@/hooks/useTechnicalIndicators';
 import { useProductionTrading, ProductionTradeDetails } from '@/hooks/useProductionTrading';
 import { ProductionTradeConfirmation } from './ProductionTradeConfirmation';
 import { supabase } from '@/integrations/supabase/client';
@@ -34,6 +36,8 @@ export const ConversationPanel = () => {
   const { testMode } = useTestMode();
   const { activeStrategy, hasActiveStrategy } = useActiveStrategy();
   const { executeProductionTrade, validateProductionReadiness, isProcessing } = useProductionTrading();
+  const { marketData } = useRealTimeMarketData();
+  const { indicators, indicatorConfig } = useTechnicalIndicators(activeStrategy?.configuration);
   
   const [messages, setMessages] = useState<Message[]>([]);
   
@@ -385,7 +389,9 @@ export const ConversationPanel = () => {
           whaleAlerts: [
             { asset: 'BTC', amount: 1234, direction: 'exchange_inflow', timestamp: new Date().toISOString() },
             { asset: 'ETH', amount: 5678, direction: 'exchange_outflow', timestamp: new Date().toISOString() }
-          ]
+          ],
+          indicatorContext: indicators,
+          indicatorConfig
         }
       });
 
