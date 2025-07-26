@@ -78,7 +78,7 @@ export const CoinbaseConnectionPanel = () => {
 
     setConnecting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('oauth-callback', {
+      const { data, error } = await supabase.functions.invoke('coinbase-oauth', {
         body: { 
           action: 'initiate',
           user_id: user?.id

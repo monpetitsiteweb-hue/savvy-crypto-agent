@@ -23,7 +23,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { FeeSettings } from '@/components/FeeSettings';
 
 interface ProfileData {
@@ -44,6 +44,7 @@ const ProfilePage = () => {
   const { role } = useUserRole();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   
   const [activeSection, setActiveSection] = useState('profile');
   const [profileData, setProfileData] = useState<ProfileData>({
@@ -55,6 +56,15 @@ const ProfilePage = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showApiKeys, setShowApiKeys] = useState(false);
+
+  useEffect(() => {
+    // Handle URL query parameters for direct tab navigation
+    const searchParams = new URLSearchParams(location.search);
+    const tab = searchParams.get('tab');
+    if (tab) {
+      setActiveSection(tab);
+    }
+  }, [location.search]);
 
   useEffect(() => {
     if (user) {

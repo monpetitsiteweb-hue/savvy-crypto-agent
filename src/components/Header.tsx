@@ -101,7 +101,7 @@ export const Header = () => {
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            navigate('/profile');
+                            navigate('/profile?tab=settings');
                             setShowDropdown(false);
                           }}
                           className="w-full justify-start text-slate-300 hover:text-white"
