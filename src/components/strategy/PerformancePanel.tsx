@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { formatEuro, formatPercentage, formatDuration } from '@/utils/currencyFormatter';
 
 interface PerformancePanelProps {
   strategyId?: string;
@@ -181,7 +182,7 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Win Rate"
-          value={`${metrics.winRate.toFixed(1)}%`}
+          value={formatPercentage(metrics.winRate)}
           subtitle={`${metrics.winningTrades} of ${metrics.totalTrades} trades`}
           icon={Percent}
           color={metrics.winRate >= 60 ? 'success' : metrics.winRate >= 40 ? 'warning' : 'danger'}
@@ -190,7 +191,7 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
         
         <MetricCard
           title="Total P&L"
-          value={`€${metrics.totalProfitLoss.toFixed(2)}`}
+          value={formatEuro(metrics.totalProfitLoss)}
           subtitle="Net profit/loss"
           icon={DollarSign}
           color={metrics.totalProfitLoss >= 0 ? 'success' : 'danger'}
@@ -199,7 +200,7 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
         
         <MetricCard
           title="Avg Trade Duration"
-          value={`${metrics.avgTradeDuration}h`}
+          value={formatDuration(metrics.avgTradeDuration)}
           subtitle="Average holding time"
           icon={Clock}
           color="default"
@@ -207,7 +208,7 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
         
         <MetricCard
           title="Total Trades"
-          value={metrics.totalTrades}
+          value={metrics.totalTrades || 0}
           subtitle="Executed positions"
           icon={Activity}
           color="default"
@@ -218,7 +219,7 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <MetricCard
           title="Avg Profit Per Trade"
-          value={`€${metrics.totalTrades > 0 ? (metrics.totalProfitLoss / metrics.totalTrades).toFixed(2) : '0.00'}`}
+          value={metrics.totalTrades > 0 ? formatEuro(metrics.totalProfitLoss / metrics.totalTrades) : formatEuro(0)}
           subtitle="Per position average"
           icon={Target}
           color={metrics.totalProfitLoss > 0 ? 'success' : 'danger'}
@@ -226,7 +227,7 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
         
         <MetricCard
           title="Avg Trade Value"
-          value={`€${metrics.avgTradeValue.toFixed(2)}`}
+          value={formatEuro(metrics.avgTradeValue)}
           subtitle="Average position size"
           icon={DollarSign}
           color="default"
@@ -234,7 +235,7 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
         
         <MetricCard
           title="Total Fees Paid"
-          value={`€${metrics.totalFees.toFixed(2)}`}
+          value={formatEuro(metrics.totalFees)}
           subtitle="Trading commissions"
           icon={TrendingDown}
           color="warning"

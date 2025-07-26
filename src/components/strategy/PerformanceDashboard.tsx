@@ -8,6 +8,7 @@ import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 import { TrendingUp, TrendingDown, Activity, DollarSign, Target, Brain, AlertCircle } from 'lucide-react';
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 
 interface PerformanceData {
   recent_trades: Array<{
@@ -152,14 +153,9 @@ export const PerformanceDashboard: React.FC = () => {
     });
   };
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'EUR'
-    }).format(value);
-  };
+  const formatCurrency = (value: number) => formatEuro(value);
 
-  const formatPercentage = (value: number) => {
+  const formatPercentageWithSign = (value: number) => {
     return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
   };
 

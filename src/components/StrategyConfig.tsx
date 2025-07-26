@@ -9,6 +9,7 @@ import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ComprehensiveStrategyConfig } from './strategy/ComprehensiveStrategyConfig';
+import { formatEuro, formatPercentage, formatDuration } from '@/utils/currencyFormatter';
 
 interface StrategyConfigProps {
   onLayoutChange?: (isFullWidth: boolean) => void;
@@ -26,6 +27,13 @@ interface Strategy {
   updated_at: string;
 }
 
+interface StrategyPerformance {
+  totalTrades: number;
+  winRate: number;
+  avgDuration: number;
+  avgProfit: number;
+}
+
 export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
@@ -36,6 +44,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
   const [loading, setLoading] = useState(true);
   const [showProductionActivationModal, setShowProductionActivationModal] = useState(false);
   const [strategyToActivate, setStrategyToActivate] = useState<Strategy | null>(null);
+  const [strategyPerformance, setStrategyPerformance] = useState<Record<string, StrategyPerformance>>({});
 
   useEffect(() => {
     if (user) {
@@ -102,6 +111,9 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       });
       
       setStrategies(filteredStrategies);
+      
+      // Fetch performance data for each strategy
+      await fetchPerformanceData(filteredStrategies);
     } catch (error) {
       console.error('Error fetching strategies:', error);
       toast({
@@ -111,6 +123,56 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchPerformanceData = async (strategies: Strategy[]) => {
+    if (!user || strategies.length === 0) return;
+
+    try {
+      const performanceMap: Record<string, StrategyPerformance> = {};
+
+      for (const strategy of strategies) {
+        const { data: trades, error } = await supabase
+          .from('mock_trades')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('strategy_id', strategy.id);
+
+        if (error) {
+          console.error(`Error fetching trades for strategy ${strategy.id}:`, error);
+          continue;
+        }
+
+        if (trades && trades.length > 0) {
+          const totalTrades = trades.length;
+          const winningTrades = trades.filter(t => (t.profit_loss || 0) > 0).length;
+          const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+          const avgProfit = totalTrades > 0 ? trades.reduce((sum, t) => sum + (t.profit_loss || 0), 0) / totalTrades : 0;
+          
+          // Calculate average duration (simplified - would need proper date analysis)
+          const avgDuration = 2.4; // Placeholder for now
+
+          performanceMap[strategy.id] = {
+            totalTrades,
+            winRate,
+            avgDuration,
+            avgProfit
+          };
+        } else {
+          // No trades yet
+          performanceMap[strategy.id] = {
+            totalTrades: 0,
+            winRate: 0,
+            avgDuration: 0,
+            avgProfit: 0
+          };
+        }
+      }
+
+      setStrategyPerformance(performanceMap);
+    } catch (error) {
+      console.error('Error fetching performance data:', error);
     }
   };
 
@@ -494,7 +556,9 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-xs font-semibold text-green-700 dark:text-green-300 uppercase tracking-wide">Win Rate</p>
-                          <p className="text-lg font-bold text-green-900 dark:text-green-100">87.5%</p>
+                          <p className="text-lg font-bold text-green-900 dark:text-green-100">
+                            {formatPercentage(strategyPerformance[strategy.id]?.winRate)}
+                          </p>
                         </div>
                         <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400" />
                       </div>
@@ -506,7 +570,9 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wide">Total Trades</p>
-                          <p className="text-lg font-bold text-purple-900 dark:text-purple-100">142</p>
+                          <p className="text-lg font-bold text-purple-900 dark:text-purple-100">
+                            {strategyPerformance[strategy.id]?.totalTrades || 0}
+                          </p>
                         </div>
                         <Activity className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                       </div>
@@ -518,7 +584,9 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-xs font-semibold text-orange-700 dark:text-orange-300 uppercase tracking-wide">Avg Duration</p>
-                          <p className="text-lg font-bold text-orange-900 dark:text-orange-100">2.4h</p>
+                          <p className="text-lg font-bold text-orange-900 dark:text-orange-100">
+                            {formatDuration(strategyPerformance[strategy.id]?.avgDuration)}
+                          </p>
                         </div>
                         <Activity className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                       </div>
@@ -531,7 +599,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                         <div>
                           <p className="text-xs font-semibold text-red-700 dark:text-red-300 uppercase tracking-wide">Stop Loss</p>
                           <p className="text-lg font-bold text-red-900 dark:text-red-100">
-                            {strategy.configuration?.stopLossPercentage || 3}%
+                            {strategy.configuration?.stopLossPercentage ? `${strategy.configuration.stopLossPercentage}%` : '-'}
                           </p>
                         </div>
                         <Activity className="h-5 w-5 text-red-600 dark:text-red-400" />
@@ -544,7 +612,9 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-xs font-semibold text-yellow-700 dark:text-yellow-300 uppercase tracking-wide">Avg Profit</p>
-                          <p className="text-lg font-bold text-yellow-900 dark:text-yellow-100">€12.45</p>
+                          <p className="text-lg font-bold text-yellow-900 dark:text-yellow-100">
+                            {strategyPerformance[strategy.id]?.avgProfit !== undefined ? formatEuro(strategyPerformance[strategy.id].avgProfit) : '-'}
+                          </p>
                         </div>
                         <TrendingUp className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
                       </div>
