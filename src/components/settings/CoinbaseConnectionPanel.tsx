@@ -67,10 +67,10 @@ export const CoinbaseConnectionPanel = () => {
   };
 
   const handleOAuthConnect = async () => {
-    if (!session) {
+    if (!user || !session) {
       toast({
         title: "Authentication required",
-        description: "Please ensure you're logged in",
+        description: "You must be signed in to connect your Coinbase account. Please log in first.",
         variant: "destructive"
       });
       return;
@@ -78,24 +78,27 @@ export const CoinbaseConnectionPanel = () => {
 
     setConnecting(true);
     try {
+      console.log('Starting OAuth flow for user:', user.id);
       const { data, error } = await supabase.functions.invoke('coinbase-oauth');
 
       if (error) {
         console.error('OAuth function error:', error);
-        throw new Error('Failed to start OAuth flow. Please try again.');
+        throw new Error(`Failed to start OAuth flow: ${error.message}`);
       }
 
-      if (!data.success) {
-        throw new Error(data.error || 'OAuth initialization failed');
+      if (!data?.success) {
+        console.error('OAuth response error:', data);
+        throw new Error(data?.error || 'OAuth initialization failed');
       }
 
+      console.log('Redirecting to OAuth URL:', data.oauth_url);
       // Redirect to Coinbase OAuth URL
       window.location.href = data.oauth_url;
     } catch (error) {
       console.error('OAuth error:', error);
       toast({
         title: "Connection failed",
-        description: "Failed to start OAuth flow. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to start OAuth flow. Please try again.",
         variant: "destructive"
       });
       setConnecting(false);

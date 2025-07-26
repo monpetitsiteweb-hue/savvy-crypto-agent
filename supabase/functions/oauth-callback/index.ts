@@ -97,17 +97,16 @@ serve(async (req) => {
       isSandbox: oauthCreds.is_sandbox
     });
 
-    // Exchange code for token
-    const tokenUrl = oauthCreds.is_sandbox 
-      ? 'https://api.sandbox.coinbase.com/oauth/token'
-      : 'https://api.coinbase.com/oauth/token';
-
+    // Exchange code for token - Always use production API, not sandbox
+    const tokenUrl = 'https://api.coinbase.com/oauth/token';
     const redirectUri = `${supabaseUrl}/functions/v1/oauth-callback`;
     
     console.log('Token exchange details:', {
       tokenUrl,
       redirectUri,
-      code: code ? 'present' : 'missing'
+      code: code ? 'present' : 'missing',
+      clientId: oauthCreds.client_id_encrypted ? 'present' : 'missing',
+      clientSecret: oauthCreds.client_secret_encrypted ? 'present' : 'missing'
     });
 
     const tokenBody = new URLSearchParams({
@@ -118,11 +117,12 @@ serve(async (req) => {
       redirect_uri: redirectUri,
     });
 
-    console.log('Making token exchange request...');
+    console.log('Making token exchange request to:', tokenUrl);
     const tokenResponse = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
       },
       body: tokenBody,
     });
@@ -146,10 +146,8 @@ serve(async (req) => {
       });
     }
 
-    // Get user info from Coinbase
-    const userInfoUrl = oauthCreds.is_sandbox 
-      ? 'https://api.sandbox.coinbase.com/v2/user'
-      : 'https://api.coinbase.com/v2/user';
+    // Get user info from Coinbase - Always use production API
+    const userInfoUrl = 'https://api.coinbase.com/v2/user';
 
     console.log('Fetching user info from:', userInfoUrl);
     const userResponse = await fetch(userInfoUrl, {
