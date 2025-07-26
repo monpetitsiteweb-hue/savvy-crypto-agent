@@ -78,23 +78,19 @@ export const CoinbaseConnectionPanel = () => {
 
     setConnecting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('coinbase-oauth', {
-        body: { 
-          action: 'initiate',
-          user_id: user?.id
-        },
-        headers: {
-          Authorization: `Bearer ${session.access_token}`
-        }
-      });
+      const { data, error } = await supabase.functions.invoke('coinbase-oauth');
 
-      if (error) throw error;
-
-      if (data?.authorization_url) {
-        window.location.href = data.authorization_url;
-      } else {
-        throw new Error('No authorization URL received');
+      if (error) {
+        console.error('OAuth function error:', error);
+        throw new Error('Failed to start OAuth flow. Please try again.');
       }
+
+      if (!data.success) {
+        throw new Error(data.error || 'OAuth initialization failed');
+      }
+
+      // Redirect to Coinbase OAuth URL
+      window.location.href = data.oauth_url;
     } catch (error) {
       console.error('OAuth error:', error);
       toast({

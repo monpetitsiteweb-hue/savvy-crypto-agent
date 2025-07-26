@@ -75,7 +75,7 @@ serve(async (req) => {
 
     // Build OAuth URL
     const scope = 'wallet:accounts:read,wallet:user:read';
-    const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/coinbase-oauth-callback`;
+    const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/oauth-callback`;
     
     const oauthUrl = new URL(`${baseUrl}/oauth/authorize`);
     oauthUrl.searchParams.set('response_type', 'code');
