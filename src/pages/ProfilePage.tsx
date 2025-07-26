@@ -61,10 +61,42 @@ const ProfilePage = () => {
     // Handle URL query parameters for direct tab navigation
     const searchParams = new URLSearchParams(location.search);
     const tab = searchParams.get('tab');
+    const success = searchParams.get('success');
+    const error = searchParams.get('error');
+    
     if (tab) {
       setActiveSection(tab);
     }
-  }, [location.search]);
+    
+    // Handle OAuth callback messages
+    if (success === 'connected') {
+      toast({
+        title: "Connection successful",
+        description: "Your Coinbase account has been connected successfully!",
+      });
+      // Clear the URL parameters
+      navigate(location.pathname + '?tab=settings', { replace: true });
+    }
+    
+    if (error) {
+      const errorMessages = {
+        oauth_failed: "OAuth authorization was declined or failed",
+        missing_params: "Invalid OAuth response received",
+        config_error: "OAuth configuration error. Please contact administrator.",
+        token_failed: "Failed to exchange authorization code for tokens",
+        storage_failed: "Failed to store connection. Please try again.",
+        server_error: "Server error during OAuth process"
+      };
+      
+      toast({
+        title: "Connection failed",
+        description: errorMessages[error as keyof typeof errorMessages] || "An unknown error occurred",
+        variant: "destructive"
+      });
+      // Clear the URL parameters
+      navigate(location.pathname + '?tab=settings', { replace: true });
+    }
+  }, [location.search, navigate, toast]);
 
   useEffect(() => {
     if (user) {
