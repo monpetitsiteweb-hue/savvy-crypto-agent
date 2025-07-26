@@ -84,12 +84,13 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
   console.log(`🔄 Processing signals for user strategies (${mode} mode)`);
   
   try {
-    // Get active strategies for user
+    // Get active strategies for user based on mode
+    const modeField = mode === 'live' ? 'is_active_live' : 'is_active_test';
     const { data: strategies, error: strategiesError } = await supabaseClient
       .from('trading_strategies')
       .select('*')
       .eq('user_id', userId)
-      .eq('is_active', true);
+      .eq(modeField, true);
 
     if (strategiesError) {
       console.error('❌ Error fetching strategies:', strategiesError);
@@ -430,8 +431,59 @@ async function executeTrade(supabaseClient: any, tradeData: any) {
   };
 
   if (mode === 'live') {
-    // For live trading, would call Coinbase API here
-    trade.notes += ' [LIVE TRADING - Would execute via Coinbase API]';
+    // For live trading, execute actual Coinbase trade
+    const coinbaseResult = await executeCoinbaseTrade(supabaseClient, {
+      userId,
+      cryptocurrency: trade.cryptocurrency,
+      tradeType: trade.trade_type,
+      amount: trade.amount,
+      price: trade.price,
+      strategyId: strategy.id
+    });
+    
+    if (coinbaseResult.success) {
+      trade.notes += ` [LIVE TRADE EXECUTED - Order ID: ${coinbaseResult.orderId}]`;
+      // Store in trading_history instead of mock_trades for live trades
+      const { data: liveTradeResult, error: liveError } = await supabaseClient
+        .from('trading_history')
+        .insert([{
+          user_id: userId,
+          strategy_id: strategy.id,
+          cryptocurrency: trade.cryptocurrency,
+          trade_type: trade.trade_type,
+          amount: trade.amount,
+          price: trade.price,
+          total_value: trade.total_value,
+          fees: coinbaseResult.fees || 0,
+          coinbase_order_id: coinbaseResult.orderId,
+          notes: trade.notes,
+          trade_environment: 'live'
+        }])
+        .select()
+        .single();
+
+      if (liveError) {
+        console.error('❌ Error storing live trade:', liveError);
+      }
+
+      return {
+        trade_id: liveTradeResult?.id || 'unknown',
+        action: trade.trade_type,
+        symbol: trade.cryptocurrency,
+        amount: trade.amount,
+        price: trade.price,
+        mode: 'live',
+        coinbase_order_id: coinbaseResult.orderId,
+        fees: coinbaseResult.fees,
+        reasoning: evaluation?.reasoning || 'Manual execution',
+        risk_assessment: riskCheck,
+        executed_at: new Date().toISOString()
+      };
+    } else {
+      console.error('❌ Coinbase trade failed:', coinbaseResult.error);
+      trade.notes += ` [LIVE TRADE FAILED: ${coinbaseResult.error}]`;
+      // Still record as mock trade but mark failure
+    }
   }
 
   const { data: tradeResult, error } = await supabaseClient
@@ -685,6 +737,72 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
       reason: 'Risk management system error',
       adjustedPositionSize: 0,
       riskLevel: 'high'
+    };
+  }
+}
+
+async function executeCoinbaseTrade(supabaseClient: any, tradeParams: any) {
+  const { userId, cryptocurrency, tradeType, amount, price, strategyId } = tradeParams;
+  
+  try {
+    console.log(`🚀 Executing Coinbase live trade: ${tradeType} ${amount} ${cryptocurrency} at ${price}`);
+    
+    // Get user's Coinbase connection
+    const { data: connection, error: connError } = await supabaseClient
+      .from('user_coinbase_connections')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .single();
+
+    if (connError || !connection) {
+      throw new Error('No valid Coinbase connection found');
+    }
+
+    // Call the coinbase-live-trade function
+    const { data: tradeResult, error: tradeError } = await supabaseClient.functions.invoke('coinbase-live-trade', {
+      body: {
+        connectionId: connection.id,
+        tradeType: tradeType,
+        cryptocurrency: cryptocurrency,
+        amount: amount.toString(),
+        price: price.toString(),
+        strategyId: strategyId,
+        orderType: 'market', // Use market orders for automated trading
+        userId: userId
+      }
+    });
+
+    if (tradeError) {
+      console.error('❌ Coinbase trade API error:', tradeError);
+      return {
+        success: false,
+        error: tradeError.message || 'Coinbase API error'
+      };
+    }
+
+    if (tradeResult?.success) {
+      console.log('✅ Coinbase trade executed successfully:', tradeResult);
+      return {
+        success: true,
+        orderId: tradeResult.order_id || tradeResult.orderId,
+        fees: tradeResult.fees || 0,
+        executedPrice: tradeResult.executed_price || price,
+        executedAmount: tradeResult.executed_amount || amount
+      };
+    } else {
+      console.error('❌ Coinbase trade failed:', tradeResult);
+      return {
+        success: false,
+        error: tradeResult?.error || 'Unknown Coinbase error'
+      };
+    }
+
+  } catch (error) {
+    console.error('❌ Error executing Coinbase trade:', error);
+    return {
+      success: false,
+      error: error.message
     };
   }
 }
