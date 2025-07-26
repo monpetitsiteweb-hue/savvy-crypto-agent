@@ -10,6 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
+import { formatEuro } from '@/utils/currencyFormatter';
 
 interface Trade {
   id: string;
@@ -364,7 +365,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Card className="p-4 bg-slate-700/30 border-slate-600">
           <p className="text-sm text-slate-400">Portfolio Value</p>
-          <p className="text-xl font-bold text-white">€{portfolioValue.toFixed(2)}</p>
+          <p className="text-xl font-bold text-white">{formatEuro(portfolioValue)}</p>
         </Card>
         <Card className="p-4 bg-slate-700/30 border-slate-600">
           <p className="text-sm text-slate-400">Total Trades</p>
@@ -372,12 +373,12 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         </Card>
         <Card className="p-4 bg-slate-700/30 border-slate-600">
           <p className="text-sm text-slate-400">Volume Traded</p>
-          <p className="text-xl font-bold text-white">€{stats.totalVolume.toFixed(2)}</p>
+          <p className="text-xl font-bold text-white">{formatEuro(stats.totalVolume)}</p>
         </Card>
         <Card className="p-4 bg-slate-700/30 border-slate-600">
           <p className="text-sm text-slate-400">Net P&L</p>
           <p className={`text-xl font-bold ${stats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            €{stats.netProfitLoss.toFixed(2)}
+            {formatEuro(stats.netProfitLoss)}
           </p>
         </Card>
       </div>
@@ -434,16 +435,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                     </div>
                      <div>
                        <p className="text-sm text-slate-400">Price</p>
-                       <p className="font-medium text-white">€{Number(trade.price).toFixed(2)}</p>
+                       <p className="font-medium text-white">{formatEuro(Number(trade.price))}</p>
                      </div>
                      <div>
                        <p className="text-sm text-slate-400">Total</p>
-                       <p className="font-medium text-white">€{Number(trade.total_value).toFixed(2)}</p>
+                       <p className="font-medium text-white">{formatEuro(Number(trade.total_value))}</p>
                      </div>
                      <div>
                        <p className="text-sm text-slate-400">Fees</p>
                        <p className="font-medium text-white">
-                         {trade.fees && trade.fees > 0 ? `€${trade.fees.toFixed(2)}` : '€0.00'}
+                         {trade.fees && trade.fees > 0 ? formatEuro(trade.fees) : formatEuro(0)}
                        </p>
                      </div>
                    </div>

@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTestMode } from "@/hooks/useTestMode";
 import { TrendingUp, TrendingDown, DollarSign, Activity, Target, TestTube } from "lucide-react";
 import { NoActiveStrategyState } from "./NoActiveStrategyState";
+import { formatEuro } from '@/utils/currencyFormatter';
 
 interface PerformanceMetrics {
   totalTrades: number;
@@ -162,7 +163,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
             <div className={`text-2xl font-bold ${
               metrics.totalProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'
             }`}>
-              {metrics.totalProfitLoss >= 0 ? '+' : ''}€{metrics.totalProfitLoss.toFixed(2)}
+              {formatEuro(metrics.totalProfitLoss)}
             </div>
             <div className="text-xs text-slate-500">Profit & Loss</div>
           </div>
@@ -195,7 +196,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
               Total Fees
             </div>
             <div className="text-xl font-semibold text-slate-300">
-              €{metrics.totalFees.toFixed(2)}
+              {formatEuro(metrics.totalFees)}
             </div>
             <div className="text-xs text-slate-500">Trading costs</div>
           </div>

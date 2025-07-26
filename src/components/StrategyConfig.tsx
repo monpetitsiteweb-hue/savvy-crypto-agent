@@ -613,11 +613,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                         <div>
                           <p className="text-xs font-semibold text-yellow-700 dark:text-yellow-300 uppercase tracking-wide">Avg Profit</p>
                           <p className="text-lg font-bold text-yellow-900 dark:text-yellow-100">
-                            {(() => {
-                              const avgProfit = strategyPerformance[strategy.id]?.avgProfit;
-                              console.log('Avg Profit value for strategy', strategy.id, ':', avgProfit);
-                              return avgProfit !== undefined ? formatEuro(avgProfit) : '-';
-                            })()}
+                            {strategyPerformance[strategy.id]?.avgProfit !== undefined ? formatEuro(strategyPerformance[strategy.id].avgProfit) : '-'}
                           </p>
                         </div>
                         <TrendingUp className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />

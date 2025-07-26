@@ -11,6 +11,7 @@ import { usePersistentDashboardData } from '@/hooks/usePersistentDashboardData';
 import { supabase } from '@/integrations/supabase/client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
+import { formatEuro } from '@/utils/currencyFormatter';
 
 interface PortfolioData {
   accounts: Array<{
@@ -178,7 +179,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
                 {marketData[`${currency}-EUR`] && (
                   <>
                     <span className="text-xs text-slate-400">
-                      €{price.toFixed(2)}
+                      {formatEuro(price)}
                     </span>
                     <TrendingUp className="h-3 w-3 text-green-400" />
                   </>
@@ -198,7 +199,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
           <div className="flex justify-between">
             <span className="text-slate-400 text-sm">EUR Value:</span>
             <span className="text-green-400 font-medium">
-              €{eurValue.toFixed(2)}
+              {formatEuro(eurValue)}
             </span>
           </div>
         </div>
@@ -270,7 +271,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
         <div className="text-center">
           <p className="text-slate-400 text-sm mb-1">Total Portfolio Value</p>
           <p className="text-3xl font-bold text-white">
-            €{getTotalPortfolioValue().toFixed(2)}
+            {formatEuro(getTotalPortfolioValue())}
           </p>
         </div>
       </div>

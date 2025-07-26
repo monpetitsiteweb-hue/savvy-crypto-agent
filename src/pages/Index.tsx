@@ -20,7 +20,6 @@ import { Button } from '@/components/ui/button';
 import { Link2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { formatEuro } from '@/utils/currencyFormatter';
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -130,19 +129,7 @@ const Index = () => {
                   />
                 )}
                 {activeTab === 'strategy' && (
-                  <div>
-                    {/* Debug Euro Formatting */}
-                    <div className="mb-4 p-4 bg-slate-700 rounded">
-                      <h4 className="text-white font-bold mb-2">Euro Formatting Test:</h4>
-                      <div className="text-white space-y-1">
-                        <div>100 = {(() => { console.log('Testing 100'); return formatEuro(100); })()}</div>
-                        <div>12.45 = {formatEuro(12.45)}</div>
-                        <div>1234.56 = {formatEuro(1234.56)}</div>
-                        <div>null = {formatEuro(null)}</div>
-                      </div>
-                    </div>
-                    <StrategyConfig onLayoutChange={setIsStrategyFullWidth} />
-                  </div>
+                  <StrategyConfig onLayoutChange={setIsStrategyFullWidth} />
                 )}
                 {activeTab === 'performance' && (
                   <PerformanceOverview 
