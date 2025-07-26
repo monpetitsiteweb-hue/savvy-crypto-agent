@@ -16,7 +16,10 @@ import { useTestMode } from '@/hooks/useTestMode';
 import { useTestTrading } from '@/hooks/useTestTrading';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
+import { Link2 } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -84,8 +87,19 @@ const Index = () => {
                   ))}
                 </div>
                 
-                {/* Global Test Mode Toggle */}
+                {/* Connect to Coinbase Button and Test Mode Toggle */}
                 <div className="flex items-center gap-3 px-6 py-4">
+                  <Link to="/profile?tab=settings">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      className="text-blue-400 border-blue-400 hover:bg-blue-400 hover:text-white"
+                    >
+                      <Link2 className="h-4 w-4 mr-2" />
+                      Connect to Coinbase
+                    </Button>
+                  </Link>
+                  
                   <span className={`text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
                     {testMode ? 'Test View' : 'Live View'}
                   </span>
