@@ -72,51 +72,75 @@ serve(async (req) => {
     console.log('Testing basic database access...');
     try {
       const { data: testData, error: testError } = await supabase
-        .from('coinbase_oauth_credentials')
-        .select('count')
-        .limit(1);
+        .rpc('get_active_oauth_credentials');
       
-      console.log('Database test result:', {
-        hasData: !!testData,
+      console.log('OAuth credentials function result:', {
+        hasData: !!testData && testData.length > 0,
+        dataCount: testData?.length || 0,
         error: testError?.message,
         errorCode: testError?.code
       });
+
+      if (testError || !testData || testData.length === 0) {
+        console.error('OAuth credentials not found or error:', testError);
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: 'OAuth app not configured. Please contact administrator.',
+          debug: {
+            errorMessage: testError?.message,
+            errorCode: testError?.code,
+            hasData: !!testData,
+            dataLength: testData?.length || 0
+          }
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const oauthCreds = testData[0];
+      console.log('OAuth credentials retrieved successfully:', {
+        hasClientId: !!oauthCreds.client_id_encrypted,
+        isSandbox: oauthCreds.is_sandbox
+      });
+
     } catch (dbTestError) {
-      console.error('Database test failed:', dbTestError);
+      console.error('Database access failed:', dbTestError);
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: 'Database access failed',
+        debug: {
+          errorMessage: dbTestError instanceof Error ? dbTestError.message : 'Unknown error'
+        }
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    // Get OAuth credentials from admin settings
-    console.log('Fetching OAuth credentials...');
-    const { data: oauthCreds, error: oauthError } = await supabase
-      .from('coinbase_oauth_credentials')
-      .select('client_id_encrypted, is_sandbox')
-      .eq('is_active', true)
-      .single();
+    // Get OAuth credentials using the security definer function
+    console.log('Fetching OAuth credentials via RPC...');
+    const { data: oauthCredsArray, error: oauthError } = await supabase
+      .rpc('get_active_oauth_credentials');
 
-    console.log('OAuth credentials query result:', {
-      hasData: !!oauthCreds,
-      error: oauthError?.message,
-      errorCode: oauthError?.code,
-      details: oauthError?.details,
-      hint: oauthError?.hint
-    });
-
-    if (oauthError || !oauthCreds) {
-      console.error('OAuth credentials error:', oauthError);
+    if (oauthError || !oauthCredsArray || oauthCredsArray.length === 0) {
+      console.error('OAuth credentials RPC error:', oauthError);
       return new Response(JSON.stringify({ 
         success: false, 
         error: 'OAuth app not configured. Please contact administrator.',
         debug: {
           errorMessage: oauthError?.message,
           errorCode: oauthError?.code,
-          details: oauthError?.details,
-          hint: oauthError?.hint
+          hasArray: !!oauthCredsArray,
+          arrayLength: oauthCredsArray?.length || 0
         }
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    const oauthCreds = oauthCredsArray[0];
 
     const clientId = oauthCreds.client_id_encrypted;
     // Always use production URL for OAuth authorization, even in sandbox mode

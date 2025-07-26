@@ -1115,6 +1115,13 @@ export type Database = {
         Args: { connection_id: string }
         Returns: string
       }
+      get_active_oauth_credentials: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          client_id_encrypted: string
+          is_sandbox: boolean
+        }[]
+      }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
