@@ -285,7 +285,9 @@ async function syncFearGreedIndex(supabaseClient: any, source: any) {
     
     if (data.data && data.data[0]) {
       const fearGreedData = data.data[0];
+      const fgValue = parseInt(fearGreedData.value);
       
+      // Insert the raw data
       await supabaseClient
         .from('external_market_data')
         .insert({
@@ -293,7 +295,7 @@ async function syncFearGreedIndex(supabaseClient: any, source: any) {
           data_type: 'sentiment_score',
           entity: 'market_sentiment',
           cryptocurrency: 'ALL',
-          data_value: parseInt(fearGreedData.value),
+          data_value: fgValue,
           metadata: {
             classification: fearGreedData.value_classification,
             timestamp: fearGreedData.timestamp
@@ -301,13 +303,112 @@ async function syncFearGreedIndex(supabaseClient: any, source: any) {
           category_context: {
             category_name: 'Market Fear & Greed',
             category_type: 'sentiment',
-            signal_strength: fearGreedData.value < 20 ? 'extreme_fear' : fearGreedData.value > 80 ? 'extreme_greed' : 'moderate',
-            market_impact: fearGreedData.value < 40 ? 'bearish' : fearGreedData.value > 60 ? 'bullish' : 'neutral'
+            signal_strength: fgValue < 20 ? 'extreme_fear' : fgValue > 80 ? 'extreme_greed' : 'moderate',
+            market_impact: fgValue < 40 ? 'bearish' : fgValue > 60 ? 'bullish' : 'neutral'
           },
           timestamp: new Date().toISOString()
         });
 
-      console.log(`✅ Synced Fear & Greed Index: ${fearGreedData.value} (${fearGreedData.value_classification})`);
+      // Generate trading signals based on Fear & Greed Index
+      const signals = [];
+      
+      // Extreme Fear signals (potential buy opportunities)
+      if (fgValue <= 20) {
+        signals.push({
+          source_id: source.id,
+          user_id: source.user_id,
+          timestamp: new Date().toISOString(),
+          symbol: 'ALL',
+          signal_type: 'fear_index_extreme',
+          signal_strength: Math.min(100, (20 - fgValue) * 5), // Higher strength for lower values
+          source: 'fear_greed_index',
+          data: {
+            fear_greed_value: fgValue,
+            classification: fearGreedData.value_classification,
+            market_sentiment: 'extreme_fear',
+            suggested_action: 'buy_opportunity',
+            description: 'Extreme fear in market - potential buying opportunity'
+          },
+          processed: false
+        });
+      }
+      
+      // Extreme Greed signals (potential sell opportunities)
+      if (fgValue >= 80) {
+        signals.push({
+          source_id: source.id,
+          user_id: source.user_id,
+          timestamp: new Date().toISOString(),
+          symbol: 'ALL',
+          signal_type: 'greed_index_extreme',
+          signal_strength: Math.min(100, (fgValue - 80) * 5), // Higher strength for higher values
+          source: 'fear_greed_index',
+          data: {
+            fear_greed_value: fgValue,
+            classification: fearGreedData.value_classification,
+            market_sentiment: 'extreme_greed',
+            suggested_action: 'sell_opportunity',
+            description: 'Extreme greed in market - potential selling opportunity'
+          },
+          processed: false
+        });
+      }
+      
+      // Moderate signals for strategy consideration
+      if (fgValue >= 60 && fgValue < 80) {
+        signals.push({
+          source_id: source.id,
+          user_id: source.user_id,
+          timestamp: new Date().toISOString(),
+          symbol: 'ALL',
+          signal_type: 'greed_index_moderate',
+          signal_strength: Math.min(80, (fgValue - 50) * 2),
+          source: 'fear_greed_index',
+          data: {
+            fear_greed_value: fgValue,
+            classification: fearGreedData.value_classification,
+            market_sentiment: 'moderate_greed',
+            suggested_action: 'caution',
+            description: 'Moderate greed detected - exercise caution'
+          },
+          processed: false
+        });
+      }
+      
+      if (fgValue > 20 && fgValue <= 40) {
+        signals.push({
+          source_id: source.id,
+          user_id: source.user_id,
+          timestamp: new Date().toISOString(),
+          symbol: 'ALL',
+          signal_type: 'fear_index_moderate',
+          signal_strength: Math.min(80, (40 - fgValue) * 2),
+          source: 'fear_greed_index',
+          data: {
+            fear_greed_value: fgValue,
+            classification: fearGreedData.value_classification,
+            market_sentiment: 'moderate_fear',
+            suggested_action: 'accumulate',
+            description: 'Moderate fear detected - potential accumulation opportunity'
+          },
+          processed: false
+        });
+      }
+      
+      // Insert signals if any were generated
+      if (signals.length > 0) {
+        const { error: signalError } = await supabaseClient
+          .from('live_signals')
+          .insert(signals);
+          
+        if (signalError) {
+          console.error('❌ Error inserting Fear & Greed signals:', signalError);
+        } else {
+          console.log(`✅ Generated ${signals.length} Fear & Greed signals`);
+        }
+      }
+
+      console.log(`✅ Synced Fear & Greed Index: ${fgValue} (${fearGreedData.value_classification})`);
     }
   } catch (error) {
     console.error('Failed to sync Fear & Greed Index:', error);

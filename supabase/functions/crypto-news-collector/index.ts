@@ -279,33 +279,86 @@ async function generateSentimentSignals(supabaseClient: any, newsData: any[], us
     const avgSentiment = (articles as any[]).reduce((sum, article) => sum + article.sentiment_score, 0) / (articles as any[]).length;
     const newsVolume = (articles as any[]).length;
     
-    // Generate signal if sentiment is strongly positive/negative or high news volume
-    if (avgSentiment > 0.7 || avgSentiment < 0.3 || newsVolume > 3) {
-      const signalType = avgSentiment > 0.7 ? 'sentiment_bullish' 
-                        : avgSentiment < 0.3 ? 'sentiment_bearish' 
-                        : 'news_volume_spike';
-      
-      const signalStrength = Math.min(100, Math.max(
-        avgSentiment * 100,
-        newsVolume * 20
-      ));
-      
+    console.log(`📊 Sentiment analysis for ${symbol}: avg=${avgSentiment.toFixed(3)}, volume=${newsVolume}`);
+    
+    // Generate multiple types of signals with adjusted thresholds
+    let signalsToAdd = [];
+    
+    // Strong sentiment signals (original thresholds)
+    if (avgSentiment > 0.7) {
+      signalsToAdd.push({
+        signal_type: 'sentiment_bullish_strong',
+        signal_strength: Math.min(100, avgSentiment * 100),
+        description: 'Strong bullish sentiment detected'
+      });
+    } else if (avgSentiment < 0.3) {
+      signalsToAdd.push({
+        signal_type: 'sentiment_bearish_strong', 
+        signal_strength: Math.min(100, (1 - avgSentiment) * 100),
+        description: 'Strong bearish sentiment detected'
+      });
+    }
+    
+    // Moderate sentiment signals (new, more sensitive thresholds)
+    if (avgSentiment > 0.6 && avgSentiment <= 0.7) {
+      signalsToAdd.push({
+        signal_type: 'sentiment_bullish_moderate',
+        signal_strength: Math.min(80, avgSentiment * 80),
+        description: 'Moderate bullish sentiment detected'
+      });
+    } else if (avgSentiment < 0.4 && avgSentiment >= 0.3) {
+      signalsToAdd.push({
+        signal_type: 'sentiment_bearish_moderate',
+        signal_strength: Math.min(80, (1 - avgSentiment) * 80),
+        description: 'Moderate bearish sentiment detected'
+      });
+    }
+    
+    // News volume signals
+    if (newsVolume >= 5) {
+      signalsToAdd.push({
+        signal_type: 'news_volume_high',
+        signal_strength: Math.min(100, newsVolume * 15),
+        description: 'High news volume detected'
+      });
+    } else if (newsVolume >= 3) {
+      signalsToAdd.push({
+        signal_type: 'news_volume_spike',
+        signal_strength: Math.min(80, newsVolume * 20),
+        description: 'News volume spike detected'
+      });
+    }
+    
+    // Mixed sentiment with high volume
+    if (newsVolume >= 3 && avgSentiment > 0.55 && avgSentiment < 0.7) {
+      signalsToAdd.push({
+        signal_type: 'sentiment_mixed_bullish',
+        signal_strength: Math.min(70, (avgSentiment * newsVolume * 10)),
+        description: 'Mixed positive sentiment with volume'
+      });
+    }
+    
+    // Create signals for each type detected
+    for (const signalConfig of signalsToAdd) {
       signals.push({
         source_id: sourceId,
         user_id: userId,
         timestamp: new Date().toISOString(),
         symbol: symbol,
-        signal_type: signalType,
-        signal_strength: signalStrength,
+        signal_type: signalConfig.signal_type,
+        signal_strength: signalConfig.signal_strength,
         source: 'crypto_news',
         data: {
           avg_sentiment: avgSentiment,
           news_count: newsVolume,
           time_window: '24h',
-          recent_headlines: (articles as any[]).slice(0, 3).map(a => a.headline)
+          recent_headlines: (articles as any[]).slice(0, 3).map(a => a.headline),
+          description: signalConfig.description
         },
         processed: false
       });
+      
+      console.log(`📡 Generated signal: ${signalConfig.signal_type} for ${symbol} (strength: ${signalConfig.signal_strength.toFixed(1)})`);
     }
   }
   
