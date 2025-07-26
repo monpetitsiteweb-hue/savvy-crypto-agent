@@ -68,6 +68,23 @@ serve(async (req) => {
 
     console.log('User authenticated:', user.id);
 
+    // Test database access first with a simple query
+    console.log('Testing basic database access...');
+    try {
+      const { data: testData, error: testError } = await supabase
+        .from('coinbase_oauth_credentials')
+        .select('count')
+        .limit(1);
+      
+      console.log('Database test result:', {
+        hasData: !!testData,
+        error: testError?.message,
+        errorCode: testError?.code
+      });
+    } catch (dbTestError) {
+      console.error('Database test failed:', dbTestError);
+    }
+
     // Get OAuth credentials from admin settings
     console.log('Fetching OAuth credentials...');
     const { data: oauthCreds, error: oauthError } = await supabase
@@ -79,7 +96,9 @@ serve(async (req) => {
     console.log('OAuth credentials query result:', {
       hasData: !!oauthCreds,
       error: oauthError?.message,
-      errorCode: oauthError?.code
+      errorCode: oauthError?.code,
+      details: oauthError?.details,
+      hint: oauthError?.hint
     });
 
     if (oauthError || !oauthCreds) {
@@ -89,7 +108,9 @@ serve(async (req) => {
         error: 'OAuth app not configured. Please contact administrator.',
         debug: {
           errorMessage: oauthError?.message,
-          errorCode: oauthError?.code
+          errorCode: oauthError?.code,
+          details: oauthError?.details,
+          hint: oauthError?.hint
         }
       }), {
         status: 400,
