@@ -76,14 +76,31 @@ export const CoinbaseConnectionPanel = () => {
       return;
     }
 
+    // Double-check session in case of incognito/private mode issues
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      toast({
+        title: "Session expired",
+        description: "Please log in again to connect your Coinbase account.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setConnecting(true);
     try {
       console.log('Starting OAuth flow for user:', user.id);
-      const { data, error } = await supabase.functions.invoke('coinbase-oauth');
+      
+      // Explicitly pass the session token for incognito mode
+      const { data, error } = await supabase.functions.invoke('coinbase-oauth', {
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`
+        }
+      });
 
       if (error) {
         console.error('OAuth function error:', error);
-        throw new Error(`Failed to start OAuth flow: ${error.message}`);
+        throw new Error(`Failed to start OAuth flow: ${error.message || 'Unknown error'}`);
       }
 
       if (!data?.success) {
@@ -96,9 +113,20 @@ export const CoinbaseConnectionPanel = () => {
       window.location.href = data.oauth_url;
     } catch (error) {
       console.error('OAuth error:', error);
+      
+      // More specific error messages
+      let errorMessage = "Failed to start OAuth flow. Please try again.";
+      if (error instanceof Error) {
+        if (error.message.includes('401') || error.message.includes('unauthorized')) {
+          errorMessage = "Please log in again to connect your Coinbase account.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       toast({
         title: "Connection failed",
-        description: error instanceof Error ? error.message : "Failed to start OAuth flow. Please try again.",
+        description: errorMessage,
         variant: "destructive"
       });
       setConnecting(false);
