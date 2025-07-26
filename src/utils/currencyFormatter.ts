@@ -2,16 +2,22 @@
  * Formats a number as a Euro currency string
  * Format: €123 456 789,00 (French/EU style with spaces as thousands separator)
  */
-export const formatEuro = (amount: number): string => {
+export const formatEuro = (amount: number | null | undefined): string => {
+  if (amount === null || amount === undefined) return "-";
   if (amount === 0) return "€0,00";
   if (isNaN(amount) || !isFinite(amount)) return "-";
   
-  return new Intl.NumberFormat('fr-FR', {
-    style: 'currency',
-    currency: 'EUR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(amount);
+  try {
+    return new Intl.NumberFormat('fr-FR', {
+      style: 'currency',
+      currency: 'EUR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(amount);
+  } catch (error) {
+    console.error('formatEuro error:', error, 'amount:', amount);
+    return `€${amount.toFixed(2)}`;
+  }
 };
 
 /**
