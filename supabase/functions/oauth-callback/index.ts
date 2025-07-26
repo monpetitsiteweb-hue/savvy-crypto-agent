@@ -32,7 +32,7 @@ serve(async (req) => {
     // Handle OAuth errors from Coinbase
     if (error) {
       console.error('OAuth error from Coinbase:', error);
-      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=oauth_failed';
+      const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&error=oauth_failed';
       console.log('Redirecting to frontend with error:', frontendUrl);
       return new Response(null, {
         status: 302,
@@ -42,7 +42,7 @@ serve(async (req) => {
 
     if (!code || !state) {
       console.error('Missing required parameters:', { code: !!code, state: !!state });
-      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=missing_params';
+      const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&error=missing_params';
       console.log('Redirecting to frontend with missing params error:', frontendUrl);
       return new Response(null, {
         status: 302,
@@ -56,7 +56,7 @@ serve(async (req) => {
 
     if (!userId) {
       console.error('Invalid state parameter - could not extract user ID:', state);
-      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=invalid_state';
+      const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&error=invalid_state';
       return new Response(null, {
         status: 302,
         headers: { Location: frontendUrl }
@@ -84,7 +84,7 @@ serve(async (req) => {
 
     if (oauthError || !oauthCreds) {
       console.error('OAuth credentials error:', oauthError);
-      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=config_error';
+      const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&error=config_error';
       return new Response(null, {
         status: 302,
         headers: { Location: frontendUrl }
@@ -139,7 +139,7 @@ serve(async (req) => {
 
     if (!tokenResponse.ok) {
       console.error('Token exchange failed:', tokenData);
-      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=token_failed';
+      const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&error=token_failed';
       return new Response(null, {
         status: 302,
         headers: { Location: frontendUrl }
@@ -181,7 +181,7 @@ serve(async (req) => {
 
     if (insertError) {
       console.error('Failed to store connection:', insertError);
-      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=storage_failed';
+      const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&error=storage_failed';
       return new Response(null, {
         status: 302,
         headers: { Location: frontendUrl }
@@ -191,7 +191,7 @@ serve(async (req) => {
     console.log('OAuth connection successfully stored for user:', userId);
 
     // Redirect back to frontend with success
-    const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&success=connected';
+    const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&success=connected';
     console.log('Redirecting to frontend with success:', frontendUrl);
     return new Response(null, {
       status: 302,
@@ -202,7 +202,7 @@ serve(async (req) => {
     console.error('Critical error in oauth-callback function:', error);
     console.error('Error stack:', error.stack);
     
-    const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=server_error';
+    const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&error=server_error';
     console.log('Redirecting to frontend with server error:', frontendUrl);
     return new Response(null, {
       status: 302,
