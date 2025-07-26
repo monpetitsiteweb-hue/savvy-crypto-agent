@@ -748,6 +748,39 @@ export type Database = {
         }
         Relationships: []
       }
+      scheduler_execution_log: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          execution_duration_ms: number | null
+          execution_time: string
+          function_name: string
+          id: string
+          response_data: Json | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          execution_duration_ms?: number | null
+          execution_time?: string
+          function_name: string
+          id?: string
+          response_data?: Json | null
+          status: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          execution_duration_ms?: number | null
+          execution_time?: string
+          function_name?: string
+          id?: string
+          response_data?: Json | null
+          status?: string
+        }
+        Relationships: []
+      }
       security_audit_log: {
         Row: {
           action_type: string
