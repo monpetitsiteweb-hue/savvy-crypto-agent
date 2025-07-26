@@ -14,18 +14,26 @@ serve(async (req) => {
 
   try {
     console.log('=== OAuth Callback Function Called ===');
+    console.log('Request method:', req.method);
+    console.log('Request URL:', req.url);
     
     const url = new URL(req.url);
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
     const error = url.searchParams.get('error');
 
-    console.log('OAuth callback params:', { code: !!code, state, error });
+    console.log('OAuth callback params:', { 
+      code: code ? 'present' : 'missing', 
+      state: state ? 'present' : 'missing', 
+      error: error || 'none',
+      fullUrl: req.url 
+    });
 
-    // Handle OAuth errors
+    // Handle OAuth errors from Coinbase
     if (error) {
       console.error('OAuth error from Coinbase:', error);
-      const frontendUrl = 'https://fuieplftlcxdfkxyqzlt.lovable.app/profile?tab=settings&error=oauth_failed';
+      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=oauth_failed';
+      console.log('Redirecting to frontend with error:', frontendUrl);
       return new Response(null, {
         status: 302,
         headers: { Location: frontendUrl }
@@ -33,8 +41,9 @@ serve(async (req) => {
     }
 
     if (!code || !state) {
-      console.error('Missing code or state parameter');
-      const frontendUrl = 'https://fuieplftlcxdfkxyqzlt.lovable.app/profile?tab=settings&error=missing_params';
+      console.error('Missing required parameters:', { code: !!code, state: !!state });
+      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=missing_params';
+      console.log('Redirecting to frontend with missing params error:', frontendUrl);
       return new Response(null, {
         status: 302,
         headers: { Location: frontendUrl }
@@ -45,13 +54,28 @@ serve(async (req) => {
     const userId = state.split('_')[0];
     console.log('Extracted user ID from state:', userId);
 
-    // Initialize Supabase client
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    if (!userId) {
+      console.error('Invalid state parameter - could not extract user ID:', state);
+      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=invalid_state';
+      return new Response(null, {
+        status: 302,
+        headers: { Location: frontendUrl }
+      });
+    }
+
+    // Initialize Supabase client with service role
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    
+    console.log('Supabase environment check:', {
+      url: supabaseUrl ? 'present' : 'missing',
+      serviceKey: supabaseServiceKey ? 'present' : 'missing'
+    });
+
+    const supabase = createClient(supabaseUrl ?? '', supabaseServiceKey ?? '');
 
     // Get OAuth credentials
+    console.log('Fetching OAuth credentials...');
     const { data: oauthCreds, error: oauthError } = await supabase
       .from('coinbase_oauth_credentials')
       .select('client_id_encrypted, client_secret_encrypted, is_sandbox')
@@ -60,40 +84,62 @@ serve(async (req) => {
 
     if (oauthError || !oauthCreds) {
       console.error('OAuth credentials error:', oauthError);
-      const frontendUrl = 'https://fuieplftlcxdfkxyqzlt.lovable.app/profile?tab=settings&error=config_error';
+      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=config_error';
       return new Response(null, {
         status: 302,
         headers: { Location: frontendUrl }
       });
     }
 
+    console.log('OAuth credentials found:', {
+      clientId: oauthCreds.client_id_encrypted ? 'present' : 'missing',
+      clientSecret: oauthCreds.client_secret_encrypted ? 'present' : 'missing',
+      isSandbox: oauthCreds.is_sandbox
+    });
+
     // Exchange code for token
     const tokenUrl = oauthCreds.is_sandbox 
       ? 'https://api.sandbox.coinbase.com/oauth/token'
       : 'https://api.coinbase.com/oauth/token';
 
-    const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/oauth-callback`;
+    const redirectUri = `${supabaseUrl}/functions/v1/oauth-callback`;
+    
+    console.log('Token exchange details:', {
+      tokenUrl,
+      redirectUri,
+      code: code ? 'present' : 'missing'
+    });
 
+    const tokenBody = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      client_id: oauthCreds.client_id_encrypted,
+      client_secret: oauthCreds.client_secret_encrypted,
+      redirect_uri: redirectUri,
+    });
+
+    console.log('Making token exchange request...');
     const tokenResponse = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        client_id: oauthCreds.client_id_encrypted,
-        client_secret: oauthCreds.client_secret_encrypted,
-        redirect_uri: redirectUri,
-      }),
+      body: tokenBody,
     });
 
     const tokenData = await tokenResponse.json();
-    console.log('Token exchange response status:', tokenResponse.status);
+    console.log('Token exchange response:', {
+      status: tokenResponse.status,
+      ok: tokenResponse.ok,
+      hasAccessToken: !!tokenData.access_token,
+      hasRefreshToken: !!tokenData.refresh_token,
+      expiresIn: tokenData.expires_in,
+      error: tokenData.error
+    });
 
     if (!tokenResponse.ok) {
       console.error('Token exchange failed:', tokenData);
-      const frontendUrl = 'https://fuieplftlcxdfkxyqzlt.lovable.app/profile?tab=settings&error=token_failed';
+      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=token_failed';
       return new Response(null, {
         status: 302,
         headers: { Location: frontendUrl }
@@ -105,6 +151,7 @@ serve(async (req) => {
       ? 'https://api.sandbox.coinbase.com/v2/user'
       : 'https://api.coinbase.com/v2/user';
 
+    console.log('Fetching user info from:', userInfoUrl);
     const userResponse = await fetch(userInfoUrl, {
       headers: {
         'Authorization': `Bearer ${tokenData.access_token}`,
@@ -112,11 +159,17 @@ serve(async (req) => {
     });
 
     const userData = await userResponse.json();
-    console.log('User info response status:', userResponse.status);
+    console.log('User info response:', {
+      status: userResponse.status,
+      ok: userResponse.ok,
+      userId: userData.data?.id,
+      userName: userData.data?.name
+    });
 
     // Store the connection
     const expiresAt = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
     
+    console.log('Storing connection in database...');
     const { error: insertError } = await supabase
       .from('user_coinbase_connections')
       .insert({
@@ -130,7 +183,7 @@ serve(async (req) => {
 
     if (insertError) {
       console.error('Failed to store connection:', insertError);
-      const frontendUrl = 'https://fuieplftlcxdfkxyqzlt.lovable.app/profile?tab=settings&error=storage_failed';
+      const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=storage_failed';
       return new Response(null, {
         status: 302,
         headers: { Location: frontendUrl }
@@ -140,16 +193,19 @@ serve(async (req) => {
     console.log('OAuth connection successfully stored for user:', userId);
 
     // Redirect back to frontend with success
-    const frontendUrl = 'https://fuieplftlcxdfkxyqzlt.lovable.app/profile?tab=settings&success=connected';
+    const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&success=connected';
+    console.log('Redirecting to frontend with success:', frontendUrl);
     return new Response(null, {
       status: 302,
       headers: { Location: frontendUrl }
     });
 
   } catch (error) {
-    console.error('Error in oauth-callback function:', error);
+    console.error('Critical error in oauth-callback function:', error);
+    console.error('Error stack:', error.stack);
     
-    const frontendUrl = 'https://fuieplftlcxdfkxyqzlt.lovable.app/profile?tab=settings&error=server_error';
+    const frontendUrl = 'https://fc7e001f-a738-4ce4-94e5-f25c301f368c.lovableproject.com/profile?tab=settings&error=server_error';
+    console.log('Redirecting to frontend with server error:', frontendUrl);
     return new Response(null, {
       status: 302,
       headers: { Location: frontendUrl }

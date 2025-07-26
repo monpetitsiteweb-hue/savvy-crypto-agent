@@ -9,7 +9,7 @@ enabled = true
 [functions.coinbase-oauth]
 verify_jwt = true
 
-[functions.coinbase-oauth-callback]
+[functions.oauth-callback]
 verify_jwt = false
 
 [functions.coinbase-portfolio]
@@ -50,6 +50,3 @@ verify_jwt = false
 
 [functions.parse-strategy]
 verify_jwt = true
-
-[functions.oauth-callback]
-verify_jwt = false
