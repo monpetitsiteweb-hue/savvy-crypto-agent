@@ -78,10 +78,10 @@ export const CoinbaseConnectionPanel = () => {
 
     setConnecting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('coinbase-oauth', {
+      const { data, error } = await supabase.functions.invoke('oauth-callback', {
         body: { 
           action: 'initiate',
-          user_id: user.id
+          user_id: user?.id
         },
         headers: {
           Authorization: `Bearer ${session.access_token}`
@@ -147,6 +147,13 @@ export const CoinbaseConnectionPanel = () => {
     } finally {
       setConnecting(false);
     }
+  };
+
+  const handleEditConnection = async (connectionId: string) => {
+    toast({
+      title: "Edit Connection",
+      description: "Connection editing feature coming soon",
+    });
   };
 
   const handleDisconnect = async (connectionId: string) => {
@@ -224,6 +231,14 @@ export const CoinbaseConnectionPanel = () => {
                     <Badge variant={connection.is_active ? "default" : "secondary"}>
                       {connection.is_active ? "Active" : "Inactive"}
                     </Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleEditConnection(connection.id)}
+                      className="text-blue-400 border-blue-400 hover:bg-blue-400 hover:text-white"
+                    >
+                      <Settings className="h-4 w-4" />
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"

@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Wallet, Settings, Bell, User, LogOut, Shield, AlertTriangle } from 'lucide-react';
+import { Settings, Bell, User, LogOut, Shield } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 export const Header = () => {
@@ -15,39 +14,9 @@ export const Header = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [showDropdown, setShowDropdown] = useState(false);
-  const [emergencyStop, setEmergencyStop] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
-  };
-
-  const handleEmergencyStop = async () => {
-    if (!user) return;
-    
-    try {
-      // Disable all active strategies
-      const { error } = await supabase
-        .from('trading_strategies')
-        .update({ is_active: false })
-        .eq('user_id', user.id)
-        .eq('is_active', true);
-
-      if (error) throw error;
-
-      setEmergencyStop(true);
-      toast({
-        title: "Emergency Stop Activated",
-        description: "All trading strategies have been deactivated immediately.",
-        variant: "destructive",
-      });
-    } catch (error) {
-      console.error('Error stopping strategies:', error);
-      toast({
-        title: "Error",
-        description: "Failed to stop strategies. Please try again.",
-        variant: "destructive",
-      });
-    }
   };
 
   const getInitials = (email: string) => {
@@ -71,31 +40,18 @@ export const Header = () => {
 
           {/* Status & Actions */}
           <div className="flex items-center gap-4">
-            {/* Emergency Stop Button */}
-            <Button
-              onClick={handleEmergencyStop}
-              disabled={emergencyStop}
-              className="bg-red-600 hover:bg-red-700 text-white font-medium"
-              size="sm"
-            >
-              <AlertTriangle className="w-4 h-4 mr-2" />
-              {emergencyStop ? 'STOPPED' : 'EMERGENCY STOP'}
-            </Button>
-
             <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
               <Bell className="w-4 h-4" />
             </Button>
 
             {role === 'admin' && (
               <Button 
-                variant="ghost" 
-                size="sm" 
-                className={`text-slate-400 hover:text-white ${
-                  location.pathname === '/admin' ? 'text-green-400' : ''
+                className={`text-white font-medium ${
+                  location.pathname === '/admin' ? 'bg-green-600 hover:bg-green-700' : 'bg-green-500 hover:bg-green-600'
                 }`}
+                size="sm"
                 onClick={() => navigate(location.pathname === '/admin' ? '/' : '/admin')}
               >
-                <Settings className="w-4 h-4 mr-1" />
                 {location.pathname === '/admin' ? 'Dashboard' : 'Admin'}
               </Button>
             )}
@@ -128,8 +84,8 @@ export const Header = () => {
                               Admin
                             </Badge>
                           )}
-                        </div>
-                         <Button
+                         </div>
+                          <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => {
@@ -139,13 +95,13 @@ export const Header = () => {
                           className="w-full justify-start text-slate-300 hover:text-white mt-1"
                         >
                           <User className="w-4 h-4 mr-2" />
-                          My Profile
+                          My Account
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            navigate('/settings');
+                            navigate('/profile');
                             setShowDropdown(false);
                           }}
                           className="w-full justify-start text-slate-300 hover:text-white"

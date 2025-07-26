@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -136,7 +136,7 @@ const ProfilePage = () => {
   const menuItems = [
     { id: 'profile', label: 'User Profile', icon: User, description: 'Manage your personal information and preferences' },
     { id: 'fees', label: 'Fee Settings', icon: CreditCard, description: 'Configure your trading fee rates' },
-    { id: 'connections', label: 'API Connections', icon: Key, description: 'Manage your Coinbase and exchange connections' },
+    { id: 'settings', label: 'Settings', icon: Settings, description: 'Manage your Coinbase connections and preferences' },
     { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Configure your notification preferences' },
     { id: 'security', label: 'Security', icon: Shield, description: 'Account security and authentication settings' },
     { id: 'subscription', label: 'Subscription', icon: CreditCard, description: 'Manage your trading plan and billing' },
@@ -214,6 +214,15 @@ const ProfilePage = () => {
 
       case 'fees':
         return <FeeSettings />;
+
+      case 'settings':
+        // Import and use the CoinbaseConnectionPanel component
+        const CoinbaseConnectionPanel = React.lazy(() => import('@/components/settings/CoinbaseConnectionPanel').then(module => ({ default: module.CoinbaseConnectionPanel })));
+        return (
+          <React.Suspense fallback={<div className="text-slate-400">Loading settings...</div>}>
+            <CoinbaseConnectionPanel />
+          </React.Suspense>
+        );
 
       case 'connections':
         return (

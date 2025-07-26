@@ -45,17 +45,17 @@ const MetricCard = ({
   color?: 'default' | 'success' | 'danger' | 'warning';
 }) => {
   const colorClasses = {
-    default: 'bg-background border-border',
-    success: 'bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800',
-    danger: 'bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800',
-    warning: 'bg-yellow-50 border-yellow-200 dark:bg-yellow-950 dark:border-yellow-800'
+    default: 'bg-slate-800 border-slate-700',
+    success: 'bg-green-900/20 border-green-700',
+    danger: 'bg-red-900/20 border-red-700',
+    warning: 'bg-yellow-900/20 border-yellow-700'
   };
 
   const iconColorClasses = {
-    default: 'text-muted-foreground',
-    success: 'text-green-600 dark:text-green-400',
-    danger: 'text-red-600 dark:text-red-400',
-    warning: 'text-yellow-600 dark:text-yellow-400'
+    default: 'text-slate-400',
+    success: 'text-green-400',
+    danger: 'text-red-400',
+    warning: 'text-yellow-400'
   };
 
   return (
@@ -63,13 +63,13 @@ const MetricCard = ({
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-muted-foreground">{title}</p>
+            <p className="text-sm font-medium text-slate-400">{title}</p>
             <div className="flex items-center gap-2">
-              <p className="text-2xl font-bold">{value}</p>
+              <p className="text-2xl font-bold text-white">{value}</p>
               {trend && (
                 <div className={`flex items-center ${
-                  trend === 'up' ? 'text-green-600' : 
-                  trend === 'down' ? 'text-red-600' : 'text-muted-foreground'
+                  trend === 'up' ? 'text-green-400' : 
+                  trend === 'down' ? 'text-red-400' : 'text-slate-400'
                 }`}>
                   {trend === 'up' ? (
                     <TrendingUp className="h-4 w-4" />
@@ -80,7 +80,7 @@ const MetricCard = ({
               )}
             </div>
             {subtitle && (
-              <p className="text-xs text-muted-foreground">{subtitle}</p>
+              <p className="text-xs text-slate-400">{subtitle}</p>
             )}
           </div>
           <Icon className={`h-8 w-8 ${iconColorClasses[color]}`} />
@@ -164,17 +164,18 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5" />
+      {/* Header Section */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+            <BarChart3 className="h-6 w-6" />
             Performance Overview
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
+          </h2>
+          <p className="text-slate-400 mt-1">
             Real-time performance metrics for your strategy
           </p>
-        </CardHeader>
-      </Card>
+        </div>
+      </div>
 
       {/* Key Performance Indicators */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -241,15 +242,15 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
       </div>
 
       {/* Performance Summary */}
-      <Card>
+      <Card className="bg-slate-800 border-slate-700">
         <CardHeader>
-          <CardTitle>Strategy Status</CardTitle>
+          <CardTitle className="text-white">Strategy Status</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+          <div className="flex items-center justify-between p-4 bg-slate-700/50 rounded-lg">
             <div>
-              <p className="font-medium">Current Performance</p>
-              <p className="text-sm text-muted-foreground">
+              <p className="font-medium text-white">Current Performance</p>
+              <p className="text-sm text-slate-400">
                 {metrics.totalTrades === 0 
                   ? 'No trades executed yet' 
                   : `${metrics.winningTrades} winning • ${metrics.losingTrades} losing trades`
@@ -258,7 +259,7 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
             </div>
             <Badge 
               variant={metrics.winRate >= 60 ? 'default' : 'secondary'}
-              className={metrics.winRate >= 60 ? 'bg-green-500' : ''}
+              className={metrics.winRate >= 60 ? 'bg-green-500/20 text-green-400' : 'bg-slate-500/20 text-slate-400'}
             >
               {metrics.totalTrades === 0 ? 'Pending' : metrics.winRate >= 60 ? 'Performing Well' : 'Needs Attention'}
             </Badge>
