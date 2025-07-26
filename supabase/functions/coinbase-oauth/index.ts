@@ -63,9 +63,8 @@ serve(async (req) => {
     }
 
     const clientId = oauthCreds.client_id_encrypted;
-    const baseUrl = oauthCreds.is_sandbox 
-      ? 'https://www.sandbox.coinbase.com' 
-      : 'https://www.coinbase.com';
+    // Always use production URL for OAuth authorization, even in sandbox mode
+    const baseUrl = 'https://www.coinbase.com';
 
     // Generate state parameter with user ID for security
     const state = `${user.id}_${crypto.randomUUID()}`;
