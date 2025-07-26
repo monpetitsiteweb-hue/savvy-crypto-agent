@@ -15,27 +15,51 @@ serve(async (req) => {
   try {
     console.log('=== Coinbase OAuth Function Called ===');
     
+    // Debug: Log headers
+    const authHeader = req.headers.get('Authorization');
+    console.log('Authorization header received:', authHeader ? 'present' : 'missing');
+    console.log('All headers:', Object.fromEntries(req.headers.entries()));
+    
     // Initialize Supabase client
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       {
         global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
+          headers: { Authorization: authHeader || '' },
         },
       }
     );
 
+    console.log('Attempting to get user from token...');
     // Get current user
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser();
 
+    console.log('User resolution result:', {
+      hasUser: !!user,
+      userId: user?.id,
+      userError: userError?.message,
+      userErrorCode: userError?.status
+    });
+
     if (userError || !user) {
+      console.error('Authentication failed:', {
+        error: userError,
+        hasAuthHeader: !!authHeader,
+        authHeaderLength: authHeader?.length
+      });
+      
       return new Response(JSON.stringify({ 
         success: false, 
-        error: 'Authentication required' 
+        error: 'Authentication required',
+        debug: {
+          hasAuthHeader: !!authHeader,
+          errorMessage: userError?.message,
+          errorStatus: userError?.status
+        }
       }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -45,17 +69,28 @@ serve(async (req) => {
     console.log('User authenticated:', user.id);
 
     // Get OAuth credentials from admin settings
+    console.log('Fetching OAuth credentials...');
     const { data: oauthCreds, error: oauthError } = await supabase
       .from('coinbase_oauth_credentials')
       .select('client_id_encrypted, is_sandbox')
       .eq('is_active', true)
       .single();
 
+    console.log('OAuth credentials query result:', {
+      hasData: !!oauthCreds,
+      error: oauthError?.message,
+      errorCode: oauthError?.code
+    });
+
     if (oauthError || !oauthCreds) {
       console.error('OAuth credentials error:', oauthError);
       return new Response(JSON.stringify({ 
         success: false, 
-        error: 'OAuth app not configured. Please contact administrator.' 
+        error: 'OAuth app not configured. Please contact administrator.',
+        debug: {
+          errorMessage: oauthError?.message,
+          errorCode: oauthError?.code
+        }
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
