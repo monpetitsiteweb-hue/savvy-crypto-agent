@@ -656,6 +656,44 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     </div>
   );
 
+  const renderMobileTabs = () => (
+    <div className="lg:hidden border-b border-border bg-background/95 backdrop-blur-sm sticky top-[73px] z-10">
+      <div className="overflow-x-auto">
+        <div className="flex gap-1 p-2 min-w-max">
+          {MENU_SECTIONS.map((section) => (
+            <div key={section.id} className="space-y-1">
+              {section.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeSection === item.id;
+                const hasGreenDot = ['strategy', 'trailing-stop-buy', 'shorting-settings', 'dollar-cost-averaging'].includes(item.id);
+                
+                return (
+                  <Button
+                    key={item.id}
+                    variant={isActive ? "default" : "outline"}
+                    size="sm"
+                    className={`whitespace-nowrap ${
+                      isActive 
+                        ? 'bg-primary text-primary-foreground' 
+                        : 'hover:bg-muted'
+                    }`}
+                    onClick={() => setActiveSection(item.id)}
+                  >
+                    <Icon className="h-4 w-4 mr-2" />
+                    <span className="text-xs font-medium">{item.label}</span>
+                    {hasGreenDot && (
+                      <div className="w-2 h-2 bg-green-500 rounded-full ml-2" />
+                    )}
+                  </Button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <>
       {/* Mode Selection Modal */}
@@ -761,72 +799,141 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         {createMode === CREATE_MODES.MANUAL && (
         <>
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-10">
-            <div className="flex items-center gap-4">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onBack}
-                className="hover:bg-primary/10"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Strategies
-              </Button>
+          <div className="p-4 md:p-6 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-10">
+            {/* Mobile: Stack everything vertically */}
+            <div className="flex flex-col gap-4 md:hidden">
+              {/* Back button and title row */}
+              <div className="flex items-center gap-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onBack}
+                  className="hover:bg-primary/10"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Strategies
+                </Button>
+              </div>
+              
+              {/* Title and subtitle row */}
               <div>
-                <h1 className="text-2xl font-bold text-foreground">
+                <h1 className="text-xl font-bold text-foreground">
                   {isEditing ? 'Edit Strategy' : 'Create Strategy'}
                 </h1>
                 <p className="text-sm text-muted-foreground">
                   {isEditing ? 'Modify your existing trading strategy' : 'Design your automated trading strategy'}
                 </p>
               </div>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              {isEditing && (
-                <AlertDialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="text-red-500 border-red-500 hover:bg-red-500/10">
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Strategy</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Are you sure you want to delete this strategy? This action cannot be undone.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
-                        Delete Strategy
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              )}
               
-              <Button 
-                onClick={handleSubmit}
-                className="px-6"
-                disabled={!formData.strategyName?.trim()}
-              >
-                <Save className="h-4 w-4 mr-2" />
-                {isEditing ? 'Update Strategy' : 'Save Strategy'}
-              </Button>
+              {/* Action buttons row */}
+              <div className="flex items-center gap-3 flex-wrap">
+                {isEditing && (
+                  <AlertDialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="text-red-500 border-red-500 hover:bg-red-500/10">
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Strategy</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to delete this strategy? This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+                          Delete Strategy
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+                
+                <Button 
+                  onClick={handleSubmit}
+                  className="px-6"
+                  disabled={!formData.strategyName?.trim()}
+                >
+                  <Save className="h-4 w-4 mr-2" />
+                  {isEditing ? 'Update Strategy' : 'Save Strategy'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Desktop: Original horizontal layout */}
+            <div className="hidden md:flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onBack}
+                  className="hover:bg-primary/10"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Strategies
+                </Button>
+                <div>
+                  <h1 className="text-2xl font-bold text-foreground">
+                    {isEditing ? 'Edit Strategy' : 'Create Strategy'}
+                  </h1>
+                  <p className="text-sm text-muted-foreground">
+                    {isEditing ? 'Modify your existing trading strategy' : 'Design your automated trading strategy'}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-4">
+                {isEditing && (
+                  <AlertDialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="text-red-500 border-red-500 hover:bg-red-500/10">
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Strategy</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to delete this strategy? This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+                          Delete Strategy
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+                
+                <Button 
+                  onClick={handleSubmit}
+                  className="px-6"
+                  disabled={!formData.strategyName?.trim()}
+                >
+                  <Save className="h-4 w-4 mr-2" />
+                  {isEditing ? 'Update Strategy' : 'Save Strategy'}
+                </Button>
+              </div>
             </div>
           </div>
 
+          {/* Mobile Tabs */}
+          {renderMobileTabs()}
+
           {/* Main Content */}
           <div className="flex-1 flex overflow-hidden">
-            {/* Sidebar */}
+            {/* Desktop Sidebar */}
             {renderSidebar()}
             
             {/* Content Area */}
             <div className="flex-1 overflow-y-auto">
-              <div className="p-6">
+              <div className="p-4 lg:p-6">
                 <form onSubmit={handleSubmit} className="max-w-4xl space-y-8">
                   
                   {/* Basic Settings Section */}
