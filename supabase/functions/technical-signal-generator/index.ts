@@ -292,18 +292,24 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
 }
 
 function calculateRSI(prices: any[], period = 14): number {
-  if (prices.length < period) return 50; // Neutral if not enough data
+  if (prices.length < period + 1) return 50; // Need at least period + 1 points for differences
 
   let gains = 0;
   let losses = 0;
 
-  // Calculate initial gains and losses
-  for (let i = 1; i < period + 1; i++) {
-    const change = prices[i].close_price - prices[i - 1].close_price;
-    if (change > 0) {
-      gains += change;
-    } else {
-      losses += Math.abs(change);
+  // Calculate initial gains and losses - fix the loop bounds
+  for (let i = 1; i <= period && i < prices.length; i++) {
+    const current = prices[i]?.close_price;
+    const previous = prices[i - 1]?.close_price;
+    
+    // Ensure both values exist
+    if (current !== undefined && previous !== undefined) {
+      const change = current - previous;
+      if (change > 0) {
+        gains += change;
+      } else {
+        losses += Math.abs(change);
+      }
     }
   }
 
