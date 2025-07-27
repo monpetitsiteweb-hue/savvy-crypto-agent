@@ -180,7 +180,13 @@ async function executeStrategyTrade(supabaseClient: any, params: any) {
     }
 
     // Get current market data for strategy symbols
-    const symbols = strategy.configuration?.symbols || ['BTC-EUR'];
+    let symbols = strategy.configuration?.symbols || strategy.configuration?.selectedCoins || ['BTC'];
+    
+    // Ensure symbols are in the correct format (e.g., BTC-EUR)
+    if (symbols.length > 0 && !symbols[0].includes('-')) {
+      symbols = symbols.map((coin: string) => `${coin}-EUR`);
+    }
+    
     const marketData = await getCurrentMarketData(supabaseClient, symbols);
     
     // Execute trade based on strategy configuration
@@ -396,7 +402,21 @@ function evaluateStrategyTrigger(signal: any, strategyConfig: any) {
 }
 
 async function executeStrategyFromSignal(supabaseClient: any, strategy: any, signal: any, evaluation: any, mode: string) {
-  const symbols = strategy.configuration?.symbols || [signal.symbol + '-EUR'];
+  // Get symbols from strategy configuration - handle both formats
+  let symbols = strategy.configuration?.symbols || strategy.configuration?.selectedCoins || [signal.symbol];
+  
+  // Ensure symbols are in the correct format (e.g., BTC-EUR)
+  if (symbols.length > 0 && !symbols[0].includes('-')) {
+    symbols = symbols.map((coin: string) => `${coin}-EUR`);
+  }
+  
+  // If signal has a specific symbol, prioritize it
+  if (signal.symbol && !signal.symbol.includes('-')) {
+    symbols = [`${signal.symbol}-EUR`];
+  } else if (signal.symbol) {
+    symbols = [signal.symbol];
+  }
+  
   const marketData = await getCurrentMarketData(supabaseClient, symbols);
   
   const tradeData = {
@@ -430,7 +450,9 @@ async function executeTrade(supabaseClient: any, tradeData: any) {
   const price = marketData[symbol]?.price || 50000;
   
   // Use risk-adjusted position size
-  const baseTradeAmount = strategy.configuration?.trade_amount || 100;
+  const baseTradeAmount = strategy.configuration?.trade_amount || 
+                          strategy.configuration?.perTradeAllocation || 
+                          100;
   const adjustedAmount = riskCheck.adjustedPositionSize || baseTradeAmount;
   
   const trade = {
@@ -715,7 +737,9 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
     // Calculate position sizing
     const symbol = Object.keys(marketData)[0] || 'BTC-EUR';
     const price = marketData[symbol]?.price || 50000;
-    const baseAmount = strategy.configuration?.trade_amount || 100;
+    const baseAmount = strategy.configuration?.trade_amount || 
+                       strategy.configuration?.perTradeAllocation || 
+                       100;
     
     // Assume portfolio value of €10,000 (in real implementation, fetch actual value)
     const portfolioValue = 10000;
