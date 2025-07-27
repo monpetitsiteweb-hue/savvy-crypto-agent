@@ -29,6 +29,8 @@ export const useActiveStrategy = () => {
       // Query based on the current mode - look for strategies active in test or live mode
       const activeField = testMode ? 'is_active_test' : 'is_active_live';
       
+      console.log('🔍 Loading active strategy for mode:', testMode ? 'test' : 'live', 'field:', activeField);
+      
       const { data, error } = await supabase
         .from('trading_strategies')
         .select('*')
@@ -37,12 +39,49 @@ export const useActiveStrategy = () => {
         .single();
 
       if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
-        console.error('Error loading active strategy:', error);
+        console.error('❌ Error loading active strategy:', error);
       }
 
+      if (error && error.code === 'PGRST116') {
+        console.log('⚠️ No active strategy found for current mode. Let me check all strategies...');
+        
+        // Check what strategies exist
+        const { data: allStrategies, error: allError } = await supabase
+          .from('trading_strategies')
+          .select('*')
+          .eq('user_id', user.id);
+          
+        if (allError) {
+          console.error('❌ Error loading all strategies:', allError);
+        } else {
+          console.log('📋 All user strategies:', allStrategies);
+          
+          // Auto-activate the first strategy if none is active
+          if (allStrategies && allStrategies.length > 0) {
+            const firstStrategy = allStrategies[0];
+            console.log('🔄 Auto-activating first strategy for', testMode ? 'test' : 'live', 'mode:', firstStrategy);
+            
+            const { error: updateError } = await supabase
+              .from('trading_strategies')
+              .update({ [activeField]: true })
+              .eq('id', firstStrategy.id);
+              
+            if (updateError) {
+              console.error('❌ Error auto-activating strategy:', updateError);
+            } else {
+              console.log('✅ Auto-activated strategy:', firstStrategy.strategy_name);
+              setActiveStrategy({ ...firstStrategy, [activeField]: true });
+              setLoading(false);
+              return;
+            }
+          }
+        }
+      }
+
+      console.log('📈 Active strategy loaded:', data);
       setActiveStrategy(data || null);
     } catch (error) {
-      console.error('Error loading active strategy:', error);
+      console.error('❌ Error loading active strategy:', error);
       setActiveStrategy(null);
     } finally {
       setLoading(false);
