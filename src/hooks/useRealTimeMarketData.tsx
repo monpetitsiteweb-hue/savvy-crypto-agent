@@ -146,24 +146,26 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
     };
   }, []);
 
-  // Re-enabled with singleton protection to prevent multiple simultaneous fetches
-  useEffect(() => {
-    // Only the first instance should start the fetching interval
-    if (marketDataSubscribers.size === 1) {
-      const fetchData = async () => {
-        await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
-      };
-      
-      fetchData();
-      
-      // Update data every 30 seconds to avoid rate limiting
-      const intervalId = setInterval(() => {
-        fetchData();
-      }, 30000); // 30 seconds to avoid rate limiting
+  // COMPLETELY DISABLED automatic fetching until we can fix the authentication state issues
+  // Manual fetching only via getCurrentData() when components explicitly request it
+  // useEffect(() => {
+  //   // Only the first instance should start the fetching interval
+  //   if (marketDataSubscribers.size === 1 && !isCurrentlyFetching) {
+  //     const fetchData = async () => {
+  //       if (!isCurrentlyFetching) {
+  //         await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
+  //       }
+  //     };
+  //     
+  //     // Initial fetch
+  //     setTimeout(fetchData, 1000);
+  //     
+  //     // Update data every 30 seconds to avoid rate limiting
+  //     const intervalId = setInterval(fetchData, 30000);
 
-      return () => clearInterval(intervalId);
-    }
-  }, [getCurrentData]);
+  //     return () => clearInterval(intervalId);
+  //   }
+  // }, []); // No dependencies to prevent re-triggering
 
   return {
     marketData,
