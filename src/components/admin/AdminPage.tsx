@@ -31,31 +31,39 @@ export const AdminPage = () => {
 
           {/* Admin Tabs */}
           <Tabs defaultValue="customers" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-6 bg-slate-800">
-              <TabsTrigger value="customers" className="flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                Customers
-              </TabsTrigger>
-              <TabsTrigger value="llm" className="flex items-center gap-2">
-                <Bot className="w-4 h-4" />
-                AI Config
-              </TabsTrigger>
-              <TabsTrigger value="learning" className="flex items-center gap-2">
-                <Brain className="w-4 h-4" />
-                AI Learning
-              </TabsTrigger>
-              <TabsTrigger value="data" className="flex items-center gap-2">
-                <Database className="w-4 h-4" />
-                Data Sources
-              </TabsTrigger>
-              <TabsTrigger value="coinbase" className="flex items-center gap-2">
-                <Zap className="w-4 h-4" />
-                Coinbase OAuth
-              </TabsTrigger>
-              <TabsTrigger value="sandbox" className="flex items-center gap-2">
-                <Settings className="w-4 h-4" />
-                Sandbox API
-              </TabsTrigger>
+            <TabsList className="w-full bg-slate-800 overflow-x-auto">
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-1 min-w-full">{/* Gap for smaller screens */}
+                <TabsTrigger value="customers" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
+                  <Users className="w-4 h-4" />
+                  <span className="hidden sm:inline">Customers</span>
+                  <span className="sm:hidden">Users</span>
+                </TabsTrigger>
+                <TabsTrigger value="llm" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
+                  <Bot className="w-4 h-4" />
+                  <span className="hidden sm:inline">AI Config</span>
+                  <span className="sm:hidden">AI</span>
+                </TabsTrigger>
+                <TabsTrigger value="learning" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
+                  <Brain className="w-4 h-4" />
+                  <span className="hidden sm:inline">AI Learning</span>
+                  <span className="sm:hidden">Learn</span>
+                </TabsTrigger>
+                <TabsTrigger value="data" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
+                  <Database className="w-4 h-4" />
+                  <span className="hidden sm:inline">Data Sources</span>
+                  <span className="sm:hidden">Data</span>
+                </TabsTrigger>
+                <TabsTrigger value="coinbase" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
+                  <Zap className="w-4 h-4" />
+                  <span className="hidden sm:inline">Coinbase OAuth</span>
+                  <span className="sm:hidden">OAuth</span>
+                </TabsTrigger>
+                <TabsTrigger value="sandbox" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
+                  <Settings className="w-4 h-4" />
+                  <span className="hidden sm:inline">Sandbox API</span>
+                  <span className="sm:hidden">API</span>
+                </TabsTrigger>
+              </div>
             </TabsList>
 
             <TabsContent value="customers">

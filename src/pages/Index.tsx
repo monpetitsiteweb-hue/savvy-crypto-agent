@@ -61,8 +61,8 @@ const Index = () => {
           <div className={isStrategyFullWidth && activeTab === 'strategy' ? 'w-full' : 'lg:col-span-2'}>
             <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col">
               {/* Tab Navigation */}
-              <div className="flex justify-between items-center border-b border-slate-700 flex-shrink-0">
-                <div className="flex">
+              <div className="flex justify-between items-center border-b border-slate-700 flex-shrink-0 overflow-x-auto">
+                <div className="flex min-w-max">
                   {[
                     { id: 'dashboard', label: 'Dashboard' },
                     { id: 'history', label: 'History' },
@@ -76,7 +76,7 @@ const Index = () => {
                         e.preventDefault();
                         setActiveTab(tab.id);
                       }}
-                      className={`px-6 py-4 text-sm font-medium transition-colors ${
+                      className={`px-3 md:px-6 py-4 text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
                         activeTab === tab.id
                           ? 'text-green-400 border-b-2 border-green-400 bg-slate-700/50'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
@@ -87,26 +87,15 @@ const Index = () => {
                   ))}
                 </div>
                 
-                {/* Connect to Coinbase Button and Test Mode Toggle */}
-                <div className="flex items-center gap-3 px-6 py-4">
-                  <Link to="/profile?tab=settings">
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      className="text-blue-400 border-blue-400 hover:bg-blue-400 hover:text-white"
-                    >
-                      <Link2 className="h-4 w-4 mr-2" />
-                      Connect to Coinbase
-                    </Button>
-                  </Link>
-                  
-                  <span className={`text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
-                    {testMode ? 'Test View' : 'Live View'}
+                {/* Test Mode Toggle */}
+                <div className="flex items-center gap-3 px-3 md:px-6 py-4">
+                  <span className={`text-xs md:text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
+                    {testMode ? 'Test' : 'Live'}
                   </span>
                   <Switch
                     checked={testMode}
                     onCheckedChange={setTestMode}
-                    className="data-[state=checked]:bg-orange-500"
+                    className="data-[state=checked]:bg-orange-500 scale-75 md:scale-100"
                   />
                 </div>
               </div>
