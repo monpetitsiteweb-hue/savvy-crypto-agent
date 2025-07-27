@@ -3,7 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Users, Search, ChevronLeft, ChevronRight, Mail, Calendar, Shield, Link } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Users, Search, ChevronLeft, ChevronRight, Mail, Calendar, Shield, Link, Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -26,6 +27,7 @@ export const CustomerManagementPanel = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCustomers, setTotalCustomers] = useState(0);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const customersPerPage = 30;
 
   const fetchCustomers = async () => {
@@ -145,6 +147,36 @@ export const CustomerManagementPanel = () => {
     }
   };
 
+  const handleDeleteUser = async (userId: string) => {
+    setDeletingUserId(userId);
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-delete-user', {
+        body: { userId }
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Success",
+        description: "User has been permanently deleted",
+      });
+
+      // Refresh the customer list
+      await fetchCustomers();
+    } catch (error: any) {
+      console.error('Error deleting user:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete user",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
+
   return (
     <Card className="bg-slate-800 border-slate-700">
       <CardHeader>
@@ -239,7 +271,7 @@ export const CustomerManagementPanel = () => {
                     </div>
                   </div>
 
-                  {/* Customer Stats */}
+                  {/* Customer Stats & Actions */}
                   <div className="flex items-center gap-6 text-sm">
                     <div className="text-center">
                       <div className="text-white font-medium">{customer.total_strategies || 0}</div>
@@ -258,6 +290,47 @@ export const CustomerManagementPanel = () => {
                       </div>
                       <div className="text-slate-400">Last Active</div>
                     </div>
+                    
+                    {/* Delete Button */}
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-red-400 border-red-400 hover:bg-red-400/10 hover:text-red-300"
+                          disabled={deletingUserId === customer.id}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="bg-slate-800 border-slate-700">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="text-white">Delete User Account</AlertDialogTitle>
+                          <AlertDialogDescription className="text-slate-400">
+                            Are you sure you want to permanently delete this user account? This action will:
+                            <ul className="list-disc list-inside mt-2 space-y-1">
+                              <li>Remove the user from the authentication system</li>
+                              <li>Delete all their trading strategies and history</li>
+                              <li>Remove all their data and connections</li>
+                            </ul>
+                            <br />
+                            <strong className="text-red-400">This action cannot be undone.</strong>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel className="bg-slate-700 border-slate-600 text-white hover:bg-slate-600">
+                            Cancel
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => handleDeleteUser(customer.id)}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            disabled={deletingUserId === customer.id}
+                          >
+                            {deletingUserId === customer.id ? 'Deleting...' : 'Delete User'}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </div>
               ))}
