@@ -354,8 +354,9 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
     try {
       // Debug: Log what we're about to save
-      console.log('🔍 About to save strategy with formData:', formData);
-      console.log('🔍 AI Intelligence Config being saved:', formData.aiIntelligenceConfig);
+      console.log('🚨 STRATEGY_SAVE_DEBUG: About to save strategy with formData:', formData);
+      console.log('🚨 STRATEGY_SAVE_DEBUG: AI Intelligence Config being saved:', formData.aiIntelligenceConfig);
+      console.log('🚨 STRATEGY_SAVE_DEBUG: Confidence threshold value:', formData.aiIntelligenceConfig.aiConfidenceThreshold);
       
       const strategyData = {
         user_id: user.id,
@@ -369,10 +370,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         updated_at: new Date().toISOString()
       };
 
-      console.log('🔍 Full strategyData being sent to database:', strategyData);
+      console.log('🚨 STRATEGY_SAVE_DEBUG: Full strategyData being sent to database:', strategyData);
 
       if (isEditing && existingStrategy) {
-        console.log('🔍 Updating existing strategy with ID:', existingStrategy.id);
+        console.log('🚨 STRATEGY_SAVE_DEBUG: Updating existing strategy with ID:', existingStrategy.id);
         const { error } = await supabase
           .from('trading_strategies')
           .update(strategyData)
