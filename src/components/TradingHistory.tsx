@@ -436,19 +436,20 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                     {/* Amount */}
                     <div className="col-span-1">
                       <div className="text-slate-400 text-xs">Amount</div>
-                      <div className="font-medium">{trade.amount.toFixed(6)}</div>
+                      <div className="font-medium text-white">{trade.amount.toFixed(6)}</div>
+                      <div className="text-slate-400 text-xs">€{(trade.amount * trade.price).toFixed(2)}</div>
                     </div>
                     
                     {/* Purchase Price */}
                     <div className="col-span-1">
                       <div className="text-slate-400 text-xs">Purchase Price</div>
-                      <div className="font-medium">€{trade.price.toLocaleString()}</div>
+                      <div className="font-medium text-white">€{trade.price.toLocaleString()}</div>
                     </div>
                     
                     {/* Current Price */}
                     <div className="col-span-1">
                       <div className="text-slate-400 text-xs">Current Price</div>
-                      <div className="font-medium">€{performance.currentPrice.toLocaleString()}</div>
+                      <div className="font-medium text-white">€{performance.currentPrice.toLocaleString()}</div>
                     </div>
                     
                     {/* P&L */}

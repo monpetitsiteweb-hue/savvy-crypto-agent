@@ -717,27 +717,26 @@ export const ConversationPanel = () => {
 
       {/* Input - Fixed at bottom */}
       <div className="p-4 border-t border-slate-700 flex-shrink-0">
-        <div className="flex gap-3">
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder={testMode 
-              ? "🧪 TEST MODE: Try 'buy 1000 euros of BTC', 'change risk profile to high', or ask me anything about crypto trading..."
-              : "🚧 Enable Test Mode to try trading features safely. Ask me about strategy settings or trading advice..."
-            }
-            className="flex-1 min-h-[80px] max-h-[200px] bg-slate-700/50 border-slate-600 text-white placeholder-slate-400 resize-none text-base leading-relaxed p-4"
-            disabled={isLoading}
-          />
+        <div className="flex gap-3 items-end">
+          <div className="flex-1">
+            <Textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Message My Little AI Assistant..."
+              className="min-h-[60px] max-h-[120px] resize-none bg-slate-800/50 border-slate-600 text-white placeholder:text-slate-400 text-base leading-relaxed px-4 py-3"
+              disabled={isLoading}
+            />
+          </div>
           <Button 
             onClick={handleSend}
-            className="bg-green-500 hover:bg-green-600 text-white shrink-0 h-[80px] w-[80px] rounded-xl"
+            className="bg-green-500 hover:bg-green-600 text-white h-[60px] px-6"
             disabled={!input.trim() || isLoading}
           >
             {isLoading ? (
-              <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             ) : (
-              <Send className="w-6 h-6" />
+              <Send className="w-5 h-5" />
             )}
           </Button>
         </div>
