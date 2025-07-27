@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useTestMode } from './useTestMode';
 import { useAuth } from './useAuth';
 import { supabase } from '@/integrations/supabase/client';
