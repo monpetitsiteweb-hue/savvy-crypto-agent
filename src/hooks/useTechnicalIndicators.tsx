@@ -42,6 +42,8 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
   const [indicators, setIndicators] = useState<Record<string, IndicatorValues>>({});
   const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({});
   const [isLoadingHistoricalData, setIsLoadingHistoricalData] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
   const { marketData } = useRealTimeMarketData();
 
   // Bootstrap price history from existing price_data table on mount
@@ -141,6 +143,7 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         
       } catch (error) {
         console.error('❌ Failed to load historical price data:', error);
+        setError(error instanceof Error ? error.message : 'Failed to load price data');
       } finally {
         setIsLoadingHistoricalData(false);
       }
@@ -459,6 +462,7 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
     updateIndicatorConfig,
     getIndicatorSummary,
     priceHistory,
-    isLoadingHistoricalData
+    isLoadingHistoricalData,
+    error
   };
 };
