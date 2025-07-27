@@ -49,9 +49,36 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         setIsLoadingHistoricalData(true);
         const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
         
-        console.log('🔍 Loading recent price data for indicators...');
+        console.log('🔍 Loading cached indicators first...');
         
-        // Optimized: Fetch only last 50 points per symbol instead of 100
+        // Check for cached indicators first for instant loading
+        const { data: existingIndicators } = await supabase
+          .from('price_data')
+          .select('symbol, metadata')
+          .in('symbol', symbols)
+          .not('metadata->indicators', 'is', null)
+          .order('timestamp', { ascending: false })
+          .limit(symbols.length);
+        
+        // Load cached indicators instantly
+        if (existingIndicators && existingIndicators.length > 0) {
+          console.log('📊 Found cached indicators, loading instantly...');
+          const cachedIndicators: Record<string, any> = {};
+          existingIndicators.forEach(item => {
+            if (item.metadata && typeof item.metadata === 'object' && 'indicators' in item.metadata) {
+              cachedIndicators[item.symbol] = (item.metadata as any).indicators;
+            }
+          });
+          
+          if (Object.keys(cachedIndicators).length > 0) {
+            setIndicators(cachedIndicators);
+            setIsLoadingHistoricalData(false); // Stop loading state immediately
+            console.log('✅ Loaded cached indicators for:', Object.keys(cachedIndicators));
+          }
+        }
+        
+        // Fetch fresh price data in background for recalculation
+        console.log('🔍 Loading fresh price data for recalculation...');
         const pricePromises = symbols.map(async (symbol) => {
           const { data } = await supabase
             .from('price_data')
@@ -63,7 +90,7 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         });
         
         const allPriceData = (await Promise.all(pricePromises)).flat();
-        console.log(`📊 Fetched ${allPriceData.length} price data points from database`);
+        console.log(`📊 Fetched ${allPriceData.length} fresh price data points`);
         
         if (allPriceData.length > 0) {
           const historyBySymbol: Record<string, number[]> = {};
