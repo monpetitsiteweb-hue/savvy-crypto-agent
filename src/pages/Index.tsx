@@ -36,22 +36,6 @@ const Index = () => {
   useTestTrading();
   console.log('🔵 INDEX: After useTestTrading call');
 
-  // Auto-login as anonymous user if not authenticated
-  useEffect(() => {
-    const autoLogin = async () => {
-      if (!loading && !user) {
-        console.log('🔧 AUTO-LOGIN: Signing in anonymously');
-        const { error } = await supabase.auth.signInAnonymously();
-        if (error) {
-          console.error('🔧 AUTO-LOGIN: Failed:', error);
-        } else {
-          console.log('🔧 AUTO-LOGIN: Success');
-        }
-      }
-    };
-    autoLogin();
-  }, [loading, user]);
-
   if (loading || roleLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
