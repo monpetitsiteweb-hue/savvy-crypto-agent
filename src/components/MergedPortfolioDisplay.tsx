@@ -55,9 +55,8 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     }
   }, [testMode, user]);
 
-  // In test mode, use mock wallet data - prevent infinite loops
+  // In test mode, use mock wallet data
   useEffect(() => {
-    console.log('🧪 MergedPortfolioDisplay: Test mode:', testMode, 'Mock balances:', mockBalances);
     if (testMode && mockBalances && mockBalances.length > 0) {
       const mockPortfolio: PortfolioData = {
         accounts: mockBalances.map((balance) => ({
@@ -70,18 +69,15 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
           }
         }))
       };
-      console.log('📊 MergedPortfolioDisplay: Updating portfolio data with:', mockPortfolio);
       updatePortfolioData(mockPortfolio);
     }
-  }, [testMode, mockBalances]); // Removed updatePortfolioData to prevent infinite loop
+  }, [testMode, mockBalances, updatePortfolioData]);
 
-  // Fetch real-time prices every 60 seconds (less frequent to avoid rate limiting)
+  // Fetch real-time prices every 30 seconds
   useEffect(() => {
     const fetchPrices = async () => {
       try {
-        console.log('🔄 MergedPortfolioDisplay: Fetching prices...');
         const response = await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
-        console.log('📊 MergedPortfolioDisplay: Got response:', response);
         const prices: Record<string, number> = {};
         
         Object.entries(response).forEach(([symbol, data]) => {
@@ -89,17 +85,16 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
           prices[currency] = data.price;
         });
         
-        console.log('💰 MergedPortfolioDisplay: Setting prices:', prices);
         setRealTimePrices(prices);
       } catch (error) {
-        console.error('❌ MergedPortfolioDisplay: Error fetching real-time prices:', error);
+        console.error('Error fetching real-time prices:', error);
       }
     };
 
     fetchPrices();
-    const interval = setInterval(fetchPrices, 60000); // 60 seconds to avoid rate limiting
+    const interval = setInterval(fetchPrices, 30000);
     return () => clearInterval(interval);
-  }, []); // Removed getCurrentData to prevent infinite loop
+  }, [getCurrentData]);
 
   const fetchConnections = async () => {
     try {
@@ -148,7 +143,8 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     if (!testMode && selectedConnectionId && shouldRefresh()) {
       fetchProductionPortfolio();
     }
-  }, [selectedConnectionId, testMode]); // Removed shouldRefresh to prevent infinite loop
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConnectionId, testMode, shouldRefresh]);
 
   const getTotalPortfolioValue = () => {
     if (!portfolioData) return 0;

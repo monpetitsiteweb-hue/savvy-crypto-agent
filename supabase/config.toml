@@ -53,18 +53,3 @@ verify_jwt = false
 
 [functions.parse-strategy]
 verify_jwt = true
-
-[functions.bigquery-signal-generator]
-verify_jwt = true
-
-[functions.technical-signal-generator]
-verify_jwt = true
-
-[functions.eodhd-collector]
-verify_jwt = true
-
-[functions.crypto-news-collector]
-verify_jwt = true
-
-[functions.data-sync-scheduler]
-verify_jwt = true

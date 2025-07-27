@@ -336,57 +336,34 @@ async function getExecutionLog(supabaseClient: any, params: any) {
 
 function isSignalRelevantToStrategy(signal: any, strategyConfig: any) {
   const configuredSignals = strategyConfig?.signal_types || [];
-  const configuredSymbols = strategyConfig?.selectedCoins || strategyConfig?.symbols || [];
-  
-  console.log(`🔍 Checking signal relevance: Signal=${signal.signal_type}/${signal.symbol}, Strategy signals=${configuredSignals}, Strategy symbols=${configuredSymbols}`);
+  const configuredSymbols = strategyConfig?.symbols || [];
   
   // Check if signal type matches strategy configuration
-  // For now, accept all signals if no specific types configured
   const signalTypeMatch = configuredSignals.length === 0 || 
-    configuredSignals.some((type: string) => {
-      // More flexible matching - check if signal contains any configured type
-      const lowerSignal = signal.signal_type.toLowerCase();
-      const lowerType = type.toLowerCase();
-      return lowerSignal.includes(lowerType) || lowerType.includes(lowerSignal);
-    });
+    configuredSignals.some((type: string) => signal.signal_type.includes(type));
   
   // Check if symbol matches strategy configuration
-  // Accept signals for configured coins (BTC, ETH, etc.)
   const symbolMatch = configuredSymbols.length === 0 || 
-    configuredSymbols.some((coin: string) => {
-      const coinUpper = coin.toUpperCase();
-      const signalSymbol = signal.symbol.toUpperCase();
-      return signalSymbol === coinUpper || signalSymbol.includes(coinUpper);
-    });
+    configuredSymbols.some((symbol: string) => symbol.includes(signal.symbol));
   
-  const isRelevant = signalTypeMatch && symbolMatch;
-  console.log(`📊 Signal relevance result: ${isRelevant} (signalType: ${signalTypeMatch}, symbol: ${symbolMatch})`);
-  
-  return isRelevant;
+  return signalTypeMatch && symbolMatch;
 }
 
 function evaluateStrategyTrigger(signal: any, strategyConfig: any) {
-  // Use AI intelligence config if available, otherwise fallback to defaults
-  const aiConfig = strategyConfig?.aiIntelligenceConfig || {};
-  const confidenceThreshold = (aiConfig.aiConfidenceThreshold || 70) / 100; // Convert to decimal
-  const minimumStrength = 30; // Lower default minimum for more trades
+  const confidenceThreshold = strategyConfig?.confidence_threshold || 0.7;
+  const minimumStrength = strategyConfig?.minimum_signal_strength || 60;
   
   const signalConfidence = signal.signal_strength / 100;
   const meetsThreshold = signalConfidence >= confidenceThreshold;
   const meetsStrength = signal.signal_strength >= minimumStrength;
-  
-  console.log(`🎯 Evaluating signal: ${signal.signal_type} | Strength: ${signal.signal_strength}% | Confidence: ${(signalConfidence * 100).toFixed(1)}% | Required: ${(confidenceThreshold * 100).toFixed(1)}%`);
   
   const reasoning = [
     `Signal strength: ${signal.signal_strength}% (required: ${minimumStrength}%)`,
     `Confidence: ${(signalConfidence * 100).toFixed(1)}% (required: ${(confidenceThreshold * 100).toFixed(1)}%)`
   ];
 
-  const shouldExecute = meetsThreshold && meetsStrength;
-  console.log(`🚦 Execution decision: ${shouldExecute ? 'EXECUTE' : 'SKIP'} | Reason: ${reasoning.join('; ')}`);
-
   return {
-    execute: shouldExecute,
+    execute: meetsThreshold && meetsStrength,
     confidence: signalConfidence,
     reasoning: reasoning.join('; '),
     signal_type: signal.signal_type,

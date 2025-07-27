@@ -1,49 +1,46 @@
-import { useOptimizedTechnicalIndicators } from '@/hooks/useOptimizedTechnicalIndicators';
+import { useTechnicalIndicators } from '@/hooks/useTechnicalIndicators';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { TrendingUp, TrendingDown, Minus, Clock, Zap, RefreshCw } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Clock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 export const LiveIndicatorKPI = () => {
-  const renderStart = performance.now();
-  console.log('🚀 LiveIndicatorKPI component is rendering at:', renderStart, 'ms');
+  console.log('🚀 LiveIndicatorKPI component is rendering');
   
   const { activeStrategy } = useActiveStrategy();
   console.log('📋 Active strategy:', activeStrategy);
   
-  const hookCallStart = performance.now();
-  const { 
-    indicators, 
-    indicatorConfig, 
-    isLoadingHistoricalData, 
-    priceHistory, 
-    lastUpdated,
-    error,
-    refresh
-  } = useOptimizedTechnicalIndicators(activeStrategy?.configuration);
-  const hookCallEnd = performance.now();
-  console.log(`⚡ useOptimizedTechnicalIndicators hook call took: ${hookCallEnd - hookCallStart}ms`);
+  const { indicators, indicatorConfig, isLoadingHistoricalData, priceHistory } = useTechnicalIndicators(activeStrategy?.configuration);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
   
   console.log('📊 Technical indicators state:', {
     indicators: Object.keys(indicators),
-    indicatorsCount: Object.keys(indicators).length,
     isLoadingHistoricalData,
     priceHistorySymbols: Object.keys(priceHistory),
-    priceHistoryCount: Object.keys(priceHistory).length,
-    indicatorConfig,
-    lastUpdated: lastUpdated?.toISOString(),
-    error: error?.message
+    indicatorConfig
   });
+
+  // Auto-refresh timestamp every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLastUpdated(new Date());
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Update timestamp when indicators change
+  useEffect(() => {
+    if (Object.keys(indicators).length > 0) {
+      setLastUpdated(new Date());
+    }
+  }, [indicators]);
 
   const hasEnabledIndicators = Object.values(indicatorConfig).some(config => config.enabled);
   const hasIndicatorData = Object.keys(indicators).length > 0;
 
   console.log('🔍 Component state - activeStrategy:', !!activeStrategy, 'hasEnabledIndicators:', hasEnabledIndicators, 'hasIndicatorData:', hasIndicatorData);
-  
-  const renderEnd = performance.now();
-  console.log(`⏱️ LiveIndicatorKPI render cycle took: ${renderEnd - renderStart}ms`);
   
   if (!activeStrategy) {
     console.log('⚠️ No active strategy, showing placeholder');
@@ -112,33 +109,12 @@ export const LiveIndicatorKPI = () => {
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            {isLoadingHistoricalData ? (
-              <div className="flex items-center gap-2">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500"></div>
-                <span className="text-orange-600">Calculating...</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Zap className="h-5 w-5 text-green-500" />
-                <span>Live Technical Indicators</span>
-                <Badge variant="secondary" className="text-xs">Cached</Badge>
-              </div>
-            )}
+            <TrendingUp className="h-5 w-5" />
+            Live Technical Indicators
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost" 
-              size="sm"
-              onClick={() => refresh()}
-              disabled={isLoadingHistoricalData}
-              className="h-8 w-8 p-0"
-            >
-              <RefreshCw className={`h-3 w-3 ${isLoadingHistoricalData ? 'animate-spin' : ''}`} />
-            </Button>
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <Clock className="h-3 w-3" />
-              {lastUpdated ? lastUpdated.toLocaleTimeString() : 'Loading...'}
-            </div>
+          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+            <Clock className="h-3 w-3" />
+            {lastUpdated.toLocaleTimeString()}
           </div>
         </CardTitle>
       </CardHeader>
