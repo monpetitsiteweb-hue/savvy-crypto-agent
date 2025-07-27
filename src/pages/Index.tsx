@@ -32,6 +32,19 @@ const Index = () => {
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
   console.log('🔵 INDEX: Before useTestTrading call', { user: !!user, loading, testMode });
+  
+  // Force sign out any lingering anonymous sessions on component mount
+  useEffect(() => {
+    const clearBadSessions = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.is_anonymous) {
+        console.log('🧹 CLEANUP: Removing anonymous session');
+        await supabase.auth.signOut();
+      }
+    };
+    clearBadSessions();
+  }, []);
+  
   // Initialize test trading when component mounts
   useTestTrading();
   console.log('🔵 INDEX: After useTestTrading call');
