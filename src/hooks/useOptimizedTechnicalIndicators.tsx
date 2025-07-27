@@ -350,7 +350,7 @@ export const useOptimizedTechnicalIndicators = (strategyConfig?: any) => {
     priceHistory,
     isLoadingHistoricalData: isLoading,
     lastUpdated: dataUpdatedAt ? new Date(dataUpdatedAt) : new Date(),
-    error,
+    error: error ? error.message || 'Unknown error' : null,
     refresh: refetch
   };
 };
