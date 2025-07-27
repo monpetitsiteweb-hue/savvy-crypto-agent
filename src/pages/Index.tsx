@@ -31,8 +31,8 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
-  // Initialize test trading (must be at top level for hook rules)
-  useTestTrading();
+  // Temporarily disabled to fix hook rules violation
+  // useTestTrading();
 
   // Auto-login as anonymous user if not authenticated
   useEffect(() => {
