@@ -10,10 +10,20 @@ export const useTestTrading = () => {
   console.log('🚨 HOOK_INIT: useTestTrading hook is being called');
   
   const { testMode } = useTestMode();
+  console.log('🚨 HOOK_INIT: Got testMode:', testMode);
+  
   const { user } = useAuth();
+  console.log('🚨 HOOK_INIT: Got user:', !!user);
+  
   const { updateBalance, getBalance } = useMockWallet();
+  console.log('🚨 HOOK_INIT: Got mock wallet functions');
+  
   const { toast } = useToast();
+  console.log('🚨 HOOK_INIT: Got toast function');
+  
   const { marketData, getCurrentData } = useRealTimeMarketData();
+  console.log('🚨 HOOK_INIT: Got real time market data');
+  
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const lastPricesRef = useRef<any>({});
 
@@ -88,8 +98,16 @@ export const useTestTrading = () => {
   };
 
   const checkBuyConditions = (config: any, data: any, priceChange: number) => {
-    // Example: Buy when price drops by threshold percentage
-    const buyThreshold = config.buyThreshold || -5; // Default -5%
+    console.log('🚨 BUY_CHECK: Checking buy conditions', { priceChange, config });
+    
+    // Simple test condition: buy when price changes by any amount (for testing)
+    if (Math.abs(priceChange) > 0.1) { // Even 0.1% change triggers a buy for testing
+      console.log('🚨 BUY_CHECK: Buy condition met - price change:', priceChange);
+      return true;
+    }
+    
+    // Original condition as fallback
+    const buyThreshold = config.buyThreshold || -2; // Default -2% (less aggressive)
     return priceChange <= buyThreshold;
   };
 
