@@ -374,13 +374,21 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
       if (isEditing && existingStrategy) {
         console.log('🚨 STRATEGY_SAVE_DEBUG: Updating existing strategy with ID:', existingStrategy.id);
-        const { error } = await supabase
+        console.log('🚨 STRATEGY_SAVE_DEBUG: Strategy data being updated:', strategyData);
+        
+        const { data, error } = await supabase
           .from('trading_strategies')
           .update(strategyData)
           .eq('id', existingStrategy.id)
-          .eq('user_id', user.id);
+          .eq('user_id', user.id)
+          .select();
 
-        if (error) throw error;
+        console.log('🚨 STRATEGY_SAVE_DEBUG: Update result:', { data, error });
+        
+        if (error) {
+          console.error('🚨 STRATEGY_SAVE_DEBUG: Update failed with error:', error);
+          throw error;
+        }
         
         toast({
           title: "Strategy updated",
