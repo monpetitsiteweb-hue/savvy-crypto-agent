@@ -87,6 +87,8 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
   try {
     // Get active strategies for user based on mode
     const modeField = mode === 'live' ? 'is_active_live' : 'is_active_test';
+    console.log(`🔍 DEBUG: Looking for strategies with ${modeField} = true for user: ${userId}`);
+    
     const { data: strategies, error: strategiesError } = await supabaseClient
       .from('trading_strategies')
       .select('*')
@@ -98,11 +100,19 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
       throw strategiesError;
     }
 
+    console.log(`🎯 DEBUG: Found ${strategies?.length || 0} active strategies`);
+    if (strategies?.length > 0) {
+      console.log('📋 DEBUG: Strategy details:', JSON.stringify(strategies[0], null, 2));
+    }
+
     // Get recent unprocessed signals (last 30 minutes)
+    const timeThreshold = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    console.log(`🔍 DEBUG: Looking for signals after ${timeThreshold}`);
+    
     const { data: signals, error: signalsError } = await supabaseClient
       .from('live_signals')
       .select('*')
-      .gte('timestamp', new Date(Date.now() - 30 * 60 * 1000).toISOString())
+      .gte('timestamp', timeThreshold)
       .eq('processed', false)
       .order('timestamp', { ascending: false });
 
@@ -110,21 +120,38 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
       console.error('❌ Error fetching signals:', signalsError);
     }
 
+    console.log(`📊 DEBUG: Found ${signals?.length || 0} unprocessed signals`);
+    signals?.forEach((signal, idx) => {
+      console.log(`🎵 Signal ${idx + 1}: ${signal.symbol} - ${signal.signal_type} (strength: ${signal.signal_strength})`);
+    });
+
     const executionResults = [];
     
     for (const strategy of strategies || []) {
+      console.log(`🎯 Processing strategy: "${strategy.strategy_name}"`);
       const strategyConfig = strategy.configuration;
+      
+      console.log(`📋 DEBUG: Strategy config selectedCoins: ${JSON.stringify(strategyConfig?.selectedCoins)}`);
+      console.log(`📋 DEBUG: Strategy config aiConfidenceThreshold: ${strategyConfig?.aiIntelligenceConfig?.aiConfidenceThreshold}`);
+      console.log(`📋 DEBUG: Strategy config perTradeAllocation: ${strategyConfig?.perTradeAllocation}`);
+      
       const relevantSignals = (signals || []).filter(signal => 
         isSignalRelevantToStrategy(signal, strategyConfig)
       );
 
+      console.log(`🔍 DEBUG: Found ${relevantSignals.length} relevant signals for strategy "${strategy.strategy_name}"`);
+      
       if (relevantSignals.length > 0) {
         console.log(`🎯 Strategy "${strategy.strategy_name}" has ${relevantSignals.length} relevant signals`);
         
         for (const signal of relevantSignals) {
+          console.log(`🎵 Processing signal: ${signal.symbol} - ${signal.signal_type} (strength: ${signal.signal_strength})`);
+          
           const shouldExecute = evaluateStrategyTrigger(signal, strategyConfig);
+          console.log(`⚖️ DEBUG: Evaluation result for ${signal.symbol}:`, JSON.stringify(shouldExecute, null, 2));
           
           if (shouldExecute.execute) {
+            console.log(`✅ EXECUTING TRADE for ${signal.symbol} with strength ${signal.signal_strength}`);
             const execution = await executeStrategyFromSignal(
               supabaseClient, 
               strategy, 
@@ -132,6 +159,7 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
               shouldExecute, 
               mode
             );
+            console.log(`📈 Trade execution result:`, JSON.stringify(execution, null, 2));
             executionResults.push(execution);
             
             // Mark signal as processed
@@ -139,8 +167,12 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
               .from('live_signals')
               .update({ processed: true })
               .eq('id', signal.id);
+          } else {
+            console.log(`❌ SKIPPING trade for ${signal.symbol} - Reason: ${shouldExecute.reason || 'Not specified'}`);
           }
         }
+      } else {
+        console.log(`⚠️ No relevant signals found for strategy "${strategy.strategy_name}"`);
       }
     }
 
@@ -375,8 +407,20 @@ function isSignalRelevantToStrategy(signal: any, strategyConfig: any) {
 function evaluateStrategyTrigger(signal: any, strategyConfig: any) {
   // Use AI intelligence config if available, otherwise fallback to defaults
   const aiConfig = strategyConfig?.aiIntelligenceConfig || {};
-  const confidenceThreshold = (aiConfig.aiConfidenceThreshold || 70) / 100; // Convert to decimal
+  console.log(`🔍 DEBUG: aiConfig object:`, JSON.stringify(aiConfig, null, 2));
+  
+  // Fix: Properly read the confidence threshold from strategy config
+  const rawThreshold = aiConfig.aiConfidenceThreshold;
+  console.log(`🔍 DEBUG: Raw aiConfidenceThreshold from config: ${rawThreshold}`);
+  
+  // Convert to decimal - if value is already between 0-1, use as is, otherwise divide by 100
+  const confidenceThreshold = rawThreshold ? 
+    (rawThreshold > 1 ? rawThreshold / 100 : rawThreshold) : 
+    0.05; // Default to 5% instead of 70%
+    
   const minimumStrength = 30; // Lower default minimum for more trades
+  
+  console.log(`🔍 DEBUG: Final confidenceThreshold: ${confidenceThreshold} (${(confidenceThreshold * 100).toFixed(1)}%)`);
   
   const signalConfidence = signal.signal_strength / 100;
   const meetsThreshold = signalConfidence >= confidenceThreshold;
@@ -390,7 +434,7 @@ function evaluateStrategyTrigger(signal: any, strategyConfig: any) {
   ];
 
   const shouldExecute = meetsThreshold && meetsStrength;
-  console.log(`🚦 Execution decision: ${shouldExecute ? 'EXECUTE' : 'SKIP'} | Reason: ${reasoning.join('; ')}`);
+  console.log(`🚦 Execution decision: ${shouldExecute ? 'EXECUTE' : 'SKIP'} | Meets strength: ${meetsStrength} | Meets threshold: ${meetsThreshold}`);
 
   return {
     execute: shouldExecute,
@@ -398,7 +442,8 @@ function evaluateStrategyTrigger(signal: any, strategyConfig: any) {
     reasoning: reasoning.join('; '),
     signal_type: signal.signal_type,
     action: signal.signal_type.includes('bullish') ? 'buy' : 
-            signal.signal_type.includes('bearish') ? 'sell' : 'hold'
+            signal.signal_type.includes('bearish') ? 'sell' : 
+            signal.signal_type.includes('news') ? 'buy' : 'hold' // News signals should trigger buys
   };
 }
 
@@ -532,6 +577,17 @@ async function executeTrade(supabaseClient: any, tradeData: any) {
     }
   }
 
+  console.log(`💰 DEBUG: Creating ${mode} trade with data:`, JSON.stringify({
+    user_id: trade.user_id,
+    strategy_id: trade.strategy_id,
+    cryptocurrency: trade.cryptocurrency,
+    trade_type: trade.trade_type,
+    amount: trade.amount,
+    price: trade.price,
+    total_value: trade.total_value,
+    perTradeAllocation: strategy.configuration?.perTradeAllocation
+  }, null, 2));
+
   const { data: tradeResult, error } = await supabaseClient
     .from('mock_trades')
     .insert([trade])
@@ -539,11 +595,13 @@ async function executeTrade(supabaseClient: any, tradeData: any) {
     .single();
 
   if (error) {
-    console.error('❌ Error inserting trade:', error);
+    console.error('❌ CRITICAL: Error inserting trade into mock_trades:', JSON.stringify(error, null, 2));
+    console.error('❌ CRITICAL: Failed trade object:', JSON.stringify(trade, null, 2));
     throw error;
   }
 
-  console.log(`✅ ${mode === 'live' ? 'Live' : 'Mock'} trade executed: ${trade.trade_type} ${trade.cryptocurrency} at ${price} | Risk: ${riskCheck.riskLevel}`);
+  console.log(`✅ TRADE CREATED SUCCESSFULLY: ${mode === 'live' ? 'Live' : 'Mock'} trade executed`);
+  console.log(`📊 Trade ID: ${tradeResult.id} | Action: ${trade.trade_type} | Symbol: ${trade.cryptocurrency} | Amount: ${trade.amount} | Price: ${price} | Value: €${trade.total_value}`);
   
   return {
     trade_id: tradeResult.id,
