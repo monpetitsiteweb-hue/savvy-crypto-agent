@@ -34,10 +34,19 @@ interface TradingHistoryProps {
 }
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
+  console.log('🔍 TradingHistory: Render with props:', { hasActiveStrategy, testMode: undefined });
+  
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { toast } = useToast();
   const { getTotalValue } = useMockWallet();
+  
+  console.log('🔍 TradingHistory: Component state:', { 
+    user: !!user, 
+    userId: user?.id, 
+    testMode, 
+    hasActiveStrategy 
+  });
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -239,13 +248,23 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Show empty state only for test mode with no trades
-  if (trades.length === 0 && !loading && testMode) {
+  // Show empty state only when there's truly no active strategy AND no trades
+  if (trades.length === 0 && !loading && testMode && !hasActiveStrategy) {
     return (
       <NoActiveStrategyState 
         onCreateStrategy={onCreateStrategy}
         className="min-h-[400px]"
       />
+    );
+  }
+
+  // Show message when strategy is active but no trades yet
+  if (trades.length === 0 && !loading && testMode && hasActiveStrategy) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-slate-400 mb-2">Strategy is active - waiting for trade opportunities...</div>
+        <div className="text-sm text-slate-500">Trades will appear here when conditions are met</div>
+      </div>
     );
   }
 

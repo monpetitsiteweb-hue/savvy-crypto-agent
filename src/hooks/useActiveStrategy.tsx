@@ -55,12 +55,15 @@ export const useActiveStrategy = () => {
       
       console.log('🔍 Now querying for active strategy with:', activeField, '= true');
       
-      const { data, error } = await supabase
+      const { data: strategies, error } = await supabase
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
         .eq(activeField, true)
-        .maybeSingle(); // Use maybeSingle instead of single to avoid errors
+        .order('created_at', { ascending: false })
+        .limit(1);
+        
+      const data = strategies?.[0] || null;
         
       console.log('📊 Active strategy query result:', { data, error });
       console.log('📊 Active strategy data:', data);
