@@ -240,6 +240,8 @@ export const useTestTrading = () => {
 
   useEffect(() => {
     console.log('🔧 useTestTrading useEffect triggered', { testMode, user: !!user });
+    console.log('🔧 Test mode value:', testMode);
+    console.log('🔧 User object:', user ? 'exists' : 'null');
     
     if (testMode && user) {
       console.log('🔧 Starting test trading monitoring');
