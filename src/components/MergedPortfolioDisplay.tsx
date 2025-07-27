@@ -151,7 +151,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
   }, [selectedConnectionId, testMode]); // Removed shouldRefresh to prevent infinite loop
 
   const getTotalPortfolioValue = () => {
-    if (!portfolioData) return 0;
+    if (!portfolioData || !portfolioData.accounts) return 0;
     
     return portfolioData.accounts.reduce((total, account) => {
       const balance = parseFloat(account.available_balance.value);
