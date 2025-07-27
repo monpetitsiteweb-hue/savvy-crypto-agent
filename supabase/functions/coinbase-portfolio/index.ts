@@ -101,16 +101,154 @@ serve(async (req) => {
     
     // Check if it's OAuth or API key connection
     if (connection.access_token_encrypted) {
-      // OAuth connection - implement OAuth flow
+      // OAuth connection - implement token refresh logic
       console.log('Using OAuth connection');
-      return new Response(JSON.stringify({ 
-        success: true,
-        message: 'OAuth connection detected - portfolio fetching will be implemented next',
-        connectionType: 'oauth',
-        connectionId: connection.id
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      
+      // Check if token is expired
+      const now = new Date();
+      const expiresAt = new Date(connection.expires_at);
+      const isExpired = now >= expiresAt;
+      
+      console.log('Token expiry check:', {
+        now: now.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        isExpired: isExpired
       });
+      
+      let accessToken = connection.access_token_encrypted;
+      
+      if (isExpired) {
+        console.log('Access token expired, attempting refresh...');
+        
+        if (!connection.refresh_token_encrypted) {
+          console.error('No refresh token available');
+          return new Response(JSON.stringify({ 
+            error: 'Authentication expired',
+            message: 'Please reconnect your Coinbase account',
+            needsReconnection: true
+          }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        try {
+          // Get OAuth credentials
+          const { data: oauthCredsArray } = await supabaseClient
+            .rpc('get_active_oauth_credentials');
+          
+          if (!oauthCredsArray || oauthCredsArray.length === 0) {
+            throw new Error('OAuth credentials not configured');
+          }
+          
+          const oauthCreds = oauthCredsArray[0];
+          const clientId = oauthCreds.client_id_encrypted;
+          
+          // Get client secret from Supabase secrets
+          const clientSecret = Deno.env.get('COINBASE_CLIENT_SECRET');
+          if (!clientSecret) {
+            throw new Error('COINBASE_CLIENT_SECRET not configured');
+          }
+          
+          // Refresh the token
+          const refreshResponse = await fetch('https://api.coinbase.com/oauth/token', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+              grant_type: 'refresh_token',
+              refresh_token: connection.refresh_token_encrypted,
+              client_id: clientId,
+              client_secret: clientSecret,
+            }),
+          });
+          
+          if (!refreshResponse.ok) {
+            const errorData = await refreshResponse.text();
+            console.error('Token refresh failed:', errorData);
+            throw new Error(`Token refresh failed: ${refreshResponse.status}`);
+          }
+          
+          const tokenData = await refreshResponse.json();
+          console.log('Token refresh successful');
+          
+          // Update the connection with new tokens
+          const newExpiresAt = new Date(Date.now() + (tokenData.expires_in * 1000));
+          
+          const { error: updateError } = await supabaseClient
+            .from('user_coinbase_connections')
+            .update({
+              access_token_encrypted: tokenData.access_token,
+              refresh_token_encrypted: tokenData.refresh_token || connection.refresh_token_encrypted,
+              expires_at: newExpiresAt.toISOString(),
+              last_sync: new Date().toISOString()
+            })
+            .eq('id', connection.id);
+          
+          if (updateError) {
+            console.error('Failed to update connection:', updateError);
+            throw new Error('Failed to save new tokens');
+          }
+          
+          accessToken = tokenData.access_token;
+          console.log('Token refreshed and saved successfully');
+          
+        } catch (refreshError) {
+          console.error('Token refresh error:', refreshError);
+          return new Response(JSON.stringify({ 
+            error: 'Failed to refresh authentication',
+            message: 'Please reconnect your Coinbase account',
+            needsReconnection: true,
+            details: refreshError instanceof Error ? refreshError.message : 'Unknown error'
+          }), {
+            status: 401,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+      
+      // Now make the actual API call with valid token
+      try {
+        const coinbaseResponse = await fetch('https://api.coinbase.com/v2/accounts', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!coinbaseResponse.ok) {
+          const errorData = await coinbaseResponse.text();
+          console.error('Coinbase API error:', errorData);
+          throw new Error(`Coinbase API error: ${coinbaseResponse.status}`);
+        }
+        
+        const portfolioData = await coinbaseResponse.json();
+        console.log('Successfully fetched portfolio data');
+        
+        return new Response(JSON.stringify({ 
+          success: true,
+          message: `Successfully fetched ${portfolioData.data?.length || 0} accounts from Coinbase`,
+          accounts: portfolioData.data,
+          connectionType: 'oauth',
+          connectionId: connection.id,
+          tokenWasRefreshed: isExpired
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+        
+      } catch (apiError) {
+        console.error('Coinbase API call failed:', apiError);
+        return new Response(JSON.stringify({ 
+          error: 'Failed to fetch portfolio',
+          details: apiError instanceof Error ? apiError.message : 'Unknown error',
+          connectionType: 'oauth'
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     } else if (connection.api_identifier_encrypted && connection.api_private_key_encrypted) {
       // API key connection - check if it's Ed25519 or ECDSA
       console.log('Using API key connection');
