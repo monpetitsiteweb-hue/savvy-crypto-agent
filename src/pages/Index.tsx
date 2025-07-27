@@ -34,21 +34,21 @@ const Index = () => {
   // Temporarily disabled to fix hook rules violation
   // useTestTrading();
 
-  // Auto-login as anonymous user if not authenticated
-  useEffect(() => {
-    const autoLogin = async () => {
-      if (!loading && !user) {
-        console.log('🔧 AUTO-LOGIN: Signing in anonymously');
-        const { error } = await supabase.auth.signInAnonymously();
-        if (error) {
-          console.error('🔧 AUTO-LOGIN: Failed:', error);
-        } else {
-          console.log('🔧 AUTO-LOGIN: Success');
-        }
-      }
-    };
-    autoLogin();
-  }, [loading, user]);
+  // Auto-login disabled since anonymous auth is disabled
+  // useEffect(() => {
+  //   const autoLogin = async () => {
+  //     if (!loading && !user) {
+  //       console.log('🔧 AUTO-LOGIN: Signing in anonymously');
+  //       const { error } = await supabase.auth.signInAnonymously();
+  //       if (error) {
+  //         console.error('🔧 AUTO-LOGIN: Failed:', error);
+  //       } else {
+  //         console.log('🔧 AUTO-LOGIN: Success');
+  //       }
+  //     }
+  //   };
+  //   autoLogin();
+  // }, [loading, user]);
 
   if (loading || roleLoading) {
     return (
