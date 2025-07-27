@@ -118,6 +118,11 @@ export const useTestTrading = () => {
   };
 
   const executeTrade = async (strategy: any, action: 'buy' | 'sell', cryptocurrency: string, price: number) => {
+    if (!user?.id) {
+      console.error('🚨 TRADE_EXECUTION: Cannot execute trade - no authenticated user');
+      return;
+    }
+
     const config = strategy.configuration;
     const tradeAmount = config.tradeAmount || 0.001; // Default trade amount
 
@@ -131,6 +136,7 @@ export const useTestTrading = () => {
         
         await recordTrade({
           strategy_id: strategy.id,
+          user_id: user.id, // Always use authenticated user ID
           trade_type: 'buy',
           cryptocurrency,
           amount: tradeAmount,
@@ -154,6 +160,7 @@ export const useTestTrading = () => {
         
         await recordTrade({
           strategy_id: strategy.id,
+          user_id: user.id, // Always use authenticated user ID
           trade_type: 'sell',
           cryptocurrency,
           amount: tradeAmount,
@@ -209,22 +216,24 @@ export const useTestTrading = () => {
 
   const recordTrade = async (tradeData: any) => {
     try {
-      console.log('🚨 TRADE_DEBUG: Recording trade to mock_trades only:', tradeData);
-      console.log('🚨 TRADE_DEBUG: User ID:', user?.id);
+      console.log('🚨 TRADE_RECORDING: Recording trade with user_id:', tradeData.user_id);
       
-      if (!user?.id) {
-        console.error('🚨 TRADE_DEBUG: No user ID available');
-        throw new Error('User ID required for trade recording');
+      if (!tradeData.user_id) {
+        throw new Error('user_id is required for trade recording');
+      }
+      
+      if (!tradeData.strategy_id) {
+        throw new Error('strategy_id is required for trade recording');
       }
 
       // Calculate P&L for the trade
       const profit_loss = tradeData.trade_type === 'sell' 
-        ? (tradeData.total_value * 0.02) // Simulate 2% profit for sells
-        : -(tradeData.total_value * 0.01); // Simulate 1% loss for buys initially
+        ? (tradeData.total_value * 0.02) // 2% profit for sells
+        : -(tradeData.total_value * 0.01); // 1% loss for buys
 
       const mockTradeData = {
         strategy_id: tradeData.strategy_id,
-        user_id: user.id,
+        user_id: tradeData.user_id,
         trade_type: tradeData.trade_type,
         cryptocurrency: tradeData.cryptocurrency,
         amount: tradeData.amount,
@@ -238,20 +247,21 @@ export const useTestTrading = () => {
         executed_at: new Date().toISOString()
       };
 
-      console.log('🚨 TRADE_DEBUG: Inserting mock trade:', mockTradeData);
+      console.log('🚨 TRADE_RECORDING: Final trade data:', mockTradeData);
+      
       const { error } = await supabase
         .from('mock_trades')
         .insert(mockTradeData);
 
       if (error) {
-        console.error('🚨 TRADE_DEBUG: Error inserting into mock_trades:', error);
+        console.error('🚨 TRADE_RECORDING: Database error:', error);
         throw error;
       }
       
-      console.log('🚨 TRADE_DEBUG: Successfully inserted trade with strategy_id:', tradeData.strategy_id);
+      console.log('✅ TRADE_RECORDING: Successfully saved trade');
 
     } catch (error) {
-      console.error('Error recording trade:', error);
+      console.error('❌ TRADE_RECORDING: Failed to record trade:', error);
       throw error;
     }
   };
