@@ -6,28 +6,39 @@ import { TrendingUp, TrendingDown, Minus, Clock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 export const LiveIndicatorKPI = () => {
-  console.log('🚀 LiveIndicatorKPI component is rendering');
+  const renderStart = performance.now();
+  console.log('🚀 LiveIndicatorKPI component is rendering at:', renderStart, 'ms');
   
   const { activeStrategy } = useActiveStrategy();
   console.log('📋 Active strategy:', activeStrategy);
   
+  const hookCallStart = performance.now();
   const { indicators, indicatorConfig, isLoadingHistoricalData, priceHistory } = useTechnicalIndicators(activeStrategy?.configuration);
+  const hookCallEnd = performance.now();
+  console.log(`⏱️ useTechnicalIndicators hook call took: ${hookCallEnd - hookCallStart}ms`);
+  
   const [lastUpdated, setLastUpdated] = useState(new Date());
   
   console.log('📊 Technical indicators state:', {
     indicators: Object.keys(indicators),
+    indicatorsCount: Object.keys(indicators).length,
     isLoadingHistoricalData,
     priceHistorySymbols: Object.keys(priceHistory),
+    priceHistoryCount: Object.keys(priceHistory).length,
     indicatorConfig
   });
 
   // Auto-refresh timestamp every 10 seconds
   useEffect(() => {
+    console.log('⏱️ Setting up auto-refresh interval');
     const interval = setInterval(() => {
       setLastUpdated(new Date());
     }, 10000);
 
-    return () => clearInterval(interval);
+    return () => {
+      console.log('⏱️ Cleaning up auto-refresh interval');
+      clearInterval(interval);
+    };
   }, []);
 
   // Update timestamp when indicators change
@@ -41,6 +52,9 @@ export const LiveIndicatorKPI = () => {
   const hasIndicatorData = Object.keys(indicators).length > 0;
 
   console.log('🔍 Component state - activeStrategy:', !!activeStrategy, 'hasEnabledIndicators:', hasEnabledIndicators, 'hasIndicatorData:', hasIndicatorData);
+  
+  const renderEnd = performance.now();
+  console.log(`⏱️ LiveIndicatorKPI render cycle took: ${renderEnd - renderStart}ms`);
   
   if (!activeStrategy) {
     console.log('⚠️ No active strategy, showing placeholder');
