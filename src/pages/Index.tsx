@@ -22,6 +22,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 const Index = () => {
+  console.log('🔵 INDEX: Component rendering started');
   const { user, loading } = useAuth();
   const { role, loading: roleLoading } = useUserRole();
   const { testMode, setTestMode } = useTestMode();
@@ -29,8 +30,10 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
+  console.log('🔵 INDEX: Before useTestTrading call', { user: !!user, loading, testMode });
   // Initialize test trading when component mounts
   useTestTrading();
+  console.log('🔵 INDEX: After useTestTrading call');
 
   if (loading || roleLoading) {
     return (
