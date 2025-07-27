@@ -34,7 +34,7 @@ export const LiveIndicatorKPI = () => {
     priceHistoryCount: Object.keys(priceHistory).length,
     indicatorConfig,
     lastUpdated: lastUpdated?.toISOString(),
-    error
+    error: error?.message
   });
 
   const hasEnabledIndicators = Object.values(indicatorConfig).some(config => config.enabled);

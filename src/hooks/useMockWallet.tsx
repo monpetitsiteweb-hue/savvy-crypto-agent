@@ -26,8 +26,6 @@ const MockWalletContext = createContext<MockWalletContextType | undefined>(undef
 export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
   const { testMode } = useTestMode();
   const { user } = useAuth();
-  
-  // Always call the hook to maintain hook order, but it will be safe when user is null
   const { marketData, getCurrentData } = useRealTimeMarketData();
   const [balances, setBalances] = useState<WalletBalance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -64,11 +62,10 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       }
     };
 
-    // Only fetch market data when both testMode is enabled AND user exists
-    if (testMode && user) {
+    if (testMode) {
       updatePrices();
     }
-  }, [testMode, user, marketData, getCurrentData]);
+  }, [testMode, marketData, getCurrentData]);
 
   const refreshFromDatabase = async () => {
     if (!testMode || !user) return;
@@ -297,10 +294,5 @@ export const useMockWallet = () => {
   if (context === undefined) {
     throw new Error('useMockWallet must be used within a MockWalletProvider');
   }
-  return context;
-};
-
-export const useMockWalletSafe = () => {
-  const context = useContext(MockWalletContext);
   return context;
 };

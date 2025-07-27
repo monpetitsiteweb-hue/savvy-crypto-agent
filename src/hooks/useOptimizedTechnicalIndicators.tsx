@@ -250,21 +250,7 @@ export const useOptimizedTechnicalIndicators = (strategyConfig?: any) => {
     }
   }, [strategyConfig]);
 
-  // Memoize price history for real-time updates
-  const priceHistory = useMemo(() => {
-    const history: Record<string, number[]> = {};
-    if (marketData) {
-      Object.entries(marketData).forEach(([symbol, data]: [string, any]) => {
-        if (data.price && SYMBOLS.includes(symbol)) {
-          // Store minimal real-time price data
-          history[symbol] = [data.price];
-        }
-      });
-    }
-    return history;
-  }, [marketData]);
-
-  // Use React Query for persistent caching across page navigation with automatic refresh
+  // Use React Query for persistent caching across page navigation
   const {
     data: indicators = {},
     isLoading,
@@ -279,37 +265,21 @@ export const useOptimizedTechnicalIndicators = (strategyConfig?: any) => {
     refetchOnWindowFocus: false,
     refetchOnMount: false, // Don't refetch when component mounts if data exists
     refetchOnReconnect: false,
-    refetchInterval: 15 * 1000, // Auto-refresh every 15 seconds in background
-    refetchIntervalInBackground: true, // Continue refreshing even when tab is not active
   });
 
-  // Auto-refresh when new market data comes in (throttled)
-  useEffect(() => {
-    if (!marketData) return;
-    
-    const hasSignificantPriceChange = Object.entries(marketData).some(([symbol, data]: [string, any]) => {
-      if (!SYMBOLS.includes(symbol) || !data.price) return false;
-      
-      // Check if price changed significantly (>0.1%) since last update
-      const currentPrice = data.price;
-      const lastKnownPrice = priceHistory[symbol]?.[0];
-      
-      if (!lastKnownPrice) return true; // First time seeing this price
-      
-      const priceChangePercent = Math.abs((currentPrice - lastKnownPrice) / lastKnownPrice) * 100;
-      return priceChangePercent > 0.1; // Refresh if price changed by more than 0.1%
-    });
-
-    if (hasSignificantPriceChange) {
-      console.log('🔄 Significant price change detected, refreshing indicators...');
-      // Debounce the refresh to avoid too many calls
-      const timeoutId = setTimeout(() => {
-        refetch();
-      }, 2000); // Wait 2 seconds before refreshing
-
-      return () => clearTimeout(timeoutId);
+  // Memoize price history for real-time updates
+  const priceHistory = useMemo(() => {
+    const history: Record<string, number[]> = {};
+    if (marketData) {
+      Object.entries(marketData).forEach(([symbol, data]: [string, any]) => {
+        if (data.price && SYMBOLS.includes(symbol)) {
+          // Store minimal real-time price data
+          history[symbol] = [data.price];
+        }
+      });
     }
-  }, [marketData, priceHistory, refetch]);
+    return history;
+  }, [marketData]);
 
   const updateIndicatorConfig = (updates: Partial<IndicatorConfig>) => {
     setIndicatorConfig(prev => ({
@@ -350,7 +320,7 @@ export const useOptimizedTechnicalIndicators = (strategyConfig?: any) => {
     priceHistory,
     isLoadingHistoricalData: isLoading,
     lastUpdated: dataUpdatedAt ? new Date(dataUpdatedAt) : new Date(),
-    error: error ? error.message || 'Unknown error' : null,
+    error,
     refresh: refetch
   };
 };

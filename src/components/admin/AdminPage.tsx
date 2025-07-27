@@ -1,13 +1,12 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Shield, Settings, Database, Bot, Zap, Brain, Users } from 'lucide-react';
+import { Shield, Settings, Database, Bot, Zap, Brain } from 'lucide-react';
 import { CoinbaseOAuthPanel } from './CoinbaseOAuthPanel';
 import { CoinbaseSandboxPanel } from './CoinbaseSandboxPanel';
 import { LLMConfigPanel } from './LLMConfigPanel';
 import { DataSourcesPanel } from './DataSourcesPanel';
 import { AILearningPanel } from './AILearningPanel';
-import { CustomerManagementPanel } from './CustomerManagementPanel';
 import { Header } from '../Header';
 import { Footer } from '../Footer';
 
@@ -30,45 +29,29 @@ export const AdminPage = () => {
           </div>
 
           {/* Admin Tabs */}
-          <Tabs defaultValue="customers" className="space-y-6">
-            <TabsList className="w-full bg-slate-800 overflow-x-auto">
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-1 min-w-full">{/* Gap for smaller screens */}
-                <TabsTrigger value="customers" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
-                  <Users className="w-4 h-4" />
-                  <span className="hidden sm:inline">Customers</span>
-                  <span className="sm:hidden">Users</span>
-                </TabsTrigger>
-                <TabsTrigger value="llm" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
-                  <Bot className="w-4 h-4" />
-                  <span className="hidden sm:inline">AI Config</span>
-                  <span className="sm:hidden">AI</span>
-                </TabsTrigger>
-                <TabsTrigger value="learning" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
-                  <Brain className="w-4 h-4" />
-                  <span className="hidden sm:inline">AI Learning</span>
-                  <span className="sm:hidden">Learn</span>
-                </TabsTrigger>
-                <TabsTrigger value="data" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
-                  <Database className="w-4 h-4" />
-                  <span className="hidden sm:inline">Data Sources</span>
-                  <span className="sm:hidden">Data</span>
-                </TabsTrigger>
-                <TabsTrigger value="coinbase" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
-                  <Zap className="w-4 h-4" />
-                  <span className="hidden sm:inline">Coinbase OAuth</span>
-                  <span className="sm:hidden">OAuth</span>
-                </TabsTrigger>
-                <TabsTrigger value="sandbox" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
-                  <Settings className="w-4 h-4" />
-                  <span className="hidden sm:inline">Sandbox API</span>
-                  <span className="sm:hidden">API</span>
-                </TabsTrigger>
-              </div>
+          <Tabs defaultValue="llm" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-5 bg-slate-800">
+              <TabsTrigger value="llm" className="flex items-center gap-2">
+                <Bot className="w-4 h-4" />
+                AI Configuration
+              </TabsTrigger>
+              <TabsTrigger value="learning" className="flex items-center gap-2">
+                <Brain className="w-4 h-4" />
+                AI Learning
+              </TabsTrigger>
+              <TabsTrigger value="data" className="flex items-center gap-2">
+                <Database className="w-4 h-4" />
+                Data Sources
+              </TabsTrigger>
+              <TabsTrigger value="coinbase" className="flex items-center gap-2">
+                <Zap className="w-4 h-4" />
+                Coinbase OAuth
+              </TabsTrigger>
+              <TabsTrigger value="sandbox" className="flex items-center gap-2">
+                <Settings className="w-4 h-4" />
+                Sandbox API
+              </TabsTrigger>
             </TabsList>
-
-            <TabsContent value="customers">
-              <CustomerManagementPanel />
-            </TabsContent>
 
             <TabsContent value="llm">
               <LLMConfigPanel />
