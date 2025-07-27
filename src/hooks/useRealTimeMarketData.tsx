@@ -23,15 +23,39 @@ interface UseRealTimeMarketDataReturn {
   getCurrentData: (symbols: string[]) => Promise<Record<string, MarketData>>;
 }
 
+// Singleton pattern to prevent multiple instances from fetching simultaneously
+let isCurrentlyFetching = false;
+let globalMarketData: Record<string, MarketData> = {};
+let marketDataSubscribers: Set<(data: Record<string, MarketData>) => void> = new Set();
+
 export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
-  const [marketData, setMarketData] = useState<Record<string, MarketData>>({});
+  const [marketData, setMarketData] = useState<Record<string, MarketData>>(globalMarketData);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ws, setWs] = useState<WebSocket | null>(null);
 
+  // Subscribe to global market data updates
+  useEffect(() => {
+    const subscriber = (data: Record<string, MarketData>) => {
+      setMarketData(data);
+    };
+    marketDataSubscribers.add(subscriber);
+    
+    return () => {
+      marketDataSubscribers.delete(subscriber);
+    };
+  }, []);
+
   const getCurrentData = useCallback(async (symbols: string[]): Promise<Record<string, MarketData>> => {
+    // Prevent multiple simultaneous fetches
+    if (isCurrentlyFetching) {
+      console.log('📈 Already fetching data, returning cached data');
+      return globalMarketData;
+    }
+    
+    isCurrentlyFetching = true;
+    
     try {
-      // Use a direct API call to a reliable crypto price source as fallback
       console.log('🔍 Fetching current market data for symbols:', symbols);
       
       // Add delay between requests to avoid rate limiting
@@ -82,15 +106,20 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
 
       console.log('📈 Fetched market data:', marketDataMap);
       
-      // Update local state with current data
-      setMarketData(prev => ({ ...prev, ...marketDataMap }));
-      setError(null);
+      // Update global state
+      globalMarketData = { ...globalMarketData, ...marketDataMap };
       
+      // Notify all subscribers
+      marketDataSubscribers.forEach(subscriber => subscriber(globalMarketData));
+      
+      setError(null);
       return marketDataMap;
     } catch (err) {
       console.error('Error in getCurrentData:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
       return {};
+    } finally {
+      isCurrentlyFetching = false;
     }
   }, []);
 
@@ -117,22 +146,24 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
     };
   }, []);
 
-  // TEMPORARILY DISABLED to fix infinite API loop
-  // Get initial data on mount and update less frequently to avoid rate limiting
-  // useEffect(() => {
-  //   const fetchData = async () => {
-  //     await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
-  //   };
-  //   
-  //   fetchData();
-  //   
-  //   // Update data every 30 seconds to avoid rate limiting
-  //   const intervalId = setInterval(() => {
-  //     fetchData();
-  //   }, 30000); // 30 seconds to avoid rate limiting
+  // Re-enabled with singleton protection to prevent multiple simultaneous fetches
+  useEffect(() => {
+    // Only the first instance should start the fetching interval
+    if (marketDataSubscribers.size === 1) {
+      const fetchData = async () => {
+        await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
+      };
+      
+      fetchData();
+      
+      // Update data every 30 seconds to avoid rate limiting
+      const intervalId = setInterval(() => {
+        fetchData();
+      }, 30000); // 30 seconds to avoid rate limiting
 
-  //   return () => clearInterval(intervalId);
-  // }, []); // Remove getCurrentData from dependencies to prevent infinite loop
+      return () => clearInterval(intervalId);
+    }
+  }, [getCurrentData]);
 
   return {
     marketData,
