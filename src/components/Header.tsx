@@ -80,8 +80,8 @@ export const Header = () => {
         <div className="flex items-center justify-between">
           {/* Logo */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
-            <div className="w-8 h-8 md:w-10 md:h-10 bg-green-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm md:text-lg">AI</span>
+            <div className="w-10 h-10 md:w-12 md:h-12 bg-green-500 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold text-base md:text-xl">AI</span>
             </div>
             <div className="hidden sm:block">
               <h1 className="text-lg md:text-xl font-bold text-white">My Little AI Assistant</h1>
@@ -210,7 +210,7 @@ export const Header = () => {
               onClick={() => setShowMobileMenu(!showMobileMenu)}
               className="text-slate-300 hover:text-white"
             >
-              {showMobileMenu ? <X className="w-8 h-8" /> : <Menu className="w-8 h-8" />}
+              {showMobileMenu ? <X className="w-10 h-10" /> : <Menu className="w-10 h-10" />}
             </Button>
           </div>
         </div>

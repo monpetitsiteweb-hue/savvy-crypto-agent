@@ -404,29 +404,33 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
           {strategies.map((strategy) => (
             <Card key={strategy.id} className="hover:shadow-md transition-shadow">
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
+                <div>
+                  <div className="mb-3">
+                    <CardTitle className="text-lg font-semibold">
                       {strategy.strategy_name}
-                      {testMode ? (
-                        strategy.is_active_test ? (
-                          <Badge variant="default" className="bg-green-500">Test Active</Badge>
-                        ) : (
-                          <Badge variant="outline">Test Inactive</Badge>
-                        )
-                      ) : (
-                        strategy.is_active_live ? (
-                          <Badge variant="default" className="bg-green-500">Live Active</Badge>
-                        ) : (
-                          <Badge variant="outline">Live Inactive</Badge>
-                        )
-                      )}
                     </CardTitle>
+                  </div>
+                  <div className="mb-3">
                     <p className="text-sm text-muted-foreground">
                       {strategy.description || 'No description provided'}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="mb-3">
+                    {testMode ? (
+                      strategy.is_active_test ? (
+                        <Badge variant="default" className="bg-green-500">Test Active</Badge>
+                      ) : (
+                        <Badge variant="outline">Test Inactive</Badge>
+                      )
+                    ) : (
+                      strategy.is_active_live ? (
+                        <Badge variant="default" className="bg-green-500">Live Active</Badge>
+                      ) : (
+                        <Badge variant="outline">Live Inactive</Badge>
+                      )
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"

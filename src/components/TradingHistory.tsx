@@ -436,7 +436,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                     {/* Amount */}
                     <div className="col-span-1">
                       <div className="text-slate-400 text-xs">Amount</div>
-                      <div className="font-medium text-white">{trade.amount.toFixed(6)}</div>
+                      <div className="font-medium text-white">{trade.amount.toFixed(3)}</div>
                       <div className="text-slate-400 text-xs">€{(trade.amount * trade.price).toFixed(2)}</div>
                     </div>
                     
