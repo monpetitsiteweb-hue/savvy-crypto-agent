@@ -55,7 +55,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     }
   }, [testMode, user]);
 
-  // In test mode, use mock wallet data
+  // In test mode, use mock wallet data - prevent infinite loops
   useEffect(() => {
     console.log('🧪 MergedPortfolioDisplay: Test mode:', testMode, 'Mock balances:', mockBalances);
     if (testMode && mockBalances && mockBalances.length > 0) {
@@ -73,7 +73,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
       console.log('📊 MergedPortfolioDisplay: Updating portfolio data with:', mockPortfolio);
       updatePortfolioData(mockPortfolio);
     }
-  }, [testMode, mockBalances, updatePortfolioData]);
+  }, [testMode, mockBalances]); // Removed updatePortfolioData to prevent infinite loop
 
   // Fetch real-time prices every 60 seconds (less frequent to avoid rate limiting)
   useEffect(() => {
@@ -99,7 +99,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     fetchPrices();
     const interval = setInterval(fetchPrices, 60000); // 60 seconds to avoid rate limiting
     return () => clearInterval(interval);
-  }, [getCurrentData]);
+  }, []); // Removed getCurrentData to prevent infinite loop
 
   const fetchConnections = async () => {
     try {
@@ -148,8 +148,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     if (!testMode && selectedConnectionId && shouldRefresh()) {
       fetchProductionPortfolio();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedConnectionId, testMode, shouldRefresh]);
+  }, [selectedConnectionId, testMode]); // Removed shouldRefresh to prevent infinite loop
 
   const getTotalPortfolioValue = () => {
     if (!portfolioData) return 0;
