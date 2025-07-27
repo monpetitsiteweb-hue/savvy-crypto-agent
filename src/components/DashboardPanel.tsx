@@ -401,7 +401,7 @@ export const DashboardPanel = () => {
       </Card>
 
       {/* Portfolio Selection & Display */}
-      {connections.length > 0 && (
+      {connections && Array.isArray(connections) && connections.length > 0 && (
         <Card className="p-6 bg-slate-800/50 border-slate-600">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center space-x-3">

@@ -39,7 +39,7 @@ export const Header = () => {
           console.error('Error checking Coinbase connection:', error);
           setIsConnectedToCoinbase(false);
         } else {
-          setIsConnectedToCoinbase(data && data.length > 0);
+          setIsConnectedToCoinbase(data && Array.isArray(data) && data.length > 0);
         }
       } catch (error) {
         console.error('Error checking Coinbase connection:', error);

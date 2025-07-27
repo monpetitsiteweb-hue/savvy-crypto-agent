@@ -114,7 +114,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
       setConnections(data || []);
       
       // Auto-select first connection if none selected
-      if (data && data.length > 0 && !selectedConnectionId) {
+      if (data && Array.isArray(data) && data.length > 0 && !selectedConnectionId) {
         setSelectedConnectionId(data[0].id);
       }
     } catch (error) {
@@ -227,7 +227,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
         </div>
         
         <div className="flex items-center gap-3">
-          {!testMode && connections.length > 0 && (
+          {!testMode && connections && Array.isArray(connections) && connections.length > 0 && (
             <Select 
               value={selectedConnectionId} 
               onValueChange={setSelectedConnectionId}
