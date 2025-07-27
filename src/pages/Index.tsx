@@ -31,6 +31,8 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
+  // Initialize test trading (must be at top level for hook rules)
+  useTestTrading();
 
   // Auto-login as anonymous user if not authenticated
   useEffect(() => {
@@ -60,8 +62,6 @@ const Index = () => {
     return <AuthPage />;
   }
 
-  // Initialize test trading for authenticated users only
-  useTestTrading();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
