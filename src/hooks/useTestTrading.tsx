@@ -52,7 +52,7 @@ export const useTestTrading = () => {
       
       console.log('🚨 STRATEGY_DEBUG: Found strategies:', strategies?.length || 0, strategies);
       
-      if (!strategies || strategies.length === 0) {
+      if (!strategies || !Array.isArray(strategies) || strategies.length === 0) {
         console.log('🚨 STRATEGY_DEBUG: No active test strategies found');
         return;
       }
