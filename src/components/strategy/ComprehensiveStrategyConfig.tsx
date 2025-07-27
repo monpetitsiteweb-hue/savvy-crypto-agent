@@ -340,7 +340,12 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    console.log('🚨 HANDLE_SUBMIT: Button clicked, form submitted');
+    console.log('🚨 HANDLE_SUBMIT: Event:', e);
+    if (!user) {
+      console.log('🚨 HANDLE_SUBMIT: No user found, returning');
+      return;
+    }
 
     // Validation
     if (!formData.strategyName?.trim()) {
