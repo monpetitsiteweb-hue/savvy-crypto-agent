@@ -698,7 +698,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     <>
       {/* Mode Selection Modal */}
       {showModeSelection && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start md:items-center justify-center z-50 p-4 pt-8 md:pt-4">
           <Card className="w-full max-w-2xl bg-card border shadow-lg">
             <CardHeader>
               <CardTitle className="text-center text-2xl">Choose Creation Method</CardTitle>
