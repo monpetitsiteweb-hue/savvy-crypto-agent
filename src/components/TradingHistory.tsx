@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -41,7 +40,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { testMode } = useTestMode();
   const { toast } = useToast();
   const { getTotalValue } = useMockWallet();
-  const { getCurrentData } = useRealTimeMarketData();
+  const { getCurrentData, marketData } = useRealTimeMarketData();
   
   console.log('🔍 TradingHistory: Component state:', { 
     user: !!user, 
@@ -62,6 +61,75 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     netProfitLoss: 0
   });
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
+
+  // Calculate trade performance including current prices and P&L
+  const calculateTradePerformance = (trade: Trade) => {
+    const purchasePrice = trade.price;
+    const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
+    
+    if (trade.trade_type === 'sell') {
+      // For sell orders, show the realized P&L
+      return {
+        currentPrice: currentMarketPrice,
+        gainLoss: 0, // Sell orders don't have unrealized gains
+        gainLossPercentage: 0
+      };
+    }
+    
+    const gainLoss = (currentMarketPrice - purchasePrice) * trade.amount;
+    const gainLossPercentage = ((currentMarketPrice - purchasePrice) / purchasePrice) * 100;
+    
+    return {
+      currentPrice: currentMarketPrice,
+      gainLoss,
+      gainLossPercentage
+    };
+  };
+
+  // Sell position function
+  const sellPosition = async (trade: Trade) => {
+    if (!user) return;
+    
+    try {
+      const currentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+      
+      const { error } = await supabase
+        .from('mock_trades')
+        .insert({
+          user_id: user.id,
+          strategy_id: trade.strategy_id,
+          trade_type: 'sell',
+          cryptocurrency: trade.cryptocurrency,
+          amount: trade.amount,
+          price: currentPrice,
+          total_value: trade.amount * currentPrice,
+          fees: 0,
+          executed_at: new Date().toISOString(),
+          is_test_mode: true,
+          market_conditions: {
+            price: currentPrice,
+            timestamp: new Date().toISOString()
+          }
+        });
+
+      if (error) throw error;
+
+      toast({
+        title: "Position Sold",
+        description: `Successfully sold ${trade.amount.toFixed(6)} ${trade.cryptocurrency}`,
+      });
+
+      // Refresh the trades
+      fetchTradingHistory();
+    } catch (error) {
+      console.error('Error selling position:', error);
+      toast({
+        title: "Error",
+        description: "Failed to sell position",
+        variant: "destructive",
+      });
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -88,30 +156,30 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
     console.log('🔄 Setting up real-time subscription for trading history');
     
-    // Create subscription for the appropriate table based on test mode
-    const tableName = testMode ? 'mock_trades' : 'trading_history';
-    const filter = `user_id=eq.${user.id}`;
-
     const channel = supabase
-      .channel(`trading-history-${tableName}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*', // Listen to all changes (INSERT, UPDATE, DELETE)
-          schema: 'public',
-          table: tableName,
-          filter: filter
-        },
+      .channel('mock-trades-changes')
+      .on('postgres_changes', 
+        { event: 'INSERT', schema: 'public', table: 'mock_trades', filter: `user_id=eq.${user.id}` },
         (payload) => {
-          console.log('📈 Trading history changed:', payload);
-          // Refresh trading history when changes occur
-          fetchTradingHistory();
+          console.log('🔄 Real-time INSERT detected:', payload);
+          if (testMode) {
+            fetchTradingHistory();
+          }
+        }
+      )
+      .on('postgres_changes', 
+        { event: 'UPDATE', schema: 'public', table: 'mock_trades', filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          console.log('🔄 Real-time UPDATE detected:', payload);
+          if (testMode) {
+            fetchTradingHistory();
+          }
         }
       )
       .subscribe();
 
     return () => {
-      console.log('🔌 Cleaning up trading history subscription');
+      console.log('🔄 Cleaning up real-time subscription');
       supabase.removeChannel(channel);
     };
   }, [user, testMode]);
@@ -122,23 +190,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     try {
       const { data, error } = await supabase
         .from('user_coinbase_connections')
-        .select('id, is_active, connected_at, user_id, api_name_encrypted')
+        .select('*')
         .eq('user_id', user.id)
-        .eq('is_active', true)
-        .order('connected_at', { ascending: false });
-
+        .eq('is_active', true);
+      
       if (error) throw error;
       
       setConnections(data || []);
-      
-      // Use saved connection from localStorage or auto-select first
-      const savedConnectionId = localStorage.getItem(`selectedConnection_${user.id}`);
-      if (savedConnectionId && data?.find(c => c.id === savedConnectionId)) {
-        setSelectedConnection(savedConnectionId);
-      } else if (data && data.length > 0) {
-        const firstConnectionId = data[0].id;
-        setSelectedConnection(firstConnectionId);
-        localStorage.setItem(`selectedConnection_${user.id}`, firstConnectionId);
+      // Auto-select first connection if available
+      if (data && data.length > 0 && !selectedConnection) {
+        setSelectedConnection(data[0].id);
       }
     } catch (error) {
       console.error('Error fetching connections:', error);
@@ -147,6 +208,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   const fetchTradingHistory = async () => {
     if (!user) return;
+    
+    setFetching(true);
+    console.log('🔍 Fetching trading history for user:', user.id, 'testMode:', testMode);
     
     try {
       let data, error;
@@ -249,296 +313,276 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       });
     } finally {
       setLoading(false);
+      setFetching(false);
     }
   };
 
-  const fetchFromCoinbase = async () => {
-    // In live mode, this just refreshes the data since we always fetch from Coinbase API
-    await fetchTradingHistory();
-    
-    toast({
-      title: "Refreshed",
-      description: "Trading history refreshed from Coinbase",
-    });
-  };
-
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const calculateTradePerformance = (trade: Trade) => {
-    const currentPrice = currentPrices[trade.cryptocurrency];
-    if (!currentPrice) return null;
-    
-    const purchasePrice = Number(trade.price);
-    const gainLoss = currentPrice - purchasePrice;
-    const gainLossPercentage = (gainLoss / purchasePrice) * 100;
-    const totalGainLoss = gainLoss * Number(trade.amount);
-    
-    return {
-      currentPrice,
-      gainLoss,
-      gainLossPercentage,
-      totalGainLoss,
-      isProfit: gainLoss >= 0
-    };
-  };
-
-  // Show empty state only when there's truly no active strategy AND no trades
-  if (trades.length === 0 && !loading && testMode && !hasActiveStrategy) {
+  if (!hasActiveStrategy) {
     return (
       <NoActiveStrategyState 
         onCreateStrategy={onCreateStrategy}
-        className="min-h-[400px]"
       />
-    );
-  }
-
-  // Show message when strategy is active but no trades yet
-  if (trades.length === 0 && !loading && testMode && hasActiveStrategy) {
-    return (
-      <div className="text-center py-12">
-        <div className="text-slate-400 mb-2">Strategy is active - waiting for trade opportunities...</div>
-        <div className="text-sm text-slate-500">Trades will appear here when conditions are met</div>
-      </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-slate-400">Loading trading history...</div>
-      </div>
-    );
-  }
-
-  if (trades.length === 0) {
-    return (
-      <div className="space-y-4">
-        {/* Connection Selector - Only show in live mode */}
-        {!testMode && connections.length > 0 && (
-          <Card className="p-4 bg-slate-700/30 border-slate-600">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <label className="text-sm text-slate-400 mb-2 block">Coinbase Connection:</label>
-                <select
-                  value={selectedConnection}
-                  onChange={(e) => {
-                    setSelectedConnection(e.target.value);
-                    localStorage.setItem(`selectedConnection_${user.id}`, e.target.value);
-                  }}
-                  className="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-white"
-                >
-                  {connections.map((connection) => (
-                    <option key={connection.id} value={connection.id}>
-                      {connection.api_name_encrypted || `Coinbase Account ${connections.findIndex(c => c.id === connection.id) + 1}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <Button 
-                onClick={fetchFromCoinbase}
-                disabled={fetching || !selectedConnection}
-                className="bg-green-500 hover:bg-green-600 text-white"
-              >
-                {fetching ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                    Fetching...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Fetch from Coinbase
-                  </>
-                )}
-              </Button>
-            </div>
-          </Card>
-        )}
-
-        <div className="flex flex-col items-center justify-center py-12 space-y-4">
-          <div className="w-16 h-16 bg-slate-700/50 rounded-full flex items-center justify-center">
-            <Activity className="w-8 h-8 text-slate-500" />
-          </div>
-          <div className="text-center">
-            <h3 className="text-xl font-semibold text-white mb-2">No Trading History</h3>
-            <p className="text-slate-400">
-              {testMode 
-                ? "No test trades yet. Create a strategy and enable test mode to start automated trading." 
-                : "No trading history available. In Live mode, trades from your connected Coinbase account will appear here once they occur."
-              }
-            </p>
-          </div>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-white">Trading History</h2>
+        </div>
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-400 mx-auto"></div>
+          <p className="text-slate-400 mt-2">Loading trading history...</p>
         </div>
       </div>
     );
   }
 
-    return (
-      <div className="space-y-4">
-        {/* Connection Selector - Only show in live mode */}
-        {!testMode && connections.length > 0 && (
-          <Card className="p-4 bg-slate-700/30 border-slate-600">
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <label className="text-sm text-slate-400 mb-2 block">Coinbase Connection:</label>
-                <select
-                  value={selectedConnection}
-                  onChange={(e) => {
-                    setSelectedConnection(e.target.value);
-                    localStorage.setItem(`selectedConnection_${user.id}`, e.target.value);
-                  }}
-                  className="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-white"
-                >
-                  {connections.map((connection) => (
-                    <option key={connection.id} value={connection.id}>
-                      {connection.api_name_encrypted || `Coinbase Account ${connections.findIndex(c => c.id === connection.id) + 1}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <Button 
-                onClick={fetchFromCoinbase}
-                disabled={fetching || !selectedConnection}
-                className="bg-green-500 hover:bg-green-600 text-white"
-              >
-                {fetching ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                    Fetching...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Fetch from Coinbase
-                  </>
-                )}
-              </Button>
-            </div>
-          </Card>
-        )}
-
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <Card className="p-4 bg-slate-700/30 border-slate-600">
-          <p className="text-sm text-slate-400">Portfolio Value</p>
-          <p className="text-xl font-bold text-white">{formatEuro(portfolioValue)}</p>
-        </Card>
-        <Card className="p-4 bg-slate-700/30 border-slate-600">
-          <p className="text-sm text-slate-400">Total Trades</p>
-          <p className="text-xl font-bold text-white">{stats.totalTrades}</p>
-        </Card>
-        <Card className="p-4 bg-slate-700/30 border-slate-600">
-          <p className="text-sm text-slate-400">Volume Traded</p>
-          <p className="text-xl font-bold text-white">{formatEuro(stats.totalVolume)}</p>
-        </Card>
-        <Card className="p-4 bg-slate-700/30 border-slate-600">
-          <p className="text-sm text-slate-400">Net P&L</p>
-          <p className={`text-xl font-bold ${stats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {formatEuro(stats.netProfitLoss)}
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-white">Trading History</h2>
+          <p className="text-slate-400">
+            {testMode ? 'Mock trading history (Test Mode)' : 'Live trading history'}
           </p>
-        </Card>
+        </div>
+        <Button
+          onClick={fetchTradingHistory}
+          disabled={fetching}
+          variant="outline"
+          className="flex items-center gap-2"
+        >
+          <RefreshCw className={`w-4 h-4 ${fetching ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </div>
 
-      {/* Trade List */}
-      <Card className="bg-slate-700/30 border-slate-600">
-        <div className="p-4 border-b border-slate-600">
-          <h3 className="text-lg font-semibold text-white">Recent Trades</h3>
-        </div>
-        <div className="divide-y divide-slate-600">
-          {trades.map((trade) => (
-            <div key={trade.id} className="p-4 hover:bg-slate-700/20 transition-colors">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  {/* Trade Type Icon */}
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    trade.trade_type.toLowerCase() === 'buy' 
-                      ? 'bg-green-500/20 text-green-400' 
-                      : 'bg-red-500/20 text-red-400'
-                  }`}>
-                    {trade.trade_type.toLowerCase() === 'buy' ? (
-                      <ArrowDownLeft className="w-5 h-5" />
-                    ) : (
-                      <ArrowUpRight className="w-5 h-5" />
-                    )}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="bg-slate-800/60 border-slate-700">
+          <div className="p-4">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-blue-400" />
+              <span className="text-sm text-slate-400">Total Trades</span>
+            </div>
+            <p className="text-2xl font-bold text-white mt-1">{stats.totalTrades}</p>
+          </div>
+        </Card>
+        
+        <Card className="bg-slate-800/60 border-slate-700">
+          <div className="p-4">
+            <div className="flex items-center gap-2">
+              <ArrowUpRight className="w-4 h-4 text-green-400" />
+              <span className="text-sm text-slate-400">Total Volume</span>
+            </div>
+            <p className="text-2xl font-bold text-white mt-1">{formatEuro(stats.totalVolume)}</p>
+          </div>
+        </Card>
+        
+        {testMode && (
+          <Card className="bg-slate-800/60 border-slate-700">
+            <div className="p-4">
+              <div className="flex items-center gap-2">
+                <ArrowDownLeft className={`w-4 h-4 ${stats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'}`} />
+                <span className="text-sm text-slate-400">Net P&L</span>
+              </div>
+              <p className={`text-2xl font-bold mt-1 ${stats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {formatEuro(stats.netProfitLoss)}
+              </p>
+            </div>
+          </Card>
+        )}
+        
+        {testMode && (
+          <Card className="bg-slate-800/60 border-slate-700">
+            <div className="p-4">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-cyan-400" />
+                <span className="text-sm text-slate-400">Portfolio Value</span>
+              </div>
+              <p className="text-2xl font-bold text-white mt-1">{formatEuro(portfolioValue)}</p>
+            </div>
+          </Card>
+        )}
+      </div>
+
+      {/* Trades List */}
+      {trades.length > 0 ? (
+        <div className="space-y-4">
+          {trades.map((trade, index) => {
+            const performance = calculateTradePerformance(trade);
+            
+            return (
+              <div key={`${trade.id}-${index}`} className="bg-slate-800/60 rounded-lg p-4 border border-slate-700">
+                {/* Desktop Layout */}
+                <div className="hidden md:block">
+                  <div className="grid grid-cols-8 gap-4 items-center text-sm">
+                    {/* Trade Type & Symbol */}
+                    <div className="col-span-1">
+                      <div className="flex items-center gap-2">
+                        <Badge 
+                          variant={trade.trade_type === 'buy' ? 'default' : 'secondary'}
+                          className={trade.trade_type === 'buy' ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}
+                        >
+                          {trade.trade_type.toUpperCase()}
+                        </Badge>
+                      </div>
+                      <div className="font-medium text-white mt-1">{trade.cryptocurrency}</div>
+                    </div>
+                    
+                    {/* Amount */}
+                    <div className="col-span-1">
+                      <div className="text-slate-400 text-xs">Amount</div>
+                      <div className="font-medium">{trade.amount.toFixed(6)}</div>
+                    </div>
+                    
+                    {/* Purchase Price */}
+                    <div className="col-span-1">
+                      <div className="text-slate-400 text-xs">Purchase Price</div>
+                      <div className="font-medium">€{trade.price.toLocaleString()}</div>
+                    </div>
+                    
+                    {/* Current Price */}
+                    <div className="col-span-1">
+                      <div className="text-slate-400 text-xs">Current Price</div>
+                      <div className="font-medium">€{performance.currentPrice.toLocaleString()}</div>
+                    </div>
+                    
+                    {/* P&L */}
+                    <div className="col-span-1">
+                      <div className="text-slate-400 text-xs">P&L</div>
+                      <div className={`font-medium ${performance.gainLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        €{performance.gainLoss.toFixed(2)}
+                      </div>
+                    </div>
+                    
+                    {/* P&L % */}
+                    <div className="col-span-1">
+                      <div className="text-slate-400 text-xs">P&L %</div>
+                      <div className={`font-medium ${performance.gainLossPercentage >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {performance.gainLossPercentage >= 0 ? '+' : ''}{performance.gainLossPercentage.toFixed(2)}%
+                      </div>
+                    </div>
+                    
+                    {/* Date */}
+                    <div className="col-span-1 text-xs text-slate-400">
+                      {new Date(trade.executed_at).toLocaleDateString()}
+                    </div>
+                    
+                    {/* Actions */}
+                    <div className="col-span-1">
+                      {trade.trade_type === 'buy' && testMode && (
+                        <Button
+                          onClick={() => sellPosition(trade)}
+                          size="sm"
+                          variant="outline"
+                          className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
+                        >
+                          Sell
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  
-                  {/* Trade Details */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
+                </div>
+
+                {/* Mobile Layout */}
+                <div className="md:hidden space-y-3">
+                  {/* Header Row */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
                       <Badge 
-                        variant={trade.trade_type.toLowerCase() === 'buy' ? 'default' : 'secondary'}
-                        className={trade.trade_type.toLowerCase() === 'buy' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}
+                        variant={trade.trade_type === 'buy' ? 'default' : 'secondary'}
+                        className={trade.trade_type === 'buy' ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}
                       >
                         {trade.trade_type.toUpperCase()}
                       </Badge>
-                      <span className="font-medium text-white">{trade.cryptocurrency}</span>
+                      <span className="font-bold text-white text-lg">{trade.cryptocurrency}</span>
                     </div>
-                    {trade.strategy_trigger && testMode && (
-                      <p className="text-sm text-blue-400">🎯 {trade.strategy_trigger}</p>
-                    )}
-                    {trade.notes && (
-                      <p className="text-sm text-slate-400">{trade.notes}</p>
+                    {trade.trade_type === 'buy' && testMode && (
+                      <Button
+                        onClick={() => sellPosition(trade)}
+                        size="sm"
+                        variant="outline"
+                        className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
+                      >
+                        Sell Position
+                      </Button>
                     )}
                   </div>
-                </div>
-                
-                {/* Trade Info */}
-                <div className="text-right">
-                  {(() => {
-                    const performance = calculateTradePerformance(trade);
-                    return (
-                      <div className="flex items-center gap-4 mb-1">
-                        <div>
-                          <p className="text-sm text-slate-400">Amount</p>
-                          <p className="font-medium text-white">{Number(trade.amount).toLocaleString()}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-slate-400">Purchase Price</p>
-                          <p className="font-medium text-white">{formatEuro(Number(trade.price))}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-slate-400">Current Price</p>
-                          <p className="font-medium text-white">
-                            {performance ? formatEuro(performance.currentPrice) : '–'}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-slate-400">P&L</p>
-                          {performance ? (
-                            <div className="text-right">
-                              <p className={`font-medium ${performance.isProfit ? 'text-green-400' : 'text-red-400'}`}>
-                                {formatEuro(performance.totalGainLoss)}
-                              </p>
-                              <p className={`text-sm ${performance.isProfit ? 'text-green-400' : 'text-red-400'}`}>
-                                {performance.isProfit ? '+' : ''}{formatPercentage(performance.gainLossPercentage)}
-                              </p>
-                            </div>
-                          ) : (
-                            <p className="font-medium text-slate-400">–</p>
-                          )}
-                        </div>
-                        <div>
-                          <p className="text-sm text-slate-400">Fees</p>
-                          <p className="font-medium text-white">
-                            {trade.fees && trade.fees > 0 ? formatEuro(trade.fees) : formatEuro(0)}
-                          </p>
-                        </div>
+
+                  {/* Amount Row */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-slate-400 text-sm">Amount</div>
+                      <div className="font-semibold text-white text-lg">{trade.amount.toFixed(6)}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-400 text-sm">Date</div>
+                      <div className="font-medium text-white">{new Date(trade.executed_at).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+
+                  {/* Price Row */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-slate-400 text-sm">Purchase Price</div>
+                      <div className="font-semibold text-white text-lg">€{trade.price.toLocaleString()}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-400 text-sm">Current Price</div>
+                      <div className="font-semibold text-white text-lg">€{performance.currentPrice.toLocaleString()}</div>
+                    </div>
+                  </div>
+
+                  {/* P&L Row */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-slate-400 text-sm">Profit/Loss</div>
+                      <div className={`font-bold text-xl ${performance.gainLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        €{performance.gainLoss.toFixed(2)}
                       </div>
-                    );
-                  })()}
-                  <div className="flex items-center gap-1 justify-end mt-2">
-                    <Clock className="w-3 h-3 text-slate-400" />
-                    <span className="text-xs text-slate-400">{formatTime(trade.executed_at)}</span>
+                    </div>
+                    <div>
+                      <div className="text-slate-400 text-sm">Profit/Loss %</div>
+                      <div className={`font-bold text-xl ${performance.gainLossPercentage >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {performance.gainLossPercentage >= 0 ? '+' : ''}{performance.gainLossPercentage.toFixed(2)}%
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Additional Info Row */}
+                  <div className="pt-2 border-t border-slate-600 grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-slate-400">Total Value: </span>
+                      <span className="text-white font-medium">€{trade.total_value.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Fees: </span>
+                      <span className="text-white font-medium">€{(trade.fees || 0).toFixed(2)}</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
-      </Card>
+      ) : (
+        <Card className="bg-slate-800/60 border-slate-700">
+          <div className="p-8 text-center">
+            <Activity className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-white mb-2">No Trading History</h3>
+            <p className="text-slate-400 mb-4">
+              {testMode 
+                ? 'No mock trades found. Try asking the AI assistant to execute some test trades.'
+                : 'No live trades found. Start trading to see your history here.'
+              }
+            </p>
+          </div>
+        </Card>
+      )}
     </div>
   );
 };

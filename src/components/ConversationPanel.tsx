@@ -717,7 +717,7 @@ export const ConversationPanel = () => {
 
       {/* Input - Fixed at bottom */}
       <div className="p-4 border-t border-slate-700 flex-shrink-0">
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -726,15 +726,19 @@ export const ConversationPanel = () => {
               ? "🧪 TEST MODE: Try 'buy 1000 euros of BTC', 'change risk profile to high', or ask me anything about crypto trading..."
               : "🚧 Enable Test Mode to try trading features safely. Ask me about strategy settings or trading advice..."
             }
-            className="flex-1 min-h-[60px] bg-slate-700/50 border-slate-600 text-white placeholder-slate-400 resize-none"
+            className="flex-1 min-h-[80px] max-h-[200px] bg-slate-700/50 border-slate-600 text-white placeholder-slate-400 resize-none text-base leading-relaxed p-4"
             disabled={isLoading}
           />
           <Button 
             onClick={handleSend}
-            className="bg-green-500 hover:bg-green-600 text-white"
+            className="bg-green-500 hover:bg-green-600 text-white shrink-0 h-[80px] w-[80px] rounded-xl"
             disabled={!input.trim() || isLoading}
           >
-            <Send className="w-4 h-4" />
+            {isLoading ? (
+              <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Send className="w-6 h-6" />
+            )}
           </Button>
         </div>
       </div>

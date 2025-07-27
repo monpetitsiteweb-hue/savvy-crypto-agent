@@ -210,7 +210,7 @@ export const Header = () => {
               onClick={() => setShowMobileMenu(!showMobileMenu)}
               className="text-slate-300 hover:text-white"
             >
-              {showMobileMenu ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              {showMobileMenu ? <X className="w-7 h-7" /> : <Menu className="w-7 h-7" />}
             </Button>
           </div>
         </div>

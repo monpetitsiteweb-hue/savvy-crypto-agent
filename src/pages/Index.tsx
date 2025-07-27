@@ -63,9 +63,10 @@ const Index = () => {
           {/* Right Panel - Dashboard/History/Config */}
           <div className={isStrategyFullWidth && activeTab === 'strategy' ? 'w-full' : 'lg:col-span-2'}>
             <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col">
-              {/* Tab Navigation */}
-              <div className="flex justify-between items-center border-b border-slate-700 flex-shrink-0 overflow-x-auto">
-                <div className="flex min-w-max">
+              {/* Tab Navigation - Mobile Responsive */}
+              <div className="border-b border-slate-700 flex-shrink-0">
+                {/* Mobile: Full width tabs */}
+                <div className="md:hidden grid grid-cols-4 w-full">
                   {[
                     { id: 'dashboard', label: 'Dashboard' },
                     { id: 'history', label: 'History' },
@@ -79,7 +80,7 @@ const Index = () => {
                         e.preventDefault();
                         setActiveTab(tab.id);
                       }}
-                      className={`px-3 md:px-6 py-4 text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
+                      className={`px-2 py-4 text-sm font-medium transition-colors ${
                         activeTab === tab.id
                           ? 'text-green-400 border-b-2 border-green-400 bg-slate-700/50'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
@@ -89,17 +90,71 @@ const Index = () => {
                     </button>
                   ))}
                 </div>
-                
-                {/* Test Mode Toggle */}
-                <div className="flex items-center gap-3 px-3 md:px-6 py-4">
-                  <span className={`text-xs md:text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
-                    {testMode ? 'Test' : 'Live'}
-                  </span>
-                  <Switch
-                    checked={testMode}
-                    onCheckedChange={setTestMode}
-                    className="data-[state=checked]:bg-orange-500 scale-75 md:scale-100"
-                  />
+
+                {/* Desktop: Normal tabs + toggle */}
+                <div className="hidden md:flex justify-between items-center">
+                  <div className="flex">
+                    {[
+                      { id: 'dashboard', label: 'Dashboard' },
+                      { id: 'history', label: 'History' },
+                      { id: 'strategy', label: 'Strategy' },
+                      { id: 'performance', label: 'Performance' }
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setActiveTab(tab.id);
+                        }}
+                        className={`px-6 py-4 text-sm font-medium transition-colors whitespace-nowrap ${
+                          activeTab === tab.id
+                            ? 'text-green-400 border-b-2 border-green-400 bg-slate-700/50'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  {/* Test Mode Toggle - Desktop */}
+                  <div className="flex items-center gap-3 px-6 py-4">
+                    <span className={`text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
+                      {testMode ? 'Test' : 'Live'}
+                    </span>
+                    <Switch
+                      checked={testMode}
+                      onCheckedChange={setTestMode}
+                      className="data-[state=checked]:bg-orange-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Test Mode Toggle - Mobile */}
+                <div className="md:hidden p-4 border-t border-slate-600">
+                  <div className="bg-slate-700/50 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className={`text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
+                          Trading Mode
+                        </span>
+                        <p className="text-xs text-slate-500 mt-1">
+                          {testMode ? 'Using simulated money' : 'Using real money'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className={`text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
+                          {testMode ? 'Test' : 'Live'}
+                        </span>
+                        <Switch
+                          checked={testMode}
+                          onCheckedChange={setTestMode}
+                          className="data-[state=checked]:bg-orange-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
               
