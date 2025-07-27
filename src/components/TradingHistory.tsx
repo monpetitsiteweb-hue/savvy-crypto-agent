@@ -295,12 +295,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       const totalTrades = data?.length || 0;
       const totalVolume = data?.reduce((sum, trade) => sum + Number(trade.total_value), 0) || 0;
       
-      // Calculate net profit/loss for test mode
+      // Calculate net profit/loss based on current positions
       let netProfitLoss = 0;
-      if (testMode && data) {
-        // Starting value was 2,500,000 EUR
-        const startingValue = 2500000;
-        netProfitLoss = getTotalValue() - startingValue;
+      if (data) {
+        // Calculate P&L for each open position (buy orders only)
+        netProfitLoss = (data as Trade[])
+          .filter(trade => trade.trade_type === 'buy')
+          .reduce((sum, trade) => {
+            const performance = calculateTradePerformance(trade);
+            return sum + performance.gainLoss;
+          }, 0);
       }
       
       setStats({ totalTrades, totalVolume, netProfitLoss });
