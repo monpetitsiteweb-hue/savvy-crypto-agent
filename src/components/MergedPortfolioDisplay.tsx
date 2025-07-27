@@ -58,7 +58,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
   // In test mode, use mock wallet data - prevent infinite loops
   useEffect(() => {
     console.log('🧪 MergedPortfolioDisplay: Test mode:', testMode, 'Mock balances:', mockBalances);
-    if (testMode && mockBalances && mockBalances.length > 0) {
+    if (testMode && mockBalances && Array.isArray(mockBalances) && mockBalances.length > 0) {
       const mockPortfolio: PortfolioData = {
         accounts: mockBalances.map((balance) => ({
           uuid: `mock-${balance.currency}`,
