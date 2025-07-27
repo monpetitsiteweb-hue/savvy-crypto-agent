@@ -177,6 +177,31 @@ export const CustomerManagementPanel = () => {
     }
   };
 
+  const handleCleanupOrphanedData = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('cleanup-orphaned-data');
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Success",
+        description: data.message || "Orphaned data cleaned up successfully",
+      });
+
+      // Refresh the customer list
+      await fetchCustomers();
+    } catch (error: any) {
+      console.error('Error cleaning up orphaned data:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to cleanup orphaned data",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <Card className="bg-slate-800 border-slate-700">
       <CardHeader>
@@ -192,6 +217,9 @@ export const CustomerManagementPanel = () => {
           </div>
           <Button onClick={fetchCustomers} variant="outline" size="sm">
             Refresh
+          </Button>
+          <Button onClick={handleCleanupOrphanedData} variant="outline" size="sm" className="text-orange-400 border-orange-400 hover:bg-orange-400/10">
+            Cleanup Orphaned Data
           </Button>
         </div>
         
