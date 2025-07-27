@@ -1,5 +1,6 @@
 
 import { useAuth } from '@/hooks/useAuth';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AuthPage } from '@/components/auth/AuthPage';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
@@ -37,6 +38,7 @@ const Index = () => {
   console.log('🔵 INDEX: After useTestTrading call');
 
   if (loading || roleLoading) {
+    console.log('🔧 AUTH: Loading state', { loading, roleLoading });
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
         <div className="text-white">Loading...</div>
@@ -49,98 +51,100 @@ const Index = () => {
     return <AuthPage />;
   }
 
-  console.log('🔧 AUTH: User authenticated, showing main app');
+  console.log('🔧 AUTH: User authenticated, showing main app', { userId: user.id, isAnonymous: user.is_anonymous });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
-      <Header />
-      
-      <div className="container mx-auto px-4 py-6 flex-1">
-        <div className={`${isStrategyFullWidth && activeTab === 'strategy' ? 'w-full' : 'grid grid-cols-1 lg:grid-cols-3 gap-6'} min-h-[calc(100vh-200px)]`}>
-          {/* Left Panel - Conversation */}
-          {!(isStrategyFullWidth && activeTab === 'strategy') && (
-            <div className="lg:col-span-1">
-              <ConversationPanel />
-            </div>
-          )}
-          
-          {/* Right Panel - Dashboard/History/Config */}
-          <div className={isStrategyFullWidth && activeTab === 'strategy' ? 'w-full' : 'lg:col-span-2'}>
-            <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col">
-              {/* Tab Navigation */}
-              <div className="flex justify-between items-center border-b border-slate-700 flex-shrink-0 overflow-x-auto">
-                <div className="flex min-w-max">
-                  {[
-                    { id: 'dashboard', label: 'Dashboard' },
-                    { id: 'history', label: 'History' },
-                    { id: 'strategy', label: 'Strategy' },
-                    { id: 'performance', label: 'Performance' }
-                  ].map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setActiveTab(tab.id);
-                      }}
-                      className={`px-3 md:px-6 py-4 text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
-                        activeTab === tab.id
-                          ? 'text-green-400 border-b-2 border-green-400 bg-slate-700/50'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
+    <ErrorBoundary>
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
+        <Header />
+        
+        <div className="container mx-auto px-4 py-6 flex-1">
+          <div className={`${isStrategyFullWidth && activeTab === 'strategy' ? 'w-full' : 'grid grid-cols-1 lg:grid-cols-3 gap-6'} min-h-[calc(100vh-200px)]`}>
+            {/* Left Panel - Conversation */}
+            {!(isStrategyFullWidth && activeTab === 'strategy') && (
+              <div className="lg:col-span-1">
+                <ConversationPanel />
+              </div>
+            )}
+            
+            {/* Right Panel - Dashboard/History/Config */}
+            <div className={isStrategyFullWidth && activeTab === 'strategy' ? 'w-full' : 'lg:col-span-2'}>
+              <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col">
+                {/* Tab Navigation */}
+                <div className="flex justify-between items-center border-b border-slate-700 flex-shrink-0 overflow-x-auto">
+                  <div className="flex min-w-max">
+                    {[
+                      { id: 'dashboard', label: 'Dashboard' },
+                      { id: 'history', label: 'History' },
+                      { id: 'strategy', label: 'Strategy' },
+                      { id: 'performance', label: 'Performance' }
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setActiveTab(tab.id);
+                        }}
+                        className={`px-3 md:px-6 py-4 text-xs md:text-sm font-medium transition-colors whitespace-nowrap ${
+                          activeTab === tab.id
+                            ? 'text-green-400 border-b-2 border-green-400 bg-slate-700/50'
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  {/* Test Mode Toggle */}
+                  <div className="flex items-center gap-3 px-3 md:px-6 py-4">
+                    <span className={`text-xs md:text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
+                      {testMode ? 'Test' : 'Live'}
+                    </span>
+                    <Switch
+                      checked={testMode}
+                      onCheckedChange={setTestMode}
+                      className="data-[state=checked]:bg-orange-500 scale-75 md:scale-100"
+                    />
+                  </div>
                 </div>
                 
-                {/* Test Mode Toggle */}
-                <div className="flex items-center gap-3 px-3 md:px-6 py-4">
-                  <span className={`text-xs md:text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
-                    {testMode ? 'Test' : 'Live'}
-                  </span>
-                  <Switch
-                    checked={testMode}
-                    onCheckedChange={setTestMode}
-                    className="data-[state=checked]:bg-orange-500 scale-75 md:scale-100"
-                  />
-                </div>
-              </div>
-              
-              {/* Tab Content */}
-              <div className="p-6 flex-1 overflow-y-auto min-h-0">
-                {activeTab === 'dashboard' && (
-                  <div className="space-y-6">
-                    <MergedPortfolioDisplay 
+                {/* Tab Content */}
+                <div className="p-6 flex-1 overflow-y-auto min-h-0">
+                  {activeTab === 'dashboard' && (
+                    <div className="space-y-6">
+                      <MergedPortfolioDisplay 
+                        hasActiveStrategy={hasActiveStrategy}
+                        onCreateStrategy={() => setActiveTab('strategy')}
+                      />
+                      <LiveIndicatorKPI />
+                    </div>
+                  )}
+                  {activeTab === 'history' && (
+                    <TradingHistory 
                       hasActiveStrategy={hasActiveStrategy}
                       onCreateStrategy={() => setActiveTab('strategy')}
                     />
-                    <LiveIndicatorKPI />
-                  </div>
-                )}
-                {activeTab === 'history' && (
-                  <TradingHistory 
-                    hasActiveStrategy={hasActiveStrategy}
-                    onCreateStrategy={() => setActiveTab('strategy')}
-                  />
-                )}
-                {activeTab === 'strategy' && (
-                  <StrategyConfig onLayoutChange={setIsStrategyFullWidth} />
-                )}
-                {activeTab === 'performance' && (
-                  <PerformanceOverview 
-                    hasActiveStrategy={hasActiveStrategy}
-                    onCreateStrategy={() => setActiveTab('strategy')}
-                  />
-                )}
+                  )}
+                  {activeTab === 'strategy' && (
+                    <StrategyConfig onLayoutChange={setIsStrategyFullWidth} />
+                  )}
+                  {activeTab === 'performance' && (
+                    <PerformanceOverview 
+                      hasActiveStrategy={hasActiveStrategy}
+                      onCreateStrategy={() => setActiveTab('strategy')}
+                    />
+                  )}
+                </div>
               </div>
             </div>
           </div>
         </div>
+        
+        <Footer />
       </div>
-      
-      <Footer />
-    </div>
+    </ErrorBoundary>
   );
 };
 
