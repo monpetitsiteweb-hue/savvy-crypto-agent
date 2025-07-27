@@ -34,8 +34,10 @@ const DEFAULT_CONFIG: IndicatorConfig = {
 };
 
 export const useTechnicalIndicators = (strategyConfig?: any) => {
-  console.log('🔧 useTechnicalIndicators hook initialized with config:', strategyConfig);
+  const startTime = performance.now();
+  console.log('🔧 useTechnicalIndicators hook initialized with config:', strategyConfig, `at ${startTime}ms`);
   
+  console.log('⏱️ Hook initialization time:', performance.now() - startTime, 'ms');
   const [indicatorConfig, setIndicatorConfig] = useState<IndicatorConfig>(DEFAULT_CONFIG);
   const [indicators, setIndicators] = useState<Record<string, IndicatorValues>>({});
   const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({});
@@ -45,13 +47,17 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
   // Bootstrap price history from existing price_data table on mount
   useEffect(() => {
     const loadHistoricalPriceData = async () => {
+      const loadStartTime = performance.now();
+      console.log('🔍 Starting historical data load at:', loadStartTime, 'ms');
+      
       try {
         setIsLoadingHistoricalData(true);
-        const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'LTC-EUR', 'ADA-EUR', 'DOT-EUR', 'LINK-EUR', 'BCH-EUR', 'SOL-EUR', 'MATIC-EUR', 'AVAX-EUR'];
+        const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
         
-        console.log('🔍 Loading historical price data for indicators...');
+        console.log('🔍 Loading cached indicators first...');
+        const cacheQueryStart = performance.now();
         
-        // Check if we have pre-calculated indicators in database first
+        // Check for cached indicators first for instant loading
         const { data: existingIndicators } = await supabase
           .from('price_data')
           .select('symbol, metadata')
@@ -60,8 +66,12 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
           .order('timestamp', { ascending: false })
           .limit(symbols.length);
         
-        // If we have cached indicators, use them for instant loading
+        const cacheQueryEnd = performance.now();
+        console.log(`⏱️ Cache query took: ${cacheQueryEnd - cacheQueryStart}ms`);
+        
+        // Load cached indicators instantly
         if (existingIndicators && existingIndicators.length > 0) {
+          const cacheProcessStart = performance.now();
           console.log('📊 Found cached indicators, loading instantly...');
           const cachedIndicators: Record<string, any> = {};
           existingIndicators.forEach(item => {
@@ -72,46 +82,63 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
           
           if (Object.keys(cachedIndicators).length > 0) {
             setIndicators(cachedIndicators);
-            console.log('✅ Loaded cached indicators for:', Object.keys(cachedIndicators));
+            setIsLoadingHistoricalData(false); // Stop loading state immediately
+            const cacheProcessEnd = performance.now();
+            console.log(`✅ Loaded cached indicators for: ${Object.keys(cachedIndicators)} in ${cacheProcessEnd - cacheProcessStart}ms`);
           }
+        } else {
+          console.log('⚠️ No cached indicators found');
         }
         
-        // Fetch recent price data for calculation/recalculation
-        const { data: priceData, error } = await supabase
-          .from('price_data')
-          .select('symbol, close_price, timestamp')
-          .in('symbol', symbols)
-          .order('timestamp', { ascending: false })
-          .limit(100 * symbols.length); // Get more data points for better indicator calculation
+        // Fetch fresh price data in background for recalculation
+        const freshDataStart = performance.now();
+        console.log('🔍 Loading fresh price data for recalculation...');
+        const pricePromises = symbols.map(async (symbol) => {
+          const queryStart = performance.now();
+          const { data } = await supabase
+            .from('price_data')
+            .select('symbol, close_price, timestamp')
+            .eq('symbol', symbol)
+            .order('timestamp', { ascending: false })
+            .limit(50);
+          const queryEnd = performance.now();
+          console.log(`⏱️ Price query for ${symbol} took: ${queryEnd - queryStart}ms, returned ${data?.length || 0} records`);
+          return data || [];
+        });
         
-        if (error) {
-          console.error('❌ Error loading historical price data:', error);
-          return;
-        }
+        const allPriceData = (await Promise.all(pricePromises)).flat();
+        const freshDataEnd = performance.now();
+        console.log(`📊 Fetched ${allPriceData.length} fresh price data points in ${freshDataEnd - freshDataStart}ms`);
         
-        console.log(`📊 Fetched ${priceData?.length || 0} price data points from database`);
-        
-        if (priceData && priceData.length > 0) {
+        if (allPriceData.length > 0) {
+          const processingStart = performance.now();
           const historyBySymbol: Record<string, number[]> = {};
           
           // Group data by symbol and sort by timestamp
           symbols.forEach(symbol => {
-            const symbolData = priceData
+            const symbolStart = performance.now();
+            const symbolData = allPriceData
               .filter(d => d.symbol === symbol)
               .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
               .map(d => parseFloat(d.close_price.toString()));
             
             if (symbolData.length > 0) {
-              historyBySymbol[symbol] = symbolData.slice(-100); // Keep more data for better calculations
+              historyBySymbol[symbol] = symbolData; // Use all fetched data (50 points max)
             }
+            const symbolEnd = performance.now();
+            console.log(`⏱️ Processing ${symbol} data took: ${symbolEnd - symbolStart}ms`);
           });
           
           setPriceHistory(historyBySymbol);
-          console.log(`✅ Bootstrapped indicators with historical data:`, Object.keys(historyBySymbol).map(s => `${s}: ${historyBySymbol[s].length} prices`));
-          console.log('📈 Sample price data for ETH-EUR:', historyBySymbol['ETH-EUR']?.slice(-5));
+          const processingEnd = performance.now();
+          console.log(`✅ Fast-loaded indicators with data: ${Object.keys(historyBySymbol).map(s => `${s}: ${historyBySymbol[s].length} prices`)} in ${processingEnd - processingStart}ms`);
         } else {
           console.log('⚠️ No price data found in database');
         }
+        
+        const totalLoadTime = performance.now() - loadStartTime;
+        console.log(`🏁 Total historical data load time: ${totalLoadTime}ms`);
+        
       } catch (error) {
         console.error('❌ Failed to load historical price data:', error);
       } finally {
@@ -152,10 +179,19 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
 
   // Calculate indicators when price history updates
   useEffect(() => {
+    const calculationStart = performance.now();
+    console.log('📈 Starting indicator calculations at:', calculationStart, 'ms');
+    
     const newIndicators: Record<string, IndicatorValues> = {};
 
     Object.entries(priceHistory).forEach(([symbol, prices]) => {
-      if (prices.length < 26) return; // Need minimum data for indicators
+      const symbolStart = performance.now();
+      console.log(`🔍 Calculating indicators for ${symbol} with ${prices.length} price points`);
+      
+      if (prices.length < 26) {
+        console.log(`⚠️ ${symbol}: Not enough data (${prices.length} < 26), skipping`);
+        return; // Need minimum data for indicators
+      }
 
       const symbolIndicators: IndicatorValues = {};
 
@@ -376,9 +412,13 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
       }
 
       newIndicators[symbol] = symbolIndicators;
+      const symbolEnd = performance.now();
+      console.log(`⏱️ Calculated indicators for ${symbol} in ${symbolEnd - symbolStart}ms`);
     });
 
     setIndicators(newIndicators);
+    const calculationEnd = performance.now();
+    console.log(`🏁 Total indicator calculation time: ${calculationEnd - calculationStart}ms for ${Object.keys(newIndicators).length} symbols`);
   }, [priceHistory, indicatorConfig]);
 
   const updateIndicatorConfig = (updates: Partial<IndicatorConfig>) => {

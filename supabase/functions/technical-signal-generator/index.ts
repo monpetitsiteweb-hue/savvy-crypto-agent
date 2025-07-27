@@ -78,9 +78,12 @@ serve(async (req) => {
 
         console.log(`📈 Analyzing ${priceData.length} price points for ${symbol}`);
 
-        // Calculate technical indicators
+        // Calculate technical indicators and cache them
         const technicalSignals = await generateTechnicalSignals(symbol, priceData, actualUserId, actualSourceId);
         signals.push(...technicalSignals);
+
+        // Cache calculated indicators in price_data metadata for faster loading
+        await cacheIndicators(symbol, priceData, supabaseClient);
 
       } catch (error) {
         console.error(`❌ Error analyzing ${symbol}:`, error);
@@ -292,18 +295,24 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
 }
 
 function calculateRSI(prices: any[], period = 14): number {
-  if (prices.length < period) return 50; // Neutral if not enough data
+  if (prices.length < period + 1) return 50; // Need at least period + 1 points for differences
 
   let gains = 0;
   let losses = 0;
 
-  // Calculate initial gains and losses
-  for (let i = 1; i < period + 1; i++) {
-    const change = prices[i].close_price - prices[i - 1].close_price;
-    if (change > 0) {
-      gains += change;
-    } else {
-      losses += Math.abs(change);
+  // Calculate initial gains and losses - fix the loop bounds
+  for (let i = 1; i <= period && i < prices.length; i++) {
+    const current = prices[i]?.close_price;
+    const previous = prices[i - 1]?.close_price;
+    
+    // Ensure both values exist
+    if (current !== undefined && previous !== undefined) {
+      const change = current - previous;
+      if (change > 0) {
+        gains += change;
+      } else {
+        losses += Math.abs(change);
+      }
     }
   }
 
@@ -322,4 +331,93 @@ function calculateSMA(data: any[], field: string): number {
   if (data.length === 0) return 0;
   const sum = data.reduce((acc, item) => acc + (item[field] || 0), 0);
   return sum / data.length;
+}
+
+async function cacheIndicators(symbol: string, priceData: any[], supabaseClient: any) {
+  if (priceData.length < 14) return; // Need minimum data for indicators
+  
+  console.log(`💾 Caching indicators for ${symbol}`);
+  const latest = priceData[priceData.length - 1];
+  
+  try {
+    // Calculate the same indicators as the frontend hook
+    const indicators: any = {};
+    
+    // RSI
+    if (priceData.length >= 14) {
+      const rsi = calculateRSI(priceData.slice(-14));
+      let signal = 'neutral';
+      if (rsi < 30) signal = 'oversold';
+      else if (rsi > 70) signal = 'overbought';
+      
+      indicators.RSI = {
+        value: Number(rsi.toFixed(2)),
+        signal
+      };
+    }
+    
+    // MACD (simplified)
+    if (priceData.length >= 26) {
+      const prices = priceData.map(p => p.close_price);
+      const ema12 = calculateEMA(prices, 12);
+      const ema26 = calculateEMA(prices, 26);
+      const macd = ema12 - ema26;
+      const signal = calculateEMA([macd], 9); // Simplified signal line
+      
+      indicators.MACD = {
+        macd: Number(macd.toFixed(4)),
+        signal: Number(signal.toFixed(4)),
+        histogram: Number((macd - signal).toFixed(4)),
+        crossover: 'neutral'
+      };
+    }
+    
+    // EMA
+    if (priceData.length >= 21) {
+      const prices = priceData.map(p => p.close_price);
+      const ema9 = calculateEMA(prices, 9);
+      const ema21 = calculateEMA(prices, 21);
+      
+      indicators.EMA = {
+        short: Number(ema9.toFixed(2)),
+        long: Number(ema21.toFixed(2)),
+        crossover: false,
+        direction: ema9 > ema21 ? 'bullish' : 'bearish'
+      };
+    }
+    
+    // Update the latest price record with calculated indicators
+    const { error } = await supabaseClient
+      .from('price_data')
+      .update({
+        metadata: {
+          ...latest.metadata,
+          indicators: indicators,
+          calculated_at: new Date().toISOString()
+        }
+      })
+      .eq('id', latest.id);
+    
+    if (error) {
+      console.error(`❌ Error caching indicators for ${symbol}:`, error);
+    } else {
+      console.log(`✅ Cached indicators for ${symbol}:`, Object.keys(indicators));
+    }
+  } catch (error) {
+    console.error(`❌ Error calculating indicators for ${symbol}:`, error);
+  }
+}
+
+function calculateEMA(prices: number[], period: number): number {
+  if (prices.length === 0) return 0;
+  if (prices.length < period) return prices[prices.length - 1];
+  
+  const multiplier = 2 / (period + 1);
+  let ema = prices[0];
+  
+  for (let i = 1; i < prices.length; i++) {
+    ema = (prices[i] * multiplier) + (ema * (1 - multiplier));
+  }
+  
+  return ema;
 }

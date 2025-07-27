@@ -7,13 +7,14 @@ import { LLMConfigPanel } from '@/components/admin/LLMConfigPanel';
 import { DataSourcesPanel } from '@/components/admin/DataSourcesPanel';
 import { DataSourceStatusPanel } from '@/components/admin/DataSourceStatusPanel';
 import { WhaleSignalPanel } from '@/components/admin/WhaleSignalPanel';
+import { CustomerManagementPanel } from '@/components/admin/CustomerManagementPanel';
 import { useUserRole } from '@/hooks/useUserRole';
-import { Settings, Bot, Database, Shield, TrendingUp, ExternalLink, Key, Activity } from 'lucide-react';
+import { Settings, Bot, Database, Shield, TrendingUp, ExternalLink, Key, Activity, Users } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 
 const AdminPage = () => {
-  const [activeTab, setActiveTab] = useState('oauth-setup');
+  const [activeTab, setActiveTab] = useState('customers');
   const { isAdmin, loading } = useUserRole();
 
   if (loading) {
@@ -24,6 +25,7 @@ const AdminPage = () => {
 
   // Admin-only tabs
   const tabs = [
+    { id: 'customers', label: 'Customers', icon: <Users className="w-4 h-4" /> },
     { id: 'oauth-setup', label: 'OAuth Setup', icon: <Settings className="w-4 h-4" /> },
     { id: 'llm-config', label: 'AI Configuration', icon: <Bot className="w-4 h-4" /> },
     { id: 'data-sources', label: 'Data Sources', icon: <Database className="w-4 h-4" /> },
@@ -76,6 +78,7 @@ const AdminPage = () => {
           
           {/* Tab Content */}
           <div className="p-6">
+            {activeTab === 'customers' && <CustomerManagementPanel />}
             {activeTab === 'oauth-setup' && <CoinbaseOAuthPanel />}
             {activeTab === 'llm-config' && <LLMConfigPanel />}
             {activeTab === 'data-sources' && <DataSourcesPanel />}
