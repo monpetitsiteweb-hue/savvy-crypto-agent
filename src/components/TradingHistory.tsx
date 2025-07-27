@@ -237,7 +237,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  if (!hasActiveStrategy) {
+  // Show NoActiveStrategyState only if no strategy AND no trades exist
+  if (!hasActiveStrategy && trades.length === 0 && !loading) {
     return (
       <NoActiveStrategyState 
         onCreateStrategy={onCreateStrategy}
