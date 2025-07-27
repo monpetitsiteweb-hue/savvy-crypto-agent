@@ -48,5 +48,8 @@ verify_jwt = true
 [functions.external-data-collector]
 verify_jwt = false
 
+[functions.whale-alert-webhook]
+verify_jwt = false
+
 [functions.parse-strategy]
 verify_jwt = true

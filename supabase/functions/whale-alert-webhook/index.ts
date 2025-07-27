@@ -41,6 +41,12 @@ serve(async (req) => {
     const payload = await req.json();
     console.log(`🐋 Whale Alert payload:`, JSON.stringify(payload, null, 2));
 
+    // Check if this is a QuickNode webhook (has different structure)
+    if (payload.matchingTransactions) {
+      console.log('🔗 Processing QuickNode webhook format');
+      return await processQuickNodeWebhook(supabaseClient, payload);
+    }
+
     // Get whale alert data source configuration
     const { data: dataSource } = await supabaseClient
       .from('ai_data_sources')
@@ -50,7 +56,27 @@ serve(async (req) => {
       .single();
 
     if (!dataSource) {
-      throw new Error('Whale Alert data source not configured');
+      console.log('⚠️ No Whale Alert data source configured, processing as generic webhook');
+      // Try to find any whale-related data source
+      const { data: fallbackSource } = await supabaseClient
+        .from('ai_data_sources')
+        .select('*')
+        .eq('is_active', true)
+        .or('source_name.eq.quicknode_webhooks,source_name.eq.whale_monitoring')
+        .single();
+        
+      if (!fallbackSource) {
+        return new Response(JSON.stringify({ 
+          success: true, 
+          message: 'No data source configured, but webhook acknowledged' 
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+      
+      // Use fallback source
+      var dataSource = fallbackSource;
     }
 
     const userId = dataSource.user_id;
@@ -202,14 +228,151 @@ serve(async (req) => {
   } catch (error) {
     console.error('❌ Whale Alert Webhook error:', error);
     
-    // Still return 200 to prevent webhook retries
+    // Return appropriate error status based on error type
+    const status = error.message.includes('not configured') ? 200 : 500;
+    
     return new Response(JSON.stringify({ 
       success: false, 
       error: error.message,
       message: 'Webhook received but processing failed'
     }), {
-      status: 200,
+      status,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 });
+
+async function processQuickNodeWebhook(supabaseClient: any, payload: any) {
+  console.log('🔗 Processing QuickNode webhook payload');
+  
+  // Get QuickNode data source
+  const { data: sources } = await supabaseClient
+    .from('ai_data_sources')
+    .select('*')
+    .eq('source_name', 'quicknode_webhooks')
+    .eq('is_active', true);
+    
+  if (!sources || sources.length === 0) {
+    console.log('⚠️ No active QuickNode sources found, creating default');
+    // Return success to avoid webhook delivery issues
+    return new Response(JSON.stringify({ 
+      success: true, 
+      message: 'QuickNode webhook received but no source configured' 
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const source = sources[0];
+  const whaleEvents = [];
+  
+  // Process matching transactions from QuickNode payload
+  const matchingTransactions = payload.matchingTransactions || [];
+  console.log(`🔍 Processing ${matchingTransactions.length} QuickNode transactions`);
+  
+  for (const transaction of matchingTransactions) {
+    try {
+      // Convert hex value to decimal (Wei to ETH)
+      const valueInWei = parseInt(transaction.value, 16);
+      const valueInEth = valueInWei / Math.pow(10, 18);
+      
+      // Skip small transactions (less than 10 ETH)
+      if (valueInEth < 10) {
+        continue;
+      }
+      
+      // Determine blockchain from chainId
+      const chainId = parseInt(transaction.chainId, 16);
+      const blockchain = getBlockchainName(chainId);
+      
+      const whaleEvent = {
+        source_id: source.id,
+        user_id: source.user_id,
+        timestamp: new Date().toISOString(),
+        event_type: 'large_transaction',
+        blockchain: blockchain,
+        transaction_hash: transaction.hash,
+        from_address: transaction.from,
+        to_address: transaction.to,
+        token_symbol: 'ETH',
+        amount: valueInEth,
+        raw_data: transaction,
+        processed: false
+      };
+      
+      whaleEvents.push(whaleEvent);
+      
+      // Create live signal for large transactions
+      const signal = {
+        source_id: source.id,
+        user_id: source.user_id,
+        timestamp: whaleEvent.timestamp,
+        symbol: 'ETH',
+        signal_type: valueInEth > 100 ? 'whale_large_movement' : 'whale_movement',
+        signal_strength: Math.min(100, valueInEth / 10), // Scale based on ETH amount
+        source: 'quicknode',
+        data: {
+          amount_eth: valueInEth,
+          amount_usd: valueInEth * 3200, // Approximate USD value
+          blockchain: blockchain,
+          from_address: transaction.from,
+          to_address: transaction.to,
+          transaction_hash: transaction.hash
+        },
+        processed: false
+      };
+      
+      // Insert live signal
+      await supabaseClient
+        .from('live_signals')
+        .insert([signal]);
+        
+      console.log(`🐋 Created signal for ${valueInEth.toFixed(4)} ETH transaction on ${blockchain}`);
+    } catch (error) {
+      console.error('❌ Error processing QuickNode transaction:', error);
+    }
+  }
+  
+  // Insert whale events if any
+  if (whaleEvents.length > 0) {
+    const { error } = await supabaseClient
+      .from('whale_signal_events')
+      .insert(whaleEvents);
+      
+    if (error) {
+      console.error('❌ Error inserting QuickNode whale events:', error);
+    } else {
+      console.log(`✅ Successfully inserted ${whaleEvents.length} QuickNode whale events`);
+    }
+  }
+  
+  // Update last_sync timestamp
+  await supabaseClient
+    .from('ai_data_sources')
+    .update({ last_sync: new Date().toISOString() })
+    .eq('id', source.id);
+  
+  return new Response(JSON.stringify({ 
+    success: true, 
+    events_processed: whaleEvents.length,
+    message: 'QuickNode webhook processed successfully'
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function getBlockchainName(chainId: number): string {
+  const blockchainMap: { [key: number]: string } = {
+    1: 'ethereum',
+    56: 'binance_smart_chain',
+    137: 'polygon',
+    43114: 'avalanche',
+    250: 'fantom',
+    42161: 'arbitrum',
+    10: 'optimism'
+  };
+  
+  return blockchainMap[chainId] || `chain_${chainId}`;
+}

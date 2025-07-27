@@ -76,7 +76,7 @@ serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), {
+    return new Response(JSON.stringify({ error: `Invalid action: ${action}. Expected 'sync_all_sources' or 'sync_source'` }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
