@@ -53,6 +53,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   useEffect(() => {
     if (user) {
+      // Fix past trades that belong to this user but have wrong user_id
+      fixPastTrades();
+      
       // Clear trades immediately when switching modes to prevent cached data display
       setTrades([]);
       
@@ -62,6 +65,27 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       fetchTradingHistory();
     }
   }, [user, testMode]);
+
+  const fixPastTrades = async () => {
+    if (!user) return;
+    
+    try {
+      // Update any test trades that should belong to current user
+      const { error } = await supabase
+        .from('mock_trades')
+        .update({ user_id: user.id })
+        .neq('user_id', user.id)
+        .eq('is_test_mode', true);
+      
+      if (error && !error.message.includes('no rows')) {
+        console.log('Error fixing past trades:', error);
+      } else {
+        console.log('✅ Fixed past trades for current user');
+      }
+    } catch (error) {
+      console.log('Note: Could not fix past trades:', error);
+    }
+  };
 
   useEffect(() => {
     // Auto-fetch data when connection is selected in live mode
