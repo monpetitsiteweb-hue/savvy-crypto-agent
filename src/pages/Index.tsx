@@ -31,10 +31,7 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
-  console.log('🔵 INDEX: Before useTestTrading call', { user: !!user, loading, testMode });
-  // Initialize test trading when component mounts
-  useTestTrading();
-  console.log('🔵 INDEX: After useTestTrading call');
+  console.log('🔵 INDEX: Before auth check', { user: !!user, loading, testMode });
 
   // Auto-login as anonymous user if not authenticated
   useEffect(() => {
@@ -63,6 +60,9 @@ const Index = () => {
   if (!user) {
     return <AuthPage />;
   }
+
+  // Initialize test trading for authenticated users
+  useTestTrading();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
