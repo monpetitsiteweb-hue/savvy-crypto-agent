@@ -528,7 +528,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   };
 
   const renderSidebar = () => (
-    <div className="w-80 bg-background border-r border-border p-4 overflow-y-auto transition-all duration-300">
+    <div className="hidden lg:block w-80 bg-background border-r border-border p-4 overflow-y-auto transition-all duration-300 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800">
       <div className="space-y-6">
         {MENU_SECTIONS.map((section) => (
           <div key={section.id}>
@@ -657,8 +657,8 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   );
 
   const renderMobileTabs = () => (
-    <div className="lg:hidden border-b border-border bg-background/95 backdrop-blur-sm sticky top-[73px] z-10">
-      <div className="overflow-x-auto">
+    <div className="lg:hidden border-b border-border bg-background/95 backdrop-blur-sm sticky top-[73px] z-10 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800">
+      <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800">
         <div className="flex gap-1 p-2 min-w-max">
           {MENU_SECTIONS.map((section) => (
             <div key={section.id} className="space-y-1">
@@ -932,7 +932,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
             {renderSidebar()}
             
             {/* Content Area */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-slate-800">
               <div className="p-4 lg:p-6">
                 <form onSubmit={handleSubmit} className="max-w-4xl space-y-8">
                   
