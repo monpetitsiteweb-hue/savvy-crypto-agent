@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useTestMode } from './useTestMode';
 import { useAuth } from './useAuth';
-import { useMockWallet } from './useMockWallet';
+import { useMockWalletSafe } from './useMockWallet';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from './use-toast';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
@@ -15,8 +15,16 @@ export const useTestTrading = () => {
   const { user } = useAuth();
   console.log('🚨 HOOK_INIT: Got user:', !!user);
   
-  const { updateBalance, getBalance } = useMockWallet();
-  console.log('🚨 HOOK_INIT: Got mock wallet functions');
+  // Use safe version that doesn't throw when context is unavailable
+  const mockWallet = useMockWalletSafe();
+  const updateBalance = mockWallet?.updateBalance || (() => {});
+  const getBalance = mockWallet?.getBalance || (() => 0);
+  
+  if (mockWallet) {
+    console.log('🚨 HOOK_INIT: Got mock wallet functions');
+  } else {
+    console.log('🚨 HOOK_INIT: Mock wallet context not available, using fallbacks');
+  }
   
   const { toast } = useToast();
   console.log('🚨 HOOK_INIT: Got toast function');

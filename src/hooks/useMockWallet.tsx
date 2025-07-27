@@ -296,3 +296,8 @@ export const useMockWallet = () => {
   }
   return context;
 };
+
+export const useMockWalletSafe = () => {
+  const context = useContext(MockWalletContext);
+  return context;
+};
