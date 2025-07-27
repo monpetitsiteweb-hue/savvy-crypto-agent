@@ -78,9 +78,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     
     // Create subscription for the appropriate table based on test mode
     const tableName = testMode ? 'mock_trades' : 'trading_history';
-    const filter = testMode 
-      ? `user_id=eq.${user.id}`
-      : `user_id=eq.${user.id}`;
+    const filter = `user_id=eq.${user.id}`;
 
     const channel = supabase
       .channel(`trading-history-${tableName}`)
@@ -142,16 +140,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       let data, error;
       
       if (testMode) {
-        // In test mode, fetch from mock_trades table and use mock wallet value
-        console.log('🔍 Fetching trades for user:', user?.id);
-        console.log('🔍 Auth state:', !!user, await supabase.auth.getUser());
+        // In test mode, fetch from mock_trades table for current user
+        console.log('🔍 Fetching mock trades for user:', user.id);
         
         const result = await supabase
           .from('mock_trades')
           .select('*')
+          .eq('user_id', user.id)
           .eq('is_test_mode', true)
           .order('executed_at', { ascending: false })
           .limit(50);
+        
+        console.log('🔍 Mock trades query result:', { count: result.data?.length, error: result.error });
         
         data = result.data;
         error = result.error;
@@ -239,8 +239,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // Show NoActiveStrategyState only if no strategy AND no trades exist
-  if (!hasActiveStrategy && trades.length === 0 && !loading) {
+  // Only show NoActiveStrategyState if no trades exist and not loading
+  if (trades.length === 0 && !loading && testMode) {
     return (
       <NoActiveStrategyState 
         onCreateStrategy={onCreateStrategy}

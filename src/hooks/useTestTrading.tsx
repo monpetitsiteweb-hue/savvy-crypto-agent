@@ -209,54 +209,50 @@ export const useTestTrading = () => {
 
   const recordTrade = async (tradeData: any) => {
     try {
-      console.log('🚨 TRADE_DEBUG: Attempting to record trade:', tradeData);
+      console.log('🚨 TRADE_DEBUG: Recording trade to mock_trades only:', tradeData);
       console.log('🚨 TRADE_DEBUG: User ID:', user?.id);
       
-      const { error } = await supabase
-        .from('trading_history')
-        .insert({
-          ...tradeData,
-          user_id: user?.id,
-          trade_environment: 'test',
-          is_sandbox: true,
-          notes: 'Automated test trade',
-          fees: tradeData.total_value * 0.005, // 0.5% fee
-          executed_at: new Date().toISOString()
-        });
-
-      if (error) {
-        console.error('🚨 TRADE_DEBUG: Error inserting into trading_history:', error);
-        throw error;
+      if (!user?.id) {
+        console.error('🚨 TRADE_DEBUG: No user ID available');
+        throw new Error('User ID required for trade recording');
       }
-      console.log('🚨 TRADE_DEBUG: Successfully inserted into trading_history');
 
-      // Also record in mock_trades for performance tracking with calculated P&L
+      // Calculate P&L for the trade
       const profit_loss = tradeData.trade_type === 'sell' 
         ? (tradeData.total_value * 0.02) // Simulate 2% profit for sells
         : -(tradeData.total_value * 0.01); // Simulate 1% loss for buys initially
 
       const mockTradeData = {
-        ...tradeData,
-        user_id: user?.id,
+        strategy_id: tradeData.strategy_id,
+        user_id: user.id,
+        trade_type: tradeData.trade_type,
+        cryptocurrency: tradeData.cryptocurrency,
+        amount: tradeData.amount,
+        price: tradeData.price,
+        total_value: tradeData.total_value,
+        fees: tradeData.total_value * 0.005, // 0.5% fee
+        strategy_trigger: tradeData.strategy_trigger,
+        notes: 'Automated test trade',
         is_test_mode: true,
         profit_loss,
-        fees: tradeData.total_value * 0.005,
         executed_at: new Date().toISOString()
       };
 
-      console.log('🚨 TRADE_DEBUG: Attempting to insert mock trade:', mockTradeData);
-      const { error: mockError } = await supabase
+      console.log('🚨 TRADE_DEBUG: Inserting mock trade:', mockTradeData);
+      const { error } = await supabase
         .from('mock_trades')
         .insert(mockTradeData);
 
-      if (mockError) {
-        console.error('🚨 TRADE_DEBUG: Error inserting into mock_trades:', mockError);
-        throw mockError;
+      if (error) {
+        console.error('🚨 TRADE_DEBUG: Error inserting into mock_trades:', error);
+        throw error;
       }
-      console.log('🚨 TRADE_DEBUG: Successfully inserted into mock_trades');
+      
+      console.log('🚨 TRADE_DEBUG: Successfully inserted trade with strategy_id:', tradeData.strategy_id);
 
     } catch (error) {
       console.error('Error recording trade:', error);
+      throw error;
     }
   };
 
