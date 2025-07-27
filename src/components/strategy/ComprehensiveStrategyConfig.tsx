@@ -326,7 +326,15 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   useEffect(() => {
     if (existingStrategy?.configuration) {
       const config = existingStrategy.configuration;
-      setFormData(prev => ({ ...prev, ...config }));
+      setFormData(prev => ({ 
+        ...prev, 
+        ...config,
+        // Properly merge the nested aiIntelligenceConfig
+        aiIntelligenceConfig: {
+          ...prev.aiIntelligenceConfig,
+          ...config.aiIntelligenceConfig
+        }
+      }));
     }
   }, [existingStrategy]);
 
