@@ -143,6 +143,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       
       if (testMode) {
         // In test mode, fetch from mock_trades table and use mock wallet value
+        console.log('🔍 Fetching trades for user:', user.id);
         const result = await supabase
           .from('mock_trades')
           .select('*')
@@ -150,6 +151,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           .eq('is_test_mode', true)
           .order('executed_at', { ascending: false })
           .limit(50);
+        
+        console.log('📊 Query result:', result.data?.length, 'trades found');
+        console.log('📊 Sample trades:', result.data?.slice(0, 2));
         
         data = result.data;
         error = result.error;
