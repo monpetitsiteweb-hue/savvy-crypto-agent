@@ -7,6 +7,8 @@ import { useToast } from './use-toast';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
 
 export const useTestTrading = () => {
+  console.log('🚨 HOOK_INIT: useTestTrading hook is being called');
+  
   const { testMode } = useTestMode();
   const { user } = useAuth();
   const { updateBalance, getBalance } = useMockWallet();
@@ -14,6 +16,8 @@ export const useTestTrading = () => {
   const { marketData, getCurrentData } = useRealTimeMarketData();
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const lastPricesRef = useRef<any>({});
+
+  console.log('🚨 HOOK_INIT: Hook values - testMode:', testMode, 'user exists:', !!user);
 
   const checkStrategiesAndExecute = async () => {
     if (!testMode || !user) {
