@@ -27,12 +27,8 @@ const Index = () => {
   const { user, loading } = useAuth();
   const { role, loading: roleLoading } = useUserRole();
   const { testMode, setTestMode } = useTestMode();
-  const { hasActiveStrategy } = useActiveStrategy();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
-  
-  // Temporarily disabled to fix hook rules violation
-  // useTestTrading();
 
   // Auto-login disabled since anonymous auth is disabled
   // useEffect(() => {
@@ -62,6 +58,8 @@ const Index = () => {
     return <AuthPage />;
   }
 
+  // Now that we know user exists, initialize hooks that depend on authentication
+  const { hasActiveStrategy } = useActiveStrategy();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
