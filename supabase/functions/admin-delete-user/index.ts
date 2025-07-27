@@ -55,16 +55,71 @@ serve(async (req) => {
       )
     }
 
-    // Delete user completely from auth.users (this will cascade to other tables)
+    // First, clean up all related data manually since there are no foreign key constraints
+    console.log(`Starting deletion process for user: ${userId}`)
+
+    // Delete user roles
+    const { error: roleError } = await supabaseAdmin
+      .from('user_roles')
+      .delete()
+      .eq('user_id', userId)
+
+    if (roleError) {
+      console.error('Error deleting user roles:', roleError)
+    }
+
+    // Delete profile
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .delete()
+      .eq('id', userId)
+
+    if (profileError) {
+      console.error('Error deleting profile:', profileError)
+    }
+
+    // Delete trading strategies
+    const { error: strategiesError } = await supabaseAdmin
+      .from('trading_strategies')
+      .delete()
+      .eq('user_id', userId)
+
+    if (strategiesError) {
+      console.error('Error deleting trading strategies:', strategiesError)
+    }
+
+    // Delete trading history
+    const { error: tradesError } = await supabaseAdmin
+      .from('trading_history')
+      .delete()
+      .eq('user_id', userId)
+
+    if (tradesError) {
+      console.error('Error deleting trading history:', tradesError)
+    }
+
+    // Delete coinbase connections
+    const { error: connectionsError } = await supabaseAdmin
+      .from('user_coinbase_connections')
+      .delete()
+      .eq('user_id', userId)
+
+    if (connectionsError) {
+      console.error('Error deleting coinbase connections:', connectionsError)
+    }
+
+    // Finally, delete the user from auth.users
     const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId)
 
     if (deleteError) {
-      console.error('Error deleting user:', deleteError)
+      console.error('Error deleting user from auth:', deleteError)
       return new Response(
         JSON.stringify({ error: deleteError.message }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+
+    console.log(`Successfully deleted user: ${userId}`)
 
     return new Response(
       JSON.stringify({ success: true }),
