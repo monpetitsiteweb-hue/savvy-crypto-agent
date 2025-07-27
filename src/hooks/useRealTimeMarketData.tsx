@@ -34,9 +34,14 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
       // Use a direct API call to a reliable crypto price source as fallback
       console.log('🔍 Fetching current market data for symbols:', symbols);
       
-      // Try Coinbase Pro API directly first
-      const promises = symbols.map(async (symbol) => {
+      // Add delay between requests to avoid rate limiting
+      const promises = symbols.map(async (symbol, index) => {
         try {
+          // Stagger requests to avoid overwhelming the API
+          if (index > 0) {
+            await new Promise(resolve => setTimeout(resolve, 100 * index));
+          }
+          
           const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
           if (response.ok) {
             const data = await response.json();
@@ -55,6 +60,9 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
                 source: 'coinbase_rest_api'
               }
             };
+          } else if (response.status === 429) {
+            console.warn(`⚠️  Rate limited for ${symbol}, using cached data`);
+            return { [symbol]: null };
           }
           throw new Error(`Failed to fetch ${symbol}`);
         } catch (err) {
@@ -95,82 +103,13 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
     }
   }, [ws]);
 
+  // Disable WebSocket for now due to connection issues
   useEffect(() => {
-    // Create WebSocket connection to our edge function
-    const connectWebSocket = () => {
-      try {
-        const wsUrl = `wss://fuieplftlcxdfkxyqzlt.functions.supabase.co/real-time-market-data`;
-        const websocket = new WebSocket(wsUrl);
-
-        websocket.onopen = () => {
-          console.log('Connected to real-time market data');
-          setIsConnected(true);
-          setError(null);
-        };
-
-        websocket.onmessage = (event) => {
-          try {
-            const message = JSON.parse(event.data);
-            
-            if (message.type === 'market_update' && message.data) {
-              const update = message.data;
-              const marketUpdate: MarketData = {
-                symbol: update.product_id,
-                price: parseFloat(update.price || '0'),
-                bid: parseFloat(update.best_bid || '0'),
-                ask: parseFloat(update.best_ask || '0'),
-                volume: parseFloat(update.volume_24h || '0'),
-                change_24h: update.price_change_24h || '0',
-                change_percentage_24h: update.price_change_percent_24h || '0',
-                high_24h: update.high_24h || '0',
-                low_24h: update.low_24h || '0',
-                timestamp: update.time || new Date().toISOString(),
-                source: 'coinbase_websocket'
-              };
-
-              setMarketData(prev => ({
-                ...prev,
-                [update.product_id]: marketUpdate
-              }));
-            } else if (message.type === 'error') {
-              setError(message.message);
-            } else if (message.type === 'disconnected') {
-              setIsConnected(false);
-            }
-          } catch (err) {
-            console.error('Error parsing WebSocket message:', err);
-          }
-        };
-
-        websocket.onerror = (event) => {
-          console.error('WebSocket error:', event);
-          setError('WebSocket connection error');
-          setIsConnected(false);
-        };
-
-        websocket.onclose = (event) => {
-          console.log('WebSocket connection closed:', event.code, event.reason);
-          setIsConnected(false);
-          
-          // Attempt to reconnect after 5 seconds
-          setTimeout(() => {
-            if (!event.wasClean) {
-              connectWebSocket();
-            }
-          }, 5000);
-        };
-
-        setWs(websocket);
-
-      } catch (err) {
-        console.error('Error creating WebSocket connection:', err);
-        setError(err instanceof Error ? err.message : 'Connection failed');
-      }
-    };
-
-    connectWebSocket();
-
-    // Cleanup on unmount
+    console.log('⚠️  WebSocket disabled due to connection issues');
+    setIsConnected(false);
+    setError('WebSocket temporarily disabled');
+    
+    // Don't attempt WebSocket connection until properly implemented
     return () => {
       if (ws) {
         ws.close();
@@ -178,14 +117,14 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
     };
   }, []);
 
-  // Get initial data on mount and update more frequently for faster indicator calculation
+  // Get initial data on mount and update less frequently to avoid rate limiting
   useEffect(() => {
     getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
     
-    // Update data every 5 seconds to accumulate price history faster
+    // Update data every 30 seconds to avoid rate limiting
     const intervalId = setInterval(() => {
       getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
-    }, 5000); // 5 seconds for faster data accumulation
+    }, 30000); // 30 seconds to avoid rate limiting
 
     return () => clearInterval(intervalId);
   }, [getCurrentData]);

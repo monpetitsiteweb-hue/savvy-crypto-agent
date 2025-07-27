@@ -75,7 +75,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     }
   }, [testMode, mockBalances, updatePortfolioData]);
 
-  // Fetch real-time prices every 30 seconds
+  // Fetch real-time prices every 60 seconds (less frequent to avoid rate limiting)
   useEffect(() => {
     const fetchPrices = async () => {
       try {
@@ -97,7 +97,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     };
 
     fetchPrices();
-    const interval = setInterval(fetchPrices, 30000);
+    const interval = setInterval(fetchPrices, 60000); // 60 seconds to avoid rate limiting
     return () => clearInterval(interval);
   }, [getCurrentData]);
 
