@@ -10,7 +10,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
-import { formatEuro } from '@/utils/currencyFormatter';
+import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
+import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 
 interface Trade {
   id: string;
@@ -40,6 +41,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { testMode } = useTestMode();
   const { toast } = useToast();
   const { getTotalValue } = useMockWallet();
+  const { getCurrentData } = useRealTimeMarketData();
   
   console.log('🔍 TradingHistory: Component state:', { 
     user: !!user, 
@@ -59,6 +61,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     totalVolume: 0, // Changed from totalValue to totalVolume
     netProfitLoss: 0
   });
+  const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (user) {
@@ -208,6 +211,22 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       
       setTrades(data || []);
       
+      // Fetch current prices for all cryptocurrencies in trades
+      if (data && data.length > 0) {
+        const symbols = [...new Set((data as Trade[]).map(trade => `${trade.cryptocurrency}-EUR`))];
+        try {
+          const priceData = await getCurrentData(symbols);
+          const prices: Record<string, number> = {};
+          Object.entries(priceData).forEach(([symbol, data]) => {
+            const crypto = symbol.replace('-EUR', '');
+            prices[crypto] = data.price;
+          });
+          setCurrentPrices(prices);
+        } catch (error) {
+          console.error('Error fetching current prices:', error);
+        }
+      }
+      
       // Calculate meaningful trading statistics
       const totalTrades = data?.length || 0;
       const totalVolume = data?.reduce((sum, trade) => sum + Number(trade.total_value), 0) || 0;
@@ -246,6 +265,24 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const calculateTradePerformance = (trade: Trade) => {
+    const currentPrice = currentPrices[trade.cryptocurrency];
+    if (!currentPrice) return null;
+    
+    const purchasePrice = Number(trade.price);
+    const gainLoss = currentPrice - purchasePrice;
+    const gainLossPercentage = (gainLoss / purchasePrice) * 100;
+    const totalGainLoss = gainLoss * Number(trade.amount);
+    
+    return {
+      currentPrice,
+      gainLoss,
+      gainLossPercentage,
+      totalGainLoss,
+      isProfit: gainLoss >= 0
+    };
   };
 
   // Show empty state only when there's truly no active strategy AND no trades
@@ -450,27 +487,49 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                 
                 {/* Trade Info */}
                 <div className="text-right">
-                  <div className="flex items-center gap-4 mb-1">
-                    <div>
-                      <p className="text-sm text-slate-400">Amount</p>
-                      <p className="font-medium text-white">{Number(trade.amount).toLocaleString()}</p>
-                    </div>
-                     <div>
-                       <p className="text-sm text-slate-400">Price</p>
-                       <p className="font-medium text-white">{formatEuro(Number(trade.price))}</p>
-                     </div>
-                     <div>
-                       <p className="text-sm text-slate-400">Total</p>
-                       <p className="font-medium text-white">{formatEuro(Number(trade.total_value))}</p>
-                     </div>
-                     <div>
-                       <p className="text-sm text-slate-400">Fees</p>
-                       <p className="font-medium text-white">
-                         {trade.fees && trade.fees > 0 ? formatEuro(trade.fees) : formatEuro(0)}
-                       </p>
-                     </div>
-                   </div>
-                  <div className="flex items-center gap-1 justify-end">
+                  {(() => {
+                    const performance = calculateTradePerformance(trade);
+                    return (
+                      <div className="flex items-center gap-4 mb-1">
+                        <div>
+                          <p className="text-sm text-slate-400">Amount</p>
+                          <p className="font-medium text-white">{Number(trade.amount).toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-400">Purchase Price</p>
+                          <p className="font-medium text-white">{formatEuro(Number(trade.price))}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-400">Current Price</p>
+                          <p className="font-medium text-white">
+                            {performance ? formatEuro(performance.currentPrice) : '–'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-400">P&L</p>
+                          {performance ? (
+                            <div className="text-right">
+                              <p className={`font-medium ${performance.isProfit ? 'text-green-400' : 'text-red-400'}`}>
+                                {formatEuro(performance.totalGainLoss)}
+                              </p>
+                              <p className={`text-sm ${performance.isProfit ? 'text-green-400' : 'text-red-400'}`}>
+                                {performance.isProfit ? '+' : ''}{formatPercentage(performance.gainLossPercentage)}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="font-medium text-slate-400">–</p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-400">Fees</p>
+                          <p className="font-medium text-white">
+                            {trade.fees && trade.fees > 0 ? formatEuro(trade.fees) : formatEuro(0)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  <div className="flex items-center gap-1 justify-end mt-2">
                     <Clock className="w-3 h-3 text-slate-400" />
                     <span className="text-xs text-slate-400">{formatTime(trade.executed_at)}</span>
                   </div>
