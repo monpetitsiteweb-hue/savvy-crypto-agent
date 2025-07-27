@@ -41,27 +41,45 @@ export const useActiveStrategy = () => {
       console.log('📋 ALL user strategies:', allStrategies);
       console.log('📋 All strategies error:', allError);
       
+      // Show detailed strategy info
+      if (allStrategies && allStrategies.length > 0) {
+        console.log('📋 Strategy details:');
+        allStrategies.forEach((strategy, index) => {
+          console.log(`  ${index + 1}. ${strategy.strategy_name}:`);
+          console.log(`     - id: ${strategy.id}`);
+          console.log(`     - is_active_test: ${strategy.is_active_test}`);
+          console.log(`     - is_active_live: ${strategy.is_active_live}`);
+          console.log(`     - is_active: ${strategy.is_active}`);
+        });
+      }
+      
+      console.log('🔍 Now querying for active strategy with:', activeField, '= true');
+      
       const { data, error } = await supabase
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
         .eq(activeField, true)
-        .single();
+        .maybeSingle(); // Use maybeSingle instead of single to avoid errors
+        
+      console.log('📊 Active strategy query result:', { data, error });
+      console.log('📊 Active strategy data:', data);
+      console.log('📊 Active strategy error:', error);
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+      if (error) {
         console.error('❌ Error loading active strategy:', error);
       }
 
-      if (error && error.code === 'PGRST116') {
+      if (!data) {
         console.log('⚠️ No active strategy found for current mode:', testMode ? 'test' : 'live');
         console.log('⚠️ Looking for field:', activeField, '= true');
-        console.log('⚠️ Available strategies:', allStrategies?.map(s => ({
-          id: s.id,
-          name: s.strategy_name,
-          is_active_test: s.is_active_test,
-          is_active_live: s.is_active_live,
-          is_active: s.is_active
-        })));
+        if (allStrategies && allStrategies.length > 0) {
+          console.log('⚠️ But you have these strategies available:');
+          allStrategies.forEach((strategy, index) => {
+            const isActiveInCurrentMode = strategy[activeField];
+            console.log(`  ${index + 1}. ${strategy.strategy_name}: ${activeField} = ${isActiveInCurrentMode}`);
+          });
+        }
       } else {
         console.log('✅ Found active strategy:', data);
       }
