@@ -90,6 +90,9 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
   const fetchStrategies = async () => {
     if (!user) return;
     
+    console.log('🔍 StrategyConfig: fetchStrategies called with testMode:', testMode);
+    console.log('🔍 StrategyConfig: user.id:', user.id);
+    
     try {
       const { data, error } = await supabase
         .from('trading_strategies')
@@ -99,17 +102,16 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
 
       if (error) throw error;
       
+      console.log('🔍 StrategyConfig: Raw data from DB:', data);
+      
       // Filter strategies based on current view mode
       const filteredStrategies = (data || []).filter(strategy => {
-        if (testMode) {
-          // Test View: Only show test strategies (test_mode = true)
-          return strategy.test_mode === true;
-        } else {
-          // Live View: Only show production strategies (test_mode = false)
-          return strategy.test_mode === false;
-        }
+        const shouldShow = testMode ? strategy.test_mode === true : strategy.test_mode === false;
+        console.log(`🔍 StrategyConfig: Strategy "${strategy.strategy_name}" - test_mode: ${strategy.test_mode}, testMode: ${testMode}, shouldShow: ${shouldShow}`);
+        return shouldShow;
       });
       
+      console.log('🔍 StrategyConfig: Filtered strategies:', filteredStrategies);
       setStrategies(filteredStrategies);
       
       // Fetch performance data for each strategy
