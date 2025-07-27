@@ -119,15 +119,19 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
 
   // Get initial data on mount and update less frequently to avoid rate limiting
   useEffect(() => {
-    getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
+    const fetchData = async () => {
+      await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
+    };
+    
+    fetchData();
     
     // Update data every 30 seconds to avoid rate limiting
     const intervalId = setInterval(() => {
-      getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
+      fetchData();
     }, 30000); // 30 seconds to avoid rate limiting
 
     return () => clearInterval(intervalId);
-  }, [getCurrentData]);
+  }, []); // Remove getCurrentData from dependencies to prevent infinite loop
 
   return {
     marketData,
