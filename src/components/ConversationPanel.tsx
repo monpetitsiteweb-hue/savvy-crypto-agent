@@ -110,10 +110,6 @@ export const ConversationPanel = () => {
       testMode ? s.is_active_test : s.is_active_live
     );
     
-    if (!activeStrategies || !userStrategies) {
-      return null; // Data not loaded yet
-    }
-    
     if (activeStrategies.length === 0 && userStrategies.length === 0) {
       return null; // No strategies at all
     }
@@ -466,8 +462,6 @@ export const ConversationPanel = () => {
           console.log('📝 New config to save:', updatedConfig);
           
           try {
-            console.log('📊 About to update strategy with config:', updatedConfig);
-            
             const { data: updateResult, error: updateError } = await supabase
               .from('trading_strategies')
               .update({ 
@@ -482,7 +476,7 @@ export const ConversationPanel = () => {
 
             if (updateError) {
               console.error('❌ CONFIG UPDATE FAILED:', updateError);
-              aiMessage = `❌ Failed to update strategy configuration: ${updateError.message}`;
+              aiMessage = `❌ Failed to update strategy. Please try again or contact support.`;
             } else if (updateResult && updateResult.length > 0) {
               console.log('✅ CONFIG UPDATE SUCCESS:', updateResult[0]);
               

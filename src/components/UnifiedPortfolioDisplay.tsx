@@ -76,7 +76,7 @@ export const UnifiedPortfolioDisplay = () => {
 
   // Auto-refresh portfolio when balances change in test mode
   useEffect(() => {
-    if (testMode && balances && Array.isArray(balances) && balances.length > 0) {
+    if (testMode && balances.length > 0) {
       const mockAccounts = balances.map(balance => ({
         uuid: `mock-${balance.currency.toLowerCase()}-account`,
         name: `${balance.currency} Wallet`,
@@ -113,7 +113,7 @@ export const UnifiedPortfolioDisplay = () => {
       const savedConnectionId = localStorage.getItem(`selectedConnection_${user.id}`);
       if (savedConnectionId && data?.find(c => c.id === savedConnectionId)) {
         setSelectedConnectionId(savedConnectionId);
-      } else if (data && Array.isArray(data) && data.length > 0) {
+      } else if (data && data.length > 0) {
         const firstConnectionId = data[0].id;
         setSelectedConnectionId(firstConnectionId);
         localStorage.setItem(`selectedConnection_${user.id}`, firstConnectionId);
@@ -228,7 +228,7 @@ export const UnifiedPortfolioDisplay = () => {
           
           <div className="flex items-center gap-2">
             {/* Connection Selector for Production Mode */}
-            {!testMode && connections && Array.isArray(connections) && connections.length > 0 && (
+            {!testMode && connections.length > 0 && (
               <select
                 value={selectedConnectionId}
                 onChange={(e) => {

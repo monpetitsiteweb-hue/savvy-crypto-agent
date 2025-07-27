@@ -62,7 +62,7 @@ export const DashboardPanel = () => {
 
   // Auto-refresh portfolio when balances change in test mode
   useEffect(() => {
-    if (testMode && balances && Array.isArray(balances) && balances.length > 0) {
+    if (testMode && balances.length > 0) {
       const mockAccounts = balances.map(balance => ({
         uuid: `mock-${balance.currency.toLowerCase()}-account`,
         name: `${balance.currency} Wallet`,
@@ -101,7 +101,7 @@ export const DashboardPanel = () => {
       setConnections(data || []);
       
       // Auto-select first connection if none selected and no saved selection
-      if (data && Array.isArray(data) && data.length > 0 && !selectedConnectionId) {
+      if (data && data.length > 0 && !selectedConnectionId) {
         const firstConnectionId = data[0].id;
         setSelectedConnectionId(firstConnectionId);
         localStorage.setItem(`selectedConnection_${user.id}`, firstConnectionId);
@@ -362,7 +362,7 @@ export const DashboardPanel = () => {
           </Button>
         </div>
         
-        {!connections || connections.length === 0 ? (
+        {connections.length === 0 ? (
           <p className="text-slate-300">No connections found. Add your first connection to get started.</p>
         ) : (
           <div className="space-y-3">
@@ -401,7 +401,7 @@ export const DashboardPanel = () => {
       </Card>
 
       {/* Portfolio Selection & Display */}
-      {connections && Array.isArray(connections) && connections.length > 0 && (
+      {connections.length > 0 && (
         <Card className="p-6 bg-slate-800/50 border-slate-600">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center space-x-3">

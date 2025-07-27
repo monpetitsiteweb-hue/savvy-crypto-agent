@@ -125,7 +125,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       const savedConnectionId = localStorage.getItem(`selectedConnection_${user.id}`);
       if (savedConnectionId && data?.find(c => c.id === savedConnectionId)) {
         setSelectedConnection(savedConnectionId);
-      } else if (data && Array.isArray(data) && data.length > 0) {
+      } else if (data && data.length > 0) {
         const firstConnectionId = data[0].id;
         setSelectedConnection(firstConnectionId);
         localStorage.setItem(`selectedConnection_${user.id}`, firstConnectionId);
@@ -254,11 +254,11 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     );
   }
 
-  if (!trades || !Array.isArray(trades) || trades.length === 0) {
+  if (trades.length === 0) {
     return (
       <div className="space-y-4">
         {/* Connection Selector - Only show in live mode */}
-        {!testMode && connections && Array.isArray(connections) && connections.length > 0 && (
+        {!testMode && connections.length > 0 && (
           <Card className="p-4 bg-slate-700/30 border-slate-600">
             <div className="flex items-center gap-4">
               <div className="flex-1">
@@ -320,7 +320,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return (
       <div className="space-y-4">
         {/* Connection Selector - Only show in live mode */}
-        {!testMode && connections && Array.isArray(connections) && connections.length > 0 && (
+        {!testMode && connections.length > 0 && (
           <Card className="p-4 bg-slate-700/30 border-slate-600">
             <div className="flex items-center gap-4">
               <div className="flex-1">

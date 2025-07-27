@@ -58,7 +58,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
   // In test mode, use mock wallet data - prevent infinite loops
   useEffect(() => {
     console.log('🧪 MergedPortfolioDisplay: Test mode:', testMode, 'Mock balances:', mockBalances);
-    if (testMode && mockBalances && Array.isArray(mockBalances) && mockBalances.length > 0) {
+    if (testMode && mockBalances && mockBalances.length > 0) {
       const mockPortfolio: PortfolioData = {
         accounts: mockBalances.map((balance) => ({
           uuid: `mock-${balance.currency}`,
@@ -114,7 +114,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
       setConnections(data || []);
       
       // Auto-select first connection if none selected
-      if (data && Array.isArray(data) && data.length > 0 && !selectedConnectionId) {
+      if (data && data.length > 0 && !selectedConnectionId) {
         setSelectedConnectionId(data[0].id);
       }
     } catch (error) {
@@ -151,7 +151,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
   }, [selectedConnectionId, testMode]); // Removed shouldRefresh to prevent infinite loop
 
   const getTotalPortfolioValue = () => {
-    if (!portfolioData || !portfolioData.accounts) return 0;
+    if (!portfolioData) return 0;
     
     return portfolioData.accounts.reduce((total, account) => {
       const balance = parseFloat(account.available_balance.value);
@@ -227,7 +227,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
         </div>
         
         <div className="flex items-center gap-3">
-          {!testMode && connections && Array.isArray(connections) && connections.length > 0 && (
+          {!testMode && connections.length > 0 && (
             <Select 
               value={selectedConnectionId} 
               onValueChange={setSelectedConnectionId}

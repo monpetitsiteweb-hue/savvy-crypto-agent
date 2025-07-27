@@ -42,7 +42,7 @@ export const useActiveStrategy = () => {
       console.log('📋 All strategies error:', allError);
       
       // Show detailed strategy info
-      if (allStrategies && Array.isArray(allStrategies) && allStrategies.length > 0) {
+      if (allStrategies && allStrategies.length > 0) {
         console.log('📋 Strategy details:');
         allStrategies.forEach((strategy, index) => {
           console.log(`  ${index + 1}. ${strategy.strategy_name}:`);
@@ -73,7 +73,7 @@ export const useActiveStrategy = () => {
       if (!data) {
         console.log('⚠️ No active strategy found for current mode:', testMode ? 'test' : 'live');
         console.log('⚠️ Looking for field:', activeField, '= true');
-        if (allStrategies && Array.isArray(allStrategies) && allStrategies.length > 0) {
+        if (allStrategies && allStrategies.length > 0) {
           console.log('⚠️ But you have these strategies available:');
           allStrategies.forEach((strategy, index) => {
             const isActiveInCurrentMode = strategy[activeField];

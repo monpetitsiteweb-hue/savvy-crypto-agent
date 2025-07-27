@@ -340,12 +340,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('🚨 HANDLE_SUBMIT: Button clicked, form submitted');
-    console.log('🚨 HANDLE_SUBMIT: Event:', e);
-    if (!user) {
-      console.log('🚨 HANDLE_SUBMIT: No user found, returning');
-      return;
-    }
+    if (!user) return;
 
     // Validation
     if (!formData.strategyName?.trim()) {
@@ -379,21 +374,13 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
       if (isEditing && existingStrategy) {
         console.log('🚨 STRATEGY_SAVE_DEBUG: Updating existing strategy with ID:', existingStrategy.id);
-        console.log('🚨 STRATEGY_SAVE_DEBUG: Strategy data being updated:', strategyData);
-        
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('trading_strategies')
           .update(strategyData)
           .eq('id', existingStrategy.id)
-          .eq('user_id', user.id)
-          .select();
+          .eq('user_id', user.id);
 
-        console.log('🚨 STRATEGY_SAVE_DEBUG: Update result:', { data, error });
-        
-        if (error) {
-          console.error('🚨 STRATEGY_SAVE_DEBUG: Update failed with error:', error);
-          throw error;
-        }
+        if (error) throw error;
         
         toast({
           title: "Strategy updated",
