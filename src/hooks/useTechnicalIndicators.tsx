@@ -47,68 +47,41 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
     const loadHistoricalPriceData = async () => {
       try {
         setIsLoadingHistoricalData(true);
-        const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'LTC-EUR', 'ADA-EUR', 'DOT-EUR', 'LINK-EUR', 'BCH-EUR', 'SOL-EUR', 'MATIC-EUR', 'AVAX-EUR'];
+        const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
         
-        console.log('🔍 Loading historical price data for indicators...');
+        console.log('🔍 Loading recent price data for indicators...');
         
-        // Check if we have pre-calculated indicators in database first
-        const { data: existingIndicators } = await supabase
-          .from('price_data')
-          .select('symbol, metadata')
-          .in('symbol', symbols)
-          .not('metadata->indicators', 'is', null)
-          .order('timestamp', { ascending: false })
-          .limit(symbols.length);
+        // Optimized: Fetch only last 50 points per symbol instead of 100
+        const pricePromises = symbols.map(async (symbol) => {
+          const { data } = await supabase
+            .from('price_data')
+            .select('symbol, close_price, timestamp')
+            .eq('symbol', symbol)
+            .order('timestamp', { ascending: false })
+            .limit(50);
+          return data || [];
+        });
         
-        // If we have cached indicators, use them for instant loading
-        if (existingIndicators && existingIndicators.length > 0) {
-          console.log('📊 Found cached indicators, loading instantly...');
-          const cachedIndicators: Record<string, any> = {};
-          existingIndicators.forEach(item => {
-            if (item.metadata && typeof item.metadata === 'object' && 'indicators' in item.metadata) {
-              cachedIndicators[item.symbol] = (item.metadata as any).indicators;
-            }
-          });
-          
-          if (Object.keys(cachedIndicators).length > 0) {
-            setIndicators(cachedIndicators);
-            console.log('✅ Loaded cached indicators for:', Object.keys(cachedIndicators));
-          }
-        }
+        const allPriceData = (await Promise.all(pricePromises)).flat();
+        console.log(`📊 Fetched ${allPriceData.length} price data points from database`);
         
-        // Fetch recent price data for calculation/recalculation
-        const { data: priceData, error } = await supabase
-          .from('price_data')
-          .select('symbol, close_price, timestamp')
-          .in('symbol', symbols)
-          .order('timestamp', { ascending: false })
-          .limit(100 * symbols.length); // Get more data points for better indicator calculation
-        
-        if (error) {
-          console.error('❌ Error loading historical price data:', error);
-          return;
-        }
-        
-        console.log(`📊 Fetched ${priceData?.length || 0} price data points from database`);
-        
-        if (priceData && priceData.length > 0) {
+        if (allPriceData.length > 0) {
           const historyBySymbol: Record<string, number[]> = {};
           
           // Group data by symbol and sort by timestamp
           symbols.forEach(symbol => {
-            const symbolData = priceData
+            const symbolData = allPriceData
               .filter(d => d.symbol === symbol)
               .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
               .map(d => parseFloat(d.close_price.toString()));
             
             if (symbolData.length > 0) {
-              historyBySymbol[symbol] = symbolData.slice(-100); // Keep more data for better calculations
+              historyBySymbol[symbol] = symbolData; // Use all fetched data (50 points max)
             }
           });
           
           setPriceHistory(historyBySymbol);
-          console.log(`✅ Bootstrapped indicators with historical data:`, Object.keys(historyBySymbol).map(s => `${s}: ${historyBySymbol[s].length} prices`));
-          console.log('📈 Sample price data for ETH-EUR:', historyBySymbol['ETH-EUR']?.slice(-5));
+          console.log(`✅ Fast-loaded indicators with data:`, Object.keys(historyBySymbol).map(s => `${s}: ${historyBySymbol[s].length} prices`));
         } else {
           console.log('⚠️ No price data found in database');
         }
