@@ -28,6 +28,8 @@ export const CustomerManagementPanel = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCustomers, setTotalCustomers] = useState(0);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [orphanedData, setOrphanedData] = useState<any[]>([]);
+  const [showOrphaned, setShowOrphaned] = useState(false);
   const customersPerPage = 30;
 
   const fetchCustomers = async () => {
@@ -120,6 +122,7 @@ export const CustomerManagementPanel = () => {
 
   useEffect(() => {
     fetchCustomers();
+    fetchOrphanedData();
   }, [currentPage, searchTerm]);
 
   const totalPages = Math.ceil(totalCustomers / customersPerPage);
@@ -177,6 +180,32 @@ export const CustomerManagementPanel = () => {
     }
   };
 
+  const fetchOrphanedData = async () => {
+    try {
+      const { data: roles } = await supabase
+        .from('user_roles')
+        .select('user_id, role');
+
+      if (!roles) return;
+
+      const orphaned = [];
+      for (const role of roles) {
+        try {
+          const { data: authUser, error } = await supabase.auth.admin.getUserById(role.user_id);
+          if (error || !authUser.user) {
+            orphaned.push(role);
+          }
+        } catch {
+          orphaned.push(role);
+        }
+      }
+      
+      setOrphanedData(orphaned);
+    } catch (error) {
+      console.error('Error fetching orphaned data:', error);
+    }
+  };
+
   const handleCleanupOrphanedData = async () => {
     try {
       const { data, error } = await supabase.functions.invoke('cleanup-orphaned-data');
@@ -190,8 +219,9 @@ export const CustomerManagementPanel = () => {
         description: data.message || "Orphaned data cleaned up successfully",
       });
 
-      // Refresh the customer list
+      // Refresh both lists
       await fetchCustomers();
+      await fetchOrphanedData();
     } catch (error: any) {
       console.error('Error cleaning up orphaned data:', error);
       toast({
@@ -215,12 +245,22 @@ export const CustomerManagementPanel = () => {
               View and manage customer accounts ({totalCustomers} total customers)
             </CardDescription>
           </div>
-          <Button onClick={fetchCustomers} variant="outline" size="sm">
-            Refresh
-          </Button>
-          <Button onClick={handleCleanupOrphanedData} variant="outline" size="sm" className="text-orange-400 border-orange-400 hover:bg-orange-400/10">
-            Cleanup Orphaned Data
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={fetchCustomers} variant="outline" size="sm">
+              Refresh
+            </Button>
+            <Button 
+              onClick={() => setShowOrphaned(!showOrphaned)} 
+              variant="outline" 
+              size="sm"
+              className="text-yellow-400 border-yellow-400 hover:bg-yellow-400/10"
+            >
+              {showOrphaned ? 'Hide' : 'Show'} Orphaned Data ({orphanedData.length})
+            </Button>
+            <Button onClick={handleCleanupOrphanedData} variant="outline" size="sm" className="text-orange-400 border-orange-400 hover:bg-orange-400/10">
+              Cleanup Orphaned Data
+            </Button>
+          </div>
         </div>
         
         {/* Search */}
@@ -241,6 +281,27 @@ export const CustomerManagementPanel = () => {
       </CardHeader>
 
       <CardContent>
+        {/* Orphaned Data Section */}
+        {showOrphaned && (
+          <div className="mb-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+            <h3 className="text-yellow-400 font-medium mb-3">Orphaned User Data</h3>
+            {orphanedData.length === 0 ? (
+              <p className="text-slate-400">No orphaned data found.</p>
+            ) : (
+              <div className="space-y-2">
+                {orphanedData.map((item) => (
+                  <div key={item.user_id} className="flex items-center justify-between p-2 bg-slate-700/50 rounded border border-slate-600">
+                    <div className="text-sm">
+                      <span className="text-white">User ID: {item.user_id}</span>
+                      <span className="text-slate-400 ml-4">Role: {item.role}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500"></div>
