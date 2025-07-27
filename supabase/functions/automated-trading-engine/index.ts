@@ -23,7 +23,8 @@ serve(async (req) => {
     );
 
     const requestBody = await req.json();
-    const { action, userId, strategyId, mode = 'mock' } = requestBody;
+    const { action, userId, user_id, strategyId, mode = 'mock' } = requestBody;
+    const finalUserId = userId || user_id;
     
     // Input validation
     if (!action || typeof action !== 'string') {
@@ -33,7 +34,7 @@ serve(async (req) => {
       });
     }
 
-    if (!userId || typeof userId !== 'string') {
+    if (!finalUserId || typeof finalUserId !== 'string') {
       return new Response(JSON.stringify({ error: 'Valid userId is required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -48,20 +49,20 @@ serve(async (req) => {
       });
     }
 
-    console.log(`🤖 Automated Trading Engine: ${action} (${mode} mode) for user: ${userId}`);
+    console.log(`🤖 Automated Trading Engine: ${action} (${mode} mode) for user: ${finalUserId}`);
 
     switch (action) {
       case 'process_signals':
-        return await processSignalsForStrategies(supabaseClient, { userId, mode });
+        return await processSignalsForStrategies(supabaseClient, { userId: finalUserId, mode });
       
       case 'execute_strategy':
-        return await executeStrategyTrade(supabaseClient, { userId, strategyId, mode });
+        return await executeStrategyTrade(supabaseClient, { userId: finalUserId, strategyId, mode });
       
       case 'backtest_strategy':
-        return await backtestStrategy(supabaseClient, { userId, strategyId });
+        return await backtestStrategy(supabaseClient, { userId: finalUserId, strategyId });
       
       case 'get_execution_log':
-        return await getExecutionLog(supabaseClient, { userId });
+        return await getExecutionLog(supabaseClient, { userId: finalUserId });
       
       default:
         return new Response(JSON.stringify({ error: 'Invalid action' }), {
