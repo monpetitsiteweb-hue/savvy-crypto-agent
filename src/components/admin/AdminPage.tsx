@@ -1,12 +1,13 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Shield, Settings, Database, Bot, Zap, Brain } from 'lucide-react';
+import { Shield, Settings, Database, Bot, Zap, Brain, Users } from 'lucide-react';
 import { CoinbaseOAuthPanel } from './CoinbaseOAuthPanel';
 import { CoinbaseSandboxPanel } from './CoinbaseSandboxPanel';
 import { LLMConfigPanel } from './LLMConfigPanel';
 import { DataSourcesPanel } from './DataSourcesPanel';
 import { AILearningPanel } from './AILearningPanel';
+import { CustomerManagementPanel } from './CustomerManagementPanel';
 import { Header } from '../Header';
 import { Footer } from '../Footer';
 
@@ -29,11 +30,15 @@ export const AdminPage = () => {
           </div>
 
           {/* Admin Tabs */}
-          <Tabs defaultValue="llm" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-5 bg-slate-800">
+          <Tabs defaultValue="customers" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-6 bg-slate-800">
+              <TabsTrigger value="customers" className="flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Customers
+              </TabsTrigger>
               <TabsTrigger value="llm" className="flex items-center gap-2">
                 <Bot className="w-4 h-4" />
-                AI Configuration
+                AI Config
               </TabsTrigger>
               <TabsTrigger value="learning" className="flex items-center gap-2">
                 <Brain className="w-4 h-4" />
@@ -52,6 +57,10 @@ export const AdminPage = () => {
                 Sandbox API
               </TabsTrigger>
             </TabsList>
+
+            <TabsContent value="customers">
+              <CustomerManagementPanel />
+            </TabsContent>
 
             <TabsContent value="llm">
               <LLMConfigPanel />

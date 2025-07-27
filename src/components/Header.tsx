@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Settings, Bell, User, LogOut, Shield } from 'lucide-react';
+import { Settings, Bell, User, LogOut, Shield, Link, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 export const Header = () => {
   const { user, signOut } = useAuth();
@@ -14,6 +15,55 @@ export const Header = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [showDropdown, setShowDropdown] = useState(false);
+  const [isConnectedToCoinbase, setIsConnectedToCoinbase] = useState(false);
+  const [isCheckingConnection, setIsCheckingConnection] = useState(true);
+
+  // Check Coinbase connection status
+  useEffect(() => {
+    const checkCoinbaseConnection = async () => {
+      if (!user) {
+        setIsCheckingConnection(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('user_coinbase_connections')
+          .select('id, is_active')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .limit(1);
+
+        if (error) {
+          console.error('Error checking Coinbase connection:', error);
+          setIsConnectedToCoinbase(false);
+        } else {
+          setIsConnectedToCoinbase(data && data.length > 0);
+        }
+      } catch (error) {
+        console.error('Error checking Coinbase connection:', error);
+        setIsConnectedToCoinbase(false);
+      } finally {
+        setIsCheckingConnection(false);
+      }
+    };
+
+    checkCoinbaseConnection();
+  }, [user]);
+
+  const handleCoinbaseConnection = () => {
+    if (isConnectedToCoinbase) {
+      // If already connected, navigate to settings page to manage connections
+      navigate('/profile?tab=settings');
+    } else {
+      // If not connected, navigate to profile to set up connection
+      navigate('/profile?tab=settings');
+      toast({
+        title: "Connect to Coinbase",
+        description: "Set up your Coinbase connection to enable live trading.",
+      });
+    }
+  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -53,6 +103,34 @@ export const Header = () => {
                 onClick={() => navigate(location.pathname === '/admin' ? '/' : '/admin')}
               >
                 {location.pathname === '/admin' ? 'Dashboard' : 'Admin'}
+              </Button>
+            )}
+
+            {/* Coinbase Connection Button */}
+            {user && !isCheckingConnection && (
+              <Button
+                onClick={handleCoinbaseConnection}
+                size="sm"
+                className={`flex items-center gap-2 font-medium ${
+                  isConnectedToCoinbase 
+                    ? 'bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/30' 
+                    : 'bg-orange-500 hover:bg-orange-600 text-white'
+                }`}
+                variant={isConnectedToCoinbase ? "outline" : "default"}
+              >
+                {isConnectedToCoinbase ? (
+                  <>
+                    <CheckCircle className="w-4 h-4" />
+                    <span className="hidden sm:inline">Connected to Coinbase</span>
+                    <span className="sm:hidden">Connected</span>
+                  </>
+                ) : (
+                  <>
+                    <Link className="w-4 h-4" />
+                    <span className="hidden sm:inline">Connect to Coinbase</span>
+                    <span className="sm:hidden">Connect</span>
+                  </>
+                )}
               </Button>
             )}
 

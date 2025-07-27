@@ -279,7 +279,7 @@ export const useOptimizedTechnicalIndicators = (strategyConfig?: any) => {
     refetchOnWindowFocus: false,
     refetchOnMount: false, // Don't refetch when component mounts if data exists
     refetchOnReconnect: false,
-    refetchInterval: 90 * 1000, // Auto-refresh every 90 seconds in background
+    refetchInterval: 15 * 1000, // Auto-refresh every 15 seconds in background
     refetchIntervalInBackground: true, // Continue refreshing even when tab is not active
   });
 
