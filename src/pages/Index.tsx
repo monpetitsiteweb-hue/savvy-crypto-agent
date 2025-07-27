@@ -18,8 +18,9 @@ import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Link2 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 
 const Index = () => {
   console.log('🔵 INDEX: Component rendering started');
@@ -34,6 +35,22 @@ const Index = () => {
   // Initialize test trading when component mounts
   useTestTrading();
   console.log('🔵 INDEX: After useTestTrading call');
+
+  // Auto-login as anonymous user if not authenticated
+  useEffect(() => {
+    const autoLogin = async () => {
+      if (!loading && !user) {
+        console.log('🔧 AUTO-LOGIN: Signing in anonymously');
+        const { error } = await supabase.auth.signInAnonymously();
+        if (error) {
+          console.error('🔧 AUTO-LOGIN: Failed:', error);
+        } else {
+          console.log('🔧 AUTO-LOGIN: Success');
+        }
+      }
+    };
+    autoLogin();
+  }, [loading, user]);
 
   if (loading || roleLoading) {
     return (
