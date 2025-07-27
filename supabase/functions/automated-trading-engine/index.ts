@@ -49,7 +49,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`🤖 Automated Trading Engine: ${action} (${mode} mode) for user: ${finalUserId}`);
+    console.log(`🚨 CRITICAL DEBUG: Automated Trading Engine ENTRY POINT - Action: ${action}, Mode: ${mode}, User: ${finalUserId}`);
 
     switch (action) {
       case 'process_signals':
@@ -82,7 +82,7 @@ serve(async (req) => {
 async function processSignalsForStrategies(supabaseClient: any, params: any) {
   const { userId, mode } = params;
   
-  console.log(`🔄 Processing signals for user strategies (${mode} mode)`);
+  console.log(`🚨 CRITICAL DEBUG: processSignalsForStrategies ENTRY - User: ${userId}, Mode: ${mode}`);
   
   try {
     // Get active strategies for user based on mode
