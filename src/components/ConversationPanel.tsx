@@ -110,6 +110,10 @@ export const ConversationPanel = () => {
       testMode ? s.is_active_test : s.is_active_live
     );
     
+    if (!activeStrategies || !userStrategies) {
+      return null; // Data not loaded yet
+    }
+    
     if (activeStrategies.length === 0 && userStrategies.length === 0) {
       return null; // No strategies at all
     }
