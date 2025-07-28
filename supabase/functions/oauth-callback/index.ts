@@ -165,7 +165,6 @@ serve(async (req) => {
     });
 
     // Check if this is a refresh of existing connection
-    const url = new URL(req.url);
     const refreshExisting = url.searchParams.get('refresh_existing') === 'true';
     const connectionId = url.searchParams.get('connection_id');
 
