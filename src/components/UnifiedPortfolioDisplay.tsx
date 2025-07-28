@@ -217,16 +217,20 @@ export const UnifiedPortfolioDisplay = () => {
   return (
     <Card className={`${testMode ? 'border-orange-500/20' : 'border-blue-500/20'} bg-slate-800/50 border-slate-600`}>
       <CardHeader className="pb-3">
-        <div className="flex flex-col space-y-4">
-          <CardTitle className={`flex items-center gap-2 ${testMode ? 'text-orange-400' : 'text-blue-400'}`}>
-            {testMode ? <TestTube className="h-5 w-5" /> : <DollarSign className="h-5 w-5" />}
-            {testMode ? 'Test Portfolio' : 'Live Portfolio'}
-            <Badge variant="secondary" className={`${testMode ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
-              {testMode ? 'Mock Data' : 'Live Data'}
-            </Badge>
-          </CardTitle>
+        {/* FORCED VERTICAL LAYOUT */}
+        <div className="flex flex-col gap-4 w-full">
+          {/* Title Row */}
+          <div className="w-full">
+            <CardTitle className={`flex items-center gap-2 ${testMode ? 'text-orange-400' : 'text-blue-400'}`}>
+              {testMode ? <TestTube className="h-5 w-5" /> : <DollarSign className="h-5 w-5" />}
+              {testMode ? 'Test Portfolio' : 'Live Portfolio'}
+              <Badge variant="secondary" className={`${testMode ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
+                {testMode ? 'Mock Data' : 'Live Data'}
+              </Badge>
+            </CardTitle>
+          </div>
           
-          {/* Connection Selector */}
+          {/* Dropdown Row */}
           {!testMode && connections.length > 0 && (
             <div className="w-full">
               <select
@@ -246,21 +250,23 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
           
-          {/* Refresh Button */}
-          <Button
-            variant="default"
-            size="sm"
-            onClick={testMode ? refreshFromDatabase : fetchProductionPortfolio}
-            disabled={isLoading || fetchingPortfolio || (!testMode && !selectedConnectionId)}
-            className={`w-full ${testMode ? "bg-orange-600 hover:bg-orange-700" : "bg-blue-600 hover:bg-blue-700"} text-white`}
-          >
-            {(isLoading || fetchingPortfolio) ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Refresh Portfolio
-          </Button>
+          {/* Button Row */}
+          <div className="w-full">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={testMode ? refreshFromDatabase : fetchProductionPortfolio}
+              disabled={isLoading || fetchingPortfolio || (!testMode && !selectedConnectionId)}
+              className={`w-full ${testMode ? "bg-orange-600 hover:bg-orange-700" : "bg-blue-600 hover:bg-blue-700"} text-white`}
+            >
+              {(isLoading || fetchingPortfolio) ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-2" />
+              )}
+              Refresh Portfolio
+            </Button>
+          </div>
         </div>
       </CardHeader>
       
