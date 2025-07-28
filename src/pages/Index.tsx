@@ -11,6 +11,7 @@ import { TestStrategyConfig } from '@/components/TestStrategyConfig';
 import { PerformanceOverview } from '@/components/PerformanceOverview';
 import { LiveIndicatorKPI } from '@/components/strategy/LiveIndicatorKPI';
 import { AdminPage } from '@/components/admin/AdminPage';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useTestMode } from '@/hooks/useTestMode';
 import { useTestTrading } from '@/hooks/useTestTrading';
@@ -162,27 +163,37 @@ const Index = () => {
               <div className="p-6 flex-1 overflow-y-auto min-h-0">
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6">
-                    <MergedPortfolioDisplay 
-                      hasActiveStrategy={hasActiveStrategy}
-                      onCreateStrategy={() => setActiveTab('strategy')}
-                    />
-                    <LiveIndicatorKPI />
+                    <ErrorBoundary>
+                      <MergedPortfolioDisplay 
+                        hasActiveStrategy={hasActiveStrategy}
+                        onCreateStrategy={() => setActiveTab('strategy')}
+                      />
+                    </ErrorBoundary>
+                    <ErrorBoundary>
+                      <LiveIndicatorKPI />
+                    </ErrorBoundary>
                   </div>
                 )}
                 {activeTab === 'history' && (
-                  <TradingHistory 
-                    hasActiveStrategy={hasActiveStrategy}
-                    onCreateStrategy={() => setActiveTab('strategy')}
-                  />
+                  <ErrorBoundary>
+                    <TradingHistory 
+                      hasActiveStrategy={hasActiveStrategy}
+                      onCreateStrategy={() => setActiveTab('strategy')}
+                    />
+                  </ErrorBoundary>
                 )}
                 {activeTab === 'strategy' && (
-                  <StrategyConfig onLayoutChange={setIsStrategyFullWidth} />
+                  <ErrorBoundary>
+                    <StrategyConfig onLayoutChange={setIsStrategyFullWidth} />
+                  </ErrorBoundary>
                 )}
                 {activeTab === 'performance' && (
-                  <PerformanceOverview 
-                    hasActiveStrategy={hasActiveStrategy}
-                    onCreateStrategy={() => setActiveTab('strategy')}
-                  />
+                  <ErrorBoundary>
+                    <PerformanceOverview 
+                      hasActiveStrategy={hasActiveStrategy}
+                      onCreateStrategy={() => setActiveTab('strategy')}
+                    />
+                  </ErrorBoundary>
                 )}
               </div>
             </div>

@@ -130,14 +130,35 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     
     setLoading(true);
     try {
+      console.log('🔄 MergedPortfolio: Fetching portfolio with connection:', selectedConnectionId);
+      
       const { data, error } = await supabase.functions.invoke('coinbase-portfolio', {
         body: { connectionId: selectedConnectionId }
       });
 
-      if (error) throw error;
+      console.log('📊 MergedPortfolio: Portfolio response:', { data, error });
+
+      if (error) {
+        console.error('❌ MergedPortfolio: Supabase function error:', error);
+        throw error;
+      }
+
+      if (data?.error) {
+        console.error('❌ MergedPortfolio: API error:', data.error);
+        throw new Error(data.error);
+      }
+
+      if (data?.needsReconnection) {
+        console.warn('🔑 MergedPortfolio: Authentication expired, user needs to reconnect');
+        // Could trigger a toast or modal here to inform user
+        return;
+      }
+
       updatePortfolioData(data);
+      console.log('✅ MergedPortfolio: Portfolio data updated successfully');
     } catch (error) {
-      console.error('Error fetching portfolio:', error);
+      console.error('❌ MergedPortfolio: Error fetching portfolio:', error);
+      // Don't throw the error to prevent white screen
     } finally {
       setLoading(false);
     }

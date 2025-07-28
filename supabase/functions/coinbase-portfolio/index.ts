@@ -102,17 +102,18 @@ serve(async (req) => {
     // Check if it's OAuth or API key connection
     if (connection.access_token_encrypted) {
       // OAuth connection - implement token refresh logic
-      console.log('Using OAuth connection');
+      console.log('🔐 Using OAuth connection, ID:', connection.id);
       
       // Check if token is expired
       const now = new Date();
       const expiresAt = new Date(connection.expires_at);
       const isExpired = now >= expiresAt;
       
-      console.log('Token expiry check:', {
+      console.log('⏰ Token expiry check:', {
         now: now.toISOString(),
         expiresAt: expiresAt.toISOString(),
-        isExpired: isExpired
+        isExpired: isExpired,
+        timeUntilExpiry: expiresAt.getTime() - now.getTime() + 'ms'
       });
       
       let accessToken = connection.access_token_encrypted;
@@ -210,6 +211,8 @@ serve(async (req) => {
       
       // Now make the actual API call with valid token
       try {
+        console.log('🚀 Making OAuth API call to Coinbase');
+        
         const coinbaseResponse = await fetch('https://api.coinbase.com/v2/accounts', {
           method: 'GET',
           headers: {
@@ -218,14 +221,38 @@ serve(async (req) => {
           },
         });
         
+        console.log('📡 Coinbase OAuth API response:', {
+          status: coinbaseResponse.status,
+          statusText: coinbaseResponse.statusText,
+          headers: Object.fromEntries(coinbaseResponse.headers.entries())
+        });
+        
         if (!coinbaseResponse.ok) {
           const errorData = await coinbaseResponse.text();
-          console.error('Coinbase API error:', errorData);
-          throw new Error(`Coinbase API error: ${coinbaseResponse.status}`);
+          console.error('❌ Coinbase OAuth API error:', errorData);
+          
+          // Check for authentication errors specifically
+          if (coinbaseResponse.status === 401) {
+            return new Response(JSON.stringify({ 
+              error: 'OAuth authentication failed',
+              message: 'Your Coinbase connection has expired. Please reconnect.',
+              needsReconnection: true,
+              details: errorData,
+              connectionType: 'oauth'
+            }), {
+              status: 401,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+          
+          throw new Error(`Coinbase API error: ${coinbaseResponse.status} - ${errorData}`);
         }
         
         const portfolioData = await coinbaseResponse.json();
-        console.log('Successfully fetched portfolio data');
+        console.log('✅ Successfully fetched OAuth portfolio data:', {
+          accountCount: portfolioData.data?.length || 0,
+          tokenRefreshed: isExpired
+        });
         
         return new Response(JSON.stringify({ 
           success: true,
@@ -239,11 +266,12 @@ serve(async (req) => {
         });
         
       } catch (apiError) {
-        console.error('Coinbase API call failed:', apiError);
+        console.error('❌ Coinbase OAuth API call failed:', apiError);
         return new Response(JSON.stringify({ 
-          error: 'Failed to fetch portfolio',
+          error: 'Failed to fetch portfolio via OAuth',
           details: apiError instanceof Error ? apiError.message : 'Unknown error',
-          connectionType: 'oauth'
+          connectionType: 'oauth',
+          needsReconnection: false
         }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
