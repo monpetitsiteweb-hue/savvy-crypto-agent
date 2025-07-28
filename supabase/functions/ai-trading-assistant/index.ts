@@ -254,12 +254,22 @@ Analyze this message and respond appropriately. Consider the current strategy co
 2. Strategic reasoning and explanation if this is an analysis question
 3. General trading assistance for other queries
 
+EXAMPLES OF CONFIGURATION CHANGES TO RECOGNIZE:
+- "sell all positions when I reach 1% daily gain" → {"dailyProfitTarget": 1.0, "takeProfitPercentage": 1.0}
+- "change take profit to 1%" → {"takeProfitPercentage": 1.0}
+- "only trade BTC and ETH" → {"selectedCoins": ["BTC", "ETH"]}
+- "increase AI confidence to 70%" → {"aiConfidenceThreshold": 70}
+- "enable live trading" → {"enableLiveTrading": true, "enableTestTrading": false}
+- "disable live trading" → {"enableLiveTrading": false, "enableTestTrading": true}
+- "set stop loss to 3%" → {"stopLossPercentage": 3.0}
+- "trade 500 euros per position" → {"perTradeAllocation": 500}
+
 For configuration changes, use this format:
 {
-  "message": "Configuration updated. This change means...",
+  "message": "Configuration updated. Your strategy will now sell all positions when daily profit reaches 1%. Take profit has been set to 1% per trade.",
   "configUpdates": {
-    "riskLevel": "high",
-    "stopLoss": 3.0
+    "takeProfitPercentage": 1.0,
+    "dailyProfitTarget": 1.0
   }
 }
 
