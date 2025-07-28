@@ -260,12 +260,14 @@ export const AuthPage = () => {
       </Card>
       
       {/* Footer with logo */}
-      <div className="flex items-center justify-center mt-6 gap-2">
-        <div className="w-6 h-6 bg-green-500 rounded-md flex items-center justify-center">
-          <span className="text-white font-bold text-xs">AI</span>
-        </div>
+      <div className="flex items-center justify-center mt-6 gap-3">
+        <img 
+          src="/lovable-uploads/886962f7-84ab-4b5e-beb2-7fdb5bdfe4e7.png" 
+          alt="Mon Petit Site Web" 
+          className="w-12 h-12"
+        />
         <p className="text-sm text-slate-400">
-          Powered by Mon Petit Site Web - Tous droits réservés
+          Powered by Mon Petit Site Web - All rights reserved
         </p>
       </div>
     </div>
