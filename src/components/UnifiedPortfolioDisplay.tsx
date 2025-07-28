@@ -218,15 +218,17 @@ export const UnifiedPortfolioDisplay = () => {
     <Card className={`${testMode ? 'border-orange-500/20' : 'border-blue-500/20'} bg-slate-800/50 border-slate-600`}>
       <CardHeader className="pb-3">
         {/* Mobile Layout: Stack vertically */}
-        <div className="block md:hidden space-y-3">
+        <div className="flex flex-col space-y-4 md:hidden">
           {/* Portfolio Title */}
-          <CardTitle className={`flex items-center gap-2 ${testMode ? 'text-orange-400' : 'text-blue-400'}`}>
-            {testMode ? <TestTube className="h-5 w-5" /> : <DollarSign className="h-5 w-5" />}
-            {testMode ? 'Test Portfolio' : 'Live Portfolio'}
-            <Badge variant="secondary" className={`${testMode ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
-              {testMode ? 'Mock Data' : 'Live Data'}
-            </Badge>
-          </CardTitle>
+          <div className="w-full">
+            <CardTitle className={`flex flex-wrap items-center gap-2 ${testMode ? 'text-orange-400' : 'text-blue-400'}`}>
+              {testMode ? <TestTube className="h-5 w-5" /> : <DollarSign className="h-5 w-5" />}
+              <span>{testMode ? 'Test Portfolio' : 'Live Portfolio'}</span>
+              <Badge variant="secondary" className={`${testMode ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
+                {testMode ? 'Mock Data' : 'Live Data'}
+              </Badge>
+            </CardTitle>
+          </div>
           
           {/* Dropdown Menu */}
           {!testMode && connections.length > 0 && (
@@ -249,7 +251,7 @@ export const UnifiedPortfolioDisplay = () => {
           )}
           
           {/* Refresh Button */}
-          <div className="flex justify-center">
+          <div className="w-full flex justify-center">
             <Button
               variant="ghost"
               size="sm"
