@@ -389,58 +389,82 @@ async function evaluateExistingPositions(supabaseClient: any, strategy: any, mod
   console.log(`🎯 [TAKE PROFIT] Evaluating existing positions for strategy "${strategy.strategy_name}" with ${takeProfitPercentage}% target`);
   
   try {
-    // Get open positions (recent buy trades without corresponding sell trades)
+    // Get open positions by calculating net positions (buys minus sells)
     const tableToQuery = mode === 'live' ? 'trading_history' : 'mock_trades';
     
-    const { data: buyTrades, error: buyError } = await supabaseClient
+    const { data: allTrades, error: tradesError } = await supabaseClient
       .from(tableToQuery)
       .select('*')
       .eq('user_id', strategy.user_id)
       .eq('strategy_id', strategy.id)
-      .eq('trade_type', 'buy')
-      .gte('executed_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // Last 24 hours
-      .order('executed_at', { ascending: false });
+      .gte('executed_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()) // Last 7 days
+      .order('executed_at', { ascending: true });
 
-    if (buyError) {
-      console.error(`❌ Error fetching buy trades: ${buyError.message}`);
+    if (tradesError) {
+      console.error(`❌ Error fetching trades: ${tradesError.message}`);
       return;
     }
 
-    if (!buyTrades || buyTrades.length === 0) {
-      console.log(`📊 No recent buy trades found for strategy "${strategy.strategy_name}"`);
+    if (!allTrades || allTrades.length === 0) {
+      console.log(`📊 No trades found for strategy "${strategy.strategy_name}"`);
       return;
     }
 
-    // Group by cryptocurrency to find open positions
-    const positions = {};
+    // Calculate net positions (open positions = buys - sells)
+    const netPositions = {};
     
-    for (const trade of buyTrades) {
+    for (const trade of allTrades) {
       const symbol = trade.cryptocurrency;
-      if (!positions[symbol]) {
-        positions[symbol] = { 
-          buyTrades: [], 
-          totalAmount: 0, 
+      if (!netPositions[symbol]) {
+        netPositions[symbol] = { 
+          netAmount: 0, 
           totalCost: 0, 
-          avgPrice: 0 
+          trades: [] 
         };
       }
-      positions[symbol].buyTrades.push(trade);
-      positions[symbol].totalAmount += parseFloat(trade.amount);
-      positions[symbol].totalCost += parseFloat(trade.total_value);
+      
+      if (trade.trade_type === 'buy') {
+        netPositions[symbol].netAmount += parseFloat(trade.amount);
+        netPositions[symbol].totalCost += parseFloat(trade.total_value);
+        netPositions[symbol].trades.push(trade);
+      } else if (trade.trade_type === 'sell') {
+        netPositions[symbol].netAmount -= parseFloat(trade.amount);
+        // For sells, we reduce cost proportionally
+        const sellValue = parseFloat(trade.total_value);
+        netPositions[symbol].totalCost -= sellValue;
+        netPositions[symbol].trades.push(trade);
+      }
+    }
+    
+    // Filter to only positions with positive net amounts (actual open positions)
+    const openPositions = {};
+    for (const [symbol, position] of Object.entries(netPositions)) {
+      if (position.netAmount > 0.0001) { // Small threshold to handle rounding
+        openPositions[symbol] = {
+          amount: position.netAmount,
+          avgPrice: position.totalCost / position.netAmount,
+          totalCost: position.totalCost,
+          trades: position.trades
+        };
+      }
     }
 
-    // Calculate average prices for each position
-    for (const symbol in positions) {
-      const position = positions[symbol];
-      position.avgPrice = position.totalCost / position.totalAmount;
+    if (Object.keys(openPositions).length === 0) {
+      console.log(`📊 No open positions found for strategy "${strategy.strategy_name}"`);
+      return;
     }
+
+    console.log(`📊 Found ${Object.keys(openPositions).length} open positions for strategy "${strategy.strategy_name}"`);
+    Object.entries(openPositions).forEach(([symbol, pos]) => {
+      console.log(`🔍 ${symbol}: ${pos.amount.toFixed(6)} units @ avg €${pos.avgPrice.toFixed(2)}`);
+    });
 
     // Get current market prices for all symbols
-    const symbols = Object.keys(positions).map(crypto => `${crypto}-EUR`);
+    const symbols = Object.keys(openPositions).map(crypto => `${crypto}-EUR`);
     const marketData = await getCurrentMarketData(supabaseClient, symbols);
 
-    // Evaluate each position for take profit
-    for (const [cryptocurrency, position] of Object.entries(positions)) {
+    // Evaluate each open position for take profit
+    for (const [cryptocurrency, position] of Object.entries(openPositions)) {
       const symbol = `${cryptocurrency}-EUR`;
       const currentPrice = marketData[symbol]?.price || 0;
       
@@ -456,7 +480,7 @@ async function evaluateExistingPositions(supabaseClient: any, strategy: any, mod
       if (gainPercentage >= takeProfitPercentage) {
         console.log(`🎯 [TAKE PROFIT] Selling ${cryptocurrency} at ${gainPercentage.toFixed(2)}% gain for user ${strategy.user_id}`);
         
-        // Execute sell trade
+        // Execute sell trade for the ENTIRE open position
         const sellTradeResult = await executeTrade(supabaseClient, {
           strategy,
           marketData: { [symbol]: marketData[symbol] },
@@ -465,18 +489,21 @@ async function evaluateExistingPositions(supabaseClient: any, strategy: any, mod
           trigger: 'take_profit_hit',
           evaluation: {
             action: 'sell',
-            reasoning: `Take profit target reached: ${gainPercentage.toFixed(2)}% gain (target: ${takeProfitPercentage}%)`,
+            reasoning: `Take profit target reached: ${gainPercentage.toFixed(2)}% gain (target: ${takeProfitPercentage}%) | Position: ${position.amount.toFixed(6)} ${cryptocurrency}`,
             confidence: 1.0
           },
           signal: {
             symbol: cryptocurrency,
             signal_type: 'take_profit',
             signal_strength: 100
-          }
+          },
+          // CRITICAL: Sell the exact amount we have open
+          forceAmount: position.amount,
+          forceTotalValue: position.amount * currentPrice
         });
         
         executionResults.push(sellTradeResult);
-        console.log(`✅ [TAKE PROFIT] Successfully sold ${cryptocurrency} position`);
+        console.log(`✅ [TAKE PROFIT] Successfully sold ${cryptocurrency} position: ${position.amount.toFixed(6)} units at €${currentPrice.toFixed(2)}`);
       } else {
         console.log(`⏳ [TAKE PROFIT] Holding ${cryptocurrency} - ${gainPercentage.toFixed(2)}% gain (need ${takeProfitPercentage}%)`);
       }
@@ -593,44 +620,69 @@ async function executeStrategyFromSignal(supabaseClient: any, strategy: any, sig
 }
 
 async function executeTrade(supabaseClient: any, tradeData: any) {
-  const { strategy, signal, evaluation, marketData, mode, userId, trigger } = tradeData;
+  const { strategy, signal, evaluation, marketData, mode, userId, trigger, forceAmount, forceTotalValue } = tradeData;
   
-  // First, check risk management constraints
-  const riskCheck = await checkRiskLimits(supabaseClient, userId, strategy, marketData);
-  if (!riskCheck.canExecute) {
-    console.log(`🚫 Trade blocked by risk management: ${riskCheck.reason}`);
-    return {
-      blocked: true,
-      reason: riskCheck.reason,
-      risk_assessment: riskCheck
-    };
+  // First, check risk management constraints (but skip for take profit sells)
+  if (trigger !== 'take_profit_hit') {
+    const riskCheck = await checkRiskLimits(supabaseClient, userId, strategy, marketData);
+    if (!riskCheck.canExecute) {
+      console.log(`🚫 Trade blocked by risk management: ${riskCheck.reason}`);
+      return {
+        blocked: true,
+        reason: riskCheck.reason,
+        risk_assessment: riskCheck
+      };
+    }
   }
   
   const symbol = Object.keys(marketData)[0] || 'BTC-EUR';
   const price = marketData[symbol]?.price || 50000;
   
-  // Use risk-adjusted position size
-  const baseTradeAmount = strategy.configuration?.trade_amount || 
-                          strategy.configuration?.perTradeAllocation || 
-                          100;
-  const adjustedAmount = riskCheck.adjustedPositionSize || baseTradeAmount;
+  // For take profit sells, use forced amounts; otherwise use risk-adjusted amounts
+  let tradeAmount, totalValue;
   
+  if (forceAmount && forceTotalValue) {
+    // For take profit: sell exact position amount
+    tradeAmount = forceAmount;
+    totalValue = forceTotalValue;
+    console.log(`🎯 [FORCED SELL] Using exact position: ${tradeAmount.toFixed(6)} units = €${totalValue.toFixed(2)}`);
+  } else {
+    // For regular trades: use risk management
+    const riskCheck = await checkRiskLimits(supabaseClient, userId, strategy, marketData);
+    const baseTradeAmount = strategy.configuration?.trade_amount || 
+                            strategy.configuration?.perTradeAllocation || 
+                            100;
+    const adjustedAmount = riskCheck.adjustedPositionSize || baseTradeAmount;
+    tradeAmount = adjustedAmount / price;
+    totalValue = adjustedAmount;
+  }
+  
+  // Calculate profit/loss for sell trades
+  let profitLoss = 0;
+  if (evaluation?.action === 'sell' && trigger === 'take_profit_hit') {
+    // For take profit sells, calculate actual profit
+    const gainMatch = evaluation.reasoning?.match(/(\d+\.?\d*)% gain/);
+    const gainPercentage = gainMatch ? parseFloat(gainMatch[1]) : 0;
+    profitLoss = totalValue * (gainPercentage / 100) / (1 + gainPercentage / 100);
+    console.log(`💰 [PROFIT CALCULATION] Gain: ${gainPercentage}% = €${profitLoss.toFixed(2)} profit`);
+  }
+
   const trade = {
     user_id: userId,
     strategy_id: strategy.id,
     cryptocurrency: symbol.split('-')[0],
     trade_type: evaluation?.action || 'buy',
-    amount: adjustedAmount / price,
+    amount: tradeAmount,
     price: price,
-    total_value: adjustedAmount,
+    total_value: totalValue,
+    profit_loss: profitLoss,
     is_test_mode: mode === 'mock',
     strategy_trigger: trigger,
-    notes: `${trigger}: ${evaluation?.reasoning || 'Manual execution'} | Risk: ${riskCheck.riskLevel} | Stop: €${riskCheck.stopLoss?.toFixed(2)} | Max Loss: €${riskCheck.maxLoss?.toFixed(2)}`,
+    notes: `${trigger}: ${evaluation?.reasoning || 'Manual execution'}${profitLoss > 0 ? ` | PROFIT: €${profitLoss.toFixed(2)}` : ''}`,
     market_conditions: {
       signal_data: signal,
       evaluation: evaluation,
       market_data: marketData[symbol],
-      risk_assessment: riskCheck,
       execution_time: new Date().toISOString()
     }
   };
