@@ -5,6 +5,10 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import App from './App.tsx'
 import './index.css'
 import { Toaster } from "@/components/ui/sonner";
+import { checkAndClearLegacyStorage } from './utils/clearLocalSession';
+
+// Clear legacy storage before app initialization
+checkAndClearLegacyStorage();
 
 const queryClient = new QueryClient({
   defaultOptions: {
