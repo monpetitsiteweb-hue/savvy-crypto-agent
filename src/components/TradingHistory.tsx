@@ -382,13 +382,37 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   useEffect(() => {
     if (user) {
-      // Clear trades immediately when switching modes
+      console.log('🔄 TradingHistory: User or testMode changed, clearing trades and fetching fresh data');
+      // CRITICAL: Clear trades immediately when switching modes or users to prevent stale data
       setTrades([]);
+      setStats({
+        totalTrades: 0,
+        totalVolume: 0,
+        netProfitLoss: 0,
+        openPositions: 0,
+        totalInvested: 0,
+        currentPL: 0,
+        totalPL: 0,
+        currentlyInvested: 0
+      });
       
       if (!testMode) {
         fetchConnections();
       }
       fetchTradingHistory();
+    } else {
+      // No user - clear everything
+      setTrades([]);
+      setStats({
+        totalTrades: 0,
+        totalVolume: 0,
+        netProfitLoss: 0,
+        openPositions: 0,
+        totalInvested: 0,
+        currentPL: 0,
+        totalPL: 0,
+        currentlyInvested: 0
+      });
     }
   }, [user, testMode]);
 
@@ -531,13 +555,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
       if (error) throw error;
       
-      // Clear any previous data first to avoid stale state
+      // CRITICAL: Always clear previous state first to prevent UI/DB mismatch
       console.log('📊 Setting trades data:', data?.length || 0, 'trades');
-      setTrades(data || []);
       
-      // Reset stats if no data
+      // If no data from database, ensure UI reflects that
       if (!data || data.length === 0) {
-        console.log('📊 No trades found, resetting stats');
+        console.log('📊 No trades found in database, resetting all state');
+        setTrades([]);
         setStats({ 
           totalTrades: 0, 
           totalVolume: 0, 
@@ -553,20 +577,21 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         return;
       }
       
+      // Only process if we have actual data
+      setTrades(data);
+      
       // Fetch current prices for all cryptocurrencies in trades
-      if (data && data.length > 0) {
-        const symbols = [...new Set((data as Trade[]).map(trade => `${trade.cryptocurrency}-EUR`))];
-        try {
-          const priceData = await getCurrentData(symbols);
-          const prices: Record<string, number> = {};
-          Object.entries(priceData).forEach(([symbol, data]) => {
-            const crypto = symbol.replace('-EUR', '');
-            prices[crypto] = data.price;
-          });
-          setCurrentPrices(prices);
-        } catch (error) {
-          console.error('Error fetching current prices:', error);
-        }
+      const symbols = [...new Set((data as Trade[]).map(trade => `${trade.cryptocurrency}-EUR`))];
+      try {
+        const priceData = await getCurrentData(symbols);
+        const prices: Record<string, number> = {};
+        Object.entries(priceData).forEach(([symbol, data]) => {
+          const crypto = symbol.replace('-EUR', '');
+          prices[crypto] = data.price;
+        });
+        setCurrentPrices(prices);
+      } catch (error) {
+        console.error('Error fetching current prices:', error);
       }
       
       // Calculate comprehensive trading statistics with proper validation
