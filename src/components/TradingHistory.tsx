@@ -216,12 +216,14 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // Trade card component for reusability
   const TradeCard = ({ trade }: { trade: Trade }) => {
     const performance = calculateTradePerformance(trade);
+    const isOpen = trade.trade_type === 'buy';
+    const tradeValue = trade.amount * trade.price;
     
     return (
       <div className="bg-slate-800/60 rounded-lg p-4 border border-slate-700">
         {/* Desktop Layout */}
         <div className="hidden md:block">
-          <div className="grid grid-cols-8 gap-4 items-center text-sm">
+          <div className="grid grid-cols-9 gap-4 items-center text-sm">
             {/* Trade Type & Symbol */}
             <div className="col-span-1">
               <div className="flex items-center gap-2">
@@ -233,13 +235,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                 </Badge>
               </div>
               <div className="font-medium text-white mt-1">{trade.cryptocurrency}</div>
+              <div className="text-xs mt-1">
+                <Badge variant="outline" className={isOpen ? 'text-blue-400 border-blue-400' : 'text-slate-400 border-slate-400'}>
+                  {isOpen ? 'OPEN' : 'CLOSED'}
+                </Badge>
+              </div>
             </div>
             
-            {/* Amount */}
+            {/* Amount & Value */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">Amount</div>
-              <div className="font-medium text-white">{trade.amount.toFixed(3)}</div>
-              <div className="text-slate-400 text-xs">€{(trade.amount * trade.price).toFixed(2)}</div>
+              <div className="font-medium text-white">{trade.amount.toFixed(6)}</div>
+              <div className="text-slate-400 text-xs">Value: €{tradeValue.toFixed(2)}</div>
             </div>
             
             {/* Purchase Price */}
@@ -273,6 +280,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Date */}
             <div className="col-span-1 text-xs text-slate-400">
               {new Date(trade.executed_at).toLocaleDateString()}
+              <div className="text-xs mt-1">{new Date(trade.executed_at).toLocaleTimeString()}</div>
             </div>
             
             {/* Actions */}
@@ -523,7 +531,27 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
       if (error) throw error;
       
+      // Clear any previous data first to avoid stale state
+      console.log('📊 Setting trades data:', data?.length || 0, 'trades');
       setTrades(data || []);
+      
+      // Reset stats if no data
+      if (!data || data.length === 0) {
+        console.log('📊 No trades found, resetting stats');
+        setStats({ 
+          totalTrades: 0, 
+          totalVolume: 0, 
+          netProfitLoss: 0,
+          openPositions: 0,
+          totalInvested: 0,
+          currentPL: 0,
+          totalPL: 0,
+          currentlyInvested: 0
+        });
+        setLoading(false);
+        setFetching(false);
+        return;
+      }
       
       // Fetch current prices for all cryptocurrencies in trades
       if (data && data.length > 0) {
@@ -544,20 +572,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       // Calculate comprehensive trading statistics with proper validation
       const allTrades = data || [];
       console.log('📊 Calculating stats for trades:', allTrades.length);
-      
-      if (allTrades.length === 0) {
-        setStats({ 
-          totalTrades: 0, 
-          totalVolume: 0, 
-          netProfitLoss: 0,
-          openPositions: 0,
-          totalInvested: 0,
-          currentPL: 0,
-          totalPL: 0,
-          currentlyInvested: 0
-        });
-        return;
-      }
+      console.log('📊 First few trades:', allTrades.slice(0, 3));
       
       // Calculate position summaries by cryptocurrency
       const positionSummary = new Map<string, { 
