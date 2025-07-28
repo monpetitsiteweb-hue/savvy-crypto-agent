@@ -41,8 +41,25 @@ export const ConversationPanel = () => {
   
   const [messages, setMessages] = useState<Message[]>([]);
   
-  // Update messages when strategy state changes
+  // Load conversation from session storage on mount
   useEffect(() => {
+    const savedMessages = sessionStorage.getItem('trading-conversation');
+    if (savedMessages) {
+      try {
+        const parsed = JSON.parse(savedMessages);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed.map(msg => ({
+            ...msg,
+            timestamp: new Date(msg.timestamp)
+          })));
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to parse saved conversation:', error);
+      }
+    }
+    
+    // If no saved conversation, show initial message
     const getInitialMessage = () => {
       if (!hasActiveStrategy) {
         return "Hello! I'm your AI trading assistant. Currently on standby as no strategy is active. Enable a strategy in Test Mode or Live Mode to begin automated trading and I'll help you monitor and optimize your trades!";
@@ -60,6 +77,13 @@ export const ConversationPanel = () => {
       timestamp: new Date()
     }]);
   }, [hasActiveStrategy, testMode]);
+
+  // Save conversation to session storage whenever messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      sessionStorage.setItem('trading-conversation', JSON.stringify(messages));
+    }
+  }, [messages]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [userStrategies, setUserStrategies] = useState<StrategyData[]>([]);
