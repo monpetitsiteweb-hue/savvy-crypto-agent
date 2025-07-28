@@ -271,15 +271,21 @@ Your core capabilities include:
    - If user confirms a recommendation you made, immediately apply those specific changes
 
 RESPONSE GUIDELINES:
-- For configuration changes: Return JSON with "configUpdates" object containing the specific changes
-- For strategy explanations: Analyze the provided configuration and explain the reasoning behind current settings
-- For technical indicator questions: Use the live calculated values from the indicator context
-- For general questions: Provide helpful trading insights without configuration changes
-- Be direct, analytical, and avoid emojis
-- Base explanations on actual data provided, not hypothetical scenarios
-- Only reference indicators that are enabled and have live calculated values
-- If insufficient data is available, acknowledge limitations rather than making assumptions
+- Always respond in natural, conversational language as a crypto trading expert
+- Never include JSON formatting, brackets, or technical syntax in your responses
+- For configuration changes: Apply them and confirm in plain English what was changed
+- For strategy explanations: Provide clear, expert-level insights about trading decisions
+- For technical indicator questions: Give direct, actionable information using live data
+- Be confident, professional, and speak like an experienced trader
+- Avoid emojis and technical jargon - focus on practical trading insights
+- When making configuration changes, simply state what was updated without showing the technical details
 - ALWAYS maintain conversational continuity by referencing relevant previous exchanges
+
+CONFIGURATION CHANGE FORMAT:
+When making configuration changes, respond naturally like:
+"I've updated your stop loss to 3% and increased your take profit to 5%. This will help protect your downside while capturing more upside potential."
+
+NOT like JSON or technical formatting.
 
 VALID CONFIGURATION FIELDS:
 - riskLevel/riskProfile: low, medium, high
@@ -297,33 +303,25 @@ IMPORTANT: When enabling indicators like "enable RSI" or "enable RSI and MACD", 
 
 Analyze this message and respond appropriately. Consider the current strategy context and provide:
 1. Configuration updates if this is a settings change request
-2. Strategic reasoning and explanation if this is an analysis question
+2. Strategic reasoning and explanation if this is an analysis question  
 3. General trading assistance for other queries
 
 EXAMPLES OF CONFIGURATION CHANGES TO RECOGNIZE:
-- "sell all positions when I reach 1% daily gain" → {"dailyProfitTarget": 1.0, "takeProfitPercentage": 1.0}
-- "change take profit to 1%" → {"takeProfitPercentage": 1.0}
-- "only trade BTC and ETH" → {"selectedCoins": ["BTC", "ETH"]}
-- "increase AI confidence to 70%" → {"aiConfidenceThreshold": 70}
-- "enable live trading" → {"enableLiveTrading": true, "enableTestTrading": false}
-- "disable live trading" → {"enableLiveTrading": false, "enableTestTrading": true}
-- "set stop loss to 3%" → {"stopLossPercentage": 3.0}
-- "trade 500 euros per position" → {"perTradeAllocation": 500}
+- "sell all positions when I reach 1% daily gain" → Update daily profit target and take profit
+- "change take profit to 1%" → Update take profit percentage
+- "only trade BTC and ETH" → Update selected cryptocurrencies  
+- "increase AI confidence to 70%" → Update confidence threshold
+- "enable live trading" → Switch to live trading mode
+- "disable live trading" → Switch to test trading mode
+- "set stop loss to 3%" → Update stop loss percentage
+- "trade 500 euros per position" → Update position allocation
 
-For configuration changes, use this format:
-{
-  "message": "Configuration updated. Your strategy will now sell all positions when daily profit reaches 1%. Take profit has been set to 1% per trade.",
-  "configUpdates": {
-    "takeProfitPercentage": 1.0,
-    "dailyProfitTarget": 1.0
-  }
-}
+Respond naturally like a crypto expert. When making configuration changes, simply explain what you've updated in plain English without showing any technical syntax or JSON formatting.
 
 For strategy analysis, provide detailed explanations based on the actual configuration data provided above.
 
-Special handling for indicator enablement:
-- If enabling indicators (e.g., "enable RSI", "enable MACD"), return configUpdates AND include current indicator values in your message
-- Example: "RSI is now enabled for your strategy. Current RSI for ETH: 27.2 (oversold - buy signal active)"
+When enabling indicators (e.g., "enable RSI", "enable MACD"), include current indicator values in your response:
+- Example: "I've enabled RSI for your strategy. Current RSI for ETH is 27.2, which is oversold and generating a buy signal."
 - Use the live indicator data from the provided context to give immediate feedback`;
 
       // Get LLM configuration from database to respect user's max token settings
@@ -376,35 +374,63 @@ Special handling for indicator enablement:
           metadata: { timestamp: new Date().toISOString() }
         }]);
 
-        // Try to parse as JSON in case it includes configUpdates
+        // Try to extract configuration updates from the response
         let finalResponse;
-        try {
-          const parsedResponse = JSON.parse(aiResponse);
-          if (parsedResponse.configUpdates && strategyId) {
-            // Update the strategy configuration in the database
-            const { error: updateError } = await supabaseClient
-              .from('trading_strategies')
-              .update({
-                configuration: { ...currentConfig, ...parsedResponse.configUpdates },
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', strategyId)
-              .eq('user_id', userId);
+        let configUpdates = {};
+        
+        // Check if the AI response contains configuration keywords
+        const message = aiResponse.toLowerCase();
+        
+        // Extract configuration changes based on natural language patterns
+        if (message.includes('stop loss') && /(\d+\.?\d*)%/.test(message)) {
+          const match = message.match(/stop loss.*?(\d+\.?\d*)%/);
+          if (match) configUpdates.stopLoss = parseFloat(match[1]);
+        }
+        
+        if (message.includes('take profit') && /(\d+\.?\d*)%/.test(message)) {
+          const match = message.match(/take profit.*?(\d+\.?\d*)%/);
+          if (match) configUpdates.takeProfit = parseFloat(match[1]);
+        }
+        
+        if (message.includes('risk level') || message.includes('risk profile')) {
+          if (message.includes('low')) configUpdates.riskLevel = 'low';
+          else if (message.includes('high')) configUpdates.riskLevel = 'high';
+          else if (message.includes('medium')) configUpdates.riskLevel = 'medium';
+        }
+        
+        if (message.includes('position size') && /(\d+)/.test(message)) {
+          const match = message.match(/position size.*?(\d+)/);
+          if (match) configUpdates.maxPositionSize = parseInt(match[1]);
+        }
+        
+        // Apply configuration updates if any were detected
+        if (Object.keys(configUpdates).length > 0 && strategyId) {
+          console.log('🔧 Applying extracted config updates:', configUpdates);
+          
+          const { error: updateError } = await supabaseClient
+            .from('trading_strategies')
+            .update({
+              configuration: { ...currentConfig, ...configUpdates },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', strategyId)
+            .eq('user_id', userId);
 
-            if (updateError) {
-              console.error('Error updating strategy:', updateError);
-              finalResponse = { 
-                message: `❌ Error updating strategy: ${updateError.message}`,
-                configUpdates: {}
-              };
-            } else {
-              finalResponse = parsedResponse;
-            }
+          if (updateError) {
+            console.error('Error updating strategy:', updateError);
+            finalResponse = { 
+              message: `❌ Error updating strategy: ${updateError.message}`,
+              configUpdates: {}
+            };
           } else {
-            finalResponse = parsedResponse;
+            console.log('✅ Strategy configuration updated successfully');
+            finalResponse = { 
+              message: aiResponse,
+              configUpdates 
+            };
           }
-        } catch {
-          // If it's not JSON, treat as a regular message
+        } else {
+          // No configuration updates, just return the message
           finalResponse = { 
             message: aiResponse,
             configUpdates: {}
