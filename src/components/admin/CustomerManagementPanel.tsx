@@ -205,6 +205,31 @@ export const CustomerManagementPanel = () => {
     }
   };
 
+  const handleCleanupConnections = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('cleanup-expired-connections');
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Success",
+        description: `Cleaned up ${data?.total_cleaned || 0} connections (${data?.expired_deactivated || 0} expired, ${data?.duplicate_deactivated || 0} duplicates).`,
+      });
+
+      // Refresh customer data
+      await fetchCustomers();
+    } catch (error: any) {
+      console.error('Error cleaning up connections:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to cleanup connections",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <Card className="bg-slate-800 border-slate-700">
       <CardHeader>
@@ -235,6 +260,9 @@ export const CustomerManagementPanel = () => {
             </Button>
             <Button onClick={handleCleanupOrphanedData} variant="outline" size="sm" className="text-orange-400 border-orange-400 hover:bg-orange-400/10">
               Cleanup Orphaned Data
+            </Button>
+            <Button onClick={handleCleanupConnections} variant="outline" size="sm" className="text-blue-400 border-blue-400 hover:bg-blue-400/10">
+              Cleanup Connections
             </Button>
           </div>
         </div>
