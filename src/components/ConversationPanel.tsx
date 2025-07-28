@@ -650,7 +650,8 @@ export const ConversationPanel = () => {
   }
 
   return (
-    <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full max-h-screen flex flex-col">
+    <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full max-h-screen flex flex-col min-h-[500px]">
+      {/* iOS Safari fix: Added min-h-[500px] for visibility */}
       {/* Header */}
       <div className="p-4 border-b border-slate-700 flex-shrink-0">
         <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
@@ -686,58 +687,61 @@ export const ConversationPanel = () => {
       </div>
 
       {/* Messages - Scrollable Area with Fixed Height */}
-      <ScrollArea className="flex-1 h-0">
-        <div className="p-4 space-y-4">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex gap-3 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              {message.type === 'ai' && (
+      <div className="flex-1 min-h-0">
+        {/* iOS Safari fix: Replaced ScrollArea with div for better compatibility */}
+        <div className="h-full overflow-y-auto">
+          <div className="p-4 space-y-4 min-h-[200px]">
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`flex gap-3 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                {message.type === 'ai' && (
+                  <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-4 h-4 text-green-400" />
+                  </div>
+                )}
+                
+                <div
+                  className={`max-w-[80%] p-3 rounded-lg whitespace-pre-wrap ${
+                    message.type === 'user'
+                      ? 'bg-blue-600/30 text-blue-50 border border-blue-500/40'
+                      : 'bg-slate-700/70 text-slate-50 border border-slate-600/60'
+                  }`}
+                >
+                  {message.content}
+                  <div className="text-xs text-slate-300 mt-2">
+                    {message.timestamp.toLocaleTimeString()}
+                  </div>
+                </div>
+
+                {message.type === 'user' && (
+                  <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                    <User className="w-4 h-4 text-blue-400" />
+                  </div>
+                )}
+              </div>
+            ))}
+            
+            {isLoading && (
+              <div className="flex gap-3 justify-start">
                 <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
                   <Bot className="w-4 h-4 text-green-400" />
                 </div>
-              )}
-              
-              <div
-                className={`max-w-[80%] p-3 rounded-lg whitespace-pre-wrap ${
-                  message.type === 'user'
-                    ? 'bg-blue-600/30 text-blue-50 border border-blue-500/40'
-                    : 'bg-slate-700/70 text-slate-50 border border-slate-600/60'
-                }`}
-              >
-                {message.content}
-                <div className="text-xs text-slate-300 mt-2">
-                  {message.timestamp.toLocaleTimeString()}
+                <div className="bg-slate-700/50 text-slate-100 border border-slate-600/50 p-3 rounded-lg">
+                  <div className="flex space-x-1">
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                  </div>
                 </div>
               </div>
-
-              {message.type === 'user' && (
-                <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                  <User className="w-4 h-4 text-blue-400" />
-                </div>
-              )}
-            </div>
-          ))}
-          
-          {isLoading && (
-            <div className="flex gap-3 justify-start">
-              <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                <Bot className="w-4 h-4 text-green-400" />
-              </div>
-              <div className="bg-slate-700/50 text-slate-100 border border-slate-600/50 p-3 rounded-lg">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          <div ref={messagesEndRef} />
+            )}
+            
+            <div ref={messagesEndRef} />
+          </div>
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Input - Fixed at bottom */}
       <div className="p-4 border-t border-slate-700 flex-shrink-0">
