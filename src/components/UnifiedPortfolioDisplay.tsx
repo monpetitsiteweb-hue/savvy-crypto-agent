@@ -217,11 +217,13 @@ export const UnifiedPortfolioDisplay = () => {
   return (
     <Card className={`${testMode ? 'border-orange-500/20' : 'border-blue-500/20'} bg-slate-800/50 border-slate-600`}>
       <CardHeader className="pb-3">
-        {/* Mobile Layout: Stack vertically */}
-        <div className="flex flex-col space-y-4 md:hidden">
+        {/* DEBUG: Mobile Layout with bright colors to see what's happening */}
+        <div className="flex flex-col space-y-4 md:hidden bg-red-500 border-4 border-yellow-400 p-2">
+          <div className="w-full bg-green-400 p-2 text-black">DEBUG: Mobile container active</div>
+          
           {/* Portfolio Title */}
-          <div className="w-full">
-            <CardTitle className={`flex flex-wrap items-center gap-2 ${testMode ? 'text-orange-400' : 'text-blue-400'}`}>
+          <div className="w-full bg-blue-400 p-2">
+            <CardTitle className={`flex flex-wrap items-center gap-2 ${testMode ? 'text-orange-400' : 'text-blue-400'} text-white`}>
               {testMode ? <TestTube className="h-5 w-5" /> : <DollarSign className="h-5 w-5" />}
               <span>{testMode ? 'Test Portfolio' : 'Live Portfolio'}</span>
               <Badge variant="secondary" className={`${testMode ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
@@ -232,7 +234,8 @@ export const UnifiedPortfolioDisplay = () => {
           
           {/* Dropdown Menu */}
           {!testMode && connections.length > 0 && (
-            <div className="w-full">
+            <div className="w-full bg-purple-400 p-2">
+              <div className="text-black text-sm mb-1">DEBUG: Dropdown section</div>
               <select
                 value={selectedConnectionId}
                 onChange={(e) => {
@@ -251,7 +254,8 @@ export const UnifiedPortfolioDisplay = () => {
           )}
           
           {/* Refresh Button */}
-          <div className="w-full flex justify-center">
+          <div className="w-full bg-orange-400 p-2 flex justify-center">
+            <div className="text-black text-sm mb-1">DEBUG: Button section</div>
             <Button
               variant="ghost"
               size="sm"
