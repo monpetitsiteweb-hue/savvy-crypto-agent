@@ -650,119 +650,129 @@ export const ConversationPanel = () => {
   }
 
   return (
-    <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full max-h-screen flex flex-col">
-      {/* Header */}
-      <div className="p-4 border-b border-slate-700 flex-shrink-0">
-        <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
-          <Bot className="w-5 h-5 text-green-400" />
-          AI Trading Assistant
-          {!testMode && (
-            <span className="ml-2 px-2 py-1 bg-red-600 text-white text-xs rounded-full">
-              LIVE MODE
-            </span>
-          )}
+    <div className="bg-red-500 border-4 border-yellow-500 h-full max-h-screen flex flex-col min-h-[500px]">
+      {/* DEBUG: Main container now has red background and yellow border */}
+      <div className="bg-slate-800/80 backdrop-blur-sm rounded-xl border border-slate-700 h-full flex flex-col">
+        {/* Header */}
+        <div className="p-4 border-b border-slate-700 flex-shrink-0 bg-green-500 border-2 border-pink-500">
+          {/* DEBUG: Header has green background and pink border */}
+          <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+            <Bot className="w-5 h-5 text-green-400" />
+            AI Trading Assistant
+            {!testMode && (
+              <span className="ml-2 px-2 py-1 bg-red-600 text-white text-xs rounded-full">
+                LIVE MODE
+              </span>
+            )}
+            {testMode && (
+              <span className="ml-2 px-2 py-1 bg-blue-600 text-white text-xs rounded-full">
+                TEST MODE
+              </span>
+            )}
+          </h2>
+          <p className="text-sm text-slate-300 mt-1">
+            {userStrategies.length > 0 
+              ? `Analyzing your ${userStrategies.filter(s => testMode ? s.is_active_test : s.is_active_live).length > 0 ? 'active' : ''} trading strategies`
+              : 'Ask me about trading strategies and risk management'
+            }
+          </p>
           {testMode && (
-            <span className="ml-2 px-2 py-1 bg-blue-600 text-white text-xs rounded-full">
-              TEST MODE
-            </span>
+            <p className="text-xs text-blue-300 mt-1">
+              🧪 Test mode: All trades are simulated with mock money - perfect for learning!
+            </p>
           )}
-        </h2>
-        <p className="text-sm text-slate-300 mt-1">
-          {userStrategies.length > 0 
-            ? `Analyzing your ${userStrategies.filter(s => testMode ? s.is_active_test : s.is_active_live).length > 0 ? 'active' : ''} trading strategies`
-            : 'Ask me about trading strategies and risk management'
-          }
-        </p>
-        {testMode && (
-          <p className="text-xs text-blue-300 mt-1">
-            🧪 Test mode: All trades are simulated with mock money - perfect for learning!
-          </p>
-        )}
-        {!testMode && (
-          <p className="text-xs text-amber-300 mt-1">
-            🚧 Live mode: Production trading under development - please enable Test Mode for now
-          </p>
-        )}
-      </div>
+          {!testMode && (
+            <p className="text-xs text-amber-300 mt-1">
+              🚧 Live mode: Production trading under development - please enable Test Mode for now
+            </p>
+          )}
+        </div>
 
-      {/* Messages - Scrollable Area with Fixed Height */}
-      <ScrollArea className="flex-1 h-0">
-        <div className="p-4 space-y-4">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex gap-3 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              {message.type === 'ai' && (
-                <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                  <Bot className="w-4 h-4 text-green-400" />
+        {/* Messages - Scrollable Area with Fixed Height */}
+        <div className="flex-1 bg-blue-500 border-2 border-orange-500 min-h-0">
+          {/* DEBUG: Message area has blue background and orange border */}
+          <ScrollArea className="h-full">
+            <div className="p-4 space-y-4 bg-purple-500 border-2 border-cyan-500 min-h-[200px]">
+              {/* DEBUG: Message content has purple background and cyan border */}
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`flex gap-3 bg-yellow-300 border border-red-600 p-2 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  {/* DEBUG: Each message has yellow background and red border */}
+                  {message.type === 'ai' && (
+                    <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Bot className="w-4 h-4 text-green-400" />
+                    </div>
+                  )}
+                  
+                  <div
+                    className={`max-w-[80%] p-3 rounded-lg whitespace-pre-wrap ${
+                      message.type === 'user'
+                        ? 'bg-blue-600 text-blue-50 border border-blue-500'
+                        : 'bg-slate-700 text-slate-50 border border-slate-600'
+                    }`}
+                  >
+                    {message.content}
+                    <div className="text-xs text-slate-300 mt-2">
+                      {message.timestamp.toLocaleTimeString()}
+                    </div>
+                  </div>
+
+                  {message.type === 'user' && (
+                    <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                      <User className="w-4 h-4 text-blue-400" />
+                    </div>
+                  )}
+                </div>
+              ))}
+              
+              {isLoading && (
+                <div className="flex gap-3 justify-start bg-yellow-300 border border-red-600 p-2">
+                  <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-4 h-4 text-green-400" />
+                  </div>
+                  <div className="bg-slate-700/50 text-slate-100 border border-slate-600/50 p-3 rounded-lg">
+                    <div className="flex space-x-1">
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                      <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    </div>
+                  </div>
                 </div>
               )}
               
-              <div
-                className={`max-w-[80%] p-3 rounded-lg whitespace-pre-wrap ${
-                  message.type === 'user'
-                    ? 'bg-blue-600/30 text-blue-50 border border-blue-500/40'
-                    : 'bg-slate-700/70 text-slate-50 border border-slate-600/60'
-                }`}
-              >
-                {message.content}
-                <div className="text-xs text-slate-300 mt-2">
-                  {message.timestamp.toLocaleTimeString()}
-                </div>
-              </div>
-
-              {message.type === 'user' && (
-                <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                  <User className="w-4 h-4 text-blue-400" />
-                </div>
-              )}
+              <div ref={messagesEndRef} />
             </div>
-          ))}
-          
-          {isLoading && (
-            <div className="flex gap-3 justify-start">
-              <div className="w-8 h-8 bg-green-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-                <Bot className="w-4 h-4 text-green-400" />
-              </div>
-              <div className="bg-slate-700/50 text-slate-100 border border-slate-600/50 p-3 rounded-lg">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          <div ref={messagesEndRef} />
+          </ScrollArea>
         </div>
-      </ScrollArea>
 
-      {/* Input - Fixed at bottom */}
-      <div className="p-4 border-t border-slate-700 flex-shrink-0">
-        <div className="flex gap-3 items-end">
-          <div className="flex-1">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Message My AI Crypto Assistant..."
-              className="min-h-[60px] max-h-[120px] resize-none bg-slate-800/50 border-slate-600 text-white placeholder:text-slate-400 text-base leading-relaxed px-4 py-3"
-              disabled={isLoading}
-            />
+        {/* Input - Fixed at bottom */}
+        <div className="p-4 border-t border-slate-700 flex-shrink-0 bg-pink-500 border-2 border-lime-500">
+          {/* DEBUG: Input area has pink background and lime border */}
+          <div className="flex gap-3 items-end">
+            <div className="flex-1">
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Message My AI Crypto Assistant..."
+                className="min-h-[60px] max-h-[120px] resize-none bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 text-base leading-relaxed px-4 py-3"
+                disabled={isLoading}
+              />
+            </div>
+            <Button 
+              onClick={handleSend}
+              className="bg-green-500 hover:bg-green-600 text-white h-[60px] px-6"
+              disabled={!input.trim() || isLoading}
+            >
+              {isLoading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Send className="w-5 h-5" />
+              )}
+            </Button>
           </div>
-          <Button 
-            onClick={handleSend}
-            className="bg-green-500 hover:bg-green-600 text-white h-[60px] px-6"
-            disabled={!input.trim() || isLoading}
-          >
-            {isLoading ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Send className="w-5 h-5" />
-            )}
-          </Button>
         </div>
       </div>
     </div>
