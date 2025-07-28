@@ -735,6 +735,17 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             // Calculate unrealized P&L with fees
             const currentPrice = currentPrices[crypto] || marketData[crypto]?.price || avgCostBasis;
             const unrealizedPL = (currentPrice - avgCostBasis) * position.netAmount;
+            
+            // DEBUG: Log individual position P&L calculation
+            console.log(`🔍 Position ${crypto} P&L:`, {
+              crypto,
+              avgCostBasis: avgCostBasis.toFixed(4),
+              currentPrice: currentPrice.toFixed(4),
+              netAmount: position.netAmount.toFixed(6),
+              unrealizedPL: unrealizedPL.toFixed(2),
+              currentUnrealizedPLBefore: currentUnrealizedPL.toFixed(2)
+            });
+            
             currentUnrealizedPL += unrealizedPL;
           } else {
             // Position is closed if we had trades but net amount is ~0
