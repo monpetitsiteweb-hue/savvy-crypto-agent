@@ -97,13 +97,25 @@ serve(async (req) => {
           .select('id')
           .eq('user_id', authUser.id);
 
-        // Get Coinbase connection status
-        const { data: connection } = await supabaseAdmin
+        // Get Coinbase connection status (check for active and non-expired connections)
+        const { data: connections } = await supabaseAdmin
           .from('user_coinbase_connections')
-          .select('is_active')
+          .select('is_active, expires_at, access_token_encrypted, api_private_key_encrypted')
           .eq('user_id', authUser.id)
-          .eq('is_active', true)
-          .maybeSingle();
+          .eq('is_active', true);
+
+        // Check if any connection is valid (either API key or non-expired OAuth)
+        const hasValidConnection = connections && connections.some(conn => {
+          // API key connections (no expiry) are always valid if active
+          if (conn.api_private_key_encrypted) {
+            return true;
+          }
+          // OAuth connections must not be expired
+          if (conn.access_token_encrypted && conn.expires_at) {
+            return new Date(conn.expires_at) > new Date();
+          }
+          return false;
+        });
 
         customers.push({
           id: authUser.id,
@@ -112,7 +124,7 @@ serve(async (req) => {
           full_name: profile?.full_name || authUser.user_metadata?.full_name || null,
           avatar_url: profile?.avatar_url || authUser.user_metadata?.avatar_url || null,
           role: userRole?.role || 'no-role',
-          has_coinbase_connection: !!connection,
+          has_coinbase_connection: !!hasValidConnection,
           total_strategies: strategies?.length || 0,
           last_active: profile?.updated_at || authUser.created_at,
           // Add sync status indicators
