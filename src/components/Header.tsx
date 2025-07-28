@@ -95,7 +95,7 @@ export const Header = () => {
               <span className="text-white font-bold text-base md:text-xl">AI</span>
             </div>
             <div className="hidden sm:block">
-              <h1 className="text-lg md:text-xl font-bold text-white">My Little AI Assistant</h1>
+              <h1 className="text-lg md:text-xl font-bold text-white">My AI Crypto Assistant</h1>
               <p className="text-xs md:text-sm text-slate-400">Smart Trading Platform</p>
             </div>
           </div>

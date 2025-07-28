@@ -129,7 +129,7 @@ export const AuthPage = () => {
           <div className="w-16 h-16 bg-green-500 rounded-xl flex items-center justify-center mx-auto mb-4">
             <span className="text-white font-bold text-2xl">AI</span>
           </div>
-          <CardTitle className="text-2xl text-white">My Little AI Assistant</CardTitle>
+          <CardTitle className="text-2xl text-white">My AI Crypto Assistant</CardTitle>
           <CardDescription className="text-slate-400">
             Sign in to access your crypto trading assistant
           </CardDescription>

@@ -747,7 +747,7 @@ export const ConversationPanel = () => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Message My Little AI Assistant..."
+              placeholder="Message My AI Crypto Assistant..."
               className="min-h-[60px] max-h-[120px] resize-none bg-slate-800/50 border-slate-600 text-white placeholder:text-slate-400 text-base leading-relaxed px-4 py-3"
               disabled={isLoading}
             />
