@@ -76,14 +76,17 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const fees = trade.fees || 0;
     
     if (trade.trade_type === 'sell') {
-      // For closed positions, use the stored profit_loss (already includes fees)
+      // For closed positions, we need to reconstruct the original buy price from P&L
       const realizedPL = trade.profit_loss || 0;
+      const sellValue = trade.total_value;
+      const buyValue = sellValue - realizedPL; // Reverse engineer the buy value
+      
       return {
-        currentPrice: trade.price, // Use the sell price
-        currentValue: trade.total_value, // EUR value at time of sale
-        purchaseValue: purchaseValue, // EUR value at time of purchase
+        currentPrice: trade.price, // Sell price
+        currentValue: sellValue, // EUR value at time of sale
+        purchaseValue: buyValue, // EUR value at time of purchase
         gainLoss: realizedPL,
-        gainLossPercentage: purchaseValue !== 0 ? (realizedPL / purchaseValue) * 100 : 0
+        gainLossPercentage: buyValue !== 0 ? (realizedPL / buyValue) * 100 : 0
       };
     }
     
@@ -729,9 +732,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             const openPositionValue = position.netAmount * avgCostBasis;
             currentlyInvested += openPositionValue;
             
-            // Calculate unrealized P&L
+            // Calculate unrealized P&L with fees
             const currentPrice = currentPrices[crypto] || marketData[crypto]?.price || avgCostBasis;
-            currentUnrealizedPL += (currentPrice - avgCostBasis) * position.netAmount;
+            const unrealizedPL = (currentPrice - avgCostBasis) * position.netAmount;
+            currentUnrealizedPL += unrealizedPL;
           } else {
             // Position is closed if we had trades but net amount is ~0
             position.isClosed = true;
@@ -758,7 +762,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       setStats({ 
         totalTrades: totalPositionsEverOpened, // This is TOTAL POSITIONS, not trade records
         totalVolume, 
-        netProfitLoss: currentUnrealizedPL + totalRealizedPL,
+        netProfitLoss: currentUnrealizedPL + totalRealizedPL, // Combined P&L
         openPositions: currentlyOpenPositions, // Currently open positions
         totalInvested: lifetimeTotalInvested, // Cumulative lifetime investment
         currentPL: currentUnrealizedPL, // Unrealized P&L on open positions
@@ -823,67 +827,91 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
       {/* KPIs Summary */}
       <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Strategy KPIs Overview</h3>
+        <h3 className="text-lg font-semibold text-white mb-6">Strategy KPIs Overview</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* POSITIONS BOX */}
-          <div className="bg-slate-800/60 border border-slate-700 p-4 rounded-lg">
-            <div className="space-y-3">
+          {/* POSITIONS SUMMARY */}
+          <div className="bg-slate-900/60 border border-slate-600 p-5 rounded-lg">
+            <h4 className="text-md font-semibold text-slate-300 mb-4 flex items-center gap-2">
+              <Target className="w-4 h-4 text-blue-400" />
+              Positions Summary
+            </h4>
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Target className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm text-slate-400">Opened Positions</span>
+                <span className="text-sm text-slate-400">Open Positions</span>
+                <div className="text-right">
+                  <div className="text-lg font-bold text-white">{stats.openPositions}</div>
                 </div>
-                <div className="text-xl font-bold text-white">{stats.openPositions}</div>
               </div>
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm text-slate-400">Total Positions</span>
+                <span className="text-sm text-slate-400">Total Positions</span>
+                <div className="text-right">
+                  <div className="text-lg font-bold text-white">{stats.totalTrades}</div>
+                  <div className="text-xs text-slate-500">Ever opened</div>
                 </div>
-                <div className="text-xl font-bold text-white">{stats.totalTrades}</div>
-              </div>
-            </div>
-          </div>
-          
-          {/* INVESTMENT BOX */}
-          <div className="bg-slate-800/60 border border-slate-700 p-4 rounded-lg">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-orange-400" />
-                  <span className="text-sm text-slate-400">Currently Invested</span>
-                </div>
-                <div className="text-xl font-bold text-white">{formatEuro(stats.currentlyInvested)}</div>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <PieChart className="w-4 h-4 text-orange-400" />
-                  <span className="text-sm text-slate-400">Total Invested</span>
-                </div>
-                <div className="text-xl font-bold text-white">{formatEuro(stats.totalInvested)}</div>
               </div>
             </div>
           </div>
           
-          {/* P&L BOX */}
-          <div className="bg-slate-800/60 border border-slate-700 p-4 rounded-lg">
-            <div className="space-y-3">
+          {/* INVESTMENT METRICS */}
+          <div className="bg-slate-900/60 border border-slate-600 p-5 rounded-lg">
+            <h4 className="text-md font-semibold text-slate-300 mb-4 flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-orange-400" />
+              Investment Metrics
+            </h4>
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <TrendingUp className={`w-4 h-4 ${stats.currentPL >= 0 ? 'text-green-400' : 'text-red-400'}`} />
-                  <span className="text-sm text-slate-400">Current P&L</span>
-                </div>
-                <div className={`text-xl font-bold ${stats.currentPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {formatEuro(stats.currentPL)}
+                <span className="text-sm text-slate-400">Currently Invested</span>
+                <div className="text-right">
+                  <div className="text-lg font-bold text-white">{formatEuro(stats.currentlyInvested)}</div>
+                  <div className="text-xs text-slate-500">In open positions</div>
                 </div>
               </div>
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <PieChart className={`w-4 h-4 ${stats.totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`} />
-                  <span className="text-sm text-slate-400">Total P&L</span>
+                <span className="text-sm text-slate-400">Total Invested</span>
+                <div className="text-right">
+                  <div className="text-lg font-bold text-white">{formatEuro(stats.totalInvested)}</div>
+                  <div className="text-xs text-slate-500">Lifetime</div>
                 </div>
-                <div className={`text-xl font-bold ${stats.totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {formatEuro(stats.totalPL)}
+              </div>
+            </div>
+          </div>
+          
+          {/* PERFORMANCE METRICS */}
+          <div className="bg-slate-900/60 border border-slate-600 p-5 rounded-lg">
+            <h4 className="text-md font-semibold text-slate-300 mb-4 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-green-400" />
+              Performance Metrics
+            </h4>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-400">Unrealized P&L</span>
+                <div className="text-right">
+                  <div className={`text-lg font-bold ${stats.currentPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {formatEuro(stats.currentPL)}
+                  </div>
+                  <div className="text-xs text-slate-500">Open positions</div>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-400">Realized P&L</span>
+                <div className="text-right">
+                  <div className={`text-lg font-bold ${stats.totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {formatEuro(stats.totalPL)}
+                  </div>
+                  <div className="text-xs text-slate-500">Closed positions</div>
+                </div>
+              </div>
+              <div className="border-t border-slate-700 pt-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-300">Total P&L</span>
+                  <div className="text-right">
+                    <div className={`text-xl font-bold ${stats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {formatEuro(stats.netProfitLoss)}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {stats.totalInvested > 0 ? formatPercentage((stats.netProfitLoss / stats.totalInvested) * 100) : '-'}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
