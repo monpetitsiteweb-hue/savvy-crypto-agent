@@ -217,8 +217,8 @@ export const UnifiedPortfolioDisplay = () => {
   return (
     <Card className={`${testMode ? 'border-orange-500/20' : 'border-blue-500/20'} bg-slate-800/50 border-slate-600`}>
       <CardHeader className="pb-3">
-        {/* DEBUG: Mobile Layout with bright colors to see what's happening */}
-        <div className="flex flex-col space-y-4 md:hidden bg-red-500 border-4 border-yellow-400 p-2">
+        {/* DEBUG: Mobile Layout - FORCING to show on all devices */}
+        <div className="flex flex-col space-y-4 bg-red-500 border-4 border-yellow-400 p-2">
           <div className="w-full bg-green-400 p-2 text-black">DEBUG: Mobile container active</div>
           
           {/* Portfolio Title */}
