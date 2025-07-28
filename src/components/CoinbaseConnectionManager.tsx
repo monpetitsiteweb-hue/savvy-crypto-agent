@@ -41,6 +41,7 @@ export const CoinbaseConnectionManager = () => {
         .from('user_coinbase_connections')
         .select('*')
         .eq('user_id', user?.id)
+        .eq('is_active', true) // Only show active connections
         .order('connected_at', { ascending: false });
 
       if (error) throw error;

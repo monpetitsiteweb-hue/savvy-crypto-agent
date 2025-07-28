@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw } from 'lucide-react';
+import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, Target } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
@@ -55,10 +56,15 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [selectedConnection, setSelectedConnection] = useState<string>('');
   const [fetching, setFetching] = useState(false);
   const [portfolioValue, setPortfolioValue] = useState<number>(0);
+  const [activeTab, setActiveTab] = useState<'open' | 'past'>('open');
   const [stats, setStats] = useState({
     totalTrades: 0,
-    totalVolume: 0, // Changed from totalValue to totalVolume
-    netProfitLoss: 0
+    totalVolume: 0,
+    netProfitLoss: 0,
+    openPositions: 0,
+    totalInvested: 0,
+    currentPL: 0,
+    totalPL: 0
   });
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
 
@@ -86,7 +92,41 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   };
 
-  // Sell position function
+  // Helper functions to separate open and past positions
+  const getOpenPositions = () => {
+    const openPositions = new Map<string, Trade[]>();
+    
+    // Group all trades by cryptocurrency
+    trades.forEach(trade => {
+      const crypto = trade.cryptocurrency;
+      if (!openPositions.has(crypto)) {
+        openPositions.set(crypto, []);
+      }
+      openPositions.get(crypto)!.push(trade);
+    });
+    
+    // Filter to only show cryptocurrencies with net positive positions
+    const result: Trade[] = [];
+    openPositions.forEach((cryptoTrades, crypto) => {
+      const buys = cryptoTrades.filter(t => t.trade_type === 'buy');
+      const sells = cryptoTrades.filter(t => t.trade_type === 'sell');
+      
+      const totalBought = buys.reduce((sum, t) => sum + t.amount, 0);
+      const totalSold = sells.reduce((sum, t) => sum + t.amount, 0);
+      
+      if (totalBought > totalSold) {
+        // Add the most recent buy trades that represent the open position
+        result.push(...buys.slice(0, Math.ceil(buys.length * (totalBought - totalSold) / totalBought)));
+      }
+    });
+    
+    return result;
+  };
+  
+  const getPastPositions = () => {
+    return trades.filter(trade => trade.trade_type === 'sell');
+  };
+
   const sellPosition = async (trade: Trade) => {
     if (!user) return;
     
@@ -129,6 +169,165 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         variant: "destructive",
       });
     }
+  };
+
+  // Trade card component for reusability
+  const TradeCard = ({ trade }: { trade: Trade }) => {
+    const performance = calculateTradePerformance(trade);
+    
+    return (
+      <div className="bg-slate-800/60 rounded-lg p-4 border border-slate-700">
+        {/* Desktop Layout */}
+        <div className="hidden md:block">
+          <div className="grid grid-cols-8 gap-4 items-center text-sm">
+            {/* Trade Type & Symbol */}
+            <div className="col-span-1">
+              <div className="flex items-center gap-2">
+                <Badge 
+                  variant={trade.trade_type === 'buy' ? 'default' : 'secondary'}
+                  className={trade.trade_type === 'buy' ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}
+                >
+                  {trade.trade_type.toUpperCase()}
+                </Badge>
+              </div>
+              <div className="font-medium text-white mt-1">{trade.cryptocurrency}</div>
+            </div>
+            
+            {/* Amount */}
+            <div className="col-span-1">
+              <div className="text-slate-400 text-xs">Amount</div>
+              <div className="font-medium text-white">{trade.amount.toFixed(3)}</div>
+              <div className="text-slate-400 text-xs">€{(trade.amount * trade.price).toFixed(2)}</div>
+            </div>
+            
+            {/* Purchase Price */}
+            <div className="col-span-1">
+              <div className="text-slate-400 text-xs">Purchase Price</div>
+              <div className="font-medium text-white">€{trade.price.toLocaleString()}</div>
+            </div>
+            
+            {/* Current Price */}
+            <div className="col-span-1">
+              <div className="text-slate-400 text-xs">Current Price</div>
+              <div className="font-medium text-white">€{performance.currentPrice.toLocaleString()}</div>
+            </div>
+            
+            {/* P&L */}
+            <div className="col-span-1">
+              <div className="text-slate-400 text-xs">P&L</div>
+              <div className={`font-medium ${performance.gainLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                €{performance.gainLoss.toFixed(2)}
+              </div>
+            </div>
+            
+            {/* P&L % */}
+            <div className="col-span-1">
+              <div className="text-slate-400 text-xs">P&L %</div>
+              <div className={`font-medium ${performance.gainLossPercentage >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {performance.gainLossPercentage >= 0 ? '+' : ''}{performance.gainLossPercentage.toFixed(2)}%
+              </div>
+            </div>
+            
+            {/* Date */}
+            <div className="col-span-1 text-xs text-slate-400">
+              {new Date(trade.executed_at).toLocaleDateString()}
+            </div>
+            
+            {/* Actions */}
+            <div className="col-span-1">
+              {trade.trade_type === 'buy' && testMode && (
+                <Button
+                  onClick={() => sellPosition(trade)}
+                  size="sm"
+                  variant="outline"
+                  className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
+                >
+                  Sell
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile Layout */}
+        <div className="md:hidden space-y-3">
+          {/* Header Row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Badge 
+                variant={trade.trade_type === 'buy' ? 'default' : 'secondary'}
+                className={trade.trade_type === 'buy' ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}
+              >
+                {trade.trade_type.toUpperCase()}
+              </Badge>
+              <span className="font-bold text-white text-lg">{trade.cryptocurrency}</span>
+            </div>
+            {trade.trade_type === 'buy' && testMode && (
+              <Button
+                onClick={() => sellPosition(trade)}
+                size="sm"
+                variant="outline"
+                className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
+              >
+                Sell Position
+              </Button>
+            )}
+          </div>
+
+          {/* Amount Row */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-slate-400 text-sm">Amount</div>
+              <div className="font-semibold text-white text-lg">{trade.amount.toFixed(6)}</div>
+            </div>
+            <div>
+              <div className="text-slate-400 text-sm">Date</div>
+              <div className="font-medium text-white">{new Date(trade.executed_at).toLocaleDateString()}</div>
+            </div>
+          </div>
+
+          {/* Price Row */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-slate-400 text-sm">Purchase Price</div>
+              <div className="font-semibold text-white text-lg">€{trade.price.toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-slate-400 text-sm">Current Price</div>
+              <div className="font-semibold text-white text-lg">€{performance.currentPrice.toLocaleString()}</div>
+            </div>
+          </div>
+
+          {/* P&L Row */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-slate-400 text-sm">Profit/Loss</div>
+              <div className={`font-bold text-xl ${performance.gainLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                €{performance.gainLoss.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-400 text-sm">Profit/Loss %</div>
+              <div className={`font-bold text-xl ${performance.gainLossPercentage >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {performance.gainLossPercentage >= 0 ? '+' : ''}{performance.gainLossPercentage.toFixed(2)}%
+              </div>
+            </div>
+          </div>
+
+          {/* Additional Info Row */}
+          <div className="pt-2 border-t border-slate-600 grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-slate-400">Total Value: </span>
+              <span className="text-white font-medium">€{trade.total_value.toFixed(2)}</span>
+            </div>
+            <div>
+              <span className="text-slate-400">Fees: </span>
+              <span className="text-white font-medium">€{(trade.fees || 0).toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   useEffect(() => {
@@ -242,7 +441,15 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           console.log('No connection selected, clearing trades');
           setTrades([]);
           setPortfolioValue(0);
-          setStats({ totalTrades: 0, totalVolume: 0, netProfitLoss: 0 });
+          setStats({ 
+            totalTrades: 0, 
+            totalVolume: 0, 
+            netProfitLoss: 0,
+            openPositions: 0,
+            totalInvested: 0,
+            currentPL: 0,
+            totalPL: 0
+          });
           return;
         }
 
@@ -291,23 +498,69 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         }
       }
       
-      // Calculate meaningful trading statistics
+      // Calculate comprehensive trading statistics
       const totalTrades = data?.length || 0;
       const totalVolume = data?.reduce((sum, trade) => sum + Number(trade.total_value), 0) || 0;
       
-      // Calculate net profit/loss based on current positions
-      let netProfitLoss = 0;
+      // Separate open and closed positions
+      const openPositions = new Map<string, { amount: number, totalCost: number, trades: Trade[] }>();
+      const closedTrades: Trade[] = [];
+      let totalPL = 0;
+      
       if (data) {
-        // Calculate P&L for each open position (buy orders only)
-        netProfitLoss = (data as Trade[])
-          .filter(trade => trade.trade_type === 'buy')
-          .reduce((sum, trade) => {
-            const performance = calculateTradePerformance(trade);
-            return sum + performance.gainLoss;
-          }, 0);
+        // Group trades by cryptocurrency to calculate net positions
+        (data as Trade[]).forEach(trade => {
+          const crypto = trade.cryptocurrency;
+          
+          if (trade.trade_type === 'buy') {
+            if (!openPositions.has(crypto)) {
+              openPositions.set(crypto, { amount: 0, totalCost: 0, trades: [] });
+            }
+            const position = openPositions.get(crypto)!;
+            position.amount += trade.amount;
+            position.totalCost += trade.total_value;
+            position.trades.push(trade);
+          } else if (trade.trade_type === 'sell') {
+            if (openPositions.has(crypto)) {
+              const position = openPositions.get(crypto)!;
+              const soldAmount = Math.min(trade.amount, position.amount);
+              const avgCost = position.totalCost / position.amount;
+              const realizedPL = (trade.price - avgCost) * soldAmount;
+              totalPL += realizedPL;
+              
+              position.amount -= soldAmount;
+              position.totalCost -= avgCost * soldAmount;
+              
+              if (position.amount <= 0.000001) { // Close to zero due to floating point precision
+                openPositions.delete(crypto);
+              }
+              
+              closedTrades.push(trade);
+            }
+          }
+        });
       }
       
-      setStats({ totalTrades, totalVolume, netProfitLoss });
+      // Calculate metrics for open positions
+      let currentPL = 0;
+      let totalInvested = 0;
+      
+      openPositions.forEach((position, crypto) => {
+        totalInvested += position.totalCost;
+        const avgPrice = position.totalCost / position.amount;
+        const currentPrice = currentPrices[crypto] || marketData[crypto]?.price || avgPrice;
+        currentPL += (currentPrice - avgPrice) * position.amount;
+      });
+      
+      setStats({ 
+        totalTrades, 
+        totalVolume, 
+        netProfitLoss: currentPL + totalPL,
+        openPositions: openPositions.size,
+        totalInvested,
+        currentPL,
+        totalPL
+      });
     } catch (error) {
       console.error('Error fetching trading history:', error);
       toast({
@@ -364,229 +617,114 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         </Button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-slate-800/60 border-slate-700">
-          <div className="p-4">
-            <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-blue-400" />
-              <span className="text-sm text-slate-400">Total Trades</span>
+      {/* KPIs Summary */}
+      <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-white mb-4">Strategy KPIs Overview</h3>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <Target className="w-4 h-4 text-blue-400" />
+              <span className="text-sm text-slate-400">Opened Positions</span>
             </div>
-            <p className="text-2xl font-bold text-white mt-1">{stats.totalTrades}</p>
+            <p className="text-xl font-bold text-white">{stats.openPositions}</p>
           </div>
-        </Card>
-        
-        <Card className="bg-slate-800/60 border-slate-700">
-          <div className="p-4">
-            <div className="flex items-center gap-2">
-              <ArrowUpRight className="w-4 h-4 text-green-400" />
-              <span className="text-sm text-slate-400">Total Volume</span>
+          
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <Activity className="w-4 h-4 text-purple-400" />
+              <span className="text-sm text-slate-400">Total Positions</span>
             </div>
-            <p className="text-2xl font-bold text-white mt-1">{formatEuro(stats.totalVolume)}</p>
+            <p className="text-xl font-bold text-white">{stats.totalTrades}</p>
           </div>
-        </Card>
-        
-        {testMode && (
-          <Card className="bg-slate-800/60 border-slate-700">
-            <div className="p-4">
-              <div className="flex items-center gap-2">
-                <ArrowDownLeft className={`w-4 h-4 ${stats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'}`} />
-                <span className="text-sm text-slate-400">Net P&L</span>
-              </div>
-              <p className={`text-2xl font-bold mt-1 ${stats.netProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {formatEuro(stats.netProfitLoss)}
-              </p>
+          
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <DollarSign className="w-4 h-4 text-yellow-400" />
+              <span className="text-sm text-slate-400">Total Invested</span>
             </div>
-          </Card>
-        )}
-        
-        {testMode && (
-          <Card className="bg-slate-800/60 border-slate-700">
-            <div className="p-4">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-cyan-400" />
-                <span className="text-sm text-slate-400">Portfolio Value</span>
-              </div>
-              <p className="text-2xl font-bold text-white mt-1">{formatEuro(portfolioValue)}</p>
+            <p className="text-xl font-bold text-white">{formatEuro(stats.totalInvested)}</p>
+          </div>
+          
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <TrendingUp className={`w-4 h-4 ${stats.currentPL >= 0 ? 'text-green-400' : 'text-red-400'}`} />
+              <span className="text-sm text-slate-400">Current P&L</span>
             </div>
-          </Card>
-        )}
-      </div>
-
-      {/* Trades List */}
-      {trades.length > 0 ? (
-        <div className="space-y-4">
-          {trades.map((trade, index) => {
-            const performance = calculateTradePerformance(trade);
-            
-            return (
-              <div key={`${trade.id}-${index}`} className="bg-slate-800/60 rounded-lg p-4 border border-slate-700">
-                {/* Desktop Layout */}
-                <div className="hidden md:block">
-                  <div className="grid grid-cols-8 gap-4 items-center text-sm">
-                    {/* Trade Type & Symbol */}
-                    <div className="col-span-1">
-                      <div className="flex items-center gap-2">
-                        <Badge 
-                          variant={trade.trade_type === 'buy' ? 'default' : 'secondary'}
-                          className={trade.trade_type === 'buy' ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}
-                        >
-                          {trade.trade_type.toUpperCase()}
-                        </Badge>
-                      </div>
-                      <div className="font-medium text-white mt-1">{trade.cryptocurrency}</div>
-                    </div>
-                    
-                    {/* Amount */}
-                    <div className="col-span-1">
-                      <div className="text-slate-400 text-xs">Amount</div>
-                      <div className="font-medium text-white">{trade.amount.toFixed(3)}</div>
-                      <div className="text-slate-400 text-xs">€{(trade.amount * trade.price).toFixed(2)}</div>
-                    </div>
-                    
-                    {/* Purchase Price */}
-                    <div className="col-span-1">
-                      <div className="text-slate-400 text-xs">Purchase Price</div>
-                      <div className="font-medium text-white">€{trade.price.toLocaleString()}</div>
-                    </div>
-                    
-                    {/* Current Price */}
-                    <div className="col-span-1">
-                      <div className="text-slate-400 text-xs">Current Price</div>
-                      <div className="font-medium text-white">€{performance.currentPrice.toLocaleString()}</div>
-                    </div>
-                    
-                    {/* P&L */}
-                    <div className="col-span-1">
-                      <div className="text-slate-400 text-xs">P&L</div>
-                      <div className={`font-medium ${performance.gainLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        €{performance.gainLoss.toFixed(2)}
-                      </div>
-                    </div>
-                    
-                    {/* P&L % */}
-                    <div className="col-span-1">
-                      <div className="text-slate-400 text-xs">P&L %</div>
-                      <div className={`font-medium ${performance.gainLossPercentage >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {performance.gainLossPercentage >= 0 ? '+' : ''}{performance.gainLossPercentage.toFixed(2)}%
-                      </div>
-                    </div>
-                    
-                    {/* Date */}
-                    <div className="col-span-1 text-xs text-slate-400">
-                      {new Date(trade.executed_at).toLocaleDateString()}
-                    </div>
-                    
-                    {/* Actions */}
-                    <div className="col-span-1">
-                      {trade.trade_type === 'buy' && testMode && (
-                        <Button
-                          onClick={() => sellPosition(trade)}
-                          size="sm"
-                          variant="outline"
-                          className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
-                        >
-                          Sell
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Mobile Layout */}
-                <div className="md:hidden space-y-3">
-                  {/* Header Row */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Badge 
-                        variant={trade.trade_type === 'buy' ? 'default' : 'secondary'}
-                        className={trade.trade_type === 'buy' ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}
-                      >
-                        {trade.trade_type.toUpperCase()}
-                      </Badge>
-                      <span className="font-bold text-white text-lg">{trade.cryptocurrency}</span>
-                    </div>
-                    {trade.trade_type === 'buy' && testMode && (
-                      <Button
-                        onClick={() => sellPosition(trade)}
-                        size="sm"
-                        variant="outline"
-                        className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
-                      >
-                        Sell Position
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Amount Row */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-slate-400 text-sm">Amount</div>
-                      <div className="font-semibold text-white text-lg">{trade.amount.toFixed(6)}</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-400 text-sm">Date</div>
-                      <div className="font-medium text-white">{new Date(trade.executed_at).toLocaleDateString()}</div>
-                    </div>
-                  </div>
-
-                  {/* Price Row */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-slate-400 text-sm">Purchase Price</div>
-                      <div className="font-semibold text-white text-lg">€{trade.price.toLocaleString()}</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-400 text-sm">Current Price</div>
-                      <div className="font-semibold text-white text-lg">€{performance.currentPrice.toLocaleString()}</div>
-                    </div>
-                  </div>
-
-                  {/* P&L Row */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-slate-400 text-sm">Profit/Loss</div>
-                      <div className={`font-bold text-xl ${performance.gainLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        €{performance.gainLoss.toFixed(2)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-slate-400 text-sm">Profit/Loss %</div>
-                      <div className={`font-bold text-xl ${performance.gainLossPercentage >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {performance.gainLossPercentage >= 0 ? '+' : ''}{performance.gainLossPercentage.toFixed(2)}%
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Additional Info Row */}
-                  <div className="pt-2 border-t border-slate-600 grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-slate-400">Total Value: </span>
-                      <span className="text-white font-medium">€{trade.total_value.toFixed(2)}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400">Fees: </span>
-                      <span className="text-white font-medium">€{(trade.fees || 0).toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <Card className="bg-slate-800/60 border-slate-700">
-          <div className="p-8 text-center">
-            <Activity className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-white mb-2">No Trading History</h3>
-            <p className="text-slate-400 mb-4">
-              {testMode 
-                ? 'No mock trades found. Try asking the AI assistant to execute some test trades.'
-                : 'No live trades found. Start trading to see your history here.'
-              }
+            <p className={`text-xl font-bold ${stats.currentPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {formatEuro(stats.currentPL)}
             </p>
           </div>
-        </Card>
+          
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <PieChart className={`w-4 h-4 ${stats.totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`} />
+              <span className="text-sm text-slate-400">Total P&L</span>
+            </div>
+            <p className={`text-xl font-bold ${stats.totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {formatEuro(stats.totalPL)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Trading History Tabs */}
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'open' | 'past')} className="space-y-4">
+        <TabsList className="grid w-full grid-cols-2 bg-slate-800 border border-slate-700">
+          <TabsTrigger 
+            value="open" 
+            className="data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-400"
+          >
+            Open Positions ({getOpenPositions().length})
+          </TabsTrigger>
+          <TabsTrigger 
+            value="past" 
+            className="data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-400"
+          >
+            Past Positions ({getPastPositions().length})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="open" className="space-y-4">
+          {getOpenPositions().length > 0 ? (
+            <div className="space-y-4">
+              {getOpenPositions().map((trade, index) => (
+                <TradeCard key={`open-${trade.id}-${index}`} trade={trade} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 border border-slate-600 rounded-lg bg-slate-800/30">
+              <Target className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-slate-300 mb-2">No Open Positions</h3>
+              <p className="text-slate-400">All positions have been closed</p>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="past" className="space-y-4">
+          {getPastPositions().length > 0 ? (
+            <div className="space-y-4">
+              {getPastPositions().map((trade, index) => (
+                <TradeCard key={`past-${trade.id}-${index}`} trade={trade} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 border border-slate-600 rounded-lg bg-slate-800/30">
+              <Clock className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-slate-300 mb-2">No Past Trades</h3>
+              <p className="text-slate-400">No closed positions found</p>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+      
+      {trades.length === 0 && (
+        <div className="text-center py-8 border border-slate-600 rounded-lg bg-slate-800/30">
+          <Activity className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-slate-300 mb-2">No trades yet</h3>
+          <p className="text-slate-400 mb-4">
+            {testMode ? 'Your mock trades will appear here' : 'Your live trades will appear here'}
+          </p>
+        </div>
       )}
     </div>
   );
