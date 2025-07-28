@@ -258,11 +258,24 @@ const ProfilePage = () => {
         return <FeeSettings />;
 
       case 'connections':
-        // Import and use the CoinbaseConnectionManager component
+        // Import and use both connection components
         const CoinbaseConnectionManager = React.lazy(() => import('@/components/CoinbaseConnectionManager').then(module => ({ default: module.CoinbaseConnectionManager })));
+        const CoinbaseConnectionSelector = React.lazy(() => import('@/components/CoinbaseConnectionSelector').then(module => ({ default: module.CoinbaseConnectionSelector })));
+        
         return (
           <React.Suspense fallback={<div className="text-slate-400">Loading connection manager...</div>}>
-            <CoinbaseConnectionManager />
+            <div className="space-y-6">
+              <CoinbaseConnectionManager />
+              <div className="pt-6 border-t border-slate-600">
+                <h3 className="text-lg font-semibold text-white mb-4">Add New Connection</h3>
+                <CoinbaseConnectionSelector 
+                  onConnectionEstablished={() => {
+                    // Refresh the connection manager after adding a new connection
+                    window.location.reload();
+                  }}
+                />
+              </div>
+            </div>
           </React.Suspense>
         );
 
