@@ -133,9 +133,6 @@ export const AuthPage = () => {
           <CardDescription className="text-slate-400">
             Sign in to access your crypto trading assistant
           </CardDescription>
-          <p className="text-xs text-slate-500 mt-2">
-            Powered by Mon Petit Site Web - Tous droits réservés
-          </p>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="login" className="w-full">
@@ -261,6 +258,16 @@ export const AuthPage = () => {
           </Button>
         </CardContent>
       </Card>
+      
+      {/* Footer with logo */}
+      <div className="flex items-center justify-center mt-6 gap-2">
+        <div className="w-6 h-6 bg-green-500 rounded-md flex items-center justify-center">
+          <span className="text-white font-bold text-xs">AI</span>
+        </div>
+        <p className="text-sm text-slate-400">
+          Powered by Mon Petit Site Web - Tous droits réservés
+        </p>
+      </div>
     </div>
   );
 };
