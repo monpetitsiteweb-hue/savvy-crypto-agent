@@ -18,6 +18,10 @@ interface Customer {
   has_coinbase_connection?: boolean;
   total_strategies?: number;
   last_active?: string;
+  has_profile?: boolean;
+  has_role?: boolean;
+  confirmed?: boolean;
+  error?: boolean;
 }
 
 export const CustomerManagementPanel = () => {
@@ -35,79 +39,22 @@ export const CustomerManagementPanel = () => {
   const fetchCustomers = async () => {
     setLoading(true);
     try {
-      // Calculate offset for pagination
-      const offset = (currentPage - 1) * customersPerPage;
-
-      // Build search filter
-      let query = supabase
-        .from('profiles')
-        .select(`
-          id,
-          full_name,
-          avatar_url,
-          created_at,
-          updated_at
-        `, { count: 'exact' })
-        .order('created_at', { ascending: false })
-        .range(offset, offset + customersPerPage - 1);
-
-      // Apply search filter if provided
-      if (searchTerm.trim()) {
-        query = query.or(`full_name.ilike.%${searchTerm}%,id.ilike.%${searchTerm}%`);
-      }
-
-      const { data: profilesData, error: profilesError, count } = await query;
-
-      if (profilesError) {
-        throw profilesError;
-      }
-
-      setTotalCustomers(count || 0);
-
-      if (!profilesData || profilesData.length === 0) {
-        setCustomers([]);
-        return;
-      }
-
-      // Get user emails from auth schema through user_roles table
-      const userIds = profilesData.map(p => p.id);
-      const { data: rolesData } = await supabase
-        .from('user_roles')
-        .select('user_id, role');
-
-      // Get user strategies count
-      const { data: strategiesData } = await supabase
-        .from('trading_strategies')
-        .select('user_id')
-        .in('user_id', userIds);
-
-      // Get Coinbase connections
-      const { data: connectionsData } = await supabase
-        .from('user_coinbase_connections')
-        .select('user_id, is_active')
-        .in('user_id', userIds)
-        .eq('is_active', true);
-
-      // Combine all data
-      const enrichedCustomers: Customer[] = profilesData.map(profile => {
-        const userRole = rolesData?.find(r => r.user_id === profile.id);
-        const userStrategies = strategiesData?.filter(s => s.user_id === profile.id) || [];
-        const hasCoinbaseConnection = connectionsData?.some(c => c.user_id === profile.id) || false;
-
-        return {
-          id: profile.id,
-          email: profile.id, // We'll use ID as placeholder for email since we can't access auth.users
-          created_at: profile.created_at,
-          full_name: profile.full_name || undefined,
-          avatar_url: profile.avatar_url || undefined,
-          role: userRole?.role || 'user',
-          has_coinbase_connection: hasCoinbaseConnection,
-          total_strategies: userStrategies.length,
-          last_active: profile.updated_at
-        };
+      // Call edge function to get all auth.users with their profiles and roles
+      const { data: customersData, error: customersError } = await supabase.functions.invoke('get-all-customers', {
+        body: { 
+          offset: (currentPage - 1) * customersPerPage,
+          limit: customersPerPage,
+          searchTerm: searchTerm.trim()
+        }
       });
 
-      setCustomers(enrichedCustomers);
+      if (customersError) {
+        throw customersError;
+      }
+
+      setTotalCustomers(customersData.total_count || 0);
+      setCustomers(customersData.customers || []);
+
     } catch (error) {
       console.error('Error fetching customers:', error);
       toast({
@@ -206,6 +153,32 @@ export const CustomerManagementPanel = () => {
     }
   };
 
+  const handleUserSyncAudit = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('user-sync-audit');
+
+      if (error) {
+        throw error;
+      }
+
+      toast({
+        title: "Sync Audit Complete",
+        description: `${data.users_repaired} users repaired, ${data.errors_encountered} errors`,
+      });
+
+      // Refresh the customer list
+      await fetchCustomers();
+      await fetchOrphanedData();
+    } catch (error: any) {
+      console.error('Error running sync audit:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to run sync audit",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleCleanupOrphanedData = async () => {
     try {
       const { data, error } = await supabase.functions.invoke('cleanup-orphaned-data');
@@ -248,6 +221,9 @@ export const CustomerManagementPanel = () => {
           <div className="flex gap-2">
             <Button onClick={fetchCustomers} variant="outline" size="sm">
               Refresh
+            </Button>
+            <Button onClick={handleUserSyncAudit} variant="outline" size="sm" className="text-green-400 border-green-400 hover:bg-green-400/10">
+              Sync Audit & Repair
             </Button>
             <Button 
               onClick={() => setShowOrphaned(!showOrphaned)} 
@@ -344,17 +320,30 @@ export const CustomerManagementPanel = () => {
                           className={getRoleBadgeColor(customer.role || 'user')}
                         >
                           {customer.role === 'admin' && <Shield className="w-3 h-3 mr-1" />}
-                          {customer.role || 'user'}
+                          {customer.role === 'no-role' ? 'NO ROLE' : customer.role === 'error' ? 'ERROR' : customer.role || 'user'}
                         </Badge>
+                        {(!customer.has_profile || !customer.has_role) && (
+                          <Badge variant="outline" className="bg-red-500/20 text-red-400 border-red-500/30">
+                            SYNC ISSUE
+                          </Badge>
+                        )}
+                        {!customer.confirmed && (
+                          <Badge variant="outline" className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
+                            UNCONFIRMED
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-4 text-sm text-slate-400 mt-1">
                         <span className="flex items-center gap-1">
                           <Mail className="w-3 h-3" />
-                          ID: {customer.id.slice(0, 8)}...
+                          {customer.email}
                         </span>
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
                           Joined {formatDate(customer.created_at)}
+                        </span>
+                        <span className="text-xs">
+                          Profile: {customer.has_profile ? '✅' : '❌'} | Role: {customer.has_role ? '✅' : '❌'}
                         </span>
                       </div>
                     </div>
