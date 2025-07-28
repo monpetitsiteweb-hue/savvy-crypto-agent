@@ -238,53 +238,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
 
   return (
     <Card className={`p-6 bg-slate-800/50 border-slate-600 ${testMode ? "border-orange-500/20" : ""}`}>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <h3 className="text-lg font-semibold text-white">Portfolio</h3>
-          {testMode && (
-            <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
-              <TestTube className="h-3 w-3 mr-1" />
-              Test Mode
-            </Badge>
-          )}
-        </div>
-        
-        <div className="flex items-center gap-3">
-          {!testMode && connections.length > 0 && (
-            <Select 
-              value={selectedConnectionId} 
-              onValueChange={setSelectedConnectionId}
-            >
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Select connection" />
-              </SelectTrigger>
-              <SelectContent>
-                {connections.map((connection) => (
-                  <SelectItem key={connection.id} value={connection.id}>
-                    {connection.api_name_encrypted || 'Coinbase Account'}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          
-          {!testMode && (
-            <Button 
-              onClick={() => fetchProductionPortfolio(true)}
-              disabled={!selectedConnectionId || loading}
-              size="sm"
-              className="bg-blue-500 hover:bg-blue-600"
-            >
-              {loading ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Refresh
-            </Button>
-          )}
-        </div>
-      </div>
+      <div className="text-4xl font-bold text-red-500 p-8">FUCK</div>
 
       {/* Total Portfolio Value */}
       <div className="mb-6 p-4 bg-slate-700/30 rounded-lg border border-slate-600">
