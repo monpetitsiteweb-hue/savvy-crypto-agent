@@ -254,10 +254,41 @@ serve(async (req) => {
           tokenRefreshed: isExpired
         });
         
+        // Transform OAuth API response to match Advanced Trading API format
+        const transformedAccounts = portfolioData.data?.map(account => ({
+          uuid: account.id,
+          name: account.name,
+          currency: account.balance?.currency || account.currency || 'Unknown',
+          available_balance: {
+            value: account.balance?.amount || '0',
+            currency: account.balance?.currency || account.currency || 'Unknown'
+          },
+          default: account.primary || false,
+          active: true,
+          created_at: account.created_at,
+          updated_at: account.updated_at,
+          type: account.type === 'wallet' ? 'ACCOUNT_TYPE_CRYPTO' : 'ACCOUNT_TYPE_FIAT',
+          ready: true,
+          hold: {
+            value: '0',
+            currency: account.balance?.currency || account.currency || 'Unknown'
+          }
+        })) || [];
+
+        console.log('✅ Successfully transformed OAuth portfolio data:', {
+          accountCount: transformedAccounts.length,
+          tokenRefreshed: isExpired,
+          sampleAccount: transformedAccounts[0] ? {
+            uuid: transformedAccounts[0].uuid,
+            currency: transformedAccounts[0].currency,
+            balance: transformedAccounts[0].available_balance?.value
+          } : null
+        });
+        
         return new Response(JSON.stringify({ 
           success: true,
-          message: `Successfully fetched ${portfolioData.data?.length || 0} accounts from Coinbase`,
-          accounts: portfolioData.data,
+          message: `Successfully fetched ${transformedAccounts.length} accounts from Coinbase`,
+          accounts: transformedAccounts,
           connectionType: 'oauth',
           connectionId: connection.id,
           tokenWasRefreshed: isExpired
