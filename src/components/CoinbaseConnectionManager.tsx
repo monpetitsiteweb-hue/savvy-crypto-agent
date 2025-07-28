@@ -111,6 +111,53 @@ export const CoinbaseConnectionManager = () => {
     }
   };
 
+  const handleOAuthConnect = async () => {
+    if (!user) {
+      toast({
+        title: "Authentication required",
+        description: "You must be signed in to connect your Coinbase account",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setUpdating(true);
+    try {
+      // Check if there's an existing OAuth connection
+      const existingOAuth = connections.find(c => c.access_token_encrypted);
+      
+      if (existingOAuth) {
+        // If OAuth connection exists, refresh it instead of creating new one
+        const { data, error } = await supabase.functions.invoke('coinbase-oauth', {
+          body: { refresh_existing: true, connection_id: existingOAuth.id }
+        });
+
+        if (error) throw error;
+
+        if (data?.oauth_url) {
+          window.location.href = data.oauth_url;
+        }
+      } else {
+        // Create new OAuth connection
+        const { data, error } = await supabase.functions.invoke('coinbase-oauth');
+
+        if (error) throw error;
+
+        if (data?.oauth_url) {
+          window.location.href = data.oauth_url;
+        }
+      }
+    } catch (error) {
+      console.error('OAuth error:', error);
+      toast({
+        title: "Connection failed",
+        description: "Failed to start OAuth flow",
+        variant: "destructive"
+      });
+      setUpdating(false);
+    }
+  };
+
   const handleDeleteConnection = async (connectionId: string) => {
     if (!user || updating) return;
     
@@ -313,20 +360,70 @@ export const CoinbaseConnectionManager = () => {
                     </Label>
                   </div>
                   
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDeleteConnection(connection.id)}
-                    disabled={updating}
-                    className="text-red-400 border-red-400/50 hover:bg-red-500/10"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  <div className="flex gap-2">
+                    {/* Refresh OAuth button for expired OAuth connections */}
+                    {isExpired && connection.access_token_encrypted && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleOAuthConnect}
+                        disabled={updating}
+                        className="text-blue-400 border-blue-400/50 hover:bg-blue-500/10"
+                      >
+                        <Link2 className="w-4 h-4 mr-1" />
+                        Refresh
+                      </Button>
+                    )}
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDeleteConnection(connection.id)}
+                      disabled={updating}
+                      className="text-red-400 border-red-400/50 hover:bg-red-500/10"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               );
             })}
           </RadioGroup>
         </div>
+        
+        {connections.length === 0 && (
+          <div className="text-center py-8 border border-slate-600 rounded-lg">
+            <AlertTriangle className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-slate-300 mb-2">No connections found</h3>
+            <p className="text-slate-400 mb-4">
+              Connect your Coinbase account to start trading
+            </p>
+            <Button 
+              onClick={handleOAuthConnect}
+              disabled={updating}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {updating ? 'Connecting...' : 'Connect with OAuth'}
+            </Button>
+          </div>
+        )}
+        
+        {connections.length > 0 && (
+          <div className="pt-4 border-t border-slate-600">
+            <h4 className="text-white font-medium mb-3">Add New Connection:</h4>
+            <div className="flex gap-3">
+              <Button 
+                onClick={handleOAuthConnect}
+                disabled={updating}
+                className="bg-blue-600 hover:bg-blue-700"
+                size="sm"
+              >
+                <Link2 className="w-4 h-4 mr-2" />
+                {updating ? 'Connecting...' : 'Add OAuth'}
+              </Button>
+            </div>
+          </div>
+        )}
         
         {updating && (
           <div className="text-center text-slate-400 py-2 flex items-center justify-center gap-2">

@@ -75,7 +75,7 @@ const ProfilePage = () => {
         description: "Your Coinbase account has been connected successfully!",
       });
       // Clear the URL parameters
-      navigate(location.pathname + '?tab=settings', { replace: true });
+      navigate(location.pathname + '?tab=connections', { replace: true });
     }
     
     if (error) {
@@ -94,7 +94,7 @@ const ProfilePage = () => {
         variant: "destructive"
       });
       // Clear the URL parameters
-      navigate(location.pathname + '?tab=settings', { replace: true });
+      navigate(location.pathname + '?tab=connections', { replace: true });
     }
   }, [location.search, navigate, toast]);
 
@@ -178,8 +178,7 @@ const ProfilePage = () => {
   const menuItems = [
     { id: 'profile', label: 'User Profile', icon: User, description: 'Manage your personal information and preferences' },
     { id: 'fees', label: 'Fee Settings', icon: CreditCard, description: 'Configure your trading fee rates' },
-    { id: 'settings', label: 'Settings', icon: Settings, description: 'Manage your Coinbase connections and preferences' },
-    { id: 'connections', label: 'Connection Manager', icon: Key, description: 'Choose between and manage your Coinbase connections' },
+    { id: 'connections', label: 'Coinbase Connections', icon: Key, description: 'Choose and manage your Coinbase connections' },
     { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Configure your notification preferences' },
     { id: 'security', label: 'Security', icon: Shield, description: 'Account security and authentication settings' },
     { id: 'subscription', label: 'Subscription', icon: CreditCard, description: 'Manage your trading plan and billing' },
@@ -257,15 +256,6 @@ const ProfilePage = () => {
 
       case 'fees':
         return <FeeSettings />;
-
-      case 'settings':
-        // Import and use the CoinbaseConnectionPanel component
-        const CoinbaseConnectionPanel = React.lazy(() => import('@/components/settings/CoinbaseConnectionPanel').then(module => ({ default: module.CoinbaseConnectionPanel })));
-        return (
-          <React.Suspense fallback={<div className="text-slate-400">Loading settings...</div>}>
-            <CoinbaseConnectionPanel />
-          </React.Suspense>
-        );
 
       case 'connections':
         // Import and use the CoinbaseConnectionManager component

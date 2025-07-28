@@ -32,7 +32,7 @@ serve(async (req) => {
     // Handle OAuth errors from Coinbase
     if (error) {
       console.error('OAuth error from Coinbase:', error);
-      const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&error=oauth_failed';
+      const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=connections&error=oauth_failed';
       console.log('Redirecting to frontend with error:', frontendUrl);
       return new Response(null, {
         status: 302,
@@ -42,7 +42,7 @@ serve(async (req) => {
 
     if (!code || !state) {
       console.error('Missing required parameters:', { code: !!code, state: !!state });
-      const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&error=missing_params';
+      const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=connections&error=missing_params';
       console.log('Redirecting to frontend with missing params error:', frontendUrl);
       return new Response(null, {
         status: 302,
@@ -164,34 +164,70 @@ serve(async (req) => {
       userName: userData.data?.name
     });
 
-    // Store the connection
+    // Check if this is a refresh of existing connection
+    const url = new URL(req.url);
+    const refreshExisting = url.searchParams.get('refresh_existing') === 'true';
+    const connectionId = url.searchParams.get('connection_id');
+
     const expiresAt = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
     
     console.log('Storing connection in database...');
-    const { error: insertError } = await supabase
-      .from('user_coinbase_connections')
-      .insert({
-        user_id: userId,
-        access_token_encrypted: tokenData.access_token,
-        refresh_token_encrypted: tokenData.refresh_token,
-        coinbase_user_id: userData.data?.id,
-        expires_at: expiresAt,
-        is_active: true
-      });
+    
+    if (refreshExisting && connectionId) {
+      // Update existing connection
+      const { error: updateError } = await supabase
+        .from('user_coinbase_connections')
+        .update({
+          access_token_encrypted: tokenData.access_token,
+          refresh_token_encrypted: tokenData.refresh_token,
+          coinbase_user_id: userData.data?.id,
+          expires_at: expiresAt,
+          last_sync: new Date().toISOString()
+        })
+        .eq('id', connectionId)
+        .eq('user_id', userId);
 
-    if (insertError) {
-      console.error('Failed to store connection:', insertError);
-      const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&error=storage_failed';
-      return new Response(null, {
-        status: 302,
-        headers: { Location: frontendUrl }
-      });
+      if (updateError) {
+        console.error('Failed to update connection:', updateError);
+        const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=connections&error=storage_failed';
+        return new Response(null, {
+          status: 302,
+          headers: { Location: frontendUrl }
+        });
+      }
+    } else {
+      // First deactivate all existing connections for this user
+      await supabase
+        .from('user_coinbase_connections')
+        .update({ is_active: false })
+        .eq('user_id', userId);
+
+      // Create new connection
+      const { error: insertError } = await supabase
+        .from('user_coinbase_connections')
+        .insert({
+          user_id: userId,
+          access_token_encrypted: tokenData.access_token,
+          refresh_token_encrypted: tokenData.refresh_token,
+          coinbase_user_id: userData.data?.id,
+          expires_at: expiresAt,
+          is_active: true
+        });
+
+      if (insertError) {
+        console.error('Failed to insert connection:', insertError);
+        const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=connections&error=storage_failed';
+        return new Response(null, {
+          status: 302,
+          headers: { Location: frontendUrl }
+        });
+      }
     }
 
     console.log('OAuth connection successfully stored for user:', userId);
 
     // Redirect back to frontend with success
-    const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=settings&success=connected';
+    const frontendUrl = 'https://preview--savvy-crypto-agent.lovable.app/profile?tab=connections&success=connected';
     console.log('Redirecting to frontend with success:', frontendUrl);
     return new Response(null, {
       status: 302,
