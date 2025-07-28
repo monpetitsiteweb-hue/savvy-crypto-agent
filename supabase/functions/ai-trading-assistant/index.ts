@@ -345,27 +345,27 @@ Remember: You're Alex, an experienced trader having a friendly chat. No formal l
         let configUpdates = {};
         
         // Check if the AI response contains configuration keywords
-        const message = aiResponse.toLowerCase();
+        const aiResponseLower = aiResponse.toLowerCase();
         
         // Extract configuration changes based on natural language patterns
-        if (message.includes('stop loss') && /(\d+\.?\d*)%/.test(message)) {
-          const match = message.match(/stop loss.*?(\d+\.?\d*)%/);
+        if (aiResponseLower.includes('stop loss') && /(\d+\.?\d*)%/.test(aiResponseLower)) {
+          const match = aiResponseLower.match(/stop loss.*?(\d+\.?\d*)%/);
           if (match) configUpdates.stopLoss = parseFloat(match[1]);
         }
         
-        if (message.includes('take profit') && /(\d+\.?\d*)%/.test(message)) {
-          const match = message.match(/take profit.*?(\d+\.?\d*)%/);
+        if (aiResponseLower.includes('take profit') && /(\d+\.?\d*)%/.test(aiResponseLower)) {
+          const match = aiResponseLower.match(/take profit.*?(\d+\.?\d*)%/);
           if (match) configUpdates.takeProfit = parseFloat(match[1]);
         }
         
-        if (message.includes('risk level') || message.includes('risk profile')) {
-          if (message.includes('low')) configUpdates.riskLevel = 'low';
-          else if (message.includes('high')) configUpdates.riskLevel = 'high';
-          else if (message.includes('medium')) configUpdates.riskLevel = 'medium';
+        if (aiResponseLower.includes('risk level') || aiResponseLower.includes('risk profile')) {
+          if (aiResponseLower.includes('low')) configUpdates.riskLevel = 'low';
+          else if (aiResponseLower.includes('high')) configUpdates.riskLevel = 'high';
+          else if (aiResponseLower.includes('medium')) configUpdates.riskLevel = 'medium';
         }
         
-        if (message.includes('position size') && /(\d+)/.test(message)) {
-          const match = message.match(/position size.*?(\d+)/);
+        if (aiResponseLower.includes('position size') && /(\d+)/.test(aiResponseLower)) {
+          const match = aiResponseLower.match(/position size.*?(\d+)/);
           if (match) configUpdates.maxPositionSize = parseInt(match[1]);
         }
         
