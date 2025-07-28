@@ -711,12 +711,34 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         }
       });
       
-      // Determine position states
-      let totalPositionsEverOpened = 0;
-      let currentlyOpenPositions = 0;
-      let closedPositions = 0;
+      // Calculate unrealized P&L by directly summing open positions' P&L
+      const openPositionsData = getOpenPositions();
       let currentUnrealizedPL = 0;
       let currentlyInvested = 0;
+      let currentlyOpenPositions = 0;
+      
+      console.log('🔍 Starting Unrealized P&L calculation from open positions...');
+      
+      openPositionsData.forEach(trade => {
+        const performance = calculateTradePerformance(trade);
+        const positionPL = performance.gainLoss;
+        currentUnrealizedPL += positionPL;
+        currentlyInvested += performance.purchaseValue;
+        
+        console.log(`🔍 Position ${trade.cryptocurrency} P&L:`, {
+          crypto: trade.cryptocurrency,
+          amount: trade.amount.toFixed(6),
+          positionPL: positionPL.toFixed(2),
+          runningTotal: currentUnrealizedPL.toFixed(2)
+        });
+      });
+      
+      console.log(`🔍 Final Unrealized P&L: ${currentUnrealizedPL.toFixed(2)}€`);
+      
+      // Count positions for statistics
+      let totalPositionsEverOpened = 0;
+      let closedPositions = 0;
+      currentlyOpenPositions = openPositionsData.length;
       
       positionSummary.forEach((position, crypto) => {
         if (position.hasEverHadPosition) {
@@ -725,28 +747,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           // Check if position is currently open
           if (position.netAmount > 0.000001) {
             position.isCurrentlyOpen = true;
-            currentlyOpenPositions++;
-            
-            // Calculate average cost basis for open position
-            const avgCostBasis = position.buyValue / position.totalBought;
-            const openPositionValue = position.netAmount * avgCostBasis;
-            currentlyInvested += openPositionValue;
-            
-            // Calculate unrealized P&L with fees
-            const currentPrice = currentPrices[crypto] || marketData[crypto]?.price || avgCostBasis;
-            const unrealizedPL = (currentPrice - avgCostBasis) * position.netAmount;
-            
-            // DEBUG: Log individual position P&L calculation
-            console.log(`🔍 Position ${crypto} P&L:`, {
-              crypto,
-              avgCostBasis: avgCostBasis.toFixed(4),
-              currentPrice: currentPrice.toFixed(4),
-              netAmount: position.netAmount.toFixed(6),
-              unrealizedPL: unrealizedPL.toFixed(2),
-              currentUnrealizedPLBefore: currentUnrealizedPL.toFixed(2)
-            });
-            
-            currentUnrealizedPL += unrealizedPL;
           } else {
             // Position is closed if we had trades but net amount is ~0
             position.isClosed = true;
