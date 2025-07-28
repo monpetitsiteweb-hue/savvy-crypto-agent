@@ -338,6 +338,41 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     }
   }, [existingStrategy]);
 
+  // Quick update for High Risk Momentum Trader strategy
+  const quickUpdateStrategy = async () => {
+    if (!user) return;
+    
+    try {
+      const { error } = await supabase
+        .from('trading_strategies')
+        .update({
+          configuration: {
+            ...formData,
+            takeProfitPercentage: 1,
+            dailyProfitTarget: 1,
+            selectedCoins: ["BTC","ETH","ADA","DOGE","XRP","LTC","BCH","LINK","DOT","UNI","SOL","MATIC","AVAX","ICP","XLM","VET","ALGO","ATOM","FIL","TRX","ETC","THETA","XMR","XTZ","COMP","AAVE","MKR","SNX","CRV","YFI"]
+          } as any,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', user.id)
+        .eq('strategy_name', 'High Risk Momentum Trader');
+
+      if (error) throw error;
+      
+      toast({
+        title: "Strategy Updated",
+        description: "High Risk Momentum Trader updated to 1% take profit with daily sell target.",
+      });
+    } catch (error: any) {
+      console.error('Error updating strategy:', error);
+      toast({
+        title: "Update Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
