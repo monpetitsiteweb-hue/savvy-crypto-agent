@@ -179,6 +179,7 @@ const ProfilePage = () => {
     { id: 'profile', label: 'User Profile', icon: User, description: 'Manage your personal information and preferences' },
     { id: 'fees', label: 'Fee Settings', icon: CreditCard, description: 'Configure your trading fee rates' },
     { id: 'settings', label: 'Settings', icon: Settings, description: 'Manage your Coinbase connections and preferences' },
+    { id: 'connections', label: 'Connection Manager', icon: Key, description: 'Choose between and manage your Coinbase connections' },
     { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Configure your notification preferences' },
     { id: 'security', label: 'Security', icon: Shield, description: 'Account security and authentication settings' },
     { id: 'subscription', label: 'Subscription', icon: CreditCard, description: 'Manage your trading plan and billing' },
@@ -267,55 +268,12 @@ const ProfilePage = () => {
         );
 
       case 'connections':
+        // Import and use the CoinbaseConnectionManager component
+        const CoinbaseConnectionManager = React.lazy(() => import('@/components/CoinbaseConnectionManager').then(module => ({ default: module.CoinbaseConnectionManager })));
         return (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-white mb-2">API Connections</h3>
-              <p className="text-slate-400 mb-4">Manage your exchange API connections for automated trading</p>
-            </div>
-
-            {connections.length > 0 ? (
-              <div className="space-y-4">
-                {connections.map((connection) => (
-                  <Card key={connection.id} className="p-4 bg-slate-700/30 border-slate-600">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-orange-500/20 rounded-lg flex items-center justify-center">
-                          <Key className="w-5 h-5 text-orange-400" />
-                        </div>
-                        <div>
-                          <h4 className="font-medium text-white">
-                            {connection.api_name_encrypted || 'Coinbase Connection'}
-                          </h4>
-                          <p className="text-sm text-slate-400">
-                            Connected on {new Date(connection.connected_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                      <Badge 
-                        variant={connection.is_active ? 'default' : 'secondary'}
-                        className={connection.is_active ? 'bg-green-500/20 text-green-400' : 'bg-slate-500/20 text-slate-400'}
-                      >
-                        {connection.is_active ? 'Active' : 'Inactive'}
-                      </Badge>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            ) : (
-              <Card className="p-8 bg-slate-700/30 border-slate-600 text-center">
-                <Key className="w-12 h-12 mx-auto mb-4 text-slate-500" />
-                <h4 className="text-lg font-medium text-white mb-2">No API Connections</h4>
-                <p className="text-slate-400 mb-4">Connect your Coinbase account to start automated trading</p>
-                <Button 
-                  onClick={() => navigate('/admin')}
-                  className="bg-cyan-500 hover:bg-cyan-600 text-white"
-                >
-                  Add Connection
-                </Button>
-              </Card>
-            )}
-          </div>
+          <React.Suspense fallback={<div className="text-slate-400">Loading connection manager...</div>}>
+            <CoinbaseConnectionManager />
+          </React.Suspense>
         );
 
       case 'security':
