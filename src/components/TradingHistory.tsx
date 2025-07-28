@@ -804,7 +804,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         <h3 className="text-lg font-semibold text-white mb-4">Strategy KPIs Overview</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* POSITIONS BOX */}
-          <div className="bg-card p-4 rounded-lg border">
+          <div className="bg-slate-800/60 border border-slate-700 p-4 rounded-lg">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -824,7 +824,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           </div>
           
           {/* INVESTMENT BOX */}
-          <div className="bg-card p-4 rounded-lg border">
+          <div className="bg-slate-800/60 border border-slate-700 p-4 rounded-lg">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -844,7 +844,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           </div>
           
           {/* P&L BOX */}
-          <div className="bg-card p-4 rounded-lg border">
+          <div className="bg-slate-800/60 border border-slate-700 p-4 rounded-lg">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
