@@ -72,17 +72,19 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // Calculate trade performance including current prices and P&L
   const calculateTradePerformance = (trade: Trade) => {
     const purchasePrice = trade.price;
-    const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
     
     if (trade.trade_type === 'sell') {
-      // For sell orders, show the realized P&L
+      // For closed positions, use the stored profit_loss or calculate based on historical data
+      const realizedPL = trade.profit_loss || 0;
       return {
-        currentPrice: currentMarketPrice,
-        gainLoss: 0, // Sell orders don't have unrealized gains
-        gainLossPercentage: 0
+        currentPrice: trade.price, // Use the sell price, not current market price
+        gainLoss: realizedPL,
+        gainLossPercentage: realizedPL !== 0 && trade.total_value !== 0 ? (realizedPL / trade.total_value) * 100 : 0
       };
     }
     
+    // For open positions, calculate unrealized P&L based on current market price
+    const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
     const gainLoss = (currentMarketPrice - purchasePrice) * trade.amount;
     const gainLossPercentage = ((currentMarketPrice - purchasePrice) / purchasePrice) * 100;
     
@@ -95,37 +97,71 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   // Helper functions to separate open and past positions
   const getOpenPositions = () => {
-    const openPositions = new Map<string, Trade[]>();
+    if (trades.length === 0) return [];
     
-    // Group all trades by cryptocurrency
+    // Group trades by cryptocurrency to calculate net positions
+    const positionsBySymbol = new Map<string, { 
+      netAmount: number, 
+      buyTrades: Trade[], 
+      sellTrades: Trade[], 
+      totalBought: number, 
+      totalSold: number 
+    }>();
+    
     trades.forEach(trade => {
       const crypto = trade.cryptocurrency;
-      if (!openPositions.has(crypto)) {
-        openPositions.set(crypto, []);
+      if (!positionsBySymbol.has(crypto)) {
+        positionsBySymbol.set(crypto, { 
+          netAmount: 0, 
+          buyTrades: [], 
+          sellTrades: [],
+          totalBought: 0,
+          totalSold: 0
+        });
       }
-      openPositions.get(crypto)!.push(trade);
+      
+      const position = positionsBySymbol.get(crypto)!;
+      
+      if (trade.trade_type === 'buy') {
+        position.netAmount += trade.amount;
+        position.totalBought += trade.amount;
+        position.buyTrades.push(trade);
+      } else if (trade.trade_type === 'sell') {
+        position.netAmount -= trade.amount;
+        position.totalSold += trade.amount;
+        position.sellTrades.push(trade);
+      }
     });
     
-    // Filter to only show cryptocurrencies with net positive positions
-    const result: Trade[] = [];
-    openPositions.forEach((cryptoTrades, crypto) => {
-      const buys = cryptoTrades.filter(t => t.trade_type === 'buy');
-      const sells = cryptoTrades.filter(t => t.trade_type === 'sell');
-      
-      const totalBought = buys.reduce((sum, t) => sum + t.amount, 0);
-      const totalSold = sells.reduce((sum, t) => sum + t.amount, 0);
-      
-      if (totalBought > totalSold) {
-        // Add the most recent buy trades that represent the open position
-        result.push(...buys.slice(0, Math.ceil(buys.length * (totalBought - totalSold) / totalBought)));
+    // Return buy trades for positions that still have net positive amount
+    const openTrades: Trade[] = [];
+    positionsBySymbol.forEach((position, crypto) => {
+      if (position.netAmount > 0.000001) { // Account for floating point precision
+        // For display purposes, show the most recent buy trades that represent the open position
+        const sortedBuys = position.buyTrades.sort((a, b) => 
+          new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime()
+        );
+        
+        let remainingAmount = position.netAmount;
+        for (const buyTrade of sortedBuys) {
+          if (remainingAmount > 0) {
+            // Create a trade entry representing the open portion
+            openTrades.push({
+              ...buyTrade,
+              amount: Math.min(buyTrade.amount, remainingAmount)
+            });
+            remainingAmount -= buyTrade.amount;
+          }
+        }
       }
     });
     
-    return result;
+    return openTrades;
   };
   
   const getPastPositions = () => {
-    // Return sell trades (closed positions)
+    // Return all sell trades as they represent closed positions
+    // For past positions, we need to preserve the original P&L at time of sale
     return trades.filter(trade => trade.trade_type === 'sell');
   };
 
@@ -134,6 +170,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     
     try {
       const currentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+      const sellValue = trade.amount * currentPrice;
+      const buyValue = trade.amount * trade.price;
+      const realizedPL = sellValue - buyValue;
       
       const { error } = await supabase
         .from('mock_trades')
@@ -144,7 +183,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           cryptocurrency: trade.cryptocurrency,
           amount: trade.amount,
           price: currentPrice,
-          total_value: trade.amount * currentPrice,
+          total_value: sellValue,
+          profit_loss: realizedPL,
           fees: 0,
           executed_at: new Date().toISOString(),
           is_test_mode: true,
@@ -158,7 +198,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
       toast({
         title: "Position Sold",
-        description: `Successfully sold ${trade.amount.toFixed(6)} ${trade.cryptocurrency}`,
+        description: `Successfully sold ${trade.amount.toFixed(6)} ${trade.cryptocurrency} for ${formatEuro(realizedPL)} ${realizedPL >= 0 ? 'profit' : 'loss'}`,
       });
 
       // Refresh the trades
@@ -501,72 +541,109 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         }
       }
       
-      // Calculate comprehensive trading statistics
+      // Calculate comprehensive trading statistics with proper validation
       const allTrades = data || [];
-      const totalTrades = allTrades.length;
-      const totalVolume = allTrades.reduce((sum, trade) => sum + Number(trade.total_value), 0);
+      console.log('📊 Calculating stats for trades:', allTrades.length);
       
-      // Calculate lifetime total invested (all buy orders)
-      const lifetimeTotalInvested = allTrades
-        .filter(trade => trade.trade_type === 'buy')
-        .reduce((sum, trade) => sum + trade.total_value, 0);
+      if (allTrades.length === 0) {
+        setStats({ 
+          totalTrades: 0, 
+          totalVolume: 0, 
+          netProfitLoss: 0,
+          openPositions: 0,
+          totalInvested: 0,
+          currentPL: 0,
+          totalPL: 0,
+          currentlyInvested: 0
+        });
+        return;
+      }
       
-      // Separate open and closed positions
-      const openPositions = new Map<string, { amount: number, totalCost: number, trades: Trade[] }>();
-      const sellTrades: Trade[] = [];
+      // Calculate position summaries by cryptocurrency
+      const positionSummary = new Map<string, { 
+        netAmount: number, 
+        totalBought: number, 
+        totalSold: number,
+        buyValue: number,
+        sellValue: number,
+        buyTrades: Trade[],
+        sellTrades: Trade[]
+      }>();
+      
       let totalRealizedPL = 0;
+      let lifetimeTotalInvested = 0;
       
-      // Group trades by cryptocurrency to calculate net positions
+      // Process all trades to build position summary
       allTrades.forEach(trade => {
         const crypto = trade.cryptocurrency;
+        if (!positionSummary.has(crypto)) {
+          positionSummary.set(crypto, { 
+            netAmount: 0, 
+            totalBought: 0, 
+            totalSold: 0,
+            buyValue: 0,
+            sellValue: 0,
+            buyTrades: [],
+            sellTrades: []
+          });
+        }
+        
+        const position = positionSummary.get(crypto)!;
         
         if (trade.trade_type === 'buy') {
-          if (!openPositions.has(crypto)) {
-            openPositions.set(crypto, { amount: 0, totalCost: 0, trades: [] });
-          }
-          const position = openPositions.get(crypto)!;
-          position.amount += trade.amount;
-          position.totalCost += trade.total_value;
-          position.trades.push(trade);
+          position.netAmount += trade.amount;
+          position.totalBought += trade.amount;
+          position.buyValue += trade.total_value;
+          position.buyTrades.push(trade);
+          lifetimeTotalInvested += trade.total_value;
         } else if (trade.trade_type === 'sell') {
-          sellTrades.push(trade);
+          position.netAmount -= trade.amount;
+          position.totalSold += trade.amount;
+          position.sellValue += trade.total_value;
+          position.sellTrades.push(trade);
           
-          if (openPositions.has(crypto)) {
-            const position = openPositions.get(crypto)!;
-            const soldAmount = Math.min(trade.amount, position.amount);
-            const avgCost = position.totalCost / position.amount;
-            const realizedPL = (trade.price - avgCost) * soldAmount;
-            totalRealizedPL += realizedPL;
-            
-            position.amount -= soldAmount;
-            position.totalCost -= avgCost * soldAmount;
-            
-            if (position.amount <= 0.000001) { // Close to zero due to floating point precision
-              openPositions.delete(crypto);
-            }
-          } else {
-            // Sell without corresponding buy (shouldn't happen in normal flow)
-            totalRealizedPL += trade.profit_loss || 0;
-          }
+          // Add realized P&L from this sell trade
+          totalRealizedPL += trade.profit_loss || 0;
         }
       });
       
       // Calculate metrics for currently open positions
       let currentUnrealizedPL = 0;
       let currentlyInvested = 0;
+      let openPositionsCount = 0;
       
-      openPositions.forEach((position, crypto) => {
-        currentlyInvested += position.totalCost;
-        const avgPrice = position.totalCost / position.amount;
-        const currentPrice = currentPrices[crypto] || marketData[crypto]?.price || avgPrice;
-        currentUnrealizedPL += (currentPrice - avgPrice) * position.amount;
+      positionSummary.forEach((position, crypto) => {
+        if (position.netAmount > 0.000001) { // Has open position
+          openPositionsCount++;
+          
+          // Calculate average cost basis for open position
+          const avgCostBasis = position.buyValue / position.totalBought;
+          const openPositionValue = position.netAmount * avgCostBasis;
+          currentlyInvested += openPositionValue;
+          
+          // Calculate unrealized P&L
+          const currentPrice = currentPrices[crypto] || marketData[crypto]?.price || avgCostBasis;
+          currentUnrealizedPL += (currentPrice - avgCostBasis) * position.netAmount;
+        }
+      });
+      
+      const totalTrades = allTrades.length;
+      const totalVolume = allTrades.reduce((sum, trade) => sum + Number(trade.total_value), 0);
+      
+      console.log('📊 Calculated stats:', {
+        totalTrades,
+        openPositionsCount,
+        lifetimeTotalInvested,
+        currentlyInvested,
+        currentUnrealizedPL,
+        totalRealizedPL
       });
       
       setStats({ 
         totalTrades, 
         totalVolume, 
         netProfitLoss: currentUnrealizedPL + totalRealizedPL,
-        openPositions: openPositions.size,
+        openPositions: openPositionsCount,
         totalInvested: lifetimeTotalInvested, // Cumulative lifetime investment
         currentPL: currentUnrealizedPL, // Unrealized P&L on open positions
         totalPL: totalRealizedPL, // Realized P&L from closed positions
@@ -693,13 +770,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             value="open" 
             className="data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-400"
           >
-            Open Positions ({getOpenPositions().length})
+            Open Positions ({Math.max(0, getOpenPositions().length)})
           </TabsTrigger>
           <TabsTrigger 
             value="past" 
             className="data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-400"
           >
-            Past Positions ({getPastPositions().length})
+            Past Positions ({Math.max(0, getPastPositions().length)})
           </TabsTrigger>
         </TabsList>
 
