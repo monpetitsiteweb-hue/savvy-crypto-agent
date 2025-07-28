@@ -58,6 +58,39 @@ serve(async (req) => {
         });
       }
 
+      // Get recent conversation history for context (last 10 exchanges)
+      const { data: conversationHistory } = await supabaseClient
+        .from('conversation_history')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20); // Last 20 messages (10 exchanges)
+
+      // Build conversation context from history
+      let conversationContext = '';
+      if (conversationHistory && conversationHistory.length > 0) {
+        const recentHistory = conversationHistory
+          .reverse() // Most recent first in time order
+          .slice(-10) // Keep only last 10 messages for context
+          .map(msg => {
+            const isAI = msg.message_type === 'ai_response' || msg.message_type === 'ai_recommendation';
+            const role = isAI ? 'Assistant' : 'User';
+            const timestamp = new Date(msg.created_at).toLocaleTimeString();
+            return `[${timestamp}] ${role}: ${msg.content}`;
+          })
+          .join('\n');
+          
+        conversationContext = `
+RECENT CONVERSATION HISTORY:
+${recentHistory}
+
+CONTEXT NOTES:
+- When user says "yes please adjust based on this recommendation" or similar confirmations, reference the last AI recommendation above
+- When user asks to "apply the changes" or "implement the suggestion", look for the most recent AI recommendation with configUpdates
+- Maintain conversational continuity by referencing previous exchanges when relevant
+`;
+      }
+
       // Get current strategy context and recent trading activity
       let strategyAnalysis = '';
       let recentTradingContext = '';
@@ -179,6 +212,7 @@ ${recentTrades.slice(0, 5).map(trade =>
       // Enhanced system prompt with strategy reasoning capabilities and market awareness
       const systemPrompt = `You are an advanced cryptocurrency trading strategy assistant with deep analytical capabilities and real-time market awareness.
 
+${conversationContext}
 ${strategyAnalysis}
 ${recentTradingContext}
 ${marketContext}
@@ -227,6 +261,12 @@ Your core capabilities include:
 
 5. GENERAL TRADING ASSISTANCE: Answer questions about market conditions, price movements, and trading advice
 
+6. CONVERSATIONAL CONTINUITY: CRITICAL - Maintain context from previous conversation exchanges:
+   - When user says "yes please adjust based on this recommendation" or similar confirmations, reference your last recommendation from the conversation history
+   - When user asks to "apply the changes" or "implement the suggestion", look for your most recent recommendation with specific parameter changes
+   - Always reference previous exchanges when relevant to maintain natural conversation flow
+   - If user confirms a recommendation you made, immediately apply those specific changes
+
 RESPONSE GUIDELINES:
 - For configuration changes: Return JSON with "configUpdates" object containing the specific changes
 - For strategy explanations: Analyze the provided configuration and explain the reasoning behind current settings
@@ -236,6 +276,7 @@ RESPONSE GUIDELINES:
 - Base explanations on actual data provided, not hypothetical scenarios
 - Only reference indicators that are enabled and have live calculated values
 - If insufficient data is available, acknowledge limitations rather than making assumptions
+- ALWAYS maintain conversational continuity by referencing relevant previous exchanges
 
 VALID CONFIGURATION FIELDS:
 - riskLevel/riskProfile: low, medium, high
@@ -244,6 +285,8 @@ VALID CONFIGURATION FIELDS:
 - maxPositionSize: position sizing limits
 - strategyType: trend-following, mean-reverting, breakout, scalping, etc.
 - technicalIndicators: object with indicator configs (e.g., { rsi: { enabled: true, period: 14, buyThreshold: 30, sellThreshold: 70 } })
+- buyCooldownMinutes: cooldown period between buy trades
+- tradeCooldownMinutes: general cooldown between any trades
 
 IMPORTANT: When enabling indicators like "enable RSI" or "enable RSI and MACD", immediately include current calculated values in your response for the user to see.`;
 
@@ -321,7 +364,17 @@ Special handling for indicator enablement:
         const data = await response.json();
         const aiResponse = data.choices[0].message.content;
 
+        // Save user message to conversation history
+        await supabaseClient.from('conversation_history').insert([{
+          user_id: userId,
+          strategy_id: strategyId,
+          message_type: 'user_message',
+          content: message,
+          metadata: { timestamp: new Date().toISOString() }
+        }]);
+
         // Try to parse as JSON in case it includes configUpdates
+        let finalResponse;
         try {
           const parsedResponse = JSON.parse(aiResponse);
           if (parsedResponse.configUpdates && strategyId) {
@@ -337,26 +390,37 @@ Special handling for indicator enablement:
 
             if (updateError) {
               console.error('Error updating strategy:', updateError);
-              return new Response(JSON.stringify({ 
+              finalResponse = { 
                 message: `❌ Error updating strategy: ${updateError.message}`,
                 configUpdates: {}
-              }), { 
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-              });
+              };
+            } else {
+              finalResponse = parsedResponse;
             }
-
-            return new Response(JSON.stringify(parsedResponse), { 
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-            });
+          } else {
+            finalResponse = parsedResponse;
           }
         } catch {
           // If it's not JSON, treat as a regular message
+          finalResponse = { 
+            message: aiResponse,
+            configUpdates: {}
+          };
         }
 
-        return new Response(JSON.stringify({ 
-          message: aiResponse,
-          configUpdates: {}
-        }), { 
+        // Save AI response to conversation history
+        await supabaseClient.from('conversation_history').insert([{
+          user_id: userId,
+          strategy_id: strategyId,
+          message_type: 'ai_response',
+          content: finalResponse.message,
+          metadata: { 
+            configUpdates: finalResponse.configUpdates || {},
+            timestamp: new Date().toISOString()
+          }
+        }]);
+
+        return new Response(JSON.stringify(finalResponse), { 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         });
 
