@@ -134,7 +134,12 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
       console.log(`📋 DEBUG: Strategy config selectedCoins: ${JSON.stringify(strategyConfig?.selectedCoins)}`);
       console.log(`📋 DEBUG: Strategy config aiConfidenceThreshold: ${strategyConfig?.aiIntelligenceConfig?.aiConfidenceThreshold}`);
       console.log(`📋 DEBUG: Strategy config perTradeAllocation: ${strategyConfig?.perTradeAllocation}`);
+      console.log(`📋 DEBUG: Strategy config takeProfitPercentage: ${strategyConfig?.takeProfitPercentage}`);
       
+      // STEP 1: Check existing positions for take profit opportunities
+      await evaluateExistingPositions(supabaseClient, strategy, mode, executionResults);
+      
+      // STEP 2: Process new signals
       const relevantSignals = (signals || []).filter(signal => 
         isSignalRelevantToStrategy(signal, strategyConfig)
       );
@@ -372,6 +377,115 @@ async function getExecutionLog(supabaseClient: any, params: any) {
 }
 
 // Helper functions
+
+async function evaluateExistingPositions(supabaseClient: any, strategy: any, mode: string, executionResults: any[]) {
+  const takeProfitPercentage = strategy.configuration?.takeProfitPercentage || 999; // Default to 999% (no take profit)
+  
+  if (takeProfitPercentage >= 999) {
+    console.log(`📊 Strategy "${strategy.strategy_name}" has no take profit target set (${takeProfitPercentage}%)`);
+    return;
+  }
+  
+  console.log(`🎯 [TAKE PROFIT] Evaluating existing positions for strategy "${strategy.strategy_name}" with ${takeProfitPercentage}% target`);
+  
+  try {
+    // Get open positions (recent buy trades without corresponding sell trades)
+    const tableToQuery = mode === 'live' ? 'trading_history' : 'mock_trades';
+    
+    const { data: buyTrades, error: buyError } = await supabaseClient
+      .from(tableToQuery)
+      .select('*')
+      .eq('user_id', strategy.user_id)
+      .eq('strategy_id', strategy.id)
+      .eq('trade_type', 'buy')
+      .gte('executed_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) // Last 24 hours
+      .order('executed_at', { ascending: false });
+
+    if (buyError) {
+      console.error(`❌ Error fetching buy trades: ${buyError.message}`);
+      return;
+    }
+
+    if (!buyTrades || buyTrades.length === 0) {
+      console.log(`📊 No recent buy trades found for strategy "${strategy.strategy_name}"`);
+      return;
+    }
+
+    // Group by cryptocurrency to find open positions
+    const positions = {};
+    
+    for (const trade of buyTrades) {
+      const symbol = trade.cryptocurrency;
+      if (!positions[symbol]) {
+        positions[symbol] = { 
+          buyTrades: [], 
+          totalAmount: 0, 
+          totalCost: 0, 
+          avgPrice: 0 
+        };
+      }
+      positions[symbol].buyTrades.push(trade);
+      positions[symbol].totalAmount += parseFloat(trade.amount);
+      positions[symbol].totalCost += parseFloat(trade.total_value);
+    }
+
+    // Calculate average prices for each position
+    for (const symbol in positions) {
+      const position = positions[symbol];
+      position.avgPrice = position.totalCost / position.totalAmount;
+    }
+
+    // Get current market prices for all symbols
+    const symbols = Object.keys(positions).map(crypto => `${crypto}-EUR`);
+    const marketData = await getCurrentMarketData(supabaseClient, symbols);
+
+    // Evaluate each position for take profit
+    for (const [cryptocurrency, position] of Object.entries(positions)) {
+      const symbol = `${cryptocurrency}-EUR`;
+      const currentPrice = marketData[symbol]?.price || 0;
+      
+      if (currentPrice === 0) {
+        console.log(`⚠️ No current price data for ${symbol}, skipping take profit check`);
+        continue;
+      }
+
+      const gainPercentage = ((currentPrice - position.avgPrice) / position.avgPrice) * 100;
+      
+      console.log(`📈 [TAKE PROFIT] ${cryptocurrency}: Entry €${position.avgPrice.toFixed(2)} → Current €${currentPrice.toFixed(2)} = ${gainPercentage.toFixed(2)}% gain (target: ${takeProfitPercentage}%)`);
+      
+      if (gainPercentage >= takeProfitPercentage) {
+        console.log(`🎯 [TAKE PROFIT] Selling ${cryptocurrency} at ${gainPercentage.toFixed(2)}% gain for user ${strategy.user_id}`);
+        
+        // Execute sell trade
+        const sellTradeResult = await executeTrade(supabaseClient, {
+          strategy,
+          marketData: { [symbol]: marketData[symbol] },
+          mode,
+          userId: strategy.user_id,
+          trigger: 'take_profit_hit',
+          evaluation: {
+            action: 'sell',
+            reasoning: `Take profit target reached: ${gainPercentage.toFixed(2)}% gain (target: ${takeProfitPercentage}%)`,
+            confidence: 1.0
+          },
+          signal: {
+            symbol: cryptocurrency,
+            signal_type: 'take_profit',
+            signal_strength: 100
+          }
+        });
+        
+        executionResults.push(sellTradeResult);
+        console.log(`✅ [TAKE PROFIT] Successfully sold ${cryptocurrency} position`);
+      } else {
+        console.log(`⏳ [TAKE PROFIT] Holding ${cryptocurrency} - ${gainPercentage.toFixed(2)}% gain (need ${takeProfitPercentage}%)`);
+      }
+    }
+    
+  } catch (error) {
+    console.error(`❌ Error evaluating existing positions: ${error.message}`);
+  }
+}
 
 function isSignalRelevantToStrategy(signal: any, strategyConfig: any) {
   const configuredSignals = strategyConfig?.signal_types || [];
