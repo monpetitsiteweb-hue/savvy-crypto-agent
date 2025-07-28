@@ -133,6 +133,9 @@ export const AuthPage = () => {
           <CardDescription className="text-slate-400">
             Sign in to access your crypto trading assistant
           </CardDescription>
+          <p className="text-xs text-slate-500 mt-2">
+            Powered by Mon Petit Site Web - Tous droits réservés
+          </p>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="login" className="w-full">
