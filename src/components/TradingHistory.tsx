@@ -64,7 +64,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     openPositions: 0,
     totalInvested: 0,
     currentPL: 0,
-    totalPL: 0
+    totalPL: 0,
+    currentlyInvested: 0
   });
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
 
@@ -124,6 +125,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   };
   
   const getPastPositions = () => {
+    // Return sell trades (closed positions)
     return trades.filter(trade => trade.trade_type === 'sell');
   };
 
@@ -441,15 +443,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           console.log('No connection selected, clearing trades');
           setTrades([]);
           setPortfolioValue(0);
-          setStats({ 
-            totalTrades: 0, 
-            totalVolume: 0, 
-            netProfitLoss: 0,
-            openPositions: 0,
-            totalInvested: 0,
-            currentPL: 0,
-            totalPL: 0
-          });
+           setStats({ 
+             totalTrades: 0, 
+             totalVolume: 0, 
+             netProfitLoss: 0,
+             openPositions: 0,
+             totalInvested: 0,
+             currentPL: 0,
+             totalPL: 0,
+             currentlyInvested: 0
+           });
           return;
         }
 
@@ -499,67 +502,75 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       }
       
       // Calculate comprehensive trading statistics
-      const totalTrades = data?.length || 0;
-      const totalVolume = data?.reduce((sum, trade) => sum + Number(trade.total_value), 0) || 0;
+      const allTrades = data || [];
+      const totalTrades = allTrades.length;
+      const totalVolume = allTrades.reduce((sum, trade) => sum + Number(trade.total_value), 0);
+      
+      // Calculate lifetime total invested (all buy orders)
+      const lifetimeTotalInvested = allTrades
+        .filter(trade => trade.trade_type === 'buy')
+        .reduce((sum, trade) => sum + trade.total_value, 0);
       
       // Separate open and closed positions
       const openPositions = new Map<string, { amount: number, totalCost: number, trades: Trade[] }>();
-      const closedTrades: Trade[] = [];
-      let totalPL = 0;
+      const sellTrades: Trade[] = [];
+      let totalRealizedPL = 0;
       
-      if (data) {
-        // Group trades by cryptocurrency to calculate net positions
-        (data as Trade[]).forEach(trade => {
-          const crypto = trade.cryptocurrency;
-          
-          if (trade.trade_type === 'buy') {
-            if (!openPositions.has(crypto)) {
-              openPositions.set(crypto, { amount: 0, totalCost: 0, trades: [] });
-            }
-            const position = openPositions.get(crypto)!;
-            position.amount += trade.amount;
-            position.totalCost += trade.total_value;
-            position.trades.push(trade);
-          } else if (trade.trade_type === 'sell') {
-            if (openPositions.has(crypto)) {
-              const position = openPositions.get(crypto)!;
-              const soldAmount = Math.min(trade.amount, position.amount);
-              const avgCost = position.totalCost / position.amount;
-              const realizedPL = (trade.price - avgCost) * soldAmount;
-              totalPL += realizedPL;
-              
-              position.amount -= soldAmount;
-              position.totalCost -= avgCost * soldAmount;
-              
-              if (position.amount <= 0.000001) { // Close to zero due to floating point precision
-                openPositions.delete(crypto);
-              }
-              
-              closedTrades.push(trade);
-            }
+      // Group trades by cryptocurrency to calculate net positions
+      allTrades.forEach(trade => {
+        const crypto = trade.cryptocurrency;
+        
+        if (trade.trade_type === 'buy') {
+          if (!openPositions.has(crypto)) {
+            openPositions.set(crypto, { amount: 0, totalCost: 0, trades: [] });
           }
-        });
-      }
+          const position = openPositions.get(crypto)!;
+          position.amount += trade.amount;
+          position.totalCost += trade.total_value;
+          position.trades.push(trade);
+        } else if (trade.trade_type === 'sell') {
+          sellTrades.push(trade);
+          
+          if (openPositions.has(crypto)) {
+            const position = openPositions.get(crypto)!;
+            const soldAmount = Math.min(trade.amount, position.amount);
+            const avgCost = position.totalCost / position.amount;
+            const realizedPL = (trade.price - avgCost) * soldAmount;
+            totalRealizedPL += realizedPL;
+            
+            position.amount -= soldAmount;
+            position.totalCost -= avgCost * soldAmount;
+            
+            if (position.amount <= 0.000001) { // Close to zero due to floating point precision
+              openPositions.delete(crypto);
+            }
+          } else {
+            // Sell without corresponding buy (shouldn't happen in normal flow)
+            totalRealizedPL += trade.profit_loss || 0;
+          }
+        }
+      });
       
-      // Calculate metrics for open positions
-      let currentPL = 0;
-      let totalInvested = 0;
+      // Calculate metrics for currently open positions
+      let currentUnrealizedPL = 0;
+      let currentlyInvested = 0;
       
       openPositions.forEach((position, crypto) => {
-        totalInvested += position.totalCost;
+        currentlyInvested += position.totalCost;
         const avgPrice = position.totalCost / position.amount;
         const currentPrice = currentPrices[crypto] || marketData[crypto]?.price || avgPrice;
-        currentPL += (currentPrice - avgPrice) * position.amount;
+        currentUnrealizedPL += (currentPrice - avgPrice) * position.amount;
       });
       
       setStats({ 
         totalTrades, 
         totalVolume, 
-        netProfitLoss: currentPL + totalPL,
+        netProfitLoss: currentUnrealizedPL + totalRealizedPL,
         openPositions: openPositions.size,
-        totalInvested,
-        currentPL,
-        totalPL
+        totalInvested: lifetimeTotalInvested, // Cumulative lifetime investment
+        currentPL: currentUnrealizedPL, // Unrealized P&L on open positions
+        totalPL: totalRealizedPL, // Realized P&L from closed positions
+        currentlyInvested // Currently tied up in open positions
       });
     } catch (error) {
       console.error('Error fetching trading history:', error);
@@ -620,7 +631,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       {/* KPIs Summary */}
       <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Strategy KPIs Overview</h3>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div className="text-center">
             <div className="flex items-center justify-center gap-2 mb-1">
               <Target className="w-4 h-4 text-blue-400" />
@@ -639,7 +650,15 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           
           <div className="text-center">
             <div className="flex items-center justify-center gap-2 mb-1">
-              <DollarSign className="w-4 h-4 text-yellow-400" />
+              <DollarSign className="w-4 h-4 text-orange-400" />
+              <span className="text-sm text-slate-400">Currently Invested</span>
+            </div>
+            <p className="text-xl font-bold text-white">{formatEuro(stats.currentlyInvested)}</p>
+          </div>
+          
+          <div className="text-center">
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <PieChart className="w-4 h-4 text-yellow-400" />
               <span className="text-sm text-slate-400">Total Invested</span>
             </div>
             <p className="text-xl font-bold text-white">{formatEuro(stats.totalInvested)}</p>

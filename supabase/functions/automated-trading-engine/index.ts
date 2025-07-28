@@ -959,6 +959,42 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
       blockingReasons.push(`Daily loss limit reached (€${riskLimits.maxDailyLoss})`);
     }
 
+    // Check max open positions limit from strategy configuration
+    const maxOpenPositions = strategy.configuration?.maxOpenPositions || 5;
+    
+    // Get current open positions by calculating net positions per cryptocurrency
+    const { data: allTrades, error: allTradesError } = await supabaseClient
+      .from('mock_trades')
+      .select('cryptocurrency, trade_type, amount')
+      .eq('user_id', userId)
+      .eq('strategy_id', strategy.id);
+
+    if (!allTradesError && allTrades) {
+      const openPositions = new Map<string, number>();
+      
+      // Calculate net positions by cryptocurrency
+      allTrades.forEach(trade => {
+        const crypto = trade.cryptocurrency;
+        const currentNet = openPositions.get(crypto) || 0;
+        
+        if (trade.trade_type === 'buy') {
+          openPositions.set(crypto, currentNet + trade.amount);
+        } else if (trade.trade_type === 'sell') {
+          openPositions.set(crypto, currentNet - trade.amount);
+        }
+      });
+      
+      // Count positions with net amount > 0.000001 (to account for floating point precision)
+      const currentOpenPositionsCount = Array.from(openPositions.values())
+        .filter(amount => amount > 0.000001).length;
+      
+      console.log(`📊 [POSITION CHECK] Current open positions: ${currentOpenPositionsCount}/${maxOpenPositions}`);
+      
+      if (currentOpenPositionsCount >= maxOpenPositions) {
+        blockingReasons.push(`Max open positions limit reached (${maxOpenPositions})`);
+      }
+    }
+
     // Calculate position sizing
     const symbol = Object.keys(marketData)[0] || 'BTC-EUR';
     const price = marketData[symbol]?.price || 50000;
