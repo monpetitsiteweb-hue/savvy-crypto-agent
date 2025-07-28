@@ -7,12 +7,14 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Mail } from 'lucide-react';
+import { Loader2, Mail, UserPlus } from 'lucide-react';
 
 export const AuthPage = () => {
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const { toast } = useToast();
 
@@ -53,8 +55,8 @@ export const AuthPage = () => {
       const redirectUrl = `${window.location.origin}/`;
       
       const { error } = await supabase.auth.signUp({
-        email,
-        password,
+        email: signupEmail,
+        password: signupPassword,
         options: {
           emailRedirectTo: redirectUrl,
           data: {
@@ -123,7 +125,7 @@ export const AuthPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col items-center justify-center p-4">
       <Card className="w-full max-w-md bg-slate-800/50 backdrop-blur-sm border-slate-700">
         <CardHeader className="text-center">
           <div className="w-16 h-16 bg-green-500 rounded-xl flex items-center justify-center mx-auto mb-4">
@@ -197,43 +199,41 @@ export const AuthPage = () => {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-slate-300">Email</Label>
+                <Label htmlFor="signupEmail" className="text-slate-300">Email</Label>
                 <Input
-                  id="email"
+                  id="signupEmail"
                   type="email"
                   placeholder="Enter your email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  value={signupEmail}
+                  onChange={(e) => setSignupEmail(e.target.value)}
                   className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-slate-300">Password</Label>
+                <Label htmlFor="signupPassword" className="text-slate-300">Password</Label>
                 <Input
-                  id="password"
+                  id="signupPassword"
                   type="password"
                   placeholder="Create a password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  value={signupPassword}
+                  onChange={(e) => setSignupPassword(e.target.value)}
                   className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
                 />
               </div>
               <Button 
                 onClick={handleEmailSignup}
-                disabled={loading || !email || !password || !fullName}
+                disabled={loading || !signupEmail || !signupPassword || !fullName}
                 className="w-full bg-green-600 hover:bg-green-700"
               >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Mail className="w-4 h-4 mr-2" />}
+                {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <UserPlus className="w-4 h-4 mr-2" />}
                 Create Account
               </Button>
             </TabsContent>
           </Tabs>
 
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-slate-600" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
+          <div className="my-6 flex items-center">
+            <div className="flex-1 border-t border-slate-600"></div>
+            <div className="px-3">
               <span className="bg-slate-800 px-2 text-slate-400">Or continue with</span>
             </div>
           </div>
@@ -259,7 +259,7 @@ export const AuthPage = () => {
         </CardContent>
       </Card>
       
-      {/* Footer with logo */}
+      {/* Footer with logo - OUTSIDE the card */}
       <div className="flex items-center justify-center mt-6 gap-3">
         <img 
           src="/lovable-uploads/886962f7-84ab-4b5e-beb2-7fdb5bdfe4e7.png" 
