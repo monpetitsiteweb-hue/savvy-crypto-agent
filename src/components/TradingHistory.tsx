@@ -661,7 +661,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         buyValue: number,
         sellValue: number,
         buyTrades: Trade[],
-        sellTrades: Trade[]
+        sellTrades: Trade[],
+        hasEverHadPosition: boolean,
+        isCurrentlyOpen: boolean,
+        isClosed: boolean
       }>();
       
       let totalRealizedPL = 0;
@@ -678,7 +681,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             buyValue: 0,
             sellValue: 0,
             buyTrades: [],
-            sellTrades: []
+            sellTrades: [],
+            hasEverHadPosition: false,
+            isCurrentlyOpen: false,
+            isClosed: false
           });
         }
         
@@ -689,6 +695,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           position.totalBought += trade.amount;
           position.buyValue += trade.total_value;
           position.buyTrades.push(trade);
+          position.hasEverHadPosition = true;
           lifetimeTotalInvested += trade.total_value;
         } else if (trade.trade_type === 'sell') {
           position.netAmount -= trade.amount;
@@ -701,43 +708,58 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         }
       });
       
-      // Calculate metrics for currently open positions
+      // Determine position states
+      let totalPositionsEverOpened = 0;
+      let currentlyOpenPositions = 0;
+      let closedPositions = 0;
       let currentUnrealizedPL = 0;
       let currentlyInvested = 0;
-      let openPositionsCount = 0;
       
       positionSummary.forEach((position, crypto) => {
-        if (position.netAmount > 0.000001) { // Has open position
-          openPositionsCount++;
+        if (position.hasEverHadPosition) {
+          totalPositionsEverOpened++;
           
-          // Calculate average cost basis for open position
-          const avgCostBasis = position.buyValue / position.totalBought;
-          const openPositionValue = position.netAmount * avgCostBasis;
-          currentlyInvested += openPositionValue;
-          
-          // Calculate unrealized P&L
-          const currentPrice = currentPrices[crypto] || marketData[crypto]?.price || avgCostBasis;
-          currentUnrealizedPL += (currentPrice - avgCostBasis) * position.netAmount;
+          // Check if position is currently open
+          if (position.netAmount > 0.000001) {
+            position.isCurrentlyOpen = true;
+            currentlyOpenPositions++;
+            
+            // Calculate average cost basis for open position
+            const avgCostBasis = position.buyValue / position.totalBought;
+            const openPositionValue = position.netAmount * avgCostBasis;
+            currentlyInvested += openPositionValue;
+            
+            // Calculate unrealized P&L
+            const currentPrice = currentPrices[crypto] || marketData[crypto]?.price || avgCostBasis;
+            currentUnrealizedPL += (currentPrice - avgCostBasis) * position.netAmount;
+          } else {
+            // Position is closed if we had trades but net amount is ~0
+            position.isClosed = true;
+            closedPositions++;
+          }
         }
       });
       
-      const totalTrades = allTrades.length;
+      const totalTradeRecords = allTrades.length;
       const totalVolume = allTrades.reduce((sum, trade) => sum + Number(trade.total_value), 0);
       
-      console.log('📊 Calculated stats:', {
-        totalTrades,
-        openPositionsCount,
+      console.log('📊 Position Analysis:', {
+        totalPositionsEverOpened,
+        currentlyOpenPositions,
+        closedPositions,
+        totalTradeRecords,
         lifetimeTotalInvested,
         currentlyInvested,
         currentUnrealizedPL,
         totalRealizedPL
       });
       
+      // CRITICAL FIX: Total Positions = positions ever opened, NOT total trade records
       setStats({ 
-        totalTrades, 
+        totalTrades: totalPositionsEverOpened, // This is TOTAL POSITIONS, not trade records
         totalVolume, 
         netProfitLoss: currentUnrealizedPL + totalRealizedPL,
-        openPositions: openPositionsCount,
+        openPositions: currentlyOpenPositions, // Currently open positions
         totalInvested: lifetimeTotalInvested, // Cumulative lifetime investment
         currentPL: currentUnrealizedPL, // Unrealized P&L on open positions
         totalPL: totalRealizedPL, // Realized P&L from closed positions
