@@ -111,7 +111,7 @@ export const CoinbaseConnectionManager = () => {
     }
   };
 
-  const handleOAuthConnect = async () => {
+  const handleOAuthConnect = async (refreshConnectionId?: string) => {
     if (!user) {
       toast({
         title: "Authentication required",
@@ -123,13 +123,10 @@ export const CoinbaseConnectionManager = () => {
 
     setUpdating(true);
     try {
-      // Check if there's an existing OAuth connection
-      const existingOAuth = connections.find(c => c.access_token_encrypted);
-      
-      if (existingOAuth) {
-        // If OAuth connection exists, refresh it instead of creating new one
+      if (refreshConnectionId) {
+        // Refresh specific existing connection
         const { data, error } = await supabase.functions.invoke('coinbase-oauth', {
-          body: { refresh_existing: true, connection_id: existingOAuth.id }
+          body: { refresh_existing: true, connection_id: refreshConnectionId }
         });
 
         if (error) throw error;
@@ -366,7 +363,7 @@ export const CoinbaseConnectionManager = () => {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={handleOAuthConnect}
+                        onClick={() => handleOAuthConnect(connection.id)}
                         disabled={updating}
                         className="text-blue-400 border-blue-400/50 hover:bg-blue-500/10"
                       >
@@ -399,7 +396,7 @@ export const CoinbaseConnectionManager = () => {
               Connect your Coinbase account to start trading
             </p>
             <Button 
-              onClick={handleOAuthConnect}
+              onClick={() => handleOAuthConnect()}
               disabled={updating}
               className="bg-blue-600 hover:bg-blue-700"
             >
@@ -413,7 +410,7 @@ export const CoinbaseConnectionManager = () => {
             <h4 className="text-white font-medium mb-3">Add New Connection:</h4>
             <div className="flex gap-3">
               <Button 
-                onClick={handleOAuthConnect}
+                onClick={() => handleOAuthConnect()}
                 disabled={updating}
                 className="bg-blue-600 hover:bg-blue-700"
                 size="sm"

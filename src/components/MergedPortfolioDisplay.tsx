@@ -175,7 +175,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     if (!portfolioData) return 0;
     
     return portfolioData.accounts.reduce((total, account) => {
-      const balance = parseFloat(account.available_balance.value);
+      const balance = parseFloat(account.available_balance?.value || '0');
       const currency = account.currency;
       
       if (currency === 'EUR') {
@@ -189,7 +189,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
   };
 
   const renderCoinCard = (account: any) => {
-    const balance = parseFloat(account.available_balance.value);
+    const balance = parseFloat(account.available_balance?.value || '0');
     const currency = account.currency;
     const price = realTimePrices[currency] || 0;
     const eurValue = currency === 'EUR' ? balance : balance * price;

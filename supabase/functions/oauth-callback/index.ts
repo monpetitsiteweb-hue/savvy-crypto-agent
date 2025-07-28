@@ -172,7 +172,7 @@ serve(async (req) => {
     console.log('Storing connection in database...');
     
     if (refreshExisting && connectionId) {
-      // Update existing connection
+      // Update existing connection and ensure it's active
       const { error: updateError } = await supabase
         .from('user_coinbase_connections')
         .update({
@@ -180,7 +180,8 @@ serve(async (req) => {
           refresh_token_encrypted: tokenData.refresh_token,
           coinbase_user_id: userData.data?.id,
           expires_at: expiresAt,
-          last_sync: new Date().toISOString()
+          last_sync: new Date().toISOString(),
+          is_active: true
         })
         .eq('id', connectionId)
         .eq('user_id', userId);
@@ -193,6 +194,8 @@ serve(async (req) => {
           headers: { Location: frontendUrl }
         });
       }
+
+      console.log('Successfully refreshed OAuth connection:', connectionId);
     } else {
       // First deactivate all existing connections for this user
       await supabase
