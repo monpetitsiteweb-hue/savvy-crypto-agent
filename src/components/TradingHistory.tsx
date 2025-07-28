@@ -766,7 +766,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         openPositions: currentlyOpenPositions, // Currently open positions
         totalInvested: lifetimeTotalInvested, // Cumulative lifetime investment
         currentPL: currentUnrealizedPL, // Unrealized P&L on open positions
-        totalPL: totalRealizedPL, // Realized P&L from closed positions
+        totalPL: currentUnrealizedPL + totalRealizedPL, // FIXED: Total P&L = Unrealized + Realized
         currentlyInvested // Currently tied up in open positions
       });
     } catch (error) {
@@ -895,8 +895,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-400">Realized P&L</span>
                 <div className="text-right">
-                  <div className={`text-lg font-bold ${stats.totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {formatEuro(stats.totalPL)}
+                  <div className={`text-lg font-bold ${(stats.totalPL - stats.currentPL) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {formatEuro(stats.totalPL - stats.currentPL)}
                   </div>
                   <div className="text-xs text-slate-500">Closed positions</div>
                 </div>
