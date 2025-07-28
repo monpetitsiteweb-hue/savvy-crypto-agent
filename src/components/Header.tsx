@@ -202,11 +202,11 @@ export const Header = () => {
           <div className="md:hidden">
             <Button
               variant="ghost"
-              size="sm"
+              size="lg"
               onClick={() => setShowMobileMenu(!showMobileMenu)}
-              className="text-slate-300 hover:text-white"
+              className="text-slate-300 hover:text-blue-600 p-3"
             >
-              {showMobileMenu ? <X className="w-10 h-10" /> : <Menu className="w-10 h-10" />}
+              {showMobileMenu ? <X className="w-12 h-12" /> : <Menu className="w-12 h-12" />}
             </Button>
           </div>
         </div>
