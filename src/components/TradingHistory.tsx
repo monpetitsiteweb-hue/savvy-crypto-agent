@@ -242,11 +242,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                 </Badge>
               </div>
               <div className="font-medium text-white mt-1">{trade.cryptocurrency}</div>
-              <div className="text-xs mt-1">
-                <Badge variant="outline" className={isOpen ? 'text-blue-400 border-blue-400' : 'text-slate-400 border-slate-400'}>
-                  {isOpen ? 'OPEN' : 'CLOSED'}
-                </Badge>
-              </div>
             </div>
             
             {/* Amount */}
@@ -307,6 +302,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             <div className="col-span-1 text-xs text-slate-400">
               {new Date(trade.executed_at).toLocaleDateString()}
               <div className="text-xs mt-1">{new Date(trade.executed_at).toLocaleTimeString()}</div>
+            </div>
+            
+            {/* Status */}
+            <div className="col-span-1 flex items-center justify-center">
+              <Badge variant="outline" className={isOpen ? 'text-blue-400 border-blue-400' : 'text-slate-400 border-slate-400'}>
+                {isOpen ? 'OPEN' : 'CLOSED'}
+              </Badge>
             </div>
             
             {/* Actions */}
@@ -411,7 +413,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           </div>
 
           {/* Additional Info Row */}
-          <div className="pt-2 border-t border-slate-600 grid grid-cols-2 gap-4 text-sm">
+          <div className="pt-2 border-t border-slate-600 grid grid-cols-3 gap-4 text-sm">
             <div>
               <span className="text-slate-400">Total Value: </span>
               <span className="text-white font-medium">€{trade.total_value.toFixed(2)}</span>
@@ -419,6 +421,12 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             <div>
               <span className="text-slate-400">Fees: </span>
               <span className="text-white font-medium">€{(trade.fees || 0).toFixed(2)}</span>
+            </div>
+            <div className="flex items-center">
+              <span className="text-slate-400 mr-2">Status: </span>
+              <Badge variant="outline" className={isOpen ? 'text-blue-400 border-blue-400' : 'text-slate-400 border-slate-400'}>
+                {isOpen ? 'OPEN' : 'CLOSED'}
+              </Badge>
             </div>
           </div>
         </div>
@@ -794,57 +802,69 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       {/* KPIs Summary */}
       <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Strategy KPIs Overview</h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <Target className="w-4 h-4 text-blue-400" />
-              <span className="text-sm text-slate-400">Opened Positions</span>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* POSITIONS BOX */}
+          <div className="bg-card p-4 rounded-lg border">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Target className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm text-slate-400">Opened Positions</span>
+                </div>
+                <div className="text-xl font-bold text-white">{stats.openPositions}</div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm text-slate-400">Total Positions</span>
+                </div>
+                <div className="text-xl font-bold text-white">{stats.totalTrades}</div>
+              </div>
             </div>
-            <p className="text-xl font-bold text-white">{stats.openPositions}</p>
           </div>
           
-          <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <Activity className="w-4 h-4 text-purple-400" />
-              <span className="text-sm text-slate-400">Total Positions</span>
+          {/* INVESTMENT BOX */}
+          <div className="bg-card p-4 rounded-lg border">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-orange-400" />
+                  <span className="text-sm text-slate-400">Currently Invested</span>
+                </div>
+                <div className="text-xl font-bold text-white">{formatEuro(stats.currentlyInvested)}</div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <PieChart className="w-4 h-4 text-orange-400" />
+                  <span className="text-sm text-slate-400">Total Invested</span>
+                </div>
+                <div className="text-xl font-bold text-white">{formatEuro(stats.totalInvested)}</div>
+              </div>
             </div>
-            <p className="text-xl font-bold text-white">{stats.totalTrades}</p>
           </div>
           
-          <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <DollarSign className="w-4 h-4 text-orange-400" />
-              <span className="text-sm text-slate-400">Currently Invested</span>
+          {/* P&L BOX */}
+          <div className="bg-card p-4 rounded-lg border">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className={`w-4 h-4 ${stats.currentPL >= 0 ? 'text-green-400' : 'text-red-400'}`} />
+                  <span className="text-sm text-slate-400">Current P&L</span>
+                </div>
+                <div className={`text-xl font-bold ${stats.currentPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {formatEuro(stats.currentPL)}
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <PieChart className={`w-4 h-4 ${stats.totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`} />
+                  <span className="text-sm text-slate-400">Total P&L</span>
+                </div>
+                <div className={`text-xl font-bold ${stats.totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {formatEuro(stats.totalPL)}
+                </div>
+              </div>
             </div>
-            <p className="text-xl font-bold text-white">{formatEuro(stats.currentlyInvested)}</p>
-          </div>
-          
-          <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <PieChart className="w-4 h-4 text-yellow-400" />
-              <span className="text-sm text-slate-400">Total Invested</span>
-            </div>
-            <p className="text-xl font-bold text-white">{formatEuro(stats.totalInvested)}</p>
-          </div>
-          
-          <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <TrendingUp className={`w-4 h-4 ${stats.currentPL >= 0 ? 'text-green-400' : 'text-red-400'}`} />
-              <span className="text-sm text-slate-400">Current P&L</span>
-            </div>
-            <p className={`text-xl font-bold ${stats.currentPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {formatEuro(stats.currentPL)}
-            </p>
-          </div>
-          
-          <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <PieChart className={`w-4 h-4 ${stats.totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`} />
-              <span className="text-sm text-slate-400">Total P&L</span>
-            </div>
-            <p className={`text-xl font-bold ${stats.totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {formatEuro(stats.totalPL)}
-            </p>
           </div>
         </div>
       </div>
