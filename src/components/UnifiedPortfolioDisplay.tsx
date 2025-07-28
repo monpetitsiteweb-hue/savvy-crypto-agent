@@ -217,63 +217,52 @@ export const UnifiedPortfolioDisplay = () => {
   return (
     <Card className={`${testMode ? 'border-orange-500/20' : 'border-blue-500/20'} bg-slate-800/50 border-slate-600`}>
       <CardHeader className="pb-3">
-        {/* DEBUG: Mobile Layout - FORCING to show on all devices */}
-        <div className="flex flex-col space-y-4 bg-red-500 border-4 border-yellow-400 p-2">
-          <div className="w-full bg-green-400 p-2 text-black">DEBUG: Mobile container active</div>
+        {/* Mobile Layout: Vertical stacking */}
+        <div className="flex flex-col space-y-3 md:hidden">
+          <CardTitle className={`flex items-center gap-2 ${testMode ? 'text-orange-400' : 'text-blue-400'}`}>
+            {testMode ? <TestTube className="h-5 w-5" /> : <DollarSign className="h-5 w-5" />}
+            {testMode ? 'Test Portfolio' : 'Live Portfolio'}
+            <Badge variant="secondary" className={`${testMode ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
+              {testMode ? 'Mock Data' : 'Live Data'}
+            </Badge>
+          </CardTitle>
           
-          {/* Portfolio Title */}
-          <div className="w-full bg-blue-400 p-2">
-            <CardTitle className={`flex flex-wrap items-center gap-2 ${testMode ? 'text-orange-400' : 'text-blue-400'} text-white`}>
-              {testMode ? <TestTube className="h-5 w-5" /> : <DollarSign className="h-5 w-5" />}
-              <span>{testMode ? 'Test Portfolio' : 'Live Portfolio'}</span>
-              <Badge variant="secondary" className={`${testMode ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
-                {testMode ? 'Mock Data' : 'Live Data'}
-              </Badge>
-            </CardTitle>
-          </div>
-          
-          {/* Dropdown Menu */}
+          {/* Connection Selector */}
           {!testMode && connections.length > 0 && (
-            <div className="w-full bg-purple-400 p-2">
-              <div className="text-black text-sm mb-1">DEBUG: Dropdown section</div>
-              <select
-                value={selectedConnectionId}
-                onChange={(e) => {
-                  setSelectedConnectionId(e.target.value);
-                  localStorage.setItem(`selectedConnection_${user?.id}`, e.target.value);
-                }}
-                className="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-white text-sm"
-              >
-                {connections.map((connection) => (
-                  <option key={connection.id} value={connection.id}>
-                    {connection.api_name_encrypted || 'Coinbase Account'}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={selectedConnectionId}
+              onChange={(e) => {
+                setSelectedConnectionId(e.target.value);
+                localStorage.setItem(`selectedConnection_${user?.id}`, e.target.value);
+              }}
+              className="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-white text-sm"
+            >
+              {connections.map((connection) => (
+                <option key={connection.id} value={connection.id}>
+                  {connection.api_name_encrypted || 'Coinbase Account'}
+                </option>
+              ))}
+            </select>
           )}
           
           {/* Refresh Button */}
-          <div className="w-full bg-orange-400 p-2 flex justify-center">
-            <div className="text-black text-sm mb-1">DEBUG: Button section</div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={testMode ? refreshFromDatabase : fetchProductionPortfolio}
-              disabled={isLoading || fetchingPortfolio || (!testMode && !selectedConnectionId)}
-              className={`${testMode ? "text-orange-400 hover:text-orange-300" : "text-blue-400 hover:text-blue-300"} px-6`}
-            >
-              {(isLoading || fetchingPortfolio) ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Refresh Portfolio
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={testMode ? refreshFromDatabase : fetchProductionPortfolio}
+            disabled={isLoading || fetchingPortfolio || (!testMode && !selectedConnectionId)}
+            className={`${testMode ? "text-orange-400 hover:text-orange-300" : "text-blue-400 hover:text-blue-300"} self-start`}
+          >
+            {(isLoading || fetchingPortfolio) ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Refresh Portfolio
+          </Button>
         </div>
 
-        {/* Desktop Layout: Keep horizontal */}
+        {/* Desktop Layout: Horizontal */}
         <div className="hidden md:flex items-center justify-between">
           <CardTitle className={`flex items-center gap-2 ${testMode ? 'text-orange-400' : 'text-blue-400'}`}>
             {testMode ? <TestTube className="h-5 w-5" /> : <DollarSign className="h-5 w-5" />}
