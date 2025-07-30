@@ -140,7 +140,11 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
               <Target className="h-4 w-4" />
               Total Trades
             </div>
-            <div className="text-2xl font-bold text-white">{metrics.totalTrades}</div>
+            {loading ? (
+              <div className="w-12 h-8 bg-slate-700 animate-pulse rounded"></div>
+            ) : (
+              <div className="text-2xl font-bold text-white">{metrics.totalTrades}</div>
+            )}
             <div className="text-xs text-slate-500">Executed trades</div>
           </div>
 
@@ -149,9 +153,13 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
               <TrendingUp className="h-4 w-4" />
               Win Rate
             </div>
-            <div className="text-2xl font-bold text-green-400">
-              {metrics.winRate.toFixed(1)}%
-            </div>
+            {loading ? (
+              <div className="w-16 h-8 bg-slate-700 animate-pulse rounded"></div>
+            ) : (
+              <div className="text-2xl font-bold text-green-400">
+                {metrics.winRate.toFixed(1)}%
+              </div>
+            )}
             <div className="text-xs text-slate-500">Success ratio</div>
           </div>
 
@@ -160,11 +168,15 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
               <DollarSign className="h-4 w-4" />
               Total P&L
             </div>
-            <div className={`text-2xl font-bold ${
-              metrics.totalProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'
-            }`}>
-              {formatEuro(metrics.totalProfitLoss)}
-            </div>
+            {loading ? (
+              <div className="w-20 h-8 bg-slate-700 animate-pulse rounded"></div>
+            ) : (
+              <div className={`text-2xl font-bold ${
+                metrics.totalProfitLoss >= 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                {formatEuro(metrics.totalProfitLoss)}
+              </div>
+            )}
             <div className="text-xs text-slate-500">Profit & Loss</div>
           </div>
 
@@ -173,9 +185,13 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
               <TrendingUp className="h-4 w-4" />
               Winning Trades
             </div>
-            <div className="text-xl font-semibold text-green-400">
-              {metrics.winningTrades}
-            </div>
+            {loading ? (
+              <div className="w-8 h-6 bg-slate-700 animate-pulse rounded"></div>
+            ) : (
+              <div className="text-xl font-semibold text-green-400">
+                {metrics.winningTrades}
+              </div>
+            )}
             <div className="text-xs text-slate-500">Profitable trades</div>
           </div>
 
@@ -184,9 +200,13 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
               <TrendingDown className="h-4 w-4" />
               Losing Trades
             </div>
-            <div className="text-xl font-semibold text-red-400">
-              {metrics.losingTrades}
-            </div>
+            {loading ? (
+              <div className="w-8 h-6 bg-slate-700 animate-pulse rounded"></div>
+            ) : (
+              <div className="text-xl font-semibold text-red-400">
+                {metrics.losingTrades}
+              </div>
+            )}
             <div className="text-xs text-slate-500">Unprofitable trades</div>
           </div>
 
@@ -195,9 +215,13 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
               <DollarSign className="h-4 w-4" />
               Total Fees
             </div>
-            <div className="text-xl font-semibold text-slate-300">
-              {formatEuro(metrics.totalFees)}
-            </div>
+            {loading ? (
+              <div className="w-16 h-6 bg-slate-700 animate-pulse rounded"></div>
+            ) : (
+              <div className="text-xl font-semibold text-slate-300">
+                {formatEuro(metrics.totalFees)}
+              </div>
+            )}
             <div className="text-xs text-slate-500">Trading costs</div>
           </div>
         </div>

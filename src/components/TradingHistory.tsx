@@ -769,9 +769,11 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         totalRealizedPL
       });
       
-      // CRITICAL FIX: Total Positions = positions ever opened, NOT total trade records
+      // CRITICAL FIX: Total Positions = Sum of open + closed positions
+      const totalPositions = currentlyOpenPositions + closedPositions;
+      
       setStats({ 
-        totalTrades: totalPositionsEverOpened, // This is TOTAL POSITIONS, not trade records
+        totalTrades: totalPositions, // This is TOTAL POSITIONS: open + closed
         totalVolume, 
         netProfitLoss: currentUnrealizedPL + totalRealizedPL, // Combined P&L
         openPositions: currentlyOpenPositions, // Currently open positions
@@ -850,14 +852,22 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-400">Open Positions</span>
                 <div className="text-right">
-                  <div className="text-lg font-bold text-white">{stats.openPositions}</div>
+                  {loading ? (
+                    <div className="w-8 h-6 bg-slate-700 animate-pulse rounded"></div>
+                  ) : (
+                    <div className="text-lg font-bold text-white">{stats.openPositions}</div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-400">Total Positions</span>
                 <div className="text-right">
-                  <div className="text-lg font-bold text-white">{stats.totalTrades}</div>
-                  <div className="text-xs text-slate-500">Ever opened</div>
+                  {loading ? (
+                    <div className="w-8 h-6 bg-slate-700 animate-pulse rounded"></div>
+                  ) : (
+                    <div className="text-lg font-bold text-white">{stats.totalTrades}</div>
+                  )}
+                  <div className="text-xs text-slate-500">Open + closed</div>
                 </div>
               </div>
             </div>
@@ -873,14 +883,22 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-400">Currently Invested</span>
                 <div className="text-right">
-                  <div className="text-lg font-bold text-white">{formatEuro(stats.currentlyInvested)}</div>
+                  {loading ? (
+                    <div className="w-16 h-6 bg-slate-700 animate-pulse rounded"></div>
+                  ) : (
+                    <div className="text-lg font-bold text-white">{formatEuro(stats.currentlyInvested)}</div>
+                  )}
                   <div className="text-xs text-slate-500">In open positions</div>
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-400">Total Invested</span>
                 <div className="text-right">
-                  <div className="text-lg font-bold text-white">{formatEuro(stats.totalInvested)}</div>
+                  {loading ? (
+                    <div className="w-16 h-6 bg-slate-700 animate-pulse rounded"></div>
+                  ) : (
+                    <div className="text-lg font-bold text-white">{formatEuro(stats.totalInvested)}</div>
+                  )}
                   <div className="text-xs text-slate-500">Lifetime</div>
                 </div>
               </div>
@@ -897,18 +915,26 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-400">Unrealized P&L</span>
                 <div className="text-right">
-                  <div className={`text-lg font-bold ${stats.currentPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {formatEuro(stats.currentPL)}
-                  </div>
+                  {loading ? (
+                    <div className="w-16 h-6 bg-slate-700 animate-pulse rounded"></div>
+                  ) : (
+                    <div className={`text-lg font-bold ${stats.currentPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {formatEuro(stats.currentPL)}
+                    </div>
+                  )}
                   <div className="text-xs text-slate-500">Open positions</div>
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-slate-400">Realized P&L</span>
                 <div className="text-right">
-                  <div className={`text-lg font-bold ${(stats.totalPL - stats.currentPL) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {formatEuro(stats.totalPL - stats.currentPL)}
-                  </div>
+                  {loading ? (
+                    <div className="w-16 h-6 bg-slate-700 animate-pulse rounded"></div>
+                  ) : (
+                    <div className={`text-lg font-bold ${(stats.totalPL - stats.currentPL) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {formatEuro(stats.totalPL - stats.currentPL)}
+                    </div>
+                  )}
                   <div className="text-xs text-slate-500">Closed positions</div>
                 </div>
               </div>
