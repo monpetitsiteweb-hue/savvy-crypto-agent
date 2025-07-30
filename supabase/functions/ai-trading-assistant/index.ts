@@ -94,6 +94,28 @@ CONTEXT NOTES:
 `;
       }
 
+      // ALWAYS fetch current strategy from database for truth-bound responses
+      let actualStrategy = null;
+      let actualConfig = null;
+      
+      if (strategyId) {
+        console.log(`🔍 Fetching current strategy ${strategyId} from database for truth-bound response`);
+        const { data: strategy, error: strategyError } = await supabaseClient
+          .from('trading_strategies')
+          .select('*')
+          .eq('id', strategyId)
+          .eq('user_id', userId)
+          .single();
+          
+        if (strategy && !strategyError) {
+          actualStrategy = strategy;
+          actualConfig = strategy.configuration;
+          console.log(`✅ Fetched real strategy config: AI enabled=${actualConfig?.is_ai_enabled}, Risk=${actualConfig?.riskProfile}, Coins=${actualConfig?.selectedCoins?.length || 0}`);
+        } else {
+          console.log(`❌ Could not fetch strategy ${strategyId}:`, strategyError);
+        }
+      }
+
       // Get current strategy context and recent trading activity
       let strategyAnalysis = '';
       let recentTradingContext = '';
@@ -175,22 +197,31 @@ ${JSON.stringify(structuredIndicators, null, 2)}
         }
       }
       
-      if (strategyId && currentConfig) {
-        // Extract strategy details from configuration
-        const strategyType = currentConfig.strategyType || 'balanced';
-        const riskLevel = currentConfig.riskLevel || currentConfig.riskProfile || 'medium';
-        const stopLoss = currentConfig.stopLoss || currentConfig.stop_loss || 'not set';
-        const takeProfit = currentConfig.takeProfit || currentConfig.take_profit || 'not set';
-        const maxPositionSize = currentConfig.maxPositionSize || currentConfig.max_position_size || 'not set';
-        const indicators = currentConfig.indicators || currentConfig.technical_indicators || [];
-        const entryRules = currentConfig.entryRules || currentConfig.entry_conditions;
-        const exitRules = currentConfig.exitRules || currentConfig.exit_conditions;
+      if (strategyId && actualConfig) {
+        // Use REAL database configuration for truth-bound responses
+        const strategyType = actualConfig.strategyType || 'balanced';
+        const riskLevel = actualConfig.riskLevel || actualConfig.riskProfile || 'medium';
+        const stopLoss = actualConfig.stopLoss || actualConfig.stop_loss || 'not set';
+        const takeProfit = actualConfig.takeProfit || actualConfig.take_profit || 'not set';
+        const maxPositionSize = actualConfig.maxPositionSize || actualConfig.max_position_size || 'not set';
+        const indicators = actualConfig.indicators || actualConfig.technical_indicators || [];
+        const entryRules = actualConfig.entryRules || actualConfig.entry_conditions;
+        const exitRules = actualConfig.exitRules || actualConfig.exit_conditions;
+        const isAIEnabled = actualConfig.is_ai_enabled || false;
+        const aiOverrideEnabled = actualConfig.ai_override_enabled || false;
+        const selectedCoins = actualConfig.selectedCoins || [];
+        const trailingBuyPercentage = actualConfig.trailingBuyPercentage || 'not set';
         
         strategyAnalysis = `
-CURRENT STRATEGY ANALYSIS:
+CURRENT STRATEGY ANALYSIS (REAL DATABASE STATE):
 - Strategy ID: ${strategyId}
+- Strategy Name: ${actualStrategy.strategy_name}
 - Strategy Type: ${strategyType}
 - Risk Profile: ${riskLevel}
+- AI Enabled: ${isAIEnabled ? 'YES' : 'NO'}
+- AI Override Enabled: ${aiOverrideEnabled ? 'YES' : 'NO'}
+- Selected Coins: ${Array.isArray(selectedCoins) ? selectedCoins.join(', ') : 'All coins'}
+- Trailing Buy %: ${trailingBuyPercentage}${typeof trailingBuyPercentage === 'number' ? '%' : ''}
 - Stop Loss: ${stopLoss}${typeof stopLoss === 'number' ? '%' : ''}
 - Take Profit: ${takeProfit}${typeof takeProfit === 'number' ? '%' : ''}
 - Max Position Size: ${maxPositionSize}
@@ -198,7 +229,13 @@ CURRENT STRATEGY ANALYSIS:
 - Entry Rules: ${entryRules || 'Market-based entry conditions'}
 - Exit Rules: ${exitRules || 'Stop-loss and take-profit based exits'}
 - Test Mode: ${testMode}
-- Full Configuration: ${JSON.stringify(currentConfig, null, 2)}
+- Active in Test Mode: ${actualStrategy.is_active_test ? 'YES' : 'NO'}
+- Active in Live Mode: ${actualStrategy.is_active_live ? 'YES' : 'NO'}
+
+CRITICAL: When answering user questions about current settings, ALWAYS reference these actual database values above.
+When user asks "is AI enabled?", the answer is: ${isAIEnabled ? 'YES' : 'NO'}
+When user asks "what coins are allowed?", the answer is: ${Array.isArray(selectedCoins) ? selectedCoins.join(', ') : 'All coins available'}
+When user asks about risk level, the answer is: ${riskLevel}
 `;
 
         // Get recent trades for context if available
@@ -410,48 +447,56 @@ Remember: You're Alex, an experienced trader having a friendly chat. No formal l
         if (Object.keys(configUpdates).length > 0 && strategyId) {
           console.log('🔧 Applying extracted config updates:', configUpdates);
           
-          const { data: updatedStrategy, error: updateError } = await supabaseClient
-            .from('trading_strategies')
-            .update({
-              configuration: { ...currentConfig, ...configUpdates },
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', strategyId)
-            .eq('user_id', userId)
-            .select()
-            .single();
-
-          if (updateError) {
-            console.error('Error updating strategy:', updateError);
+          if (!actualStrategy) {
+            console.error('❌ No strategy found to update');
             finalResponse = { 
-              message: `❌ Configuration update failed: ${updateError.message}. Please try again or check your permissions.`,
+              message: `❌ Could not apply changes: Strategy not found.`,
               configUpdates: {}
             };
           } else {
-            // Verify changes were applied by checking the returned data
-            console.log('✅ Strategy configuration updated successfully');
-            console.log('🔍 Updated configuration:', updatedStrategy.configuration);
-            
-            // Verify that the changes were actually applied
-            const verificationErrors = [];
-            for (const [key, value] of Object.entries(configUpdates)) {
-              if (updatedStrategy.configuration[key] !== value) {
-                verificationErrors.push(`${key}: expected ${value}, got ${updatedStrategy.configuration[key]}`);
-              }
-            }
-            
-            if (verificationErrors.length > 0) {
-              console.error('⚠️ Configuration verification failed:', verificationErrors);
+            const { data: updatedStrategy, error: updateError } = await supabaseClient
+              .from('trading_strategies')
+              .update({
+                configuration: { ...actualConfig, ...configUpdates },
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', strategyId)
+              .eq('user_id', userId)
+              .select()
+              .single();
+
+            if (updateError) {
+              console.error('Error updating strategy:', updateError);
               finalResponse = { 
-                message: `⚠️ Configuration update partially failed. Some changes may not have been applied: ${verificationErrors.join(', ')}`,
+                message: `❌ Configuration update failed: ${updateError.message}. Please try again or check your permissions.`,
                 configUpdates: {}
               };
             } else {
-              finalResponse = { 
-                message: aiResponse,
-                configUpdates,
-                verifiedConfig: updatedStrategy.configuration
-              };
+              // Verify changes were applied by checking the returned data
+              console.log('✅ Strategy configuration updated successfully');
+              console.log('🔍 Updated configuration:', updatedStrategy.configuration);
+              
+              // Verify that the changes were actually applied
+              const verificationErrors = [];
+              for (const [key, value] of Object.entries(configUpdates)) {
+                if (updatedStrategy.configuration[key] !== value) {
+                  verificationErrors.push(`${key}: expected ${value}, got ${updatedStrategy.configuration[key]}`);
+                }
+              }
+              
+              if (verificationErrors.length > 0) {
+                console.error('⚠️ Configuration verification failed:', verificationErrors);
+                finalResponse = { 
+                  message: `⚠️ Configuration update partially failed. Some changes may not have been applied: ${verificationErrors.join(', ')}`,
+                  configUpdates: {}
+                };
+              } else {
+                finalResponse = { 
+                  message: aiResponse,
+                  configUpdates,
+                  verifiedConfig: updatedStrategy.configuration
+                };
+              }
             }
           }
         } else {
