@@ -65,7 +65,8 @@ const SEMANTIC_FIELD_MAPPING = {
   'Auto Coin Selection': {
     field: 'enableAutoCoinSelection',
     type: 'boolean',
-    examples: ["Auto-select best performing coins", "Let AI pick cryptos for me", "Enable automatic coin selection"]
+    enableKeywords: ["auto-select", "auto select", "enable automatic", "let ai pick"],
+    disableKeywords: ["disable auto", "manual selection", "no auto"]
   },
   'Max Active Coins': {
     field: 'maxActiveCoins',
@@ -122,7 +123,8 @@ const SEMANTIC_FIELD_MAPPING = {
   'Use Trailing Stop Only': {
     field: 'useTrailingStopOnly',
     type: 'boolean',
-    examples: ["Only use trailing stops", "Disable fixed stop loss"]
+    enableKeywords: ["only trailing", "use trailing only", "disable fixed stop"],
+    disableKeywords: ["enable fixed stop", "use both stops", "no trailing only"]
   },
   
   // Position Management
@@ -151,29 +153,34 @@ const SEMANTIC_FIELD_MAPPING = {
   'Trade Notifications': {
     field: 'notifyOnTrade',
     type: 'boolean',
-    examples: ["Let me know when a trade happens", "Notify me on every execution"]
+    enableKeywords: ["notify on trade", "tell me when", "alert on execution"],
+    disableKeywords: ["no trade notifications", "disable trade alerts", "quiet trading"]
   },
   'Error Notifications': {
     field: 'notifyOnError',
     type: 'boolean',
-    examples: ["Tell me if something fails", "Warn me if a trade can't go through"]
+    enableKeywords: ["notify on error", "alert on failure", "tell me if fails"],
+    disableKeywords: ["no error notifications", "disable error alerts", "quiet errors"]
   },
   'Target Notifications': {
     field: 'notifyOnTargets',
     type: 'boolean',
-    examples: ["Notify me when I hit my profit goal", "Let me know if a stop-loss triggers"]
+    enableKeywords: ["notify on targets", "alert on profit", "tell me when stop"],
+    disableKeywords: ["no target notifications", "disable target alerts", "quiet targets"]
   },
   
   // Advanced Features
   'Enable Shorting': {
     field: 'enableShorting',
     type: 'boolean',
-    examples: ["Allow shorting", "Enable betting against price"]
+    enableKeywords: ["allow shorting", "enable shorting", "bet against price"],
+    disableKeywords: ["disable shorting", "no shorting", "long only"]
   },
   'Backtesting Mode': {
     field: 'backtestingMode',
     type: 'boolean',
-    examples: ["Test this on historical charts", "Backtest it first"]
+    enableKeywords: ["enable backtest", "test historical", "backtest mode"],
+    disableKeywords: ["disable backtest", "no backtest", "live only"]
   },
   'Trailing Buy Percentage': {
     field: 'trailingBuyPercentage',
@@ -322,21 +329,19 @@ const mapUserIntentToFields = (userMessage: string, currentConfig: any = {}): { 
         }
       }
     }
-        else if (config.type === 'number') {
-          // Extract numbers from message
-          const numbers = userMessage.match(/\d+(?:\.\d+)?/g);
-          if (numbers && numbers.length > 0) {
-            setNestedField(changes, config.field, parseFloat(numbers[0]));
-          }
-        }
-        else if (config.type === 'select' && config.options) {
-          // Find matching option
-          for (const option of config.options) {
-            if (lowerMessage.includes(option)) {
-              setNestedField(changes, config.field, option);
-              break;
-            }
-          }
+    else if (config.type === 'number') {
+      // Extract numbers from message
+      const numbers = userMessage.match(/\d+(?:\.\d+)?/g);
+      if (numbers && numbers.length > 0) {
+        setNestedField(changes, config.field, parseFloat(numbers[0]));
+      }
+    }
+    else if (config.type === 'select' && config.options) {
+      // Find matching option
+      for (const option of config.options) {
+        if (lowerMessage.includes(option)) {
+          setNestedField(changes, config.field, option);
+          break;
         }
       }
     }
