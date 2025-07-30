@@ -417,18 +417,39 @@ serve(async (req) => {
       welcomeMessage = WelcomeMessageGenerator.generate(actualStrategy, testMode);
     }
 
-    // Detect configuration changes
-    const configUpdates = mapUserIntentToFields(message, currentConfig);
+    // Check for explicit configuration commands first
+    const lowerMessage = message.toLowerCase();
+    const isExplicitConfigCommand = (
+      (lowerMessage.includes('enable ai') || lowerMessage.includes('turn on ai') || lowerMessage.includes('activate ai')) ||
+      (lowerMessage.includes('disable ai') || lowerMessage.includes('turn off ai') || lowerMessage.includes('deactivate ai')) ||
+      (lowerMessage.includes('add') && extractCoinsFromMessage(message).length > 0) ||
+      (lowerMessage.includes('remove') && extractCoinsFromMessage(message).length > 0) ||
+      (lowerMessage.includes('only') && extractCoinsFromMessage(message).length > 0)
+    );
+
+    // Handle confirmation responses
+    const isConfirmation = (
+      lowerMessage.includes('yes') || 
+      lowerMessage.includes('please') || 
+      lowerMessage.includes('confirm') ||
+      lowerMessage.includes('go ahead') ||
+      lowerMessage.includes('do it')
+    );
+
+    // Only detect configuration changes for explicit commands
+    const configUpdates = isExplicitConfigCommand ? mapUserIntentToFields(message, currentConfig) : {};
     const hasConfigUpdates = Object.keys(configUpdates).length > 0;
 
-    // Check if this is a query about current state (not a configuration change)
-    const lowerMessage = message.toLowerCase();
+    // Check if this is a query about current state
     const isStateQuery = (
       lowerMessage.includes('ai enabled') || 
       lowerMessage.includes('is ai') ||
       lowerMessage.includes('ai status') ||
       lowerMessage.includes('current settings') ||
-      lowerMessage.includes('what coins')
+      lowerMessage.includes('what coins') ||
+      lowerMessage.includes('minimum') ||
+      lowerMessage.includes('trade size') ||
+      lowerMessage.includes('amount')
     ) && !hasConfigUpdates;
 
     // Generate response based on type of request
@@ -516,10 +537,14 @@ Selected Coins: ${JSON.stringify(currentConfig.selectedCoins || [])}
         contextInfo = `No active strategy found for ${testMode ? 'test' : 'live'} mode.`;
       }
 
-      const systemPrompt = `You are a cryptocurrency trading assistant. Be direct and concise.
+      const systemPrompt = `You are a cryptocurrency trading assistant. Help users with their trading strategy questions and concerns.
 
 Current Context:
 ${contextInfo}
+
+IMPORTANT: When users ask about trade sizes, minimum amounts, or configuration settings, explain what controls those values and offer to help adjust them. Don't assume everything is a coin selection change.
+
+If users mention problems like "tiny trades" or "0.00 amounts", address those concerns directly and explain which settings control trade sizing (like perTradeAllocation, maxPositionSize, etc.).
 
 When reporting current state, use the EXACT values shown above. Do not guess or assume.`;
 
