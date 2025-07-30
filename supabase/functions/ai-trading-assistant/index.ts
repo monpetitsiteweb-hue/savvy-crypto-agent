@@ -548,23 +548,40 @@ ${recentTrades.slice(0, 5).map(trade =>
 
     // Generate appropriate welcome message based on strategy context
     let welcomeMessage = '';
+    
+    console.log('🎯 AI_ASSISTANT: WELCOME MESSAGE GENERATION DEBUG:');
+    console.log('🎯 AI_ASSISTANT: actualStrategy exists:', !!actualStrategy);
+    console.log('🎯 AI_ASSISTANT: actualConfig exists:', !!actualConfig);
+    
     if (actualStrategy && actualConfig) {
       const currentMode = testMode ? 'Test Mode' : 'Live Mode';
       const isActiveInMode = testMode ? actualStrategy.is_active_test : actualStrategy.is_active_live;
       const isAIEnabled = actualConfig.aiIntelligenceConfig?.enableAIOverride || false;
       
+      console.log('🎯 AI_ASSISTANT: Strategy found:', actualStrategy.strategy_name);
+      console.log('🎯 AI_ASSISTANT: Current mode:', currentMode);
+      console.log('🎯 AI_ASSISTANT: is_active_test:', actualStrategy.is_active_test);
+      console.log('🎯 AI_ASSISTANT: is_active_live:', actualStrategy.is_active_live);
+      console.log('🎯 AI_ASSISTANT: isActiveInMode:', isActiveInMode);
+      
       if (isActiveInMode) {
         if (testMode) {
           welcomeMessage = `Hello! You're in ${currentMode} with an active strategy "${actualStrategy.strategy_name}". I'll help monitor and optimize your simulated trades.`;
+          console.log('🎯 AI_ASSISTANT: Generated test mode welcome message');
         } else {
           welcomeMessage = `Hello! You're running a Live trading strategy "${actualStrategy.strategy_name}". I'm monitoring the markets and executing trades on your behalf.`;
+          console.log('🎯 AI_ASSISTANT: Generated live mode welcome message');
         }
       } else {
         welcomeMessage = `Hello! You have a strategy "${actualStrategy.strategy_name}" but it's not currently active in ${currentMode}. Activate it to get started with trading.`;
+        console.log('🎯 AI_ASSISTANT: Generated inactive strategy welcome message');
       }
     } else {
       welcomeMessage = `Hello! I'm currently on standby. Activate a strategy in Test or Live Mode to get started.`;
+      console.log('🎯 AI_ASSISTANT: Generated no strategy welcome message (THIS IS THE PROBLEM!)');
     }
+    
+    console.log('🎯 AI_ASSISTANT: FINAL WELCOME MESSAGE:', welcomeMessage);
 
     // Enhanced system prompt with truth-bound strategy context
     const systemPrompt = `You are Alex, a seasoned cryptocurrency trader and AI assistant. You have access to REAL LIVE strategy configuration data that you must use to answer questions truthfully.
@@ -692,25 +709,38 @@ Remember: Always be truthful about current settings by referencing the actual da
             console.log('✅ AI_ASSISTANT: Configuration updated and verified successfully');
             const verifiedConfig = verifyStrategy.configuration || {};
             
-            // Verify specific fields were actually updated
+            // Verify specific fields were actually updated using DIRECT field access
             let verificationMessage = '';
             let allUpdatesApplied = true;
+            
+            console.log('🔬 AI_ASSISTANT: DETAILED VERIFICATION STARTING');
+            console.log('🔬 AI_ASSISTANT: Full verified config:', JSON.stringify(verifiedConfig, null, 2));
+            console.log('🔬 AI_ASSISTANT: Expected updates:', JSON.stringify(configUpdates, null, 2));
             
             for (const [field, expectedValue] of Object.entries(configUpdates)) {
               const actualValue = getNestedField(verifiedConfig, field);
               
-              // Compare individual field values directly, not stringified objects
+              // Use strict equality check for exact matches
               const isMatch = actualValue === expectedValue;
               
-              console.log(`🔍 AI_ASSISTANT: Verifying ${field}: expected ${expectedValue}, got ${actualValue}`);
+              console.log(`🔍 AI_ASSISTANT: Field verification for "${field}":`);
+              console.log(`   Expected: ${expectedValue} (type: ${typeof expectedValue})`);
+              console.log(`   Actual: ${actualValue} (type: ${typeof actualValue})`);
+              console.log(`   Match: ${isMatch}`);
               
               if (isMatch) {
-                verificationMessage += `✅ ${field}: ${expectedValue}\n`;
+                verificationMessage += `✅ ${field}: Updated to ${expectedValue}\n`;
+                console.log(`✅ AI_ASSISTANT: Field "${field}" verified successfully`);
               } else {
                 allUpdatesApplied = false;
                 verificationMessage += `❌ ${field}: Expected ${expectedValue}, got ${actualValue}\n`;
+                console.log(`❌ AI_ASSISTANT: Field "${field}" verification FAILED`);
               }
             }
+            
+            console.log('🔬 AI_ASSISTANT: VERIFICATION COMPLETE');
+            console.log('🔬 AI_ASSISTANT: All updates applied?', allUpdatesApplied);
+            console.log('🔬 AI_ASSISTANT: Verification message:', verificationMessage);
             
             // Update AI response based on verification results
             let finalMessage = aiResponse;
