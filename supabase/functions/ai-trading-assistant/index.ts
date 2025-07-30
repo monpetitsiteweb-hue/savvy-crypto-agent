@@ -342,8 +342,55 @@ serve(async (req) => {
     let recentTrades = null;
     let whaleAlerts = null;
 
-    if (strategyId) {
-      console.log('🔍 AI_ASSISTANT: Fetching strategy data for:', strategyId);
+    console.log('🔍 AI_ASSISTANT: Starting strategy resolution...');
+    console.log('🔍 AI_ASSISTANT: Received strategyId:', strategyId);
+    console.log('🔍 AI_ASSISTANT: Received userId:', userId);
+    console.log('🔍 AI_ASSISTANT: Received testMode:', testMode);
+
+    // CRITICAL: If no strategyId is provided, try to find the active strategy
+    if (!strategyId) {
+      console.log('🚨 AI_ASSISTANT: No strategyId provided! Attempting to find active strategy...');
+      
+      const activeField = testMode ? 'is_active_test' : 'is_active_live';
+      console.log('🔍 AI_ASSISTANT: Looking for active strategy using field:', activeField);
+      
+      const { data: activeStrategies, error: activeError } = await supabaseClient
+        .from('trading_strategies')
+        .select('*')
+        .eq('user_id', userId)
+        .eq(activeField, true)
+        .order('created_at', { ascending: false })
+        .limit(1);
+        
+      console.log('🔍 AI_ASSISTANT: Active strategy query result:', { activeStrategies, activeError });
+      
+      if (activeError) {
+        console.error('❌ AI_ASSISTANT: Error finding active strategy:', activeError);
+      } else if (activeStrategies && activeStrategies.length > 0) {
+        actualStrategy = activeStrategies[0];
+        actualConfig = actualStrategy.configuration;
+        console.log('✅ AI_ASSISTANT: Found active strategy:', actualStrategy.id, actualStrategy.strategy_name);
+      } else {
+        console.log('⚠️ AI_ASSISTANT: No active strategy found for mode:', testMode ? 'test' : 'live');
+        
+        // Also check ALL strategies to see what's available
+        const { data: allStrategies, error: allError } = await supabaseClient
+          .from('trading_strategies')
+          .select('*')
+          .eq('user_id', userId);
+          
+        console.log('📋 AI_ASSISTANT: All user strategies:', allStrategies);
+        if (allStrategies && allStrategies.length > 0) {
+          console.log('📋 AI_ASSISTANT: Available strategies:');
+          allStrategies.forEach((strategy, index) => {
+            console.log(`  ${index + 1}. ${strategy.strategy_name} (${strategy.id}):`);
+            console.log(`     - is_active_test: ${strategy.is_active_test}`);
+            console.log(`     - is_active_live: ${strategy.is_active_live}`);
+          });
+        }
+      }
+    } else {
+      console.log('🔍 AI_ASSISTANT: Fetching strategy data for provided strategyId:', strategyId);
       
       // Fetch strategy configuration
       const { data: strategy, error: strategyError } = await supabaseClient
@@ -358,15 +405,18 @@ serve(async (req) => {
       } else {
         actualStrategy = strategy;
         actualConfig = strategy?.configuration;
-        console.log('✅ AI_ASSISTANT: Strategy fetched successfully');
+        console.log('✅ AI_ASSISTANT: Strategy fetched successfully:', actualStrategy?.strategy_name);
       }
+    }
 
+    // Only proceed with trades and whale alerts if we have a strategy
+    if (actualStrategy) {
       // Fetch recent trades for context
       const { data: trades, error: tradesError } = await supabaseClient
         .from('mock_trades')
         .select('*')
         .eq('user_id', userId)
-        .eq('strategy_id', strategyId)
+        .eq('strategy_id', actualStrategy.id)
         .order('executed_at', { ascending: false })
         .limit(10);
 
@@ -387,6 +437,8 @@ serve(async (req) => {
         whaleAlerts = whales;
         console.log('🐋 AI_ASSISTANT: Whale alerts fetched:', whales.length);
       }
+    } else {
+      console.log('⚠️ AI_ASSISTANT: No strategy available - skipping trades and whale alerts');
     }
 
     // Prepare conversation context
@@ -448,7 +500,7 @@ ${indicatorEntries}
     let strategyAnalysis = '';
     let recentTradingContext = '';
     
-    if (strategyId && actualConfig) {
+    if (actualStrategy && actualConfig) {
       // Use REAL database configuration for truth-bound responses
       const strategyType = actualConfig.strategyType || 'balanced';
       const riskLevel = actualConfig.riskLevel || actualConfig.riskProfile || 'medium';
@@ -461,7 +513,7 @@ ${indicatorEntries}
       
       strategyAnalysis = `
 CURRENT STRATEGY ANALYSIS (REAL DATABASE STATE):
-- Strategy ID: ${strategyId}
+- Strategy ID: ${actualStrategy.id}
 - Strategy Name: ${actualStrategy.strategy_name}
 - Strategy Type: ${strategyType}
 - Risk Profile: ${riskLevel}
@@ -556,7 +608,7 @@ Remember: Always be truthful about current settings by referencing the actual da
     const configUpdates: any = mapUserIntentToFields(message);
     
     // Apply configuration updates if any were detected
-    if (Object.keys(configUpdates).length > 0 && strategyId) {
+    if (Object.keys(configUpdates).length > 0 && actualStrategy) {
       console.log('🔧 AI_ASSISTANT: Applying semantic config updates:', configUpdates);
       
       if (!actualStrategy) {
@@ -584,7 +636,7 @@ Remember: Always be truthful about current settings by referencing the actual da
             configuration: updatedConfig,
             updated_at: new Date().toISOString()
           })
-          .eq('id', strategyId)
+          .eq('id', actualStrategy.id)
           .eq('user_id', userId)
           .select()
           .single();
@@ -600,7 +652,7 @@ Remember: Always be truthful about current settings by referencing the actual da
           const { data: verifyStrategy, error: verifyError } = await supabaseClient
             .from('trading_strategies')
             .select('*')
-            .eq('id', strategyId)
+            .eq('id', actualStrategy.id)
             .eq('user_id', userId)
             .single();
 
