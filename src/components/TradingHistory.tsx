@@ -769,17 +769,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         totalRealizedPL
       });
       
-      // CRITICAL FIX: Total Positions = Sum of open + closed positions
-      const totalPositions = currentlyOpenPositions + closedPositions;
+      // CRITICAL FIX: Use actual arrays for accurate counting
+      const pastPositionsData = getPastPositions();
+      const totalPositions = openPositionsData.length + pastPositionsData.length;
       
       setStats({ 
-        totalTrades: totalPositions, // This is TOTAL POSITIONS: open + closed
+        totalTrades: totalPositions, // FIXED: Total positions = open positions + past positions
         totalVolume, 
         netProfitLoss: currentUnrealizedPL + totalRealizedPL, // Combined P&L
         openPositions: currentlyOpenPositions, // Currently open positions
         totalInvested: lifetimeTotalInvested, // Cumulative lifetime investment
-        currentPL: currentUnrealizedPL, // Unrealized P&L on open positions
-        totalPL: currentUnrealizedPL + totalRealizedPL, // FIXED: Total P&L = Unrealized + Realized
+        currentPL: currentUnrealizedPL, // FIXED: This should match the sum of individual open position P&L
+        totalPL: currentUnrealizedPL + totalRealizedPL, // Total P&L = Unrealized + Realized
         currentlyInvested // Currently tied up in open positions
       });
     } catch (error) {
