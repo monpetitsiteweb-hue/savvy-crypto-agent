@@ -479,6 +479,7 @@ Remember: You're Alex, an experienced trader having a friendly chat. No formal l
               configUpdates: {}
             };
           } else {
+            // First, attempt the update
             const { data: updatedStrategy, error: updateError } = await supabaseClient
               .from('trading_strategies')
               .update({
@@ -491,41 +492,104 @@ Remember: You're Alex, an experienced trader having a friendly chat. No formal l
               .single();
 
             if (updateError) {
-              console.error('Error updating strategy:', updateError);
+              console.error('❌ Database update failed:', updateError);
               finalResponse = { 
                 message: `❌ Configuration update failed: ${updateError.message}. Please try again or check your permissions.`,
                 configUpdates: {}
               };
             } else {
-              // Verify changes were applied by checking the returned data
-              console.log('✅ Strategy configuration updated successfully');
-              console.log('🔍 Updated configuration:', updatedStrategy.configuration);
+              console.log('📝 Database update completed, now verifying...');
               
-              // Verify that the changes were actually applied
-              const verificationErrors = [];
-              for (const [key, value] of Object.entries(configUpdates)) {
-                if (updatedStrategy.configuration[key] !== value) {
-                  verificationErrors.push(`${key}: expected ${value}, got ${updatedStrategy.configuration[key]}`);
-                }
-              }
-              
-              if (verificationErrors.length > 0) {
-                console.error('⚠️ Configuration verification failed:', verificationErrors);
+              // CRITICAL: Re-fetch strategy from database to verify changes
+              const { data: verificationStrategy, error: fetchError } = await supabaseClient
+                .from('trading_strategies')
+                .select('*')
+                .eq('id', strategyId)
+                .eq('user_id', userId)
+                .single();
+
+              if (fetchError || !verificationStrategy) {
+                console.error('❌ Failed to re-fetch strategy for verification:', fetchError);
                 finalResponse = { 
-                  message: `⚠️ Configuration update partially failed. Some changes may not have been applied: ${verificationErrors.join(', ')}`,
+                  message: `❌ Could not verify changes were applied. Please check your strategy configuration.`,
                   configUpdates: {}
                 };
               } else {
-                finalResponse = { 
-                  message: aiResponse,
-                  configUpdates,
-                  verifiedConfig: updatedStrategy.configuration
-                };
+                const currentConfig = verificationStrategy.configuration || {};
+                console.log('🔍 Current config after update:', currentConfig);
+                console.log('🎯 Expected updates:', configUpdates);
+                
+                // Verify that each expected change was actually applied
+                const verificationErrors = [];
+                const verificationSuccess = [];
+                
+                for (const [key, expectedValue] of Object.entries(configUpdates)) {
+                  const actualValue = currentConfig[key];
+                  console.log(`🔍 Checking ${key}: expected=${expectedValue}, actual=${actualValue}`);
+                  
+                  if (actualValue !== expectedValue) {
+                    verificationErrors.push(`${key}: expected ${expectedValue}, got ${actualValue}`);
+                  } else {
+                    verificationSuccess.push(`${key}: successfully set to ${actualValue}`);
+                  }
+                }
+                
+                console.log('✅ Verification successes:', verificationSuccess);
+                console.log('❌ Verification errors:', verificationErrors);
+                
+                if (verificationErrors.length > 0) {
+                  // Changes were NOT applied successfully
+                  finalResponse = { 
+                    message: `❌ Configuration changes failed to apply:\n${verificationErrors.join('\n')}\n\nThe strategy configuration was not updated as requested.`,
+                    configUpdates: {},
+                    verificationErrors
+                  };
+                } else {
+                  // ALL changes were applied successfully
+                  let successMessage = '';
+                  
+                  // Create specific success messages based on what was changed
+                  if (configUpdates.is_ai_enabled === false) {
+                    successMessage += '✅ AI has been disabled.\n';
+                  } else if (configUpdates.is_ai_enabled === true) {
+                    successMessage += '✅ AI has been enabled.\n';
+                  }
+                  
+                  if (configUpdates.ai_override_enabled === false) {
+                    successMessage += '✅ AI override has been disabled.\n';
+                  } else if (configUpdates.ai_override_enabled === true) {
+                    successMessage += '✅ AI override has been enabled.\n';
+                  }
+                  
+                  if (configUpdates.riskLevel || configUpdates.riskProfile) {
+                    successMessage += `✅ Risk profile has been set to ${configUpdates.riskLevel || configUpdates.riskProfile}.\n`;
+                  }
+                  
+                  if (configUpdates.selectedCoins) {
+                    successMessage += `✅ Allowed coins have been set to: ${configUpdates.selectedCoins.join(', ')}.\n`;
+                  }
+                  
+                  if (configUpdates.trailingBuyPercentage) {
+                    successMessage += `✅ Trailing buy percentage has been set to ${configUpdates.trailingBuyPercentage}%.\n`;
+                  }
+                  
+                  // If no specific messages, use generic success
+                  if (!successMessage) {
+                    successMessage = '✅ Configuration has been successfully updated.';
+                  }
+                  
+                  finalResponse = { 
+                    message: successMessage.trim(),
+                    configUpdates,
+                    verifiedConfig: currentConfig,
+                    verificationSuccess
+                  };
+                }
               }
             }
           }
         } else {
-          // No configuration updates, just return the message
+          // No configuration updates, just return the AI message
           finalResponse = { 
             message: aiResponse,
             configUpdates: {}
