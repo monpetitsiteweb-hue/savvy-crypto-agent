@@ -13,13 +13,14 @@ const corsHeaders = {
 
 const supabaseClient = createClient(supabaseUrl!, supabaseServiceKey!);
 
-// SEMANTIC FIELD MAPPING - Extracted from UI tooltips
+// SEMANTIC FIELD MAPPING - Fixed version with proper boolean detection
 const SEMANTIC_FIELD_MAPPING = {
-  // AI Intelligence Fields
-  'Enable AI Decision Override': {
+  // AI Intelligence Fields - FIXED: Cleaner boolean detection
+  'AI Decision Override': {
     field: 'aiIntelligenceConfig.enableAIOverride',
     type: 'boolean',
-    examples: ["Give the AI more control", "Let AI make decisions", "Enable AI override", "Allow AI independence", "disable ai", "turn off ai", "stop ai decisions", "enable ai", "turn on ai", "activate ai", "start ai decisions", "re-enable ai", "bring back ai"]
+    enableKeywords: ["enable ai", "turn on ai", "activate ai", "start ai", "ai on", "enable override"],
+    disableKeywords: ["disable ai", "turn off ai", "stop ai", "ai off", "disable override", "no ai"]
   },
   'AI Autonomy Level': {
     field: 'aiIntelligenceConfig.aiAutonomyLevel', 
@@ -31,10 +32,11 @@ const SEMANTIC_FIELD_MAPPING = {
     type: 'number',
     examples: ["Be more confident before acting", "Only act when you're sure", "Be more/less cautious", "Increase/decrease confidence threshold"]
   },
-  'Allow Risk Parameter Override': {
+  'Risk Parameter Override': {
     field: 'aiIntelligenceConfig.riskOverrideAllowed',
-    type: 'boolean', 
-    examples: ["Override risk settings when needed", "Break risk rules for good opportunities", "Strict risk management only"]
+    type: 'boolean',
+    enableKeywords: ["allow risk override", "enable risk override", "break risk rules"],
+    disableKeywords: ["disable risk override", "strict risk only", "no risk override"]
   },
   
   // Basic Settings
@@ -50,11 +52,15 @@ const SEMANTIC_FIELD_MAPPING = {
     examples: ["I want a medium-risk setup", "Make it aggressive", "Use a conservative approach"]
   },
   
-  // Coins and Trading
+  // Coins and Trading - FIXED: Proper array modification handling
   'Selected Coins': {
     field: 'selectedCoins',
-    type: 'array',
-    examples: ["Trade Bitcoin and Ethereum", "Add Solana to my portfolio", "Include XRP in the strategy", "only btc and eth", "remove ada", "add link"]
+    type: 'coin_array',
+    operations: {
+      add: ["add", "include", "use", "trade"],
+      remove: ["remove", "exclude", "stop trading", "drop"],
+      replace: ["only", "just", "switch to", "change to"]
+    }
   },
   'Auto Coin Selection': {
     field: 'enableAutoCoinSelection',
@@ -246,47 +252,76 @@ const extractCoinsFromMessage = (message: string): string[] => {
   return foundCoins;
 };
 
-// Smart field mapping function using semantic context
-const mapUserIntentToFields = (userMessage: string): { [key: string]: any } => {
+// FIXED: Smart field mapping function with proper logic
+const mapUserIntentToFields = (userMessage: string, currentConfig: any = {}): { [key: string]: any } => {
   const changes: { [key: string]: any } = {};
   const lowerMessage = userMessage.toLowerCase();
   
   console.log('🧠 AI_ASSISTANT: Mapping user intent:', userMessage);
+  console.log('🧠 AI_ASSISTANT: Current config for reference:', JSON.stringify(currentConfig, null, 2));
   
   // Search through semantic mapping for matches
   for (const [fieldLabel, config] of Object.entries(SEMANTIC_FIELD_MAPPING)) {
-    const examples = config.examples || [];
     
-    // Check if any example phrase matches the user input
-    for (const example of examples) {
-      const lowerExample = example.toLowerCase();
+    // FIXED: Handle boolean fields with explicit keyword matching
+    if (config.type === 'boolean') {
+      const enableKeywords = config.enableKeywords || [];
+      const disableKeywords = config.disableKeywords || [];
       
-      // Direct phrase matching
-      if (lowerMessage.includes(lowerExample)) {
-        console.log(`🎯 AI_ASSISTANT: Found match for "${fieldLabel}" via example: "${example}"`);
+      const hasEnableMatch = enableKeywords.some(keyword => lowerMessage.includes(keyword));
+      const hasDisableMatch = disableKeywords.some(keyword => lowerMessage.includes(keyword));
+      
+      if (hasEnableMatch && !hasDisableMatch) {
+        console.log(`🎯 AI_ASSISTANT: ENABLE detected for "${fieldLabel}"`);
+        setNestedField(changes, config.field, true);
+      } else if (hasDisableMatch && !hasEnableMatch) {
+        console.log(`🎯 AI_ASSISTANT: DISABLE detected for "${fieldLabel}"`);
+        setNestedField(changes, config.field, false);
+      }
+    }
+    
+    // FIXED: Handle coin array operations properly
+    else if (config.type === 'coin_array' && config.field === 'selectedCoins') {
+      const currentCoins = currentConfig.selectedCoins || [];
+      const extractedCoins = extractCoinsFromMessage(userMessage);
+      
+      if (extractedCoins.length > 0) {
+        const operations = config.operations || {};
         
-        // Handle field updates based on type
-        if (config.type === 'boolean') {
-          // Determine boolean value from context
-          const enableWords = ['enable', 'turn on', 'activate', 'allow', 'yes', 'true'];
-          const disableWords = ['disable', 'turn off', 'deactivate', 'stop', 'no', 'false'];
-          
-          let boolValue = true; // default
-          if (disableWords.some(word => lowerMessage.includes(word))) {
-            boolValue = false;
-          } else if (enableWords.some(word => lowerMessage.includes(word))) {
-            boolValue = true;
-          }
-          
-          setNestedField(changes, config.field, boolValue);
+        // Determine operation type
+        const isAddOperation = operations.add?.some(op => lowerMessage.includes(op));
+        const isRemoveOperation = operations.remove?.some(op => lowerMessage.includes(op));
+        const isReplaceOperation = operations.replace?.some(op => lowerMessage.includes(op));
+        
+        console.log(`🎯 AI_ASSISTANT: Coin operation detected:`, {
+          extractedCoins,
+          currentCoins,
+          isAddOperation,
+          isRemoveOperation,
+          isReplaceOperation
+        });
+        
+        if (isReplaceOperation) {
+          // Replace entire list
+          console.log(`🎯 AI_ASSISTANT: REPLACE coins with:`, extractedCoins);
+          setNestedField(changes, config.field, extractedCoins);
+        } else if (isAddOperation) {
+          // Add to existing list
+          const newCoins = [...new Set([...currentCoins, ...extractedCoins])];
+          console.log(`🎯 AI_ASSISTANT: ADD coins:`, extractedCoins, 'Result:', newCoins);
+          setNestedField(changes, config.field, newCoins);
+        } else if (isRemoveOperation) {
+          // Remove from existing list
+          const newCoins = currentCoins.filter(coin => !extractedCoins.includes(coin));
+          console.log(`🎯 AI_ASSISTANT: REMOVE coins:`, extractedCoins, 'Result:', newCoins);
+          setNestedField(changes, config.field, newCoins);
+        } else {
+          // Default to replace if operation unclear
+          console.log(`🎯 AI_ASSISTANT: DEFAULT REPLACE coins with:`, extractedCoins);
+          setNestedField(changes, config.field, extractedCoins);
         }
-        else if (config.type === 'array' && config.field === 'selectedCoins') {
-          // Handle coin selection updates
-          const coins = extractCoinsFromMessage(userMessage);
-          if (coins.length > 0) {
-            setNestedField(changes, config.field, coins);
-          }
-        }
+      }
+    }
         else if (config.type === 'number') {
           // Extract numbers from message
           const numbers = userMessage.match(/\d+(?:\.\d+)?/g);
@@ -546,17 +581,17 @@ ${recentTrades.slice(0, 5).map(trade =>
       }
     }
 
-    // Generate appropriate welcome message based on strategy context
+    // FIXED: Generate appropriate welcome message based on ACTUAL strategy context
     let welcomeMessage = '';
     
     console.log('🎯 AI_ASSISTANT: WELCOME MESSAGE GENERATION DEBUG:');
     console.log('🎯 AI_ASSISTANT: actualStrategy exists:', !!actualStrategy);
     console.log('🎯 AI_ASSISTANT: actualConfig exists:', !!actualConfig);
     
-    if (actualStrategy && actualConfig) {
+    // CRITICAL FIX: actualStrategy should ALWAYS exist if we found one above
+    if (actualStrategy) {
       const currentMode = testMode ? 'Test Mode' : 'Live Mode';
       const isActiveInMode = testMode ? actualStrategy.is_active_test : actualStrategy.is_active_live;
-      const isAIEnabled = actualConfig.aiIntelligenceConfig?.enableAIOverride || false;
       
       console.log('🎯 AI_ASSISTANT: Strategy found:', actualStrategy.strategy_name);
       console.log('🎯 AI_ASSISTANT: Current mode:', currentMode);
@@ -577,8 +612,9 @@ ${recentTrades.slice(0, 5).map(trade =>
         console.log('🎯 AI_ASSISTANT: Generated inactive strategy welcome message');
       }
     } else {
-      welcomeMessage = `Hello! I'm currently on standby. Activate a strategy in Test or Live Mode to get started.`;
-      console.log('🎯 AI_ASSISTANT: Generated no strategy welcome message (THIS IS THE PROBLEM!)');
+      // This should rarely happen now that we have better strategy detection
+      welcomeMessage = `Hello! I'm currently on standby. Please activate a strategy in Test or Live Mode to get started.`;
+      console.log('🎯 AI_ASSISTANT: Generated no strategy welcome message (this should be rare now)');
     }
     
     console.log('🎯 AI_ASSISTANT: FINAL WELCOME MESSAGE:', welcomeMessage);
@@ -648,7 +684,7 @@ Remember: Always be truthful about current settings by referencing the actual da
     let finalResponse;
     
     // Use semantic mapping to detect configuration changes from user input
-    const configUpdates: any = mapUserIntentToFields(message);
+    const configUpdates: any = mapUserIntentToFields(message, actualConfig);
     
     // Apply configuration updates if any were detected
     if (Object.keys(configUpdates).length > 0 && actualStrategy) {
@@ -742,19 +778,35 @@ Remember: Always be truthful about current settings by referencing the actual da
             console.log('🔬 AI_ASSISTANT: All updates applied?', allUpdatesApplied);
             console.log('🔬 AI_ASSISTANT: Verification message:', verificationMessage);
             
-            // Update AI response based on verification results
+            // FIXED: Update AI response based on verification results with clear confirmations
             let finalMessage = aiResponse;
             if (allUpdatesApplied) {
-              // Replace future tense promises with past tense confirmations
+              // Generate specific confirmation messages based on what was changed
+              const changeDescriptions = [];
+              
               if (configUpdates['aiIntelligenceConfig.enableAIOverride'] === false) {
-                finalMessage = "✅ AI has been disabled. You're now in full manual control of your trading decisions.";
+                changeDescriptions.push("✅ AI Decision Override: DISABLED");
               } else if (configUpdates['aiIntelligenceConfig.enableAIOverride'] === true) {
-                finalMessage = "✅ AI has been enabled. I can now make trading decisions within your risk parameters.";
+                changeDescriptions.push("✅ AI Decision Override: ENABLED");
+              }
+              
+              if (configUpdates['aiIntelligenceConfig.riskOverrideAllowed'] === false) {
+                changeDescriptions.push("✅ Risk Parameter Override: DISABLED");
+              } else if (configUpdates['aiIntelligenceConfig.riskOverrideAllowed'] === true) {
+                changeDescriptions.push("✅ Risk Parameter Override: ENABLED");
+              }
+              
+              if (configUpdates['selectedCoins']) {
+                changeDescriptions.push(`✅ Selected Coins: Updated to [${configUpdates['selectedCoins'].join(', ')}]`);
+              }
+              
+              if (changeDescriptions.length > 0) {
+                finalMessage = `Configuration updated successfully:\n\n${changeDescriptions.join('\n')}`;
               } else {
                 finalMessage = "✅ Configuration updated successfully.";
               }
             } else {
-              finalMessage = `❌ Some changes didn't apply correctly:\n${verificationMessage}`;
+              finalMessage = `❌ Some changes didn't apply correctly:\n\n${verificationMessage}`;
             }
             
             finalResponse = { 
