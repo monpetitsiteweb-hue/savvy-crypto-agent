@@ -421,37 +421,107 @@ serve(async (req) => {
     const configUpdates = mapUserIntentToFields(message, currentConfig);
     const hasConfigUpdates = Object.keys(configUpdates).length > 0;
 
-    // Build context for OpenAI
-    let contextInfo = '';
+    // Check if this is a query about current state (not a configuration change)
+    const lowerMessage = message.toLowerCase();
+    const isStateQuery = (
+      lowerMessage.includes('ai enabled') || 
+      lowerMessage.includes('is ai') ||
+      lowerMessage.includes('ai status') ||
+      lowerMessage.includes('current settings') ||
+      lowerMessage.includes('what coins')
+    ) && !hasConfigUpdates;
+
+    // Generate response based on type of request
+    let aiResponse = '';
+    let verificationResults = { success: true, errors: [] as string[] };
     
-    if (actualStrategy && currentConfig) {
-      contextInfo = `
+    if (welcomeMessage) {
+      // System health check or welcome message
+      aiResponse = welcomeMessage;
+    } else if (hasConfigUpdates && actualStrategy) {
+      // ===== STEP 5: PROOF-BASED CONFIRMATION =====
+      console.log('🔄 CONFIG_UPDATE: Applying changes:', configUpdates);
+      
+      // Apply updates to database
+      const updateSuccess = await ConfigManager.updateConfig(actualStrategy.id, userId, configUpdates);
+      
+      if (updateSuccess) {
+        // Re-fetch config for verification
+        const updatedConfig = await ConfigManager.getFreshConfig(actualStrategy.id, userId);
+        
+        // Verify each change
+        const verificationErrors: string[] = [];
+        for (const [field, expectedValue] of Object.entries(configUpdates)) {
+          const actualValue = ConfigManager.getNestedField(updatedConfig, field);
+          const verification = ConfigVerifier.verify(expectedValue, actualValue, field);
+          
+          if (!verification.success) {
+            verificationErrors.push(verification.message);
+          }
+        }
+        
+        verificationResults = {
+          success: verificationErrors.length === 0,
+          errors: verificationErrors
+        };
+        
+        // Generate specific success/failure response
+        if (verificationResults.success) {
+          const changeKeys = Object.keys(configUpdates);
+          if (changeKeys.includes('aiIntelligenceConfig.enableAIOverride')) {
+            const aiEnabled = ConfigManager.getNestedField(updatedConfig, 'aiIntelligenceConfig.enableAIOverride');
+            aiResponse = aiEnabled 
+              ? '✅ AI has been enabled. Your strategy is now using AI for trading decisions.'
+              : '✅ AI has been disabled. You\'re now in full manual control of your trading decisions.';
+          } else if (changeKeys.some(key => key.includes('selectedCoins'))) {
+            const coins = ConfigManager.getNestedField(updatedConfig, 'selectedCoins') || [];
+            aiResponse = `✅ Coin selection updated. Currently trading: ${JSON.stringify(coins)}`;
+          } else {
+            aiResponse = '✅ Configuration updated successfully.';
+          }
+        } else {
+          aiResponse = `❌ Configuration update failed: ${verificationResults.errors.join(', ')}`;
+        }
+      } else {
+        verificationResults = { success: false, errors: ['Database update failed'] };
+        aiResponse = '❌ Failed to update configuration in database.';
+      }
+    } else if (isStateQuery && actualStrategy && currentConfig) {
+      // ===== ANSWER STATE QUERIES WITH CURRENT DATABASE STATE =====
+      const aiEnabled = ConfigManager.getNestedField(currentConfig, 'aiIntelligenceConfig.enableAIOverride') || false;
+      const selectedCoins = currentConfig.selectedCoins || [];
+      
+      if (lowerMessage.includes('ai')) {
+        aiResponse = aiEnabled 
+          ? 'AI is currently enabled for your trading strategy.'
+          : 'AI is currently disabled. Would you like me to enable it?';
+      } else if (lowerMessage.includes('coin')) {
+        aiResponse = `Currently trading these coins: ${JSON.stringify(selectedCoins)}`;
+      } else {
+        aiResponse = `Strategy "${actualStrategy.strategy_name}" is active in ${testMode ? 'Test' : 'Live'} mode. AI: ${aiEnabled ? 'Enabled' : 'Disabled'}. Coins: ${JSON.stringify(selectedCoins)}`;
+      }
+    } else {
+      // ===== GENERAL AI RESPONSE =====
+      let contextInfo = '';
+      if (actualStrategy && currentConfig) {
+        const aiEnabled = ConfigManager.getNestedField(currentConfig, 'aiIntelligenceConfig.enableAIOverride') || false;
+        contextInfo = `
 Current Strategy: "${actualStrategy.strategy_name}"
 Mode: ${testMode ? 'Test Mode' : 'Live Mode'}
 Active: ${testMode ? actualStrategy.is_active_test : actualStrategy.is_active_live}
-AI Enabled: ${currentConfig.is_ai_enabled || false}
-AI Override: ${currentConfig.aiIntelligenceConfig?.enableAIOverride || false}
+AI Override: ${aiEnabled}
 Selected Coins: ${JSON.stringify(currentConfig.selectedCoins || [])}
-Stop Loss: ${currentConfig.stopLossPercentage || 'Not set'}%
-Take Profit: ${currentConfig.takeProfitPercentage || 'Not set'}%
-Max Position: ${currentConfig.maxPositionSize || 'Not set'}
 `;
-    } else {
-      contextInfo = `No active strategy found for ${testMode ? 'test' : 'live'} mode.`;
-    }
+      } else {
+        contextInfo = `No active strategy found for ${testMode ? 'test' : 'live'} mode.`;
+      }
 
-    // Generate AI response
-    let aiResponse = '';
-    
-    if (welcomeMessage) {
-      aiResponse = welcomeMessage;
-    } else {
-      const systemPrompt = `You are a cryptocurrency trading assistant. Help users analyze and modify their trading strategies. Be direct and concise.
+      const systemPrompt = `You are a cryptocurrency trading assistant. Be direct and concise.
 
 Current Context:
 ${contextInfo}
 
-The user's message might contain configuration change requests. If so, confirm what will be changed before it's applied.`;
+When reporting current state, use the EXACT values shown above. Do not guess or assume.`;
 
       const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -465,8 +535,8 @@ The user's message might contain configuration change requests. If so, confirm w
             { role: 'system', content: systemPrompt },
             { role: 'user', content: message }
           ],
-          max_tokens: 500,
-          temperature: 0.7,
+          max_tokens: 300,
+          temperature: 0.3,
         }),
       });
 
@@ -474,53 +544,15 @@ The user's message might contain configuration change requests. If so, confirm w
       aiResponse = openAIData.choices[0]?.message?.content || 'I apologize, but I encountered an issue processing your request.';
     }
 
-    // ===== STEP 5: PROOF-BASED CONFIRMATION =====
-    let verificationMessage = '';
-    let updateCount = 0;
-    
-    if (hasConfigUpdates && actualStrategy) {
-      console.log('🔄 CONFIG_UPDATE: Applying changes:', configUpdates);
-      
-      // Apply updates to database
-      const updateSuccess = await ConfigManager.updateConfig(actualStrategy.id, userId, configUpdates);
-      
-      if (updateSuccess) {
-        // Re-fetch config for verification
-        const verifiedConfig = await ConfigManager.getFreshConfig(actualStrategy.id, userId);
-        
-        if (verifiedConfig) {
-          // ===== STEP 3: USE VERIFIER MODULE =====
-          for (const [field, expectedValue] of Object.entries(configUpdates)) {
-            const actualValue = ConfigManager.getNestedField(verifiedConfig, field);
-            const verification = ConfigVerifier.verify(expectedValue, actualValue, field);
-            
-            verificationMessage += verification.message + '\n';
-            if (verification.success) {
-              updateCount++;
-            }
-          }
-        } else {
-          verificationMessage = '❌ Could not verify changes - failed to re-fetch configuration';
-        }
-      } else {
-        verificationMessage = '❌ Failed to apply configuration changes to database';
-      }
-    }
-
-    console.log('📝 AI_ASSISTANT: Response completed:', { hasConfigUpdates, updateCount });
+    console.log('📝 AI_ASSISTANT: Response completed:', { hasConfigUpdates, verificationResults });
 
     return new Response(
       JSON.stringify({
         message: aiResponse,
-        configUpdates: hasConfigUpdates ? configUpdates : undefined,
-        verificationMessage: verificationMessage || undefined,
-        updateCount,
-        strategy: actualStrategy ? {
-          id: actualStrategy.id,
-          name: actualStrategy.strategy_name,
-          testMode,
-          isActive: testMode ? actualStrategy.is_active_test : actualStrategy.is_active_live
-        } : null
+        hasConfigUpdates,
+        configUpdates,
+        verification: verificationResults,
+        currentConfig
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
