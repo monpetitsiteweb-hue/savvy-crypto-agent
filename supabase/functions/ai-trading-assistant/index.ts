@@ -191,6 +191,22 @@ const setNestedField = (obj: any, path: string, value: any) => {
   current[keys[keys.length - 1]] = value;
 };
 
+// Helper function to get nested object fields
+const getNestedField = (obj: any, path: string): any => {
+  const keys = path.split('.');
+  let current = obj;
+  
+  for (const key of keys) {
+    if (current && typeof current === 'object' && key in current) {
+      current = current[key];
+    } else {
+      return undefined;
+    }
+  }
+  
+  return current;
+};
+
 // Extract cryptocurrency symbols from user message
 const extractCoinsFromMessage = (message: string): string[] => {
   const availableCoins = ['BTC', 'ETH', 'ADA', 'DOGE', 'XRP', 'LTC', 'BCH', 'LINK', 'DOT', 'UNI', 'SOL', 'MATIC', 'AVAX', 'ICP', 'XLM', 'VET', 'ALGO', 'ATOM', 'FIL', 'TRX'];
@@ -589,23 +605,39 @@ Remember: Always be truthful about current settings by referencing the actual da
             
             // Verify specific fields were actually updated
             let verificationMessage = '';
+            let allUpdatesApplied = true;
+            
             for (const [field, value] of Object.entries(configUpdates)) {
-              const actualValue = field.includes('.') ? 
-                field.split('.').reduce((obj, key) => obj?.[key], verifiedConfig) :
-                verifiedConfig[field];
+              const actualValue = getNestedField(verifiedConfig, field);
               
               if (actualValue === value) {
                 verificationMessage += `✅ ${field}: ${value}\n`;
               } else {
+                allUpdatesApplied = false;
                 verificationMessage += `❌ ${field}: Expected ${value}, got ${actualValue}\n`;
               }
             }
             
+            // Update AI response based on verification results
+            let finalMessage = aiResponse;
+            if (allUpdatesApplied) {
+              // Replace future tense promises with past tense confirmations
+              if (configUpdates['aiIntelligenceConfig.enableAIOverride'] === false) {
+                finalMessage = "✅ AI has been disabled. You're now in full manual control of your trading decisions.";
+              } else if (configUpdates['aiIntelligenceConfig.enableAIOverride'] === true) {
+                finalMessage = "✅ AI has been enabled. I can now make trading decisions within your risk parameters.";
+              } else {
+                finalMessage = "✅ Configuration updated successfully.";
+              }
+            } else {
+              finalMessage = `❌ Some changes didn't apply correctly:\n${verificationMessage}`;
+            }
+            
             finalResponse = { 
-              message: aiResponse,
-              configUpdates,
+              message: finalMessage,
+              configUpdates: allUpdatesApplied ? configUpdates : {},
               verification: verificationMessage,
-              success: true
+              success: allUpdatesApplied
             };
           }
         }
