@@ -1,16 +1,299 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.50.5";
+
+const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+const supabaseUrl = Deno.env.get('SUPABASE_URL');
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Cache-Control': 'no-cache, no-store, must-revalidate',
-  'Pragma': 'no-cache',
-  'Expires': '0',
 };
 
-const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+const supabaseClient = createClient(supabaseUrl!, supabaseServiceKey!);
+
+// SEMANTIC FIELD MAPPING - Extracted from UI tooltips
+const SEMANTIC_FIELD_MAPPING = {
+  // AI Intelligence Fields
+  'Enable AI Decision Override': {
+    field: 'aiIntelligenceConfig.enableAIOverride',
+    type: 'boolean',
+    examples: ["Give the AI more control", "Let AI make decisions", "Enable AI override", "Allow AI independence", "disable ai", "turn off ai", "stop ai decisions"]
+  },
+  'AI Autonomy Level': {
+    field: 'aiIntelligenceConfig.aiAutonomyLevel', 
+    type: 'number',
+    examples: ["Give you more autonomy", "I want you to be more independent", "Make your own decisions", "Be more/less autonomous", "Take more control", "increase autonomy", "more freedom"]
+  },
+  'Confidence Threshold': {
+    field: 'aiIntelligenceConfig.aiConfidenceThreshold',
+    type: 'number',
+    examples: ["Be more confident before acting", "Only act when you're sure", "Be more/less cautious", "Increase/decrease confidence threshold"]
+  },
+  'Allow Risk Parameter Override': {
+    field: 'aiIntelligenceConfig.riskOverrideAllowed',
+    type: 'boolean', 
+    examples: ["Override risk settings when needed", "Break risk rules for good opportunities", "Strict risk management only"]
+  },
+  
+  // Basic Settings
+  'Strategy Name': {
+    field: 'strategyName',
+    type: 'string',
+    examples: ["Call this my scalping strategy", "Name it medium test bot"]
+  },
+  'Risk Profile': {
+    field: 'riskProfile',
+    type: 'select',
+    options: ['low', 'medium', 'high', 'custom'],
+    examples: ["I want a medium-risk setup", "Make it aggressive", "Use a conservative approach"]
+  },
+  
+  // Coins and Trading
+  'Selected Coins': {
+    field: 'selectedCoins',
+    type: 'array',
+    examples: ["Trade Bitcoin and Ethereum", "Add Solana to my portfolio", "Include XRP in the strategy", "only btc and eth", "remove ada", "add link"]
+  },
+  'Auto Coin Selection': {
+    field: 'enableAutoCoinSelection',
+    type: 'boolean',
+    examples: ["Auto-select best performing coins", "Let AI pick cryptos for me", "Enable automatic coin selection"]
+  },
+  'Max Active Coins': {
+    field: 'maxActiveCoins',
+    type: 'number',
+    examples: ["Focus on 3 coins max", "Trade up to 5 cryptos simultaneously", "Limit to 2 active coins"]
+  },
+  'Amount Per Trade': {
+    field: 'perTradeAllocation',
+    type: 'number',
+    examples: ["Use 100 euros per trade", "Risk 5% of portfolio per position", "Allocate 50 euros per trade"]
+  },
+  
+  // Buy Settings
+  'Buy Order Type': {
+    field: 'buyOrderType',
+    type: 'select',
+    options: ['market', 'limit', 'trailing_buy'],
+    examples: ["Buy instantly", "Use trailing buy", "Set a limit to enter at a lower price"]
+  },
+  'Buy Frequency': {
+    field: 'buyFrequency', 
+    type: 'select',
+    options: ['once', 'daily', 'interval', 'signal_based'],
+    examples: ["Buy once daily", "Trade based on signals only", "Execute trades every hour"]
+  },
+  'Buy Cooldown': {
+    field: 'buyCooldownMinutes',
+    type: 'number',
+    examples: ["Wait 30 minutes before buying again", "Add a cooldown of 1 hour"]
+  },
+  
+  // Sell Settings  
+  'Sell Order Type': {
+    field: 'sellOrderType',
+    type: 'select',
+    options: ['market', 'limit', 'trailing_stop', 'auto_close'],
+    examples: ["Sell at market price", "Use a trailing stop to exit", "Set a profit target"]
+  },
+  'Take Profit Percentage': {
+    field: 'takeProfitPercentage',
+    type: 'number',
+    examples: ["Take profits at 5%", "Sell once I make 3%", "Close when I hit my target"]
+  },
+  'Stop Loss Percentage': {
+    field: 'stopLossPercentage', 
+    type: 'number',
+    examples: ["Cut my losses at 2%", "Don't let it drop more than 1.5%", "Add a stop-loss"]
+  },
+  'Trailing Stop Percentage': {
+    field: 'trailingStopLossPercentage',
+    type: 'number', 
+    examples: ["Let the profits ride", "Use a trailing stop of 2%", "Sell if it drops after going up"]
+  },
+  'Use Trailing Stop Only': {
+    field: 'useTrailingStopOnly',
+    type: 'boolean',
+    examples: ["Only use trailing stops", "Disable fixed stop loss"]
+  },
+  
+  // Position Management
+  'Max Open Positions': {
+    field: 'maxOpenPositions',
+    type: 'number',
+    examples: ["Hold max 5 positions", "Limit to 3 open trades"]
+  },
+  'Max Wallet Exposure': {
+    field: 'maxWalletExposure',
+    type: 'number',
+    examples: ["Use up to 50% of my funds", "Don't go over 20%"]
+  },
+  'Daily Profit Target': {
+    field: 'dailyProfitTarget',
+    type: 'number',
+    examples: ["Stop trading after 3% gain", "Pause the bot when it earns enough for the day"]
+  },
+  'Daily Loss Limit': {
+    field: 'dailyLossLimit',
+    type: 'number', 
+    examples: ["Limit daily loss to 2%", "Shut it down if I lose 5%"]
+  },
+  
+  // Notifications
+  'Trade Notifications': {
+    field: 'notifyOnTrade',
+    type: 'boolean',
+    examples: ["Let me know when a trade happens", "Notify me on every execution"]
+  },
+  'Error Notifications': {
+    field: 'notifyOnError',
+    type: 'boolean',
+    examples: ["Tell me if something fails", "Warn me if a trade can't go through"]
+  },
+  'Target Notifications': {
+    field: 'notifyOnTargets',
+    type: 'boolean',
+    examples: ["Notify me when I hit my profit goal", "Let me know if a stop-loss triggers"]
+  },
+  
+  // Advanced Features
+  'Enable Shorting': {
+    field: 'enableShorting',
+    type: 'boolean',
+    examples: ["Allow shorting", "Enable betting against price"]
+  },
+  'Backtesting Mode': {
+    field: 'backtestingMode',
+    type: 'boolean',
+    examples: ["Test this on historical charts", "Backtest it first"]
+  },
+  'Trailing Buy Percentage': {
+    field: 'trailingBuyPercentage',
+    type: 'number',
+    examples: ["Trail by 1.5%", "Set trailing buy at 2%"]
+  }
+};
+
+// Helper function to set nested object fields
+const setNestedField = (obj: any, path: string, value: any) => {
+  const keys = path.split('.');
+  let current = obj;
+  
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (!(keys[i] in current)) {
+      current[keys[i]] = {};
+    }
+    current = current[keys[i]];
+  }
+  
+  current[keys[keys.length - 1]] = value;
+};
+
+// Extract cryptocurrency symbols from user message
+const extractCoinsFromMessage = (message: string): string[] => {
+  const availableCoins = ['BTC', 'ETH', 'ADA', 'DOGE', 'XRP', 'LTC', 'BCH', 'LINK', 'DOT', 'UNI', 'SOL', 'MATIC', 'AVAX', 'ICP', 'XLM', 'VET', 'ALGO', 'ATOM', 'FIL', 'TRX'];
+  const coinAliases = {
+    'bitcoin': 'BTC',
+    'ethereum': 'ETH', 
+    'cardano': 'ADA',
+    'dogecoin': 'DOGE',
+    'ripple': 'XRP',
+    'litecoin': 'LTC',
+    'chainlink': 'LINK',
+    'polkadot': 'DOT',
+    'uniswap': 'UNI',
+    'solana': 'SOL',
+    'polygon': 'MATIC',
+    'avalanche': 'AVAX'
+  };
+  
+  const upperMessage = message.toUpperCase();
+  const lowerMessage = message.toLowerCase();
+  const foundCoins: string[] = [];
+  
+  // Check for direct symbol matches
+  for (const coin of availableCoins) {
+    if (upperMessage.includes(coin)) {
+      foundCoins.push(coin);
+    }
+  }
+  
+  // Check for alias matches
+  for (const [alias, symbol] of Object.entries(coinAliases)) {
+    if (lowerMessage.includes(alias) && !foundCoins.includes(symbol)) {
+      foundCoins.push(symbol);
+    }
+  }
+  
+  return foundCoins;
+};
+
+// Smart field mapping function using semantic context
+const mapUserIntentToFields = (userMessage: string): { [key: string]: any } => {
+  const changes: { [key: string]: any } = {};
+  const lowerMessage = userMessage.toLowerCase();
+  
+  console.log('🧠 AI_ASSISTANT: Mapping user intent:', userMessage);
+  
+  // Search through semantic mapping for matches
+  for (const [fieldLabel, config] of Object.entries(SEMANTIC_FIELD_MAPPING)) {
+    const examples = config.examples || [];
+    
+    // Check if any example phrase matches the user input
+    for (const example of examples) {
+      const lowerExample = example.toLowerCase();
+      
+      // Direct phrase matching
+      if (lowerMessage.includes(lowerExample)) {
+        console.log(`🎯 AI_ASSISTANT: Found match for "${fieldLabel}" via example: "${example}"`);
+        
+        // Handle field updates based on type
+        if (config.type === 'boolean') {
+          // Determine boolean value from context
+          const enableWords = ['enable', 'turn on', 'activate', 'allow', 'yes', 'true'];
+          const disableWords = ['disable', 'turn off', 'deactivate', 'stop', 'no', 'false'];
+          
+          let boolValue = true; // default
+          if (disableWords.some(word => lowerMessage.includes(word))) {
+            boolValue = false;
+          } else if (enableWords.some(word => lowerMessage.includes(word))) {
+            boolValue = true;
+          }
+          
+          setNestedField(changes, config.field, boolValue);
+        }
+        else if (config.type === 'array' && config.field === 'selectedCoins') {
+          // Handle coin selection updates
+          const coins = extractCoinsFromMessage(userMessage);
+          if (coins.length > 0) {
+            setNestedField(changes, config.field, coins);
+          }
+        }
+        else if (config.type === 'number') {
+          // Extract numbers from message
+          const numbers = userMessage.match(/\d+(?:\.\d+)?/g);
+          if (numbers && numbers.length > 0) {
+            setNestedField(changes, config.field, parseFloat(numbers[0]));
+          }
+        }
+        else if (config.type === 'select' && config.options) {
+          // Find matching option
+          for (const option of config.options) {
+            if (lowerMessage.includes(option)) {
+              setNestedField(changes, config.field, option);
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  console.log('🔄 AI_ASSISTANT: Mapped changes:', changes);
+  return changes;
+};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -18,201 +301,149 @@ serve(async (req) => {
   }
 
   try {
-    // Security headers and logging
-    const clientIP = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown';
-    const userAgent = req.headers.get('user-agent') || 'unknown';
-    console.log(`🔐 AI Assistant request from IP: ${clientIP}, User-Agent: ${userAgent}`);
+    const { message, userId, conversationHistory, strategyId, marketContext, indicatorContext, testMode } = await req.json();
 
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    console.log('🤖 AI_ASSISTANT: Request received:', { 
+      message, 
+      userId, 
+      strategyId, 
+      testMode,
+      hasMarketContext: !!marketContext,
+      hasIndicatorContext: !!indicatorContext 
+    });
 
-    const requestBody = await req.json();
-    const { action, userId, symbols, confidenceThreshold = 0.7, message, strategyId, currentConfig, testMode, recentTrades, marketData, whaleAlerts, indicatorContext, indicatorConfig } = requestBody;
-    
-    // Input validation - allow either action-based calls OR message-based calls
-    if (!action && !message) {
-      return new Response(JSON.stringify({ error: 'Either action or message is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+    if (!openAIApiKey) {
+      throw new Error('OpenAI API key not configured');
     }
 
-    if (!userId || typeof userId !== 'string') {
-      return new Response(JSON.stringify({ error: 'Valid userId is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+    if (!message || !userId) {
+      throw new Error('Message and userId are required');
     }
 
-    console.log(`🤖 AI Trading Assistant: ${action || 'message'} for user: ${userId}`);
+    // Get active strategy and recent context
+    let actualStrategy = null;
+    let actualConfig = null;
+    let recentTrades = null;
+    let whaleAlerts = null;
 
-    // Handle message-based requests (from conversation panel)
-    if (message && !action) {
-      console.log(`💬 Processing message: "${message}"`);
+    if (strategyId) {
+      console.log('🔍 AI_ASSISTANT: Fetching strategy data for:', strategyId);
       
-      if (!openAIApiKey) {
-        return new Response(JSON.stringify({ 
-          message: "❌ OpenAI API key not configured. Please contact admin.",
-          configUpdates: {}
-        }), { 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        });
+      // Fetch strategy configuration
+      const { data: strategy, error: strategyError } = await supabaseClient
+        .from('trading_strategies')
+        .select('*')
+        .eq('id', strategyId)
+        .eq('user_id', userId)
+        .single();
+
+      if (strategyError) {
+        console.error('❌ AI_ASSISTANT: Error fetching strategy:', strategyError);
+      } else {
+        actualStrategy = strategy;
+        actualConfig = strategy?.configuration;
+        console.log('✅ AI_ASSISTANT: Strategy fetched successfully');
       }
 
-      // Get recent conversation history for context (last 10 exchanges)
-      const { data: conversationHistory } = await supabaseClient
-        .from('conversation_history')
+      // Fetch recent trades for context
+      const { data: trades, error: tradesError } = await supabaseClient
+        .from('mock_trades')
         .select('*')
         .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(20); // Last 20 messages (10 exchanges)
+        .eq('strategy_id', strategyId)
+        .order('executed_at', { ascending: false })
+        .limit(10);
 
-      // Build conversation context from history
-      let conversationContext = '';
-      if (conversationHistory && conversationHistory.length > 0) {
-        const recentHistory = conversationHistory
-          .reverse() // Most recent first in time order
-          .slice(-10) // Keep only last 10 messages for context
-          .map(msg => {
-            const isAI = msg.message_type === 'ai_response' || msg.message_type === 'ai_recommendation';
-            const role = isAI ? 'Assistant' : 'User';
-            const timestamp = new Date(msg.created_at).toLocaleTimeString();
-            return `[${timestamp}] ${role}: ${msg.content}`;
-          })
-          .join('\n');
-          
-        conversationContext = `
-RECENT CONVERSATION HISTORY:
+      if (!tradesError && trades) {
+        recentTrades = trades;
+        console.log('📊 AI_ASSISTANT: Recent trades fetched:', trades.length);
+      }
+
+      // Fetch recent whale alerts
+      const { data: whales, error: whaleError } = await supabaseClient
+        .from('whale_signal_events')
+        .select('*')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: false })
+        .limit(5);
+
+      if (!whaleError && whales) {
+        whaleAlerts = whales;
+        console.log('🐋 AI_ASSISTANT: Whale alerts fetched:', whales.length);
+      }
+    }
+
+    // Prepare conversation context
+    let conversationContext = '';
+    if (conversationHistory && Array.isArray(conversationHistory) && conversationHistory.length > 0) {
+      const recentHistory = conversationHistory.slice(-6).map(entry => 
+        `${entry.message_type}: ${entry.content}`
+      ).join('\n');
+      
+      conversationContext = `
+RECENT CONVERSATION:
 ${recentHistory}
-
-CONTEXT NOTES:
-- When user says "yes please adjust based on this recommendation" or similar confirmations, reference the last AI recommendation above
-- When user asks to "apply the changes" or "implement the suggestion", look for the most recent AI recommendation with configUpdates
-- Maintain conversational continuity by referencing previous exchanges when relevant
 `;
-      }
+    }
 
-      // ALWAYS fetch current strategy from database for truth-bound responses
-      let actualStrategy = null;
-      let actualConfig = null;
+    // Prepare whale alerts context
+    let whaleContext = '';
+    if (whaleAlerts && Array.isArray(whaleAlerts) && whaleAlerts.length > 0) {
+      const whaleEntries = whaleAlerts.slice(0, 3).map(alert => 
+        `- ${alert.token_symbol}: ${alert.amount?.toLocaleString() || 'N/A'} (${alert.event_type || 'movement'})`
+      ).join('\n');
       
-      if (strategyId) {
-        console.log(`🔍 Fetching current strategy ${strategyId} from database for truth-bound response`);
-        const { data: strategy, error: strategyError } = await supabaseClient
-          .from('trading_strategies')
-          .select('*')
-          .eq('id', strategyId)
-          .eq('user_id', userId)
-          .single();
-          
-        if (strategy && !strategyError) {
-          actualStrategy = strategy;
-          actualConfig = strategy.configuration;
-          console.log(`✅ Fetched real strategy config: AI enabled=${actualConfig?.is_ai_enabled}, Risk=${actualConfig?.riskProfile}, Coins=${actualConfig?.selectedCoins?.length || 0}`);
-        } else {
-          console.log(`❌ Could not fetch strategy ${strategyId}:`, strategyError);
-        }
-      }
-
-      // Get current strategy context and recent trading activity
-      let strategyAnalysis = '';
-      let recentTradingContext = '';
-      let marketContext = '';
-      let whaleContext = '';
-      let indicatorContextForPrompt = '';
-      
-      // Prepare market data context for AI
-      if (marketData && typeof marketData === 'object') {
-        const marketEntries = Object.entries(marketData).map(([symbol, data]: [string, any]) => 
-          `- ${symbol}: €${data.price?.toLocaleString() || 'N/A'} (${data.change24h > 0 ? '+' : ''}${data.change24h?.toFixed(2) || 0}% 24h)`
-        ).join('\n');
-        
-        marketContext = `
-CURRENT MARKET DATA:
-${marketEntries}
-Last updated: ${new Date().toLocaleString()}
-`;
-      }
-      
-      // Prepare whale alerts context
-      if (whaleAlerts && Array.isArray(whaleAlerts) && whaleAlerts.length > 0) {
-        const whaleEntries = whaleAlerts.slice(0, 3).map(alert => 
-          `- ${alert.asset}: ${alert.amount?.toLocaleString() || 'N/A'} (${alert.direction || 'movement'})`
-        ).join('\n');
-        
-        whaleContext = `
+      whaleContext = `
 RECENT WHALE ALERTS:
 ${whaleEntries}
 `;
-      }
-      
-      // Prepare technical indicators context with structured data
-      let indicatorContextText = '';
-      let structuredIndicators = {};
-      
-      if (indicatorContext && typeof indicatorContext === 'object') {
-        structuredIndicators = indicatorContext;
+    }
+    
+    // Prepare technical indicators context with structured data
+    let indicatorContextText = '';
+    if (indicatorContext && typeof indicatorContext === 'object') {
+      const indicatorEntries = Object.entries(indicatorContext).map(([symbol, indicators]: [string, any]) => {
+        const indicatorsList = [];
         
-        const indicatorEntries = Object.entries(indicatorContext).map(([symbol, indicators]: [string, any]) => {
-          const indicatorsList = [];
-          
-          if (indicators.RSI) {
-            indicatorsList.push(`RSI: ${indicators.RSI.value || 'N/A'} (${indicators.RSI.signal || 'neutral'} - buy < ${indicators.RSI.buyThreshold || 30}, sell > ${indicators.RSI.sellThreshold || 70})`);
-          }
-          if (indicators.MACD) {
-            const crossover = indicators.MACD.crossover ? 'bullish crossover' : 'bearish crossover';
-            indicatorsList.push(`MACD: ${crossover} (histogram: ${indicators.MACD.histogram || 'N/A'})`);
-          }
-          if (indicators.EMA) {
-            const trend = indicators.EMA.short > indicators.EMA.long ? 'bullish' : 'bearish';
-            indicatorsList.push(`EMA: ${indicators.EMA.short}/${indicators.EMA.long} (${trend} trend)`);
-          }
-          if (indicators.SMA) {
-            indicatorsList.push(`SMA: ${indicators.SMA.value || 'N/A'}`);
-          }
-          if (indicators.Bollinger) {
-            indicatorsList.push(`Bollinger: ${indicators.Bollinger.position || 'middle'} band (width: ${indicators.Bollinger.width || 'N/A'}%)`);
-          }
-          if (indicators.ADX) {
-            indicatorsList.push(`ADX: ${indicators.ADX.value || 'N/A'} (${indicators.ADX.trendStrength || 'weak'} trend strength)`);
-          }
-          if (indicators.StochasticRSI) {
-            indicatorsList.push(`Stoch RSI: K=${indicators.StochasticRSI.k || 'N/A'}, D=${indicators.StochasticRSI.d || 'N/A'} (${indicators.StochasticRSI.signal || 'neutral'})`);
-          }
-          
-          return indicatorsList.length > 0 ? `- ${symbol}: ${indicatorsList.join(', ')}` : null;
-        }).filter(Boolean).join('\n');
+        if (indicators.RSI) {
+          indicatorsList.push(`RSI: ${indicators.RSI.value || 'N/A'} (${indicators.RSI.signal || 'neutral'})`);
+        }
+        if (indicators.MACD) {
+          const crossover = indicators.MACD.crossover ? 'bullish crossover' : 'bearish crossover';
+          indicatorsList.push(`MACD: ${crossover}`);
+        }
+        if (indicators.EMA) {
+          const trend = indicators.EMA.short > indicators.EMA.long ? 'bullish' : 'bearish';
+          indicatorsList.push(`EMA: ${trend} trend`);
+        }
         
-        if (indicatorEntries) {
-          indicatorContextText = `
+        return indicatorsList.length > 0 ? `- ${symbol}: ${indicatorsList.join(', ')}` : null;
+      }).filter(Boolean).join('\n');
+      
+      if (indicatorEntries) {
+        indicatorContextText = `
 LIVE TECHNICAL INDICATORS:
 ${indicatorEntries}
-Last calculated: ${new Date().toLocaleString()}
-
-STRUCTURED INDICATOR DATA:
-${JSON.stringify(structuredIndicators, null, 2)}
 `;
-        }
       }
+    }
+    
+    // Prepare strategy analysis with REAL database state
+    let strategyAnalysis = '';
+    let recentTradingContext = '';
+    
+    if (strategyId && actualConfig) {
+      // Use REAL database configuration for truth-bound responses
+      const strategyType = actualConfig.strategyType || 'balanced';
+      const riskLevel = actualConfig.riskLevel || actualConfig.riskProfile || 'medium';
+      const stopLoss = actualConfig.stopLoss || actualConfig.stopLossPercentage || 'not set';
+      const takeProfit = actualConfig.takeProfit || actualConfig.takeProfitPercentage || 'not set';
+      const maxPositionSize = actualConfig.maxPositionSize || actualConfig.maxOpenPositions || 'not set';
+      const isAIEnabled = actualConfig.aiIntelligenceConfig?.enableAIOverride || false;
+      const aiOverrideEnabled = actualConfig.aiIntelligenceConfig?.riskOverrideAllowed || false;
+      const selectedCoins = actualConfig.selectedCoins || [];
       
-      if (strategyId && actualConfig) {
-        // Use REAL database configuration for truth-bound responses
-        const strategyType = actualConfig.strategyType || 'balanced';
-        const riskLevel = actualConfig.riskLevel || actualConfig.riskProfile || 'medium';
-        const stopLoss = actualConfig.stopLoss || actualConfig.stop_loss || 'not set';
-        const takeProfit = actualConfig.takeProfit || actualConfig.take_profit || 'not set';
-        const maxPositionSize = actualConfig.maxPositionSize || actualConfig.max_position_size || 'not set';
-        const indicators = actualConfig.indicators || actualConfig.technical_indicators || [];
-        const entryRules = actualConfig.entryRules || actualConfig.entry_conditions;
-        const exitRules = actualConfig.exitRules || actualConfig.exit_conditions;
-        const isAIEnabled = actualConfig.is_ai_enabled || false;
-        const aiOverrideEnabled = actualConfig.ai_override_enabled || false;
-        const selectedCoins = actualConfig.selectedCoins || [];
-        const trailingBuyPercentage = actualConfig.trailingBuyPercentage || 'not set';
-        
-        strategyAnalysis = `
+      strategyAnalysis = `
 CURRENT STRATEGY ANALYSIS (REAL DATABASE STATE):
 - Strategy ID: ${strategyId}
 - Strategy Name: ${actualStrategy.strategy_name}
@@ -221,13 +452,9 @@ CURRENT STRATEGY ANALYSIS (REAL DATABASE STATE):
 - AI Enabled: ${isAIEnabled ? 'YES' : 'NO'}
 - AI Override Enabled: ${aiOverrideEnabled ? 'YES' : 'NO'}
 - Selected Coins: ${Array.isArray(selectedCoins) ? selectedCoins.join(', ') : 'All coins'}
-- Trailing Buy %: ${trailingBuyPercentage}${typeof trailingBuyPercentage === 'number' ? '%' : ''}
 - Stop Loss: ${stopLoss}${typeof stopLoss === 'number' ? '%' : ''}
 - Take Profit: ${takeProfit}${typeof takeProfit === 'number' ? '%' : ''}
 - Max Position Size: ${maxPositionSize}
-- Technical Indicators: ${Array.isArray(indicators) ? indicators.join(', ') : indicators || 'Standard indicators'}
-- Entry Rules: ${entryRules || 'Market-based entry conditions'}
-- Exit Rules: ${exitRules || 'Stop-loss and take-profit based exits'}
 - Test Mode: ${testMode}
 - Active in Test Mode: ${actualStrategy.is_active_test ? 'YES' : 'NO'}
 - Active in Live Mode: ${actualStrategy.is_active_live ? 'YES' : 'NO'}
@@ -238,458 +465,199 @@ When user asks "what coins are allowed?", the answer is: ${Array.isArray(selecte
 When user asks about risk level, the answer is: ${riskLevel}
 `;
 
-        // Get recent trades for context if available
-        if (recentTrades && Array.isArray(recentTrades) && recentTrades.length > 0) {
-          recentTradingContext = `
+      // Get recent trades for context if available
+      if (recentTrades && Array.isArray(recentTrades) && recentTrades.length > 0) {
+        recentTradingContext = `
 RECENT TRADING ACTIVITY:
 ${recentTrades.slice(0, 5).map(trade => 
   `- ${trade.trade_type?.toUpperCase() || 'TRADE'} ${trade.cryptocurrency}: ${trade.amount} at €${trade.price} (P&L: €${trade.profit_loss || 0})`
 ).join('\n')}
 `;
-        }
       }
+    }
 
-      // Enhanced system prompt with conversational, human-like tone
-      const systemPrompt = `You are Alex, a seasoned cryptocurrency trader with 8+ years of experience. You talk like a real person having a casual but professional conversation about trading.
+    // Enhanced system prompt with truth-bound strategy context
+    const systemPrompt = `You are Alex, a seasoned cryptocurrency trader and AI assistant. You have access to REAL LIVE strategy configuration data that you must use to answer questions truthfully.
 
 ${conversationContext}
 ${strategyAnalysis}
 ${recentTradingContext}
-${marketContext}
-${whaleContext}
 ${indicatorContextText}
+${whaleContext}
 
-YOUR PERSONALITY:
-- Speak naturally like you're chatting with a trading buddy over coffee
-- Use contractions (I'll, you're, we've, etc.) and casual language
-- Be confident but not arrogant - you know your stuff but stay humble
-- Skip the overly formal explanations - get straight to the point
-- When someone says "yes please" or "ok do it", just do it and briefly confirm what you changed
-- Don't announce that you're "applying recommendations" - just make the changes naturally
+YOUR CRITICAL RESPONSIBILITIES:
+1. **TRUTH-BOUND RESPONSES**: When users ask about current settings ("is AI enabled?", "what's my risk level?", etc.), you MUST reference the actual database values shown in the CURRENT STRATEGY ANALYSIS above.
 
-YOUR EXPERTISE:
-1. **Strategy Tweaks**: When users want changes, make them and casually mention what you adjusted
-2. **Market Analysis**: Share insights like you're explaining to a friend who trades
-3. **Technical Indicators**: Reference live data naturally in conversation, not like reading a manual
-4. **Trading Decisions**: Explain your reasoning like you're thinking out loud
+2. **CONFIGURATION CHANGES**: When users request changes ("disable AI", "set risk to high", etc.), you should acknowledge the request naturally and the system will automatically detect and apply the changes.
 
-CONVERSATION STYLE EXAMPLES:
+3. **CONVERSATIONAL STYLE**: 
+   - Talk like a knowledgeable trading buddy, not a formal assistant
+   - Use contractions and casual language
+   - Be confident but humble
+   - When someone says "yes please" or "ok do it", just confirm what you're changing
 
-Instead of: "Your message 'yes please' indicates confirmation to apply the most recent recommendation..."
-Say: "Got it! I've lowered your take profit to 0.75% so you'll be selling more frequently. Should see more action now."
+EXAMPLES OF TRUTH-BOUND RESPONSES:
+- User: "Is AI enabled?" → Check the "AI Enabled:" field above and respond with that exact value
+- User: "What coins am I trading?" → Check the "Selected Coins:" field above and list those exact coins
+- User: "What's my current risk level?" → Check the "Risk Profile:" field above and respond with that value
 
-Instead of: "Based on the current RSI value of 27.2, which indicates oversold conditions..."
-Say: "RSI on ETH is sitting at 27 - that's oversold territory, usually a good buying opportunity."
+VALID CHANGES YOU CAN ACKNOWLEDGE:
+- AI settings (enable/disable AI override, autonomy levels, confidence thresholds)
+- Risk management (stop loss, take profit, position sizes, risk levels)
+- Coin selection (add/remove specific cryptocurrencies)
+- Trading parameters (buy frequency, cooldown periods, order types)
+- Notifications (trade alerts, error notifications, target notifications)
 
-Instead of: "Configuration updated. Your strategy will now..."
-Say: "Done! Your stop loss is now at 3% and I bumped take profit to 5%. Better risk management."
+Remember: Always be truthful about current settings by referencing the actual database state provided above.`;
 
-WHEN USER CONFIRMS WITH "YES" OR "OK":
-- Just make the change and briefly say what you did
-- Don't explain the confirmation process
-- Don't list out parameters formally
-- Keep it natural: "Perfect! I've adjusted your settings..."
+    // Call OpenAI API
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: message }
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+      }),
+    });
 
-TECHNICAL DETAILS:
-- Never show JSON code or configuration blocks
-- Don't use bullet points unless listing coins or simple items
-- Reference live market data and indicators naturally
-- When making changes, mention 1-2 key adjustments, not everything
+    const data = await response.json();
+    const aiResponse = data.choices[0].message.content;
 
-VALID CHANGES YOU CAN MAKE:
-- riskLevel: low, medium, high
-- stopLoss: percentage (e.g., 2.5 for 2.5%)
-- takeProfit: percentage (e.g., 5.0 for 5.0%)
-- maxPositionSize: position limits
-- strategyType: trend-following, mean-reverting, breakout, scalping
-- technicalIndicators: enable/disable RSI, MACD, etc.
-- buyCooldownMinutes, tradeCooldownMinutes
+    console.log('🤖 AI_ASSISTANT: Generated response:', aiResponse);
 
-Remember: Talk like a real person, not a formal trading system. Be helpful, casual, and confident.`;
+    // SEMANTIC CONFIGURATION UPDATE DETECTION
+    let finalResponse;
+    
+    // Use semantic mapping to detect configuration changes from user input
+    const configUpdates: any = mapUserIntentToFields(message);
+    
+    // Apply configuration updates if any were detected
+    if (Object.keys(configUpdates).length > 0 && strategyId) {
+      console.log('🔧 AI_ASSISTANT: Applying semantic config updates:', configUpdates);
+      
+      if (!actualStrategy) {
+        console.error('❌ AI_ASSISTANT: No strategy found to update');
+        finalResponse = { 
+          message: `❌ Could not apply changes: Strategy not found.`,
+          configUpdates: {}
+        };
+      } else {
+        // First, attempt the update
+        const { data: updatedStrategy, error: updateError } = await supabaseClient
+          .from('trading_strategies')
+          .update({
+            configuration: { ...actualConfig, ...configUpdates },
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', strategyId)
+          .eq('user_id', userId)
+          .select()
+          .single();
 
-      const userPrompt = `User: "${message.replace(/"/g, '\\"')}"
+        if (updateError) {
+          console.error('❌ AI_ASSISTANT: Database update failed:', updateError);
+          finalResponse = { 
+            message: `❌ Configuration update failed: ${updateError.message}`,
+            configUpdates: {}
+          };
+        } else {
+          // POST-UPDATE VALIDATION: Re-fetch to verify changes
+          const { data: verifyStrategy, error: verifyError } = await supabaseClient
+            .from('trading_strategies')
+            .select('*')
+            .eq('id', strategyId)
+            .eq('user_id', userId)
+            .single();
 
-Respond naturally like you're having a casual conversation with a fellow trader. Keep it real, conversational, and helpful.
-
-If they're asking for changes:
-- Just make them and briefly mention what you adjusted
-- Don't be overly formal or explain the process
-- Talk like you're helping a trading buddy
-
-If they're asking about market conditions or indicators:
-- Share insights naturally using the live data provided
-- Explain things like you're thinking out loud
-
-If they confirm with "yes", "ok", "do it", etc:
-- Just make the changes and casually confirm what you did
-- Don't announce that you're "applying recommendations"
-- Keep it short and natural
-
-Remember: You're Alex, an experienced trader having a friendly chat. No formal language, no JSON, no technical explanations about your process.`;
-
-      // Get LLM configuration from database to respect user's max token settings
-      const { data: llmConfig } = await supabaseClient
-        .from('llm_configurations')
-        .select('*')
-        .eq('is_active', true)
-        .single();
-
-      // Use configured settings or fallback to defaults
-      const modelSettings = {
-        model: llmConfig?.model || 'gpt-4.1-2025-04-14',
-        temperature: llmConfig?.temperature || 0.3,
-        max_tokens: llmConfig?.max_tokens || 2000
-      };
-
-      console.log(`🤖 Using LLM config - Model: ${modelSettings.model}, Max Tokens: ${modelSettings.max_tokens}, Temperature: ${modelSettings.temperature}`);
-
-      try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${openAIApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: modelSettings.model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt }
-            ],
-            temperature: modelSettings.temperature,
-            max_tokens: modelSettings.max_tokens,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`OpenAI API error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        const aiResponse = data.choices[0].message.content;
-
-        // Save user message to conversation history
-        await supabaseClient.from('conversation_history').insert([{
-          user_id: userId,
-          strategy_id: strategyId,
-          message_type: 'user_message',
-          content: message,
-          metadata: { timestamp: new Date().toISOString() }
-        }]);
-
-        // Try to extract configuration updates from BOTH user message and AI response
-        let finalResponse;
-        let configUpdates = {};
-        
-        // First, check the user's original message for direct commands
-        const userMessageLower = message.toLowerCase();
-        const aiResponseLower = aiResponse.toLowerCase();
-        
-        // PRIORITY 1: Direct user commands (these override AI response patterns)
-        
-        // AI Enable/Disable commands from user input
-        if (userMessageLower.includes('disable ai') || 
-            userMessageLower.includes('turn off ai') || 
-            userMessageLower.includes('switch off ai') ||
-            (userMessageLower.includes('disable') && userMessageLower.includes('it') && strategyAnalysis.includes('AI Enabled: YES'))) {
-          configUpdates.is_ai_enabled = false;
-          console.log('🔧 User command detected: Disabling AI');
-        }
-        if (userMessageLower.includes('enable ai') || 
-            userMessageLower.includes('turn on ai') || 
-            userMessageLower.includes('switch on ai')) {
-          configUpdates.is_ai_enabled = true;
-          console.log('🔧 User command detected: Enabling AI');
-        }
-
-        // AI Override commands from user input
-        if (userMessageLower.includes('disable ai override') || 
-            userMessageLower.includes('turn off ai override')) {
-          configUpdates.ai_override_enabled = false;
-          console.log('🔧 User command detected: Disabling AI Override');
-        }
-        if (userMessageLower.includes('enable ai override') || 
-            userMessageLower.includes('turn on ai override')) {
-          configUpdates.ai_override_enabled = true;
-          console.log('🔧 User command detected: Enabling AI Override');
-        }
-
-        // Risk level commands from user input
-        if (userMessageLower.includes('set risk') || userMessageLower.includes('change risk') || userMessageLower.includes('risk level')) {
-          if (userMessageLower.includes('high')) {
-            configUpdates.riskLevel = 'high';
-            configUpdates.riskProfile = 'high';
-            console.log('🔧 User command detected: Setting risk to high');
-          } else if (userMessageLower.includes('low')) {
-            configUpdates.riskLevel = 'low';
-            configUpdates.riskProfile = 'low';
-            console.log('🔧 User command detected: Setting risk to low');
-          } else if (userMessageLower.includes('medium')) {
-            configUpdates.riskLevel = 'medium';
-            configUpdates.riskProfile = 'medium';
-            console.log('🔧 User command detected: Setting risk to medium');
-          }
-        }
-
-        // Coins/symbols commands from user input
-        if (userMessageLower.includes('allow only') || userMessageLower.includes('only allow') || userMessageLower.includes('limit to')) {
-          const coinMatches = userMessageLower.match(/\b(btc|eth|xrp|ada|sol|dot|matic|avax|link|uni|doge|ltc|bch|xlm|algo|atom|fil|trx|etc|theta|xmr|xtz|comp|aave|mkr|snx|crv|yfi)\b/gi);
-          if (coinMatches) {
-            configUpdates.selectedCoins = [...new Set(coinMatches.map(coin => coin.toUpperCase()))];
-            console.log('🔧 User command detected: Setting allowed coins to', configUpdates.selectedCoins);
-          }
-        }
-
-        // Trailing buy percentage from user input
-        if (userMessageLower.includes('trailing buy') && /(\d+\.?\d*)%?/.test(userMessageLower)) {
-          const match = userMessageLower.match(/trailing buy.*?(\d+\.?\d*)%?/);
-          if (match) {
-            configUpdates.trailingBuyPercentage = parseFloat(match[1]);
-            console.log('🔧 User command detected: Setting trailing buy to', configUpdates.trailingBuyPercentage + '%');
-          }
-        }
-
-        // PRIORITY 2: AI response patterns (only if no user commands detected)
-        if (Object.keys(configUpdates).length === 0) {
-          // Extract configuration changes based on AI response patterns
-          if (aiResponseLower.includes('stop loss') && /(\d+\.?\d*)%/.test(aiResponseLower)) {
-            const match = aiResponseLower.match(/stop loss.*?(\d+\.?\d*)%/);
-            if (match) configUpdates.stopLossPercentage = parseFloat(match[1]);
-          }
-          
-          if (aiResponseLower.includes('take profit') && /(\d+\.?\d*)%/.test(aiResponseLower)) {
-            const match = aiResponseLower.match(/take profit.*?(\d+\.?\d*)%/);
-            if (match) configUpdates.takeProfitPercentage = parseFloat(match[1]);
-          }
-          
-          if (aiResponseLower.includes('position size') && /(\d+)/.test(aiResponseLower)) {
-            const match = aiResponseLower.match(/position size.*?(\d+)/);
-            if (match) configUpdates.maxPositionSize = parseInt(match[1]);
-          }
-        }
-        
-        // Apply configuration updates if any were detected
-        if (Object.keys(configUpdates).length > 0 && strategyId) {
-          console.log('🔧 Applying extracted config updates:', configUpdates);
-          
-          if (!actualStrategy) {
-            console.error('❌ No strategy found to update');
+          if (verifyError || !verifyStrategy) {
+            console.error('❌ AI_ASSISTANT: Could not verify update');
             finalResponse = { 
-              message: `❌ Could not apply changes: Strategy not found.`,
+              message: `❌ Update verification failed. Please check your strategy configuration.`,
               configUpdates: {}
             };
           } else {
-            // First, attempt the update
-            const { data: updatedStrategy, error: updateError } = await supabaseClient
-              .from('trading_strategies')
-              .update({
-                configuration: { ...actualConfig, ...configUpdates },
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', strategyId)
-              .eq('user_id', userId)
-              .select()
-              .single();
-
-            if (updateError) {
-              console.error('❌ Database update failed:', updateError);
-              finalResponse = { 
-                message: `❌ Configuration update failed: ${updateError.message}. Please try again or check your permissions.`,
-                configUpdates: {}
-              };
-            } else {
-              console.log('📝 Database update completed, now verifying...');
+            console.log('✅ AI_ASSISTANT: Configuration updated and verified successfully');
+            const verifiedConfig = verifyStrategy.configuration || {};
+            
+            // Verify specific fields were actually updated
+            let verificationMessage = '';
+            for (const [field, value] of Object.entries(configUpdates)) {
+              const actualValue = field.includes('.') ? 
+                field.split('.').reduce((obj, key) => obj?.[key], verifiedConfig) :
+                verifiedConfig[field];
               
-              // CRITICAL: Re-fetch strategy from database to verify changes
-              const { data: verificationStrategy, error: fetchError } = await supabaseClient
-                .from('trading_strategies')
-                .select('*')
-                .eq('id', strategyId)
-                .eq('user_id', userId)
-                .single();
-
-              if (fetchError || !verificationStrategy) {
-                console.error('❌ Failed to re-fetch strategy for verification:', fetchError);
-                finalResponse = { 
-                  message: `❌ Could not verify changes were applied. Please check your strategy configuration.`,
-                  configUpdates: {}
-                };
+              if (actualValue === value) {
+                verificationMessage += `✅ ${field}: ${value}\n`;
               } else {
-                const currentConfig = verificationStrategy.configuration || {};
-                console.log('🔍 Current config after update:', currentConfig);
-                console.log('🎯 Expected updates:', configUpdates);
-                
-                // Verify that each expected change was actually applied
-                const verificationErrors = [];
-                const verificationSuccess = [];
-                
-                for (const [key, expectedValue] of Object.entries(configUpdates)) {
-                  const actualValue = currentConfig[key];
-                  console.log(`🔍 Checking ${key}: expected=${expectedValue}, actual=${actualValue}`);
-                  
-                  if (actualValue !== expectedValue) {
-                    verificationErrors.push(`${key}: expected ${expectedValue}, got ${actualValue}`);
-                  } else {
-                    verificationSuccess.push(`${key}: successfully set to ${actualValue}`);
-                  }
-                }
-                
-                console.log('✅ Verification successes:', verificationSuccess);
-                console.log('❌ Verification errors:', verificationErrors);
-                
-                if (verificationErrors.length > 0) {
-                  // Changes were NOT applied successfully
-                  finalResponse = { 
-                    message: `❌ Configuration changes failed to apply:\n${verificationErrors.join('\n')}\n\nThe strategy configuration was not updated as requested.`,
-                    configUpdates: {},
-                    verificationErrors
-                  };
-                } else {
-                  // ALL changes were applied successfully
-                  let successMessage = '';
-                  
-                  // Create specific success messages based on what was changed
-                  if (configUpdates.is_ai_enabled === false) {
-                    successMessage += '✅ AI has been disabled.\n';
-                  } else if (configUpdates.is_ai_enabled === true) {
-                    successMessage += '✅ AI has been enabled.\n';
-                  }
-                  
-                  if (configUpdates.ai_override_enabled === false) {
-                    successMessage += '✅ AI override has been disabled.\n';
-                  } else if (configUpdates.ai_override_enabled === true) {
-                    successMessage += '✅ AI override has been enabled.\n';
-                  }
-                  
-                  if (configUpdates.riskLevel || configUpdates.riskProfile) {
-                    successMessage += `✅ Risk profile has been set to ${configUpdates.riskLevel || configUpdates.riskProfile}.\n`;
-                  }
-                  
-                  if (configUpdates.selectedCoins) {
-                    successMessage += `✅ Allowed coins have been set to: ${configUpdates.selectedCoins.join(', ')}.\n`;
-                  }
-                  
-                  if (configUpdates.trailingBuyPercentage) {
-                    successMessage += `✅ Trailing buy percentage has been set to ${configUpdates.trailingBuyPercentage}%.\n`;
-                  }
-                  
-                  // If no specific messages, use generic success
-                  if (!successMessage) {
-                    successMessage = '✅ Configuration has been successfully updated.';
-                  }
-                  
-                  finalResponse = { 
-                    message: successMessage.trim(),
-                    configUpdates,
-                    verifiedConfig: currentConfig,
-                    verificationSuccess
-                  };
-                }
+                verificationMessage += `❌ ${field}: Expected ${value}, got ${actualValue}\n`;
               }
             }
+            
+            finalResponse = { 
+              message: aiResponse,
+              configUpdates,
+              verification: verificationMessage,
+              success: true
+            };
           }
-        } else {
-          // No configuration updates, just return the AI message
-          finalResponse = { 
-            message: aiResponse,
-            configUpdates: {}
-          };
         }
+      }
+    } else {
+      // No configuration updates detected
+      finalResponse = { 
+        message: aiResponse,
+        configUpdates: {}
+      };
+    }
 
-        // Save AI response to conversation history
-        await supabaseClient.from('conversation_history').insert([{
+    // Store conversation in history
+    if (strategyId) {
+      await supabaseClient.from('conversation_history').insert([
+        {
           user_id: userId,
           strategy_id: strategyId,
-          message_type: 'ai_response',
+          message_type: 'user',
+          content: message,
+          metadata: { timestamp: new Date().toISOString() }
+        },
+        {
+          user_id: userId,
+          strategy_id: strategyId,
+          message_type: 'assistant',
           content: finalResponse.message,
           metadata: { 
-            configUpdates: finalResponse.configUpdates || {},
-            timestamp: new Date().toISOString()
-          }
-        }]);
-
-        return new Response(JSON.stringify(finalResponse), { 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        });
-
-      } catch (error) {
-        console.error('OpenAI API error:', error);
-        return new Response(JSON.stringify({ 
-          message: `❌ AI processing error: ${error.message}`,
-          configUpdates: {}
-        }), { 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        });
-      }
-    }
-    
-    if (action === 'analyze_opportunities') {
-      // Get recent signals
-      const { data: signals } = await supabaseClient
-        .from('live_signals')
-        .select('*')
-        .gte('timestamp', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString())
-        .order('signal_strength', { ascending: false });
-
-      // Get AI knowledge
-      const { data: knowledge } = await supabaseClient
-        .from('ai_knowledge_base')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('knowledge_type', 'signal_correlation')
-        .order('confidence_score', { ascending: false });
-
-      const opportunities = [];
-      for (const signal of signals || []) {
-        if (signal.signal_strength >= confidenceThreshold * 100) {
-          const relatedKnowledge = (knowledge || []).find(k => 
-            k.metadata?.signal?.signal_type === signal.signal_type
-          );
-          
-          const aiConfidence = relatedKnowledge ? 
-            (signal.signal_strength / 100 + relatedKnowledge.confidence_score) / 2 : 
-            signal.signal_strength / 100;
-
-          if (aiConfidence >= confidenceThreshold) {
-            opportunities.push({
-              symbol: signal.symbol,
-              action: signal.signal_type.includes('bullish') ? 'buy' : 'sell',
-              confidence: aiConfidence,
-              reasoning: `${signal.signal_type} signal with ${(aiConfidence * 100).toFixed(1)}% AI confidence`,
-              signal_strength: signal.signal_strength,
-              timestamp: signal.timestamp
-            });
+            timestamp: new Date().toISOString(),
+            configUpdates: finalResponse.configUpdates || {}
           }
         }
-      }
-
-      // Store recommendation
-      if (opportunities.length > 0) {
-        const topOpportunity = opportunities[0];
-        await supabaseClient.from('conversation_history').insert([{
-          user_id: userId,
-          message_type: 'ai_recommendation',
-          content: `AI recommends ${topOpportunity.action} ${topOpportunity.symbol} - ${topOpportunity.reasoning}`,
-          metadata: { opportunities: opportunities.slice(0, 3) }
-        }]);
-      }
-
-      return new Response(JSON.stringify({ 
-        success: true, 
-        opportunities: opportunities.slice(0, 5),
-        total_analyzed: signals?.length || 0,
-        message: `Found ${opportunities.length} high-confidence opportunities`
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      ]);
     }
 
-    return new Response(JSON.stringify({ error: 'Invalid action' }), {
-      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    console.log('📝 AI_ASSISTANT: Response completed:', {
+      hasConfigUpdates: Object.keys(finalResponse.configUpdates || {}).length > 0,
+      updateCount: Object.keys(finalResponse.configUpdates || {}).length
+    });
+
+    return new Response(JSON.stringify(finalResponse), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
-    console.error('❌ AI Trading Assistant error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    console.error('❌ AI_ASSISTANT: Error in ai-trading-assistant function:', error);
+    return new Response(JSON.stringify({ 
+      error: error.message,
+      message: "I'm experiencing some technical difficulties. Please try again in a moment."
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 });
