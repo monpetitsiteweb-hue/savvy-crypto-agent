@@ -359,41 +359,100 @@ Remember: You're Alex, an experienced trader having a friendly chat. No formal l
         }
         
         if (aiResponseLower.includes('risk level') || aiResponseLower.includes('risk profile')) {
-          if (aiResponseLower.includes('low')) configUpdates.riskLevel = 'low';
-          else if (aiResponseLower.includes('high')) configUpdates.riskLevel = 'high';
-          else if (aiResponseLower.includes('medium')) configUpdates.riskLevel = 'medium';
+          if (aiResponseLower.includes('low')) {
+            configUpdates.riskLevel = 'low';
+            configUpdates.riskProfile = 'low';
+          } else if (aiResponseLower.includes('high')) {
+            configUpdates.riskLevel = 'high'; 
+            configUpdates.riskProfile = 'high';
+          } else if (aiResponseLower.includes('medium')) {
+            configUpdates.riskLevel = 'medium';
+            configUpdates.riskProfile = 'medium';
+          }
         }
         
         if (aiResponseLower.includes('position size') && /(\d+)/.test(aiResponseLower)) {
           const match = aiResponseLower.match(/position size.*?(\d+)/);
           if (match) configUpdates.maxPositionSize = parseInt(match[1]);
         }
+
+        // Extract AI enable/disable commands
+        if (aiResponseLower.includes('ai') && (aiResponseLower.includes('disable') || aiResponseLower.includes('turn off') || aiResponseLower.includes('switched off'))) {
+          configUpdates.is_ai_enabled = false;
+        }
+        if (aiResponseLower.includes('ai') && (aiResponseLower.includes('enable') || aiResponseLower.includes('turn on') || aiResponseLower.includes('switched on'))) {
+          configUpdates.is_ai_enabled = true;
+        }
+
+        // Extract AI override enable/disable commands  
+        if (aiResponseLower.includes('ai override') && (aiResponseLower.includes('disable') || aiResponseLower.includes('turn off'))) {
+          configUpdates.ai_override_enabled = false;
+        }
+        if (aiResponseLower.includes('ai override') && (aiResponseLower.includes('enable') || aiResponseLower.includes('turn on'))) {
+          configUpdates.ai_override_enabled = true;
+        }
+
+        // Extract trailing buy percentage
+        if (aiResponseLower.includes('trailing buy') && /(\d+\.?\d*)%/.test(aiResponseLower)) {
+          const match = aiResponseLower.match(/trailing buy.*?(\d+\.?\d*)%/);
+          if (match) configUpdates.trailing_buy_percentage = parseFloat(match[1]);
+        }
+
+        // Extract allowed symbols/coins
+        if (aiResponseLower.includes('allow only') || aiResponseLower.includes('allowed coins')) {
+          const coinMatches = aiResponseLower.match(/\b(btc|eth|xrp|ada|sol|dot|matic|avax|link|uni)\b/gi);
+          if (coinMatches) {
+            configUpdates.allowed_symbols = [...new Set(coinMatches.map(coin => coin.toUpperCase()))];
+          }
+        }
         
         // Apply configuration updates if any were detected
         if (Object.keys(configUpdates).length > 0 && strategyId) {
           console.log('🔧 Applying extracted config updates:', configUpdates);
           
-          const { error: updateError } = await supabaseClient
+          const { data: updatedStrategy, error: updateError } = await supabaseClient
             .from('trading_strategies')
             .update({
               configuration: { ...currentConfig, ...configUpdates },
               updated_at: new Date().toISOString()
             })
             .eq('id', strategyId)
-            .eq('user_id', userId);
+            .eq('user_id', userId)
+            .select()
+            .single();
 
           if (updateError) {
             console.error('Error updating strategy:', updateError);
             finalResponse = { 
-              message: `❌ Error updating strategy: ${updateError.message}`,
+              message: `❌ Configuration update failed: ${updateError.message}. Please try again or check your permissions.`,
               configUpdates: {}
             };
           } else {
+            // Verify changes were applied by checking the returned data
             console.log('✅ Strategy configuration updated successfully');
-            finalResponse = { 
-              message: aiResponse,
-              configUpdates 
-            };
+            console.log('🔍 Updated configuration:', updatedStrategy.configuration);
+            
+            // Verify that the changes were actually applied
+            const verificationErrors = [];
+            for (const [key, value] of Object.entries(configUpdates)) {
+              if (updatedStrategy.configuration[key] !== value) {
+                verificationErrors.push(`${key}: expected ${value}, got ${updatedStrategy.configuration[key]}`);
+              }
+            }
+            
+            if (verificationErrors.length > 0) {
+              console.error('⚠️ Configuration verification failed:', verificationErrors);
+              finalResponse = { 
+                message: `⚠️ Configuration update partially failed. Some changes may not have been applied: ${verificationErrors.join(', ')}`,
+                configUpdates: {}
+              };
+            } else {
+              finalResponse = { 
+                message: aiResponse,
+                configUpdates,
+                verifiedConfig: updatedStrategy.configuration
+              };
+            }
           }
         } else {
           // No configuration updates, just return the message
