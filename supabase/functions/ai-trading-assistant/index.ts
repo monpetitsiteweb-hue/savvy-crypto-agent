@@ -761,20 +761,45 @@ Remember: Always be truthful about current settings by referencing the actual da
             for (const [field, expectedValue] of Object.entries(configUpdates)) {
               const actualValue = getNestedField(verifiedConfig, field);
               
-              // Use strict equality check for exact matches
-              const isMatch = actualValue === expectedValue;
+              // FIXED: Use proper deep equality for arrays and objects
+              let isMatch = false;
               
-              console.log(`🔍 AI_ASSISTANT: Field verification for "${field}":`);
-              console.log(`   Expected: ${expectedValue} (type: ${typeof expectedValue})`);
-              console.log(`   Actual: ${actualValue} (type: ${typeof actualValue})`);
+              if (Array.isArray(expectedValue) && Array.isArray(actualValue)) {
+                // Array comparison: check length and all elements
+                isMatch = expectedValue.length === actualValue.length && 
+                         expectedValue.every((val, index) => val === actualValue[index]);
+                console.log(`🔍 AI_ASSISTANT: Array comparison for "${field}"`);
+                console.log(`   Expected: [${expectedValue.join(', ')}] (length: ${expectedValue.length})`);
+                console.log(`   Actual: [${actualValue.join(', ')}] (length: ${actualValue.length})`);
+              } else if (typeof expectedValue === 'object' && typeof actualValue === 'object' && 
+                         expectedValue !== null && actualValue !== null) {
+                // Object comparison: compare all keys and values
+                const expectedKeys = Object.keys(expectedValue).sort();
+                const actualKeys = Object.keys(actualValue).sort();
+                isMatch = JSON.stringify(expectedKeys) === JSON.stringify(actualKeys) &&
+                         expectedKeys.every(key => expectedValue[key] === actualValue[key]);
+                console.log(`🔍 AI_ASSISTANT: Object comparison for "${field}"`);
+                console.log(`   Expected: ${JSON.stringify(expectedValue)}`);
+                console.log(`   Actual: ${JSON.stringify(actualValue)}`);
+              } else {
+                // Primitive comparison
+                isMatch = actualValue === expectedValue;
+                console.log(`🔍 AI_ASSISTANT: Primitive comparison for "${field}"`);
+                console.log(`   Expected: ${expectedValue} (type: ${typeof expectedValue})`);
+                console.log(`   Actual: ${actualValue} (type: ${typeof actualValue})`);
+              }
+              
               console.log(`   Match: ${isMatch}`);
               
               if (isMatch) {
-                verificationMessage += `✅ ${field}: Updated to ${expectedValue}\n`;
+                const displayValue = Array.isArray(expectedValue) ? `[${expectedValue.join(', ')}]` : expectedValue;
+                verificationMessage += `✅ ${field}: Updated to ${displayValue}\n`;
                 console.log(`✅ AI_ASSISTANT: Field "${field}" verified successfully`);
               } else {
                 allUpdatesApplied = false;
-                verificationMessage += `❌ ${field}: Expected ${expectedValue}, got ${actualValue}\n`;
+                const expectedDisplay = Array.isArray(expectedValue) ? `[${expectedValue.join(', ')}]` : expectedValue;
+                const actualDisplay = Array.isArray(actualValue) ? `[${actualValue.join(', ')}]` : actualValue;
+                verificationMessage += `❌ ${field}: Expected ${expectedDisplay}, got ${actualDisplay}\n`;
                 console.log(`❌ AI_ASSISTANT: Field "${field}" verification FAILED`);
               }
             }
