@@ -347,10 +347,32 @@ serve(async (req) => {
     console.log('🔍 AI_ASSISTANT: Received userId:', userId);
     console.log('🔍 AI_ASSISTANT: Received testMode:', testMode);
 
-    // CRITICAL: If no strategyId is provided, try to find the active strategy
-    if (!strategyId) {
-      console.log('🚨 AI_ASSISTANT: No strategyId provided! Attempting to find active strategy...');
+    // CRITICAL: Always try to find an active strategy, regardless of strategyId
+    console.log('🚨 AI_ASSISTANT: Finding active strategy for user...');
+    
+    // First, try to use provided strategyId if available
+    if (strategyId) {
+      console.log('🔍 AI_ASSISTANT: Fetching strategy data for provided strategyId:', strategyId);
       
+      const { data: strategy, error: strategyError } = await supabaseClient
+        .from('trading_strategies')
+        .select('*')
+        .eq('id', strategyId)
+        .eq('user_id', userId)
+        .single();
+
+      if (!strategyError && strategy) {
+        actualStrategy = strategy;
+        actualConfig = strategy.configuration;
+        console.log('✅ AI_ASSISTANT: Strategy fetched successfully:', actualStrategy.strategy_name);
+      } else {
+        console.error('❌ AI_ASSISTANT: Error fetching strategy by ID:', strategyError);
+      }
+    }
+    
+    // If no strategy found yet, search for active strategy based on mode
+    if (!actualStrategy) {
+      console.log('🔍 AI_ASSISTANT: No strategy loaded, searching for active strategy...');
       const activeField = testMode ? 'is_active_test' : 'is_active_live';
       console.log('🔍 AI_ASSISTANT: Looking for active strategy using field:', activeField);
       
@@ -364,16 +386,14 @@ serve(async (req) => {
         
       console.log('🔍 AI_ASSISTANT: Active strategy query result:', { activeStrategies, activeError });
       
-      if (activeError) {
-        console.error('❌ AI_ASSISTANT: Error finding active strategy:', activeError);
-      } else if (activeStrategies && activeStrategies.length > 0) {
+      if (!activeError && activeStrategies && activeStrategies.length > 0) {
         actualStrategy = activeStrategies[0];
         actualConfig = actualStrategy.configuration;
         console.log('✅ AI_ASSISTANT: Found active strategy:', actualStrategy.id, actualStrategy.strategy_name);
       } else {
         console.log('⚠️ AI_ASSISTANT: No active strategy found for mode:', testMode ? 'test' : 'live');
         
-        // Also check ALL strategies to see what's available
+        // Check ALL strategies to see what's available for debugging
         const { data: allStrategies, error: allError } = await supabaseClient
           .from('trading_strategies')
           .select('*')
@@ -388,24 +408,6 @@ serve(async (req) => {
             console.log(`     - is_active_live: ${strategy.is_active_live}`);
           });
         }
-      }
-    } else {
-      console.log('🔍 AI_ASSISTANT: Fetching strategy data for provided strategyId:', strategyId);
-      
-      // Fetch strategy configuration
-      const { data: strategy, error: strategyError } = await supabaseClient
-        .from('trading_strategies')
-        .select('*')
-        .eq('id', strategyId)
-        .eq('user_id', userId)
-        .single();
-
-      if (strategyError) {
-        console.error('❌ AI_ASSISTANT: Error fetching strategy:', strategyError);
-      } else {
-        actualStrategy = strategy;
-        actualConfig = strategy?.configuration;
-        console.log('✅ AI_ASSISTANT: Strategy fetched successfully:', actualStrategy?.strategy_name);
       }
     }
 
@@ -544,8 +546,30 @@ ${recentTrades.slice(0, 5).map(trade =>
       }
     }
 
+    // Generate appropriate welcome message based on strategy context
+    let welcomeMessage = '';
+    if (actualStrategy && actualConfig) {
+      const currentMode = testMode ? 'Test Mode' : 'Live Mode';
+      const isActiveInMode = testMode ? actualStrategy.is_active_test : actualStrategy.is_active_live;
+      const isAIEnabled = actualConfig.aiIntelligenceConfig?.enableAIOverride || false;
+      
+      if (isActiveInMode) {
+        if (testMode) {
+          welcomeMessage = `Hello! You're in ${currentMode} with an active strategy "${actualStrategy.strategy_name}". I'll help monitor and optimize your simulated trades.`;
+        } else {
+          welcomeMessage = `Hello! You're running a Live trading strategy "${actualStrategy.strategy_name}". I'm monitoring the markets and executing trades on your behalf.`;
+        }
+      } else {
+        welcomeMessage = `Hello! You have a strategy "${actualStrategy.strategy_name}" but it's not currently active in ${currentMode}. Activate it to get started with trading.`;
+      }
+    } else {
+      welcomeMessage = `Hello! I'm currently on standby. Activate a strategy in Test or Live Mode to get started.`;
+    }
+
     // Enhanced system prompt with truth-bound strategy context
     const systemPrompt = `You are Alex, a seasoned cryptocurrency trader and AI assistant. You have access to REAL LIVE strategy configuration data that you must use to answer questions truthfully.
+
+WELCOME CONTEXT: ${welcomeMessage}
 
 ${conversationContext}
 ${strategyAnalysis}
@@ -563,6 +587,8 @@ YOUR CRITICAL RESPONSIBILITIES:
    - Use contractions and casual language
    - Be confident but humble
    - When someone says "yes please" or "ok do it", just confirm what you're changing
+
+4. **APPROPRIATE GREETINGS**: Use the WELCOME CONTEXT above to provide accurate information about the current strategy state when users first interact with you.
 
 EXAMPLES OF TRUTH-BOUND RESPONSES:
 - User: "Is AI enabled?" → Check the "AI Enabled:" field above and respond with that exact value
@@ -670,16 +696,19 @@ Remember: Always be truthful about current settings by referencing the actual da
             let verificationMessage = '';
             let allUpdatesApplied = true;
             
-            for (const [field, value] of Object.entries(configUpdates)) {
+            for (const [field, expectedValue] of Object.entries(configUpdates)) {
               const actualValue = getNestedField(verifiedConfig, field);
               
-              console.log(`🔍 AI_ASSISTANT: Verifying ${field}: expected ${JSON.stringify(value)}, got ${JSON.stringify(actualValue)}`);
+              // Compare individual field values directly, not stringified objects
+              const isMatch = actualValue === expectedValue;
               
-              if (actualValue === value) {
-                verificationMessage += `✅ ${field}: ${value}\n`;
+              console.log(`🔍 AI_ASSISTANT: Verifying ${field}: expected ${expectedValue}, got ${actualValue}`);
+              
+              if (isMatch) {
+                verificationMessage += `✅ ${field}: ${expectedValue}\n`;
               } else {
                 allUpdatesApplied = false;
-                verificationMessage += `❌ ${field}: Expected ${JSON.stringify(value)}, got ${JSON.stringify(actualValue)}\n`;
+                verificationMessage += `❌ ${field}: Expected ${expectedValue}, got ${actualValue}\n`;
               }
             }
             
