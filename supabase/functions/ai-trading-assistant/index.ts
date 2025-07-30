@@ -566,11 +566,22 @@ Remember: Always be truthful about current settings by referencing the actual da
           configUpdates: {}
         };
       } else {
+        // Build properly nested configuration update
+        const updatedConfig = JSON.parse(JSON.stringify(actualConfig)); // Deep clone
+        
+        // Apply each nested field update correctly
+        for (const [fieldPath, value] of Object.entries(configUpdates)) {
+          setNestedField(updatedConfig, fieldPath, value);
+        }
+        
+        console.log('🔧 AI_ASSISTANT: Original config:', JSON.stringify(actualConfig, null, 2));
+        console.log('🔧 AI_ASSISTANT: Updated config:', JSON.stringify(updatedConfig, null, 2));
+        
         // First, attempt the update
         const { data: updatedStrategy, error: updateError } = await supabaseClient
           .from('trading_strategies')
           .update({
-            configuration: { ...actualConfig, ...configUpdates },
+            configuration: updatedConfig,
             updated_at: new Date().toISOString()
           })
           .eq('id', strategyId)
@@ -610,11 +621,13 @@ Remember: Always be truthful about current settings by referencing the actual da
             for (const [field, value] of Object.entries(configUpdates)) {
               const actualValue = getNestedField(verifiedConfig, field);
               
+              console.log(`🔍 AI_ASSISTANT: Verifying ${field}: expected ${JSON.stringify(value)}, got ${JSON.stringify(actualValue)}`);
+              
               if (actualValue === value) {
                 verificationMessage += `✅ ${field}: ${value}\n`;
               } else {
                 allUpdatesApplied = false;
-                verificationMessage += `❌ ${field}: Expected ${value}, got ${actualValue}\n`;
+                verificationMessage += `❌ ${field}: Expected ${JSON.stringify(value)}, got ${JSON.stringify(actualValue)}\n`;
               }
             }
             
