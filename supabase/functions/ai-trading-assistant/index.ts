@@ -19,7 +19,7 @@ const SEMANTIC_FIELD_MAPPING = {
   'Enable AI Decision Override': {
     field: 'aiIntelligenceConfig.enableAIOverride',
     type: 'boolean',
-    examples: ["Give the AI more control", "Let AI make decisions", "Enable AI override", "Allow AI independence", "disable ai", "turn off ai", "stop ai decisions"]
+    examples: ["Give the AI more control", "Let AI make decisions", "Enable AI override", "Allow AI independence", "disable ai", "turn off ai", "stop ai decisions", "enable ai", "turn on ai", "activate ai", "start ai decisions", "re-enable ai", "bring back ai"]
   },
   'AI Autonomy Level': {
     field: 'aiIntelligenceConfig.aiAutonomyLevel', 
