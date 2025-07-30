@@ -264,6 +264,11 @@ const SEMANTIC_FIELD_MAPPING = {
     field: 'stopLossPercentage', 
     type: 'number',
     examples: ["Cut my losses at 2%", "Don't let it drop more than 1.5%", "Add a stop-loss"]
+  },
+  'Per Trade Allocation': {
+    field: 'perTradeAllocation',
+    type: 'number',
+    examples: ["Set minimum trade to 500 euros", "Per trade allocation 1000", "Minimum 500 per trade"]
   }
 };
 
@@ -427,7 +432,7 @@ serve(async (req) => {
       (lowerMessage.includes('only') && extractCoinsFromMessage(message).length > 0)
     );
 
-    // Handle confirmation responses
+    // Handle confirmation responses and detect amount changes
     const isConfirmation = (
       lowerMessage.includes('yes') || 
       lowerMessage.includes('please') || 
@@ -436,8 +441,25 @@ serve(async (req) => {
       lowerMessage.includes('do it')
     );
 
-    // Only detect configuration changes for explicit commands
-    const configUpdates = isExplicitConfigCommand ? mapUserIntentToFields(message, currentConfig) : {};
+    // Check for perTradeAllocation changes specifically
+    const amountMatch = message.match(/(\d+)\s*(euros?|eur|€)/i);
+    const hasAmountRequest = amountMatch && (
+      lowerMessage.includes('pertrade') || 
+      lowerMessage.includes('per trade') ||
+      lowerMessage.includes('allocation') ||
+      lowerMessage.includes('minimum') ||
+      lowerMessage.includes('500')
+    );
+
+    // Detect configuration changes for explicit commands OR amount requests
+    let configUpdates = {};
+    if (isExplicitConfigCommand) {
+      configUpdates = mapUserIntentToFields(message, currentConfig);
+    } else if (hasAmountRequest) {
+      const amount = parseInt(amountMatch[1]);
+      configUpdates = { perTradeAllocation: amount };
+    }
+    
     const hasConfigUpdates = Object.keys(configUpdates).length > 0;
 
     // Check if this is a query about current state
