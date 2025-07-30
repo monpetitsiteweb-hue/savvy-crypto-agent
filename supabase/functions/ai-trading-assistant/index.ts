@@ -377,69 +377,94 @@ Remember: You're Alex, an experienced trader having a friendly chat. No formal l
           metadata: { timestamp: new Date().toISOString() }
         }]);
 
-        // Try to extract configuration updates from the response
+        // Try to extract configuration updates from BOTH user message and AI response
         let finalResponse;
         let configUpdates = {};
         
-        // Check if the AI response contains configuration keywords
+        // First, check the user's original message for direct commands
+        const userMessageLower = message.toLowerCase();
         const aiResponseLower = aiResponse.toLowerCase();
         
-        // Extract configuration changes based on natural language patterns
-        if (aiResponseLower.includes('stop loss') && /(\d+\.?\d*)%/.test(aiResponseLower)) {
-          const match = aiResponseLower.match(/stop loss.*?(\d+\.?\d*)%/);
-          if (match) configUpdates.stopLoss = parseFloat(match[1]);
-        }
+        // PRIORITY 1: Direct user commands (these override AI response patterns)
         
-        if (aiResponseLower.includes('take profit') && /(\d+\.?\d*)%/.test(aiResponseLower)) {
-          const match = aiResponseLower.match(/take profit.*?(\d+\.?\d*)%/);
-          if (match) configUpdates.takeProfit = parseFloat(match[1]);
+        // AI Enable/Disable commands from user input
+        if (userMessageLower.includes('disable ai') || 
+            userMessageLower.includes('turn off ai') || 
+            userMessageLower.includes('switch off ai') ||
+            (userMessageLower.includes('disable') && userMessageLower.includes('it') && strategyAnalysis.includes('AI Enabled: YES'))) {
+          configUpdates.is_ai_enabled = false;
+          console.log('🔧 User command detected: Disabling AI');
         }
-        
-        if (aiResponseLower.includes('risk level') || aiResponseLower.includes('risk profile')) {
-          if (aiResponseLower.includes('low')) {
+        if (userMessageLower.includes('enable ai') || 
+            userMessageLower.includes('turn on ai') || 
+            userMessageLower.includes('switch on ai')) {
+          configUpdates.is_ai_enabled = true;
+          console.log('🔧 User command detected: Enabling AI');
+        }
+
+        // AI Override commands from user input
+        if (userMessageLower.includes('disable ai override') || 
+            userMessageLower.includes('turn off ai override')) {
+          configUpdates.ai_override_enabled = false;
+          console.log('🔧 User command detected: Disabling AI Override');
+        }
+        if (userMessageLower.includes('enable ai override') || 
+            userMessageLower.includes('turn on ai override')) {
+          configUpdates.ai_override_enabled = true;
+          console.log('🔧 User command detected: Enabling AI Override');
+        }
+
+        // Risk level commands from user input
+        if (userMessageLower.includes('set risk') || userMessageLower.includes('change risk') || userMessageLower.includes('risk level')) {
+          if (userMessageLower.includes('high')) {
+            configUpdates.riskLevel = 'high';
+            configUpdates.riskProfile = 'high';
+            console.log('🔧 User command detected: Setting risk to high');
+          } else if (userMessageLower.includes('low')) {
             configUpdates.riskLevel = 'low';
             configUpdates.riskProfile = 'low';
-          } else if (aiResponseLower.includes('high')) {
-            configUpdates.riskLevel = 'high'; 
-            configUpdates.riskProfile = 'high';
-          } else if (aiResponseLower.includes('medium')) {
+            console.log('🔧 User command detected: Setting risk to low');
+          } else if (userMessageLower.includes('medium')) {
             configUpdates.riskLevel = 'medium';
             configUpdates.riskProfile = 'medium';
+            console.log('🔧 User command detected: Setting risk to medium');
           }
         }
-        
-        if (aiResponseLower.includes('position size') && /(\d+)/.test(aiResponseLower)) {
-          const match = aiResponseLower.match(/position size.*?(\d+)/);
-          if (match) configUpdates.maxPositionSize = parseInt(match[1]);
-        }
 
-        // Extract AI enable/disable commands
-        if (aiResponseLower.includes('ai') && (aiResponseLower.includes('disable') || aiResponseLower.includes('turn off') || aiResponseLower.includes('switched off'))) {
-          configUpdates.is_ai_enabled = false;
-        }
-        if (aiResponseLower.includes('ai') && (aiResponseLower.includes('enable') || aiResponseLower.includes('turn on') || aiResponseLower.includes('switched on'))) {
-          configUpdates.is_ai_enabled = true;
-        }
-
-        // Extract AI override enable/disable commands  
-        if (aiResponseLower.includes('ai override') && (aiResponseLower.includes('disable') || aiResponseLower.includes('turn off'))) {
-          configUpdates.ai_override_enabled = false;
-        }
-        if (aiResponseLower.includes('ai override') && (aiResponseLower.includes('enable') || aiResponseLower.includes('turn on'))) {
-          configUpdates.ai_override_enabled = true;
-        }
-
-        // Extract trailing buy percentage
-        if (aiResponseLower.includes('trailing buy') && /(\d+\.?\d*)%/.test(aiResponseLower)) {
-          const match = aiResponseLower.match(/trailing buy.*?(\d+\.?\d*)%/);
-          if (match) configUpdates.trailing_buy_percentage = parseFloat(match[1]);
-        }
-
-        // Extract allowed symbols/coins
-        if (aiResponseLower.includes('allow only') || aiResponseLower.includes('allowed coins')) {
-          const coinMatches = aiResponseLower.match(/\b(btc|eth|xrp|ada|sol|dot|matic|avax|link|uni)\b/gi);
+        // Coins/symbols commands from user input
+        if (userMessageLower.includes('allow only') || userMessageLower.includes('only allow') || userMessageLower.includes('limit to')) {
+          const coinMatches = userMessageLower.match(/\b(btc|eth|xrp|ada|sol|dot|matic|avax|link|uni|doge|ltc|bch|xlm|algo|atom|fil|trx|etc|theta|xmr|xtz|comp|aave|mkr|snx|crv|yfi)\b/gi);
           if (coinMatches) {
-            configUpdates.allowed_symbols = [...new Set(coinMatches.map(coin => coin.toUpperCase()))];
+            configUpdates.selectedCoins = [...new Set(coinMatches.map(coin => coin.toUpperCase()))];
+            console.log('🔧 User command detected: Setting allowed coins to', configUpdates.selectedCoins);
+          }
+        }
+
+        // Trailing buy percentage from user input
+        if (userMessageLower.includes('trailing buy') && /(\d+\.?\d*)%?/.test(userMessageLower)) {
+          const match = userMessageLower.match(/trailing buy.*?(\d+\.?\d*)%?/);
+          if (match) {
+            configUpdates.trailingBuyPercentage = parseFloat(match[1]);
+            console.log('🔧 User command detected: Setting trailing buy to', configUpdates.trailingBuyPercentage + '%');
+          }
+        }
+
+        // PRIORITY 2: AI response patterns (only if no user commands detected)
+        if (Object.keys(configUpdates).length === 0) {
+          // Extract configuration changes based on AI response patterns
+          if (aiResponseLower.includes('stop loss') && /(\d+\.?\d*)%/.test(aiResponseLower)) {
+            const match = aiResponseLower.match(/stop loss.*?(\d+\.?\d*)%/);
+            if (match) configUpdates.stopLossPercentage = parseFloat(match[1]);
+          }
+          
+          if (aiResponseLower.includes('take profit') && /(\d+\.?\d*)%/.test(aiResponseLower)) {
+            const match = aiResponseLower.match(/take profit.*?(\d+\.?\d*)%/);
+            if (match) configUpdates.takeProfitPercentage = parseFloat(match[1]);
+          }
+          
+          if (aiResponseLower.includes('position size') && /(\d+)/.test(aiResponseLower)) {
+            const match = aiResponseLower.match(/position size.*?(\d+)/);
+            if (match) configUpdates.maxPositionSize = parseInt(match[1]);
           }
         }
         
