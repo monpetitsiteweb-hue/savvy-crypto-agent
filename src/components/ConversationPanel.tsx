@@ -34,15 +34,18 @@ export const ConversationPanel = () => {
   console.log('ConversationPanel component loaded');
   const { user } = useAuth();
   const { testMode } = useTestMode();
-  const { activeStrategy, hasActiveStrategy } = useActiveStrategy();
+  const { activeStrategy, hasActiveStrategy, loading: strategyLoading } = useActiveStrategy();
   const { executeProductionTrade, validateProductionReadiness, isProcessing } = useProductionTrading();
   const { marketData } = useRealTimeMarketData();
   const { indicators, indicatorConfig, updateIndicatorConfig, isLoadingHistoricalData } = useTechnicalIndicators(activeStrategy?.configuration);
   
   const [messages, setMessages] = useState<Message[]>([]);
   
-  // Load conversation from session storage on mount
+  // Load conversation from session storage on mount, but wait for strategy loading
   useEffect(() => {
+    // Don't show initial message until strategy loading is complete
+    if (strategyLoading) return;
+    
     const savedMessages = sessionStorage.getItem('trading-conversation');
     if (savedMessages) {
       try {
@@ -59,24 +62,50 @@ export const ConversationPanel = () => {
       }
     }
     
-    // If no saved conversation, show initial message
-    const getInitialMessage = () => {
-      if (!hasActiveStrategy) {
-        return "Hello! I'm your AI trading assistant. Currently on standby as no strategy is active. Enable a strategy in Test Mode or Live Mode to begin automated trading and I'll help you monitor and optimize your trades!";
-      }
+    // Send a "system health check" to the AI assistant to get proper welcome message
+    const initializeConversation = async () => {
+      if (!user) return;
       
-      return testMode 
-        ? "Hello! I'm your AI trading assistant in **TEST MODE** 🧪. I can help you practice trading safely with mock money, analyze strategies, and provide advice. Try asking me to 'buy 1000 euros of BTC' or 'change stop loss to 2.5%' - all trades will be simulated!"
-        : "Hello! I'm your AI trading assistant. Currently in LIVE MODE - production trading is under development. Please enable Test Mode to safely practice trading features. I can analyze your strategies and provide trading advice!";
+      try {
+        const { data, error } = await supabase.functions.invoke('ai-trading-assistant', {
+          body: {
+            userId: user.id,
+            message: 'system health check',
+            strategyId: activeStrategy?.id || null,
+            testMode
+          }
+        });
+
+        if (data && !error) {
+          setMessages([{
+            id: '1',
+            type: 'ai',
+            content: data.message || "Hello! I'm your AI trading assistant ready to help.",
+            timestamp: new Date()
+          }]);
+        } else {
+          // Fallback if AI call fails
+          setMessages([{
+            id: '1',
+            type: 'ai',
+            content: "Hello! I'm your AI trading assistant ready to help.",
+            timestamp: new Date()
+          }]);
+        }
+      } catch (error) {
+        console.error('Failed to initialize AI conversation:', error);
+        // Fallback message
+        setMessages([{
+          id: '1',
+          type: 'ai',
+          content: "Hello! I'm your AI trading assistant ready to help.",
+          timestamp: new Date()
+        }]);
+      }
     };
 
-    setMessages([{
-      id: '1',
-      type: 'ai',
-      content: getInitialMessage(),
-      timestamp: new Date()
-    }]);
-  }, [hasActiveStrategy, testMode]);
+    initializeConversation();
+  }, [strategyLoading, hasActiveStrategy, testMode, user, activeStrategy?.id]);
 
   // Save conversation to session storage whenever messages change
   useEffect(() => {
@@ -306,60 +335,7 @@ export const ConversationPanel = () => {
     }
 
     try {
-      // Check if this is a confirmation for pending config changes
-      const isConfirmation = /^(ok|yes|do it|confirm|apply|proceed)$/i.test(currentInput.trim());
-      
-      if (isConfirmation && pendingConfigChanges && pendingConfigChanges.strategyId) {
-        console.log('🔄 Applying pending config changes:', pendingConfigChanges);
-        
-        // Apply the stored config changes
-        const { error: updateError } = await supabase
-          .from('trading_strategies')
-          .update({ 
-            configuration: {
-              ...pendingConfigChanges.currentConfig,
-              ...pendingConfigChanges.configUpdates
-            },
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', pendingConfigChanges.strategyId)
-          .eq('user_id', user.id);
-
-        if (updateError) {
-          console.error('Config update error:', updateError);
-          const errorMessage: Message = {
-            id: Date.now().toString(),
-            type: 'ai',
-            content: `❌ **Configuration Update Failed**\n\nError: ${updateError.message}`,
-            timestamp: new Date()
-          };
-          setMessages(prev => [...prev, errorMessage]);
-        } else {
-          // Refresh strategies and show success
-          const { data: updatedStrategies } = await supabase
-            .from('trading_strategies')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false });
-          
-          if (updatedStrategies) {
-            setUserStrategies(updatedStrategies);
-          }
-          
-          const successMessage: Message = {
-            id: Date.now().toString(),
-            type: 'ai',
-            content: `✅ **Strategy Configuration Updated Successfully**\n\nApplied changes: ${Object.keys(pendingConfigChanges.configUpdates).join(', ')}\n\nYour strategy settings have been saved and are now active.`,
-            timestamp: new Date()
-          };
-          setMessages(prev => [...prev, successMessage]);
-        }
-        
-        // Clear pending changes
-        setPendingConfigChanges(null);
-        setIsLoading(false);
-        return;
-      }
+      // Remove duplicate confirmation logic - let AI assistant handle all confirmations
 
       // Get strategy context for the AI
       const strategyContext = getActiveStrategyContext();
@@ -551,7 +527,7 @@ export const ConversationPanel = () => {
         }
         
         // Clear pending changes if this is a different request  
-        if (!data.configUpdates && !isConfirmation) {
+        if (!data.configUpdates) {
           setPendingConfigChanges(null);
         }
       } else {
