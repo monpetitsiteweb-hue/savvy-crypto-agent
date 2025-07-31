@@ -744,10 +744,10 @@ serve(async (req) => {
 
     // Detect configuration changes using intelligent field mapping
     const configUpdates = IntelligentFieldMapper.mapUserIntent(message, freshConfig);
-    const hasConfigUpdates = Object.keys(configUpdates).length > 0;
+    const hasDirectConfigUpdates = Object.keys(configUpdates).length > 0;
 
     // Handle configuration updates
-    if (hasConfigUpdates && strategy) {
+    if (hasDirectConfigUpdates && strategy) {
       console.log(`🔄 CONFIG_UPDATE: Applying:`, configUpdates);
       
       const success = await ConfigManager.updateConfig(strategy.id, userId, configUpdates);
