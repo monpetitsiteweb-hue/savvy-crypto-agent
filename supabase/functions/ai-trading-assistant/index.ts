@@ -841,6 +841,9 @@ serve(async (req) => {
         hasConfigUpdates = true;
         finalConfigUpdates = intelligentResponse.configUpdates;
         
+        // Generate success message ONLY after successful database update
+        finalMessage = generateSuccessMessage(intelligentResponse.configUpdates, testMode);
+        
         // Store successful config update in conversation history
         await ConversationMemory.storeMessage(userId, 'ai', finalMessage, { 
           type: 'config_update_success',
@@ -848,7 +851,15 @@ serve(async (req) => {
           strategyId: strategy.id 
         });
       } else {
-        finalMessage += "\n\n❌ **Configuration Update Failed**\n\nI couldn't save the changes to your strategy. Please try again or check your connection.";
+        // Database update failed - override any success message from AI
+        finalMessage = "❌ **Configuration Update Failed**\n\nI tried to update your strategy configuration, but the database operation failed. Please try again or check your connection.";
+        
+        // Store the failure in conversation history  
+        await ConversationMemory.storeMessage(userId, 'ai', finalMessage, { 
+          type: 'config_update_failed',
+          attempted_updates: intelligentResponse.configUpdates,
+          strategyId: strategy.id 
+        });
       }
     } else {
       // Store regular AI response in conversation history
