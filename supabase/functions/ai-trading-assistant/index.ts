@@ -191,42 +191,63 @@ class IntelligentFieldMapper {
     }
   };
 
-  static detectIntent(message: string): 'question' | 'command' | 'ambiguous' {
-    const lowerMessage = message.toLowerCase().trim();
-    
-    // Clear question indicators
-    const questionStarters = [
-      'is', 'are', 'does', 'do', 'can', 'will', 'should', 'what', 'how', 'where', 'when', 'why', 'who',
-      'what is', 'what does', 'how does', 'where is', 'where can', 'is my', 'do I have',
-      'can you explain', 'tell me about', 'what happens', 'why is', 'how much',
-      'which', 'when does', 'how to find'
-    ];
-    
-    if (questionStarters.some(starter => lowerMessage.startsWith(starter))) {
-      return 'question';
+  static async detectIntent(message: string): Promise<'question' | 'command' | 'ambiguous'> {
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a semantic intent classifier for a crypto trading assistant. Classify user messages into exactly one category:
+
+- "question": User is asking for information, status, or explanation (even if phrased conversationally)
+- "command": User wants to change/update configuration or settings
+- "ambiguous": Unclear intent that needs clarification
+
+Examples:
+- "Is AI enabled?" → question
+- "Can you check if AI is turned on?" → question  
+- "I want to know whether AI is in use" → question
+- "Enable AI" → command
+- "Turn on artificial intelligence" → command
+- "Set risk to high" → command
+- "AI" → ambiguous
+
+Respond with ONLY the category name, no explanation.`
+            },
+            {
+              role: 'user',
+              content: message
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 10
+        }),
+      });
+
+      const data = await response.json();
+      const intent = data.choices[0].message.content.trim().toLowerCase();
+      
+      if (['question', 'command', 'ambiguous'].includes(intent)) {
+        return intent as 'question' | 'command' | 'ambiguous';
+      }
+      
+      console.log(`⚠️ INTENT_CLASSIFIER: Unexpected response "${intent}", defaulting to question`);
+      return 'question'; // Safe default
+    } catch (error) {
+      console.error('❌ INTENT_CLASSIFIER: LLM call failed:', error);
+      return 'question'; // Safe default on error
     }
-    
-    // Clear command indicators  
-    const commandStarters = [
-      'set', 'change', 'update', 'enable', 'disable', 'turn on', 'turn off',
-      'add', 'remove', 'increase', 'decrease', 'make it', 'configure'
-    ];
-    
-    if (commandStarters.some(starter => lowerMessage.startsWith(starter))) {
-      return 'command';
-    }
-    
-    // Ambiguous phrases that need clarification
-    const ambiguousPatterns = ['ai', 'risk', 'trading', 'strategy'];
-    if (ambiguousPatterns.some(pattern => lowerMessage.includes(pattern))) {
-      return 'ambiguous';
-    }
-    
-    return 'question'; // Default to safe assumption
   }
 
-  static mapUserIntent(message: string, currentConfig: any = {}): any {
-    const intent = this.detectIntent(message);
+  static async mapUserIntent(message: string, currentConfig: any = {}): Promise<any> {
+    const intent = await this.detectIntent(message);
     if (intent === 'question') return {}; // No updates for questions
     
     const lowerMessage = message.toLowerCase();
@@ -397,7 +418,7 @@ class CryptoIntelligenceEngine {
     const interfaceContext = this.buildInterfaceContext();
     
     // Detect user intent
-    const intent = IntelligentFieldMapper.detectIntent(message);
+    const intent = await IntelligentFieldMapper.detectIntent(message);
     
     // Handle questions vs commands differently
     if (intent === 'question') {
@@ -408,7 +429,7 @@ class CryptoIntelligenceEngine {
     console.log('⚡ COMMAND DETECTED - Processing potential config changes');
     
     // Handle configuration commands
-    const potentialUpdates = IntelligentFieldMapper.mapUserIntent(message, currentConfig);
+    const potentialUpdates = await IntelligentFieldMapper.mapUserIntent(message, currentConfig);
     
     if (Object.keys(potentialUpdates).length === 0) {
       // No clear config intent - use general AI response
