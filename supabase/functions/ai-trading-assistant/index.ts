@@ -168,6 +168,13 @@ class IntelligentFieldMapper {
       uiLocation: 'Strategy Configuration → Coins & Amounts tab → Coin selection checkboxes',
       examples: ['only trade BTC and ETH', 'add XRP to my coins', 'remove DOGE from strategy']
     },
+    'maxActiveCoins': {
+      name: 'Max Active Coins',
+      description: 'Maximum number of cryptocurrencies to trade simultaneously',
+      type: 'number',
+      uiLocation: 'Strategy Configuration → Coins & Amounts tab → "Max Active Coins" field',
+      examples: ['set max active coins to 5', 'limit to 3 coins', 'trade up to 8 cryptocurrencies']
+    },
     'enableAI': {
       name: 'AI Intelligence',
       description: 'Enable AI-powered signals and analysis for trading decisions',
@@ -264,6 +271,15 @@ class IntelligentFieldMapper {
       }
     }
 
+    // Max active coins detection
+    const maxCoinsMatch = message.match(/(?:max|maximum)\s+(?:active\s+)?coins?\s+(?:to\s+)?(\d+)/i);
+    if (maxCoinsMatch && (lowerMessage.includes('max') || lowerMessage.includes('active') || lowerMessage.includes('coins'))) {
+      const numCoins = parseInt(maxCoinsMatch[1]);
+      if (numCoins > 0 && numCoins <= 20) { // Reasonable range
+        updates.maxActiveCoins = numCoins;
+      }
+    }
+
     // Enhanced coin selection
     const coinPatterns = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'DOGE', 'LTC', 'BCH'];
     const mentionedCoins = coinPatterns.filter(coin => 
@@ -312,6 +328,13 @@ class ValidationEngine {
     needsUpdate: boolean,
     message: string
   } {
+    console.log(`🔍 VALIDATION CHECK: ${field}`, {
+      newValue,
+      currentValue,
+      currentValueType: typeof currentValue,
+      newValueType: typeof newValue
+    });
+    
     // Check if value is actually changing
     if (JSON.stringify(newValue) === JSON.stringify(currentValue)) {
       return {
@@ -336,6 +359,11 @@ class ValidationEngine {
       case 'takeProfitPercentage':
         if (newValue < 1 || newValue > 1000) {
           return { isValid: false, needsUpdate: false, message: 'Take profit must be between 1% and 1000%.' };
+        }
+        break;
+      case 'maxActiveCoins':
+        if (newValue < 1 || newValue > 20) {
+          return { isValid: false, needsUpdate: false, message: 'Max active coins must be between 1 and 20.' };
         }
         break;
     }
@@ -372,8 +400,11 @@ class CryptoIntelligenceEngine {
     
     // Handle questions vs commands differently
     if (intent === 'question') {
+      console.log('🤔 QUESTION DETECTED - No config changes will be made');
       return { message: await this.handleQuestionIntent(message, strategy, marketContext, memoryContext, interfaceContext) };
     }
+    
+    console.log('⚡ COMMAND DETECTED - Processing potential config changes');
     
     // Handle configuration commands
     const potentialUpdates = IntelligentFieldMapper.mapUserIntent(message, currentConfig);
