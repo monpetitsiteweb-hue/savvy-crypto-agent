@@ -332,8 +332,8 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       setFormData(prev => ({ 
         ...prev, 
         ...config,
-        // SYNC enableAI from existing nested structure for backward compatibility
-        enableAI: config.enableAI || config.aiIntelligenceConfig?.enableAIOverride || false,
+        // Use aiIntelligenceConfig.enableAIOverride as single source of truth
+        enableAI: config.aiIntelligenceConfig?.enableAIOverride || false,
         // Properly merge the nested aiIntelligenceConfig
         aiIntelligenceConfig: {
           ...prev.aiIntelligenceConfig,
@@ -398,15 +398,17 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       console.log('🚨 STRATEGY_SAVE_DEBUG: AI Intelligence Config being saved:', formData.aiIntelligenceConfig);
       console.log('🚨 STRATEGY_SAVE_DEBUG: Confidence threshold value:', formData.aiIntelligenceConfig.aiConfidenceThreshold);
       
-      // Ensure AI flags are in sync before saving
+      // Use aiIntelligenceConfig.enableAIOverride as single source of truth
       const syncedFormData = {
         ...formData,
-        // SYNC: Keep nested structure in sync with enableAI
+        // Remove redundant enableAI, use only enableAIOverride
         aiIntelligenceConfig: {
           ...formData.aiIntelligenceConfig,
           enableAIOverride: formData.enableAI
         }
       };
+      // Remove the redundant enableAI field from the saved configuration
+      delete syncedFormData.enableAI;
 
       const strategyData = {
         user_id: user.id,

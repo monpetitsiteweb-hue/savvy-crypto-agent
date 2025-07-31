@@ -175,11 +175,11 @@ class IntelligentFieldMapper {
       uiLocation: 'Strategy Configuration → Coins & Amounts tab → "Max Active Coins" field',
       examples: ['set max active coins to 5', 'limit to 3 coins', 'trade up to 8 cryptocurrencies']
     },
-    'enableAI': {
+    'aiIntelligenceConfig.enableAIOverride': {
       name: 'AI Intelligence',
       description: 'Enable AI-powered signals and analysis for trading decisions',
       type: 'boolean',
-      uiLocation: 'Strategy Configuration → AI Intelligence Settings',
+      uiLocation: 'Strategy Configuration → AI Intelligence Settings → Enable AI Decision Override',
       examples: ['enable AI trading', 'turn on intelligence', 'use AI signals', 'disable AI']
     },
     'technicalIndicators': {
@@ -321,20 +321,18 @@ Respond with ONLY the category name, no explanation.`
       }
     }
 
-    // AI configuration - SYNC: Update both enableAI and nested structure
+    // AI configuration - Use single source of truth: aiIntelligenceConfig.enableAIOverride
     if (lowerMessage.includes('ai') || 
         (lowerMessage.includes('artificial') && lowerMessage.includes('intelligence')) ||
         (lowerMessage.includes('it') && lowerMessage.includes('disable')) ||
         (lowerMessage.includes('it') && lowerMessage.includes('enable'))) {
       
       if (lowerMessage.includes('enable') || lowerMessage.includes('turn on') || lowerMessage.includes('activate')) {
-        updates.enableAI = true;
         updates.aiIntelligenceConfig = {
           ...(currentConfig.aiIntelligenceConfig || {}),
           enableAIOverride: true
         };
       } else if (lowerMessage.includes('disable') || lowerMessage.includes('turn off') || lowerMessage.includes('deactivate')) {
-        updates.enableAI = false;
         updates.aiIntelligenceConfig = {
           ...(currentConfig.aiIntelligenceConfig || {}),
           enableAIOverride: false
@@ -580,7 +578,7 @@ Use market signals to inform your recommendations.`;
     if (!strategy) return 'No active strategy configured.';
     
     const config = strategy.configuration || {};
-    return `Current strategy "${strategy.strategy_name}" with risk level ${config.riskLevel || 'medium'}, ${config.selectedCoins?.length || 0} coins selected, amount per trade: €${config.perTradeAllocation || 'not set'}, AI signals: ${config.enableAI ? 'enabled' : 'disabled'}.`;
+    return `Current strategy "${strategy.strategy_name}" with risk level ${config.riskLevel || 'medium'}, ${config.selectedCoins?.length || 0} coins selected, amount per trade: €${config.perTradeAllocation || 'not set'}, AI signals: ${config.aiIntelligenceConfig?.enableAIOverride ? 'enabled' : 'disabled'}.`;
   }
 
   static buildInterfaceContext(): string {
@@ -678,9 +676,9 @@ class ConfigManager {
       const verificationConfig = await this.getFreshConfig(strategyId, userId);
       console.log('✅ [CONFIG_UPDATE] Verification read-back:', JSON.stringify(verificationConfig, null, 2));
       
-      // Verify ONLY the canonical AI flag
+      // Verify ONLY the canonical AI flag (aiIntelligenceConfig.enableAIOverride)
       const verificationsToCheck = [
-        { field: 'enableAI', expected: updates.enableAI, actual: verificationConfig.enableAI }
+        { field: 'aiIntelligenceConfig.enableAIOverride', expected: updates.aiIntelligenceConfig?.enableAIOverride, actual: verificationConfig.aiIntelligenceConfig?.enableAIOverride }
       ];
       
       for (const check of verificationsToCheck) {
@@ -760,8 +758,8 @@ function generateSuccessMessage(configUpdates: any, testMode: boolean): string {
         return `• **Take profit:** ${value}%`;
       case 'selectedCoins':
         return `• **Selected coins:** ${Array.isArray(value) ? value.join(', ') : value}`;
-      case 'enableAI':
-        return `• **AI signals:** ${value ? 'enabled' : 'disabled'}`;
+      case 'aiIntelligenceConfig':
+        return `• **AI signals:** ${value?.enableAIOverride ? 'enabled' : 'disabled'}`;
       default:
         return `• **${key}:** ${value}`;
     }
