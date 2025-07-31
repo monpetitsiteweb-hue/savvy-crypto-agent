@@ -321,8 +321,11 @@ Respond with ONLY the category name, no explanation.`
       }
     }
 
-    // AI enablement with better logic
-    if (lowerMessage.includes('ai') || lowerMessage.includes('intelligence')) {
+    // AI enablement with context-aware pronoun handling
+    if (lowerMessage.includes('ai') || lowerMessage.includes('intelligence') || 
+        (lowerMessage.includes('it') && lowerMessage.includes('disable')) ||
+        (lowerMessage.includes('it') && lowerMessage.includes('enable'))) {
+      
       if (lowerMessage.includes('enable') || lowerMessage.includes('turn on') || lowerMessage.includes('activate')) {
         updates.enableAI = true;
       } else if (lowerMessage.includes('disable') || lowerMessage.includes('turn off') || lowerMessage.includes('deactivate')) {
