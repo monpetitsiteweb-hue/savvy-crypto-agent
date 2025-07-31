@@ -454,13 +454,36 @@ class CryptoIntelligenceEngine {
       }
     }
     
+    
+    // Execute validated config updates if any exist
+    if (Object.keys(validatedUpdates).length > 0) {
+      console.log(`🔄 EXECUTING CONFIG UPDATES:`, validatedUpdates);
+      
+      const success = await ConfigManager.updateConfig(strategy.id, strategy.user_id, validatedUpdates);
+      
+      if (success) {
+        const successMessage = validationMessages.filter(msg => !msg.startsWith('❌')).join('\n\n');
+        return {
+          message: successMessage || `✅ Strategy configuration updated successfully.`,
+          configUpdates: validatedUpdates,
+          hasConfigUpdates: true
+        };
+      } else {
+        return {
+          message: "❌ **Configuration Update Failed**\n\nI couldn't save the changes to your strategy. Please try again.",
+          configUpdates: validatedUpdates,
+          hasConfigUpdates: false
+        };
+      }
+    }
+    
     const responseMessage = validationMessages.length > 0 
       ? validationMessages.join('\n\n')
       : await this.handleGeneralIntent(message, strategy, marketContext, memoryContext, interfaceContext);
     
     return {
       message: responseMessage,
-      configUpdates: Object.keys(validatedUpdates).length > 0 ? validatedUpdates : undefined
+      configUpdates: undefined
     };
   }
 
