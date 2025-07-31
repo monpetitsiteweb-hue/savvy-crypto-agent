@@ -335,24 +335,16 @@ export const ConversationPanel = () => {
     }
 
     try {
-      // Remove duplicate confirmation logic - let AI assistant handle all confirmations
-
-      // Get strategy context for the AI
-      const strategyContext = getActiveStrategyContext();
-
-      // Route ALL messages through the AI assistant
+      // LLM-FIRST ROUTING: Route ALL messages through the AI assistant
       console.log('🤖 Routing to AI assistant:', { 
         userId: user.id, 
         message: currentInput,
-        testMode,
-        strategyContext,
-        pendingConfigChanges: !!pendingConfigChanges
+        testMode
       });
       
-      // Get strategy details - Allow configuration changes even for inactive strategies
+      // Get target strategy for context
       let targetStrategy = activeStrategy;
       if (!targetStrategy && userStrategies.length > 0) {
-        // If no active strategy, use the most recent one for config updates
         targetStrategy = userStrategies[0];
       }
       
