@@ -37,7 +37,8 @@ import {
   Check,
   Trash2,
   MessageCircle,
-  X
+  X,
+  Brain
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
@@ -59,6 +60,7 @@ interface StrategyFormData {
   maxWalletExposure: number;
   enableLiveTrading: boolean;
   enableTestTrading: boolean;
+  enableAI: boolean; // SINGLE SOURCE OF TRUTH for AI
   
   notes: string;
   selectedCoins: string[];
@@ -101,7 +103,7 @@ interface StrategyFormData {
   // Tags and categories
   category: string;
   tags: string[];
-  // AI Intelligence settings
+  // AI Intelligence settings - keep for backward compatibility but use enableAI as primary
   aiIntelligenceConfig: AIIntelligenceConfig;
 }
 
@@ -243,6 +245,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     maxWalletExposure: 50,
     enableLiveTrading: false, // Strategies must be created in Test Mode first
     enableTestTrading: true,  // Always start in Test Mode
+    enableAI: false, // SINGLE SOURCE OF TRUTH - Start with AI disabled
     
     notes: '',
     selectedCoins: ['BTC', 'ETH'],
@@ -329,6 +332,8 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       setFormData(prev => ({ 
         ...prev, 
         ...config,
+        // SYNC enableAI from existing nested structure for backward compatibility
+        enableAI: config.enableAI || config.aiIntelligenceConfig?.enableAIOverride || false,
         // Properly merge the nested aiIntelligenceConfig
         aiIntelligenceConfig: {
           ...prev.aiIntelligenceConfig,
@@ -393,11 +398,21 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       console.log('🚨 STRATEGY_SAVE_DEBUG: AI Intelligence Config being saved:', formData.aiIntelligenceConfig);
       console.log('🚨 STRATEGY_SAVE_DEBUG: Confidence threshold value:', formData.aiIntelligenceConfig.aiConfidenceThreshold);
       
+      // Ensure AI flags are in sync before saving
+      const syncedFormData = {
+        ...formData,
+        // SYNC: Keep nested structure in sync with enableAI
+        aiIntelligenceConfig: {
+          ...formData.aiIntelligenceConfig,
+          enableAIOverride: formData.enableAI
+        }
+      };
+
       const strategyData = {
         user_id: user.id,
         strategy_name: formData.strategyName,
         description: formData.notes || null,
-        configuration: formData as any,
+        configuration: syncedFormData as any,
         test_mode: true, // Always create in test mode
         is_active: false, // Keep for backward compatibility
         is_active_test: false, // Created but not activated
@@ -1162,10 +1177,45 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                   {/* AI Intelligence Section */}
                   {activeSection === 'ai-intelligence' && (
                     <div className="space-y-6">
-                      <AIIntelligenceSettings
-                        config={formData.aiIntelligenceConfig}
-                        onConfigChange={(newConfig) => updateFormData('aiIntelligenceConfig', newConfig)}
-                      />
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Brain className="h-5 w-5" />
+                            AI Intelligence Settings
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <Label htmlFor="enable-ai">Enable AI Intelligence</Label>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                Allow AI to analyze market data and provide trading signals
+                              </p>
+                            </div>
+                            <Switch
+                              id="enable-ai"
+                              checked={formData.enableAI}
+                              onCheckedChange={(value) => {
+                                updateFormData('enableAI', value);
+                                // Keep nested config in sync for backward compatibility
+                                updateFormData('aiIntelligenceConfig', { 
+                                  ...formData.aiIntelligenceConfig, 
+                                  enableAIOverride: value 
+                                });
+                              }}
+                            />
+                          </div>
+                          
+                          {formData.enableAI && (
+                            <div className="space-y-4 border-l-2 border-primary/20 pl-4">
+                              <AIIntelligenceSettings
+                                config={formData.aiIntelligenceConfig}
+                                onConfigChange={(newConfig) => updateFormData('aiIntelligenceConfig', newConfig)}
+                              />
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
                     </div>
                   )}
 

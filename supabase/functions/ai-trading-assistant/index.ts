@@ -321,7 +321,7 @@ Respond with ONLY the category name, no explanation.`
       }
     }
 
-    // AI configuration - SINGLE SOURCE OF TRUTH: enableAI only
+    // AI configuration - SYNC: Update both enableAI and nested structure
     if (lowerMessage.includes('ai') || 
         (lowerMessage.includes('artificial') && lowerMessage.includes('intelligence')) ||
         (lowerMessage.includes('it') && lowerMessage.includes('disable')) ||
@@ -329,8 +329,16 @@ Respond with ONLY the category name, no explanation.`
       
       if (lowerMessage.includes('enable') || lowerMessage.includes('turn on') || lowerMessage.includes('activate')) {
         updates.enableAI = true;
+        updates.aiIntelligenceConfig = {
+          ...(currentConfig.aiIntelligenceConfig || {}),
+          enableAIOverride: true
+        };
       } else if (lowerMessage.includes('disable') || lowerMessage.includes('turn off') || lowerMessage.includes('deactivate')) {
         updates.enableAI = false;
+        updates.aiIntelligenceConfig = {
+          ...(currentConfig.aiIntelligenceConfig || {}),
+          enableAIOverride: false
+        };
       }
     }
 
