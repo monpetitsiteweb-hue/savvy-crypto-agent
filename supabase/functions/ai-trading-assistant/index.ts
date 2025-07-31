@@ -673,11 +673,17 @@ ${testMode ? '🧪 Changes applied to Test Mode strategy.' : '🔴 Changes appli
 }
 
 serve(async (req) => {
+  console.log('🚀 AI_ASSISTANT: Function started');
+  
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    console.log('📥 AI_ASSISTANT: Parsing request body');
+    const requestBody = await req.json();
+    console.log('📋 AI_ASSISTANT: Request data:', requestBody);
+    
     const {
       message,
       userId,
@@ -688,9 +694,10 @@ serve(async (req) => {
       marketData = {},
       indicatorContext = {},
       indicatorConfig = {}
-    } = await req.json();
+    } = requestBody;
 
     if (!message || !userId) {
+      console.log('❌ AI_ASSISTANT: Missing required fields');
       return new Response(
         JSON.stringify({ 
           error: 'Missing required fields: message and userId',
@@ -841,11 +848,14 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('❌ AI_ASSISTANT: Error:', error);
+    console.error('❌ AI_ASSISTANT: Caught error:', error);
+    console.error('❌ AI_ASSISTANT: Error stack:', error.stack);
+    
+    // Return a safe fallback response
     return new Response(
       JSON.stringify({ 
         error: 'Internal server error',
-        message: "I'm experiencing technical difficulties. Please try again in a moment.",
+        message: `🔧 **System Recovery Mode**\n\nI'm experiencing technical difficulties with: ${error.message}\n\nPlease try a simple command like "system health check" while I recover.`,
         hasConfigUpdates: false,
         verificationResults: { success: false, errors: [error.message] }
       }),
