@@ -321,27 +321,18 @@ Respond with ONLY the category name, no explanation.`
       }
     }
 
-    // AI enablement with context-aware pronoun handling
-    if (lowerMessage.includes('ai') || lowerMessage.includes('intelligence') || 
+    // AI configuration mappings - STANDARDIZED ON enableAI as single source of truth
+    if (lowerMessage.includes('ai') || 
+        (lowerMessage.includes('artificial') && lowerMessage.includes('intelligence')) ||
         (lowerMessage.includes('it') && lowerMessage.includes('disable')) ||
         (lowerMessage.includes('it') && lowerMessage.includes('enable'))) {
       
       if (lowerMessage.includes('enable') || lowerMessage.includes('turn on') || lowerMessage.includes('activate')) {
-        // Enable ALL AI flags consistently
+        // ONLY use enableAI as the single source of truth
         updates.enableAI = true;
-        updates.is_ai_enabled = true;
-        updates.aiIntelligenceConfig = {
-          ...currentConfig.aiIntelligenceConfig,
-          enableAIOverride: true
-        };
       } else if (lowerMessage.includes('disable') || lowerMessage.includes('turn off') || lowerMessage.includes('deactivate')) {
-        // Disable ALL AI flags consistently  
+        // ONLY use enableAI as the single source of truth
         updates.enableAI = false;
-        updates.is_ai_enabled = false;
-        updates.aiIntelligenceConfig = {
-          ...currentConfig.aiIntelligenceConfig,
-          enableAIOverride: false
-        };
       }
     }
 
@@ -681,11 +672,9 @@ class ConfigManager {
       const verificationConfig = await this.getFreshConfig(strategyId, userId);
       console.log('✅ [CONFIG_UPDATE] Verification read-back:', JSON.stringify(verificationConfig, null, 2));
       
-      // Check that key fields were actually updated
+      // Check that key fields were actually updated - ONLY enableAI matters now
       const verificationsToCheck = [
-        { field: 'enableAI', expected: updates.enableAI, actual: verificationConfig.enableAI },
-        { field: 'is_ai_enabled', expected: updates.is_ai_enabled, actual: verificationConfig.is_ai_enabled },
-        { field: 'aiIntelligenceConfig.enableAIOverride', expected: updates.aiIntelligenceConfig?.enableAIOverride, actual: verificationConfig.aiIntelligenceConfig?.enableAIOverride }
+        { field: 'enableAI', expected: updates.enableAI, actual: verificationConfig.enableAI }
       ];
       
       for (const check of verificationsToCheck) {
