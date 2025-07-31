@@ -196,6 +196,7 @@ class IntelligentFieldMapper {
     
     // Clear question indicators
     const questionStarters = [
+      'is', 'are', 'does', 'do', 'can', 'will', 'should', 'what', 'how', 'where', 'when', 'why', 'who',
       'what is', 'what does', 'how does', 'where is', 'where can', 'is my', 'do I have',
       'can you explain', 'tell me about', 'what happens', 'why is', 'how much',
       'which', 'when does', 'how to find'
@@ -708,7 +709,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`🤖 AI_ASSISTANT: Request received: "${message}"`);
+    console.log(`🤖 AI_ASSISTANT: Request received: "${message}" | StrategyId: ${strategyId} | TestMode: ${testMode}`);
 
     // Store user message in conversation history
     await ConversationMemory.storeMessage(userId, 'user', message, { strategyId, testMode });
@@ -742,45 +743,8 @@ serve(async (req) => {
       );
     }
 
-    // Detect configuration changes using intelligent field mapping
-    const configUpdates = IntelligentFieldMapper.mapUserIntent(message, freshConfig);
-    const hasDirectConfigUpdates = Object.keys(configUpdates).length > 0;
-
-    // Handle configuration updates
-    if (hasDirectConfigUpdates && strategy) {
-      console.log(`🔄 CONFIG_UPDATE: Applying:`, configUpdates);
-      
-      const success = await ConfigManager.updateConfig(strategy.id, userId, configUpdates);
-      
-      if (success) {
-        const successMessage = generateSuccessMessage(configUpdates, testMode);
-        
-        await ConversationMemory.storeMessage(userId, 'ai', successMessage, { 
-          type: 'config_update',
-          updates: configUpdates,
-          strategyId: strategy.id 
-        });
-
-        return new Response(
-          JSON.stringify({
-            message: successMessage,
-            hasConfigUpdates: true,
-            configUpdates,
-            verificationResults: { success: true, errors: [] }
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      } else {
-        return new Response(
-          JSON.stringify({
-            message: "❌ **Configuration Update Failed**\n\nI couldn't save the changes to your strategy. Please try again.",
-            hasConfigUpdates: false,
-            verificationResults: { success: false, errors: ['Database update failed'] }
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-    }
+    // All configuration updates are now handled by the CryptoIntelligenceEngine
+    // which includes proper intent detection and validation
 
     // For complex queries, use crypto intelligence engine with external signals
     console.log(`🧠 Using Crypto Intelligence Engine for: "${message}"`);
