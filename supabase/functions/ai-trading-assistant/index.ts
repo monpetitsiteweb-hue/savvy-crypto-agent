@@ -641,19 +641,33 @@ class ConfigManager {
 
   static async updateConfig(strategyId: string, userId: string, updates: any): Promise<boolean> {
     try {
+      console.log('✅ [DEBUG] Starting config update with validated updates:', updates);
+      
       const currentConfig = await this.getFreshConfig(strategyId, userId);
       const newConfig = { ...currentConfig, ...updates };
       
-      const { error } = await supabase
+      console.log('✅ [DEBUG] Current config:', currentConfig);
+      console.log('✅ [DEBUG] New merged config:', newConfig);
+      
+      const { data, error } = await supabase
         .from('trading_strategies')
         .update({ configuration: newConfig })
         .eq('id', strategyId)
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .select()
+        .single();
       
-      if (error) throw error;
+      console.log('✅ [DEBUG] DB update result:', { data, error });
+      
+      if (error) {
+        console.error('❌ [DEBUG] DB update failed:', error);
+        throw error;
+      }
+      
+      console.log('✅ [DEBUG] Config successfully updated in database');
       return true;
     } catch (error) {
-      console.error('Failed to update config:', error);
+      console.error('❌ [DEBUG] Failed to update config:', error);
       return false;
     }
   }
