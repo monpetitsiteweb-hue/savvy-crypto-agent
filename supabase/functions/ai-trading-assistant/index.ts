@@ -759,8 +759,12 @@ function generateSuccessMessage(configUpdates: any, testMode: boolean): string {
       case 'selectedCoins':
         return `• **Selected coins:** ${Array.isArray(value) ? value.join(', ') : value}`;
       case 'aiIntelligenceConfig':
-        return `• **AI signals:** ${value?.enableAIOverride ? 'enabled' : 'disabled'}`;
+        return `• **AI decision override:** ${value?.enableAIOverride ? 'enabled' : 'disabled'}`;
       default:
+        // Handle object values properly to avoid [object Object]
+        if (typeof value === 'object' && value !== null) {
+          return `• **${key}:** ${JSON.stringify(value)}`;
+        }
         return `• **${key}:** ${value}`;
     }
   });
