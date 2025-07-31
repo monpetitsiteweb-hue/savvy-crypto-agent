@@ -498,9 +498,16 @@ export const ConversationPanel = () => {
                 const riskLevelCapitalized = riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1);
                 aiMessage = `✅ Risk profile updated to ${riskLevelCapitalized} for your strategy`;
               } else {
-                const updatedFields = Object.keys(data.configUpdates).map(key => 
-                  `${key}: ${data.configUpdates[key]}`
-                ).join(', ');
+                const updatedFields = Object.keys(data.configUpdates).map(key => {
+                  const value = data.configUpdates[key];
+                  if (key === 'aiIntelligenceConfig') {
+                    return `AI decision override: ${value?.enableAIOverride ? 'enabled' : 'disabled'}`;
+                  }
+                  if (typeof value === 'object' && value !== null) {
+                    return `${key}: ${JSON.stringify(value)}`;
+                  }
+                  return `${key}: ${value}`;
+                }).join(', ');
                 aiMessage = `✅ Strategy updated with new configuration: ${updatedFields}`;
               }
             } else {
