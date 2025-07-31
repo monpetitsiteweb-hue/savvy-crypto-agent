@@ -335,12 +335,10 @@ export const ConversationPanel = () => {
     }
 
     try {
-      // LLM-FIRST ROUTING: Route ALL messages through the AI assistant
-      console.log('🤖 Routing to AI assistant:', { 
-        userId: user.id, 
-        message: currentInput,
-        testMode
-      });
+      // =============================================
+      // FULLY LLM-FIRST ROUTING - NO REGEX LOGIC
+      // =============================================
+      console.log('🤖 MASTER AI ROUTING: All messages go through LLM first');
       
       // Get target strategy for context
       let targetStrategy = activeStrategy;
@@ -403,22 +401,33 @@ export const ConversationPanel = () => {
         }
       }
       
-      const { data, error } = await supabase.functions.invoke('ai-trading-assistant', {
-        body: {
-          userId: user.id,
-          message: currentInput,
-          strategyId: targetStrategy?.id || null,
-          testMode,
-          currentConfig: targetStrategy?.configuration || {},
-          recentTrades,
-          marketData: marketData || {},
-          whaleAlerts: [
-            { asset: 'BTC', amount: 1234, direction: 'exchange_inflow', timestamp: new Date().toISOString() },
-            { asset: 'ETH', amount: 5678, direction: 'exchange_outflow', timestamp: new Date().toISOString() }
-          ],
-          indicatorContext: indicators,
-          indicatorConfig
+      // Build comprehensive context payload for the LLM
+      const payload = {
+        userId: user.id,
+        message: currentInput,
+        strategyId: targetStrategy?.id || null,
+        testMode,
+        currentConfig: targetStrategy?.configuration || {},
+        recentTrades,
+        marketData: marketData || {},
+        indicatorContext: indicators,
+        indicatorConfig,
+        // Interface awareness context
+        activeFields: Object.keys(targetStrategy?.configuration || {}),
+        fieldDescriptions: {
+          riskLevel: 'Strategy Configuration → Risk Management tab',
+          perTradeAllocation: 'Strategy Configuration → Coins & Amounts tab → "Amount Per Trade" field',
+          stopLossPercentage: 'Strategy Configuration → Risk Management tab → Stop Loss field',
+          takeProfitPercentage: 'Strategy Configuration → Risk Management tab → Take Profit field',
+          selectedCoins: 'Strategy Configuration → Coins & Amounts tab → Coin selection checkboxes',
+          enableAI: 'Strategy Configuration → AI Intelligence Settings'
         }
+      };
+      
+      console.log('🚀 Sending comprehensive payload to AI assistant:', payload);
+      
+      const { data, error } = await supabase.functions.invoke('ai-trading-assistant', {
+        body: payload
       });
 
       let aiMessage = '';
@@ -429,29 +438,21 @@ export const ConversationPanel = () => {
       } else if (data && data.message) {
         aiMessage = data.message;
         
-        // Only process config updates if they exist, are non-empty, and contain valid config keys
-        const hasValidConfigUpdates = data.configUpdates && 
-                                    typeof data.configUpdates === 'object' && 
-                                    data.configUpdates !== null &&
-                                    Object.keys(data.configUpdates).length > 0 &&
-                                    Object.keys(data.configUpdates).some(key => 
-                                      ['riskLevel', 'riskProfile', 'stopLoss', 'takeProfit', 'maxPositionSize', 'technicalIndicators'].includes(key)
-                                    );
-
-        if (hasValidConfigUpdates && targetStrategy) {
-          console.log('🔄 ATTEMPTING CONFIG UPDATE:', {
+        // Handle config updates returned by the upgraded AI system
+        if (data.hasConfigUpdates && data.configUpdates && targetStrategy) {
+          console.log('🔄 VALIDATED CONFIG UPDATE from AI:', {
             configUpdates: data.configUpdates,
             strategyId: targetStrategy.id,
-            userId: user.id,
-            currentConfig: targetStrategy.configuration
+            userId: user.id
           });
           
+          // The AI system has already validated these updates
           const updatedConfig = {
             ...targetStrategy.configuration,
             ...data.configUpdates
           };
           
-          console.log('📝 New config to save:', updatedConfig);
+          console.log('📝 Applying validated config:', updatedConfig);
           
           try {
             const { data: updateResult, error: updateError } = await supabase
@@ -464,7 +465,7 @@ export const ConversationPanel = () => {
               .eq('user_id', user.id)
               .select();
 
-            console.log('📊 Supabase update result:', { updateResult, updateError });
+            console.log('📊 Config update result:', { updateResult, updateError });
 
             if (updateError) {
               console.error('❌ CONFIG UPDATE FAILED:', updateError);

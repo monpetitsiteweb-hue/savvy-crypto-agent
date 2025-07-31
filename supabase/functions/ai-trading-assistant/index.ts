@@ -12,23 +12,17 @@ const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-const systemPrompt = `You are an expert cryptocurrency trading assistant with deep knowledge of:
-- Technical analysis (RSI, MACD, Bollinger Bands, EMA, SMA)
-- Market sentiment and whale movements  
-- DeFi protocols and institutional flows
-- Risk management and position sizing
-- Strategy optimization and backtesting
-
-Respond naturally and conversationally. Provide actionable insights and explain your reasoning. 
-If suggesting changes, be specific about values and explain why.
-Keep responses concise but informative.`;
 
 // =============================================
-// LLM-FIRST CONVERSATIONAL ASSISTANT
+// MASTER AI TRADING ASSISTANT V2.0
+// FULLY AUTONOMOUS LLM-FIRST ARCHITECTURE
 // =============================================
 
+// =============================================
+// CONVERSATIONAL MEMORY SYSTEM
+// =============================================
 class ConversationMemory {
-  static async getRecentContext(userId: string, limit: number = 5): Promise<any[]> {
+  static async getRecentContext(userId: string, limit: number = 10): Promise<any[]> {
     try {
       const { data, error } = await supabase
         .from('conversation_history')
@@ -58,6 +52,15 @@ class ConversationMemory {
     } catch (error) {
       console.error('Failed to store conversation:', error);
     }
+  }
+
+  static buildContextPrompt(history: any[]): string {
+    if (!history.length) return 'This is the start of our conversation.';
+    
+    const recentHistory = history.slice(0, 5).reverse();
+    return recentHistory.map(h => 
+      `${h.message_type === 'user' ? 'User' : 'Assistant'}: ${h.content.substring(0, 200)}`
+    ).join('\n');
   }
 }
 
@@ -116,61 +119,108 @@ class ExternalSignalIntegration {
   }
 }
 
+// =============================================
+// INTELLIGENT FIELD MAPPING & INTERFACE AWARENESS
+// =============================================
 class IntelligentFieldMapper {
   static FIELD_DEFINITIONS = {
-    // Basic Strategy Settings
+    // Risk Management
     'riskLevel': {
       name: 'Risk Level',
-      description: 'Controls how aggressively the strategy trades',
+      description: 'Controls trading aggressiveness: low=conservative, medium=balanced, high=aggressive',
       type: 'enum',
       values: ['low', 'medium', 'high'],
-      examples: ['set risk to high', 'make it more aggressive', 'lower my risk']
+      uiLocation: 'Strategy Configuration → Risk Management tab',
+      examples: ['set risk to high', 'make it more aggressive', 'lower my risk', 'conservative approach']
     },
     'perTradeAllocation': {
       name: 'Amount Per Trade',
-      description: 'How much money to invest per trade in euros',
+      description: 'Amount in euros to invest per individual trade',
       type: 'number',
+      uiLocation: 'Strategy Configuration → Coins & Amounts tab → "Amount Per Trade" field',
       examples: ['set minimum trade to 500 euros', 'per trade allocation 1000', 'invest 750 per trade']
     },
     'stopLossPercentage': {
       name: 'Stop Loss',
-      description: 'Automatically sell if price drops by this percentage',
+      description: 'Automatically sell if price drops by this percentage to limit losses',
       type: 'number',
+      uiLocation: 'Strategy Configuration → Risk Management tab → Stop Loss field',
       examples: ['set stop loss to 3%', 'cut losses at 2%', 'add stop loss protection']
     },
     'takeProfitPercentage': {
       name: 'Take Profit',
-      description: 'Automatically sell when profit reaches this percentage',
+      description: 'Automatically sell when profit reaches this percentage to lock in gains',
       type: 'number',
+      uiLocation: 'Strategy Configuration → Risk Management tab → Take Profit field',
       examples: ['take profit at 10%', 'secure gains at 15%', 'set profit target']
     },
     'maxPositionSize': {
       name: 'Maximum Position Size',
-      description: 'Maximum amount to invest in a single cryptocurrency',
+      description: 'Maximum total amount to invest in any single cryptocurrency',
       type: 'number',
+      uiLocation: 'Strategy Configuration → Risk Management tab',
       examples: ['max position 5000', 'limit exposure to 3000', 'cap investment at 10000']
     },
     'selectedCoins': {
       name: 'Selected Cryptocurrencies',
-      description: 'Which cryptocurrencies to trade',
+      description: 'Specific cryptocurrencies the strategy will trade',
       type: 'array',
+      uiLocation: 'Strategy Configuration → Coins & Amounts tab → Coin selection checkboxes',
       examples: ['only trade BTC and ETH', 'add XRP to my coins', 'remove DOGE from strategy']
     },
     'enableAI': {
       name: 'AI Intelligence',
-      description: 'Use AI signals and analysis for trading decisions',
+      description: 'Enable AI-powered signals and analysis for trading decisions',
       type: 'boolean',
-      examples: ['enable AI trading', 'turn on intelligence', 'use AI signals']
+      uiLocation: 'Strategy Configuration → AI Intelligence Settings',
+      examples: ['enable AI trading', 'turn on intelligence', 'use AI signals', 'disable AI']
     },
     'technicalIndicators': {
       name: 'Technical Indicators',
-      description: 'RSI, MACD, and other technical analysis tools',
+      description: 'RSI, MACD, Bollinger Bands, EMA, SMA for technical analysis',
       type: 'object',
-      examples: ['enable RSI indicator', 'turn on MACD', 'add technical analysis']
+      uiLocation: 'Strategy Configuration → Technical Analysis tab',
+      examples: ['enable RSI indicator', 'turn on MACD', 'add technical analysis', 'configure bollinger bands']
     }
   };
 
+  static detectIntent(message: string): 'question' | 'command' | 'ambiguous' {
+    const lowerMessage = message.toLowerCase().trim();
+    
+    // Clear question indicators
+    const questionStarters = [
+      'what is', 'what does', 'how does', 'where is', 'where can', 'is my', 'do I have',
+      'can you explain', 'tell me about', 'what happens', 'why is', 'how much',
+      'which', 'when does', 'how to find'
+    ];
+    
+    if (questionStarters.some(starter => lowerMessage.startsWith(starter))) {
+      return 'question';
+    }
+    
+    // Clear command indicators  
+    const commandStarters = [
+      'set', 'change', 'update', 'enable', 'disable', 'turn on', 'turn off',
+      'add', 'remove', 'increase', 'decrease', 'make it', 'configure'
+    ];
+    
+    if (commandStarters.some(starter => lowerMessage.startsWith(starter))) {
+      return 'command';
+    }
+    
+    // Ambiguous phrases that need clarification
+    const ambiguousPatterns = ['ai', 'risk', 'trading', 'strategy'];
+    if (ambiguousPatterns.some(pattern => lowerMessage.includes(pattern))) {
+      return 'ambiguous';
+    }
+    
+    return 'question'; // Default to safe assumption
+  }
+
   static mapUserIntent(message: string, currentConfig: any = {}): any {
+    const intent = this.detectIntent(message);
+    if (intent === 'question') return {}; // No updates for questions
+    
     const lowerMessage = message.toLowerCase();
     const updates = {};
 
@@ -185,34 +235,47 @@ class IntelligentFieldMapper {
       }
     }
 
-    // Amount per trade
-    const amountMatch = message.match(/(\d+)\s*(euros?|eur|€)/i);
+    // Amount per trade with better parsing
+    const amountMatches = [
+      message.match(/(\d+)\s*(euros?|eur|€)/i),
+      message.match(/€\s*(\d+)/i),
+      message.match(/(\d+)\s*per\s*trade/i)
+    ];
+    
+    const amountMatch = amountMatches.find(match => match !== null);
     if (amountMatch && (lowerMessage.includes('trade') || lowerMessage.includes('allocation') || lowerMessage.includes('minimum'))) {
       updates.perTradeAllocation = parseInt(amountMatch[1]);
     }
 
-    // Stop loss
+    // Stop loss with validation
     const stopLossMatch = message.match(/(\d+(?:\.\d+)?)\s*%/);
     if (stopLossMatch && (lowerMessage.includes('stop') || lowerMessage.includes('loss'))) {
-      updates.stopLossPercentage = parseFloat(stopLossMatch[1]);
+      const percentage = parseFloat(stopLossMatch[1]);
+      if (percentage > 0 && percentage <= 50) { // Reasonable range
+        updates.stopLossPercentage = percentage;
+      }
     }
 
     // Take profit
     if (stopLossMatch && (lowerMessage.includes('profit') || lowerMessage.includes('gain'))) {
-      updates.takeProfitPercentage = parseFloat(stopLossMatch[1]);
+      const percentage = parseFloat(stopLossMatch[1]);
+      if (percentage > 0 && percentage <= 1000) { // Reasonable range
+        updates.takeProfitPercentage = percentage;
+      }
     }
 
-    // Coin selection
-    const coinPatterns = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI'];
+    // Enhanced coin selection
+    const coinPatterns = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'DOGE', 'LTC', 'BCH'];
     const mentionedCoins = coinPatterns.filter(coin => 
-      lowerMessage.includes(coin.toLowerCase())
+      new RegExp(`\\b${coin.toLowerCase()}\\b`).test(lowerMessage)
     );
 
     if (mentionedCoins.length > 0) {
       if (lowerMessage.includes('only') || lowerMessage.includes('just')) {
         updates.selectedCoins = mentionedCoins;
       } else if (lowerMessage.includes('add')) {
-        updates.selectedCoins = [...(currentConfig.selectedCoins || []), ...mentionedCoins];
+        const current = currentConfig.selectedCoins || [];
+        updates.selectedCoins = [...new Set([...current, ...mentionedCoins])]; // Remove duplicates
       } else if (lowerMessage.includes('remove')) {
         updates.selectedCoins = (currentConfig.selectedCoins || []).filter(coin => 
           !mentionedCoins.includes(coin)
@@ -220,33 +283,169 @@ class IntelligentFieldMapper {
       }
     }
 
-    // AI enablement
+    // AI enablement with better logic
     if (lowerMessage.includes('ai') || lowerMessage.includes('intelligence')) {
-      if (lowerMessage.includes('enable') || lowerMessage.includes('turn on')) {
+      if (lowerMessage.includes('enable') || lowerMessage.includes('turn on') || lowerMessage.includes('activate')) {
         updates.enableAI = true;
-      } else if (lowerMessage.includes('disable') || lowerMessage.includes('turn off')) {
+      } else if (lowerMessage.includes('disable') || lowerMessage.includes('turn off') || lowerMessage.includes('deactivate')) {
         updates.enableAI = false;
       }
     }
 
     return updates;
   }
+
+  static explainField(fieldName: string): string {
+    const field = this.FIELD_DEFINITIONS[fieldName];
+    if (!field) return `Unknown field: ${fieldName}`;
+    
+    return `**${field.name}**: ${field.description}\n\n**Location**: ${field.uiLocation}\n\n**Examples**: "${field.examples.join('", "')}"`;
+  }
 }
 
+// =============================================
+// VALIDATION & ACTION FRAMEWORK
+// =============================================
+class ValidationEngine {
+  static validateConfigChange(field: string, newValue: any, currentValue: any): {
+    isValid: boolean,
+    needsUpdate: boolean,
+    message: string
+  } {
+    // Check if value is actually changing
+    if (JSON.stringify(newValue) === JSON.stringify(currentValue)) {
+      return {
+        isValid: true,
+        needsUpdate: false,
+        message: `No change needed — '${IntelligentFieldMapper.FIELD_DEFINITIONS[field]?.name || field}' is already set to ${Array.isArray(newValue) ? newValue.join(', ') : newValue}.`
+      };
+    }
+
+    // Field-specific validation
+    switch (field) {
+      case 'perTradeAllocation':
+        if (newValue < 1 || newValue > 100000) {
+          return { isValid: false, needsUpdate: false, message: 'Amount per trade must be between €1 and €100,000.' };
+        }
+        break;
+      case 'stopLossPercentage':
+        if (newValue < 0.1 || newValue > 50) {
+          return { isValid: false, needsUpdate: false, message: 'Stop loss must be between 0.1% and 50%.' };
+        }
+        break;
+      case 'takeProfitPercentage':
+        if (newValue < 1 || newValue > 1000) {
+          return { isValid: false, needsUpdate: false, message: 'Take profit must be between 1% and 1000%.' };
+        }
+        break;
+    }
+
+    return {
+      isValid: true,
+      needsUpdate: true,
+      message: `✅ Updated '${IntelligentFieldMapper.FIELD_DEFINITIONS[field]?.name || field}' from ${Array.isArray(currentValue) ? currentValue.join(', ') : currentValue} to ${Array.isArray(newValue) ? newValue.join(', ') : newValue}.`
+    };
+  }
+}
+
+// =============================================
+// EXPERT CRYPTO INTELLIGENCE ENGINE
+// =============================================
 class CryptoIntelligenceEngine {
-  static async generateContextualResponse(message: string, strategy: any, signals: any[], news: any[], conversationHistory: any[]): Promise<string> {
+  static async generateContextualResponse(
+    message: string, 
+    strategy: any, 
+    signals: any[], 
+    news: any[], 
+    conversationHistory: any[],
+    currentConfig: any = {}
+  ): Promise<{ message: string, configUpdates?: any, needsValidation?: boolean }> {
+    
+    // Build comprehensive context
     const marketContext = this.buildMarketContext(signals, news);
     const strategyContext = this.buildStrategyContext(strategy);
-    const memoryContext = this.buildMemoryContext(conversationHistory);
+    const memoryContext = ConversationMemory.buildContextPrompt(conversationHistory);
+    const interfaceContext = this.buildInterfaceContext();
     
-    const contextualPrompt = `${systemPrompt}
+    // Detect user intent
+    const intent = IntelligentFieldMapper.detectIntent(message);
+    
+    // Handle questions vs commands differently
+    if (intent === 'question') {
+      return { message: await this.handleQuestionIntent(message, strategy, marketContext, memoryContext, interfaceContext) };
+    }
+    
+    // Handle configuration commands
+    const potentialUpdates = IntelligentFieldMapper.mapUserIntent(message, currentConfig);
+    
+    if (Object.keys(potentialUpdates).length === 0) {
+      // No clear config intent - use general AI response
+      return { message: await this.handleGeneralIntent(message, strategy, marketContext, memoryContext, interfaceContext) };
+    }
+    
+    // Validate all potential updates
+    const validatedUpdates = {};
+    const validationMessages = [];
+    
+    for (const [field, newValue] of Object.entries(potentialUpdates)) {
+      const currentValue = currentConfig[field];
+      const validation = ValidationEngine.validateConfigChange(field, newValue, currentValue);
+      
+      if (validation.isValid && validation.needsUpdate) {
+        validatedUpdates[field] = newValue;
+        validationMessages.push(validation.message);
+      } else if (!validation.isValid) {
+        validationMessages.push(`❌ ${validation.message}`);
+      } else {
+        validationMessages.push(validation.message);
+      }
+    }
+    
+    const responseMessage = validationMessages.length > 0 
+      ? validationMessages.join('\n\n')
+      : await this.handleGeneralIntent(message, strategy, marketContext, memoryContext, interfaceContext);
+    
+    return {
+      message: responseMessage,
+      configUpdates: Object.keys(validatedUpdates).length > 0 ? validatedUpdates : undefined
+    };
+  }
 
-Current market context: ${marketContext}
-User's strategy: ${strategyContext}
-Recent conversation: ${memoryContext}
+  static async handleQuestionIntent(message: string, strategy: any, marketContext: string, memoryContext: string, interfaceContext: string): Promise<string> {
+    const systemPrompt = `You are an expert cryptocurrency trading assistant with complete interface awareness.
 
-Respond naturally with specific actionable advice. Reference previous context when relevant.`;
+INTERFACE KNOWLEDGE: ${interfaceContext}
+MARKET CONTEXT: ${marketContext}
+STRATEGY CONTEXT: ${this.buildStrategyContext(strategy)}
+CONVERSATION HISTORY: ${memoryContext}
 
+The user is asking a QUESTION (not making a change). Provide informative answers about:
+- Current strategy settings and their locations in the interface
+- What specific features do and how they work
+- Market analysis and recommendations
+- Where to find specific options in the interface
+
+Never suggest configuration changes unless explicitly asked. Reference specific UI locations when relevant.`;
+
+    return await this.callOpenAI(systemPrompt, message);
+  }
+
+  static async handleGeneralIntent(message: string, strategy: any, marketContext: string, memoryContext: string, interfaceContext: string): Promise<string> {
+    const systemPrompt = `You are an expert cryptocurrency trading assistant with complete interface awareness.
+
+INTERFACE KNOWLEDGE: ${interfaceContext}
+MARKET CONTEXT: ${marketContext}
+STRATEGY CONTEXT: ${this.buildStrategyContext(strategy)}
+CONVERSATION HISTORY: ${memoryContext}
+
+Provide expert guidance on cryptocurrency trading, technical analysis, and strategy optimization.
+Reference specific interface locations when discussing features.
+Use market signals to inform your recommendations.`;
+
+    return await this.callOpenAI(systemPrompt, message);
+  }
+
+  static async callOpenAI(systemPrompt: string, userMessage: string): Promise<string> {
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -257,20 +456,20 @@ Respond naturally with specific actionable advice. Reference previous context wh
         body: JSON.stringify({
           model: 'gpt-4.1-2025-04-14',
           messages: [
-            { role: 'system', content: contextualPrompt },
-            { role: 'user', content: message }
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage }
           ],
           temperature: 0.3,
-          max_tokens: 1000
+          max_tokens: 1500
         }),
       });
 
       const data = await response.json();
       return data.choices?.[0]?.message?.content || 
-        "I understand your question about trading strategy. Could you be more specific about what you'd like to adjust?";
+        "I understand your request. Could you be more specific about what you'd like to know or change?";
     } catch (error) {
       console.error('OpenAI API error:', error);
-      return "I'm having trouble accessing my intelligence systems right now. Please try your question again.";
+      return "I'm experiencing technical difficulties with my AI systems. Please try again in a moment.";
     }
   }
 
@@ -280,10 +479,10 @@ Respond naturally with specific actionable advice. Reference previous context wh
     
     let context = '';
     if (recentSignals.length > 0) {
-      context += `Recent signals: ${recentSignals.map(s => `${s.symbol} ${s.signal_type} (strength: ${s.signal_strength})`).join(', ')}. `;
+      context += `Recent market signals: ${recentSignals.map(s => `${s.symbol} ${s.signal_type} (strength: ${s.signal_strength})`).join(', ')}. `;
     }
     if (recentNews.length > 0) {
-      context += `Recent news: ${recentNews.map(n => n.headline).join('; ')}. `;
+      context += `Recent crypto news: ${recentNews.map(n => n.headline).join('; ')}. `;
     }
     
     return context || 'No recent market signals available.';
@@ -293,14 +492,15 @@ Respond naturally with specific actionable advice. Reference previous context wh
     if (!strategy) return 'No active strategy configured.';
     
     const config = strategy.configuration || {};
-    return `Strategy "${strategy.strategy_name}" with risk level ${config.riskLevel || 'medium'}, ${config.selectedCoins?.length || 0} coins selected, ${config.perTradeAllocation || 'no'} euros per trade.`;
+    return `Current strategy "${strategy.strategy_name}" with risk level ${config.riskLevel || 'medium'}, ${config.selectedCoins?.length || 0} coins selected, amount per trade: €${config.perTradeAllocation || 'not set'}, AI signals: ${config.enableAI ? 'enabled' : 'disabled'}.`;
   }
 
-  static buildMemoryContext(history: any[]): string {
-    if (!history.length) return 'This is our first conversation.';
+  static buildInterfaceContext(): string {
+    const fieldDescriptions = Object.entries(IntelligentFieldMapper.FIELD_DEFINITIONS)
+      .map(([key, field]) => `${field.name}: Located in ${field.uiLocation}`)
+      .join('\n');
     
-    const recent = history.slice(0, 3).reverse();
-    return recent.map(h => `${h.message_type}: ${h.content.substring(0, 100)}`).join(' | ');
+    return `Interface locations:\n${fieldDescriptions}`;
   }
 }
 
@@ -554,29 +754,56 @@ serve(async (req) => {
       ExternalSignalIntegration.getLiveSignals(freshConfig.selectedCoins || [])
     ]);
 
-    // Generate intelligent response
-    const aiMessage = await CryptoIntelligenceEngine.generateContextualResponse(
+    // Generate intelligent response with the upgraded engine
+    const intelligentResponse = await CryptoIntelligenceEngine.generateContextualResponse(
       message, 
       strategy, 
       liveSignals, 
       cryptoNews,
-      conversationHistory
+      conversationHistory,
+      freshConfig
     );
 
-    // Store AI response in conversation history
-    await ConversationMemory.storeMessage(userId, 'ai', aiMessage, { 
-      type: 'intelligent_response',
-      signals_used: liveSignals.length,
-      news_used: cryptoNews.length,
-      strategyId: strategy?.id 
-    });
+    let finalMessage = intelligentResponse.message;
+    let hasConfigUpdates = false;
+    let configUpdates = {};
 
-    console.log(`📝 AI_ASSISTANT: Intelligent response generated`);
+    // Handle configuration updates if present
+    if (intelligentResponse.configUpdates && Object.keys(intelligentResponse.configUpdates).length > 0) {
+      console.log(`🔄 CONFIG_UPDATE: Applying validated updates:`, intelligentResponse.configUpdates);
+      
+      const success = await ConfigManager.updateConfig(strategy.id, userId, intelligentResponse.configUpdates);
+      
+      if (success) {
+        hasConfigUpdates = true;
+        configUpdates = intelligentResponse.configUpdates;
+        
+        // Store successful config update in conversation history
+        await ConversationMemory.storeMessage(userId, 'ai', finalMessage, { 
+          type: 'config_update_success',
+          updates: intelligentResponse.configUpdates,
+          strategyId: strategy.id 
+        });
+      } else {
+        finalMessage += "\n\n❌ **Configuration Update Failed**\n\nI couldn't save the changes to your strategy. Please try again or check your connection.";
+      }
+    } else {
+      // Store regular AI response in conversation history
+      await ConversationMemory.storeMessage(userId, 'ai', finalMessage, { 
+        type: 'intelligent_response',
+        signals_used: liveSignals.length,
+        news_used: cryptoNews.length,
+        strategyId: strategy?.id 
+      });
+    }
+
+    console.log(`📝 AI_ASSISTANT: Response generated - Config updates: ${hasConfigUpdates}`);
 
     return new Response(
       JSON.stringify({
-        message: aiMessage,
-        hasConfigUpdates: false,
+        message: finalMessage,
+        hasConfigUpdates,
+        configUpdates: hasConfigUpdates ? configUpdates : undefined,
         verificationResults: { success: true, errors: [] }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
