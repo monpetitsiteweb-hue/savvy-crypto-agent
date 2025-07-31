@@ -327,9 +327,21 @@ Respond with ONLY the category name, no explanation.`
         (lowerMessage.includes('it') && lowerMessage.includes('enable'))) {
       
       if (lowerMessage.includes('enable') || lowerMessage.includes('turn on') || lowerMessage.includes('activate')) {
+        // Enable ALL AI flags consistently
         updates.enableAI = true;
+        updates.is_ai_enabled = true;
+        updates.aiIntelligenceConfig = {
+          ...currentConfig.aiIntelligenceConfig,
+          enableAIOverride: true
+        };
       } else if (lowerMessage.includes('disable') || lowerMessage.includes('turn off') || lowerMessage.includes('deactivate')) {
+        // Disable ALL AI flags consistently  
         updates.enableAI = false;
+        updates.is_ai_enabled = false;
+        updates.aiIntelligenceConfig = {
+          ...currentConfig.aiIntelligenceConfig,
+          enableAIOverride: false
+        };
       }
     }
 
@@ -641,35 +653,69 @@ class ConfigManager {
 
   static async updateConfig(strategyId: string, userId: string, updates: any): Promise<boolean> {
     try {
-      console.log('✅ [DEBUG] Starting config update with validated updates:', updates);
+      console.log('🔧 [CONFIG_UPDATE] Starting with validated updates:', JSON.stringify(updates, null, 2));
       
+      // Get current config
       const currentConfig = await this.getFreshConfig(strategyId, userId);
-      const newConfig = { ...currentConfig, ...updates };
+      console.log('📖 [CONFIG_UPDATE] Current config:', JSON.stringify(currentConfig, null, 2));
       
-      console.log('✅ [DEBUG] Current config:', currentConfig);
-      console.log('✅ [DEBUG] New merged config:', newConfig);
+      // Deep merge for nested objects like aiIntelligenceConfig
+      const newConfig = this.deepMerge(currentConfig, updates);
+      console.log('🔀 [CONFIG_UPDATE] Merged config:', JSON.stringify(newConfig, null, 2));
       
+      // Update database
       const { data, error } = await supabase
         .from('trading_strategies')
         .update({ configuration: newConfig })
         .eq('id', strategyId)
         .eq('user_id', userId)
-        .select()
+        .select('configuration')
         .single();
       
-      console.log('✅ [DEBUG] DB update result:', { data, error });
-      
       if (error) {
-        console.error('❌ [DEBUG] DB update failed:', error);
-        throw error;
+        console.error('❌ [CONFIG_UPDATE] DB update failed:', error);
+        return false;
       }
       
-      console.log('✅ [DEBUG] Config successfully updated in database');
+      // CRITICAL: Verify the update was actually persisted
+      const verificationConfig = await this.getFreshConfig(strategyId, userId);
+      console.log('✅ [CONFIG_UPDATE] Verification read-back:', JSON.stringify(verificationConfig, null, 2));
+      
+      // Check that key fields were actually updated
+      const verificationsToCheck = [
+        { field: 'enableAI', expected: updates.enableAI, actual: verificationConfig.enableAI },
+        { field: 'is_ai_enabled', expected: updates.is_ai_enabled, actual: verificationConfig.is_ai_enabled },
+        { field: 'aiIntelligenceConfig.enableAIOverride', expected: updates.aiIntelligenceConfig?.enableAIOverride, actual: verificationConfig.aiIntelligenceConfig?.enableAIOverride }
+      ];
+      
+      for (const check of verificationsToCheck) {
+        if (check.expected !== undefined && check.actual !== check.expected) {
+          console.error(`❌ [CONFIG_UPDATE] VERIFICATION FAILED for ${check.field}: expected ${check.expected}, got ${check.actual}`);
+          return false;
+        }
+      }
+      
+      console.log('✅ [CONFIG_UPDATE] All verifications passed - update confirmed persisted');
       return true;
     } catch (error) {
-      console.error('❌ [DEBUG] Failed to update config:', error);
+      console.error('❌ [CONFIG_UPDATE] Failed to update config:', error);
       return false;
     }
+  }
+
+  // Deep merge utility to handle nested objects properly
+  static deepMerge(target: any, source: any): any {
+    const result = { ...target };
+    
+    for (const key in source) {
+      if (source[key] !== null && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+        result[key] = this.deepMerge(target[key] || {}, source[key]);
+      } else {
+        result[key] = source[key];
+      }
+    }
+    
+    return result;
   }
 }
 
