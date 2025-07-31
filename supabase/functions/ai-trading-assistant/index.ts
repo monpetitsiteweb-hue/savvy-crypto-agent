@@ -804,7 +804,7 @@ serve(async (req) => {
 
     let finalMessage = intelligentResponse.message;
     let hasConfigUpdates = false;
-    let configUpdates = {};
+    let finalConfigUpdates = {};
 
     // Handle configuration updates if present
     if (intelligentResponse.configUpdates && Object.keys(intelligentResponse.configUpdates).length > 0) {
@@ -814,7 +814,7 @@ serve(async (req) => {
       
       if (success) {
         hasConfigUpdates = true;
-        configUpdates = intelligentResponse.configUpdates;
+        finalConfigUpdates = intelligentResponse.configUpdates;
         
         // Store successful config update in conversation history
         await ConversationMemory.storeMessage(userId, 'ai', finalMessage, { 
@@ -841,7 +841,7 @@ serve(async (req) => {
       JSON.stringify({
         message: finalMessage,
         hasConfigUpdates,
-        configUpdates: hasConfigUpdates ? configUpdates : undefined,
+        configUpdates: hasConfigUpdates ? finalConfigUpdates : undefined,
         verificationResults: { success: true, errors: [] }
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
