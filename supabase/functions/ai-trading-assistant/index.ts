@@ -633,10 +633,14 @@ If no fields match, return {}. Do not explain, only return JSON.`
         updates.aiIntelligenceConfig.aiAutonomyLevel = level;
         // CRITICAL: NEVER modify is_ai_enabled, ai_override_enabled or any other AI flags when setting autonomy
         console.log(`🎯 AI AUTONOMY: Setting autonomy to ${level}% without touching AI enable flags`);
+        console.log(`🔍 AI AUTONOMY: Before cleanup - updates keys: ${Object.keys(updates).join(', ')}`);
         
         // REMOVE any unwanted AI flags that might have been set by OpenAI mapping
         delete updates.is_ai_enabled;
         delete updates.ai_override_enabled;
+        
+        console.log(`🔍 AI AUTONOMY: After cleanup - updates keys: ${Object.keys(updates).join(', ')}`);
+        console.log(`🔍 AI AUTONOMY: aiIntelligenceConfig contents: ${JSON.stringify(updates.aiIntelligenceConfig)}`);
       }
     }
 
@@ -648,10 +652,14 @@ If no fields match, return {}. Do not explain, only return JSON.`
         if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
         updates.aiIntelligenceConfig.aiConfidenceThreshold = threshold;
         console.log(`🎯 AI CONFIDENCE: Setting confidence to ${threshold}% without touching AI enable flags`);
+        console.log(`🔍 AI CONFIDENCE: Before cleanup - updates keys: ${Object.keys(updates).join(', ')}`);
         
         // REMOVE any unwanted AI flags that might have been set by OpenAI mapping
         delete updates.is_ai_enabled;
         delete updates.ai_override_enabled;
+        
+        console.log(`🔍 AI CONFIDENCE: After cleanup - updates keys: ${Object.keys(updates).join(', ')}`);
+        console.log(`🔍 AI CONFIDENCE: aiIntelligenceConfig contents: ${JSON.stringify(updates.aiIntelligenceConfig)}`);
       }
     }
 
@@ -799,7 +807,52 @@ class ValidationEngine {
       newValueType: typeof newValue
     });
     
-    // Check if value is actually changing
+    // Special handling for aiIntelligenceConfig - compare individual nested fields
+    if (field === 'aiIntelligenceConfig') {
+      const currentAiConfig = currentValue || {};
+      const newAiConfig = newValue || {};
+      
+      // Check each nested field individually
+      let hasChanges = false;
+      const changes = [];
+      
+      for (const [aiField, aiValue] of Object.entries(newAiConfig)) {
+        if (currentAiConfig[aiField] !== aiValue) {
+          hasChanges = true;
+          changes.push(`${aiField}: ${currentAiConfig[aiField]} → ${aiValue}`);
+        }
+      }
+      
+      if (!hasChanges) {
+        // Find which field was actually requested to provide better message
+        if (newAiConfig.aiAutonomyLevel !== undefined) {
+          return {
+            isValid: true,
+            needsUpdate: false,
+            message: `No change needed — AI Autonomy Level is already set to ${newAiConfig.aiAutonomyLevel}%.`
+          };
+        } else if (newAiConfig.aiConfidenceThreshold !== undefined) {
+          return {
+            isValid: true,
+            needsUpdate: false,
+            message: `No change needed — AI Confidence Threshold is already set to ${newAiConfig.aiConfidenceThreshold}%.`
+          };
+        }
+        return {
+          isValid: true,
+          needsUpdate: false,
+          message: `No change needed — AI intelligence settings are already configured as requested.`
+        };
+      }
+      
+      return {
+        isValid: true,
+        needsUpdate: true,
+        message: `✅ Updated AI intelligence configuration: ${changes.join(', ')}.`
+      };
+    }
+    
+    // Check if value is actually changing for non-nested fields
     if (JSON.stringify(newValue) === JSON.stringify(currentValue)) {
       return {
         isValid: true,
@@ -1202,11 +1255,17 @@ class ConfigManager {
       
       // Check AI intelligence config fields
       if (updates.aiIntelligenceConfig) {
+        console.log(`🔍 AI_CONFIG_VERIFICATION: Checking updates - ${JSON.stringify(updates.aiIntelligenceConfig)}`);
+        console.log(`🔍 AI_CONFIG_VERIFICATION: Current config AI section - ${JSON.stringify(verificationConfig.aiIntelligenceConfig)}`);
+        
         for (const [aiField, expectedValue] of Object.entries(updates.aiIntelligenceConfig)) {
+          const actualValue = verificationConfig.aiIntelligenceConfig?.[aiField];
+          console.log(`🔍 AI_CONFIG_VERIFICATION: Field ${aiField} - expected: ${expectedValue}, actual: ${actualValue}`);
+          
           verificationsToCheck.push({ 
             field: `aiIntelligenceConfig.${aiField}`, 
             expected: expectedValue, 
-            actual: verificationConfig.aiIntelligenceConfig?.[aiField] 
+            actual: actualValue 
           });
         }
       }
@@ -1232,7 +1291,13 @@ class ConfigManager {
     
     for (const key in source) {
       if (source[key] !== null && typeof source[key] === 'object' && !Array.isArray(source[key])) {
-        result[key] = this.deepMerge(target[key] || {}, source[key]);
+        // CRITICAL: For aiIntelligenceConfig, preserve existing values and only update specified ones
+        if (key === 'aiIntelligenceConfig') {
+          result[key] = { ...(target[key] || {}), ...source[key] };
+          console.log(`🔀 DEEP_MERGE: AI config merge - target: ${JSON.stringify(target[key])}, source: ${JSON.stringify(source[key])}, result: ${JSON.stringify(result[key])}`);
+        } else {
+          result[key] = this.deepMerge(target[key] || {}, source[key]);
+        }
       } else {
         result[key] = source[key];
       }
@@ -1289,10 +1354,38 @@ function generateSuccessMessage(configUpdates: any, testMode: boolean): string {
       case 'selectedCoins':
         return `• **Selected coins:** ${Array.isArray(value) ? value.join(', ') : value}`;
       case 'aiIntelligenceConfig':
-        return `• **AI decision override:** ${value?.enableAIOverride ? 'enabled' : 'disabled'}`;
+        // Handle AI intelligence config fields properly - NEVER mention override when setting autonomy
+        const aiUpdates = [];
+        if (value?.aiAutonomyLevel !== undefined) {
+          aiUpdates.push(`AI autonomy level: ${value.aiAutonomyLevel}%`);
+        }
+        if (value?.aiConfidenceThreshold !== undefined) {
+          aiUpdates.push(`AI confidence threshold: ${value.aiConfidenceThreshold}%`);
+        }
+        if (value?.riskOverrideAllowed !== undefined) {
+          aiUpdates.push(`Risk override: ${value.riskOverrideAllowed ? 'enabled' : 'disabled'}`);
+        }
+        return aiUpdates.length > 0 ? `• **AI settings:** ${aiUpdates.join(', ')}` : `• **AI settings:** updated`;
+      case 'is_ai_enabled':
+        return `• **AI system:** ${value ? 'enabled' : 'disabled'}`;
+      case 'ai_override_enabled':
+        return `• **AI override:** ${value ? 'enabled' : 'disabled'}`;
+      case 'buyCooldownMinutes':
+        return `• **Trade cooldown:** ${value} minutes`;
+      case 'takeProfitPercentage':
+        return `• **Take profit:** ${value}%`;
       default:
         // Handle object values properly to avoid [object Object]
         if (typeof value === 'object' && value !== null) {
+          if (Array.isArray(value)) {
+            return `• **${key}:** ${value.join(', ')}`;
+          }
+          // For nested objects, try to extract meaningful info
+          const entries = Object.entries(value);
+          if (entries.length === 1) {
+            const [subKey, subValue] = entries[0];
+            return `• **${subKey}:** ${subValue}`;
+          }
           return `• **${key}:** ${JSON.stringify(value)}`;
         }
         return `• **${key}:** ${value}`;
