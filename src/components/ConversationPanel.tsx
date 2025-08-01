@@ -510,6 +510,11 @@ export const ConversationPanel = () => {
                       return `AI configuration updated`;
                     }
                   }
+                  // 🚨 DEBUG: Log the actual field being updated to catch the issue
+                  if (key === 'ai_override_enabled') {
+                    console.log('🚨 FRONTEND BUG: ai_override_enabled field found in config updates!', value);
+                    return `AI decision override: ${value ? 'enabled' : 'disabled'}`;
+                  }
                   if (typeof value === 'object' && value !== null) {
                     return `${key}: ${JSON.stringify(value)}`;
                   }
