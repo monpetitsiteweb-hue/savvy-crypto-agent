@@ -508,11 +508,11 @@ RISK MANAGEMENT:
 - maxOpenPositions: "max 5 positions", "limit open positions to 8" (number)
 - resetStopLossAfterFail: "reset stops if they fail", "reset stop loss after fail" (boolean)
 
-AI INTELLIGENCE CONFIG:
-- is_ai_enabled: "enable AI", "turn on AI intelligence", "AI on/off" (boolean)
-- ai_override_enabled: "enable AI override", "allow AI to override" (boolean)
-- aiIntelligenceConfig.aiAutonomyLevel: "AI autonomy 90%", "set autonomy to 75", "AI control level" (number 0-100)
-- aiIntelligenceConfig.aiConfidenceThreshold: "confidence threshold 80%", "AI confidence 70%" (number 0-100)
+AI INTELLIGENCE CONFIG (CRITICAL - DO NOT CONFUSE THESE FIELDS):
+- is_ai_enabled: "enable AI", "turn on AI intelligence", "AI on/off" (boolean) - CONTROLS AI SYSTEM ON/OFF
+- ai_override_enabled: "enable AI override", "allow AI to override" (boolean) - CONTROLS AI DECISION OVERRIDE
+- aiIntelligenceConfig.aiAutonomyLevel: "AI autonomy 90%", "set autonomy to 75", "autonomy level 80", "AI control level" (number 0-100) - ONLY SETS AUTONOMY LEVEL
+- aiIntelligenceConfig.aiConfidenceThreshold: "confidence threshold 80%", "AI confidence 70%" (number 0-100) - ONLY SETS CONFIDENCE
 
 NOTIFICATIONS:
 - notifyOnTrade: "notify on trades", "enable trade notifications", "disable trade alerts" (boolean)
@@ -539,20 +539,24 @@ TECHNICAL INDICATORS (nested):
 - technicalIndicators.macd.enabled: "enable MACD", "turn on MACD" (boolean)
 - technicalIndicators.ema.enabled: "enable EMA", "turn on EMA" (boolean)
 
-CRITICAL RULES:
-1. AI autonomy level changes should NEVER affect is_ai_enabled or ai_override_enabled
-2. AI confidence threshold changes should NEVER affect is_ai_enabled or ai_override_enabled  
+CRITICAL RULES - NEVER VIOLATE THESE:
+1. Setting "AI autonomy" ONLY sets aiIntelligenceConfig.aiAutonomyLevel - NEVER touches is_ai_enabled or ai_override_enabled
+2. Setting "confidence threshold" ONLY sets aiIntelligenceConfig.aiConfidenceThreshold - NEVER touches other AI fields
 3. When user says "disable notifications", set ALL THREE notification fields to false
 4. When user says "enable notifications", set ALL THREE notification fields to true
 5. resetStopLossAfterFail is a valid field that exists in the system
 6. Use riskProfile not riskLevel for risk settings
 7. buyCooldownMinutes is for "trade cooldown" or "buy cooldown" settings
 8. takeProfitPercentage is the correct field for take profit settings
+9. AUTONOMY and OVERRIDE are DIFFERENT - autonomy level changes do NOT affect override settings
 
 Return ONLY a JSON object with field paths and values. For nested fields use dot notation.
 Examples:
 - "Enable AI" → {"is_ai_enabled": true}
 - "Set AI autonomy to 90%" → {"aiIntelligenceConfig.aiAutonomyLevel": 90}
+- "Set autonomy level to 80%" → {"aiIntelligenceConfig.aiAutonomyLevel": 80}
+- "AI autonomy 75%" → {"aiIntelligenceConfig.aiAutonomyLevel": 75}
+- "Confidence threshold 80%" → {"aiIntelligenceConfig.aiConfidenceThreshold": 80}
 - "Trailing buy 1.5%" → {"trailingBuyPercentage": 1.5}
 - "Disable notifications" → {"notifyOnTrade": false, "notifyOnError": false, "notifyOnTargets": false}
 - "Reset stop loss after fail" → {"resetStopLossAfterFail": true}
@@ -584,12 +588,18 @@ If no fields match, return {}. Do not explain, only return JSON.`
             if (parts[0] === 'aiIntelligenceConfig') {
               if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
               updates.aiIntelligenceConfig[parts[1]] = value;
+              // CRITICAL: When setting AI config nested fields, log to prevent confusion
+              console.log(`🧠 AI CONFIG: Setting ${parts[1]} to ${value} - NOT affecting other AI settings`);
             } else if (parts[0] === 'technicalIndicators') {
               if (!updates.technicalIndicators) updates.technicalIndicators = {};
               if (!updates.technicalIndicators[parts[1]]) updates.technicalIndicators[parts[1]] = {};
               updates.technicalIndicators[parts[1]][parts[2]] = value;
             }
           } else {
+            // CRITICAL: Log any direct AI field updates to debug unwanted side effects
+            if (fieldPath.includes('ai') || fieldPath.includes('override')) {
+              console.log(`⚠️ DIRECT AI FIELD UPDATE: ${fieldPath} = ${value}`);
+            }
             updates[fieldPath] = value;
           }
         }
@@ -623,6 +633,25 @@ If no fields match, return {}. Do not explain, only return JSON.`
         updates.aiIntelligenceConfig.aiAutonomyLevel = level;
         // CRITICAL: NEVER modify is_ai_enabled, ai_override_enabled or any other AI flags when setting autonomy
         console.log(`🎯 AI AUTONOMY: Setting autonomy to ${level}% without touching AI enable flags`);
+        
+        // REMOVE any unwanted AI flags that might have been set by OpenAI mapping
+        delete updates.is_ai_enabled;
+        delete updates.ai_override_enabled;
+      }
+    }
+
+    // AI Confidence Threshold - CRITICAL: Only set confidence, never touch other AI flags  
+    const confidenceMatch = message.match(/(?:confidence|threshold).*?(\d+)/i);
+    if (confidenceMatch && !autonomyMatch) { // Don't interfere with autonomy
+      const threshold = parseInt(confidenceMatch[1]);
+      if (threshold >= 0 && threshold <= 100) {
+        if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
+        updates.aiIntelligenceConfig.aiConfidenceThreshold = threshold;
+        console.log(`🎯 AI CONFIDENCE: Setting confidence to ${threshold}% without touching AI enable flags`);
+        
+        // REMOVE any unwanted AI flags that might have been set by OpenAI mapping
+        delete updates.is_ai_enabled;
+        delete updates.ai_override_enabled;
       }
     }
 
