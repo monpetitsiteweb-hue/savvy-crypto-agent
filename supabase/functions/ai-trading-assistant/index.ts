@@ -702,22 +702,6 @@ If no fields match, return {}. Do not explain, only return JSON.`
 
     return updates;
   }
-
-    // AI configuration - Use single source of truth: aiIntelligenceConfig.enableAIOverride
-    if (lowerMessage.includes('ai') || 
-        (lowerMessage.includes('artificial') && lowerMessage.includes('intelligence')) ||
-        (lowerMessage.includes('it') && lowerMessage.includes('disable')) ||
-        (lowerMessage.includes('it') && lowerMessage.includes('enable'))) {
-      
-      if (lowerMessage.includes('enable') || lowerMessage.includes('turn on') || lowerMessage.includes('activate')) {
-        updates.aiIntelligenceConfig = {
-          ...(currentConfig.aiIntelligenceConfig || {}),
-          enableAIOverride: true
-        };
-      } else if (lowerMessage.includes('disable') || lowerMessage.includes('turn off') || lowerMessage.includes('deactivate')) {
-        updates.aiIntelligenceConfig = {
-          ...(currentConfig.aiIntelligenceConfig || {}),
-          enableAIOverride: false
         };
       }
     }
