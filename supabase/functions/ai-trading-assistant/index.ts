@@ -495,7 +495,7 @@ BASIC FIELDS:
 BUY/SELL SETTINGS:
 - buyFrequency: "buy frequency signal based", "buy once daily", "signal based buying" (values: once, daily, interval, signal_based)
 - trailingBuyPercentage: "trailing buy 1.5%", "set trailing buy to 2%" (number)
-- buyCooldownMinutes: "buy cooldown 60 minutes", "wait 30 minutes between buys" (number)
+- buyCooldownMinutes: "buy cooldown 60 minutes", "wait 30 minutes between buys", "trade cooldown 10 minutes" (number)
 - useTrailingStopOnly: "use trailing stop only", "trailing stop only mode" (boolean)
 - trailingStopLossPercentage: "trailing stop loss 2%", "trail stops at 1.5%" (number)
 
@@ -541,10 +541,13 @@ TECHNICAL INDICATORS (nested):
 
 CRITICAL RULES:
 1. AI autonomy level changes should NEVER affect is_ai_enabled or ai_override_enabled
-2. When user says "disable notifications", set ALL THREE notification fields to false
-3. When user says "enable notifications", set ALL THREE notification fields to true
-4. resetStopLossAfterFail is a valid field that exists in the system
-5. Use riskProfile not riskLevel for risk settings
+2. AI confidence threshold changes should NEVER affect is_ai_enabled or ai_override_enabled  
+3. When user says "disable notifications", set ALL THREE notification fields to false
+4. When user says "enable notifications", set ALL THREE notification fields to true
+5. resetStopLossAfterFail is a valid field that exists in the system
+6. Use riskProfile not riskLevel for risk settings
+7. buyCooldownMinutes is for "trade cooldown" or "buy cooldown" settings
+8. takeProfitPercentage is the correct field for take profit settings
 
 Return ONLY a JSON object with field paths and values. For nested fields use dot notation.
 Examples:
@@ -613,12 +616,13 @@ If no fields match, return {}. Do not explain, only return JSON.`
 
     // AI Autonomy Level - CRITICAL: Only set autonomy, never touch AI enable flags
     const autonomyMatch = message.match(/(?:ai\s+)?(?:autonomy|control).*?(\d+)/i);
-    if (autonomyMatch && !updates.aiIntelligenceConfig?.aiAutonomyLevel) {
+    if (autonomyMatch) {
       const level = parseInt(autonomyMatch[1]);
       if (level >= 0 && level <= 100) {
         if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
         updates.aiIntelligenceConfig.aiAutonomyLevel = level;
         // CRITICAL: NEVER modify is_ai_enabled, ai_override_enabled or any other AI flags when setting autonomy
+        console.log(`🎯 AI AUTONOMY: Setting autonomy to ${level}% without touching AI enable flags`);
       }
     }
 
@@ -685,6 +689,16 @@ If no fields match, return {}. Do not explain, only return JSON.`
       updates.perTradeAllocation = parseInt(amountMatch[1]);
     }
 
+    // Trade Cooldown (Minutes) - Fix field mapping
+    const cooldownMatch = message.match(/(?:trade\s+)?cooldown.*?(\d+)/i);
+    if (cooldownMatch) {
+      const minutes = parseInt(cooldownMatch[1]);
+      if (minutes >= 1 && minutes <= 1440) { // 1 minute to 24 hours
+        updates.buyCooldownMinutes = minutes;
+        console.log(`🕐 TRADE COOLDOWN: Setting buyCooldownMinutes to ${minutes}`);
+      }
+    }
+
     // Stop loss and take profit
     const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%/);
     if (percentageMatch) {
@@ -692,10 +706,12 @@ If no fields match, return {}. Do not explain, only return JSON.`
       if (lowerMessage.includes('stop') && lowerMessage.includes('loss')) {
         if (percentage > 0 && percentage <= 50) {
           updates.stopLossPercentage = percentage;
+          console.log(`🛑 STOP LOSS: Setting stopLossPercentage to ${percentage}%`);
         }
-      } else if (lowerMessage.includes('profit') || lowerMessage.includes('gain')) {
+      } else if (lowerMessage.includes('take') && (lowerMessage.includes('profit') || lowerMessage.includes('gain'))) {
         if (percentage > 0 && percentage <= 1000) {
           updates.takeProfitPercentage = percentage;
+          console.log(`🎯 TAKE PROFIT: Setting takeProfitPercentage to ${percentage}%`);
         }
       }
     }
@@ -932,6 +948,9 @@ Never suggest configuration changes unless explicitly asked. Always reference th
     values.push(`AI Autonomy Level: ${aiConfig.aiAutonomyLevel !== undefined ? aiConfig.aiAutonomyLevel + '%' : 'Not set'}`);
     values.push(`AI Confidence Threshold: ${aiConfig.aiConfidenceThreshold !== undefined ? aiConfig.aiConfidenceThreshold + '%' : 'Not set'}`);
     values.push(`Risk Override Allowed: ${aiConfig.riskOverrideAllowed ? 'Yes' : 'No'}`);
+    
+    // Trading Intervals
+    values.push(`Trade Cooldown: ${config.buyCooldownMinutes || 'Not set'} minutes`);
     
     // Buy/Sell Settings  
     values.push(`Buy Frequency: ${config.buyFrequency ? config.buyFrequency.replace('_', ' ') : 'Not set'}`);
