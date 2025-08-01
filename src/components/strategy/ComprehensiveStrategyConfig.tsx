@@ -60,7 +60,7 @@ interface StrategyFormData {
   maxWalletExposure: number;
   enableLiveTrading: boolean;
   enableTestTrading: boolean;
-  enableAI: boolean; // SINGLE SOURCE OF TRUTH for AI
+  // NOTE: enableAI removed - using aiIntelligenceConfig.enableAIOverride as single source of truth
   
   notes: string;
   selectedCoins: string[];
@@ -103,7 +103,7 @@ interface StrategyFormData {
   // Tags and categories
   category: string;
   tags: string[];
-  // AI Intelligence settings - keep for backward compatibility but use enableAI as primary
+  // AI Intelligence settings - enableAIOverride is the single source of truth
   aiIntelligenceConfig: AIIntelligenceConfig;
 }
 
@@ -245,7 +245,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     maxWalletExposure: 50,
     enableLiveTrading: false, // Strategies must be created in Test Mode first
     enableTestTrading: true,  // Always start in Test Mode
-    enableAI: false, // SINGLE SOURCE OF TRUTH - Start with AI disabled
+    // NOTE: AI enable state now in aiIntelligenceConfig.enableAIOverride
     
     notes: '',
     selectedCoins: ['BTC', 'ETH'],
@@ -332,9 +332,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       setFormData(prev => ({ 
         ...prev, 
         ...config,
-        // Use aiIntelligenceConfig.enableAIOverride as single source of truth
-        enableAI: config.aiIntelligenceConfig?.enableAIOverride || false,
-        // Properly merge the nested aiIntelligenceConfig
+        // Properly merge the nested aiIntelligenceConfig with existing enableAIOverride
         aiIntelligenceConfig: {
           ...prev.aiIntelligenceConfig,
           ...config.aiIntelligenceConfig
@@ -398,17 +396,11 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       console.log('🚨 STRATEGY_SAVE_DEBUG: AI Intelligence Config being saved:', formData.aiIntelligenceConfig);
       console.log('🚨 STRATEGY_SAVE_DEBUG: Confidence threshold value:', formData.aiIntelligenceConfig.aiConfidenceThreshold);
       
-      // Use aiIntelligenceConfig.enableAIOverride as single source of truth
+      // Use aiIntelligenceConfig.enableAIOverride as single source of truth - no sync needed
       const syncedFormData = {
-        ...formData,
-        // Remove redundant enableAI, use only enableAIOverride
-        aiIntelligenceConfig: {
-          ...formData.aiIntelligenceConfig,
-          enableAIOverride: formData.enableAI
-        }
+        ...formData
+        // aiIntelligenceConfig already contains enableAIOverride directly
       };
-      // Remove the redundant enableAI field from the saved configuration
-      delete syncedFormData.enableAI;
 
       const strategyData = {
         user_id: user.id,
@@ -1196,10 +1188,9 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             </div>
                             <Switch
                               id="enable-ai"
-                              checked={formData.enableAI}
+                              checked={formData.aiIntelligenceConfig.enableAIOverride}
                               onCheckedChange={(value) => {
-                                updateFormData('enableAI', value);
-                                // Keep nested config in sync for backward compatibility
+                                // Use single source of truth - update aiIntelligenceConfig.enableAIOverride directly
                                 updateFormData('aiIntelligenceConfig', { 
                                   ...formData.aiIntelligenceConfig, 
                                   enableAIOverride: value 
@@ -1208,7 +1199,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             />
                           </div>
                           
-                          {formData.enableAI && (
+                          {formData.aiIntelligenceConfig.enableAIOverride && (
                             <div className="space-y-4 border-l-2 border-primary/20 pl-4">
                               <AIIntelligenceSettings
                                 config={formData.aiIntelligenceConfig}
