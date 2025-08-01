@@ -132,13 +132,6 @@ class IntelligentFieldMapper {
       uiLocation: 'Strategy Configuration → Basic Settings → Strategy Name',
       examples: ['rename to aggressive trader', 'call it bitcoin scalper', 'change name to growth strategy']
     },
-    'description': {
-      name: 'Description',
-      description: 'Description of your trading strategy',
-      type: 'string',
-      uiLocation: 'Strategy Configuration → Basic Settings → Description',
-      examples: ['add description', 'describe strategy', 'change description to momentum based']
-    },
 
     // === COINS AND AMOUNTS ===
     'perTradeAllocation': {
@@ -162,23 +155,30 @@ class IntelligentFieldMapper {
       uiLocation: 'Strategy Configuration → Coins & Amounts → Max Active Coins',
       examples: ['set max active coins to 5', 'limit to 3 coins', 'trade up to 8 cryptocurrencies']
     },
+    'maxWalletExposure': {
+      name: 'Max Wallet Exposure',
+      description: 'Maximum percentage of wallet to use for this strategy',
+      type: 'number',
+      uiLocation: 'Strategy Configuration → Coins & Amounts → Max Wallet Exposure',
+      examples: ['wallet exposure 80%', 'limit exposure to 60%', 'use 90% of wallet']
+    },
 
     // === BUY/SELL SETTINGS ===
-    'buyStrategy': {
-      name: 'Buy Strategy',
-      description: 'Strategy for when to buy: aggressive, conservative, or balanced',
+    'buyFrequency': {
+      name: 'Buy Frequency',
+      description: 'How often the strategy should execute buy orders',
       type: 'enum',
-      values: ['aggressive', 'conservative', 'balanced'],
-      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Buy Strategy',
-      examples: ['set buy strategy to aggressive', 'make buying conservative', 'use balanced buy approach']
+      values: ['once', 'daily', 'interval', 'signal_based'],
+      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Buy Frequency',
+      examples: ['buy frequency signal based', 'buy once daily', 'buy on signals only', 'interval buying']
     },
-    'sellStrategy': {
-      name: 'Sell Strategy',
-      description: 'Strategy for when to sell: aggressive, conservative, or balanced',
+    'buyOrderType': {
+      name: 'Buy Order Type',
+      description: 'Type of buy orders to use: market, limit, or trailing',
       type: 'enum',
-      values: ['aggressive', 'conservative', 'balanced'],
-      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Sell Strategy',
-      examples: ['set sell strategy to conservative', 'aggressive selling', 'balanced sell approach']
+      values: ['market', 'limit', 'trailing_buy'],
+      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Buy Order Type',
+      examples: ['use market orders', 'limit orders only', 'trailing buy orders']
     },
     'trailingBuyPercentage': {
       name: 'Trailing Buy %',
@@ -187,12 +187,20 @@ class IntelligentFieldMapper {
       uiLocation: 'Strategy Configuration → Buy/Sell Settings → Trailing Buy %',
       examples: ['set trailing buy to 1%', 'trailing buy percentage 2', 'use 1.5% for trailing buys']
     },
-    'trailingSellPercentage': {
-      name: 'Trailing Sell %',
-      description: 'Percentage for trailing sell orders to maximize profit',
+    'buyCooldownMinutes': {
+      name: 'Buy Cooldown',
+      description: 'Minutes to wait between buy attempts',
       type: 'number',
-      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Trailing Sell %',
-      examples: ['set trailing sell to 2%', 'trailing sell percentage 1.5', 'use 3% for trailing sells']
+      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Buy Cooldown',
+      examples: ['buy cooldown 60 minutes', 'wait 30 minutes between buys', 'cooldown 90 minutes']
+    },
+    'sellOrderType': {
+      name: 'Sell Order Type',
+      description: 'Type of sell orders to use: market, limit, trailing_stop, or auto_close',
+      type: 'enum',
+      values: ['market', 'limit', 'trailing_stop', 'auto_close'],
+      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Sell Order Type',
+      examples: ['use limit sells', 'market sell orders', 'trailing stop sells']
     },
     'useTrailingStopOnly': {
       name: 'Use Trailing Stop Only',
@@ -201,22 +209,71 @@ class IntelligentFieldMapper {
       uiLocation: 'Strategy Configuration → Buy/Sell Settings → Use Trailing Stop Only',
       examples: ['use trailing stop only', 'enable trailing stop only mode', 'trailing stop only']
     },
+    'trailingStopLossPercentage': {
+      name: 'Trailing Stop Loss %',
+      description: 'Percentage for trailing stop loss orders',
+      type: 'number',
+      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Trailing Stop Loss %',
+      examples: ['trailing stop loss 2%', 'set trailing stop to 1.5%', 'trail stops at 3%']
+    },
 
-    // === POSITION MANAGEMENT ===
+    // === RISK MANAGEMENT ===
+    'riskProfile': {
+      name: 'Risk Profile',
+      description: 'Overall risk tolerance: low, medium, or high',
+      type: 'enum',
+      values: ['low', 'medium', 'high'],
+      uiLocation: 'Strategy Configuration → Risk Management → Risk Profile',
+      examples: ['set risk to high', 'make it more aggressive', 'lower my risk', 'conservative approach', 'medium risk']
+    },
+    'stopLossPercentage': {
+      name: 'Stop Loss %',
+      description: 'Automatically sell if price drops by this percentage to limit losses',
+      type: 'number',
+      uiLocation: 'Strategy Configuration → Risk Management → Stop Loss %',
+      examples: ['set stop loss to 3%', 'cut losses at 2%', 'add stop loss protection', 'stop loss 5%']
+    },
+    'takeProfitPercentage': {
+      name: 'Take Profit %',
+      description: 'Automatically sell when profit reaches this percentage to lock in gains',
+      type: 'number',
+      uiLocation: 'Strategy Configuration → Risk Management → Take Profit %',
+      examples: ['take profit at 10%', 'secure gains at 15%', 'set profit target', 'take profit 8%']
+    },
     'maxPositionSize': {
       name: 'Maximum Position Size',
       description: 'Maximum total amount to invest in any single cryptocurrency',
       type: 'number',
-      uiLocation: 'Strategy Configuration → Position Management → Max Position Size',
+      uiLocation: 'Strategy Configuration → Risk Management → Max Position Size',
       examples: ['max position 5000', 'limit exposure to 3000', 'cap investment at 10000']
     },
-    'positionSizingMethod': {
-      name: 'Position Sizing Method',
-      description: 'Method for calculating position sizes: fixed or percentage',
-      type: 'enum',
-      values: ['fixed', 'percentage'],
-      uiLocation: 'Strategy Configuration → Position Management → Position Sizing Method',
-      examples: ['use fixed position sizing', 'switch to percentage method', 'position sizing to fixed']
+    'dailyLossLimit': {
+      name: 'Daily Loss Limit',
+      description: 'Maximum amount willing to lose in a single day',
+      type: 'number',
+      uiLocation: 'Strategy Configuration → Risk Management → Daily Loss Limit',
+      examples: ['daily loss limit 500', 'limit daily losses to 300', 'daily loss cap 1000']
+    },
+    'dailyProfitTarget': {
+      name: 'Daily Profit Target',
+      description: 'Target profit amount for a single day',
+      type: 'number',
+      uiLocation: 'Strategy Configuration → Risk Management → Daily Profit Target',
+      examples: ['daily profit target 100', 'aim for 200 euros daily', 'profit goal 150']
+    },
+    'maxOpenPositions': {
+      name: 'Max Open Positions',
+      description: 'Maximum number of open positions at any time',
+      type: 'number',
+      uiLocation: 'Strategy Configuration → Risk Management → Max Open Positions',
+      examples: ['max 5 positions', 'limit open positions to 8', 'allow 10 open trades']
+    },
+    'resetStopLossAfterFail': {
+      name: 'Reset Stop Loss After Fail',
+      description: 'Reset stop-loss to original level if it fails to execute',
+      type: 'boolean',
+      uiLocation: 'Strategy Configuration → Risk Management → Reset Stop Loss After Fail',
+      examples: ['reset stops if they fail', 'retry failed stop orders', 'reset stop loss after fail']
     },
 
     // === DCA & ADVANCED ===
@@ -234,12 +291,12 @@ class IntelligentFieldMapper {
       uiLocation: 'Strategy Configuration → DCA & Advanced → DCA Steps',
       examples: ['set DCA steps to 5', 'use 3 DCA steps', 'averaging in 4 steps']
     },
-    'dcaPercentage': {
-      name: 'DCA Percentage',
-      description: 'Percentage drop between DCA steps',
+    'dcaIntervalHours': {
+      name: 'DCA Interval Hours',
+      description: 'Hours between DCA steps',
       type: 'number',
-      uiLocation: 'Strategy Configuration → DCA & Advanced → DCA Percentage',
-      examples: ['DCA percentage 2%', 'set averaging drop to 1.5%', 'DCA every 3% down']
+      uiLocation: 'Strategy Configuration → DCA & Advanced → DCA Interval Hours',
+      examples: ['DCA every 6 hours', 'interval 12 hours', 'space DCA 24 hours apart']
     },
 
     // === SHORTING ===
@@ -250,127 +307,65 @@ class IntelligentFieldMapper {
       uiLocation: 'Strategy Configuration → Shorting → Enable Shorting',
       examples: ['enable shorting', 'allow short selling', 'disable shorts', 'turn on short positions']
     },
-    'shortingRatio': {
-      name: 'Shorting Ratio',
-      description: 'Percentage of portfolio that can be used for short positions',
+    'maxShortPositions': {
+      name: 'Max Short Positions',
+      description: 'Maximum number of short positions allowed',
       type: 'number',
-      uiLocation: 'Strategy Configuration → Shorting → Shorting Ratio',
-      examples: ['shorting ratio 30%', 'allow 20% shorts', 'limit shorts to 10%']
+      uiLocation: 'Strategy Configuration → Shorting → Max Short Positions',
+      examples: ['max 2 shorts', 'allow 3 short positions', 'limit shorts to 1']
     },
-
-    // === RISK MANAGEMENT ===
-    'riskLevel': {
-      name: 'Risk Level',
-      description: 'Overall risk tolerance: low, medium, or high',
-      type: 'enum',
-      values: ['low', 'medium', 'high'],
-      uiLocation: 'Strategy Configuration → Risk Management → Risk Level',
-      examples: ['set risk to high', 'make it more aggressive', 'lower my risk', 'conservative approach', 'medium risk']
-    },
-    'stopLossPercentage': {
-      name: 'Stop Loss %',
-      description: 'Automatically sell if price drops by this percentage to limit losses',
+    'shortingMinProfitPercentage': {
+      name: 'Minimum Short Profit %',
+      description: 'Minimum profit percentage required for short positions',
       type: 'number',
-      uiLocation: 'Strategy Configuration → Risk Management → Stop Loss %',
-      examples: ['set stop loss to 3%', 'cut losses at 2%', 'add stop loss protection', 'stop loss 5%']
+      uiLocation: 'Strategy Configuration → Shorting → Min Profit %',
+      examples: ['short profit 1.5%', 'minimum short gain 2%', 'short target 3%']
     },
-    'takeProfitPercentage': {
-      name: 'Take Profit %',
-      description: 'Automatically sell when profit reaches this percentage to lock in gains',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Risk Management → Take Profit %',
-      examples: ['take profit at 10%', 'secure gains at 15%', 'set profit target', 'take profit 8%']
-    },
-    'maxDailyLoss': {
-      name: 'Max Daily Loss',
-      description: 'Maximum amount willing to lose in a single day',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Risk Management → Max Daily Loss',
-      examples: ['max daily loss 500', 'limit daily losses to 300', 'daily loss cap 1000']
-    },
-    'portfolioAllocation': {
-      name: 'Portfolio Allocation',
-      description: 'Percentage of total portfolio to use for this strategy',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Risk Management → Portfolio Allocation',
-      examples: ['allocate 50% of portfolio', 'use 30% allocation', 'portfolio allocation 75%']
+    'autoCloseShorts': {
+      name: 'Auto Close Shorts',
+      description: 'Automatically close short positions after specified time',
+      type: 'boolean',
+      uiLocation: 'Strategy Configuration → Shorting → Auto Close Shorts',
+      examples: ['auto close shorts', 'close shorts automatically', 'disable auto close shorts']
     },
 
     // === NOTIFICATIONS ===
-    'notifications.tradeExecuted': {
-      name: 'Trade Executed Notifications',
+    'notifyOnTrade': {
+      name: 'Trade Notifications',
       description: 'Get notified when trades are executed',
       type: 'boolean',
-      uiLocation: 'Strategy Configuration → Notifications → Trade Executed',
+      uiLocation: 'Strategy Configuration → Notifications → Trade Notifications',
       examples: ['enable trade notifications', 'notify on trades', 'disable trade alerts']
     },
-    'notifications.profitTarget': {
-      name: 'Profit Target Notifications',
-      description: 'Get notified when profit targets are reached',
+    'notifyOnError': {
+      name: 'Error Notifications',
+      description: 'Get notified when trading errors occur',
       type: 'boolean',
-      uiLocation: 'Strategy Configuration → Notifications → Profit Target',
-      examples: ['notify on profit targets', 'enable profit alerts', 'disable profit notifications']
+      uiLocation: 'Strategy Configuration → Notifications → Error Notifications',
+      examples: ['notify on errors', 'enable error alerts', 'disable error notifications']
     },
-    'notifications.stopLoss': {
-      name: 'Stop Loss Notifications',
-      description: 'Get notified when stop losses are triggered',
+    'notifyOnTargets': {
+      name: 'Target Notifications',
+      description: 'Get notified when profit or loss targets are hit',
       type: 'boolean',
-      uiLocation: 'Strategy Configuration → Notifications → Stop Loss',
-      examples: ['notify on stop loss', 'enable loss alerts', 'disable stop loss notifications']
-    },
-    'notifications.dailySummary': {
-      name: 'Daily Summary Notifications',
-      description: 'Get daily summary of trading activity',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Notifications → Daily Summary',
-      examples: ['enable daily summary', 'send daily reports', 'disable daily notifications']
-    },
-
-    // === ADVANCED SETTINGS ===
-    'tradingHours.enabled': {
-      name: 'Trading Hours Enabled',
-      description: 'Enable specific trading hours for the strategy',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Advanced → Trading Hours',
-      examples: ['enable trading hours', 'set trading schedule', 'disable time restrictions']
-    },
-    'tradingHours.start': {
-      name: 'Trading Hours Start',
-      description: 'Start time for daily trading activity',
-      type: 'string',
-      uiLocation: 'Strategy Configuration → Advanced → Trading Hours Start',
-      examples: ['start trading at 9am', 'begin at 8:00', 'trading start 10:00']
-    },
-    'tradingHours.end': {
-      name: 'Trading Hours End',
-      description: 'End time for daily trading activity',
-      type: 'string',
-      uiLocation: 'Strategy Configuration → Advanced → Trading Hours End',
-      examples: ['stop trading at 5pm', 'end at 17:00', 'trading end 18:00']
-    },
-    'rebalancingFrequency': {
-      name: 'Rebalancing Frequency',
-      description: 'How often to rebalance the portfolio: daily, weekly, monthly',
-      type: 'enum',
-      values: ['daily', 'weekly', 'monthly'],
-      uiLocation: 'Strategy Configuration → Advanced → Rebalancing Frequency',
-      examples: ['rebalance daily', 'weekly rebalancing', 'monthly portfolio rebalance']
-    },
-    'slippageTolerance': {
-      name: 'Slippage Tolerance',
-      description: 'Maximum acceptable price slippage for trades',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Advanced → Slippage Tolerance',
-      examples: ['slippage tolerance 0.5%', 'allow 1% slippage', 'limit slippage to 0.3%']
+      uiLocation: 'Strategy Configuration → Notifications → Target Notifications',
+      examples: ['notify on targets', 'enable target alerts', 'disable target notifications']
     },
 
     // === AI INTELLIGENCE CONFIG ===
-    'aiIntelligenceConfig.enableAIOverride': {
-      name: 'AI Decision Override',
-      description: 'Enable AI to override strategy decisions based on market analysis',
+    'is_ai_enabled': {
+      name: 'Enable AI',
+      description: 'Enable AI-powered trading decisions and market analysis',
       type: 'boolean',
-      uiLocation: 'Strategy Configuration → AI Intelligence → Enable AI Decision Override',
-      examples: ['enable AI', 'turn on AI intelligence', 'use AI signals', 'disable AI override', 'AI on', 'AI off']
+      uiLocation: 'Strategy Configuration → AI Intelligence → Enable AI',
+      examples: ['enable AI', 'turn on AI intelligence', 'use AI signals', 'disable AI', 'AI on', 'AI off']
+    },
+    'ai_override_enabled': {
+      name: 'AI Override Enabled',
+      description: 'Allow AI to override strategy decisions in critical situations',
+      type: 'boolean',
+      uiLocation: 'Strategy Configuration → AI Intelligence → AI Override',
+      examples: ['enable AI override', 'allow AI to override', 'disable AI override']
     },
     'aiIntelligenceConfig.aiAutonomyLevel': {
       name: 'AI Autonomy Level',
@@ -379,19 +374,12 @@ class IntelligentFieldMapper {
       uiLocation: 'Strategy Configuration → AI Intelligence → AI Autonomy Level',
       examples: ['set AI autonomy to 90%', 'AI autonomy level 50', 'autonomy 75%', 'AI control 60%']
     },
-    'aiIntelligenceConfig.confidenceThreshold': {
+    'aiIntelligenceConfig.aiConfidenceThreshold': {
       name: 'AI Confidence Threshold',
       description: 'Minimum confidence level required for AI to make decisions',
       type: 'number',
       uiLocation: 'Strategy Configuration → AI Intelligence → Confidence Threshold',
       examples: ['confidence threshold 80%', 'AI confidence 70%', 'require 90% confidence']
-    },
-    'aiIntelligenceConfig.riskTolerance': {
-      name: 'AI Risk Tolerance',
-      description: 'AI risk tolerance level for decision making',
-      type: 'string',
-      uiLocation: 'Strategy Configuration → AI Intelligence → Risk Tolerance',
-      examples: ['AI risk tolerance high', 'conservative AI risk', 'moderate AI risk tolerance']
     },
 
     // === TECHNICAL INDICATORS ===
@@ -409,26 +397,12 @@ class IntelligentFieldMapper {
       uiLocation: 'Strategy Configuration → Technical Analysis → MACD',
       examples: ['enable MACD', 'turn on MACD indicator', 'disable MACD', 'use trend analysis']
     },
-    'technicalIndicators.bollinger.enabled': {
-      name: 'Bollinger Bands',
-      description: 'Bollinger Bands for volatility and support/resistance analysis',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Technical Analysis → Bollinger Bands',
-      examples: ['enable bollinger bands', 'turn on volatility bands', 'disable bollinger', 'use support resistance']
-    },
     'technicalIndicators.ema.enabled': {
       name: 'EMA Indicator',
       description: 'Exponential Moving Average for trend following',
       type: 'boolean',
       uiLocation: 'Strategy Configuration → Technical Analysis → EMA',
       examples: ['enable EMA', 'turn on exponential moving average', 'disable EMA', 'use trend following']
-    },
-    'technicalIndicators.sma.enabled': {
-      name: 'SMA Indicator',
-      description: 'Simple Moving Average for trend analysis',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Technical Analysis → SMA',
-      examples: ['enable SMA', 'turn on simple moving average', 'disable SMA', 'use moving averages']
     }
   };
 
@@ -512,48 +486,73 @@ Respond with ONLY the category name, no explanation.`
 Map user requests to field updates. Available fields and their patterns:
 
 BASIC FIELDS:
-- strategyName: "change name to X", "rename strategy"
-- riskLevel: "set risk to high/medium/low", "conservative/aggressive approach" (values: high, medium, low)
+- strategyName: "change name to X", "rename strategy" (string)
+- riskProfile: "set risk to high/medium/low", "conservative/aggressive approach" (values: high, medium, low)
 - perTradeAllocation: "trade 1000 euros", "amount per trade", "allocation 500" (number)
 - maxActiveCoins: "max 5 coins", "limit to 3 cryptocurrencies" (number 1-20)
+- maxWalletExposure: "wallet exposure 80%", "exposure limit 60%" (number 0-100)
 
 BUY/SELL SETTINGS:
+- buyFrequency: "buy frequency signal based", "buy once daily", "signal based buying" (values: once, daily, interval, signal_based)
 - trailingBuyPercentage: "trailing buy 1.5%", "set trailing buy to 2%" (number)
-- trailingSellPercentage: "trailing sell 3%", "trailing sell percentage" (number)
+- buyCooldownMinutes: "buy cooldown 60 minutes", "wait 30 minutes between buys" (number)
 - useTrailingStopOnly: "use trailing stop only", "trailing stop only mode" (boolean)
+- trailingStopLossPercentage: "trailing stop loss 2%", "trail stops at 1.5%" (number)
+
+RISK MANAGEMENT:
 - stopLossPercentage: "stop loss 5%", "cut losses at 3%" (number 0.1-50)
 - takeProfitPercentage: "take profit 10%", "profit target 15%" (number 1-1000)
+- maxPositionSize: "max position 5000", "position limit 3000" (number)
+- dailyLossLimit: "daily loss limit 500", "limit daily losses to 300" (number)
+- dailyProfitTarget: "daily profit target 100", "aim for 200 euros daily" (number)
+- maxOpenPositions: "max 5 positions", "limit open positions to 8" (number)
+- resetStopLossAfterFail: "reset stops if they fail", "reset stop loss after fail" (boolean)
 
-AI INTELLIGENCE CONFIG (nested in aiIntelligenceConfig):
-- enableAIOverride: "enable AI", "turn on AI intelligence", "AI on/off" (boolean)
-- aiAutonomyLevel: "AI autonomy 90%", "set autonomy to 75", "AI control level" (number 0-100)
-- aiConfidenceThreshold: "confidence threshold 80%", "AI confidence 70%" (number 0-100)
-- riskOverrideAllowed: "allow AI risk override", "AI can override risk" (boolean)
+AI INTELLIGENCE CONFIG:
+- is_ai_enabled: "enable AI", "turn on AI intelligence", "AI on/off" (boolean)
+- ai_override_enabled: "enable AI override", "allow AI to override" (boolean)
+- aiIntelligenceConfig.aiAutonomyLevel: "AI autonomy 90%", "set autonomy to 75", "AI control level" (number 0-100)
+- aiIntelligenceConfig.aiConfidenceThreshold: "confidence threshold 80%", "AI confidence 70%" (number 0-100)
+
+NOTIFICATIONS:
+- notifyOnTrade: "notify on trades", "enable trade notifications", "disable trade alerts" (boolean)
+- notifyOnError: "notify on errors", "enable error alerts", "disable error notifications" (boolean)
+- notifyOnTargets: "notify on targets", "enable target alerts", "disable target notifications" (boolean)
+- ALL notifications: "disable notifications", "enable all notifications" → affects all 3 notification fields
 
 COINS & AMOUNTS:
 - selectedCoins: "add BTC ETH", "use only XRP ADA", "trade these coins: BTC, ETH" (array)
 
-POSITION MANAGEMENT:
-- maxPositionSize: "max position 5000", "position limit 3000" (number)
-- maxWalletExposure: "wallet exposure 80%", "exposure limit 60%" (number)
-
 DCA & ADVANCED:
 - enableDCA: "enable DCA", "use dollar cost averaging" (boolean)
 - dcaSteps: "DCA steps 5", "averaging in 3 steps" (number)
+- dcaIntervalHours: "DCA every 6 hours", "interval 12 hours" (number)
 
 SHORTING:
 - enableShorting: "enable shorting", "allow short selling" (boolean)
+- maxShortPositions: "max 2 shorts", "allow 3 short positions" (number)
+- shortingMinProfitPercentage: "short profit 1.5%", "minimum short gain 2%" (number)
+- autoCloseShorts: "auto close shorts", "close shorts automatically" (boolean)
 
 TECHNICAL INDICATORS (nested):
 - technicalIndicators.rsi.enabled: "enable RSI", "use RSI indicator" (boolean)
 - technicalIndicators.macd.enabled: "enable MACD", "turn on MACD" (boolean)
+- technicalIndicators.ema.enabled: "enable EMA", "turn on EMA" (boolean)
+
+CRITICAL RULES:
+1. AI autonomy level changes should NEVER affect is_ai_enabled or ai_override_enabled
+2. When user says "disable notifications", set ALL THREE notification fields to false
+3. When user says "enable notifications", set ALL THREE notification fields to true
+4. resetStopLossAfterFail is a valid field that exists in the system
+5. Use riskProfile not riskLevel for risk settings
 
 Return ONLY a JSON object with field paths and values. For nested fields use dot notation.
 Examples:
-- "Enable AI" → {"aiIntelligenceConfig.enableAIOverride": true}
+- "Enable AI" → {"is_ai_enabled": true}
 - "Set AI autonomy to 90%" → {"aiIntelligenceConfig.aiAutonomyLevel": 90}
 - "Trailing buy 1.5%" → {"trailingBuyPercentage": 1.5}
-- "Max 5 coins, trade 1000 euros" → {"maxActiveCoins": 5, "perTradeAllocation": 1000}
+- "Disable notifications" → {"notifyOnTrade": false, "notifyOnError": false, "notifyOnTargets": false}
+- "Reset stop loss after fail" → {"resetStopLossAfterFail": true}
 
 If no fields match, return {}. Do not explain, only return JSON.`
             },
@@ -602,26 +601,36 @@ If no fields match, return {}. Do not explain, only return JSON.`
 
     // Fallback: Basic pattern matching for critical fields
     
-    // AI Intelligence Config
+    // AI Intelligence Config - Use proper field names
     if (lowerMessage.match(/\b(enable|turn on|activate|use)\s+(ai|artificial intelligence)\b/) || 
         lowerMessage.match(/\bai\s+(on|enabled?)\b/)) {
-      if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
-      updates.aiIntelligenceConfig.enableAIOverride = true;
+      updates.is_ai_enabled = true;
     }
     if (lowerMessage.match(/\b(disable|turn off|deactivate)\s+(ai|artificial intelligence)\b/) || 
         lowerMessage.match(/\bai\s+(off|disabled?)\b/)) {
-      if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
-      updates.aiIntelligenceConfig.enableAIOverride = false;
+      updates.is_ai_enabled = false;
     }
 
-    // AI Autonomy Level
+    // AI Autonomy Level - CRITICAL: Only set autonomy, never touch AI enable flags
     const autonomyMatch = message.match(/(?:ai\s+)?(?:autonomy|control).*?(\d+)/i);
     if (autonomyMatch) {
       const level = parseInt(autonomyMatch[1]);
       if (level >= 0 && level <= 100) {
         if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
         updates.aiIntelligenceConfig.aiAutonomyLevel = level;
+        // NEVER touch is_ai_enabled or ai_override_enabled here
       }
+    }
+
+    // Notifications - handle "disable notifications" as special case
+    if (lowerMessage.includes('disable notifications') || lowerMessage.includes('turn off notifications')) {
+      updates.notifyOnTrade = false;
+      updates.notifyOnError = false;
+      updates.notifyOnTargets = false;
+    } else if (lowerMessage.includes('enable notifications') || lowerMessage.includes('turn on notifications')) {
+      updates.notifyOnTrade = true;
+      updates.notifyOnError = true;
+      updates.notifyOnTargets = true;
     }
 
     // Trailing Buy Percentage
@@ -635,14 +644,32 @@ If no fields match, return {}. Do not explain, only return JSON.`
       updates.useTrailingStopOnly = true;
     }
 
-    // Risk level mapping
+    // Reset Stop Loss After Fail
+    if (lowerMessage.includes('reset stop loss after fail') || lowerMessage.includes('reset stops if they fail')) {
+      updates.resetStopLossAfterFail = true;
+    }
+
+    // Risk profile mapping (use riskProfile not riskLevel)
     if (lowerMessage.includes('risk')) {
       if (lowerMessage.includes('high') || lowerMessage.includes('aggressive')) {
-        updates.riskLevel = 'high';
+        updates.riskProfile = 'high';
       } else if (lowerMessage.includes('low') || lowerMessage.includes('conservative')) {
-        updates.riskLevel = 'low';
+        updates.riskProfile = 'low';
       } else if (lowerMessage.includes('medium') || lowerMessage.includes('moderate')) {
-        updates.riskLevel = 'medium';
+        updates.riskProfile = 'medium';
+      }
+    }
+
+    // Buy frequency
+    if (lowerMessage.includes('buy frequency') || lowerMessage.includes('buy on signals')) {
+      if (lowerMessage.includes('signal') || lowerMessage.includes('signals')) {
+        updates.buyFrequency = 'signal_based';
+      } else if (lowerMessage.includes('daily')) {
+        updates.buyFrequency = 'daily';
+      } else if (lowerMessage.includes('once')) {
+        updates.buyFrequency = 'once';
+      } else if (lowerMessage.includes('interval')) {
+        updates.buyFrequency = 'interval';
       }
     }
 
@@ -892,27 +919,38 @@ Never suggest configuration changes unless explicitly asked. Always reference th
     
     // Basic settings
     values.push(`Strategy Name: ${config.strategyName || 'Not set'}`);
-    values.push(`Risk Level: ${config.riskLevel || 'Not set'}`);
+    values.push(`Risk Profile: ${config.riskProfile || 'Not set'}`);
     values.push(`Per Trade Allocation: €${config.perTradeAllocation || 'Not set'}`);
     values.push(`Max Active Coins: ${config.maxActiveCoins || 'Not set'}`);
+    values.push(`Max Wallet Exposure: ${config.maxWalletExposure || 'Not set'}%`);
     
     // AI Intelligence Config
+    values.push(`AI Enabled: ${config.is_ai_enabled ? 'Yes' : 'No'}`);
+    values.push(`AI Override Enabled: ${config.ai_override_enabled ? 'Yes' : 'No'}`);
     const aiConfig = config.aiIntelligenceConfig || {};
-    values.push(`AI Decision Override: ${aiConfig.enableAIOverride ? 'Enabled' : 'Disabled'}`);
-    values.push(`AI Autonomy Level: ${aiConfig.aiAutonomyLevel || 'Not set'}%`);
-    values.push(`AI Confidence Threshold: ${aiConfig.aiConfidenceThreshold || 'Not set'}%`);
-    values.push(`AI Risk Override Allowed: ${aiConfig.riskOverrideAllowed ? 'Yes' : 'No'}`);
+    values.push(`AI Autonomy Level: ${aiConfig.aiAutonomyLevel !== undefined ? aiConfig.aiAutonomyLevel + '%' : 'Not set'}`);
+    values.push(`AI Confidence Threshold: ${aiConfig.aiConfidenceThreshold !== undefined ? aiConfig.aiConfidenceThreshold + '%' : 'Not set'}`);
     
     // Buy/Sell Settings
-    values.push(`Trailing Buy Percentage: ${config.trailingBuyPercentage || 'Not set'}%`);
-    values.push(`Trailing Sell Percentage: ${config.trailingSellPercentage || 'Not set'}%`);
+    values.push(`Buy Frequency: ${config.buyFrequency ? config.buyFrequency.replace('_', ' ') : 'Not set'}`);
+    values.push(`Trailing Buy Percentage: ${config.trailingBuyPercentage !== undefined ? config.trailingBuyPercentage + '%' : 'Not set'}`);
+    values.push(`Buy Cooldown Minutes: ${config.buyCooldownMinutes || 'Not set'}`);
     values.push(`Use Trailing Stop Only: ${config.useTrailingStopOnly ? 'Yes' : 'No'}`);
-    values.push(`Stop Loss Percentage: ${config.stopLossPercentage || 'Not set'}%`);
-    values.push(`Take Profit Percentage: ${config.takeProfitPercentage || 'Not set'}%`);
+    values.push(`Trailing Stop Loss Percentage: ${config.trailingStopLossPercentage !== undefined ? config.trailingStopLossPercentage + '%' : 'Not set'}`);
     
-    // Position Management
+    // Risk Management
+    values.push(`Stop Loss Percentage: ${config.stopLossPercentage !== undefined ? config.stopLossPercentage + '%' : 'Not set'}`);
+    values.push(`Take Profit Percentage: ${config.takeProfitPercentage !== undefined ? config.takeProfitPercentage + '%' : 'Not set'}`);
     values.push(`Max Position Size: €${config.maxPositionSize || 'Not set'}`);
-    values.push(`Max Wallet Exposure: ${config.maxWalletExposure || 'Not set'}%`);
+    values.push(`Daily Loss Limit: €${config.dailyLossLimit || 'Not set'}`);
+    values.push(`Daily Profit Target: €${config.dailyProfitTarget || 'Not set'}`);
+    values.push(`Max Open Positions: ${config.maxOpenPositions || 'Not set'}`);
+    values.push(`Reset Stop Loss After Fail: ${config.resetStopLossAfterFail ? 'Yes' : 'No'}`);
+    
+    // Notifications
+    values.push(`Trade Notifications: ${config.notifyOnTrade ? 'Enabled' : 'Disabled'}`);
+    values.push(`Error Notifications: ${config.notifyOnError ? 'Enabled' : 'Disabled'}`);
+    values.push(`Target Notifications: ${config.notifyOnTargets ? 'Enabled' : 'Disabled'}`);
     
     // Coins
     const selectedCoins = config.selectedCoins || [];
@@ -921,14 +959,19 @@ Never suggest configuration changes unless explicitly asked. Always reference th
     // DCA
     values.push(`DCA Enabled: ${config.enableDCA ? 'Yes' : 'No'}`);
     values.push(`DCA Steps: ${config.dcaSteps || 'Not set'}`);
+    values.push(`DCA Interval Hours: ${config.dcaIntervalHours || 'Not set'}`);
     
     // Shorting
     values.push(`Shorting Enabled: ${config.enableShorting ? 'Yes' : 'No'}`);
+    values.push(`Max Short Positions: ${config.maxShortPositions || 'Not set'}`);
+    values.push(`Shorting Min Profit %: ${config.shortingMinProfitPercentage !== undefined ? config.shortingMinProfitPercentage + '%' : 'Not set'}`);
+    values.push(`Auto Close Shorts: ${config.autoCloseShorts ? 'Yes' : 'No'}`);
     
     // Technical Indicators
     const indicators = config.technicalIndicators || {};
     values.push(`RSI Indicator: ${indicators.rsi?.enabled ? 'Enabled' : 'Disabled'}`);
     values.push(`MACD Indicator: ${indicators.macd?.enabled ? 'Enabled' : 'Disabled'}`);
+    values.push(`EMA Indicator: ${indicators.ema?.enabled ? 'Enabled' : 'Disabled'}`);
     
     return values.join('\n');
   }
