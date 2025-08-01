@@ -501,7 +501,14 @@ export const ConversationPanel = () => {
                 const updatedFields = Object.keys(data.configUpdates).map(key => {
                   const value = data.configUpdates[key];
                   if (key === 'aiIntelligenceConfig') {
-                    return `AI decision override: ${value?.enableAIOverride ? 'enabled' : 'disabled'}`;
+                    // Check what specific AI config was updated
+                    if (value?.aiAutonomyLevel !== undefined) {
+                      return `AI autonomy level: ${value.aiAutonomyLevel}%`;
+                    } else if (value?.enableAIOverride !== undefined) {
+                      return `AI decision override: ${value.enableAIOverride ? 'enabled' : 'disabled'}`;
+                    } else {
+                      return `AI configuration updated`;
+                    }
                   }
                   if (typeof value === 'object' && value !== null) {
                     return `${key}: ${JSON.stringify(value)}`;
