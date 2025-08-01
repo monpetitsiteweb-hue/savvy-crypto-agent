@@ -194,6 +194,13 @@ class IntelligentFieldMapper {
       uiLocation: 'Strategy Configuration → Buy/Sell Settings → Trailing Sell %',
       examples: ['set trailing sell to 2%', 'trailing sell percentage 1.5', 'use 3% for trailing sells']
     },
+    'useTrailingStopOnly': {
+      name: 'Use Trailing Stop Only',
+      description: 'Only use trailing stop losses instead of fixed stop losses',
+      type: 'boolean',
+      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Use Trailing Stop Only',
+      examples: ['use trailing stop only', 'enable trailing stop only mode', 'trailing stop only']
+    },
 
     // === POSITION MANAGEMENT ===
     'maxPositionSize': {
@@ -487,6 +494,147 @@ Respond with ONLY the category name, no explanation.`
     const lowerMessage = message.toLowerCase();
     const updates = {};
 
+    // Use OpenAI to map user intent to specific fields
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a field mapping expert for cryptocurrency trading strategy configuration. 
+              
+Map user requests to field updates. Available fields and their patterns:
+
+BASIC FIELDS:
+- strategyName: "change name to X", "rename strategy"
+- riskLevel: "set risk to high/medium/low", "conservative/aggressive approach" (values: high, medium, low)
+- perTradeAllocation: "trade 1000 euros", "amount per trade", "allocation 500" (number)
+- maxActiveCoins: "max 5 coins", "limit to 3 cryptocurrencies" (number 1-20)
+
+BUY/SELL SETTINGS:
+- trailingBuyPercentage: "trailing buy 1.5%", "set trailing buy to 2%" (number)
+- trailingSellPercentage: "trailing sell 3%", "trailing sell percentage" (number)
+- useTrailingStopOnly: "use trailing stop only", "trailing stop only mode" (boolean)
+- stopLossPercentage: "stop loss 5%", "cut losses at 3%" (number 0.1-50)
+- takeProfitPercentage: "take profit 10%", "profit target 15%" (number 1-1000)
+
+AI INTELLIGENCE CONFIG (nested in aiIntelligenceConfig):
+- enableAIOverride: "enable AI", "turn on AI intelligence", "AI on/off" (boolean)
+- aiAutonomyLevel: "AI autonomy 90%", "set autonomy to 75", "AI control level" (number 0-100)
+- aiConfidenceThreshold: "confidence threshold 80%", "AI confidence 70%" (number 0-100)
+- riskOverrideAllowed: "allow AI risk override", "AI can override risk" (boolean)
+
+COINS & AMOUNTS:
+- selectedCoins: "add BTC ETH", "use only XRP ADA", "trade these coins: BTC, ETH" (array)
+
+POSITION MANAGEMENT:
+- maxPositionSize: "max position 5000", "position limit 3000" (number)
+- maxWalletExposure: "wallet exposure 80%", "exposure limit 60%" (number)
+
+DCA & ADVANCED:
+- enableDCA: "enable DCA", "use dollar cost averaging" (boolean)
+- dcaSteps: "DCA steps 5", "averaging in 3 steps" (number)
+
+SHORTING:
+- enableShorting: "enable shorting", "allow short selling" (boolean)
+
+TECHNICAL INDICATORS (nested):
+- technicalIndicators.rsi.enabled: "enable RSI", "use RSI indicator" (boolean)
+- technicalIndicators.macd.enabled: "enable MACD", "turn on MACD" (boolean)
+
+Return ONLY a JSON object with field paths and values. For nested fields use dot notation.
+Examples:
+- "Enable AI" → {"aiIntelligenceConfig.enableAIOverride": true}
+- "Set AI autonomy to 90%" → {"aiIntelligenceConfig.aiAutonomyLevel": 90}
+- "Trailing buy 1.5%" → {"trailingBuyPercentage": 1.5}
+- "Max 5 coins, trade 1000 euros" → {"maxActiveCoins": 5, "perTradeAllocation": 1000}
+
+If no fields match, return {}. Do not explain, only return JSON.`
+            },
+            {
+              role: 'user',
+              content: message
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 200
+        }),
+      });
+
+      const data = await response.json();
+      const aiResponse = data.choices[0].message.content.trim();
+      
+      // Parse AI response as JSON
+      try {
+        const aiUpdates = JSON.parse(aiResponse);
+        console.log('🤖 AI FIELD MAPPING:', JSON.stringify(aiUpdates, null, 2));
+        
+        // Handle nested field updates (like aiIntelligenceConfig.*)
+        for (const [fieldPath, value] of Object.entries(aiUpdates)) {
+          if (fieldPath.includes('.')) {
+            const parts = fieldPath.split('.');
+            if (parts[0] === 'aiIntelligenceConfig') {
+              if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
+              updates.aiIntelligenceConfig[parts[1]] = value;
+            } else if (parts[0] === 'technicalIndicators') {
+              if (!updates.technicalIndicators) updates.technicalIndicators = {};
+              if (!updates.technicalIndicators[parts[1]]) updates.technicalIndicators[parts[1]] = {};
+              updates.technicalIndicators[parts[1]][parts[2]] = value;
+            }
+          } else {
+            updates[fieldPath] = value;
+          }
+        }
+        
+        return updates;
+      } catch (parseError) {
+        console.log('⚠️ AI response not valid JSON, falling back to basic patterns:', aiResponse);
+      }
+    } catch (error) {
+      console.error('❌ AI FIELD MAPPING: Failed, using fallback patterns:', error);
+    }
+
+    // Fallback: Basic pattern matching for critical fields
+    
+    // AI Intelligence Config
+    if (lowerMessage.match(/\b(enable|turn on|activate|use)\s+(ai|artificial intelligence)\b/) || 
+        lowerMessage.match(/\bai\s+(on|enabled?)\b/)) {
+      if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
+      updates.aiIntelligenceConfig.enableAIOverride = true;
+    }
+    if (lowerMessage.match(/\b(disable|turn off|deactivate)\s+(ai|artificial intelligence)\b/) || 
+        lowerMessage.match(/\bai\s+(off|disabled?)\b/)) {
+      if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
+      updates.aiIntelligenceConfig.enableAIOverride = false;
+    }
+
+    // AI Autonomy Level
+    const autonomyMatch = message.match(/(?:ai\s+)?(?:autonomy|control).*?(\d+)/i);
+    if (autonomyMatch) {
+      const level = parseInt(autonomyMatch[1]);
+      if (level >= 0 && level <= 100) {
+        if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
+        updates.aiIntelligenceConfig.aiAutonomyLevel = level;
+      }
+    }
+
+    // Trailing Buy Percentage
+    const trailingBuyMatch = message.match(/trailing\s+buy.*?(\d+(?:\.\d+)?)/i);
+    if (trailingBuyMatch) {
+      updates.trailingBuyPercentage = parseFloat(trailingBuyMatch[1]);
+    }
+
+    // Trailing Stop Only
+    if (lowerMessage.includes('trailing stop only') || lowerMessage.includes('use trailing stop only')) {
+      updates.useTrailingStopOnly = true;
+    }
+
     // Risk level mapping
     if (lowerMessage.includes('risk')) {
       if (lowerMessage.includes('high') || lowerMessage.includes('aggressive')) {
@@ -498,7 +646,7 @@ Respond with ONLY the category name, no explanation.`
       }
     }
 
-    // Amount per trade with better parsing
+    // Amount per trade
     const amountMatches = [
       message.match(/(\d+)\s*(euros?|eur|€)/i),
       message.match(/€\s*(\d+)/i),
@@ -506,37 +654,35 @@ Respond with ONLY the category name, no explanation.`
     ];
     
     const amountMatch = amountMatches.find(match => match !== null);
-    if (amountMatch && (lowerMessage.includes('trade') || lowerMessage.includes('allocation') || lowerMessage.includes('minimum'))) {
+    if (amountMatch && (lowerMessage.includes('trade') || lowerMessage.includes('allocation'))) {
       updates.perTradeAllocation = parseInt(amountMatch[1]);
     }
 
-    // Stop loss with validation
-    const stopLossMatch = message.match(/(\d+(?:\.\d+)?)\s*%/);
-    if (stopLossMatch && (lowerMessage.includes('stop') || lowerMessage.includes('loss'))) {
-      const percentage = parseFloat(stopLossMatch[1]);
-      if (percentage > 0 && percentage <= 50) { // Reasonable range
-        updates.stopLossPercentage = percentage;
+    // Stop loss and take profit
+    const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (percentageMatch) {
+      const percentage = parseFloat(percentageMatch[1]);
+      if (lowerMessage.includes('stop') && lowerMessage.includes('loss')) {
+        if (percentage > 0 && percentage <= 50) {
+          updates.stopLossPercentage = percentage;
+        }
+      } else if (lowerMessage.includes('profit') || lowerMessage.includes('gain')) {
+        if (percentage > 0 && percentage <= 1000) {
+          updates.takeProfitPercentage = percentage;
+        }
       }
     }
 
-    // Take profit
-    if (stopLossMatch && (lowerMessage.includes('profit') || lowerMessage.includes('gain'))) {
-      const percentage = parseFloat(stopLossMatch[1]);
-      if (percentage > 0 && percentage <= 1000) { // Reasonable range
-        updates.takeProfitPercentage = percentage;
-      }
-    }
-
-    // Max active coins detection
+    // Max active coins
     const maxCoinsMatch = message.match(/(?:max|maximum)\s+(?:active\s+)?coins?\s+(?:to\s+)?(\d+)/i);
-    if (maxCoinsMatch && (lowerMessage.includes('max') || lowerMessage.includes('active') || lowerMessage.includes('coins'))) {
+    if (maxCoinsMatch) {
       const numCoins = parseInt(maxCoinsMatch[1]);
-      if (numCoins > 0 && numCoins <= 20) { // Reasonable range
+      if (numCoins > 0 && numCoins <= 20) {
         updates.maxActiveCoins = numCoins;
       }
     }
 
-    // Enhanced coin selection
+    // Coin selection
     const coinPatterns = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'DOGE', 'LTC', 'BCH'];
     const mentionedCoins = coinPatterns.filter(coin => 
       new RegExp(`\\b${coin.toLowerCase()}\\b`).test(lowerMessage)
@@ -547,7 +693,12 @@ Respond with ONLY the category name, no explanation.`
         updates.selectedCoins = mentionedCoins;
       } else if (lowerMessage.includes('add')) {
         const current = currentConfig.selectedCoins || [];
-        updates.selectedCoins = [...new Set([...current, ...mentionedCoins])]; // Remove duplicates
+        updates.selectedCoins = [...new Set([...current, ...mentionedCoins])];
+      } else if (lowerMessage.includes('remove')) {
+        const current = currentConfig.selectedCoins || [];
+        updates.selectedCoins = current.filter(coin => !mentionedCoins.includes(coin));
+      }
+    }
       } else if (lowerMessage.includes('remove')) {
         updates.selectedCoins = (currentConfig.selectedCoins || []).filter(coin => 
           !mentionedCoins.includes(coin)
@@ -732,22 +883,79 @@ class CryptoIntelligenceEngine {
   }
 
   static async handleQuestionIntent(message: string, strategy: any, marketContext: string, memoryContext: string, interfaceContext: string): Promise<string> {
+    // Extract current values for fields the user might be asking about
+    const config = strategy?.configuration || {};
+    const currentValues = this.extractCurrentValues(config);
+    
     const systemPrompt = `You are an expert cryptocurrency trading assistant with complete interface awareness.
+
+CURRENT STRATEGY CONFIGURATION VALUES:
+${currentValues}
 
 INTERFACE KNOWLEDGE: ${interfaceContext}
 MARKET CONTEXT: ${marketContext}
 STRATEGY CONTEXT: ${this.buildStrategyContext(strategy)}
 CONVERSATION HISTORY: ${memoryContext}
 
-The user is asking a QUESTION (not making a change). Provide informative answers about:
-- Current strategy settings and their locations in the interface
-- What specific features do and how they work
-- Market analysis and recommendations
-- Where to find specific options in the interface
+The user is asking a QUESTION about their strategy configuration or trading setup. 
 
-Never suggest configuration changes unless explicitly asked. Reference specific UI locations when relevant.`;
+IMPORTANT: When they ask about specific settings like "What is my AI Autonomy Level?" or "Is AI enabled?", provide the ACTUAL CURRENT VALUE from the configuration above, not generic information.
+
+Answer their questions by:
+1. Providing the actual current value if they're asking about a specific setting
+2. Explaining what the setting does and how it works
+3. Mentioning where they can find it in the interface
+4. Providing relevant market context or recommendations if appropriate
+
+Never suggest configuration changes unless explicitly asked. Always reference the actual current values when available.`;
 
     return await this.callOpenAI(systemPrompt, message);
+  }
+
+  static extractCurrentValues(config: any): string {
+    const values = [];
+    
+    // Basic settings
+    values.push(`Strategy Name: ${config.strategyName || 'Not set'}`);
+    values.push(`Risk Level: ${config.riskLevel || 'Not set'}`);
+    values.push(`Per Trade Allocation: €${config.perTradeAllocation || 'Not set'}`);
+    values.push(`Max Active Coins: ${config.maxActiveCoins || 'Not set'}`);
+    
+    // AI Intelligence Config
+    const aiConfig = config.aiIntelligenceConfig || {};
+    values.push(`AI Decision Override: ${aiConfig.enableAIOverride ? 'Enabled' : 'Disabled'}`);
+    values.push(`AI Autonomy Level: ${aiConfig.aiAutonomyLevel || 'Not set'}%`);
+    values.push(`AI Confidence Threshold: ${aiConfig.aiConfidenceThreshold || 'Not set'}%`);
+    values.push(`AI Risk Override Allowed: ${aiConfig.riskOverrideAllowed ? 'Yes' : 'No'}`);
+    
+    // Buy/Sell Settings
+    values.push(`Trailing Buy Percentage: ${config.trailingBuyPercentage || 'Not set'}%`);
+    values.push(`Trailing Sell Percentage: ${config.trailingSellPercentage || 'Not set'}%`);
+    values.push(`Use Trailing Stop Only: ${config.useTrailingStopOnly ? 'Yes' : 'No'}`);
+    values.push(`Stop Loss Percentage: ${config.stopLossPercentage || 'Not set'}%`);
+    values.push(`Take Profit Percentage: ${config.takeProfitPercentage || 'Not set'}%`);
+    
+    // Position Management
+    values.push(`Max Position Size: €${config.maxPositionSize || 'Not set'}`);
+    values.push(`Max Wallet Exposure: ${config.maxWalletExposure || 'Not set'}%`);
+    
+    // Coins
+    const selectedCoins = config.selectedCoins || [];
+    values.push(`Selected Coins: ${selectedCoins.length > 0 ? selectedCoins.join(', ') : 'None selected'}`);
+    
+    // DCA
+    values.push(`DCA Enabled: ${config.enableDCA ? 'Yes' : 'No'}`);
+    values.push(`DCA Steps: ${config.dcaSteps || 'Not set'}`);
+    
+    // Shorting
+    values.push(`Shorting Enabled: ${config.enableShorting ? 'Yes' : 'No'}`);
+    
+    // Technical Indicators
+    const indicators = config.technicalIndicators || {};
+    values.push(`RSI Indicator: ${indicators.rsi?.enabled ? 'Enabled' : 'Disabled'}`);
+    values.push(`MACD Indicator: ${indicators.macd?.enabled ? 'Enabled' : 'Disabled'}`);
+    
+    return values.join('\n');
   }
 
   static async handleGeneralIntent(message: string, strategy: any, marketContext: string, memoryContext: string, interfaceContext: string): Promise<string> {
