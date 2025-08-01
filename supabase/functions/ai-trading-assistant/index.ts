@@ -608,39 +608,43 @@ If no fields match, return {}. Do not explain, only return JSON.`
 
     // Fallback: Basic pattern matching for critical fields
     
-    // AI Intelligence Config - Use proper field names (SINGLE SOURCE OF TRUTH)
-    if (lowerMessage.match(/\b(enable|turn on|activate|use)\s+(ai|artificial intelligence)\b/) || 
-        lowerMessage.match(/\bai\s+(on|enabled?)\b/)) {
-      if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
-      updates.aiIntelligenceConfig.enableAIOverride = true;
-      console.log('🤖 AI ENABLE: Setting aiIntelligenceConfig.enableAIOverride = true');
-    }
-    if (lowerMessage.match(/\b(disable|turn off|deactivate)\s+(ai|artificial intelligence)\b/) || 
-        lowerMessage.match(/\bai\s+(off|disabled?)\b/)) {
-      if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
-      updates.aiIntelligenceConfig.enableAIOverride = false;
-      console.log('🤖 AI DISABLE: Setting aiIntelligenceConfig.enableAIOverride = false');
-    }
-
-    // AI Autonomy Level - CRITICAL: Only set autonomy, never touch AI enable flags
-    const autonomyMatch = message.match(/(?:ai\s+)?(?:autonomy|control).*?(\d+)/i);
+    // AI Autonomy Level - CRITICAL: Process autonomy FIRST to prevent other AI patterns from interfering
+    const autonomyMatch = message.match(/(?:set\s+)?(?:ai\s+)?(?:autonomy|control).*?(\d+)/i);
     if (autonomyMatch) {
       const level = parseInt(autonomyMatch[1]);
       if (level >= 0 && level <= 100) {
         if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
         updates.aiIntelligenceConfig.aiAutonomyLevel = level;
-        // CRITICAL: NEVER modify enableAIOverride or any other AI flags when setting autonomy
-        console.log(`🎯 AI AUTONOMY: Setting autonomy to ${level}% without touching AI enable flags`);
-        console.log(`🔍 AI AUTONOMY: Before cleanup - updates keys: ${Object.keys(updates).join(', ')}`);
+        console.log(`🎯 AI AUTONOMY ONLY: Setting autonomy to ${level}% - BLOCKING all other AI patterns`);
         
-        // REMOVE any unwanted AI flags that might have been set by OpenAI mapping
+        // CRITICAL: REMOVE any AI enable/disable flags that might have been set by OpenAI mapping
         delete updates.is_ai_enabled;
         delete updates.ai_override_enabled;
         delete updates.enableAI;
+        if (updates.aiIntelligenceConfig.enableAIOverride !== undefined) {
+          delete updates.aiIntelligenceConfig.enableAIOverride;
+          console.log('🚫 AUTONOMY: Removed enableAIOverride to prevent AI disable');
+        }
         
-        console.log(`🔍 AI AUTONOMY: After cleanup - updates keys: ${Object.keys(updates).join(', ')}`);
-        console.log(`🔍 AI AUTONOMY: aiIntelligenceConfig contents: ${JSON.stringify(updates.aiIntelligenceConfig)}`);
+        console.log(`✅ AI AUTONOMY: Final updates - ${JSON.stringify(updates)}`);
+        // EARLY RETURN - Don't process any other AI patterns when setting autonomy
+        return updates;
       }
+    }
+
+    // AI Intelligence Config - Use proper field names (SINGLE SOURCE OF TRUTH) 
+    // ONLY process enable/disable if NOT setting autonomy level
+    if (lowerMessage.match(/\b(enable|turn on|activate)\s+(ai|artificial intelligence)\b/) && 
+        !lowerMessage.match(/autonomy/i)) {
+      if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
+      updates.aiIntelligenceConfig.enableAIOverride = true;
+      console.log('🤖 AI ENABLE: Setting aiIntelligenceConfig.enableAIOverride = true');
+    }
+    if (lowerMessage.match(/\b(disable|turn off|deactivate)\s+(ai|artificial intelligence)\b/) && 
+        !lowerMessage.match(/autonomy/i)) {
+      if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
+      updates.aiIntelligenceConfig.enableAIOverride = false;
+      console.log('🤖 AI DISABLE: Setting aiIntelligenceConfig.enableAIOverride = false');
     }
 
     // AI Confidence Threshold - CRITICAL: Only set confidence, never touch other AI flags  
