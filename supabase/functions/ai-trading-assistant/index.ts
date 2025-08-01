@@ -353,19 +353,12 @@ class IntelligentFieldMapper {
     },
 
     // === AI INTELLIGENCE CONFIG ===
-    'is_ai_enabled': {
+    'aiIntelligenceConfig.enableAIOverride': {
       name: 'Enable AI',
       description: 'Enable AI-powered trading decisions and market analysis',
       type: 'boolean',
       uiLocation: 'Strategy Configuration → AI Intelligence → Enable AI',
       examples: ['enable AI', 'turn on AI intelligence', 'use AI signals', 'disable AI', 'AI on', 'AI off']
-    },
-    'ai_override_enabled': {
-      name: 'AI Override Enabled',
-      description: 'Allow AI to override strategy decisions in critical situations',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → AI Intelligence → AI Override',
-      examples: ['enable AI override', 'allow AI to override', 'disable AI override']
     },
     'aiIntelligenceConfig.aiAutonomyLevel': {
       name: 'AI Autonomy Level',
@@ -509,8 +502,7 @@ RISK MANAGEMENT:
 - resetStopLossAfterFail: "reset stops if they fail", "reset stop loss after fail" (boolean)
 
 AI INTELLIGENCE CONFIG (CRITICAL - DO NOT CONFUSE THESE FIELDS):
-- is_ai_enabled: "enable AI", "turn on AI intelligence", "AI on/off" (boolean) - CONTROLS AI SYSTEM ON/OFF
-- ai_override_enabled: "enable AI override", "allow AI to override" (boolean) - CONTROLS AI DECISION OVERRIDE
+- aiIntelligenceConfig.enableAIOverride: "enable AI", "turn on AI intelligence", "AI on/off" (boolean) - CONTROLS AI SYSTEM ON/OFF
 - aiIntelligenceConfig.aiAutonomyLevel: "AI autonomy 90%", "set autonomy to 75", "autonomy level 80", "AI control level" (number 0-100) - ONLY SETS AUTONOMY LEVEL
 - aiIntelligenceConfig.aiConfidenceThreshold: "confidence threshold 80%", "AI confidence 70%" (number 0-100) - ONLY SETS CONFIDENCE
 
@@ -540,7 +532,7 @@ TECHNICAL INDICATORS (nested):
 - technicalIndicators.ema.enabled: "enable EMA", "turn on EMA" (boolean)
 
 CRITICAL RULES - NEVER VIOLATE THESE:
-1. Setting "AI autonomy" ONLY sets aiIntelligenceConfig.aiAutonomyLevel - NEVER touches is_ai_enabled or ai_override_enabled
+1. Setting "AI autonomy" ONLY sets aiIntelligenceConfig.aiAutonomyLevel - NEVER touches aiIntelligenceConfig.enableAIOverride
 2. Setting "confidence threshold" ONLY sets aiIntelligenceConfig.aiConfidenceThreshold - NEVER touches other AI fields
 3. When user says "disable notifications", set ALL THREE notification fields to false
 4. When user says "enable notifications", set ALL THREE notification fields to true
@@ -549,10 +541,11 @@ CRITICAL RULES - NEVER VIOLATE THESE:
 7. buyCooldownMinutes is for "trade cooldown" or "buy cooldown" settings
 8. takeProfitPercentage is the correct field for take profit settings
 9. AUTONOMY and OVERRIDE are DIFFERENT - autonomy level changes do NOT affect override settings
+10. ONLY USE aiIntelligenceConfig.enableAIOverride for AI enablement - NEVER use is_ai_enabled or ai_override_enabled
 
 Return ONLY a JSON object with field paths and values. For nested fields use dot notation.
 Examples:
-- "Enable AI" → {"is_ai_enabled": true}
+- "Enable AI" → {"aiIntelligenceConfig.enableAIOverride": true}
 - "Set AI autonomy to 90%" → {"aiIntelligenceConfig.aiAutonomyLevel": 90}
 - "Set autonomy level to 80%" → {"aiIntelligenceConfig.aiAutonomyLevel": 80}
 - "AI autonomy 75%" → {"aiIntelligenceConfig.aiAutonomyLevel": 75}
@@ -596,9 +589,10 @@ If no fields match, return {}. Do not explain, only return JSON.`
               updates.technicalIndicators[parts[1]][parts[2]] = value;
             }
           } else {
-            // CRITICAL: Log any direct AI field updates to debug unwanted side effects
-            if (fieldPath.includes('ai') || fieldPath.includes('override')) {
-              console.log(`⚠️ DIRECT AI FIELD UPDATE: ${fieldPath} = ${value}`);
+            // CRITICAL: Log any potential deprecated field usage
+            if (fieldPath === 'is_ai_enabled' || fieldPath === 'ai_override_enabled') {
+              console.log(`🚨 DEPRECATED FIELD DETECTED: ${fieldPath} = ${value} - THIS SHOULD NOT HAPPEN!`);
+              throw new Error(`Deprecated field ${fieldPath} should not be used. Use aiIntelligenceConfig.enableAIOverride instead.`);
             }
             updates[fieldPath] = value;
           }
@@ -1023,10 +1017,9 @@ Never suggest configuration changes unless explicitly asked. Always reference th
     values.push(`Selected Coins Count: ${config.selectedCoins?.length || 0} coins`);
     values.push(`Max Wallet Exposure: ${config.maxWalletExposure || 'Not set'}%`);
     
-    // AI Intelligence Config
-    values.push(`AI Enabled: ${config.is_ai_enabled ? 'Yes' : 'No'}`);
-    values.push(`AI Override Enabled: ${config.ai_override_enabled ? 'Yes' : 'No'}`);
+    // AI Intelligence Config - USING CORRECT SINGLE SOURCE OF TRUTH
     const aiConfig = config.aiIntelligenceConfig || {};
+    values.push(`AI Enabled: ${aiConfig.enableAIOverride ? 'Yes' : 'No'}`);
     values.push(`AI Autonomy Level: ${aiConfig.aiAutonomyLevel !== undefined ? aiConfig.aiAutonomyLevel + '%' : 'Not set'}`);
     values.push(`AI Confidence Threshold: ${aiConfig.aiConfidenceThreshold !== undefined ? aiConfig.aiConfidenceThreshold + '%' : 'Not set'}`);
     values.push(`Risk Override Allowed: ${aiConfig.riskOverrideAllowed ? 'Yes' : 'No'}`);
@@ -1141,7 +1134,7 @@ Use market signals to inform your recommendations.`;
     if (!strategy) return 'No active strategy configured.';
     
     const config = strategy.configuration || {};
-    return `Current strategy "${strategy.strategy_name}" with risk level ${config.riskLevel || 'medium'}, ${config.selectedCoins?.length || 0} coins selected, amount per trade: €${config.perTradeAllocation || 'not set'}, AI signals: ${config.aiIntelligenceConfig?.enableAIOverride ? 'enabled' : 'disabled'}.`;
+    return `Current strategy "${strategy.strategy_name}" with risk profile ${config.riskProfile || 'medium'}, ${config.selectedCoins?.length || 0} coins selected, amount per trade: €${config.perTradeAllocation || 'not set'}, AI: ${config.aiIntelligenceConfig?.enableAIOverride ? 'enabled' : 'disabled'}.`;
   }
 
   static buildInterfaceContext(): string {
