@@ -699,12 +699,9 @@ If no fields match, return {}. Do not explain, only return JSON.`
         updates.selectedCoins = current.filter(coin => !mentionedCoins.includes(coin));
       }
     }
-      } else if (lowerMessage.includes('remove')) {
-        updates.selectedCoins = (currentConfig.selectedCoins || []).filter(coin => 
-          !mentionedCoins.includes(coin)
-        );
-      }
-    }
+
+    return updates;
+  }
 
     // AI configuration - Use single source of truth: aiIntelligenceConfig.enableAIOverride
     if (lowerMessage.includes('ai') || 
