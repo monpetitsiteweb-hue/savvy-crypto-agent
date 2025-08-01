@@ -1571,6 +1571,19 @@ serve(async (req) => {
     const strategy = await StrategyResolver.getActiveStrategy(userId, testMode);
     console.log(strategy ? `✅ STRATEGY_RESOLVER: ${strategy.strategy_name}` : `❌ No active strategy`);
 
+    // If no strategy exists, return early with error message
+    if (!strategy) {
+      console.log('❌ CRITICAL: No active strategy found - cannot process configuration updates');
+      return new Response(JSON.stringify({
+        message: "❌ **No Active Strategy Found**\n\nYou need to create and activate a trading strategy before I can help you configure it. Please set up your strategy first.",
+        configUpdates: {},
+        hasConfigUpdates: false
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200
+      });
+    }
+
     // Get fresh config
     const freshConfig = strategy ? await ConfigManager.getFreshConfig(strategy.id, userId) : {};
 
