@@ -702,12 +702,6 @@ If no fields match, return {}. Do not explain, only return JSON.`
 
     return updates;
   }
-        };
-      }
-    }
-
-    return updates;
-  }
 
   static explainField(fieldName: string): string {
     const field = this.FIELD_DEFINITIONS[fieldName];
