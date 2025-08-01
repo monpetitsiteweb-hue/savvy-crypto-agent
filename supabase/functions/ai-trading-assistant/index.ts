@@ -1373,6 +1373,9 @@ function generateSuccessMessage(configUpdates: any, testMode: boolean): string {
         if (value?.aiConfidenceThreshold !== undefined) {
           aiUpdates.push(`AI confidence threshold: ${value.aiConfidenceThreshold}%`);
         }
+        if (value?.enableAIOverride !== undefined) {
+          aiUpdates.push(`AI decision override: ${value.enableAIOverride ? 'enabled' : 'disabled'}`);
+        }
         if (value?.riskOverrideAllowed !== undefined) {
           aiUpdates.push(`Risk override: ${value.riskOverrideAllowed ? 'enabled' : 'disabled'}`);
         }
