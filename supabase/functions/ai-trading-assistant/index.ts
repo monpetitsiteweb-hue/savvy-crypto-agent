@@ -1001,9 +1001,23 @@ class CryptoIntelligenceEngine {
     // Handle configuration commands
     const potentialUpdates = await IntelligentFieldMapper.mapUserIntent(message, currentConfig);
     
+    console.log(`🎯 POTENTIAL UPDATES FROM MAPPER:`, JSON.stringify(potentialUpdates, null, 2));
+    
     if (Object.keys(potentialUpdates).length === 0) {
       // No clear config intent - use general AI response
       return { message: await this.handleGeneralIntent(message, strategy, marketContext, memoryContext, interfaceContext) };
+    }
+    
+    // 🚨 CRITICAL: Check if this is autonomy-only BEFORE validation
+    const isAutonomyOnlyUpdate = Object.keys(potentialUpdates).length === 1 && 
+      potentialUpdates.aiIntelligenceConfig && 
+      Object.keys(potentialUpdates.aiIntelligenceConfig).length === 1 && 
+      potentialUpdates.aiIntelligenceConfig.aiAutonomyLevel !== undefined;
+    
+    console.log(`🎯 AUTONOMY-ONLY UPDATE CHECK: ${isAutonomyOnlyUpdate}`);
+    if (isAutonomyOnlyUpdate) {
+      console.log(`🎯 AUTONOMY VALUE: ${potentialUpdates.aiIntelligenceConfig.aiAutonomyLevel}`);
+      console.log('🚨 AUTONOMY-ONLY: This should NEVER modify any enable/disable flags!');
     }
     
     // Validate all potential updates
@@ -1030,10 +1044,30 @@ class CryptoIntelligenceEngine {
       }
     }
     
+    // 🚨 FINAL AUTONOMY SAFETY CHECK: Ensure no enable/disable flags leaked through
+    if (isAutonomyOnlyUpdate && validatedUpdates.aiIntelligenceConfig) {
+      console.log('🔍 FINAL AUTONOMY SAFETY CHECK: Inspecting validated updates...');
+      console.log(`🔍 Validated aiIntelligenceConfig keys: ${Object.keys(validatedUpdates.aiIntelligenceConfig)}`);
+      
+      if (validatedUpdates.aiIntelligenceConfig.enableAIOverride !== undefined) {
+        console.log(`🚨 LEAK DETECTED! enableAIOverride = ${validatedUpdates.aiIntelligenceConfig.enableAIOverride} found in autonomy-only update!`);
+        console.log('🚫 REMOVING enableAIOverride from validated updates');
+        delete validatedUpdates.aiIntelligenceConfig.enableAIOverride;
+        console.log(`🧹 CLEANED: aiIntelligenceConfig now has keys: ${Object.keys(validatedUpdates.aiIntelligenceConfig)}`);
+      }
+    }
     
     // Execute validated config updates if any exist
     if (Object.keys(validatedUpdates).length > 0) {
-      console.log(`🔄 EXECUTING CONFIG UPDATES:`, validatedUpdates);
+      console.log(`🔄 FINAL PAYLOAD BEFORE DATABASE UPDATE:`, JSON.stringify(validatedUpdates, null, 2));
+      
+      // 🚨 CRITICAL LOG: Check if enableAIOverride is in the final payload
+      if (validatedUpdates.aiIntelligenceConfig?.enableAIOverride !== undefined) {
+        console.log(`🚨🚨🚨 CRITICAL BUG: enableAIOverride = ${validatedUpdates.aiIntelligenceConfig.enableAIOverride} is in final payload!`);
+        console.log('🚨 This will cause AI to be disabled! Removing it now!');
+        delete validatedUpdates.aiIntelligenceConfig.enableAIOverride;
+        console.log(`🧹 EMERGENCY CLEANED: Final payload:`, JSON.stringify(validatedUpdates, null, 2));
+      }
       
       const success = await ConfigManager.updateConfig(strategy.id, strategy.user_id, validatedUpdates);
       
@@ -1292,6 +1326,16 @@ class ConfigManager {
   static async updateConfig(strategyId: string, userId: string, updates: any): Promise<boolean> {
     try {
       console.log('🔧 [CONFIG_UPDATE] Starting with validated updates:', JSON.stringify(updates, null, 2));
+      
+      // 🚨 CRITICAL CHECK: Ensure no enableAIOverride in autonomy-only updates
+      if (updates.aiIntelligenceConfig && 
+          Object.keys(updates.aiIntelligenceConfig).length === 1 && 
+          updates.aiIntelligenceConfig.aiAutonomyLevel !== undefined &&
+          updates.aiIntelligenceConfig.enableAIOverride !== undefined) {
+        console.log('🚨🚨🚨 CRITICAL ERROR: enableAIOverride found in autonomy-only update! Removing it!');
+        delete updates.aiIntelligenceConfig.enableAIOverride;
+        console.log('🧹 CLEANED updates:', JSON.stringify(updates, null, 2));
+      }
       
       // Get current config
       const currentConfig = await this.getFreshConfig(strategyId, userId);
