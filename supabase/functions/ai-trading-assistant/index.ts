@@ -613,12 +613,12 @@ If no fields match, return {}. Do not explain, only return JSON.`
 
     // AI Autonomy Level - CRITICAL: Only set autonomy, never touch AI enable flags
     const autonomyMatch = message.match(/(?:ai\s+)?(?:autonomy|control).*?(\d+)/i);
-    if (autonomyMatch) {
+    if (autonomyMatch && !updates.aiIntelligenceConfig?.aiAutonomyLevel) {
       const level = parseInt(autonomyMatch[1]);
       if (level >= 0 && level <= 100) {
         if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
         updates.aiIntelligenceConfig.aiAutonomyLevel = level;
-        // NEVER touch is_ai_enabled or ai_override_enabled here
+        // CRITICAL: NEVER modify is_ai_enabled, ai_override_enabled or any other AI flags when setting autonomy
       }
     }
 
@@ -922,6 +922,7 @@ Never suggest configuration changes unless explicitly asked. Always reference th
     values.push(`Risk Profile: ${config.riskProfile || 'Not set'}`);
     values.push(`Per Trade Allocation: €${config.perTradeAllocation || 'Not set'}`);
     values.push(`Max Active Coins: ${config.maxActiveCoins || 'Not set'}`);
+    values.push(`Selected Coins Count: ${config.selectedCoins?.length || 0} coins`);
     values.push(`Max Wallet Exposure: ${config.maxWalletExposure || 'Not set'}%`);
     
     // AI Intelligence Config
@@ -930,8 +931,9 @@ Never suggest configuration changes unless explicitly asked. Always reference th
     const aiConfig = config.aiIntelligenceConfig || {};
     values.push(`AI Autonomy Level: ${aiConfig.aiAutonomyLevel !== undefined ? aiConfig.aiAutonomyLevel + '%' : 'Not set'}`);
     values.push(`AI Confidence Threshold: ${aiConfig.aiConfidenceThreshold !== undefined ? aiConfig.aiConfidenceThreshold + '%' : 'Not set'}`);
+    values.push(`Risk Override Allowed: ${aiConfig.riskOverrideAllowed ? 'Yes' : 'No'}`);
     
-    // Buy/Sell Settings
+    // Buy/Sell Settings  
     values.push(`Buy Frequency: ${config.buyFrequency ? config.buyFrequency.replace('_', ' ') : 'Not set'}`);
     values.push(`Trailing Buy Percentage: ${config.trailingBuyPercentage !== undefined ? config.trailingBuyPercentage + '%' : 'Not set'}`);
     values.push(`Buy Cooldown Minutes: ${config.buyCooldownMinutes || 'Not set'}`);
@@ -1136,14 +1138,34 @@ class ConfigManager {
       const verificationConfig = await this.getFreshConfig(strategyId, userId);
       console.log('✅ [CONFIG_UPDATE] Verification read-back:', JSON.stringify(verificationConfig, null, 2));
       
-      // Verify ONLY the canonical AI flag (aiIntelligenceConfig.enableAIOverride)
-      const verificationsToCheck = [
-        { field: 'aiIntelligenceConfig.enableAIOverride', expected: updates.aiIntelligenceConfig?.enableAIOverride, actual: verificationConfig.aiIntelligenceConfig?.enableAIOverride }
-      ];
+      // Verify key fields were updated correctly
+      const verificationsToCheck = [];
+      
+      // Check top-level fields
+      for (const [field, expectedValue] of Object.entries(updates)) {
+        if (field !== 'aiIntelligenceConfig') {
+          verificationsToCheck.push({ 
+            field, 
+            expected: expectedValue, 
+            actual: verificationConfig[field] 
+          });
+        }
+      }
+      
+      // Check AI intelligence config fields
+      if (updates.aiIntelligenceConfig) {
+        for (const [aiField, expectedValue] of Object.entries(updates.aiIntelligenceConfig)) {
+          verificationsToCheck.push({ 
+            field: `aiIntelligenceConfig.${aiField}`, 
+            expected: expectedValue, 
+            actual: verificationConfig.aiIntelligenceConfig?.[aiField] 
+          });
+        }
+      }
       
       for (const check of verificationsToCheck) {
-        if (check.expected !== undefined && check.actual !== check.expected) {
-          console.error(`❌ [CONFIG_UPDATE] VERIFICATION FAILED for ${check.field}: expected ${check.expected}, got ${check.actual}`);
+        if (check.expected !== undefined && JSON.stringify(check.actual) !== JSON.stringify(check.expected)) {
+          console.error(`❌ [CONFIG_UPDATE] VERIFICATION FAILED for ${check.field}: expected ${JSON.stringify(check.expected)}, got ${JSON.stringify(check.actual)}`);
           return false;
         }
       }
