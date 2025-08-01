@@ -572,31 +572,46 @@ If no fields match, return {}. Do not explain, only return JSON.`
       // Parse AI response as JSON
       try {
         const aiUpdates = JSON.parse(aiResponse);
-        console.log('🤖 AI FIELD MAPPING:', JSON.stringify(aiUpdates, null, 2));
+        console.log('🤖 AI FIELD MAPPING RAW RESPONSE:', JSON.stringify(aiUpdates, null, 2));
         
         // CRITICAL: Check if this is an autonomy-only request BEFORE processing any fields
         const isAutonomyOnlyRequest = message.toLowerCase().match(/(?:set\s+)?(?:ai\s+)?(?:autonomy|control).*?(\d+)/i) && 
           !message.toLowerCase().match(/\b(enable|disable|turn\s+(?:on|off))\s+(?:ai|artificial intelligence)\b/i);
         
+        console.log(`🎯 AUTONOMY CHECK: isAutonomyOnlyRequest = ${isAutonomyOnlyRequest}`);
+        console.log(`🎯 AUTONOMY CHECK: message = "${message}"`);
+        
         if (isAutonomyOnlyRequest) {
-          console.log('🎯 AUTONOMY-ONLY REQUEST DETECTED: Filtering out any AI enable/disable flags from OpenAI response');
+          console.log('🚨 AUTONOMY-ONLY REQUEST DETECTED: Filtering out ANY AI enable/disable flags from OpenAI response');
+          console.log('🚨 BEFORE CLEANUP - aiUpdates:', JSON.stringify(aiUpdates));
+          
           // Remove any AI enable/disable flags that OpenAI might have incorrectly included
           delete aiUpdates['aiIntelligenceConfig.enableAIOverride'];
           if (aiUpdates.aiIntelligenceConfig?.enableAIOverride !== undefined) {
+            console.log(`🚫 REMOVING enableAIOverride = ${aiUpdates.aiIntelligenceConfig.enableAIOverride} from OpenAI response`);
             delete aiUpdates.aiIntelligenceConfig.enableAIOverride;
-            console.log('🚫 REMOVED enableAIOverride from OpenAI response to prevent AI disable on autonomy change');
           }
+          
+          console.log('🚨 AFTER CLEANUP - aiUpdates:', JSON.stringify(aiUpdates));
         }
         
         // Handle nested field updates (like aiIntelligenceConfig.*)
         for (const [fieldPath, value] of Object.entries(aiUpdates)) {
+          console.log(`🔧 PROCESSING FIELD: ${fieldPath} = ${value}`);
+          
           if (fieldPath.includes('.')) {
             const parts = fieldPath.split('.');
             if (parts[0] === 'aiIntelligenceConfig') {
               if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
+              
+              // CRITICAL: Double-check for autonomy-only requests
+              if (parts[1] === 'enableAIOverride' && isAutonomyOnlyRequest) {
+                console.log(`🚫 BLOCKING enableAIOverride = ${value} in autonomy-only request`);
+                continue; // Skip this field
+              }
+              
               updates.aiIntelligenceConfig[parts[1]] = value;
-              // CRITICAL: When setting AI config nested fields, log to prevent confusion
-              console.log(`🧠 AI CONFIG: Setting ${parts[1]} to ${value} - NOT affecting other AI settings`);
+              console.log(`🧠 AI CONFIG SET: ${parts[1]} = ${value}`);
             } else if (parts[0] === 'technicalIndicators') {
               if (!updates.technicalIndicators) updates.technicalIndicators = {};
               if (!updates.technicalIndicators[parts[1]]) updates.technicalIndicators[parts[1]] = {};
@@ -803,8 +818,9 @@ If no fields match, return {}. Do not explain, only return JSON.`
     delete updates.ai_override_enabled;
     delete updates.enableAI;
     
-    console.log('🧹 FINAL CLEANUP: Removed all deprecated AI fields');
-    console.log('📋 FINAL UPDATES:', Object.keys(updates));
+    console.log('🔍 FINAL UPDATES BEFORE CLEANUP:', JSON.stringify(updates, null, 2));
+    console.log('🧹 FINAL CLEANUP: Removing all deprecated AI fields');
+    console.log('🔍 FINAL UPDATES AFTER CLEANUP:', JSON.stringify(updates, null, 2));
 
     return updates;
   }
@@ -962,16 +978,22 @@ class CryptoIntelligenceEngine {
     const validationMessages = [];
     
     for (const [field, newValue] of Object.entries(potentialUpdates)) {
+      console.log(`🔍 VALIDATING FIELD: ${field} = ${JSON.stringify(newValue)}`);
       const currentValue = currentConfig[field];
+      console.log(`🔍 CURRENT VALUE: ${field} = ${JSON.stringify(currentValue)}`);
+      
       const validation = ValidationEngine.validateConfigChange(field, newValue, currentValue);
       
       if (validation.isValid && validation.needsUpdate) {
         validatedUpdates[field] = newValue;
         validationMessages.push(validation.message);
+        console.log(`✅ VALIDATED UPDATE: ${field} = ${JSON.stringify(newValue)}`);
       } else if (!validation.isValid) {
         validationMessages.push(`❌ ${validation.message}`);
+        console.log(`❌ VALIDATION FAILED: ${field} - ${validation.message}`);
       } else {
         validationMessages.push(validation.message);
+        console.log(`⏭️ NO UPDATE NEEDED: ${field} - ${validation.message}`);
       }
     }
     
