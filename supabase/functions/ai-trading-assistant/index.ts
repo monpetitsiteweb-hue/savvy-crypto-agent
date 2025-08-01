@@ -574,6 +574,20 @@ If no fields match, return {}. Do not explain, only return JSON.`
         const aiUpdates = JSON.parse(aiResponse);
         console.log('🤖 AI FIELD MAPPING:', JSON.stringify(aiUpdates, null, 2));
         
+        // CRITICAL: Check if this is an autonomy-only request BEFORE processing any fields
+        const isAutonomyOnlyRequest = message.toLowerCase().match(/(?:set\s+)?(?:ai\s+)?(?:autonomy|control).*?(\d+)/i) && 
+          !message.toLowerCase().match(/\b(enable|disable|turn\s+(?:on|off))\s+(?:ai|artificial intelligence)\b/i);
+        
+        if (isAutonomyOnlyRequest) {
+          console.log('🎯 AUTONOMY-ONLY REQUEST DETECTED: Filtering out any AI enable/disable flags from OpenAI response');
+          // Remove any AI enable/disable flags that OpenAI might have incorrectly included
+          delete aiUpdates['aiIntelligenceConfig.enableAIOverride'];
+          if (aiUpdates.aiIntelligenceConfig?.enableAIOverride !== undefined) {
+            delete aiUpdates.aiIntelligenceConfig.enableAIOverride;
+            console.log('🚫 REMOVED enableAIOverride from OpenAI response to prevent AI disable on autonomy change');
+          }
+        }
+        
         // Handle nested field updates (like aiIntelligenceConfig.*)
         for (const [fieldPath, value] of Object.entries(aiUpdates)) {
           if (fieldPath.includes('.')) {
