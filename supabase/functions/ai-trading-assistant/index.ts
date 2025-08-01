@@ -582,14 +582,29 @@ If no fields match, return {}. Do not explain, only return JSON.`
         console.log(`🎯 AUTONOMY CHECK: message = "${message}"`);
         
         if (isAutonomyOnlyRequest) {
-          console.log('🚨 AUTONOMY-ONLY REQUEST DETECTED: Filtering out ANY AI enable/disable flags from OpenAI response');
+          console.log('🚨 AUTONOMY-ONLY REQUEST DETECTED: Completely filtering OpenAI response to ONLY autonomy fields');
           console.log('🚨 BEFORE CLEANUP - aiUpdates:', JSON.stringify(aiUpdates));
           
-          // Remove any AI enable/disable flags that OpenAI might have incorrectly included
-          delete aiUpdates['aiIntelligenceConfig.enableAIOverride'];
-          if (aiUpdates.aiIntelligenceConfig?.enableAIOverride !== undefined) {
-            console.log(`🚫 REMOVING enableAIOverride = ${aiUpdates.aiIntelligenceConfig.enableAIOverride} from OpenAI response`);
-            delete aiUpdates.aiIntelligenceConfig.enableAIOverride;
+          // COMPLETELY REPLACE aiUpdates with ONLY autonomy-related fields
+          const autonomyValue = aiUpdates['aiIntelligenceConfig.aiAutonomyLevel'] || 
+                              aiUpdates.aiIntelligenceConfig?.aiAutonomyLevel;
+          
+          if (autonomyValue !== undefined) {
+            const cleanedUpdates = {
+              'aiIntelligenceConfig.aiAutonomyLevel': autonomyValue
+            };
+            // COMPLETELY REPLACE the aiUpdates object
+            Object.keys(aiUpdates).forEach(key => delete aiUpdates[key]);
+            Object.assign(aiUpdates, cleanedUpdates);
+            console.log('🚨 COMPLETELY REPLACED aiUpdates with autonomy-only fields:', JSON.stringify(aiUpdates));
+          } else {
+            console.log('⚠️ No autonomy value found in OpenAI response, keeping original but removing enable flags');
+            // Remove any AI enable/disable flags
+            delete aiUpdates['aiIntelligenceConfig.enableAIOverride'];
+            if (aiUpdates.aiIntelligenceConfig?.enableAIOverride !== undefined) {
+              console.log(`🚫 REMOVING enableAIOverride = ${aiUpdates.aiIntelligenceConfig.enableAIOverride} from OpenAI response`);
+              delete aiUpdates.aiIntelligenceConfig.enableAIOverride;
+            }
           }
           
           console.log('🚨 AFTER CLEANUP - aiUpdates:', JSON.stringify(aiUpdates));
@@ -853,6 +868,24 @@ class ValidationEngine {
     if (field === 'aiIntelligenceConfig') {
       const currentAiConfig = currentValue || {};
       const newAiConfig = newValue || {};
+      
+      // CRITICAL: Special autonomy-only validation
+      if (Object.keys(newAiConfig).length === 1 && newAiConfig.aiAutonomyLevel !== undefined) {
+        const currentAutonomyLevel = currentAiConfig.aiAutonomyLevel;
+        if (currentAutonomyLevel === newAiConfig.aiAutonomyLevel) {
+          return {
+            isValid: true,
+            needsUpdate: false,
+            message: `No change needed — AI Autonomy Level is already set to ${newAiConfig.aiAutonomyLevel}%.`
+          };
+        } else {
+          return {
+            isValid: true,
+            needsUpdate: true,
+            message: `✅ Strategy updated: AI Autonomy Level = ${newAiConfig.aiAutonomyLevel}%`
+          };
+        }
+      }
       
       // Check each nested field individually
       let hasChanges = false;
