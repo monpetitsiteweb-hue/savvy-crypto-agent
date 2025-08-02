@@ -12,6 +12,7 @@ import { TestStrategyConfig } from '@/components/TestStrategyConfig';
 import { PerformanceOverview } from '@/components/PerformanceOverview';
 import { LiveIndicatorKPI } from '@/components/strategy/LiveIndicatorKPI';
 import { AdminPage } from '@/components/admin/AdminPage';
+import { MarketDashboard } from '@/components/market/MarketDashboard';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useTestMode } from '@/hooks/useTestMode';
@@ -73,9 +74,10 @@ const Index = () => {
               {/* Tab Navigation - Mobile Responsive */}
               <div className="border-b border-slate-700 flex-shrink-0">
                 {/* Mobile: Full width tabs */}
-                <div className="md:hidden grid grid-cols-4 w-full">
+                <div className="md:hidden grid grid-cols-5 w-full">
                   {[
                     { id: 'dashboard', label: 'Dashboard' },
+                    { id: 'market', label: 'Market' },
                     { id: 'history', label: 'History' },
                     { id: 'strategy', label: 'Strategy' },
                     { id: 'performance', label: 'Performance' }
@@ -103,6 +105,7 @@ const Index = () => {
                   <div className="flex">
                     {[
                       { id: 'dashboard', label: 'Dashboard' },
+                      { id: 'market', label: 'Market' },
                       { id: 'history', label: 'History' },
                       { id: 'strategy', label: 'Strategy' },
                       { id: 'performance', label: 'Performance' }
@@ -179,6 +182,11 @@ const Index = () => {
                       <LiveIndicatorKPI />
                     </ErrorBoundary>
                   </div>
+                )}
+                {activeTab === 'market' && (
+                  <ErrorBoundary>
+                    <MarketDashboard />
+                  </ErrorBoundary>
                 )}
                 {activeTab === 'history' && (
                   <ErrorBoundary>
