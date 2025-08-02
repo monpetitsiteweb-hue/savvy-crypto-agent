@@ -11,6 +11,7 @@ import { usePersistentDashboardData } from '@/hooks/usePersistentDashboardData';
 import { supabase } from '@/integrations/supabase/client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro } from '@/utils/currencyFormatter';
 
@@ -268,16 +269,37 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
             </Badge>
           )}
           {testMode && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleResetPortfolio}
-              disabled={walletLoading}
-              className="text-red-400 border-red-400/50 hover:bg-red-400/10"
-            >
-              <RotateCcw className="h-4 w-4 mr-1" />
-              Reset Portfolio
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={walletLoading}
+                  className="text-red-400 border-red-400/50 hover:bg-red-400/10"
+                >
+                  <RotateCcw className="h-4 w-4 mr-1" />
+                  Reset Portfolio
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reset Test Portfolio</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete all your test trades and reset your portfolio balance to €30,000. 
+                    This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleResetPortfolio}
+                    className="bg-red-600 hover:bg-red-700"
+                  >
+                    Reset Portfolio
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </div>
         
