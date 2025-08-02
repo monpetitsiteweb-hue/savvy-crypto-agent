@@ -1167,7 +1167,11 @@ export type Database = {
         Returns: boolean
       }
       reset_mock_wallet_balances: {
-        Args: Record<PropertyKey, never>
+        Args: Record<PropertyKey, never> | { target_balance?: number }
+        Returns: undefined
+      }
+      reset_user_test_portfolio: {
+        Args: { target_balance?: number }
         Returns: undefined
       }
     }

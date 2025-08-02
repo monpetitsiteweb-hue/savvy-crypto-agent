@@ -18,6 +18,7 @@ interface MockWalletContextType {
   getTotalValue: () => number;
   refreshFromDatabase: () => Promise<void>;
   forceReset: () => void;
+  resetPortfolio: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -208,17 +209,61 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
 
   const forceReset = () => {
     if (!user) return;
-    console.log('🔄 Force resetting wallet...');
+    console.log('🔄 Force resetting wallet to €30,000...');
     // Clear localStorage
     localStorage.removeItem(`mock-wallet-${user.id}`);
-    // Reset balances to starting state
+    // Reset balances to starting state with €30,000
     setBalances([{
       currency: 'EUR',
-      amount: 250000,
-      value_in_base: 250000
+      amount: 30000,
+      value_in_base: 30000
     }]);
     // Refresh from database
     refreshFromDatabase();
+  };
+
+  const resetPortfolio = async () => {
+    if (!user) return;
+    
+    setIsLoading(true);
+    try {
+      console.log('🔄 Resetting entire test portfolio and deleting all trades...');
+      
+      // Call the database function to delete all trades and reset portfolio
+      const { error } = await supabase.rpc('reset_user_test_portfolio', {
+        target_balance: 30000
+      });
+
+      if (error) {
+        console.error('Error resetting portfolio:', error);
+        throw error;
+      }
+
+      console.log('✅ Portfolio reset successful');
+      
+      // Clear localStorage
+      localStorage.removeItem(`mock-wallet-${user.id}`);
+      
+      // Set balances to €30,000
+      setBalances([{
+        currency: 'EUR',
+        amount: 30000,
+        value_in_base: 30000
+      }]);
+      
+      // Save to localStorage
+      localStorage.setItem(`mock-wallet-${user.id}`, JSON.stringify([{
+        currency: 'EUR',
+        amount: 30000,
+        value_in_base: 30000
+      }]));
+      
+    } catch (error) {
+      console.error('Error resetting portfolio:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const getTotalValue = (): number => {
@@ -282,6 +327,7 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       getTotalValue,
       refreshFromDatabase,
       forceReset,
+      resetPortfolio,
       isLoading
     }}>
       {children}

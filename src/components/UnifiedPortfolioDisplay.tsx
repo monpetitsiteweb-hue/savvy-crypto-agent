@@ -7,7 +7,8 @@ import { useTestMode } from "@/hooks/useTestMode";
 import { useAuth } from "@/hooks/useAuth";
 import { useRealTimeMarketData } from "@/hooks/useRealTimeMarketData";
 import { supabase } from '@/integrations/supabase/client';
-import { Wallet, TrendingUp, TrendingDown, RefreshCw, Loader2, TestTube, DollarSign } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, RefreshCw, Loader2, TestTube, DollarSign, RotateCcw } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 interface PortfolioData {
   accounts?: Array<{
@@ -28,8 +29,9 @@ interface PortfolioData {
 export const UnifiedPortfolioDisplay = () => {
   const { testMode } = useTestMode();
   const { user } = useAuth();
-  const { balances, getTotalValue, refreshFromDatabase, isLoading } = useMockWallet();
+  const { balances, getTotalValue, refreshFromDatabase, resetPortfolio, isLoading } = useMockWallet();
   const { getCurrentData } = useRealTimeMarketData();
+  const { toast } = useToast();
   
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
@@ -214,10 +216,54 @@ export const UnifiedPortfolioDisplay = () => {
     );
   };
 
+  const handleResetPortfolio = async () => {
+    try {
+      await resetPortfolio();
+      toast({
+        title: "Portfolio Reset",
+        description: "All trades deleted and portfolio reset to €30,000",
+      });
+    } catch (error) {
+      toast({
+        title: "Reset Failed",
+        description: "Failed to reset portfolio. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <Card className={`${testMode ? 'border-orange-500/20' : 'border-blue-500/20'} bg-slate-800/50 border-slate-600`}>
       <CardHeader className="pb-3">
-        <div className="text-4xl font-bold text-red-500 p-8">FUCK</div>
+        <CardTitle className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {testMode ? (
+              <TestTube className="h-5 w-5 text-orange-400" />
+            ) : (
+              <Wallet className="h-5 w-5 text-blue-400" />
+            )}
+            <span className="text-white">
+              {testMode ? 'Test Portfolio' : 'Live Portfolio'}
+            </span>
+            {testMode && (
+              <Badge variant="outline" className="text-orange-400 border-orange-400/50">
+                Test Mode
+              </Badge>
+            )}
+          </div>
+          {testMode && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetPortfolio}
+              disabled={isLoading}
+              className="text-red-400 border-red-400/50 hover:bg-red-400/10"
+            >
+              <RotateCcw className="h-4 w-4 mr-1" />
+              Reset Portfolio
+            </Button>
+          )}
+        </CardTitle>
       </CardHeader>
       
       <CardContent>
