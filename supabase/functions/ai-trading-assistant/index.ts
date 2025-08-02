@@ -2121,6 +2121,12 @@ serve(async (req) => {
       );
     }
 
+    // ✅ Handle direct setting requests (e.g., "set AI autonomy to 80%")
+    if (isDirectSettingRequest(message)) {
+      console.log("⚙️ DIRECT SETTING REQUEST: Processing individual field update");
+      return await handleDirectSettingRequest(userId, strategy.id, message, freshConfig);
+    }
+
     // All configuration updates are now handled by the CryptoIntelligenceEngine
     // which includes proper intent detection and validation
 
@@ -2223,3 +2229,131 @@ serve(async (req) => {
     );
   }
 });
+
+// =============================================
+// DIRECT SETTING REQUEST HANDLERS
+// =============================================
+
+// Detect if this is a direct setting request (single field update)
+function isDirectSettingRequest(message: string): boolean {
+  const directSettingPatterns = [
+    /set\s+.*\s+to\s+\d+/i,
+    /change\s+.*\s+to\s+\d+/i,
+    /update\s+.*\s+to\s+\d+/i,
+    /enable\s+\w+/i,
+    /disable\s+\w+/i,
+    /set\s+.*autonomy.*level/i,
+    /set\s+.*stop.*loss/i,
+    /set\s+.*take.*profit/i
+  ];
+  
+  return directSettingPatterns.some(pattern => pattern.test(message));
+}
+
+// Handle direct setting requests (individual field updates)
+async function handleDirectSettingRequest(
+  userId: string,
+  strategyId: string,
+  message: string,
+  currentConfig: any
+): Promise<Response> {
+  console.log("🎯 DIRECT SETTING: Processing individual field change");
+  
+  try {
+    const fieldMapping = {
+      'ai autonomy level': 'aiIntelligenceConfig.aiAutonomyLevel',
+      'autonomy level': 'aiIntelligenceConfig.aiAutonomyLevel',
+      'stop loss': 'stopLossPercentage',
+      'take profit': 'takeProfitPercentage',
+      'daily profit target': 'dailyProfitTarget',
+      'daily loss limit': 'dailyLossLimit',
+      'max active coins': 'maxActiveCoins',
+      'amount per trade': 'perTradeAllocation',
+      'confidence threshold': 'aiIntelligenceConfig.aiConfidenceThreshold'
+    };
+
+    // Extract field and value from message
+    let fieldFound = null;
+    let valueFound = null;
+    
+    // Look for pattern like "set X to Y"
+    const setPattern = /set\s+(.+?)\s+to\s+(\d+(?:\.\d+)?%?)/i;
+    const match = message.match(setPattern);
+    
+    if (match) {
+      const fieldText = match[1].toLowerCase().trim();
+      const valueText = match[2];
+      
+      // Find matching field
+      for (const [key, path] of Object.entries(fieldMapping)) {
+        if (fieldText.includes(key)) {
+          fieldFound = path;
+          // Parse value (remove % if present and convert to number)
+          valueFound = parseFloat(valueText.replace('%', ''));
+          break;
+        }
+      }
+    }
+
+    if (fieldFound && valueFound !== null) {
+      // Prepare update object
+      const updates: any = {};
+      
+      // Handle nested fields (like aiIntelligenceConfig.aiAutonomyLevel)
+      if (fieldFound.includes('.')) {
+        const [parent, child] = fieldFound.split('.');
+        updates[parent] = { ...currentConfig[parent] };
+        updates[parent][child] = valueFound;
+      } else {
+        updates[fieldFound] = valueFound;
+      }
+
+      // Update the strategy in database
+      const { error } = await supabase
+        .from('trading_strategies')
+        .update(updates)
+        .eq('id', strategyId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('❌ UPDATE_ERROR:', error);
+        return new Response(JSON.stringify({
+          message: `Failed to update setting: ${error.message}`,
+          hasConfigUpdates: false
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      console.log('✅ DIRECT_UPDATE_SUCCESS:', updates);
+      
+      const fieldDisplayName = fieldFound.replace('aiIntelligenceConfig.', '').replace(/([A-Z])/g, ' $1').toLowerCase();
+      const successMessage = `✅ Strategy updated: ${fieldDisplayName}: ${valueFound}${fieldFound.includes('Percentage') || fieldFound.includes('Level') ? '%' : ''}`;
+      
+      return new Response(JSON.stringify({
+        message: successMessage,
+        hasConfigUpdates: true,
+        configUpdates: updates
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // If no direct setting found, fall back to conversation mode
+    return new Response(JSON.stringify({
+      message: "I can update individual settings when you use specific commands like 'Set AI autonomy level to 80%' or 'Set stop loss to 2%'. For complex changes involving multiple settings, please be more specific about which exact values you want me to update.",
+      hasConfigUpdates: false
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error('❌ DIRECT_SETTING_ERROR:', error);
+    return new Response(JSON.stringify({
+      message: `Error processing setting change: ${error.message}`,
+      hasConfigUpdates: false
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
