@@ -13,6 +13,7 @@ import { PerformanceOverview } from '@/components/PerformanceOverview';
 import { LiveIndicatorKPI } from '@/components/strategy/LiveIndicatorKPI';
 import { AdminPage } from '@/components/admin/AdminPage';
 import { MarketDashboard } from '@/components/market/MarketDashboard';
+import { TradingViewMarketDashboard } from '@/components/market/TradingViewMarketDashboard';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useTestMode } from '@/hooks/useTestMode';
@@ -185,7 +186,7 @@ const Index = () => {
                 )}
                 {activeTab === 'market' && (
                   <ErrorBoundary>
-                    <MarketDashboard />
+                    <TradingViewMarketDashboard />
                   </ErrorBoundary>
                 )}
                 {activeTab === 'history' && (
