@@ -125,7 +125,7 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
               description="The gain percentage at which the trade should close to secure profits."
               examples={["Take profits at 5%", "Sell once I make 3%", "Close when I hit my target"]}
             >
-              <Label>Take Profit Percentage (%)</Label>
+              <Label>Take Profit Percentage: {formData.takeProfitPercentage}%</Label>
             </TooltipField>
             <div className="space-y-2">
               <Slider
@@ -138,7 +138,6 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
               />
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>0.5%</span>
-                <span className="font-medium">{formData.takeProfitPercentage}%</span>
                 <span>20%</span>
               </div>
             </div>
@@ -160,7 +159,7 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
               description="Automatically closes a trade when the price drops by this percentage — protects you from big losses."
               examples={["Cut my losses at 2%", "Don't let it drop more than 1.5%", "Add a stop-loss"]}
             >
-              <Label>Stop Loss Percentage (%)</Label>
+              <Label>Stop Loss Percentage: {formData.stopLossPercentage}%</Label>
             </TooltipField>
             <div className="space-y-2">
               <Slider
@@ -173,7 +172,6 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
               />
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>0.5%</span>
-                <span className="font-medium">{formData.stopLossPercentage}%</span>
                 <span>10%</span>
               </div>
             </div>
@@ -222,7 +220,7 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
               description="Tracks price as it rises and closes the trade if it drops by this percentage from the peak."
               examples={["Let the profits ride", "Use a trailing stop of 2%", "Sell if it drops after going up"]}
             >
-              <Label>Trailing Stop Percentage (%)</Label>
+              <Label>Trailing Stop Percentage: {formData.trailingStopLossPercentage}%</Label>
             </TooltipField>
             <div className="space-y-2">
               <Slider
@@ -235,7 +233,6 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
               />
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>0.5%</span>
-                <span className="font-medium">{formData.trailingStopLossPercentage}%</span>
                 <span>10%</span>
               </div>
             </div>
@@ -271,7 +268,7 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
                 description="Maximum number of open positions at the same time."
                 examples={["Hold max 5 positions", "Limit to 3 open trades"]}
               >
-                <Label>Max Open Positions</Label>
+                <Label>Max Open Positions: {formData.maxOpenPositions}</Label>
               </TooltipField>
               <div className="space-y-2">
                 <Slider
@@ -284,7 +281,6 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
                 />
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>1</span>
-                  <span className="font-medium">{formData.maxOpenPositions} positions</span>
                   <span>20</span>
                 </div>
               </div>
