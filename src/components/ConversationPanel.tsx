@@ -446,13 +446,10 @@ export const ConversationPanel = () => {
             userId: user.id
           });
           
-          // 🚨 CRITICAL DEBUG: Check if any unwanted fields are being sent
-          console.log('🚨🚨🚨 XXXXX EXACT configUpdates received from backend:', JSON.stringify(data.configUpdates, null, 2));
-          Object.keys(data.configUpdates).forEach(key => {
-            console.log(`🔍 Config field: "${key}" = `, data.configUpdates[key]);
-            if (key.includes('ai') || key.includes('enable') || key.includes('override')) {
-              console.log(`🚨 POTENTIAL AI-RELATED FIELD: "${key}" = `, data.configUpdates[key]);
-            }
+          console.log('🔄 VALIDATED CONFIG UPDATE from AI:', {
+            configUpdates: data.configUpdates,
+            strategyId: targetStrategy.id,
+            userId: user.id
           });
           
           // The AI system has already validated these updates - MERGE PROPERLY
