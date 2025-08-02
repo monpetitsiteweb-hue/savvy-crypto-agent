@@ -455,11 +455,22 @@ export const ConversationPanel = () => {
             }
           });
           
-          // The AI system has already validated these updates
-          const updatedConfig = {
-            ...targetStrategy.configuration,
-            ...data.configUpdates
-          };
+          // The AI system has already validated these updates - MERGE PROPERLY
+          const updatedConfig = { ...targetStrategy.configuration };
+          
+          // Handle nested object merging properly
+          Object.keys(data.configUpdates).forEach(key => {
+            if (key === 'aiIntelligenceConfig' && typeof data.configUpdates[key] === 'object') {
+              // Merge AI config instead of replacing
+              updatedConfig.aiIntelligenceConfig = {
+                ...updatedConfig.aiIntelligenceConfig,
+                ...data.configUpdates[key]
+              };
+              console.log('🔧 MERGED aiIntelligenceConfig:', updatedConfig.aiIntelligenceConfig);
+            } else {
+              updatedConfig[key] = data.configUpdates[key];
+            }
+          });
           
           console.log('📝 Applying validated config:', updatedConfig);
           
