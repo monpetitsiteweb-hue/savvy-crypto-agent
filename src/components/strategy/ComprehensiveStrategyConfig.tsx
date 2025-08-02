@@ -81,6 +81,7 @@ interface StrategyFormData {
   maxOpenPositions: number;
   dailyProfitTarget: number;
   dailyLossLimit: number;
+  maxTradesPerDay: number;
   tradeCooldownMinutes: number;
   backtestingMode: boolean;
   enableDCA: boolean;
@@ -266,6 +267,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     maxOpenPositions: 5,
     dailyProfitTarget: 0,
     dailyLossLimit: 0,
+    maxTradesPerDay: 50,
     tradeCooldownMinutes: 30,
     backtestingMode: false,
     enableDCA: false,
@@ -1372,6 +1374,23 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                   onChange={(e) => updateFormData('dailyLossLimit', parseFloat(e.target.value) || 0)}
                                   min={0}
                                   max={100}
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                <TooltipField 
+                                  description="Maximum number of trades allowed per day. Helps prevent overtrading and manage risk."
+                                  examples={["Limit to 20 trades per day", "Allow maximum 10 trades daily", "Set daily trade limit to 50"]}
+                                >
+                                  <Label>Max Trades Per Day</Label>
+                                </TooltipField>
+                                <Input
+                                  type="number"
+                                  step="1"
+                                  value={formData.maxTradesPerDay}
+                                  onChange={(e) => updateFormData('maxTradesPerDay', parseInt(e.target.value) || 50)}
+                                  min={1}
+                                  max={200}
                                 />
                               </div>
 

@@ -498,6 +498,7 @@ RISK MANAGEMENT:
 - maxPositionSize: "max position 5000", "position limit 3000" (number)
 - dailyLossLimit: "daily loss limit 500", "limit daily losses to 300" (number)
 - dailyProfitTarget: "daily profit target 100", "aim for 200 euros daily" (number)
+- maxTradesPerDay: "max trades per day 50", "limit daily trades to 20", "daily trade limit 30" (number 1-200)
 - maxOpenPositions: "max 5 positions", "limit open positions to 8" (number)
 - resetStopLossAfterFail: "reset stops if they fail", "reset stop loss after fail" (boolean)
 
