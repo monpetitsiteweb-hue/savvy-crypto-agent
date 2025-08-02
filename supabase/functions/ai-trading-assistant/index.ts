@@ -1410,9 +1410,9 @@ class CryptoIntelligenceEngine {
       }
     }
     
-    // Execute validated config updates if any exist
+    // Return validated config updates for the main function to handle database updates
     if (Object.keys(validatedUpdates).length > 0) {
-      console.log(`🔄 FINAL PAYLOAD BEFORE DATABASE UPDATE:`, JSON.stringify(validatedUpdates, null, 2));
+      console.log(`🔄 VALIDATED UPDATES READY FOR MAIN HANDLER:`, JSON.stringify(validatedUpdates, null, 2));
       
       // 🚨 CRITICAL LOG: Check if enableAIOverride is in the final payload
       if (validatedUpdates.aiIntelligenceConfig?.enableAIOverride !== undefined) {
@@ -1422,23 +1422,11 @@ class CryptoIntelligenceEngine {
         console.log(`🧹 EMERGENCY CLEANED: Final payload:`, JSON.stringify(validatedUpdates, null, 2));
       }
       
-      const success = await ConfigManager.updateConfig(strategy.id, strategy.user_id, validatedUpdates);
-      
-      if (success) {
-        // Generate comprehensive success message for compound updates
-        const successMessage = this.generateCompoundSuccessMessage(validatedUpdates, validationMessages);
-        return {
-          message: successMessage,
-          configUpdates: validatedUpdates,
-          hasConfigUpdates: true
-        };
-      } else {
-        return {
-          message: "❌ **Configuration Update Failed**\n\nI couldn't save the changes to your strategy. Please try again.",
-          configUpdates: validatedUpdates,
-          hasConfigUpdates: false
-        };
-      }
+      // Return to main function for database handling - this ensures proper success message generation
+      return {
+        message: `Configuration updates validated and ready to apply: ${Object.keys(validatedUpdates).length} settings will be updated.`,
+        configUpdates: validatedUpdates
+      };
     }
     
     const responseMessage = validationMessages.length > 0 
