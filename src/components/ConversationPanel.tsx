@@ -447,7 +447,7 @@ export const ConversationPanel = () => {
           });
           
           // 🚨 CRITICAL DEBUG: Check if any unwanted fields are being sent
-          console.log('🔍 EXACT configUpdates received from backend:', JSON.stringify(data.configUpdates, null, 2));
+          console.log('🚨🚨🚨 XXXXX EXACT configUpdates received from backend:', JSON.stringify(data.configUpdates, null, 2));
           Object.keys(data.configUpdates).forEach(key => {
             console.log(`🔍 Config field: "${key}" = `, data.configUpdates[key]);
             if (key.includes('ai') || key.includes('enable') || key.includes('override')) {
