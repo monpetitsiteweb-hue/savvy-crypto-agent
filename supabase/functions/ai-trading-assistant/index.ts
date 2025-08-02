@@ -1674,14 +1674,21 @@ serve(async (req) => {
     }
 
     console.log(`📝 AI_ASSISTANT: Response generated - Config updates: ${hasConfigUpdates}`);
+    
+    // DEBUG: Log the exact response being sent to frontend
+    const responsePayload = {
+      message: finalMessage,
+      hasConfigUpdates,
+      configUpdates: hasConfigUpdates ? finalConfigUpdates : undefined,
+      verificationResults: { success: true, errors: [] }
+    };
+    console.log(`🔍 RESPONSE_DEBUG: Full response payload:`, JSON.stringify(responsePayload, null, 2));
+    if (hasConfigUpdates) {
+      console.log(`🔍 RESPONSE_DEBUG: finalConfigUpdates contains:`, JSON.stringify(finalConfigUpdates, null, 2));
+    }
 
     return new Response(
-      JSON.stringify({
-        message: finalMessage,
-        hasConfigUpdates,
-        configUpdates: hasConfigUpdates ? finalConfigUpdates : undefined,
-        verificationResults: { success: true, errors: [] }
-      }),
+      JSON.stringify(responsePayload),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
