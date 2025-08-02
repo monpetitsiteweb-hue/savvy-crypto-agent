@@ -926,13 +926,14 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
       }
     }
 
-    // Default risk limits
+    // Use strategy-specific risk limits or defaults
+    const strategyConfig = strategy.configuration || {};
     const riskLimits = userPrefs?.riskLimits || {
-      maxDailyLoss: 500,
-      maxTradesPerDay: 10,
-      maxPositionSize: 5,
-      stopLossPercentage: 3,
-      takeProfitPercentage: 6
+      maxDailyLoss: strategyConfig.dailyLossLimit || 500,
+      maxTradesPerDay: strategyConfig.maxTradesPerDay || 50, // Much higher default
+      maxPositionSize: strategyConfig.maxPositionSize || strategyConfig.perTradeAllocation || 1000,
+      stopLossPercentage: strategyConfig.stopLossPercentage || 3,
+      takeProfitPercentage: strategyConfig.takeProfitPercentage || 6
     };
 
     // Check daily trading stats
@@ -995,17 +996,22 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
       }
     }
 
-    // Calculate position sizing
+    // Calculate position sizing - use strategy configuration directly
     const symbol = Object.keys(marketData)[0] || 'BTC-EUR';
     const price = marketData[symbol]?.price || 50000;
     const baseAmount = strategy.configuration?.trade_amount || 
                        strategy.configuration?.perTradeAllocation || 
                        100;
     
-    // Assume portfolio value of €10,000 (in real implementation, fetch actual value)
-    const portfolioValue = 10000;
-    const maxPositionValue = portfolioValue * (riskLimits.maxPositionSize / 100);
-    const adjustedPositionSize = Math.min(baseAmount, maxPositionValue);
+    // Use the strategy's configured amount directly, but only cap by maxPositionSize if it's configured as a percentage
+    let adjustedPositionSize = baseAmount;
+    
+    // Only apply percentage-based limits if maxPositionSize is a percentage (< 100)
+    if (typeof riskLimits.maxPositionSize === 'number' && riskLimits.maxPositionSize < 100) {
+      const portfolioValue = 10000;
+      const maxPositionValue = portfolioValue * (riskLimits.maxPositionSize / 100);
+      adjustedPositionSize = Math.min(baseAmount, maxPositionValue);
+    }
 
     // Calculate stop loss and take profit
     const stopLoss = price * (1 - riskLimits.stopLossPercentage / 100);
