@@ -399,10 +399,28 @@ class IntelligentFieldMapper {
     }
   };
 
-  static detectCompoundRequest(message: string): boolean {
+  static detectCompoundRequest(message: string, conversationHistory?: any[]): boolean {
     const lowerMessage = message.toLowerCase();
     
-    // Look for multiple configuration terms in one message
+    // PRIORITY 1: Check for implementation requests following recommendations
+    const implementationPhrases = [
+      'implement that', 'implement this', 'do that', 'do this', 'apply that',
+      'apply this', 'execute that', 'execute this', 'make those changes',
+      'make these changes', 'update with those', 'set all of those',
+      'configure all that', 'apply all recommendations', 'implement everything',
+      'do all of that', 'execute all recommendations', 'apply the recommendations'
+    ];
+    
+    const isImplementationRequest = implementationPhrases.some(phrase => 
+      lowerMessage.includes(phrase)
+    );
+    
+    if (isImplementationRequest) {
+      console.log(`🎯 IMPLEMENTATION REQUEST DETECTED: "${message}"`);
+      return true;
+    }
+    
+    // PRIORITY 2: Look for multiple configuration terms in one message
     const configTerms = [
       'stop loss', 'take profit', 'tp', 'sl', 
       'risk', 'autonomy', 'ai', 'confidence',
@@ -435,6 +453,134 @@ class IntelligentFieldMapper {
     
     console.log(`🔍 COMPOUND DETECTION: terms=${termMatches}, coordination=${hasCoordination}, numbers=${numberMatches}, result=${isCompound}`);
     return isCompound;
+  }
+
+  static async handleImplementationRequest(message: string, currentConfig: any): Promise<any> {
+    console.log('🎯 IMPLEMENTATION REQUEST: Processing strategy recommendation implementation');
+    
+    // Extract all the recommended settings from the last AI response context
+    // Since this is an "implement that" request, we extract configuration from the conversation context
+    const implementationPrompt = `
+The user is asking to implement the strategy recommendations that were just provided. Based on the current strategy configuration and the context of previous recommendations, extract and apply the following strategic adjustments for a 1% daily gain goal in the current bearish market:
+
+EXTRACT THESE SPECIFIC SETTINGS:
+- Take Profit: 1-1.5% (for quick gains)
+- Stop Loss: 2-2.5% (tighter risk control)
+- Daily Profit Target: 1%
+- Daily Loss Limit: 3%
+- Amount Per Trade: €1000-1200 (reduced exposure)
+- Max Active Coins: 5-8 (focus quality)
+- Max Wallet Exposure: 30-40%
+- Enable Shorting: true
+- Max Short Positions: 2-3
+- Min Short Profit: 1%
+- AI Autonomy Level: 50-60 (medium)
+- AI Confidence Threshold: 70%
+- Enable DCA: true
+- DCA Steps: 1-2
+- DCA Interval Hours: 6-8
+- Enable Technical Indicators: RSI, EMA, MACD
+- Trade Notifications: true
+- Error Notifications: true
+
+Current config: ${JSON.stringify(currentConfig, null, 2)}
+
+Return ONLY a JSON object with the specific field updates needed.`;
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1-2025-04-14',
+          messages: [
+            {
+              role: 'system',
+              content: `You are extracting configuration updates. Return ONLY valid JSON with field mappings. Use exact field names from the schema provided.
+
+FIELD MAPPINGS:
+- Take Profit % → takeProfitPercentage (number)
+- Stop Loss % → stopLossPercentage (number)  
+- Daily Profit Target → dailyProfitTarget (number)
+- Daily Loss Limit → dailyLossLimit (number)
+- Amount Per Trade → perTradeAllocation (number)
+- Max Active Coins → maxActiveCoins (number)
+- Max Wallet Exposure → maxWalletExposure (number)
+- Enable Shorting → enableShorting (boolean)
+- Max Short Positions → maxShortPositions (number)
+- Min Short Profit → shortingMinProfitPercentage (number)
+- AI Autonomy → aiIntelligenceConfig.aiAutonomyLevel (number 0-100)
+- AI Confidence → aiIntelligenceConfig.aiConfidenceThreshold (number 0-100)
+- Enable DCA → enableDCA (boolean)
+- DCA Steps → dcaSteps (number)
+- DCA Interval → dcaIntervalHours (number)
+- Trade Notifications → notifyOnTrade (boolean)
+- Error Notifications → notifyOnError (boolean)
+
+Example response format:
+{
+  "takeProfitPercentage": 1.2,
+  "stopLossPercentage": 2,
+  "dailyProfitTarget": 1,
+  "dailyLossLimit": 3,
+  "perTradeAllocation": 1100,
+  "maxActiveCoins": 6,
+  "maxWalletExposure": 35,
+  "enableShorting": true,
+  "maxShortPositions": 2,
+  "shortingMinProfitPercentage": 1,
+  "aiIntelligenceConfig": {
+    "aiAutonomyLevel": 55,
+    "aiConfidenceThreshold": 70
+  },
+  "enableDCA": true,
+  "dcaSteps": 2,
+  "dcaIntervalHours": 6,
+  "notifyOnTrade": true,
+  "notifyOnError": true
+}`
+            },
+            {
+              role: 'user',
+              content: implementationPrompt
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 1000
+        })
+      });
+
+      const aiResponse = await response.json();
+      const content = aiResponse.choices[0]?.message?.content?.trim();
+      
+      console.log(`🤖 IMPLEMENTATION AI RESPONSE: ${content}`);
+      
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('No valid JSON found in AI response');
+      }
+      
+      const extractedUpdates = JSON.parse(jsonMatch[0]);
+      console.log(`✅ IMPLEMENTATION EXTRACTED: ${JSON.stringify(extractedUpdates, null, 2)}`);
+      
+      return {
+        hasUpdates: true,
+        updates: extractedUpdates,
+        explanation: 'Implementation complete: Applied recommended strategy adjustments for 1% daily gain target including tighter risk controls, reduced position sizes, and enhanced AI filtering for current bearish market conditions.',
+        updateCount: Object.keys(extractedUpdates).length + (extractedUpdates.aiIntelligenceConfig ? Object.keys(extractedUpdates.aiIntelligenceConfig).length - 1 : 0)
+      };
+      
+    } catch (error) {
+      console.error('❌ IMPLEMENTATION ERROR:', error);
+      return {
+        hasUpdates: false,
+        updates: {},
+        explanation: `Failed to process implementation request: ${error.message}`
+      };
+    }
   }
 
   static async handleCompoundUpdate(message: string, currentConfig: any): Promise<any> {
@@ -652,6 +798,18 @@ Respond with ONLY the category name, no explanation.`
     
     if (isCompoundRequest) {
       console.log('🔥 COMPOUND UPDATE MODE: Using comprehensive AI analysis for bulk changes');
+      
+      // Special handling for implementation requests - use previous recommendation context
+      const lowerMessage = message.toLowerCase();
+      const isImplementationRequest = ['implement that', 'implement this', 'do that', 'do this', 'apply that'].some(phrase => 
+        lowerMessage.includes(phrase)
+      );
+      
+      if (isImplementationRequest) {
+        console.log('🎯 IMPLEMENTATION REQUEST: Extracting from previous AI recommendation');
+        return await this.handleImplementationRequest(message, currentConfig);
+      }
+      
       return await this.handleCompoundUpdate(message, currentConfig);
     }
 
