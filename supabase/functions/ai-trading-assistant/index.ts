@@ -1062,14 +1062,6 @@ class CryptoIntelligenceEngine {
     if (Object.keys(validatedUpdates).length > 0) {
       console.log(`🔄 FINAL PAYLOAD BEFORE DATABASE UPDATE:`, JSON.stringify(validatedUpdates, null, 2));
       
-      // 🚨 CRITICAL LOG: Check if enableAIOverride is in the final payload
-      if (validatedUpdates.aiIntelligenceConfig?.enableAIOverride !== undefined) {
-        console.log(`🚨🚨🚨 CRITICAL BUG: enableAIOverride = ${validatedUpdates.aiIntelligenceConfig.enableAIOverride} is in final payload!`);
-        console.log('🚨 This will cause AI to be disabled! Removing it now!');
-        delete validatedUpdates.aiIntelligenceConfig.enableAIOverride;
-        console.log(`🧹 EMERGENCY CLEANED: Final payload:`, JSON.stringify(validatedUpdates, null, 2));
-      }
-      
       const success = await ConfigManager.updateConfig(strategy.id, strategy.user_id, validatedUpdates);
       
       if (success) {
