@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, TestTube, TrendingUp, TrendingDown } from 'lucide-react';
+import { RefreshCw, TestTube, TrendingUp, TrendingDown, RotateCcw } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { useMockWallet } from '@/hooks/useMockWallet';
@@ -10,6 +10,7 @@ import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 import { usePersistentDashboardData } from '@/hooks/usePersistentDashboardData';
 import { supabase } from '@/integrations/supabase/client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useToast } from '@/hooks/use-toast';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro } from '@/utils/currencyFormatter';
 
@@ -39,9 +40,10 @@ interface MergedPortfolioDisplayProps {
 export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: MergedPortfolioDisplayProps) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
-  const { balances: mockBalances } = useMockWallet();
+  const { balances: mockBalances, resetPortfolio, isLoading: walletLoading } = useMockWallet();
   const { marketData, getCurrentData } = useRealTimeMarketData();
   const { portfolioData, updatePortfolioData, shouldRefresh } = usePersistentDashboardData();
+  const { toast } = useToast();
   
   const [loading, setLoading] = useState(false);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -234,6 +236,22 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     );
   };
 
+  const handleResetPortfolio = async () => {
+    try {
+      await resetPortfolio();
+      toast({
+        title: "Portfolio Reset",
+        description: "All trades deleted and portfolio reset to €30,000",
+      });
+    } catch (error) {
+      toast({
+        title: "Reset Failed",
+        description: "Failed to reset portfolio. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Portfolio is always visible regardless of strategy status
 
   return (
@@ -248,6 +266,18 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
               <TestTube className="h-3 w-3 mr-1" />
               Test Mode
             </Badge>
+          )}
+          {testMode && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetPortfolio}
+              disabled={walletLoading}
+              className="text-red-400 border-red-400/50 hover:bg-red-400/10"
+            >
+              <RotateCcw className="h-4 w-4 mr-1" />
+              Reset Portfolio
+            </Button>
           )}
         </div>
         
