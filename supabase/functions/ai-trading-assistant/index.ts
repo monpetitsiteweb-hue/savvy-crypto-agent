@@ -679,14 +679,14 @@ If no fields match, return {}. Do not explain, only return JSON.`
 
     // AI Intelligence Config - Use proper field names (SINGLE SOURCE OF TRUTH) 
     // ONLY process enable/disable if NOT setting autonomy level
-    if (lowerMessage.match(/\b(enable|turn on|activate)\s+(ai|artificial intelligence)\b/) && 
-        !lowerMessage.match(/autonomy/i)) {
+    if (lowerMessage.match(/\b(enable|turn on|activate)\s+(ai|artificial intelligence)\b/) || 
+        lowerMessage === 'enable ai' || lowerMessage === 'ai on') {
       if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
       updates.aiIntelligenceConfig.enableAIOverride = true;
       console.log('🤖 AI ENABLE: Setting aiIntelligenceConfig.enableAIOverride = true');
     }
-    if (lowerMessage.match(/\b(disable|turn off|deactivate)\s+(ai|artificial intelligence)\b/) && 
-        !lowerMessage.match(/autonomy/i)) {
+    if (lowerMessage.match(/\b(disable|turn off|deactivate)\s+(ai|artificial intelligence)\b/) || 
+        lowerMessage === 'disable ai' || lowerMessage === 'ai off') {
       if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
       updates.aiIntelligenceConfig.enableAIOverride = false;
       console.log('🤖 AI DISABLE: Setting aiIntelligenceConfig.enableAIOverride = false');
