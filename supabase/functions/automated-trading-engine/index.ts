@@ -649,9 +649,7 @@ async function executeTrade(supabaseClient: any, tradeData: any) {
   } else {
     // For regular trades: use risk management
     const riskCheck = await checkRiskLimits(supabaseClient, userId, strategy, marketData);
-    const baseTradeAmount = strategy.configuration?.trade_amount || 
-                            strategy.configuration?.perTradeAllocation || 
-                            1000; // Changed from 100 to 1000 EUR default
+    const baseTradeAmount = strategy.configuration?.perTradeAllocation || 1000;
     const adjustedAmount = riskCheck.adjustedPositionSize || baseTradeAmount;
     tradeAmount = adjustedAmount / price;
     totalValue = adjustedAmount;
