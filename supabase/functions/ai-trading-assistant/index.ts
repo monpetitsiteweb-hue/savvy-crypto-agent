@@ -399,6 +399,187 @@ class IntelligentFieldMapper {
     }
   };
 
+  static detectCompoundRequest(message: string): boolean {
+    const lowerMessage = message.toLowerCase();
+    
+    // Look for multiple configuration terms in one message
+    const configTerms = [
+      'stop loss', 'take profit', 'tp', 'sl', 
+      'risk', 'autonomy', 'ai', 'confidence',
+      'amount', 'trade', 'coins', 'exposure',
+      'notifications', 'dca', 'shorting',
+      'trailing', 'cooldown', 'frequency'
+    ];
+    
+    const termMatches = configTerms.filter(term => 
+      lowerMessage.includes(term)
+    ).length;
+    
+    // Look for coordination words that suggest multiple changes
+    const coordinationWords = [
+      'and', 'also', 'plus', 'with', 'set all',
+      'update all', 'change everything', 'configure',
+      'multiple', 'both', 'all of', 'as well'
+    ];
+    
+    const hasCoordination = coordinationWords.some(word => 
+      lowerMessage.includes(word)
+    );
+    
+    // Look for multiple percentage values or numbers
+    const numberMatches = (lowerMessage.match(/\d+(?:\.\d+)?%?/g) || []).length;
+    
+    const isCompound = (termMatches >= 3) || 
+                      (termMatches >= 2 && hasCoordination) ||
+                      (termMatches >= 2 && numberMatches >= 2);
+    
+    console.log(`🔍 COMPOUND DETECTION: terms=${termMatches}, coordination=${hasCoordination}, numbers=${numberMatches}, result=${isCompound}`);
+    return isCompound;
+  }
+
+  static async handleCompoundUpdate(message: string, currentConfig: any): Promise<any> {
+    console.log('🔥 COMPOUND UPDATE: Processing bulk configuration changes');
+    
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1-2025-04-14', // Use more powerful model for compound updates
+          messages: [
+            {
+              role: 'system',
+              content: `You are an expert cryptocurrency trading strategy configurator. Parse complex user requests that modify multiple configuration fields simultaneously.
+
+TASK: Extract ALL configuration changes from the user's message and return a comprehensive JSON object.
+
+CURRENT CONFIGURATION REFERENCE:
+${JSON.stringify(currentConfig, null, 2)}
+
+AVAILABLE CONFIGURATION FIELDS:
+
+BASIC SETTINGS:
+- strategyName (string): Name of the trading strategy
+- riskProfile (enum: "low", "medium", "high"): Overall risk tolerance
+- perTradeAllocation (number): Amount in euros per trade
+- maxActiveCoins (number): Max cryptocurrencies to trade simultaneously
+- maxWalletExposure (number): Max percentage of wallet to use
+
+BUY/SELL SETTINGS:
+- buyFrequency (enum: "once", "daily", "interval", "signal_based")
+- trailingBuyPercentage (number): Percentage for trailing buy orders
+- buyCooldownMinutes (number): Minutes between buy attempts
+- useTrailingStopOnly (boolean): Use only trailing stops
+- trailingStopLossPercentage (number): Trailing stop loss percentage
+
+RISK MANAGEMENT:
+- stopLossPercentage (number): Stop loss percentage (0.1-50)
+- takeProfitPercentage (number): Take profit percentage (1-1000)  
+- maxPositionSize (number): Max investment per cryptocurrency
+- dailyLossLimit (number): Max daily loss amount
+- dailyProfitTarget (number): Daily profit target
+- maxOpenPositions (number): Max simultaneous positions
+- resetStopLossAfterFail (boolean): Reset failed stop losses
+
+AI INTELLIGENCE CONFIG (NESTED OBJECT):
+- aiIntelligenceConfig.enableAIOverride (boolean): Enable/disable AI system
+- aiIntelligenceConfig.aiAutonomyLevel (number 0-100): AI decision autonomy level
+- aiIntelligenceConfig.aiConfidenceThreshold (number 0-100): Min confidence for AI decisions
+
+NOTIFICATIONS:
+- notifyOnTrade (boolean): Trade execution notifications
+- notifyOnError (boolean): Error notifications  
+- notifyOnTargets (boolean): Target hit notifications
+
+DCA & ADVANCED:
+- enableDCA (boolean): Enable Dollar Cost Averaging
+- dcaSteps (number): Number of DCA steps
+- dcaIntervalHours (number): Hours between DCA steps
+
+SHORTING:
+- enableShorting (boolean): Allow short selling
+- maxShortPositions (number): Max short positions
+- shortingMinProfitPercentage (number): Min profit for shorts
+- autoCloseShorts (boolean): Auto close short positions
+
+TECHNICAL INDICATORS (NESTED):
+- technicalIndicators.rsi.enabled (boolean): RSI indicator
+- technicalIndicators.macd.enabled (boolean): MACD indicator
+- technicalIndicators.ema.enabled (boolean): EMA indicator
+
+COINS:
+- selectedCoins (array): List of cryptocurrency symbols to trade
+
+CRITICAL PARSING RULES:
+1. "TP" = Take Profit = takeProfitPercentage
+2. "SL" = Stop Loss = stopLossPercentage  
+3. "AI autonomy" = aiIntelligenceConfig.aiAutonomyLevel ONLY
+4. "Enable/disable AI" = aiIntelligenceConfig.enableAIOverride ONLY
+5. "Confidence" = aiIntelligenceConfig.aiConfidenceThreshold ONLY
+6. Multiple percentage values should map to appropriate fields based on context
+
+EXAMPLES:
+User: "Set TP to 8%, SL to 2%, and AI autonomy to 85%"
+Response: {
+  "takeProfitPercentage": 8,
+  "stopLossPercentage": 2,
+  "aiIntelligenceConfig": {
+    "aiAutonomyLevel": 85
+  }
+}
+
+User: "Update trade amount to 1000, max coins 5, daily profit 200"  
+Response: {
+  "perTradeAllocation": 1000,
+  "maxActiveCoins": 5,
+  "dailyProfitTarget": 200
+}
+
+User: "Enable AI with 90% autonomy, 75% confidence, and high risk"
+Response: {
+  "aiIntelligenceConfig": {
+    "enableAIOverride": true,
+    "aiAutonomyLevel": 90, 
+    "aiConfidenceThreshold": 75
+  },
+  "riskProfile": "high"
+}
+
+RETURN: Valid JSON object with ALL configuration changes. Return empty {} if no valid configurations found.`
+            },
+            {
+              role: 'user',
+              content: message
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 800
+        }),
+      });
+
+      const data = await response.json();
+      const aiResponse = data.choices[0].message.content.trim();
+      
+      console.log('🤖 COMPOUND AI RESPONSE:', aiResponse);
+      
+      try {
+        const parsedUpdates = JSON.parse(aiResponse);
+        console.log('✅ COMPOUND PARSING SUCCESS:', JSON.stringify(parsedUpdates, null, 2));
+        return parsedUpdates;
+      } catch (parseError) {
+        console.error('❌ COMPOUND PARSING FAILED:', parseError);
+        return {};
+      }
+      
+    } catch (error) {
+      console.error('❌ COMPOUND UPDATE ERROR:', error);
+      return {};
+    }
+  }
+
   static async detectIntent(message: string): Promise<'question' | 'command' | 'ambiguous'> {
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -461,7 +642,20 @@ Respond with ONLY the category name, no explanation.`
     const lowerMessage = message.toLowerCase();
     const updates = {};
 
-    // Use OpenAI to map user intent to specific fields
+    // ====================================
+    // ENHANCED COMPOUND UPDATE HANDLING
+    // ====================================
+    
+    // Check for compound instructions that contain multiple parameters
+    const isCompoundRequest = this.detectCompoundRequest(message);
+    console.log(`📦 COMPOUND REQUEST DETECTED: ${isCompoundRequest}`);
+    
+    if (isCompoundRequest) {
+      console.log('🔥 COMPOUND UPDATE MODE: Using comprehensive AI analysis for bulk changes');
+      return await this.handleCompoundUpdate(message, currentConfig);
+    }
+
+    // Use OpenAI to map user intent to specific fields for single updates
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -1073,9 +1267,10 @@ class CryptoIntelligenceEngine {
       const success = await ConfigManager.updateConfig(strategy.id, strategy.user_id, validatedUpdates);
       
       if (success) {
-        const successMessage = validationMessages.filter(msg => !msg.startsWith('❌')).join('\n\n');
+        // Generate comprehensive success message for compound updates
+        const successMessage = this.generateCompoundSuccessMessage(validatedUpdates, validationMessages);
         return {
-          message: successMessage || `✅ Strategy configuration updated successfully.`,
+          message: successMessage,
           configUpdates: validatedUpdates,
           hasConfigUpdates: true
         };
@@ -1265,6 +1460,167 @@ Use market signals to inform your recommendations.`;
       .join('\n');
     
     return `Interface locations:\n${fieldDescriptions}`;
+  }
+
+  static generateCompoundSuccessMessage(configUpdates: any, validationMessages: string[]): string {
+    const updateCount = this.countConfigUpdates(configUpdates);
+    const isCompound = updateCount > 1;
+    
+    if (!isCompound) {
+      // Single update - use original logic
+      const successMsg = validationMessages.filter(msg => !msg.startsWith('❌')).join('\n\n');
+      return successMsg || `✅ Strategy configuration updated successfully.`;
+    }
+    
+    // Compound update - generate comprehensive summary
+    let message = `✅ **Strategy Configuration Updated** 🔄\n\n**${updateCount} settings have been updated:**\n\n`;
+    
+    const updates = [];
+    
+    // Process each update category
+    if (configUpdates.riskProfile) {
+      updates.push(`🎯 **Risk Profile:** ${configUpdates.riskProfile.charAt(0).toUpperCase() + configUpdates.riskProfile.slice(1)}`);
+    }
+    
+    if (configUpdates.perTradeAllocation) {
+      updates.push(`💰 **Amount Per Trade:** €${configUpdates.perTradeAllocation.toLocaleString()}`);
+    }
+    
+    if (configUpdates.stopLossPercentage) {
+      updates.push(`🛡️ **Stop Loss:** ${configUpdates.stopLossPercentage}%`);
+    }
+    
+    if (configUpdates.takeProfitPercentage) {
+      updates.push(`🎯 **Take Profit:** ${configUpdates.takeProfitPercentage}%`);
+    }
+    
+    if (configUpdates.dailyProfitTarget) {
+      updates.push(`📈 **Daily Profit Target:** €${configUpdates.dailyProfitTarget.toLocaleString()}`);
+    }
+    
+    if (configUpdates.dailyLossLimit) {
+      updates.push(`📉 **Daily Loss Limit:** €${configUpdates.dailyLossLimit.toLocaleString()}`);
+    }
+    
+    if (configUpdates.maxActiveCoins) {
+      updates.push(`🪙 **Max Active Coins:** ${configUpdates.maxActiveCoins}`);
+    }
+    
+    if (configUpdates.maxWalletExposure) {
+      updates.push(`💼 **Max Wallet Exposure:** ${configUpdates.maxWalletExposure}%`);
+    }
+    
+    if (configUpdates.buyCooldownMinutes) {
+      updates.push(`⏱️ **Trade Cooldown:** ${configUpdates.buyCooldownMinutes} minutes`);
+    }
+    
+    // Handle AI Intelligence Config updates
+    if (configUpdates.aiIntelligenceConfig) {
+      const aiConfig = configUpdates.aiIntelligenceConfig;
+      
+      if (aiConfig.enableAIOverride !== undefined) {
+        updates.push(`🤖 **AI System:** ${aiConfig.enableAIOverride ? 'Enabled' : 'Disabled'}`);
+      }
+      
+      if (aiConfig.aiAutonomyLevel !== undefined) {
+        updates.push(`🎛️ **AI Autonomy Level:** ${aiConfig.aiAutonomyLevel}%`);
+      }
+      
+      if (aiConfig.aiConfidenceThreshold !== undefined) {
+        updates.push(`🎯 **AI Confidence Threshold:** ${aiConfig.aiConfidenceThreshold}%`);
+      }
+    }
+    
+    // Handle notifications
+    const notificationUpdates = [];
+    if (configUpdates.notifyOnTrade !== undefined) {
+      notificationUpdates.push(`Trade notifications: ${configUpdates.notifyOnTrade ? 'enabled' : 'disabled'}`);
+    }
+    if (configUpdates.notifyOnError !== undefined) {
+      notificationUpdates.push(`Error notifications: ${configUpdates.notifyOnError ? 'enabled' : 'disabled'}`);
+    }
+    if (configUpdates.notifyOnTargets !== undefined) {
+      notificationUpdates.push(`Target notifications: ${configUpdates.notifyOnTargets ? 'enabled' : 'disabled'}`);
+    }
+    if (notificationUpdates.length > 0) {
+      updates.push(`🔔 **Notifications:** ${notificationUpdates.join(', ')}`);
+    }
+    
+    // Handle other boolean settings
+    if (configUpdates.enableDCA !== undefined) {
+      updates.push(`🔄 **Dollar Cost Averaging:** ${configUpdates.enableDCA ? 'Enabled' : 'Disabled'}`);
+    }
+    
+    if (configUpdates.enableShorting !== undefined) {
+      updates.push(`📉 **Short Selling:** ${configUpdates.enableShorting ? 'Enabled' : 'Disabled'}`);
+    }
+    
+    if (configUpdates.useTrailingStopOnly !== undefined) {
+      updates.push(`📊 **Trailing Stop Only:** ${configUpdates.useTrailingStopOnly ? 'Enabled' : 'Disabled'}`);
+    }
+    
+    // Handle technical indicators
+    if (configUpdates.technicalIndicators) {
+      const techUpdates = [];
+      const indicators = configUpdates.technicalIndicators;
+      
+      if (indicators.rsi?.enabled !== undefined) {
+        techUpdates.push(`RSI: ${indicators.rsi.enabled ? 'enabled' : 'disabled'}`);
+      }
+      if (indicators.macd?.enabled !== undefined) {
+        techUpdates.push(`MACD: ${indicators.macd.enabled ? 'enabled' : 'disabled'}`);
+      }
+      if (indicators.ema?.enabled !== undefined) {
+        techUpdates.push(`EMA: ${indicators.ema.enabled ? 'enabled' : 'disabled'}`);
+      }
+      
+      if (techUpdates.length > 0) {
+        updates.push(`📊 **Technical Indicators:** ${techUpdates.join(', ')}`);
+      }
+    }
+    
+    // Add any other generic updates that weren't specifically handled
+    for (const [key, value] of Object.entries(configUpdates)) {
+      if (!['riskProfile', 'perTradeAllocation', 'stopLossPercentage', 'takeProfitPercentage', 
+           'dailyProfitTarget', 'dailyLossLimit', 'maxActiveCoins', 'maxWalletExposure',
+           'buyCooldownMinutes', 'aiIntelligenceConfig', 'notifyOnTrade', 'notifyOnError',
+           'notifyOnTargets', 'enableDCA', 'enableShorting', 'useTrailingStopOnly',
+           'technicalIndicators'].includes(key)) {
+        
+        if (typeof value === 'object' && value !== null) {
+          updates.push(`⚙️ **${key}:** ${JSON.stringify(value)}`);
+        } else {
+          updates.push(`⚙️ **${key}:** ${value}`);
+        }
+      }
+    }
+    
+    message += updates.join('\n');
+    message += `\n\n🎉 **All changes have been saved and are now active!**`;
+    
+    return message;
+  }
+  
+  static countConfigUpdates(configUpdates: any): number {
+    let count = 0;
+    
+    for (const [key, value] of Object.entries(configUpdates)) {
+      if (key === 'aiIntelligenceConfig' && typeof value === 'object') {
+        // Count individual AI config updates
+        count += Object.keys(value).length;
+      } else if (key === 'technicalIndicators' && typeof value === 'object') {
+        // Count individual technical indicator updates
+        for (const indicator of Object.values(value)) {
+          if (typeof indicator === 'object') {
+            count += Object.keys(indicator).length;
+          }
+        }
+      } else {
+        count++;
+      }
+    }
+    
+    return count;
   }
 }
 

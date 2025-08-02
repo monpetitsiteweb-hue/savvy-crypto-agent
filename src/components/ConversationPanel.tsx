@@ -509,35 +509,42 @@ export const ConversationPanel = () => {
                 }
               }
               
-              // Show specific update confirmation based on the config updates
-              const riskLevel = data.configUpdates.riskLevel || data.configUpdates.riskProfile;
-              if (riskLevel) {
-                const riskLevelCapitalized = riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1);
-                aiMessage = `✅ Risk profile updated to ${riskLevelCapitalized} for your strategy`;
+              // The AI system now generates its own comprehensive success message for compound updates
+              // We should use that message directly instead of overriding it
+              if (aiMessage && aiMessage.includes('Strategy Configuration Updated')) {
+                // AI generated a compound update message - use it as is
+                console.log('✅ Using AI-generated compound update message');
               } else {
-                const updatedFields = Object.keys(data.configUpdates).map(key => {
-                  const value = data.configUpdates[key];
-                  if (key === 'aiIntelligenceConfig') {
-                    // Check what specific AI config was updated
-                    if (value?.aiAutonomyLevel !== undefined) {
-                      return `AI autonomy level: ${value.aiAutonomyLevel}%`;
-                    } else if (value?.enableAIOverride !== undefined) {
-                      return `AI decision override: ${value.enableAIOverride ? 'enabled' : 'disabled'}`;
-                    } else {
-                      return `AI configuration updated`;
-                    }
+                // Fallback for simple updates or if AI message is missing
+                const riskLevel = data.configUpdates.riskLevel || data.configUpdates.riskProfile;
+                if (riskLevel) {
+                  const riskLevelCapitalized = riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1);
+                  aiMessage = `✅ Risk profile updated to ${riskLevelCapitalized} for your strategy`;
+                } else {
+                  const updateCount = countConfigUpdates(data.configUpdates);
+                  if (updateCount > 1) {
+                    aiMessage = `✅ Strategy updated with ${updateCount} configuration changes successfully applied!`;
+                  } else {
+                    const updatedFields = Object.keys(data.configUpdates).map(key => {
+                      const value = data.configUpdates[key];
+                      if (key === 'aiIntelligenceConfig') {
+                        // Check what specific AI config was updated
+                        if (value?.aiAutonomyLevel !== undefined) {
+                          return `AI autonomy level: ${value.aiAutonomyLevel}%`;
+                        } else if (value?.enableAIOverride !== undefined) {
+                          return `AI decision override: ${value.enableAIOverride ? 'enabled' : 'disabled'}`;
+                        } else {
+                          return `AI configuration updated`;
+                        }
+                      }
+                      if (typeof value === 'object' && value !== null) {
+                        return `${key}: ${JSON.stringify(value)}`;
+                      }
+                      return `${key}: ${value}`;
+                    }).join(', ');
+                    aiMessage = `✅ Strategy updated: ${updatedFields}`;
                   }
-                  // 🚨 DEBUG: Log the actual field being updated to catch the issue
-                  if (key === 'ai_override_enabled') {
-                    console.log('🚨 FRONTEND BUG: ai_override_enabled field found in config updates!', value);
-                    return `AI decision override: ${value ? 'enabled' : 'disabled'}`;
-                  }
-                  if (typeof value === 'object' && value !== null) {
-                    return `${key}: ${JSON.stringify(value)}`;
-                  }
-                  return `${key}: ${value}`;
-                }).join(', ');
-                aiMessage = `✅ Strategy updated with new configuration: ${updatedFields}`;
+                }
               }
             } else {
               console.error('❌ NO ROWS UPDATED - This indicates a database permission or query issue');
@@ -632,6 +639,29 @@ export const ConversationPanel = () => {
       timestamp: new Date()
     };
     setMessages(prev => [...prev, cancelMessage]);
+  };
+
+  // Utility function to count configuration updates
+  const countConfigUpdates = (configUpdates: any): number => {
+    let count = 0;
+    
+    for (const [key, value] of Object.entries(configUpdates)) {
+      if (key === 'aiIntelligenceConfig' && typeof value === 'object' && value !== null) {
+        // Count individual AI config updates
+        count += Object.keys(value).length;
+      } else if (key === 'technicalIndicators' && typeof value === 'object' && value !== null) {
+        // Count individual technical indicator updates
+        for (const indicator of Object.values(value)) {
+          if (typeof indicator === 'object' && indicator !== null) {
+            count += Object.keys(indicator).length;
+          }
+        }
+      } else {
+        count++;
+      }
+    }
+    
+    return count;
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
