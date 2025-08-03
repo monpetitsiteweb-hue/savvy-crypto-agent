@@ -173,7 +173,7 @@ const FIELD_DEFINITIONS = {
     type: 'number',
     range: [0, 100],
     uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Intelligence Core',
-    dbPath: 'configuration.aiIntelligenceConfig.confidenceThreshold',
+    dbPath: 'configuration.aiIntelligenceConfig.aiConfidenceThreshold',
     csvMatch: 'Confidence Threshold',
     aiCanExecute: true,
     phrases: ['confidence threshold', 'AI confidence', 'set confidence', 'confidence level'],
@@ -506,7 +506,21 @@ class ValidationEngine {
 // CONFIG MANAGER - HANDLES DB OPERATIONS
 // =============================================
 class ConfigManager {
-  static async updateStrategyConfig(userId: string, strategyId: string, updates: any): Promise<boolean> {
+  static getCurrentValue(strategy: any, dbPath: string): any {
+    const pathSegments = dbPath.split('.');
+    let current = strategy;
+    
+    for (const segment of pathSegments) {
+      if (current && typeof current === 'object' && segment in current) {
+        current = current[segment];
+      } else {
+        return null;
+      }
+    }
+    
+    return current;
+  }
+  static async updateStrategyConfig(userId: string, strategyId: string, updates: any, currentStrategy: any): Promise<boolean> {
     console.log(`🔧 CONFIG_MANAGER: Processing updates for strategy ${strategyId}`);
     console.log(`📋 RAW_UPDATES: ${JSON.stringify(updates, null, 2)}`);
     
@@ -524,9 +538,8 @@ class ConfigManager {
       }
       
       // Get current value for validation
-      let currentValue = null;
+      const currentValue = this.getCurrentValue(currentStrategy, fieldDef.dbPath);
       try {
-        // For now, assume we don't have current config - this will be provided by validation
         const validation = ValidationEngine.validateConfigChange(fieldName, newValue, currentValue);
         
         if (!validation.isValid) {
@@ -671,7 +684,8 @@ class CryptoIntelligenceEngine {
     const updateSuccess = await ConfigManager.updateStrategyConfig(
       strategy.user_id, 
       strategy.id, 
-      potentialUpdates
+      potentialUpdates,
+      strategy
     );
 
     if (updateSuccess) {
