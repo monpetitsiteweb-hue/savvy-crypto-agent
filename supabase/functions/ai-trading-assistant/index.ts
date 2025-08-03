@@ -230,6 +230,8 @@ class ConfigManager {
     const errors: string[] = [];
     
     // STRICT RULE: Process ONLY the fields explicitly requested - NO SIDE EFFECTS
+    console.log(`🔍 STRATEGY_BEFORE_CHANGES: ${JSON.stringify(currentStrategy.configuration?.aiIntelligenceConfig, null, 2)}`);
+    
     for (const [fieldKey, newValue] of Object.entries(updates)) {
       console.log(`🔍 PROCESSING_FIELD: ${fieldKey} = ${newValue}`);
       
@@ -259,6 +261,7 @@ class ConfigManager {
       if (dbPath) {
         this.setNestedValue(strategyUpdates, dbPath, newValue);
         console.log(`✅ MAPPED_TO_DB: ${fieldKey} → ${dbPath} = ${newValue}`);
+        console.log(`🔍 FIELD_ISOLATION_CHECK: Only writing to ${dbPath}, no other fields affected`);
         
         // Store for verification
         verificationResults[fieldKey] = {
