@@ -1,962 +1,837 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.5';
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.5'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+serve(async (req) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    console.log('🚀 AI_ASSISTANT: Function started');
+    
+    console.log('📥 AI_ASSISTANT: Parsing request body');
+    const { userId, message, strategyId, testMode = false, debug = false } = await req.json();
+    
+    console.log(`📋 AI_ASSISTANT: Request data: {
+  userId: "${userId}",
+  message: "${message}",
+  strategyId: "${strategyId}",
+  testMode: ${testMode},
+  debug: ${debug}
+}`);
+
+    console.log(`🤖 AI_ASSISTANT: Request received: "${message}" | StrategyId: ${strategyId} | TestMode: ${testMode}`);
+    
+    if (!userId || !message) {
+      return new Response(
+        JSON.stringify({ error: 'Missing required fields: userId and message' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Get OpenAI API key
+    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!openAIApiKey) {
+      throw new Error('OpenAI API key not configured');
+    }
+
+    // Resolve strategy
+    const strategy = strategyId 
+      ? await StrategyResolver.getStrategyById(userId, strategyId)
+      : await StrategyResolver.getActiveStrategy(userId, testMode);
+
+    if (!strategy) {
+      return new Response(
+        JSON.stringify({ 
+          message: strategyId 
+            ? "❌ Strategy not found. Please check the strategy ID or create a new strategy."
+            : "❌ No active strategy found. Please activate a strategy first or create a new one.",
+          hasConfigUpdates: false
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log(`✅ STRATEGY_RESOLVER: ${strategy.strategy_name}`);
+
+    // Fetch market data and conversation history
+    const [marketSignals, cryptoNews, conversationHistory] = await Promise.all([
+      MarketDataFetcher.getRecentSignals(supabase),
+      MarketDataFetcher.getRecentNews(supabase),
+      ConversationMemory.getRecentHistory(supabase, userId, strategyId)
+    ]);
+
+    // Record conversation
+    await ConversationMemory.recordUserMessage(supabase, userId, strategyId, message);
+
+    // Process with intelligent crypto engine
+    const currentConfig = strategy.configuration || {};
+    const engineResponse = await CryptoIntelligenceEngine.generateContextualResponse(
+      message, 
+      strategy, 
+      marketSignals, 
+      cryptoNews, 
+      conversationHistory,
+      currentConfig
+    );
+
+    // Record AI response
+    await ConversationMemory.recordAIResponse(supabase, userId, strategyId, engineResponse.message);
+
+    return new Response(
+      JSON.stringify({
+        message: engineResponse.message,
+        hasConfigUpdates: engineResponse.hasConfigUpdates || false,
+        configUpdates: engineResponse.configUpdates || {}
+      }),
+      { 
+        status: 200, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    );
+
+  } catch (error) {
+    console.error('❌ AI_ASSISTANT: Error:', error);
+    return new Response(
+      JSON.stringify({ 
+        error: 'Internal server error', 
+        details: error.message,
+        hasConfigUpdates: false
+      }),
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    );
+  }
+});
+
+// ============= COMPLETE FIELD MAPPING SYSTEM =============
+// Based on CSV provided by user - source of truth for all field operations
+const FIELD_DEFINITIONS = {
+  // === NOTIFICATIONS ===
+  'tradeNotifications': {
+    name: 'Trade Notifications',
+    description: 'Get notified when trades are executed',
+    type: 'boolean',
+    uiLocation: 'General → Notifications → Notification Settings',
+    dbPath: 'configuration.notifications.trade',
+    csvMatch: 'Trade Notifications',
+    examples: ['enable trade notifications', 'notify on trades', 'disable trade alerts']
+  },
+  'errorNotifications': {
+    name: 'Error Notifications',
+    description: 'Get notified when trading errors occur',
+    type: 'boolean',
+    uiLocation: 'General → Notifications → Notification Settings',
+    dbPath: 'configuration.notifications.error',
+    csvMatch: 'Error Norifications',
+    examples: ['notify on errors', 'enable error alerts', 'disable error notifications']
+  },
+  'targetNotifications': {
+    name: 'Target Notifications',
+    description: 'Get notified when profit or loss targets are hit',
+    type: 'boolean',
+    uiLocation: 'General → Notifications → Notification Settings',
+    dbPath: 'configuration.notifications.target',
+    csvMatch: 'Target Notifications',
+    examples: ['notify on targets', 'enable target alerts', 'disable target notifications']
+  },
+
+  // === AI INTELLIGENCE SETTINGS ===
+  'enableAIIntelligence': {
+    name: 'Enable AI Intelligence',
+    description: 'Enable AI-powered trading decisions and market analysis',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Intelligence Settings',
+    dbPath: 'configuration.aiIntelligenceConfig.enableAIOverride',
+    csvMatch: 'Enable AI Intelligence',
+    examples: ['enable AI', 'turn on AI intelligence', 'use AI signals', 'disable AI', 'AI on', 'AI off']
+  },
+  'aiAutonomyLevel': {
+    name: 'AI Autonomy Level',
+    description: 'Level of autonomy for AI decision making (0-100%)',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Intelligence Core',
+    dbPath: 'configuration.aiIntelligenceConfig.aiAutonomyLevel',
+    csvMatch: 'AI Autonomy Level',
+    examples: ['set AI autonomy to 90%', 'AI autonomy level 50', 'autonomy 75%', 'AI control 60%']
+  },
+  'confidenceThreshold': {
+    name: 'Confidence Threshold',
+    description: 'Minimum confidence level required for AI to make decisions',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Intelligence Core',
+    dbPath: 'configuration.aiIntelligenceConfig.confidenceThreshold',
+    csvMatch: 'Confidence Threshold',
+    examples: ['confidence threshold 80%', 'AI confidence 70%', 'require 90% confidence']
+  },
+  'escalationThreshold': {
+    name: 'Escalation Threshold',
+    description: 'Threshold for escalating decisions to human oversight',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Intelligence Core',
+    dbPath: 'configuration.aiIntelligenceConfig.escalationThreshold',
+    csvMatch: 'Escalation Threshold',
+    examples: ['escalation threshold 50%', 'escalate at 90%', 'human oversight threshold']
+  },
+  'allowRiskParameterOverride': {
+    name: 'Allow Risk Parameter Override',
+    description: 'Allow AI to override risk management parameters when confident',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Intelligence Core',
+    dbPath: 'configuration.aiIntelligenceConfig.allowRiskParameterOverride',
+    csvMatch: 'Allow Risk Parameter Override',
+    examples: ['allow risk override', 'AI can override risk', 'disable risk override']
+  },
+  'decisionMode': {
+    name: 'Decision Making Mode',
+    description: 'AI decision making approach',
+    type: 'enum',
+    values: ['Conservative', 'Balanced', 'Aggressive'],
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Intelligence Core',
+    dbPath: 'configuration.aiIntelligenceConfig.decisionMode',
+    csvMatch: 'Decision Making Mode',
+    examples: ['conservative mode', 'balanced decisions', 'aggressive AI', 'set mode to balanced']
+  },
+
+  // === PATTERN RECOGNITION & MARKET ANALYSIS ===
+  'enablePatternRecognition': {
+    name: 'Enable Pattern Recognition',
+    description: 'Enable AI pattern recognition for market analysis',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → Pattern Recognition & Market Analysis',
+    dbPath: 'configuration.aiIntelligenceConfig.enablePatternRecognition',
+    csvMatch: 'Enable Pattern Recognition',
+    examples: ['enable pattern recognition', 'turn on pattern analysis', 'disable patterns']
+  },
+  'patternAnalysisLookback': {
+    name: 'Pattern Analysis Lookback',
+    description: 'Hours to look back for pattern analysis',
+    type: 'number',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → Pattern Recognition & Market Analysis',
+    dbPath: 'configuration.aiIntelligenceConfig.patternAnalysisLookback',
+    csvMatch: 'Pattern Analysis Lookback',
+    examples: ['pattern lookback 24 hours', 'analyze 48 hours', 'lookback 12 hours']
+  },
+  'crossAssetCorrelationAnalysis': {
+    name: 'Cross-Asset Correlation Analysis',
+    description: 'Analyze correlations between different assets',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → Pattern Recognition & Market Analysis',
+    dbPath: 'configuration.aiIntelligenceConfig.crossAssetCorrelationAnalysis',
+    csvMatch: 'Cross-Asset Correlation Analysis',
+    examples: ['enable correlation analysis', 'cross asset analysis', 'disable correlation']
+  },
+  'marketStructureAnalysis': {
+    name: 'Market Structure Analysis',
+    description: 'Analyze overall market structure and trends',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → Pattern Recognition & Market Analysis',
+    dbPath: 'configuration.aiIntelligenceConfig.marketStructureAnalysis',
+    csvMatch: 'Market Structure Analysis',
+    examples: ['enable market structure', 'analyze market trends', 'disable structure analysis']
+  },
+
+  // === EXTERNAL SIGNAL PROCESSING ===
+  'enableExternalSignalProcessing': {
+    name: 'Enable External Signal Processing',
+    description: 'Enable processing of external market signals',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → External Signal Processing',
+    dbPath: 'configuration.aiIntelligenceConfig.enableExternalSignalProcessing',
+    csvMatch: 'Enable External Signal Processing',
+    examples: ['enable external signals', 'process external data', 'disable external signals']
+  },
+  'whaleActivityWeight': {
+    name: 'Whale Activity Weight',
+    description: 'Weight given to whale activity signals (%)',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → External Signal Processing',
+    dbPath: 'configuration.aiIntelligenceConfig.signalWeights.whaleActivity',
+    csvMatch: 'Whale Activity',
+    examples: ['whale activity 30%', 'whale weight 25%', 'set whale influence']
+  },
+  'marketSentimentWeight': {
+    name: 'Market Sentiment Weight',
+    description: 'Weight given to market sentiment signals (%)',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → External Signal Processing',
+    dbPath: 'configuration.aiIntelligenceConfig.signalWeights.marketSentiment',
+    csvMatch: 'Market Sentiment',
+    examples: ['sentiment weight 20%', 'market sentiment 15%', 'sentiment influence']
+  },
+  'newsImpactWeight': {
+    name: 'News Impact Weight',
+    description: 'Weight given to news impact signals (%)',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → External Signal Processing',
+    dbPath: 'configuration.aiIntelligenceConfig.signalWeights.newsImpact',
+    csvMatch: 'News Impact',
+    examples: ['news impact 25%', 'news weight 30%', 'news influence']
+  },
+  'socialSignalsWeight': {
+    name: 'Social Signals Weight',
+    description: 'Weight given to social media signals (%)',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → External Signal Processing',
+    dbPath: 'configuration.aiIntelligenceConfig.signalWeights.socialSignals',
+    csvMatch: 'Social Signals',
+    examples: ['social signals 15%', 'social weight 10%', 'social media influence']
+  },
+
+  // === LEARNING & ADAPTATION ===
+  'enableAILearning': {
+    name: 'Enable AI Learning',
+    description: 'Enable AI to learn from trading performance',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → Learning & Adaptation',
+    dbPath: 'configuration.aiIntelligenceConfig.enableAILearning',
+    csvMatch: 'Enable AI Learning',
+    examples: ['enable AI learning', 'let AI adapt', 'disable learning']
+  },
+  'adaptToPerformance': {
+    name: 'Adapt to Performance',
+    description: 'Adapt strategy based on performance metrics',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → Learning & Adaptation',
+    dbPath: 'configuration.aiIntelligenceConfig.adaptToPerformance',
+    csvMatch: 'Adapt to Performance',
+    examples: ['adapt to performance', 'learn from results', 'disable adaptation']
+  },
+  'learningRate': {
+    name: 'Learning Rate',
+    description: 'Rate at which AI learns and adapts (%)',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → Learning & Adaptation',
+    dbPath: 'configuration.aiIntelligenceConfig.learningRate',
+    csvMatch: 'Learning Rate',
+    examples: ['learning rate 5%', 'adapt slowly', 'fast learning 15%']
+  },
+
+  // === AI COMMUNICATION & ALERTS ===
+  'explainAIDecisions': {
+    name: 'Explain AI Decisions',
+    description: 'Provide explanations for AI trading decisions',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Communication & Alerts',
+    dbPath: 'configuration.aiIntelligenceConfig.explainAIDecisions',
+    csvMatch: 'Explain AI Decisions',
+    examples: ['explain AI decisions', 'show AI reasoning', 'disable explanations']
+  },
+  'alertOnAnomalies': {
+    name: 'Alert on Anomalies',
+    description: 'Alert when market anomalies are detected',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Communication & Alerts',
+    dbPath: 'configuration.aiIntelligenceConfig.alertOnAnomalies',
+    csvMatch: 'Alert on Anomalies',
+    examples: ['alert on anomalies', 'notify anomalies', 'disable anomaly alerts']
+  },
+  'alertOnRuleOverrides': {
+    name: 'Alert on Rule Overrides',
+    description: 'Alert when AI overrides predefined rules',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Communication & Alerts',
+    dbPath: 'configuration.aiIntelligenceConfig.alertOnRuleOverrides',
+    csvMatch: 'Alert on Rule Overrides',
+    examples: ['alert on overrides', 'notify rule changes', 'disable override alerts']
+  },
+  'customAIInstructions': {
+    name: 'Custom AI Instructions',
+    description: 'Custom instructions for AI behavior',
+    type: 'text',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Communication & Alerts',
+    dbPath: 'configuration.aiIntelligenceConfig.customAIInstructions',
+    csvMatch: 'Custom AI Instructions',
+    examples: ['add AI instructions', 'custom AI behavior', 'AI guidelines']
+  },
+
+  // === BUY SETTINGS ===
+  'buyOrderType': {
+    name: 'Buy Order Type',
+    description: 'Type of order to use when buying',
+    type: 'enum',
+    values: ['Market Order', 'Limit Order', 'Trailing Buy'],
+    uiLocation: 'Buying → Buy Settings → Buy Settings',
+    dbPath: 'configuration.buyOrderType',
+    csvMatch: 'Buy Order Type',
+    examples: ['use market buys', 'limit buy orders', 'trailing buy', 'instant purchases']
+  },
+  'buyFrequency': {
+    name: 'Buy Frequency',
+    description: 'How often to place buy orders',
+    type: 'enum',
+    values: ['One-time purchase', 'Daily', 'Custom interval', 'Signal based'],
+    uiLocation: 'Buying → Buy Settings → Buy Settings',
+    dbPath: 'configuration.buyFrequency',
+    csvMatch: 'Buy Frequency',
+    examples: ['buy once', 'daily purchases', 'buy on signals', 'custom frequency']
+  },
+  'buyCooldown': {
+    name: 'Buy Cooldown',
+    description: 'Time to wait between buy orders (minutes)',
+    type: 'number',
+    uiLocation: 'Buying → Buy Settings → Buy Settings',
+    dbPath: 'configuration.buyCooldown',
+    csvMatch: 'Buy Cooldown',
+    examples: ['buy cooldown 30 minutes', 'wait 1 hour between buys', 'cooldown 2 hours']
+  },
+
+  // === COINS AND AMOUNTS ===
+  'maxActiveCoins': {
+    name: 'Max Active Coins',
+    description: 'Maximum number of cryptocurrencies to trade simultaneously',
+    type: 'number',
+    uiLocation: 'Buying → Coins and Amounts → Coins and Amounts',
+    dbPath: 'configuration.maxActiveCoins',
+    csvMatch: 'Max Active Coins',
+    examples: ['trade 5 coins maximum', 'limit to 3 cryptos', 'max 8 currencies']
+  },
+  'autoCoinSelection': {
+    name: 'Auto Coin Selection',
+    description: 'Let AI automatically select which coins to trade',
+    type: 'boolean',
+    uiLocation: 'Buying → Coins and Amounts → Coins and Amounts',
+    dbPath: 'configuration.autoCoinSelection',
+    csvMatch: 'Auto Coin Selection',
+    examples: ['auto select coins', 'let AI pick currencies', 'enable auto selection', 'manual coin selection']
+  },
+  'amountPerTrade': {
+    name: 'Amount Per Trade',
+    description: 'Amount to invest in each trade (EUR)',
+    type: 'number',
+    uiLocation: 'Buying → Coins and Amounts → Coins and Amounts',
+    dbPath: 'configuration.amountPerTrade',
+    csvMatch: 'Amount Per Trade',
+    examples: ['trade with 100 euros', 'use 50 per trade', 'amount 200', 'invest 500 each']
+  },
+
+  // === STRATEGY CONFIGURATION ===
+  'maxWalletExposure': {
+    name: 'Max Wallet Exposure',
+    description: 'Maximum percentage of wallet to expose to trading',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'Buying → Strategy → Strategy Configuration',
+    dbPath: 'configuration.maxWalletExposure',
+    csvMatch: 'Max Wallet Exposure',
+    examples: ['max wallet exposure 80%', 'limit exposure to 50%', 'expose 90% of wallet']
+  },
+  'dailyProfitTarget': {
+    name: 'Daily Profit Target',
+    description: 'Target profit amount for a single day (EUR)',
+    type: 'number',
+    uiLocation: 'Buying → Strategy → Strategy',
+    dbPath: 'configuration.dailyProfitTarget',
+    csvMatch: 'Daily Profit Target',
+    examples: ['daily profit target 100', 'aim for 200 euros daily', 'profit goal 150']
+  },
+  'dailyLossLimit': {
+    name: 'Daily Loss Limit',
+    description: 'Maximum loss percentage allowed per day',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'Buying → Strategy → Strategy',
+    dbPath: 'configuration.dailyLossLimit',
+    csvMatch: 'Daily Loss Limit',
+    examples: ['daily loss limit 5%', 'limit daily losses to 3%', 'daily loss cap 10%']
+  },
+  'maxTradesPerDay': {
+    name: 'Max Trades Per Day',
+    description: 'Maximum number of trades allowed per day',
+    type: 'number',
+    uiLocation: 'Buying → Strategy → Strategy',
+    dbPath: 'configuration.maxTradesPerDay',
+    csvMatch: 'Max Trades Per Day',
+    examples: ['max 10 trades daily', 'limit to 5 trades', 'allow 20 trades per day']
+  },
+  'backtestingMode': {
+    name: 'Backtesting Mode',
+    description: 'Enable backtesting mode for strategy validation',
+    type: 'boolean',
+    uiLocation: 'Buying → Strategy → Strategy',
+    dbPath: 'configuration.backtestingMode',
+    csvMatch: 'Backtesting Mode',
+    examples: ['enable backtesting', 'test mode on', 'disable backtesting']
+  },
+
+  // === TRAILING STOP-BUY ===
+  'trailingBuyPercentage': {
+    name: 'Trailing Buy Percentage',
+    description: 'Percentage for trailing buy orders',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'Buying → Trailing Stop-Buy → Trailing Stop-Buy',
+    dbPath: 'configuration.trailingBuyPercentage',
+    csvMatch: 'Trailing Buy Percentage',
+    examples: ['trailing buy 2%', 'trail buys at 1.5%', 'trailing buy percentage']
+  },
+
+  // === SELL SETTINGS ===
+  'sellOrderType': {
+    name: 'Sell Order Type',
+    description: 'Type of order to use when selling',
+    type: 'enum',
+    values: ['Market Order (Instant)', 'Limit Order (Set Price)', 'Trailing Stop', 'Auto Close'],
+    uiLocation: 'Selling → Sell Settings → Sell Settings',
+    dbPath: 'configuration.sellOrderType',
+    csvMatch: 'Sell Order Type',
+    examples: ['use limit sells', 'market sell orders', 'trailing stop sells', 'auto close orders']
+  },
+  'autoCloseAfterHours': {
+    name: 'Auto Close After (hours)',
+    description: 'Automatically close positions after specified hours',
+    type: 'number',
+    uiLocation: 'Selling → Sell Settings → Sell Settings',
+    dbPath: 'configuration.autoCloseAfterHours',
+    csvMatch: 'Auto Close After (hours)',
+    examples: ['auto close after 24 hours', 'close positions in 12 hours', 'auto close 6 hours']
+  },
+  'takeProfitPercentage': {
+    name: 'Take Profit Percentage',
+    description: 'Automatically sell when profit reaches this percentage',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'Selling → Sell Settings → Take Profit Strategy',
+    dbPath: 'configuration.takeProfitPercentage',
+    csvMatch: 'Take Profit Percentage',
+    examples: ['take profit at 10%', 'secure gains at 15%', 'set profit target', 'take profit 8%']
+  },
+  'stopLossPercentage': {
+    name: 'Stop Loss Percentage',
+    description: 'Automatically sell if price drops by this percentage',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'Selling → Sell Settings → Stop Loss Protection',
+    dbPath: 'configuration.stopLossPercentage',
+    csvMatch: 'Stop Loss Percentage',
+    examples: ['set stop loss to 3%', 'cut losses at 2%', 'add stop loss protection', 'stop loss 5%']
+  },
+  'stopLossTimeout': {
+    name: 'Stop Loss Timeout',
+    description: 'Enable timeout for stop loss orders',
+    type: 'boolean',
+    uiLocation: 'Selling → Sell Settings → Stop Loss Protection',
+    dbPath: 'configuration.stopLossTimeout',
+    csvMatch: 'Stop Loss Timeout',
+    examples: ['enable stop loss timeout', 'timeout stop losses', 'disable timeout']
+  },
+  'timeoutMinutes': {
+    name: 'Timeout (minutes)',
+    description: 'Timeout duration for stop loss orders in minutes',
+    type: 'number',
+    uiLocation: 'Selling → Sell Settings → Stop Loss Protection',
+    dbPath: 'configuration.timeoutMinutes',
+    csvMatch: 'Timeout (minutes)',
+    examples: ['timeout 30 minutes', 'stop loss timeout 60 minutes', 'timeout 15 minutes']
+  },
+  'trailingStopPercentage': {
+    name: 'Trailing Stop Percentage',
+    description: 'Percentage for trailing stop loss orders',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'Selling → Sell Settings → Trailing Stop Loss',
+    dbPath: 'configuration.trailingStopPercentage',
+    csvMatch: 'Trailing Stop Percentage',
+    examples: ['trailing stop 2%', 'trail stops at 1.5%', 'trailing stop loss 3%']
+  },
+  'useTrailingStopOnly': {
+    name: 'Use Trailing Stop Only',
+    description: 'Only use trailing stop losses instead of fixed stop losses',
+    type: 'boolean',
+    uiLocation: 'Selling → Sell Settings → Trailing Stop Loss',
+    dbPath: 'configuration.useTrailingStopOnly',
+    csvMatch: 'Use Trailing Stop Only',
+    examples: ['use trailing stop only', 'trailing stop only mode', 'disable fixed stops']
+  },
+  'maxOpenPositions': {
+    name: 'Max Open Positions',
+    description: 'Maximum number of open positions at any time',
+    type: 'number',
+    uiLocation: 'Selling → Sell Settings → Position Management',
+    dbPath: 'configuration.maxOpenPositions',
+    csvMatch: 'Max Open Positions',
+    examples: ['max 5 positions', 'limit open positions to 8', 'allow 10 open trades']
+  },
+  'tradeCooldown': {
+    name: 'Trade Cooldown',
+    description: 'Cooldown period between trades (minutes)',
+    type: 'number',
+    uiLocation: 'Selling → Sell Settings → Position Management',
+    dbPath: 'configuration.tradeCooldown',
+    csvMatch: 'Trade Cooldown',
+    examples: ['trade cooldown 30 minutes', 'wait 1 hour between trades', 'cooldown 2 hours']
+  },
+
+  // === SELL STRATEGY ===
+  'trailingStopOnly': {
+    name: 'Trailing Stop Only',
+    description: 'Use only trailing stops for all sell orders',
+    type: 'boolean',
+    uiLocation: 'Selling → Sell Strategy → Sell Strategy',
+    dbPath: 'configuration.trailingStopOnly',
+    csvMatch: 'Trailing Stop Only',
+    examples: ['trailing stop only', 'use only trailing stops', 'disable fixed sells']
+  },
+  'resetStopLossAfterFail': {
+    name: 'Reset Stop-Loss After Fail',
+    description: 'Reset stop-loss to original level if it fails to execute',
+    type: 'boolean',
+    uiLocation: 'Selling → Sell Strategy → Sell Strategy',
+    dbPath: 'configuration.resetStopLossAfterFail',
+    csvMatch: 'Reset Stop-Loss After Fail',
+    examples: ['reset stops if they fail', 'retry failed stop orders', 'reset stop loss after fail']
+  },
+
+  // === SHORTING SETTINGS ===
+  'enableShorting': {
+    name: 'Enable Shorting',
+    description: 'Allow short selling to profit from price declines',
+    type: 'boolean',
+    uiLocation: 'Selling → Shorting Settings → Shorting Settings',
+    dbPath: 'configuration.enableShorting',
+    csvMatch: 'Enable Shorting',
+    examples: ['enable shorting', 'allow short selling', 'disable shorts', 'turn on short positions']
+  },
+  'maxShortPositions': {
+    name: 'Max Short Positions',
+    description: 'Maximum number of short positions allowed',
+    type: 'number',
+    uiLocation: 'Selling → Shorting Settings → Shorting Settings',
+    dbPath: 'configuration.maxShortPositions',
+    csvMatch: 'Max Short Positions',
+    examples: ['max 2 shorts', 'allow 3 short positions', 'limit shorts to 1']
+  },
+  'shortingMinProfit': {
+    name: 'Shorting Min Profit',
+    description: 'Minimum profit percentage required for short positions',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'Selling → Shorting Settings → Shorting Settings',
+    dbPath: 'configuration.shortingMinProfit',
+    csvMatch: 'Shorting Min Profit',
+    examples: ['short profit 1.5%', 'minimum short gain 2%', 'short target 3%']
+  },
+  'autoCloseShorts': {
+    name: 'Auto-Close Shorts',
+    description: 'Automatically close short positions after specified time',
+    type: 'boolean',
+    uiLocation: 'Selling → Shorting Settings → Shorting Settings',
+    dbPath: 'configuration.autoCloseShorts',
+    csvMatch: 'Auto-Close Shorts',
+    examples: ['auto close shorts', 'close shorts automatically', 'disable auto close shorts']
+  },
+
+  // === DOLLAR COST AVERAGING ===
+  'enableDCA': {
+    name: 'Enable DCA',
+    description: 'Enable Dollar Cost Averaging for gradual position building',
+    type: 'boolean',
+    uiLocation: 'Selling → Dollar Cost Averaging → Dollar Cost Averaging',
+    dbPath: 'configuration.enableDCA',
+    csvMatch: 'Enable DCA',
+    examples: ['enable DCA', 'turn on dollar cost averaging', 'disable DCA', 'use averaging']
+  },
+  'dcaIntervalHours': {
+    name: 'DCA Interval (hours)',
+    description: 'Hours between DCA steps',
+    type: 'number',
+    uiLocation: 'Selling → Dollar Cost Averaging → Dollar Cost Averaging',
+    dbPath: 'configuration.dcaIntervalHours',
+    csvMatch: 'DCA Interval (hours)',
+    examples: ['DCA every 6 hours', 'interval 12 hours', 'space DCA 24 hours apart']
+  },
+  'dcaSteps': {
+    name: 'DCA Steps',
+    description: 'Number of steps for Dollar Cost Averaging',
+    type: 'number',
+    uiLocation: 'Selling → Dollar Cost Averaging → Dollar Cost Averaging',
+    dbPath: 'configuration.dcaSteps',
+    csvMatch: 'DCA Steps',
+    examples: ['set DCA steps to 5', 'use 3 DCA steps', 'averaging in 4 steps']
+  }
 };
 
-const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-
 // =============================================
-// MASTER AI TRADING ASSISTANT V2.0
-// FULLY AUTONOMOUS LLM-FIRST ARCHITECTURE
-// =============================================
-
-// =============================================
-// CONVERSATIONAL MEMORY SYSTEM
-// =============================================
-class ConversationMemory {
-  static async getRecentContext(userId: string, limit: number = 10): Promise<any[]> {
-    try {
-      const { data, error } = await supabase
-        .from('conversation_history')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(limit);
-      
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Failed to fetch conversation context:', error);
-      return [];
-    }
-  }
-
-  static async storeMessage(userId: string, messageType: string, content: string, metadata: any = {}) {
-    try {
-      await supabase
-        .from('conversation_history')
-        .insert({
-          user_id: userId,
-          message_type: messageType,
-          content,
-          metadata
-        });
-    } catch (error) {
-      console.error('Failed to store conversation:', error);
-    }
-  }
-
-  static buildContextPrompt(history: any[]): string {
-    if (!history.length) return 'This is the start of our conversation.';
-    
-    const recentHistory = history.slice(0, 5).reverse();
-    return recentHistory.map(h => 
-      `${h.message_type === 'user' ? 'User' : 'Assistant'}: ${h.content.substring(0, 200)}`
-    ).join('\n');
-  }
-}
-
-class ExternalSignalIntegration {
-  static async getWhaleAlerts(limit: number = 10): Promise<any[]> {
-    try {
-      const { data, error } = await supabase
-        .from('whale_signal_events')
-        .select('*')
-        .order('timestamp', { ascending: false })
-        .limit(limit);
-      
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Failed to fetch whale alerts:', error);
-      return [];
-    }
-  }
-
-  static async getCryptoNews(limit: number = 5): Promise<any[]> {
-    try {
-      const { data, error } = await supabase
-        .from('crypto_news')
-        .select('*')
-        .order('timestamp', { ascending: false })
-        .limit(limit);
-      
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Failed to fetch crypto news:', error);
-      return [];
-    }
-  }
-
-  static async getLiveSignals(symbols: string[] = []): Promise<any[]> {
-    try {
-      let query = supabase
-        .from('live_signals')
-        .select('*')
-        .order('timestamp', { ascending: false })
-        .limit(20);
-      
-      if (symbols.length > 0) {
-        query = query.in('symbol', symbols);
-      }
-      
-      const { data, error } = await query;
-      if (error) throw error;
-      return data || [];
-    } catch (error) {
-      console.error('Failed to fetch live signals:', error);
-      return [];
-    }
-  }
-}
-
-// =============================================
-// INTELLIGENT FIELD MAPPING & INTERFACE AWARENESS
+// INTELLIGENT FIELD MAPPER
 // =============================================
 class IntelligentFieldMapper {
-  static FIELD_DEFINITIONS = {
-    // === BASIC SETTINGS ===
-    'strategyName': {
-      name: 'Strategy Name',
-      description: 'Name of your trading strategy',
-      type: 'string',
-      uiLocation: 'Strategy Configuration → Basic Settings → Strategy Name',
-      examples: ['rename to aggressive trader', 'call it bitcoin scalper', 'change name to growth strategy']
-    },
+  static FIELD_DEFINITIONS = FIELD_DEFINITIONS;
 
-    // === COINS AND AMOUNTS ===
-    'perTradeAllocation': {
-      name: 'Amount Per Trade',
-      description: 'Amount in euros to invest per individual trade',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Coins & Amounts → Amount Per Trade',
-      examples: ['set minimum trade to 500 euros', 'per trade allocation 1000', 'invest 750 per trade', 'trade with 250 each']
-    },
-    'selectedCoins': {
-      name: 'Selected Cryptocurrencies',
-      description: 'Specific cryptocurrencies the strategy will trade',
-      type: 'array',
-      uiLocation: 'Strategy Configuration → Coins & Amounts → Coin Selection',
-      examples: ['only trade BTC and ETH', 'add XRP to my coins', 'remove DOGE from strategy', 'trade all coins']
-    },
-    'maxActiveCoins': {
-      name: 'Max Active Coins',
-      description: 'Maximum number of cryptocurrencies to trade simultaneously',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Coins & Amounts → Max Active Coins',
-      examples: ['set max active coins to 5', 'limit to 3 coins', 'trade up to 8 cryptocurrencies']
-    },
-    'maxWalletExposure': {
-      name: 'Max Wallet Exposure',
-      description: 'Maximum percentage of wallet to use for this strategy',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Coins & Amounts → Max Wallet Exposure',
-      examples: ['wallet exposure 80%', 'limit exposure to 60%', 'use 90% of wallet']
-    },
-
-    // === BUY/SELL SETTINGS ===
-    'buyFrequency': {
-      name: 'Buy Frequency',
-      description: 'How often the strategy should execute buy orders',
-      type: 'enum',
-      values: ['once', 'daily', 'interval', 'signal_based'],
-      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Buy Frequency',
-      examples: ['buy frequency signal based', 'buy once daily', 'buy on signals only', 'interval buying']
-    },
-    'buyOrderType': {
-      name: 'Buy Order Type',
-      description: 'Type of buy orders to use: market, limit, or trailing',
-      type: 'enum',
-      values: ['market', 'limit', 'trailing_buy'],
-      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Buy Order Type',
-      examples: ['use market orders', 'limit orders only', 'trailing buy orders']
-    },
-    'trailingBuyPercentage': {
-      name: 'Trailing Buy %',
-      description: 'Percentage for trailing buy orders to optimize entry points',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Trailing Buy %',
-      examples: ['set trailing buy to 1%', 'trailing buy percentage 2', 'use 1.5% for trailing buys']
-    },
-    'buyCooldownMinutes': {
-      name: 'Buy Cooldown',
-      description: 'Minutes to wait between buy attempts',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Buy Cooldown',
-      examples: ['buy cooldown 60 minutes', 'wait 30 minutes between buys', 'cooldown 90 minutes']
-    },
-    'sellOrderType': {
-      name: 'Sell Order Type',
-      description: 'Type of sell orders to use: market, limit, trailing_stop, or auto_close',
-      type: 'enum',
-      values: ['market', 'limit', 'trailing_stop', 'auto_close'],
-      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Sell Order Type',
-      examples: ['use limit sells', 'market sell orders', 'trailing stop sells']
-    },
-    'useTrailingStopOnly': {
-      name: 'Use Trailing Stop Only',
-      description: 'Only use trailing stop losses instead of fixed stop losses',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Use Trailing Stop Only',
-      examples: ['use trailing stop only', 'enable trailing stop only mode', 'trailing stop only']
-    },
-    'trailingStopLossPercentage': {
-      name: 'Trailing Stop Loss %',
-      description: 'Percentage for trailing stop loss orders',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Buy/Sell Settings → Trailing Stop Loss %',
-      examples: ['trailing stop loss 2%', 'set trailing stop to 1.5%', 'trail stops at 3%']
-    },
-
-    // === RISK MANAGEMENT ===
-    'riskProfile': {
-      name: 'Risk Profile',
-      description: 'Overall risk tolerance: low, medium, or high',
-      type: 'enum',
-      values: ['low', 'medium', 'high'],
-      uiLocation: 'Strategy Configuration → Risk Management → Risk Profile',
-      examples: ['set risk to high', 'make it more aggressive', 'lower my risk', 'conservative approach', 'medium risk']
-    },
-    'stopLossPercentage': {
-      name: 'Stop Loss %',
-      description: 'Automatically sell if price drops by this percentage to limit losses',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Risk Management → Stop Loss %',
-      examples: ['set stop loss to 3%', 'cut losses at 2%', 'add stop loss protection', 'stop loss 5%']
-    },
-    'takeProfitPercentage': {
-      name: 'Take Profit %',
-      description: 'Automatically sell when profit reaches this percentage to lock in gains',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Risk Management → Take Profit %',
-      examples: ['take profit at 10%', 'secure gains at 15%', 'set profit target', 'take profit 8%']
-    },
-    'maxPositionSize': {
-      name: 'Maximum Position Size',
-      description: 'Maximum total amount to invest in any single cryptocurrency',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Risk Management → Max Position Size',
-      examples: ['max position 5000', 'limit exposure to 3000', 'cap investment at 10000']
-    },
-    'dailyLossLimit': {
-      name: 'Daily Loss Limit',
-      description: 'Maximum amount willing to lose in a single day',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Risk Management → Daily Loss Limit',
-      examples: ['daily loss limit 500', 'limit daily losses to 300', 'daily loss cap 1000']
-    },
-    'dailyProfitTarget': {
-      name: 'Daily Profit Target',
-      description: 'Target profit amount for a single day',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Risk Management → Daily Profit Target',
-      examples: ['daily profit target 100', 'aim for 200 euros daily', 'profit goal 150']
-    },
-    'maxOpenPositions': {
-      name: 'Max Open Positions',
-      description: 'Maximum number of open positions at any time',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Risk Management → Max Open Positions',
-      examples: ['max 5 positions', 'limit open positions to 8', 'allow 10 open trades']
-    },
-    'resetStopLossAfterFail': {
-      name: 'Reset Stop Loss After Fail',
-      description: 'Reset stop-loss to original level if it fails to execute',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Risk Management → Reset Stop Loss After Fail',
-      examples: ['reset stops if they fail', 'retry failed stop orders', 'reset stop loss after fail']
-    },
-
-    // === DCA & ADVANCED ===
-    'enableDCA': {
-      name: 'Dollar Cost Averaging',
-      description: 'Enable Dollar Cost Averaging for gradual position building',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → DCA & Advanced → Enable DCA',
-      examples: ['enable DCA', 'turn on dollar cost averaging', 'disable DCA', 'use averaging']
-    },
-    'dcaSteps': {
-      name: 'DCA Steps',
-      description: 'Number of steps for Dollar Cost Averaging',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → DCA & Advanced → DCA Steps',
-      examples: ['set DCA steps to 5', 'use 3 DCA steps', 'averaging in 4 steps']
-    },
-    'dcaIntervalHours': {
-      name: 'DCA Interval Hours',
-      description: 'Hours between DCA steps',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → DCA & Advanced → DCA Interval Hours',
-      examples: ['DCA every 6 hours', 'interval 12 hours', 'space DCA 24 hours apart']
-    },
-
-    // === SHORTING ===
-    'enableShorting': {
-      name: 'Enable Shorting',
-      description: 'Allow short selling to profit from price declines',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Shorting → Enable Shorting',
-      examples: ['enable shorting', 'allow short selling', 'disable shorts', 'turn on short positions']
-    },
-    'maxShortPositions': {
-      name: 'Max Short Positions',
-      description: 'Maximum number of short positions allowed',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Shorting → Max Short Positions',
-      examples: ['max 2 shorts', 'allow 3 short positions', 'limit shorts to 1']
-    },
-    'shortingMinProfitPercentage': {
-      name: 'Minimum Short Profit %',
-      description: 'Minimum profit percentage required for short positions',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → Shorting → Min Profit %',
-      examples: ['short profit 1.5%', 'minimum short gain 2%', 'short target 3%']
-    },
-    'autoCloseShorts': {
-      name: 'Auto Close Shorts',
-      description: 'Automatically close short positions after specified time',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Shorting → Auto Close Shorts',
-      examples: ['auto close shorts', 'close shorts automatically', 'disable auto close shorts']
-    },
-
-    // === NOTIFICATIONS ===
-    'notifyOnTrade': {
-      name: 'Trade Notifications',
-      description: 'Get notified when trades are executed',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Notifications → Trade Notifications',
-      examples: ['enable trade notifications', 'notify on trades', 'disable trade alerts']
-    },
-    'notifyOnError': {
-      name: 'Error Notifications',
-      description: 'Get notified when trading errors occur',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Notifications → Error Notifications',
-      examples: ['notify on errors', 'enable error alerts', 'disable error notifications']
-    },
-    'notifyOnTargets': {
-      name: 'Target Notifications',
-      description: 'Get notified when profit or loss targets are hit',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Notifications → Target Notifications',
-      examples: ['notify on targets', 'enable target alerts', 'disable target notifications']
-    },
-
-    // === AI INTELLIGENCE CONFIG ===
-    'aiIntelligenceConfig.enableAIOverride': {
-      name: 'Enable AI',
-      description: 'Enable AI-powered trading decisions and market analysis',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → AI Intelligence → Enable AI',
-      examples: ['enable AI', 'turn on AI intelligence', 'use AI signals', 'disable AI', 'AI on', 'AI off']
-    },
-    'aiIntelligenceConfig.aiAutonomyLevel': {
-      name: 'AI Autonomy Level',
-      description: 'Level of autonomy for AI decision making (0-100)',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → AI Intelligence → AI Autonomy Level',
-      examples: ['set AI autonomy to 90%', 'AI autonomy level 50', 'autonomy 75%', 'AI control 60%']
-    },
-    'aiIntelligenceConfig.aiConfidenceThreshold': {
-      name: 'AI Confidence Threshold',
-      description: 'Minimum confidence level required for AI to make decisions',
-      type: 'number',
-      uiLocation: 'Strategy Configuration → AI Intelligence → Confidence Threshold',
-      examples: ['confidence threshold 80%', 'AI confidence 70%', 'require 90% confidence']
-    },
-
-    // === TECHNICAL INDICATORS ===
-    'technicalIndicators.rsi.enabled': {
-      name: 'RSI Indicator',
-      description: 'Relative Strength Index for momentum analysis',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Technical Analysis → RSI',
-      examples: ['enable RSI', 'turn on RSI indicator', 'disable RSI', 'use momentum analysis']
-    },
-    'technicalIndicators.macd.enabled': {
-      name: 'MACD Indicator',
-      description: 'Moving Average Convergence Divergence for trend analysis',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Technical Analysis → MACD',
-      examples: ['enable MACD', 'turn on MACD indicator', 'disable MACD', 'use trend analysis']
-    },
-    'technicalIndicators.ema.enabled': {
-      name: 'EMA Indicator',
-      description: 'Exponential Moving Average for trend following',
-      type: 'boolean',
-      uiLocation: 'Strategy Configuration → Technical Analysis → EMA',
-      examples: ['enable EMA', 'turn on exponential moving average', 'disable EMA', 'use trend following']
-    }
-  };
-
-  static async detectIntent(message: string): Promise<'question' | 'command' | 'ambiguous'> {
-    try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content: `You are a semantic intent classifier for a crypto trading assistant. Classify user messages into exactly one category:
-
-- "question": User is asking for information, status, or explanation (even if phrased conversationally)
-- "command": User wants to change/update configuration or settings
-- "ambiguous": Unclear intent that needs clarification
-
-Examples:
-- "Is AI enabled?" → question
-- "Can you check if AI is turned on?" → question  
-- "I want to know whether AI is in use" → question
-- "Enable AI" → command
-- "Turn on artificial intelligence" → command
-- "Set risk to high" → command
-- "AI" → ambiguous
-
-Respond with ONLY the category name, no explanation.`
-            },
-            {
-              role: 'user',
-              content: message
-            }
-          ],
-          temperature: 0.1,
-          max_tokens: 10
-        }),
-      });
-
-      const data = await response.json();
-      const intent = data.choices[0].message.content.trim().toLowerCase();
-      
-      if (['question', 'command', 'ambiguous'].includes(intent)) {
-        return intent as 'question' | 'command' | 'ambiguous';
-      }
-      
-      console.log(`⚠️ INTENT_CLASSIFIER: Unexpected response "${intent}", defaulting to question`);
-      return 'question'; // Safe default
-    } catch (error) {
-      console.error('❌ INTENT_CLASSIFIER: LLM call failed:', error);
-      return 'question'; // Safe default on error
-    }
+  static async detectIntent(message: string): Promise<'question' | 'command'> {
+    const questionPatterns = [
+      /what\s+(is|are|does)/i,
+      /how\s+(does|do|can|to)/i,
+      /why\s+/i,
+      /when\s+/i,
+      /where\s+/i,
+      /can\s+you\s+(tell|explain|show)/i,
+      /could\s+you\s+(explain|tell)/i,
+      /explain/i,
+      /\?$/
+    ];
+    
+    return questionPatterns.some(pattern => pattern.test(message)) ? 'question' : 'command';
   }
 
   static async mapUserIntent(message: string, currentConfig: any = {}): Promise<any> {
-    const intent = await this.detectIntent(message);
-    if (intent === 'question') return {}; // No updates for questions
+    console.log(`🔍 MAPPING_USER_INTENT: "${message}"`);
     
-    const lowerMessage = message.toLowerCase();
     const updates = {};
-
-    // Use OpenAI to map user intent to specific fields
-    try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            {
-              role: 'system',
-              content: `You are a field mapping expert for cryptocurrency trading strategy configuration. 
-              
-Map user requests to field updates. Available fields and their patterns:
-
-BASIC FIELDS:
-- strategyName: "change name to X", "rename strategy" (string)
-- riskProfile: "set risk to high/medium/low", "conservative/aggressive approach" (values: high, medium, low)
-- perTradeAllocation: "trade 1000 euros", "amount per trade", "allocation 500" (number)
-- maxActiveCoins: "max 5 coins", "limit to 3 cryptocurrencies" (number 1-20)
-- maxWalletExposure: "wallet exposure 80%", "exposure limit 60%" (number 0-100)
-
-BUY/SELL SETTINGS:
-- buyFrequency: "buy frequency signal based", "buy once daily", "signal based buying" (values: once, daily, interval, signal_based)
-- trailingBuyPercentage: "trailing buy 1.5%", "set trailing buy to 2%" (number)
-- buyCooldownMinutes: "buy cooldown 60 minutes", "wait 30 minutes between buys", "trade cooldown 10 minutes" (number)
-- useTrailingStopOnly: "use trailing stop only", "trailing stop only mode" (boolean)
-- trailingStopLossPercentage: "trailing stop loss 2%", "trail stops at 1.5%" (number)
-
-RISK MANAGEMENT:
-- stopLossPercentage: "stop loss 5%", "cut losses at 3%" (number 0.1-50)
-- takeProfitPercentage: "take profit 10%", "profit target 15%" (number 1-1000)
-- maxPositionSize: "max position 5000", "position limit 3000" (number)
-- dailyLossLimit: "daily loss limit 500", "limit daily losses to 300" (number)
-- dailyProfitTarget: "daily profit target 100", "aim for 200 euros daily" (number)
-- maxTradesPerDay: "max trades per day 50", "limit daily trades to 20", "daily trade limit 30" (number 1-200)
-- maxOpenPositions: "max 5 positions", "limit open positions to 8" (number)
-- resetStopLossAfterFail: "reset stops if they fail", "reset stop loss after fail" (boolean)
-
-AI INTELLIGENCE CONFIG (CRITICAL - DO NOT CONFUSE THESE FIELDS):
-- aiIntelligenceConfig.enableAIOverride: "enable AI", "turn on AI intelligence", "AI on/off" (boolean) - CONTROLS AI SYSTEM ON/OFF
-- aiIntelligenceConfig.aiAutonomyLevel: "AI autonomy 90%", "set autonomy to 75", "autonomy level 80", "AI control level" (number 0-100) - ONLY SETS AUTONOMY LEVEL
-- aiIntelligenceConfig.aiConfidenceThreshold: "confidence threshold 80%", "AI confidence 70%" (number 0-100) - ONLY SETS CONFIDENCE
-
-NOTIFICATIONS:
-- notifyOnTrade: "notify on trades", "enable trade notifications", "disable trade alerts" (boolean)
-- notifyOnError: "notify on errors", "enable error alerts", "disable error notifications" (boolean)
-- notifyOnTargets: "notify on targets", "enable target alerts", "disable target notifications" (boolean)
-- ALL notifications: "disable notifications", "enable all notifications" → affects all 3 notification fields
-
-COINS & AMOUNTS:
-- selectedCoins: "add BTC ETH", "use only XRP ADA", "trade these coins: BTC, ETH" (array)
-
-DCA & ADVANCED:
-- enableDCA: "enable DCA", "use dollar cost averaging" (boolean)
-- dcaSteps: "DCA steps 5", "averaging in 3 steps" (number)
-- dcaIntervalHours: "DCA every 6 hours", "interval 12 hours" (number)
-
-SHORTING:
-- enableShorting: "enable shorting", "allow short selling" (boolean)
-- maxShortPositions: "max 2 shorts", "allow 3 short positions" (number)
-- shortingMinProfitPercentage: "short profit 1.5%", "minimum short gain 2%" (number)
-- autoCloseShorts: "auto close shorts", "close shorts automatically" (boolean)
-
-TECHNICAL INDICATORS (nested):
-- technicalIndicators.rsi.enabled: "enable RSI", "use RSI indicator" (boolean)
-- technicalIndicators.macd.enabled: "enable MACD", "turn on MACD" (boolean)
-- technicalIndicators.ema.enabled: "enable EMA", "turn on EMA" (boolean)
-
-CRITICAL RULES - NEVER VIOLATE THESE:
-1. Setting "AI autonomy" ONLY sets aiIntelligenceConfig.aiAutonomyLevel - NEVER touches aiIntelligenceConfig.enableAIOverride
-2. Setting "confidence threshold" ONLY sets aiIntelligenceConfig.aiConfidenceThreshold - NEVER touches other AI fields
-3. When user says "disable notifications", set ALL THREE notification fields to false
-4. When user says "enable notifications", set ALL THREE notification fields to true
-5. resetStopLossAfterFail is a valid field that exists in the system
-6. Use riskProfile not riskLevel for risk settings
-7. buyCooldownMinutes is for "trade cooldown" or "buy cooldown" settings
-8. takeProfitPercentage is the correct field for take profit settings
-9. AUTONOMY and OVERRIDE are DIFFERENT - autonomy level changes do NOT affect override settings
-10. ONLY USE aiIntelligenceConfig.enableAIOverride for AI enablement - NEVER use is_ai_enabled or ai_override_enabled
-
-Return ONLY a JSON object with field paths and values. For nested fields use dot notation.
-Examples:
-- "Enable AI" → {"aiIntelligenceConfig.enableAIOverride": true}
-- "Set AI autonomy to 90%" → {"aiIntelligenceConfig.aiAutonomyLevel": 90}
-- "Set autonomy level to 80%" → {"aiIntelligenceConfig.aiAutonomyLevel": 80}
-- "AI autonomy 75%" → {"aiIntelligenceConfig.aiAutonomyLevel": 75}
-- "Confidence threshold 80%" → {"aiIntelligenceConfig.aiConfidenceThreshold": 80}
-- "Trailing buy 1.5%" → {"trailingBuyPercentage": 1.5}
-- "Disable notifications" → {"notifyOnTrade": false, "notifyOnError": false, "notifyOnTargets": false}
-- "Reset stop loss after fail" → {"resetStopLossAfterFail": true}
-
-If no fields match, return {}. Do not explain, only return JSON.`
-            },
-            {
-              role: 'user',
-              content: message
-            }
-          ],
-          temperature: 0.1,
-          max_tokens: 200
-        }),
-      });
-
-      const data = await response.json();
-      const aiResponse = data.choices[0].message.content.trim();
+    const msgLower = message.toLowerCase();
+    
+    // Check each field definition
+    for (const [fieldKey, fieldDef] of Object.entries(FIELD_DEFINITIONS)) {
+      const examples = fieldDef.examples || [];
       
-      // Parse AI response as JSON
-      try {
-        const aiUpdates = JSON.parse(aiResponse);
-        console.log('🤖 AI FIELD MAPPING RAW RESPONSE:', JSON.stringify(aiUpdates, null, 2));
-        
-        // CRITICAL: Check if this is an autonomy-only request BEFORE processing any fields
-        const isAutonomyOnlyRequest = message.toLowerCase().match(/(?:set\s+)?(?:ai\s+)?(?:autonomy|control).*?(\d+)/i) && 
-          !message.toLowerCase().match(/\b(enable|disable|turn\s+(?:on|off))\s+(?:ai|artificial intelligence)\b/i);
-        
-        console.log(`🎯 AUTONOMY CHECK: isAutonomyOnlyRequest = ${isAutonomyOnlyRequest}`);
-        console.log(`🎯 AUTONOMY CHECK: message = "${message}"`);
-        
-        if (isAutonomyOnlyRequest) {
-          console.log('🚨 AUTONOMY-ONLY REQUEST DETECTED: Completely filtering OpenAI response to ONLY autonomy fields');
-          console.log('🚨 BEFORE CLEANUP - aiUpdates:', JSON.stringify(aiUpdates));
+      // Check if any example pattern matches
+      for (const example of examples) {
+        if (this.isPatternMatch(msgLower, example.toLowerCase())) {
+          console.log(`🎯 PATTERN_MATCH: "${example}" → ${fieldKey}`);
           
-          // COMPLETELY REPLACE aiUpdates with ONLY autonomy-related fields
-          const autonomyValue = aiUpdates['aiIntelligenceConfig.aiAutonomyLevel'] || 
-                              aiUpdates.aiIntelligenceConfig?.aiAutonomyLevel;
-          
-          if (autonomyValue !== undefined) {
-            const cleanedUpdates = {
-              'aiIntelligenceConfig.aiAutonomyLevel': autonomyValue
-            };
-            // COMPLETELY REPLACE the aiUpdates object
-            Object.keys(aiUpdates).forEach(key => delete aiUpdates[key]);
-            Object.assign(aiUpdates, cleanedUpdates);
-            console.log('🚨 COMPLETELY REPLACED aiUpdates with autonomy-only fields:', JSON.stringify(aiUpdates));
-          } else {
-            console.log('⚠️ No autonomy value found in OpenAI response, keeping original but removing enable flags');
-            // Remove any AI enable/disable flags
-            delete aiUpdates['aiIntelligenceConfig.enableAIOverride'];
-            if (aiUpdates.aiIntelligenceConfig?.enableAIOverride !== undefined) {
-              console.log(`🚫 REMOVING enableAIOverride = ${aiUpdates.aiIntelligenceConfig.enableAIOverride} from OpenAI response`);
-              delete aiUpdates.aiIntelligenceConfig.enableAIOverride;
-            }
+          const extractedValue = this.extractValue(message, fieldDef);
+          if (extractedValue !== null) {
+            this.setNestedValue(updates, fieldKey, extractedValue);
+            console.log(`✅ EXTRACTED_VALUE: ${fieldKey} = ${extractedValue}`);
           }
-          
-          console.log('🚨 AFTER CLEANUP - aiUpdates:', JSON.stringify(aiUpdates));
+          break;
         }
-        
-        // Handle nested field updates (like aiIntelligenceConfig.*)
-        for (const [fieldPath, value] of Object.entries(aiUpdates)) {
-          console.log(`🔧 PROCESSING FIELD: ${fieldPath} = ${value}`);
-          
-          if (fieldPath.includes('.')) {
-            const parts = fieldPath.split('.');
-            if (parts[0] === 'aiIntelligenceConfig') {
-              if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
-              
-              // CRITICAL: Double-check for autonomy-only requests
-              if (parts[1] === 'enableAIOverride' && isAutonomyOnlyRequest) {
-                console.log(`🚫 BLOCKING enableAIOverride = ${value} in autonomy-only request`);
-                continue; // Skip this field
-              }
-              
-              updates.aiIntelligenceConfig[parts[1]] = value;
-              console.log(`🧠 AI CONFIG SET: ${parts[1]} = ${value}`);
-            } else if (parts[0] === 'technicalIndicators') {
-              if (!updates.technicalIndicators) updates.technicalIndicators = {};
-              if (!updates.technicalIndicators[parts[1]]) updates.technicalIndicators[parts[1]] = {};
-              updates.technicalIndicators[parts[1]][parts[2]] = value;
-            }
-          } else {
-            // CRITICAL: Log any potential deprecated field usage
-            if (fieldPath === 'is_ai_enabled' || fieldPath === 'ai_override_enabled') {
-              console.log(`🚨 DEPRECATED FIELD DETECTED: ${fieldPath} = ${value} - THIS SHOULD NOT HAPPEN!`);
-              throw new Error(`Deprecated field ${fieldPath} should not be used. Use aiIntelligenceConfig.enableAIOverride instead.`);
-            }
-            updates[fieldPath] = value;
-          }
-        }
-        
-        return updates;
-      } catch (parseError) {
-        console.log('⚠️ AI response not valid JSON, falling back to basic patterns:', aiResponse);
       }
-    } catch (error) {
-      console.error('❌ AI FIELD MAPPING: Failed, using fallback patterns:', error);
     }
-
-    // Fallback: Basic pattern matching for critical fields
     
-    // AI Autonomy Level - CRITICAL: Process autonomy FIRST to prevent other AI patterns from interfering
-    const autonomyMatch = message.match(/(?:set\s+)?(?:ai\s+)?(?:autonomy|control).*?(\d+)/i);
-    if (autonomyMatch) {
-      const level = parseInt(autonomyMatch[1]);
-      if (level >= 0 && level <= 100) {
-        if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
-        updates.aiIntelligenceConfig.aiAutonomyLevel = level;
-        console.log(`🎯 AI AUTONOMY ONLY: Setting autonomy to ${level}% - BLOCKING all other AI patterns`);
-        
-        // CRITICAL: REMOVE any AI enable/disable flags that might have been set by OpenAI mapping
-        delete updates.is_ai_enabled;
-        delete updates.ai_override_enabled;
-        delete updates.enableAI;
-        if (updates.aiIntelligenceConfig.enableAIOverride !== undefined) {
-          delete updates.aiIntelligenceConfig.enableAIOverride;
-          console.log('🚫 AUTONOMY: Removed enableAIOverride to prevent AI disable');
-        }
-        
-        console.log(`✅ AI AUTONOMY: Final updates - ${JSON.stringify(updates)}`);
-        // EARLY RETURN - Don't process any other AI patterns when setting autonomy
-        return updates;
-      }
-    }
-
-    // AI Intelligence Config - Use proper field names (SINGLE SOURCE OF TRUTH) 
-    // ONLY process enable/disable if NOT setting autonomy level
-    if (lowerMessage.match(/\b(enable|turn on|activate)\s+(ai|artificial intelligence)\b/) || 
-        lowerMessage === 'enable ai' || lowerMessage === 'ai on') {
-      if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
-      updates.aiIntelligenceConfig.enableAIOverride = true;
-      console.log('🤖 AI ENABLE: Setting aiIntelligenceConfig.enableAIOverride = true');
-    }
-    if (lowerMessage.match(/\b(disable|turn off|deactivate)\s+(ai|artificial intelligence)\b/) || 
-        lowerMessage === 'disable ai' || lowerMessage === 'ai off') {
-      if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
-      updates.aiIntelligenceConfig.enableAIOverride = false;
-      console.log('🤖 AI DISABLE: Setting aiIntelligenceConfig.enableAIOverride = false');
-    }
-
-    // AI Confidence Threshold - CRITICAL: Only set confidence, never touch other AI flags  
-    const confidenceMatch = message.match(/(?:confidence|threshold).*?(\d+)/i);
-    if (confidenceMatch && !autonomyMatch) { // Don't interfere with autonomy
-      const threshold = parseInt(confidenceMatch[1]);
-      if (threshold >= 0 && threshold <= 100) {
-        if (!updates.aiIntelligenceConfig) updates.aiIntelligenceConfig = {};
-        updates.aiIntelligenceConfig.aiConfidenceThreshold = threshold;
-        console.log(`🎯 AI CONFIDENCE: Setting confidence to ${threshold}% without touching AI enable flags`);
-        console.log(`🔍 AI CONFIDENCE: Before cleanup - updates keys: ${Object.keys(updates).join(', ')}`);
-        
-        // REMOVE any unwanted AI flags that might have been set by OpenAI mapping
-        delete updates.is_ai_enabled;
-        delete updates.ai_override_enabled;
-        delete updates.enableAI;
-        
-        console.log(`🔍 AI CONFIDENCE: After cleanup - updates keys: ${Object.keys(updates).join(', ')}`);
-        console.log(`🔍 AI CONFIDENCE: aiIntelligenceConfig contents: ${JSON.stringify(updates.aiIntelligenceConfig)}`);
-      }
-    }
-
-    // Notifications - handle "disable notifications" as special case
-    if (lowerMessage.includes('disable notifications') || lowerMessage.includes('turn off notifications')) {
-      updates.notifyOnTrade = false;
-      updates.notifyOnError = false;
-      updates.notifyOnTargets = false;
-    } else if (lowerMessage.includes('enable notifications') || lowerMessage.includes('turn on notifications')) {
-      updates.notifyOnTrade = true;
-      updates.notifyOnError = true;
-      updates.notifyOnTargets = true;
-    }
-
-    // Trailing Buy Percentage
-    const trailingBuyMatch = message.match(/trailing\s+buy.*?(\d+(?:\.\d+)?)/i);
-    if (trailingBuyMatch) {
-      updates.trailingBuyPercentage = parseFloat(trailingBuyMatch[1]);
-    }
-
-    // Trailing Stop Only
-    if (lowerMessage.includes('trailing stop only') || lowerMessage.includes('use trailing stop only')) {
-      updates.useTrailingStopOnly = true;
-    }
-
-    // Reset Stop Loss After Fail
-    if (lowerMessage.includes('reset stop loss after fail') || lowerMessage.includes('reset stops if they fail')) {
-      updates.resetStopLossAfterFail = true;
-    }
-
-    // Risk profile mapping (use riskProfile not riskLevel)
-    if (lowerMessage.includes('risk')) {
-      if (lowerMessage.includes('high') || lowerMessage.includes('aggressive')) {
-        updates.riskProfile = 'high';
-      } else if (lowerMessage.includes('low') || lowerMessage.includes('conservative')) {
-        updates.riskProfile = 'low';
-      } else if (lowerMessage.includes('medium') || lowerMessage.includes('moderate')) {
-        updates.riskProfile = 'medium';
-      }
-    }
-
-    // Buy frequency
-    if (lowerMessage.includes('buy frequency') || lowerMessage.includes('buy on signals')) {
-      if (lowerMessage.includes('signal') || lowerMessage.includes('signals')) {
-        updates.buyFrequency = 'signal_based';
-      } else if (lowerMessage.includes('daily')) {
-        updates.buyFrequency = 'daily';
-      } else if (lowerMessage.includes('once')) {
-        updates.buyFrequency = 'once';
-      } else if (lowerMessage.includes('interval')) {
-        updates.buyFrequency = 'interval';
-      }
-    }
-
-    // Amount per trade
-    const amountMatches = [
-      message.match(/(\d+)\s*(euros?|eur|€)/i),
-      message.match(/€\s*(\d+)/i),
-      message.match(/(\d+)\s*per\s*trade/i)
-    ];
-    
-    const amountMatch = amountMatches.find(match => match !== null);
-    if (amountMatch && (lowerMessage.includes('trade') || lowerMessage.includes('allocation'))) {
-      updates.perTradeAllocation = parseInt(amountMatch[1]);
-    }
-
-    // Trade Cooldown (Minutes) - Fix field mapping
-    const cooldownMatch = message.match(/(?:trade\s+)?cooldown.*?(\d+)/i);
-    if (cooldownMatch) {
-      const minutes = parseInt(cooldownMatch[1]);
-      if (minutes >= 1 && minutes <= 1440) { // 1 minute to 24 hours
-        updates.buyCooldownMinutes = minutes;
-        console.log(`🕐 TRADE COOLDOWN: Setting buyCooldownMinutes to ${minutes}`);
-      }
-    }
-
-    // Stop loss and take profit
-    const percentageMatch = message.match(/(\d+(?:\.\d+)?)\s*%/);
-    if (percentageMatch) {
-      const percentage = parseFloat(percentageMatch[1]);
-      if (lowerMessage.includes('stop') && lowerMessage.includes('loss')) {
-        if (percentage > 0 && percentage <= 50) {
-          updates.stopLossPercentage = percentage;
-          console.log(`🛑 STOP LOSS: Setting stopLossPercentage to ${percentage}%`);
-        }
-      } else if (lowerMessage.includes('take') && (lowerMessage.includes('profit') || lowerMessage.includes('gain'))) {
-        if (percentage > 0 && percentage <= 1000) {
-          updates.takeProfitPercentage = percentage;
-          console.log(`🎯 TAKE PROFIT: Setting takeProfitPercentage to ${percentage}%`);
-        }
-      }
-    }
-
-    // Max active coins
-    const maxCoinsMatch = message.match(/(?:max|maximum)\s+(?:active\s+)?coins?\s+(?:to\s+)?(\d+)/i);
-    if (maxCoinsMatch) {
-      const numCoins = parseInt(maxCoinsMatch[1]);
-      if (numCoins > 0 && numCoins <= 20) {
-        updates.maxActiveCoins = numCoins;
-      }
-    }
-
-    // Coin selection
-    const coinPatterns = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'DOGE', 'LTC', 'BCH'];
-    const mentionedCoins = coinPatterns.filter(coin => 
-      new RegExp(`\\b${coin.toLowerCase()}\\b`).test(lowerMessage)
-    );
-
-    if (mentionedCoins.length > 0) {
-      if (lowerMessage.includes('only') || lowerMessage.includes('just')) {
-        updates.selectedCoins = mentionedCoins;
-      } else if (lowerMessage.includes('add')) {
-        const current = currentConfig.selectedCoins || [];
-        updates.selectedCoins = [...new Set([...current, ...mentionedCoins])];
-      } else if (lowerMessage.includes('remove')) {
-        const current = currentConfig.selectedCoins || [];
-        updates.selectedCoins = current.filter(coin => !mentionedCoins.includes(coin));
-      }
-    }
-
-    // FINAL CLEANUP: Remove ALL deprecated fields to ensure single source of truth
-    delete updates.is_ai_enabled;
-    delete updates.ai_override_enabled;
-    delete updates.enableAI;
-    
-    console.log('🔍 FINAL UPDATES BEFORE CLEANUP:', JSON.stringify(updates, null, 2));
-    console.log('🧹 FINAL CLEANUP: Removing all deprecated AI fields');
-    console.log('🔍 FINAL UPDATES AFTER CLEANUP:', JSON.stringify(updates, null, 2));
-
+    console.log(`🔍 FINAL_MAPPED_UPDATES: ${JSON.stringify(updates, null, 2)}`);
     return updates;
   }
 
-  static explainField(fieldName: string): string {
-    const field = this.FIELD_DEFINITIONS[fieldName];
-    if (!field) return `Unknown field: ${fieldName}`;
+  static isPatternMatch(message: string, pattern: string): boolean {
+    // Simple pattern matching - could be enhanced with more sophisticated NLP
+    const patternWords = pattern.split(' ');
+    return patternWords.every(word => message.includes(word));
+  }
+
+  static extractValue(message: string, fieldDef: any): any {
+    const msgLower = message.toLowerCase();
     
-    return `**${field.name}**: ${field.description}\n\n**Location**: ${field.uiLocation}\n\n**Examples**: "${field.examples.join('", "')}"`;
+    switch (fieldDef.type) {
+      case 'boolean':
+        if (msgLower.includes('enable') || msgLower.includes('turn on') || msgLower.includes('activate')) {
+          return true;
+        }
+        if (msgLower.includes('disable') || msgLower.includes('turn off') || msgLower.includes('deactivate')) {
+          return false;
+        }
+        break;
+        
+      case 'number':
+        const numberMatch = message.match(/(\d+(?:\.\d+)?)\s*%?/);
+        if (numberMatch) {
+          const value = parseFloat(numberMatch[1]);
+          if (fieldDef.range) {
+            return Math.max(fieldDef.range[0], Math.min(fieldDef.range[1], value));
+          }
+          return value;
+        }
+        break;
+        
+      case 'enum':
+        if (fieldDef.values) {
+          for (const validValue of fieldDef.values) {
+            if (msgLower.includes(validValue.toLowerCase())) {
+              return validValue;
+            }
+          }
+        }
+        break;
+        
+      case 'text':
+        // Extract quoted text or everything after "set" or "to"
+        const textMatch = message.match(/["']([^"']+)["']|(?:set|to)\s+(.+)$/i);
+        if (textMatch) {
+          return textMatch[1] || textMatch[2];
+        }
+        break;
+    }
+    
+    return null;
+  }
+
+  static setNestedValue(obj: any, fieldKey: string, value: any): void {
+    if (fieldKey === 'enableAIIntelligence') {
+      // Special handling for AI enable/disable
+      if (!obj.aiIntelligenceConfig) obj.aiIntelligenceConfig = {};
+      obj.aiIntelligenceConfig.enableAIOverride = value;
+    } else if (fieldKey.startsWith('ai') || fieldKey.includes('AI') || fieldKey.includes('Pattern') || fieldKey.includes('Learning')) {
+      // AI-related fields go into aiIntelligenceConfig
+      if (!obj.aiIntelligenceConfig) obj.aiIntelligenceConfig = {};
+      obj.aiIntelligenceConfig[fieldKey] = value;
+    } else {
+      obj[fieldKey] = value;
+    }
   }
 }
 
 // =============================================
-// VALIDATION & ACTION FRAMEWORK
+// VALIDATION ENGINE
 // =============================================
 class ValidationEngine {
-  static validateConfigChange(field: string, newValue: any, currentValue: any): {
-    isValid: boolean,
-    needsUpdate: boolean,
-    message: string
-  } {
-    console.log(`🔍 VALIDATION CHECK: ${field}`, {
-      newValue,
-      currentValue,
-      currentValueType: typeof currentValue,
-      newValueType: typeof newValue
-    });
+  static validateConfigChange(field: string, newValue: any, currentValue: any): { isValid: boolean, needsUpdate: boolean, message: string } {
+    console.log(`🔍 VALIDATING: ${field} | Current: ${JSON.stringify(currentValue)} | New: ${JSON.stringify(newValue)}`);
     
-    // Special handling for aiIntelligenceConfig - compare individual nested fields
-    if (field === 'aiIntelligenceConfig') {
-      const currentAiConfig = currentValue || {};
-      const newAiConfig = newValue || {};
-      
-      // CRITICAL: Special autonomy-only validation
-      if (Object.keys(newAiConfig).length === 1 && newAiConfig.aiAutonomyLevel !== undefined) {
-        const currentAutonomyLevel = currentAiConfig.aiAutonomyLevel;
-        if (currentAutonomyLevel === newAiConfig.aiAutonomyLevel) {
-          return {
-            isValid: true,
-            needsUpdate: false,
-            message: `No change needed — AI Autonomy Level is already set to ${newAiConfig.aiAutonomyLevel}%.`
-          };
-        } else {
-          return {
-            isValid: true,
-            needsUpdate: true,
-            message: `✅ Strategy updated: AI Autonomy Level = ${newAiConfig.aiAutonomyLevel}%`
-          };
-        }
-      }
-      
-      // Check each nested field individually
-      let hasChanges = false;
-      const changes = [];
-      
-      for (const [aiField, aiValue] of Object.entries(newAiConfig)) {
-        if (currentAiConfig[aiField] !== aiValue) {
-          hasChanges = true;
-          changes.push(`${aiField}: ${currentAiConfig[aiField]} → ${aiValue}`);
-        }
-      }
-      
-      if (!hasChanges) {
-        // Find which field was actually requested to provide better message
-        if (newAiConfig.aiAutonomyLevel !== undefined) {
-          return {
-            isValid: true,
-            needsUpdate: false,
-            message: `No change needed — AI Autonomy Level is already set to ${newAiConfig.aiAutonomyLevel}%.`
-          };
-        } else if (newAiConfig.aiConfidenceThreshold !== undefined) {
-          return {
-            isValid: true,
-            needsUpdate: false,
-            message: `No change needed — AI Confidence Threshold is already set to ${newAiConfig.aiConfidenceThreshold}%.`
-          };
-        }
-        return {
-          isValid: true,
-          needsUpdate: false,
-          message: `No change needed — AI intelligence settings are already configured as requested.`
-        };
-      }
-      
-      return {
-        isValid: true,
-        needsUpdate: true,
-        message: `✅ Updated AI intelligence configuration: ${changes.join(', ')}.`
-      };
+    const fieldDef = FIELD_DEFINITIONS[field];
+    if (!fieldDef) {
+      console.log(`❌ VALIDATION_ERROR: Unknown field "${field}"`);
+      return { isValid: false, needsUpdate: false, message: `Unknown field: ${field}` };
     }
     
-    // Check if value is actually changing for non-nested fields
+    // Check if value is actually changing
     if (JSON.stringify(newValue) === JSON.stringify(currentValue)) {
       return {
         isValid: true,
         needsUpdate: false,
-        message: `No change needed — '${IntelligentFieldMapper.FIELD_DEFINITIONS[field]?.name || field}' is already set to ${Array.isArray(newValue) ? newValue.join(', ') : newValue}.`
+        message: `No change needed — '${fieldDef.name}' is already set to ${Array.isArray(newValue) ? newValue.join(', ') : newValue}.`
       };
     }
 
-    // Field-specific validation
-    switch (field) {
-      case 'perTradeAllocation':
-        if (newValue < 1 || newValue > 100000) {
-          return { isValid: false, needsUpdate: false, message: 'Amount per trade must be between €1 and €100,000.' };
+    // Type and range validation
+    switch (fieldDef.type) {
+      case 'number':
+        if (typeof newValue !== 'number' || isNaN(newValue)) {
+          return { isValid: false, needsUpdate: false, message: `${fieldDef.name} must be a valid number.` };
+        }
+        if (fieldDef.range && (newValue < fieldDef.range[0] || newValue > fieldDef.range[1])) {
+          return { isValid: false, needsUpdate: false, message: `${fieldDef.name} must be between ${fieldDef.range[0]} and ${fieldDef.range[1]}.` };
         }
         break;
-      case 'stopLossPercentage':
-        if (newValue < 0.1 || newValue > 50) {
-          return { isValid: false, needsUpdate: false, message: 'Stop loss must be between 0.1% and 50%.' };
+        
+      case 'boolean':
+        if (typeof newValue !== 'boolean') {
+          return { isValid: false, needsUpdate: false, message: `${fieldDef.name} must be true or false.` };
         }
         break;
-      case 'takeProfitPercentage':
-        if (newValue < 1 || newValue > 1000) {
-          return { isValid: false, needsUpdate: false, message: 'Take profit must be between 1% and 1000%.' };
-        }
-        break;
-      case 'maxActiveCoins':
-        if (newValue < 1 || newValue > 20) {
-          return { isValid: false, needsUpdate: false, message: 'Max active coins must be between 1 and 20.' };
+        
+      case 'enum':
+        if (fieldDef.values && !fieldDef.values.includes(newValue)) {
+          return { isValid: false, needsUpdate: false, message: `${fieldDef.name} must be one of: ${fieldDef.values.join(', ')}.` };
         }
         break;
     }
@@ -964,13 +839,110 @@ class ValidationEngine {
     return {
       isValid: true,
       needsUpdate: true,
-      message: `✅ Updated '${IntelligentFieldMapper.FIELD_DEFINITIONS[field]?.name || field}' from ${Array.isArray(currentValue) ? currentValue.join(', ') : currentValue} to ${Array.isArray(newValue) ? newValue.join(', ') : newValue}.`
+      message: `✅ Updated '${fieldDef.name}' from ${Array.isArray(currentValue) ? currentValue.join(', ') : currentValue} to ${Array.isArray(newValue) ? newValue.join(', ') : newValue}.`
     };
   }
 }
 
 // =============================================
-// EXPERT CRYPTO INTELLIGENCE ENGINE
+// CONFIG MANAGER - ENHANCED DATABASE OPERATIONS
+// =============================================
+class ConfigManager {
+  static async updateConfig(strategyId: string, userId: string, validatedUpdates: any): Promise<boolean> {
+    console.log('🔧 CONFIG_MANAGER: Building strategy updates from validated changes...');
+    console.log(`🔍 VALIDATED_UPDATES: ${JSON.stringify(validatedUpdates, null, 2)}`);
+    
+    const strategyUpdates: any = {};
+    
+    for (const [fieldName, value] of Object.entries(validatedUpdates)) {
+      const fieldDef = FIELD_DEFINITIONS[fieldName];
+      
+      if (!fieldDef) {
+        console.log(`❌ UNKNOWN_FIELD: "${fieldName}" not found in FIELD_DEFINITIONS`);
+        continue;
+      }
+      
+      console.log(`🎯 PROCESSING_FIELD: ${fieldName} = ${value}`);
+      console.log(`📍 UI_LOCATION: ${fieldDef.uiLocation}`);
+      console.log(`🗂️ DB_PATH: ${fieldDef.dbPath}`);
+      
+      // Build nested object structure based on dbPath
+      const dbPath = fieldDef.dbPath;
+      const pathParts = dbPath.split('.');
+      
+      console.log(`🔍 DB_PATH_PARTS: ${JSON.stringify(pathParts)}`);
+      
+      let target = strategyUpdates;
+      for (let i = 0; i < pathParts.length - 1; i++) {
+        if (!target[pathParts[i]]) {
+          target[pathParts[i]] = {};
+          console.log(`🆕 CREATED_OBJECT: ${pathParts.slice(0, i + 1).join('.')}`);
+        }
+        target = target[pathParts[i]];
+      }
+      
+      const finalKey = pathParts[pathParts.length - 1];
+      target[finalKey] = value;
+      console.log(`✅ FIELD_SET: ${dbPath} = ${value}`);
+    }
+    
+    console.log(`🏗️ FINAL_STRATEGY_UPDATES: ${JSON.stringify(strategyUpdates, null, 2)}`);
+    
+    if (Object.keys(strategyUpdates).length === 0) {
+      console.log('ℹ️ NO_VALID_UPDATES to apply');
+      return true;
+    }
+    
+    // Execute database update
+    console.log(`📤 EXECUTING_DB_UPDATE for strategy ${strategyId}...`);
+    
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    
+    const { data: updatedStrategy, error: updateError } = await supabase
+      .from('trading_strategies')
+      .update(strategyUpdates)
+      .eq('id', strategyId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('❌ DB_UPDATE_ERROR:', updateError);
+      console.error('❌ ERROR_DETAILS:', JSON.stringify(updateError, null, 2));
+      return false;
+    }
+
+    if (!updatedStrategy) {
+      console.error('❌ NO_STRATEGY_RETURNED after update');
+      return false;
+    }
+
+    console.log('✅ STRATEGY_UPDATED_SUCCESSFULLY');
+    console.log(`✅ UPDATED_STRATEGY: ${JSON.stringify(updatedStrategy, null, 2)}`);
+    
+    // Verify the update actually took effect
+    const updatedFields = [];
+    for (const [fieldName] of Object.entries(validatedUpdates)) {
+      const fieldDef = FIELD_DEFINITIONS[fieldName];
+      if (fieldDef?.dbPath) {
+        const pathParts = fieldDef.dbPath.split('.');
+        let current = updatedStrategy;
+        for (const part of pathParts) {
+          current = current?.[part];
+        }
+        updatedFields.push(`${fieldName}: ${current}`);
+      }
+    }
+    console.log(`🔍 POST_UPDATE_VERIFICATION: ${updatedFields.join(', ')}`);
+    
+    return true;
+  }
+}
+
+// =============================================
+// CRYPTO INTELLIGENCE ENGINE
 // =============================================
 class CryptoIntelligenceEngine {
   static async generateContextualResponse(
@@ -980,7 +952,7 @@ class CryptoIntelligenceEngine {
     news: any[], 
     conversationHistory: any[],
     currentConfig: any = {}
-  ): Promise<{ message: string, configUpdates?: any, needsValidation?: boolean }> {
+  ): Promise<{ message: string, configUpdates?: any, hasConfigUpdates?: boolean }> {
     
     // Build comprehensive context
     const marketContext = this.buildMarketContext(signals, news);
@@ -1009,24 +981,13 @@ class CryptoIntelligenceEngine {
       return { message: await this.handleGeneralIntent(message, strategy, marketContext, memoryContext, interfaceContext) };
     }
     
-    // 🚨 CRITICAL: Check what type of AI update this is
+    // Check for explicit AI enable/disable commands
     const isExplicitAICommand = message.toLowerCase().includes('enable ai') || 
                                message.toLowerCase().includes('disable ai') ||
                                message.toLowerCase().includes('turn on ai') ||
                                message.toLowerCase().includes('turn off ai');
     
-    const isAutonomyOnlyUpdate = Object.keys(potentialUpdates).length === 1 && 
-      potentialUpdates.aiIntelligenceConfig && 
-      Object.keys(potentialUpdates.aiIntelligenceConfig).length === 1 && 
-      potentialUpdates.aiIntelligenceConfig.aiAutonomyLevel !== undefined;
-    
     console.log(`🎯 EXPLICIT AI COMMAND: ${isExplicitAICommand}`);
-    console.log(`🎯 AUTONOMY-ONLY UPDATE: ${isAutonomyOnlyUpdate}`);
-    
-    if (isAutonomyOnlyUpdate) {
-      console.log(`🎯 AUTONOMY VALUE: ${potentialUpdates.aiIntelligenceConfig.aiAutonomyLevel}`);
-      console.log('🚨 AUTONOMY-ONLY: This should NEVER modify any enable/disable flags!');
-    }
     
     // Validate all potential updates
     const validatedUpdates = {};
@@ -1034,7 +995,24 @@ class CryptoIntelligenceEngine {
     
     for (const [field, newValue] of Object.entries(potentialUpdates)) {
       console.log(`🔍 VALIDATING FIELD: ${field} = ${JSON.stringify(newValue)}`);
-      const currentValue = currentConfig[field];
+      
+      // Get current value from config based on field mapping
+      let currentValue;
+      if (field === 'aiIntelligenceConfig') {
+        currentValue = currentConfig.aiIntelligenceConfig || {};
+      } else {
+        const fieldDef = FIELD_DEFINITIONS[field];
+        if (fieldDef?.dbPath) {
+          const pathParts = fieldDef.dbPath.replace('configuration.', '').split('.');
+          currentValue = currentConfig;
+          for (const part of pathParts) {
+            currentValue = currentValue?.[part];
+          }
+        } else {
+          currentValue = currentConfig[field];
+        }
+      }
+      
       console.log(`🔍 CURRENT VALUE: ${field} = ${JSON.stringify(currentValue)}`);
       
       const validation = ValidationEngine.validateConfigChange(field, newValue, currentValue);
@@ -1050,26 +1028,6 @@ class CryptoIntelligenceEngine {
         validationMessages.push(validation.message);
         console.log(`⏭️ NO UPDATE NEEDED: ${field} - ${validation.message}`);
       }
-    }
-    
-    // 🚨 SAFETY CHECK: Prevent accidental AI toggling (but allow explicit commands)
-    if (!isExplicitAICommand && validatedUpdates.aiIntelligenceConfig?.enableAIOverride !== undefined) {
-      console.log('🔍 SAFETY CHECK: Non-explicit command trying to modify AI enable/disable...');
-      console.log(`🔍 Command was: "${message}"`);
-      console.log(`🔍 enableAIOverride value: ${validatedUpdates.aiIntelligenceConfig.enableAIOverride}`);
-      
-      if (isAutonomyOnlyUpdate) {
-        console.log(`🚨 LEAK DETECTED! enableAIOverride found in autonomy-only update!`);
-        console.log('🚫 REMOVING enableAIOverride from validated updates');
-        delete validatedUpdates.aiIntelligenceConfig.enableAIOverride;
-        console.log(`🧹 CLEANED: Removed accidental AI toggle from autonomy update`);
-      } else {
-        console.log(`⚠️ WARNING: Non-explicit command "${message}" trying to toggle AI - removing enableAIOverride`);
-        delete validatedUpdates.aiIntelligenceConfig.enableAIOverride;
-        console.log(`🧹 CLEANED: Removed accidental AI toggle from general update`);
-      }
-    } else if (isExplicitAICommand) {
-      console.log(`✅ EXPLICIT AI COMMAND: Allowing enableAIOverride modification for "${message}"`);
     }
     
     // Execute validated config updates if any exist
@@ -1098,106 +1056,25 @@ class CryptoIntelligenceEngine {
       ? validationMessages.join('\n\n')
       : await this.handleGeneralIntent(message, strategy, marketContext, memoryContext, interfaceContext);
     
-    return {
-      message: responseMessage,
-      configUpdates: undefined
-    };
+    return { message: responseMessage, hasConfigUpdates: false };
   }
 
   static async handleQuestionIntent(message: string, strategy: any, marketContext: string, memoryContext: string, interfaceContext: string): Promise<string> {
-    // Extract current values for fields the user might be asking about
-    const config = strategy?.configuration || {};
-    const currentValues = this.extractCurrentValues(config);
+    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
     
     const systemPrompt = `You are an expert cryptocurrency trading assistant with complete interface awareness.
-
-CURRENT STRATEGY CONFIGURATION VALUES:
-${currentValues}
 
 INTERFACE KNOWLEDGE: ${interfaceContext}
 MARKET CONTEXT: ${marketContext}
 STRATEGY CONTEXT: ${this.buildStrategyContext(strategy)}
 CONVERSATION HISTORY: ${memoryContext}
 
-The user is asking a QUESTION about their strategy configuration or trading setup. 
-
-IMPORTANT: When they ask about specific settings like "What is my AI Autonomy Level?" or "Is AI enabled?", provide the ACTUAL CURRENT VALUE from the configuration above, not generic information.
-
-Answer their questions by:
-1. Providing the actual current value if they're asking about a specific setting
-2. Explaining what the setting does and how it works
-3. Mentioning where they can find it in the interface
-4. Providing relevant market context or recommendations if appropriate
-
-Never suggest configuration changes unless explicitly asked. Always reference the actual current values when available.`;
+Answer the user's question about cryptocurrency trading, technical analysis, or strategy configuration.
+Reference specific interface locations when discussing features.
+Use market signals to inform your recommendations.
+Be educational and helpful.`;
 
     return await this.callOpenAI(systemPrompt, message);
-  }
-
-  static extractCurrentValues(config: any): string {
-    const values = [];
-    
-    // Basic settings
-    values.push(`Strategy Name: ${config.strategyName || 'Not set'}`);
-    values.push(`Risk Profile: ${config.riskProfile || 'Not set'}`);
-    values.push(`Per Trade Allocation: €${config.perTradeAllocation || 'Not set'}`);
-    values.push(`Max Active Coins: ${config.maxActiveCoins || 'Not set'}`);
-    values.push(`Selected Coins Count: ${config.selectedCoins?.length || 0} coins`);
-    values.push(`Max Wallet Exposure: ${config.maxWalletExposure || 'Not set'}%`);
-    
-    // AI Intelligence Config - USING CORRECT SINGLE SOURCE OF TRUTH
-    const aiConfig = config.aiIntelligenceConfig || {};
-    values.push(`AI Enabled: ${aiConfig.enableAIOverride ? 'Yes' : 'No'}`);
-    values.push(`AI Autonomy Level: ${aiConfig.aiAutonomyLevel !== undefined ? aiConfig.aiAutonomyLevel + '%' : 'Not set'}`);
-    values.push(`AI Confidence Threshold: ${aiConfig.aiConfidenceThreshold !== undefined ? aiConfig.aiConfidenceThreshold + '%' : 'Not set'}`);
-    values.push(`Risk Override Allowed: ${aiConfig.riskOverrideAllowed ? 'Yes' : 'No'}`);
-    
-    // Trading Intervals
-    values.push(`Trade Cooldown: ${config.buyCooldownMinutes || 'Not set'} minutes`);
-    
-    // Buy/Sell Settings  
-    values.push(`Buy Frequency: ${config.buyFrequency ? config.buyFrequency.replace('_', ' ') : 'Not set'}`);
-    values.push(`Trailing Buy Percentage: ${config.trailingBuyPercentage !== undefined ? config.trailingBuyPercentage + '%' : 'Not set'}`);
-    values.push(`Buy Cooldown Minutes: ${config.buyCooldownMinutes || 'Not set'}`);
-    values.push(`Use Trailing Stop Only: ${config.useTrailingStopOnly ? 'Yes' : 'No'}`);
-    values.push(`Trailing Stop Loss Percentage: ${config.trailingStopLossPercentage !== undefined ? config.trailingStopLossPercentage + '%' : 'Not set'}`);
-    
-    // Risk Management
-    values.push(`Stop Loss Percentage: ${config.stopLossPercentage !== undefined ? config.stopLossPercentage + '%' : 'Not set'}`);
-    values.push(`Take Profit Percentage: ${config.takeProfitPercentage !== undefined ? config.takeProfitPercentage + '%' : 'Not set'}`);
-    values.push(`Max Position Size: €${config.maxPositionSize || 'Not set'}`);
-    values.push(`Daily Loss Limit: €${config.dailyLossLimit || 'Not set'}`);
-    values.push(`Daily Profit Target: €${config.dailyProfitTarget || 'Not set'}`);
-    values.push(`Max Open Positions: ${config.maxOpenPositions || 'Not set'}`);
-    values.push(`Reset Stop Loss After Fail: ${config.resetStopLossAfterFail ? 'Yes' : 'No'}`);
-    
-    // Notifications
-    values.push(`Trade Notifications: ${config.notifyOnTrade ? 'Enabled' : 'Disabled'}`);
-    values.push(`Error Notifications: ${config.notifyOnError ? 'Enabled' : 'Disabled'}`);
-    values.push(`Target Notifications: ${config.notifyOnTargets ? 'Enabled' : 'Disabled'}`);
-    
-    // Coins
-    const selectedCoins = config.selectedCoins || [];
-    values.push(`Selected Coins: ${selectedCoins.length > 0 ? selectedCoins.join(', ') : 'None selected'}`);
-    
-    // DCA
-    values.push(`DCA Enabled: ${config.enableDCA ? 'Yes' : 'No'}`);
-    values.push(`DCA Steps: ${config.dcaSteps || 'Not set'}`);
-    values.push(`DCA Interval Hours: ${config.dcaIntervalHours || 'Not set'}`);
-    
-    // Shorting
-    values.push(`Shorting Enabled: ${config.enableShorting ? 'Yes' : 'No'}`);
-    values.push(`Max Short Positions: ${config.maxShortPositions || 'Not set'}`);
-    values.push(`Shorting Min Profit %: ${config.shortingMinProfitPercentage !== undefined ? config.shortingMinProfitPercentage + '%' : 'Not set'}`);
-    values.push(`Auto Close Shorts: ${config.autoCloseShorts ? 'Yes' : 'No'}`);
-    
-    // Technical Indicators
-    const indicators = config.technicalIndicators || {};
-    values.push(`RSI Indicator: ${indicators.rsi?.enabled ? 'Enabled' : 'Disabled'}`);
-    values.push(`MACD Indicator: ${indicators.macd?.enabled ? 'Enabled' : 'Disabled'}`);
-    values.push(`EMA Indicator: ${indicators.ema?.enabled ? 'Enabled' : 'Disabled'}`);
-    
-    return values.join('\n');
   }
 
   static async handleGeneralIntent(message: string, strategy: any, marketContext: string, memoryContext: string, interfaceContext: string): Promise<string> {
@@ -1216,6 +1093,8 @@ Use market signals to inform your recommendations.`;
   }
 
   static async callOpenAI(systemPrompt: string, userMessage: string): Promise<string> {
+    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+    
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -1262,11 +1141,11 @@ Use market signals to inform your recommendations.`;
     if (!strategy) return 'No active strategy configured.';
     
     const config = strategy.configuration || {};
-    return `Current strategy "${strategy.strategy_name}" with risk profile ${config.riskProfile || 'medium'}, ${config.selectedCoins?.length || 0} coins selected, amount per trade: €${config.perTradeAllocation || 'not set'}, AI: ${config.aiIntelligenceConfig?.enableAIOverride ? 'enabled' : 'disabled'}.`;
+    return `Current strategy "${strategy.strategy_name}" with risk profile ${config.riskProfile || 'medium'}, ${config.selectedCoins?.length || 0} coins selected, amount per trade: €${config.amountPerTrade || 'not set'}, AI: ${config.aiIntelligenceConfig?.enableAIOverride ? 'enabled' : 'disabled'}.`;
   }
 
   static buildInterfaceContext(): string {
-    const fieldDescriptions = Object.entries(IntelligentFieldMapper.FIELD_DEFINITIONS)
+    const fieldDescriptions = Object.entries(FIELD_DEFINITIONS)
       .map(([key, field]) => `${field.name}: Located in ${field.uiLocation}`)
       .join('\n');
     
@@ -1274,8 +1153,15 @@ Use market signals to inform your recommendations.`;
   }
 }
 
+// =============================================
+// STRATEGY RESOLVER
+// =============================================
 class StrategyResolver {
   static async getActiveStrategy(userId: string, testMode: boolean): Promise<any> {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    
     try {
       const activeField = testMode ? 'is_active_test' : 'is_active_live';
       
@@ -1295,6 +1181,10 @@ class StrategyResolver {
   }
 
   static async getStrategyById(userId: string, strategyId: string): Promise<any> {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    
     try {
       const { data, error } = await supabase
         .from('trading_strategies')
@@ -1312,406 +1202,110 @@ class StrategyResolver {
   }
 }
 
-class ConfigManager {
-  static async getFreshConfig(strategyId: string, userId: string): Promise<any> {
+// =============================================
+// MARKET DATA FETCHER
+// =============================================
+class MarketDataFetcher {
+  static async getRecentSignals(supabase: any): Promise<any[]> {
     try {
       const { data, error } = await supabase
-        .from('trading_strategies')
-        .select('configuration')
-        .eq('id', strategyId)
-        .eq('user_id', userId)
-        .single();
+        .from('ai_knowledge_base')
+        .select('*')
+        .eq('category', 'market_signal')
+        .order('created_at', { ascending: false })
+        .limit(10);
       
-      if (error) throw error;
-      return data?.configuration || {};
+      return data || [];
     } catch (error) {
-      console.error('Failed to fetch fresh config:', error);
-      return {};
+      console.error('Failed to fetch market signals:', error);
+      return [];
     }
   }
 
-  static async updateConfig(strategyId: string, userId: string, updates: any): Promise<boolean> {
+  static async getRecentNews(supabase: any): Promise<any[]> {
     try {
-      console.log('🔧 [CONFIG_UPDATE] Starting with validated updates:', JSON.stringify(updates, null, 2));
-      
-      // 🚨 CRITICAL CHECK: Ensure no enableAIOverride in autonomy-only updates
-      if (updates.aiIntelligenceConfig && 
-          Object.keys(updates.aiIntelligenceConfig).length === 1 && 
-          updates.aiIntelligenceConfig.aiAutonomyLevel !== undefined &&
-          updates.aiIntelligenceConfig.enableAIOverride !== undefined) {
-        console.log('🚨🚨🚨 CRITICAL ERROR: enableAIOverride found in autonomy-only update! Removing it!');
-        delete updates.aiIntelligenceConfig.enableAIOverride;
-        console.log('🧹 CLEANED updates:', JSON.stringify(updates, null, 2));
-      }
-      
-      // Get current config
-      const currentConfig = await this.getFreshConfig(strategyId, userId);
-      console.log('📖 [CONFIG_UPDATE] Current config:', JSON.stringify(currentConfig, null, 2));
-      
-      // Deep merge for nested objects like aiIntelligenceConfig
-      const newConfig = this.deepMerge(currentConfig, updates);
-      console.log('🔀 [CONFIG_UPDATE] Merged config:', JSON.stringify(newConfig, null, 2));
-      
-      // Update database
       const { data, error } = await supabase
-        .from('trading_strategies')
-        .update({ configuration: newConfig })
-        .eq('id', strategyId)
-        .eq('user_id', userId)
-        .select('configuration')
-        .single();
+        .from('ai_knowledge_base')
+        .select('*')
+        .eq('category', 'crypto_news')
+        .order('created_at', { ascending: false })
+        .limit(5);
       
-      if (error) {
-        console.error('❌ [CONFIG_UPDATE] DB update failed:', error);
-        return false;
-      }
-      
-      // CRITICAL: Verify the update was actually persisted
-      const verificationConfig = await this.getFreshConfig(strategyId, userId);
-      console.log('✅ [CONFIG_UPDATE] Verification read-back:', JSON.stringify(verificationConfig, null, 2));
-      
-      // Verify key fields were updated correctly
-      const verificationsToCheck = [];
-      
-      // Check top-level fields
-      for (const [field, expectedValue] of Object.entries(updates)) {
-        if (field !== 'aiIntelligenceConfig') {
-          verificationsToCheck.push({ 
-            field, 
-            expected: expectedValue, 
-            actual: verificationConfig[field] 
-          });
-        }
-      }
-      
-      // Check AI intelligence config fields
-      if (updates.aiIntelligenceConfig) {
-        console.log(`🔍 AI_CONFIG_VERIFICATION: Checking updates - ${JSON.stringify(updates.aiIntelligenceConfig)}`);
-        console.log(`🔍 AI_CONFIG_VERIFICATION: Current config AI section - ${JSON.stringify(verificationConfig.aiIntelligenceConfig)}`);
-        
-        for (const [aiField, expectedValue] of Object.entries(updates.aiIntelligenceConfig)) {
-          const actualValue = verificationConfig.aiIntelligenceConfig?.[aiField];
-          console.log(`🔍 AI_CONFIG_VERIFICATION: Field ${aiField} - expected: ${expectedValue}, actual: ${actualValue}`);
-          
-          verificationsToCheck.push({ 
-            field: `aiIntelligenceConfig.${aiField}`, 
-            expected: expectedValue, 
-            actual: actualValue 
-          });
-        }
-      }
-      
-      for (const check of verificationsToCheck) {
-        if (check.expected !== undefined && JSON.stringify(check.actual) !== JSON.stringify(check.expected)) {
-          console.error(`❌ [CONFIG_UPDATE] VERIFICATION FAILED for ${check.field}: expected ${JSON.stringify(check.expected)}, got ${JSON.stringify(check.actual)}`);
-          return false;
-        }
-      }
-      
-      console.log('✅ [CONFIG_UPDATE] All verifications passed - update confirmed persisted');
-      return true;
+      return data || [];
     } catch (error) {
-      console.error('❌ [CONFIG_UPDATE] Failed to update config:', error);
-      return false;
+      console.error('Failed to fetch crypto news:', error);
+      return [];
     }
   }
+}
 
-  // Deep merge utility to handle nested objects properly
-  static deepMerge(target: any, source: any): any {
-    const result = { ...target };
-    
-    for (const key in source) {
-      if (source[key] !== null && typeof source[key] === 'object' && !Array.isArray(source[key])) {
-        // CRITICAL: For aiIntelligenceConfig, preserve existing values and only update specified ones
-        if (key === 'aiIntelligenceConfig') {
-          result[key] = { ...(target[key] || {}), ...source[key] };
-          console.log(`🔀 DEEP_MERGE: AI config merge - target: ${JSON.stringify(target[key])}, source: ${JSON.stringify(source[key])}, result: ${JSON.stringify(result[key])}`);
-        } else {
-          result[key] = this.deepMerge(target[key] || {}, source[key]);
-        }
-      } else {
-        result[key] = source[key];
+// =============================================
+// CONVERSATION MEMORY
+// =============================================
+class ConversationMemory {
+  static async getRecentHistory(supabase: any, userId: string, strategyId?: string): Promise<any[]> {
+    try {
+      let query = supabase
+        .from('conversation_history')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      
+      if (strategyId) {
+        query = query.eq('strategy_id', strategyId);
       }
+      
+      const { data, error } = await query;
+      
+      return data || [];
+    } catch (error) {
+      console.error('Failed to fetch conversation history:', error);
+      return [];
     }
-    
-    return result;
-  }
-}
-
-class WelcomeMessageGenerator {
-  static generate(strategy: any, testMode: boolean): string {
-    const mode = testMode ? 'Test Mode' : 'Live Mode';
-    
-    if (!strategy) {
-      return `🤖 **AI Trading Assistant Ready** (${mode})
-
-I'm here to help you create and manage your cryptocurrency trading strategies. 
-
-**What I can help with:**
-• Create new trading strategies
-• Explain crypto concepts and indicators  
-• Analyze market conditions
-• Configure risk settings
-
-How can I assist you today?`;
-    }
-
-    const config = strategy.configuration || {};
-    const coins = config.selectedCoins?.length || 0;
-    const riskLevel = config.riskLevel || 'medium';
-    
-    return `🤖 **AI Trading Assistant Ready** (${mode})
-
-Currently managing your **${strategy.strategy_name}** strategy:
-• **Risk Level:** ${riskLevel}
-• **Coins:** ${coins} selected
-• **Per Trade:** €${config.perTradeAllocation || 'Not set'}
-
-I can help you adjust settings, explain market conditions, or answer any trading questions. What would you like to know?`;
-  }
-}
-
-function generateSuccessMessage(configUpdates: any, testMode: boolean): string {
-  const updates = Object.entries(configUpdates).map(([key, value]) => {
-    switch (key) {
-      case 'perTradeAllocation':
-        return `• **Amount per trade:** €${value}`;
-      case 'riskLevel':
-        return `• **Risk level:** ${value}`;
-      case 'stopLossPercentage':
-        return `• **Stop loss:** ${value}%`;
-      case 'takeProfitPercentage':
-        return `• **Take profit:** ${value}%`;
-      case 'selectedCoins':
-        return `• **Selected coins:** ${Array.isArray(value) ? value.join(', ') : value}`;
-      case 'aiIntelligenceConfig':
-        // Handle AI intelligence config fields properly - NEVER mention override when setting autonomy
-        const aiUpdates = [];
-        if (value?.aiAutonomyLevel !== undefined) {
-          aiUpdates.push(`AI autonomy level: ${value.aiAutonomyLevel}%`);
-        }
-        if (value?.aiConfidenceThreshold !== undefined) {
-          aiUpdates.push(`AI confidence threshold: ${value.aiConfidenceThreshold}%`);
-        }
-        if (value?.enableAIOverride !== undefined) {
-          aiUpdates.push(`AI decision override: ${value.enableAIOverride ? 'enabled' : 'disabled'}`);
-        }
-        if (value?.riskOverrideAllowed !== undefined) {
-          aiUpdates.push(`Risk override: ${value.riskOverrideAllowed ? 'enabled' : 'disabled'}`);
-        }
-        return aiUpdates.length > 0 ? `• **AI settings:** ${aiUpdates.join(', ')}` : `• **AI settings:** updated`;
-      case 'buyCooldownMinutes':
-        return `• **Trade cooldown:** ${value} minutes`;
-      case 'takeProfitPercentage':
-        return `• **Take profit:** ${value}%`;
-      default:
-        // Handle object values properly to avoid [object Object]
-        if (typeof value === 'object' && value !== null) {
-          if (Array.isArray(value)) {
-            return `• **${key}:** ${value.join(', ')}`;
-          }
-          // For nested objects, try to extract meaningful info
-          const entries = Object.entries(value);
-          if (entries.length === 1) {
-            const [subKey, subValue] = entries[0];
-            return `• **${subKey}:** ${subValue}`;
-          }
-          return `• **${key}:** ${JSON.stringify(value)}`;
-        }
-        return `• **${key}:** ${value}`;
-    }
-  });
-
-  return `✅ **Configuration Updated Successfully**
-
-**Changes applied:**
-${updates.join('\n')}
-
-${testMode ? '🧪 Changes applied to Test Mode strategy.' : '🔴 Changes applied to Live Mode strategy.'}`;
-}
-
-serve(async (req) => {
-  console.log('🚀 AI_ASSISTANT: Function started');
-  
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    console.log('📥 AI_ASSISTANT: Parsing request body');
-    const requestBody = await req.json();
-    console.log('📋 AI_ASSISTANT: Request data:', requestBody);
-    
-    const {
-      message,
-      userId,
-      strategyId,
-      testMode = true,
-      currentConfig = {},
-      recentTrades = [],
-      marketData = {},
-      indicatorContext = {},
-      indicatorConfig = {}
-    } = requestBody;
-
-    if (!message || !userId) {
-      console.log('❌ AI_ASSISTANT: Missing required fields');
-      return new Response(
-        JSON.stringify({ 
-          error: 'Missing required fields: message and userId',
-          hasConfigUpdates: false,
-          verificationResults: { success: false, errors: ['Invalid request'] }
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
-      );
-    }
-
-    console.log(`🤖 AI_ASSISTANT: Request received: "${message}" | StrategyId: ${strategyId} | TestMode: ${testMode}`);
-
-    // Store user message in conversation history
-    await ConversationMemory.storeMessage(userId, 'user', message, { strategyId, testMode });
-
-    // Get conversation context
-    const conversationHistory = await ConversationMemory.getRecentContext(userId, 5);
-
-    // Fetch strategy
-    const strategy = await StrategyResolver.getActiveStrategy(userId, testMode);
-    console.log(strategy ? `✅ STRATEGY_RESOLVER: ${strategy.strategy_name}` : `❌ No active strategy`);
-
-    // If no strategy exists, return early with error message
-    if (!strategy) {
-      console.log('❌ CRITICAL: No active strategy found - cannot process configuration updates');
-      return new Response(JSON.stringify({
-        message: "❌ **No Active Strategy Found**\n\nYou need to create and activate a trading strategy before I can help you configure it. Please set up your strategy first.",
-        configUpdates: {},
-        hasConfigUpdates: false
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200
-      });
-    }
-
-    // Get fresh config
-    const freshConfig = strategy ? await ConfigManager.getFreshConfig(strategy.id, userId) : {};
-
-    // Handle system health check
-    if (message.toLowerCase().includes('system health check')) {
-      const welcomeMessage = WelcomeMessageGenerator.generate(strategy, testMode);
-      
-      await ConversationMemory.storeMessage(userId, 'ai', welcomeMessage, { 
-        type: 'welcome',
-        strategyId: strategy?.id 
-      });
-
-      return new Response(
-        JSON.stringify({
-          message: welcomeMessage,
-          hasConfigUpdates: false,
-          verificationResults: { success: true, errors: [] }
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // All configuration updates are now handled by the CryptoIntelligenceEngine
-    // which includes proper intent detection and validation
-
-    // For complex queries, use crypto intelligence engine with external signals
-    console.log(`🧠 Using Crypto Intelligence Engine for: "${message}"`);
-
-    // Gather external signals and context
-    const [whaleAlerts, cryptoNews, liveSignals] = await Promise.all([
-      ExternalSignalIntegration.getWhaleAlerts(5),
-      ExternalSignalIntegration.getCryptoNews(3),
-      ExternalSignalIntegration.getLiveSignals(freshConfig.selectedCoins || [])
-    ]);
-
-    // Generate intelligent response with the upgraded engine
-    const intelligentResponse = await CryptoIntelligenceEngine.generateContextualResponse(
-      message, 
-      strategy, 
-      liveSignals, 
-      cryptoNews,
-      conversationHistory,
-      freshConfig
-    );
-
-    let finalMessage = intelligentResponse.message;
-    let hasConfigUpdates = false;
-    let finalConfigUpdates = {};
-
-    // Handle configuration updates if present
-    if (intelligentResponse.configUpdates && Object.keys(intelligentResponse.configUpdates).length > 0) {
-      console.log(`🔄 CONFIG_UPDATE: Applying validated updates:`, intelligentResponse.configUpdates);
-      
-      const success = await ConfigManager.updateConfig(strategy.id, userId, intelligentResponse.configUpdates);
-      
-      if (success) {
-        hasConfigUpdates = true;
-        finalConfigUpdates = intelligentResponse.configUpdates;
-        
-        // Generate success message ONLY after successful database update
-        finalMessage = generateSuccessMessage(intelligentResponse.configUpdates, testMode);
-        
-        // Store successful config update in conversation history
-        await ConversationMemory.storeMessage(userId, 'ai', finalMessage, { 
-          type: 'config_update_success',
-          updates: intelligentResponse.configUpdates,
-          strategyId: strategy.id 
+  static async recordUserMessage(supabase: any, userId: string, strategyId: string | null, message: string): Promise<void> {
+    try {
+      await supabase
+        .from('conversation_history')
+        .insert({
+          user_id: userId,
+          strategy_id: strategyId,
+          message_type: 'user',
+          content: message
         });
-      } else {
-        // Database update failed - override any success message from AI
-        finalMessage = "❌ **Configuration Update Failed**\n\nI tried to update your strategy configuration, but the database operation failed. Please try again or check your connection.";
-        
-        // Store the failure in conversation history  
-        await ConversationMemory.storeMessage(userId, 'ai', finalMessage, { 
-          type: 'config_update_failed',
-          attempted_updates: intelligentResponse.configUpdates,
-          strategyId: strategy.id 
-        });
-      }
-    } else {
-      // Store regular AI response in conversation history
-      await ConversationMemory.storeMessage(userId, 'ai', finalMessage, { 
-        type: 'intelligent_response',
-        signals_used: liveSignals.length,
-        news_used: cryptoNews.length,
-        strategyId: strategy?.id 
-      });
+    } catch (error) {
+      console.error('Failed to record user message:', error);
     }
-
-    console.log(`📝 AI_ASSISTANT: Response generated - Config updates: ${hasConfigUpdates}`);
-    
-    // DEBUG: Log the exact response being sent to frontend
-    const responsePayload = {
-      message: finalMessage,
-      hasConfigUpdates,
-      configUpdates: hasConfigUpdates ? finalConfigUpdates : undefined,
-      verificationResults: { success: true, errors: [] }
-    };
-    console.log(`🔍 RESPONSE_DEBUG: Full response payload:`, JSON.stringify(responsePayload, null, 2));
-    if (hasConfigUpdates) {
-      console.log(`🔍 RESPONSE_DEBUG: finalConfigUpdates contains:`, JSON.stringify(finalConfigUpdates, null, 2));
-    }
-
-    return new Response(
-      JSON.stringify(responsePayload),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
-  } catch (error) {
-    console.error('❌ AI_ASSISTANT: Caught error:', error);
-    console.error('❌ AI_ASSISTANT: Error stack:', error.stack);
-    
-    // Return a safe fallback response
-    return new Response(
-      JSON.stringify({ 
-        error: 'Internal server error',
-        message: `🔧 **System Recovery Mode**\n\nI'm experiencing technical difficulties with: ${error.message}\n\nPlease try a simple command like "system health check" while I recover.`,
-        hasConfigUpdates: false,
-        verificationResults: { success: false, errors: [error.message] }
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-    );
   }
-});
+
+  static async recordAIResponse(supabase: any, userId: string, strategyId: string | null, response: string): Promise<void> {
+    try {
+      await supabase
+        .from('conversation_history')
+        .insert({
+          user_id: userId,
+          strategy_id: strategyId,
+          message_type: 'assistant',
+          content: response
+        });
+    } catch (error) {
+      console.error('Failed to record AI response:', error);
+    }
+  }
+
+  static buildContextPrompt(conversationHistory: any[]): string {
+    if (!conversationHistory || conversationHistory.length === 0) {
+      return 'No recent conversation history.';
+    }
+    
+    const recentMessages = conversationHistory
+      .slice(0, 5)
+      .reverse()
+      .map(msg => `${msg.message_type}: ${msg.content}`)
+      .join('\n');
+    
+    return `Recent conversation:\n${recentMessages}`;
+  }
+}
