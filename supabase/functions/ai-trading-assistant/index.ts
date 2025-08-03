@@ -198,12 +198,16 @@ class ConfigManager {
     console.log(`🔧 CONFIG_MANAGER: Processing updates for strategy ${strategyId}`);
     console.log(`📋 RAW_UPDATES: ${JSON.stringify(updates, null, 2)}`);
     
-    const strategyUpdates: any = {};
     const verificationResults: Record<string, any> = {};
     const errors: string[] = [];
     
     // STRICT RULE: Process ONLY the fields explicitly requested - NO SIDE EFFECTS
     console.log(`🔍 STRATEGY_BEFORE_CHANGES: ${JSON.stringify(currentStrategy.configuration?.aiIntelligenceConfig, null, 2)}`);
+    
+    // Start with current configuration to preserve existing values
+    const strategyUpdates: any = {
+      configuration: { ...currentStrategy.configuration }
+    };
     
     for (const [fieldKey, newValue] of Object.entries(updates)) {
       console.log(`🔍 PROCESSING_FIELD: ${fieldKey} = ${newValue}`);
@@ -228,13 +232,34 @@ class ConfigManager {
       const currentValue = this.getCurrentValue(currentStrategy, fieldDef.dbPath);
       console.log(`📊 BEFORE_UPDATE: ${fieldKey} = ${currentValue} (at ${fieldDef.dbPath})`);
       
-      // CRITICAL: No field shall affect another unless explicitly commanded
-      // Convert to database path - ONLY touch the exact field requested
+      // CRITICAL FIX: Use merging logic to preserve other fields in the same nested object
       const dbPath = fieldDef.dbPath;
       if (dbPath) {
-        this.setNestedValue(strategyUpdates, dbPath, newValue);
+        // Special handling for nested aiIntelligenceConfig to preserve other fields
+        if (dbPath.includes('aiIntelligenceConfig')) {
+          // Ensure aiIntelligenceConfig exists
+          if (!strategyUpdates.configuration.aiIntelligenceConfig) {
+            strategyUpdates.configuration.aiIntelligenceConfig = {};
+          }
+          
+          // Extract the final property name (e.g., 'enableAIOverride' from 'configuration.aiIntelligenceConfig.enableAIOverride')
+          const pathParts = dbPath.split('.');
+          const finalProperty = pathParts[pathParts.length - 1];
+          
+          // Merge with existing aiIntelligenceConfig
+          strategyUpdates.configuration.aiIntelligenceConfig = {
+            ...currentStrategy.configuration?.aiIntelligenceConfig,
+            [finalProperty]: newValue
+          };
+          
+          console.log(`✅ MERGED_AI_CONFIG: ${JSON.stringify(strategyUpdates.configuration.aiIntelligenceConfig, null, 2)}`);
+        } else {
+          // For non-aiIntelligenceConfig fields, use the original setNestedValue logic
+          this.setNestedValue(strategyUpdates, dbPath, newValue);
+        }
+        
         console.log(`✅ MAPPED_TO_DB: ${fieldKey} → ${dbPath} = ${newValue}`);
-        console.log(`🔍 FIELD_ISOLATION_CHECK: Only writing to ${dbPath}, no other fields affected`);
+        console.log(`🔍 FIELD_ISOLATION_CHECK: Preserving other fields in nested objects`);
         
         // Store for verification
         verificationResults[fieldKey] = {
@@ -249,7 +274,7 @@ class ConfigManager {
     
     console.log(`📤 FINAL_STRATEGY_UPDATES: ${JSON.stringify(strategyUpdates, null, 2)}`);
     
-    if (Object.keys(strategyUpdates).length === 0) {
+    if (Object.keys(updates).length === 0) {
       console.log('ℹ️ NO_VALID_UPDATES to apply');
       return { success: true, verificationResults: {}, errors };
     }
