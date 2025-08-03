@@ -435,10 +435,23 @@ export const ConversationPanel = () => {
       if (error) {
         console.error('AI assistant error:', error);
         aiMessage = `❌ **AI Assistant Error**\n\nError: ${error.message || 'Unknown error occurred'}\n\nPlease try again or check the system logs for more details.`;
-      } else if (data && data.message) {
-        aiMessage = data.message;
+      } else if (data && (data.message || data.success !== undefined)) {
+        // Handle new AI assistant response format
+        if (data.success !== undefined && data.field) {
+          // New structured response format
+          if (data.success && data.confirmed) {
+            aiMessage = `✅ **${data.field} Updated**\n\n${data.oldValue ?? 'not set'} → ${data.newValue}\n\nConfiguration saved successfully.`;
+          } else if (data.success && !data.confirmed) {
+            aiMessage = `⚠️ **${data.field} Updated**\n\n${data.oldValue ?? 'not set'} → ${data.newValue}\n\nWarning: Verification failed.`;
+          } else {
+            aiMessage = `❌ **Failed to Update ${data.field}**\n\nError: ${data.error || 'Unknown error'}\n\nPlease try again.`;
+          }
+        } else {
+          // Legacy response format
+          aiMessage = data.message;
+        }
         
-        // Handle config updates returned by the upgraded AI system
+        // Handle config updates returned by the upgraded AI system (legacy format)
         if (data.hasConfigUpdates && data.configUpdates && targetStrategy) {
           console.log('🔄 VALIDATED CONFIG UPDATE from AI:', {
             configUpdates: data.configUpdates,
