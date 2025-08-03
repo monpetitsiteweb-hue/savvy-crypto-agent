@@ -114,7 +114,7 @@ If it's not a command (just a question), return: {"isCommand": false}`;
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-4.1-2025-04-14',
+          model: 'gpt-4o-mini',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0,
           max_tokens: 200
@@ -535,7 +535,7 @@ Deno.serve(async (req) => {
           field: field,
           oldValue: verification?.oldValue ?? null,
           newValue: verification?.actualValue ?? typedValue,
-          response: `✅ ${fieldDef.description}: ${verification?.oldValue ?? 'not set'} → ${verification?.actualValue ?? typedValue}`
+          confirmed: verification?.verified ?? false
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -545,7 +545,7 @@ Deno.serve(async (req) => {
           success: false,
           field: field,
           error: result.errors.join(', '),
-          response: `❌ Failed to update ${fieldDef.description}: ${result.errors.join(', ')}`
+          confirmed: false
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
