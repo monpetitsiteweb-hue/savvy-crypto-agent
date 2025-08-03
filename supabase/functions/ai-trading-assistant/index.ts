@@ -51,6 +51,17 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     aiCanExecute: true,
     phrases: ['max wallet exposure', 'wallet exposure', 'exposure limit', 'maximum exposure'],
     description: 'Maximum percentage of wallet that can be exposed to trades'
+  },
+  trailingStopPercentage: {
+    key: 'trailingStopPercentage',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'Risk Management → Stop Loss → Trailing Stop',
+    dbPath: 'configuration.riskManagement.trailingStopPercentage',
+    csvMatch: 'Trailing Stop Percentage',
+    aiCanExecute: true,
+    phrases: ['trailing stop percentage', 'trailing stop', 'set trailing stop', 'trailing stop %'],
+    description: 'Percentage for trailing stop loss orders'
   }
 };
 
@@ -86,7 +97,8 @@ class NaturalLanguageProcessor {
       /\?$/,
       /^(is|are|can|could|would|should|do|does)/,
       /^(tell me|show me|explain)/,
-      /^(status|health|check)/
+      /^(status|health|check)/,
+      /^(show current|current config|get config|display config)/
     ];
     
     for (const pattern of questionPatterns) {
@@ -466,6 +478,29 @@ Deno.serve(async (req) => {
     
     if (intent === 'question') {
       console.log('🤔 QUESTION DETECTED - No config changes will be made');
+      
+      // Check if this is a diagnostic query
+      const lowerMessage = message.toLowerCase();
+      if (lowerMessage.includes('show current') || lowerMessage.includes('current config') || 
+          lowerMessage.includes('get config') || lowerMessage.includes('display config')) {
+        
+        // Generate current config display
+        let configResponse = '📊 **Current Configuration:**\n\n';
+        
+        for (const [fieldKey, fieldDef] of Object.entries(FIELD_DEFINITIONS)) {
+          const currentValue = ConfigManager.getCurrentValue(strategy, fieldDef.dbPath);
+          configResponse += `• ${fieldDef.description}: ${currentValue ?? 'not set'}\n`;
+        }
+        
+        return new Response(
+          JSON.stringify({ 
+            response: configResponse,
+            success: true 
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       return new Response(
         JSON.stringify({ 
           response: ResponseFormatter.formatQuestionResponse(),
@@ -482,9 +517,13 @@ Deno.serve(async (req) => {
     const potentialUpdates = NaturalLanguageProcessor.extractConfigUpdates(message);
     
     if (Object.keys(potentialUpdates).length === 0) {
+      // Generate helpful suggestions
+      const availableFields = Object.values(FIELD_DEFINITIONS).map(f => f.description);
+      const suggestions = availableFields.slice(0, 3).map(desc => `• ${desc}`).join('\n');
+      
       return new Response(
         JSON.stringify({ 
-          response: '❓ I understood this as a command, but couldn\'t identify which configuration to change. Could you be more specific?',
+          response: `❓ I understood this as a command, but couldn't identify which configuration to change.\n\nDid you mean one of these?\n${suggestions}\n\nOr try: "show current config" to see all available options.`,
           success: false 
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
