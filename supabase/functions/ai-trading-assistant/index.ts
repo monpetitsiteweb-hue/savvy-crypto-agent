@@ -16,7 +16,7 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     dbPath: 'configuration.aiIntelligenceConfig.enableAIOverride',
     csvMatch: 'Enable AI Intelligence',
     aiCanExecute: true,
-    phrases: ['enable AI', 'turn on AI', 'activate AI', 'AI on', 'enable intelligence', 'activate intelligence'],
+    phrases: ['enable AI', 'turn on AI', 'activate AI', 'AI on', 'enable intelligence', 'activate intelligence', 'disable AI', 'turn off AI', 'deactivate AI', 'AI off', 'disable intelligence', 'deactivate intelligence'],
     description: 'Master switch for AI-driven decision making'
   },
   aiConfidenceThreshold: {
