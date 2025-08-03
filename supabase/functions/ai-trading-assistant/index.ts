@@ -1009,13 +1009,20 @@ class CryptoIntelligenceEngine {
       return { message: await this.handleGeneralIntent(message, strategy, marketContext, memoryContext, interfaceContext) };
     }
     
-    // 🚨 CRITICAL: Check if this is autonomy-only BEFORE validation
+    // 🚨 CRITICAL: Check what type of AI update this is
+    const isExplicitAICommand = message.toLowerCase().includes('enable ai') || 
+                               message.toLowerCase().includes('disable ai') ||
+                               message.toLowerCase().includes('turn on ai') ||
+                               message.toLowerCase().includes('turn off ai');
+    
     const isAutonomyOnlyUpdate = Object.keys(potentialUpdates).length === 1 && 
       potentialUpdates.aiIntelligenceConfig && 
       Object.keys(potentialUpdates.aiIntelligenceConfig).length === 1 && 
       potentialUpdates.aiIntelligenceConfig.aiAutonomyLevel !== undefined;
     
-    console.log(`🎯 AUTONOMY-ONLY UPDATE CHECK: ${isAutonomyOnlyUpdate}`);
+    console.log(`🎯 EXPLICIT AI COMMAND: ${isExplicitAICommand}`);
+    console.log(`🎯 AUTONOMY-ONLY UPDATE: ${isAutonomyOnlyUpdate}`);
+    
     if (isAutonomyOnlyUpdate) {
       console.log(`🎯 AUTONOMY VALUE: ${potentialUpdates.aiIntelligenceConfig.aiAutonomyLevel}`);
       console.log('🚨 AUTONOMY-ONLY: This should NEVER modify any enable/disable flags!');
@@ -1045,17 +1052,24 @@ class CryptoIntelligenceEngine {
       }
     }
     
-    // 🚨 FINAL AUTONOMY SAFETY CHECK: Ensure no enable/disable flags leaked through
-    if (isAutonomyOnlyUpdate && validatedUpdates.aiIntelligenceConfig) {
-      console.log('🔍 FINAL AUTONOMY SAFETY CHECK: Inspecting validated updates...');
-      console.log(`🔍 Validated aiIntelligenceConfig keys: ${Object.keys(validatedUpdates.aiIntelligenceConfig)}`);
+    // 🚨 SAFETY CHECK: Prevent accidental AI toggling (but allow explicit commands)
+    if (!isExplicitAICommand && validatedUpdates.aiIntelligenceConfig?.enableAIOverride !== undefined) {
+      console.log('🔍 SAFETY CHECK: Non-explicit command trying to modify AI enable/disable...');
+      console.log(`🔍 Command was: "${message}"`);
+      console.log(`🔍 enableAIOverride value: ${validatedUpdates.aiIntelligenceConfig.enableAIOverride}`);
       
-      if (validatedUpdates.aiIntelligenceConfig.enableAIOverride !== undefined) {
-        console.log(`🚨 LEAK DETECTED! enableAIOverride = ${validatedUpdates.aiIntelligenceConfig.enableAIOverride} found in autonomy-only update!`);
+      if (isAutonomyOnlyUpdate) {
+        console.log(`🚨 LEAK DETECTED! enableAIOverride found in autonomy-only update!`);
         console.log('🚫 REMOVING enableAIOverride from validated updates');
         delete validatedUpdates.aiIntelligenceConfig.enableAIOverride;
-        console.log(`🧹 CLEANED: aiIntelligenceConfig now has keys: ${Object.keys(validatedUpdates.aiIntelligenceConfig)}`);
+        console.log(`🧹 CLEANED: Removed accidental AI toggle from autonomy update`);
+      } else {
+        console.log(`⚠️ WARNING: Non-explicit command "${message}" trying to toggle AI - removing enableAIOverride`);
+        delete validatedUpdates.aiIntelligenceConfig.enableAIOverride;
+        console.log(`🧹 CLEANED: Removed accidental AI toggle from general update`);
       }
+    } else if (isExplicitAICommand) {
+      console.log(`✅ EXPLICIT AI COMMAND: Allowing enableAIOverride modification for "${message}"`);
     }
     
     // Execute validated config updates if any exist
