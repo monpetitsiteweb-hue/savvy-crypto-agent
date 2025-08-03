@@ -66,130 +66,91 @@ const FIELD_DEFINITIONS: Record<string, any> = {
 };
 
 // =============================================
-// NATURAL LANGUAGE PROCESSOR
+// OPENAI INTENT PROCESSOR
 // =============================================
-class NaturalLanguageProcessor {
-  static detectIntent(message: string): 'command' | 'question' {
+class OpenAIIntentProcessor {
+  static async parseIntent(message: string): Promise<{
+    isCommand: boolean;
+    intent?: {
+      action: string;
+      field: string;
+      value: string;
+    };
+  }> {
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!openaiApiKey) {
+      console.log('❌ OPENAI_API_KEY not found, falling back to basic parsing');
+      return this.fallbackParse(message);
+    }
+
+    const fieldsList = Object.values(FIELD_DEFINITIONS).map(f => 
+      `${f.key}: ${f.description} (${f.phrases.join(', ')})`
+    ).join('\n');
+
+    const prompt = `Parse this user message into structured intent for trading strategy configuration.
+
+Available fields:
+${fieldsList}
+
+User message: "${message}"
+
+Return ONLY a JSON object in this exact format:
+{
+  "isCommand": true/false,
+  "intent": {
+    "action": "set|enable|disable",
+    "field": "exact_field_key_from_list",
+    "value": "true|false|number_value"
+  }
+}
+
+If it's not a command (just a question), return: {"isCommand": false}`;
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1-2025-04-14',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0,
+          max_tokens: 200
+        })
+      });
+
+      const data = await response.json();
+      const result = JSON.parse(data.choices[0].message.content);
+      
+      console.log(`🧠 OPENAI_PARSED_INTENT: ${JSON.stringify(result, null, 2)}`);
+      return result;
+      
+    } catch (error) {
+      console.log(`❌ OPENAI_PARSE_ERROR: ${error.message}`);
+      return this.fallbackParse(message);
+    }
+  }
+
+  private static fallbackParse(message: string): { isCommand: boolean; intent?: any } {
     const lowerMessage = message.toLowerCase().trim();
     
-    // Direct command patterns
-    const commandPatterns = [
-      /^(enable|disable|turn on|turn off|activate|deactivate)/,
-      /^set .* to/,
-      /^change .* to/,
-      /^update .*/,
-      /^configure/,
-      /^adjust/,
-      /^make .* (true|false|\d+)/
-    ];
-    
-    // Check for explicit command patterns
-    for (const pattern of commandPatterns) {
-      if (pattern.test(lowerMessage)) {
-        console.log(`🔧 COMMAND_DETECTED via pattern: ${pattern}`);
-        return 'command';
-      }
-    }
-    
-    // Question patterns
+    // Basic question detection
     const questionPatterns = [
       /^(what|how|why|when|where|which|who)/,
       /\?$/,
-      /^(is|are|can|could|would|should|do|does)/,
-      /^(tell me|show me|explain)/,
-      /^(status|health|check)/,
       /^(show current|current config|get config|display config)/
     ];
     
     for (const pattern of questionPatterns) {
       if (pattern.test(lowerMessage)) {
-        console.log(`❓ QUESTION_DETECTED via pattern: ${pattern}`);
-        return 'question';
+        return { isCommand: false };
       }
     }
     
-    // Default to question for safety
-    console.log(`❓ DEFAULTING_TO_QUESTION`);
-    return 'question';
-  }
-
-  static extractConfigUpdates(message: string): Record<string, any> {
-    const updates: Record<string, any> = {};
-    const lowerMessage = message.toLowerCase().trim();
-    
-    console.log(`🔍 EXTRACTING_CONFIG_UPDATES from: "${message}"`);
-    
-    // Process each field definition
-    for (const [fieldKey, fieldDef] of Object.entries(FIELD_DEFINITIONS)) {
-      // Check if any of the field's phrases match
-      for (const phrase of fieldDef.phrases) {
-        if (lowerMessage.includes(phrase.toLowerCase())) {
-          console.log(`🎯 PHRASE_MATCH: "${phrase}" → ${fieldKey}`);
-          
-          // Extract value based on field type
-          if (fieldDef.type === 'boolean') {
-            const value = this.extractBooleanValue(lowerMessage, phrase);
-            if (value !== null) {
-              updates[fieldKey] = value;
-              console.log(`✅ EXTRACTED_BOOLEAN: ${fieldKey} = ${value}`);
-            }
-          } else if (fieldDef.type === 'number') {
-            const value = this.extractNumberValue(lowerMessage, phrase, fieldDef.range);
-            if (value !== null) {
-              updates[fieldKey] = value;
-              console.log(`✅ EXTRACTED_NUMBER: ${fieldKey} = ${value}`);
-            }
-          }
-          break; // Found a match for this field, move to next field
-        }
-      }
-    }
-    
-    console.log(`🎯 FINAL_EXTRACTED_UPDATES: ${JSON.stringify(updates, null, 2)}`);
-    return updates;
-  }
-
-  private static extractBooleanValue(message: string, phrase: string): boolean | null {
-    const lowerMessage = message.toLowerCase();
-    
-    // Enable patterns
-    if (lowerMessage.includes('enable') || lowerMessage.includes('turn on') || 
-        lowerMessage.includes('activate') || lowerMessage.includes('on')) {
-      return true;
-    }
-    
-    // Disable patterns
-    if (lowerMessage.includes('disable') || lowerMessage.includes('turn off') || 
-        lowerMessage.includes('deactivate') || lowerMessage.includes('off')) {
-      return false;
-    }
-    
-    return null;
-  }
-
-  private static extractNumberValue(message: string, phrase: string, range?: [number, number]): number | null {
-    const patterns = [
-      /(\d+(?:\.\d+)?)\s*%/,  // "30%"
-      /(\d+(?:\.\d+)?)/,      // "30"
-      /to\s+(\d+(?:\.\d+)?)/,  // "to 30"
-    ];
-    
-    for (const pattern of patterns) {
-      const match = message.match(pattern);
-      if (match) {
-        const value = parseFloat(match[1]);
-        if (!isNaN(value)) {
-          // Validate range if provided
-          if (range && (value < range[0] || value > range[1])) {
-            console.log(`⚠️ VALUE_OUT_OF_RANGE: ${value} not in [${range[0]}, ${range[1]}]`);
-            continue;
-          }
-          return value;
-        }
-      }
-    }
-    
-    return null;
+    // Default to command for fallback
+    return { isCommand: true };
   }
 }
 
@@ -472,11 +433,11 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Detect intent
-    const intent = NaturalLanguageProcessor.detectIntent(message);
-    console.log(`🧠 DETECTED_INTENT: ${intent}`);
+    // Parse intent using OpenAI
+    const parsedIntent = await OpenAIIntentProcessor.parseIntent(message);
+    console.log(`🧠 OPENAI_INTENT_RESULT: ${JSON.stringify(parsedIntent, null, 2)}`);
     
-    if (intent === 'question') {
+    if (!parsedIntent.isCommand) {
       console.log('🤔 QUESTION DETECTED - No config changes will be made');
       
       // Check if this is a diagnostic query
@@ -510,57 +471,81 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Process command
-    console.log('⚡ COMMAND DETECTED - Processing potential config changes');
-    console.log(`🔍 MAPPING_USER_INTENT: "${message}"`);
-    
-    const potentialUpdates = NaturalLanguageProcessor.extractConfigUpdates(message);
-    
-    if (Object.keys(potentialUpdates).length === 0) {
-      // Generate helpful suggestions
-      const availableFields = Object.values(FIELD_DEFINITIONS).map(f => f.description);
-      const suggestions = availableFields.slice(0, 3).map(desc => `• ${desc}`).join('\n');
-      
+    // Process command using structured intent
+    if (!parsedIntent.intent) {
+      console.log('❌ NO_INTENT_EXTRACTED');
       return new Response(
         JSON.stringify({ 
-          response: `❓ I understood this as a command, but couldn't identify which configuration to change.\n\nDid you mean one of these?\n${suggestions}\n\nOr try: "show current config" to see all available options.`,
+          response: '❌ Could not understand the command. Please try again with a clearer instruction.',
           success: false 
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     
-    // Execute configuration update
-    console.log(`🔧 ATTEMPTING_CONFIG_UPDATE for strategy ${strategy.id}...`);
+    const { field, value } = parsedIntent.intent;
+    console.log(`🎯 STRUCTURED_INTENT: field=${field}, value=${value}`);
     
+    // Validate field exists in definitions
+    const fieldDef = FIELD_DEFINITIONS[field];
+    if (!fieldDef) {
+      console.log(`❌ UNKNOWN_FIELD: ${field}`);
+      return new Response(
+        JSON.stringify({ 
+          response: `❌ Unknown field: ${field}`,
+          success: false 
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Convert value to correct type
+    let typedValue: any = value;
+    if (fieldDef.type === 'boolean') {
+      typedValue = value === 'true' || value === true;
+    } else if (fieldDef.type === 'number') {
+      typedValue = parseFloat(value);
+      if (isNaN(typedValue)) {
+        return new Response(
+          JSON.stringify({ 
+            response: `❌ Invalid number value: ${value}`,
+            success: false 
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+    
+    console.log(`🔧 EXECUTING_UPDATE: ${field} = ${typedValue}`);
+    
+    // Execute the update
     const result = await ConfigManager.updateStrategyConfig(
       strategy.user_id, 
       strategy.id, 
-      potentialUpdates,
+      { [field]: typedValue },
       strategy
     );
 
+    // Return clean structured response
     if (result.success) {
-      console.log('✅ CONFIG_UPDATE_SUCCESS');
+      const verification = result.verificationResults[field];
       return new Response(
         JSON.stringify({ 
-          response: ResponseFormatter.formatSuccessResponse(
-            'Configuration updated successfully',
-            result.verificationResults
-          ),
-          success: true 
+          success: true,
+          field: field,
+          oldValue: verification?.oldValue ?? null,
+          newValue: verification?.actualValue ?? typedValue,
+          response: `✅ ${fieldDef.description}: ${verification?.oldValue ?? 'not set'} → ${verification?.actualValue ?? typedValue}`
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     } else {
-      console.log('❌ CONFIG_UPDATE_FAILED');
       return new Response(
         JSON.stringify({ 
-          response: ResponseFormatter.formatErrorResponse(
-            'Configuration update failed',
-            result.errors
-          ),
-          success: false 
+          success: false,
+          field: field,
+          error: result.errors.join(', '),
+          response: `❌ Failed to update ${fieldDef.description}: ${result.errors.join(', ')}`
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
