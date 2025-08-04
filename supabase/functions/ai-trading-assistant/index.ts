@@ -177,8 +177,8 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     validValues: ['market', 'limit', 'trailing_stop', 'auto_close'],
     dbPath: 'configuration.sellOrderType',
     aiCanExecute: true,
-    phrases: ['sell order type', 'sell order', 'market sell', 'limit sell'],
-    description: 'Type of sell order (market, limit, etc.)'
+    phrases: ['sell order type', 'sell order', 'market sell', 'limit sell', 'trailing stop', 'trailing stop order', 'set sell to trailing stop'],
+    description: 'Type of sell order (market, limit, trailing stop, auto close)'
   },
   takeProfitPercentage: {
     key: 'takeProfitPercentage',
@@ -1038,12 +1038,12 @@ class ResponseFormatter {
         const fieldName = FIELD_DEFINITIONS[result.field]?.description || result.field;
         const newDisplay = Array.isArray(result.newValue) ? result.newValue.join(', ') : result.newValue;
         
-        // Format specific responses based on field type
+        // Format specific responses based on action type
         if (result.action === 'add' && Array.isArray(result.newValue)) {
-          const addedCoins = Array.isArray(result.oldValue) ? 
-            result.newValue.filter(coin => !result.oldValue.includes(coin)) : result.newValue;
-          response += `• Added ${addedCoins.join(', ')} to ${fieldName}\n`;
-        } else if (result.action === 'remove' && Array.isArray(result.newValue)) {
+          const addedItems = Array.isArray(result.oldValue) ? 
+            result.newValue.filter(item => !result.oldValue.includes(item)) : result.newValue;
+          response += `• Added ${addedItems.join(', ')} to ${fieldName}\n`;
+        } else if (result.action === 'remove') {
           response += `• Removed ${result.rawValue} from ${fieldName}\n`;
         } else if (result.action === 'enable') {
           response += `• Enabled ${fieldName}\n`;
@@ -1059,24 +1059,19 @@ class ResponseFormatter {
       response += '\n❌ **Failed Updates:**\n';
       for (const result of failedResults) {
         const fieldName = FIELD_DEFINITIONS[result.field]?.description || result.field;
-        response += `• ${fieldName}: Expected ${JSON.stringify(result.expected)}, got ${JSON.stringify(result.actualValue)}\n`;
+        response += `• ${fieldName}: ${result.error || 'Update failed'}\n`;
       }
     }
     
     return response.trim();
   }
 
-  static formatErrorResponse(message: string, errors: string[]): string {
-    let response = `❌ ${message}\n\n`;
-    
-    if (errors.length > 0) {
-      response += `**Errors:**\n`;
-      for (const error of errors) {
-        response += `• ${error}\n`;
-      }
+  static formatErrorResponse(message: string, errors?: string[]): string {
+    let response = `❌ ${message}`;
+    if (errors && errors.length > 0) {
+      response += '\n\nErrors:\n' + errors.map(e => `• ${e}`).join('\n');
     }
-    
-    return response.trim();
+    return response;
   }
 
   static formatQuestionResponse(): string {
