@@ -99,7 +99,6 @@ interface StrategyFormData {
   // Advanced settings
   enableStopLossTimeout: boolean;
   stopLossTimeoutMinutes: number;
-  useTrailingStopOnly: boolean;
   resetStopLossAfterFail: boolean;
   // Tags and categories
   category: string;
@@ -282,7 +281,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     autoCloseShorts: true,
     enableStopLossTimeout: false,
     stopLossTimeoutMinutes: 120,
-    useTrailingStopOnly: false,
     resetStopLossAfterFail: false,
     category: 'trend',
     tags: ['automated', 'scalping'],
@@ -1482,21 +1480,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                         <CardContent className="space-y-6">
                           <div className="space-y-4">
 
-                            <div className="flex items-center justify-between">
-                              <div className="space-y-1">
-                                <TooltipField 
-                                  description="Use only trailing stop-loss, disable fixed stop-loss."
-                                  examples={["Only use trailing stops", "Disable fixed stops"]}
-                                >
-                                  <Label>Trailing Stop Only</Label>
-                                </TooltipField>
-                                <p className="text-sm text-muted-foreground">Disable fixed stop-loss</p>
-                              </div>
-                              <Switch
-                                checked={formData.useTrailingStopOnly}
-                                onCheckedChange={(checked) => updateFormData('useTrailingStopOnly', checked)}
-                              />
-                            </div>
 
                             <div className="flex items-center justify-between">
                               <div className="space-y-1">

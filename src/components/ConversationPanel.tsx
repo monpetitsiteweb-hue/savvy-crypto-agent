@@ -435,7 +435,7 @@ export const ConversationPanel = () => {
       if (error) {
         console.error('AI assistant error:', error);
         aiMessage = `❌ **AI Assistant Error**\n\nError: ${error.message || 'Unknown error occurred'}\n\nPlease try again or check the system logs for more details.`;
-      } else if (data && (data.message || data.success !== undefined)) {
+      } else if (data && (data.response || data.message || data.success !== undefined)) {
         // Handle new AI assistant response format
         if (data.success !== undefined && data.field) {
           // New structured response format
@@ -447,8 +447,8 @@ export const ConversationPanel = () => {
             aiMessage = `❌ **Failed to Update ${data.field}**\n\nError: ${data.error || 'Unknown error'}\n\nPlease try again.`;
           }
         } else {
-          // Legacy response format
-          aiMessage = data.message;
+          // Handle both new and legacy response formats
+          aiMessage = data.response || data.message || 'AI response received successfully.';
         }
         
         // Handle config updates returned by the upgraded AI system (legacy format)
