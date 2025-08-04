@@ -880,9 +880,11 @@ class ConfigManager {
       const currentValue = this.getCurrentValue(currentStrategy, fieldDef.dbPath);
       console.log(`📊 BEFORE_UPDATE: ${fieldKey} = ${currentValue} (at ${fieldDef.dbPath})`);
       
-      // CRITICAL FIX: Use merging logic to preserve other fields in the same nested object
+      // CRITICAL FIX: Use proper path handling to avoid incorrect nesting
       const dbPath = fieldDef.dbPath;
       if (dbPath) {
+        console.log(`🔍 PROCESSING_PATH: ${fieldKey} → ${dbPath} = ${JSON.stringify(newValue)}`);
+        
         // Special handling for nested aiIntelligenceConfig to preserve other fields
         if (dbPath.includes('aiIntelligenceConfig')) {
           // Ensure aiIntelligenceConfig exists
@@ -902,11 +904,12 @@ class ConfigManager {
           
           console.log(`✅ MERGED_AI_CONFIG: ${JSON.stringify(strategyUpdates.configuration.aiIntelligenceConfig, null, 2)}`);
         } else {
-          // For non-aiIntelligenceConfig fields, use the original setNestedValue logic
+          // For all other fields, set directly using the exact path specified
+          console.log(`🎯 DIRECT_PATH_SET: Using exact path ${dbPath}`);
           this.setNestedValue(strategyUpdates, dbPath, newValue);
         }
         
-        console.log(`✅ MAPPED_TO_DB: ${fieldKey} → ${dbPath} = ${newValue}`);
+        console.log(`✅ MAPPED_TO_DB: ${fieldKey} → ${dbPath} = ${JSON.stringify(newValue)}`);
         console.log(`🔍 FIELD_ISOLATION_CHECK: Preserving other fields in nested objects`);
         
         // Store for verification
@@ -1172,7 +1175,7 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Convert value to correct type
+    // Convert value to correct type and handle special array operations
     let typedValue: any = value;
     if (fieldDef.type === 'boolean') {
       typedValue = value === 'true' || value === true;
@@ -1186,6 +1189,35 @@ Deno.serve(async (req) => {
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
+      }
+    } else if (fieldDef.type === 'array') {
+      // Special handling for array fields like selectedCoins
+      const currentValue = ConfigManager.getCurrentValue(strategy, fieldDef.dbPath);
+      const currentArray = Array.isArray(currentValue) ? currentValue : [];
+      
+      // Check if this is an add/remove operation based on the original message
+      const lowerMessage = message.toLowerCase();
+      if (lowerMessage.includes('add') && lowerMessage.includes('to')) {
+        // Add operation: append to existing array if not already present
+        if (!currentArray.includes(value)) {
+          typedValue = [...currentArray, value];
+          console.log(`➕ ARRAY_ADD: Adding "${value}" to existing array [${currentArray.join(', ')}]`);
+        } else {
+          typedValue = currentArray; // No change if already exists
+          console.log(`⏭️ ARRAY_SKIP: "${value}" already exists in array`);
+        }
+      } else if (lowerMessage.includes('remove') && lowerMessage.includes('from')) {
+        // Remove operation: filter out the value
+        typedValue = currentArray.filter(item => item !== value);
+        console.log(`➖ ARRAY_REMOVE: Removing "${value}" from array [${currentArray.join(', ')}]`);
+      } else {
+        // Replace operation: set entire array to single value or parse comma-separated
+        if (value.includes(',')) {
+          typedValue = value.split(',').map(v => v.trim());
+        } else {
+          typedValue = [value];
+        }
+        console.log(`🔄 ARRAY_REPLACE: Setting array to [${typedValue.join(', ')}]`);
       }
     }
     

@@ -68,18 +68,25 @@ const TooltipField = ({
 export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPanelProps) => {
   const [coinSearch, setCoinSearch] = useState('');
   
+  // DEFENSIVE: Ensure selectedCoins is always an array
+  const selectedCoins = Array.isArray(formData.selectedCoins) 
+    ? formData.selectedCoins 
+    : typeof formData.selectedCoins === 'string' 
+      ? [formData.selectedCoins]
+      : [];
+  
   const availableCoins = COINBASE_COINS.filter(coin => 
-    !formData.selectedCoins.includes(coin) &&
+    !selectedCoins.includes(coin) &&
     coin.toLowerCase().includes(coinSearch.toLowerCase())
   );
 
   const addCoin = (coin: string) => {
-    const newSelectedCoins = [...formData.selectedCoins, coin];
+    const newSelectedCoins = [...selectedCoins, coin];
     updateFormData('selectedCoins', newSelectedCoins);
   };
 
   const removeCoin = (coin: string) => {
-    const newSelectedCoins = formData.selectedCoins.filter((c: string) => c !== coin);
+    const newSelectedCoins = selectedCoins.filter((c: string) => c !== coin);
     updateFormData('selectedCoins', newSelectedCoins);
   };
 
@@ -133,17 +140,17 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
             {/* Selected Coins */}
             <div className="space-y-4">
               <TooltipField description="These are the cryptocurrencies your strategy will trade." examples={["Trade Bitcoin and Ethereum", "Add Solana to my portfolio", "Include XRP in the strategy"]}>
-                <Label>Selected Coins ({formData.selectedCoins.length})</Label>
+                <Label>Selected Coins ({selectedCoins.length})</Label>
               </TooltipField>
               
               <div className="border rounded-lg p-4 max-h-64 overflow-y-auto">
-                {formData.selectedCoins.length === 0 ? (
+                {selectedCoins.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
                     No coins selected. Add coins from the left panel.
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {formData.selectedCoins.map((coin: string) => (
+                    {selectedCoins.map((coin: string) => (
                       <div
                         key={coin}
                         className="flex items-center justify-between p-2 bg-muted rounded"
