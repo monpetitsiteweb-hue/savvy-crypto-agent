@@ -97,8 +97,6 @@ interface StrategyFormData {
   shortingMinProfitPercentage: number;
   autoCloseShorts: boolean;
   // Advanced settings
-  enableStopLossTimeout: boolean;
-  stopLossTimeoutMinutes: number;
   resetStopLossAfterFail: boolean;
   useTrailingStopOnly: boolean;
   // Tags and categories
@@ -280,8 +278,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     maxShortPositions: 2,
     shortingMinProfitPercentage: 1.5,
     autoCloseShorts: true,
-    enableStopLossTimeout: false,
-    stopLossTimeoutMinutes: 120,
     resetStopLossAfterFail: false,
     useTrailingStopOnly: false,
     category: 'trend',

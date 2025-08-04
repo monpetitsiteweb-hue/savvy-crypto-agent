@@ -242,23 +242,6 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     phrases: ['use trailing stop only', 'trailing only', 'only trailing'],
     description: 'Use trailing stop only'
   },
-  enableStopLossTimeout: {
-    key: 'enableStopLossTimeout',
-    type: 'boolean',
-    dbPath: 'configuration.enableStopLossTimeout',
-    aiCanExecute: true,
-    phrases: ['enable stop loss timeout', 'stop loss timeout', 'timeout stop loss'],
-    description: 'Enable stop loss timeout'
-  },
-  stopLossTimeoutMinutes: {
-    key: 'stopLossTimeoutMinutes',
-    type: 'number',
-    range: [1, 1440],
-    dbPath: 'configuration.stopLossTimeoutMinutes',
-    aiCanExecute: true,
-    phrases: ['stop loss timeout minutes', 'timeout minutes', 'stop loss timeout'],
-    description: 'Stop loss timeout in minutes'
-  },
   resetStopLossAfterFail: {
     key: 'resetStopLossAfterFail',
     type: 'boolean',

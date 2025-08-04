@@ -177,32 +177,6 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="flex items-center justify-between p-4 border rounded-lg">
-              <TooltipField 
-                description="Cancel stop loss after a timeout period."
-                examples={["Remove stop loss after 2 hours", "Disable timeout protection"]}
-              >
-                <Label>Stop Loss Timeout</Label>
-              </TooltipField>
-              <Switch 
-                checked={formData.enableStopLossTimeout} 
-                onCheckedChange={(value) => updateFormData('enableStopLossTimeout', value)}
-              />
-            </div>
-
-            {formData.enableStopLossTimeout && (
-              <div className="space-y-2">
-                <Label>Timeout (minutes)</Label>
-                <Input
-                  type="number"
-                  value={formData.stopLossTimeoutMinutes}
-                  onChange={(e) => updateFormData('stopLossTimeoutMinutes', parseInt(e.target.value) || 120)}
-                  min={1}
-                />
-              </div>
-            )}
-          </div>
         </CardContent>
       </Card>
 
