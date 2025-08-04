@@ -124,7 +124,16 @@ export const useTestTrading = () => {
     }
 
     const config = strategy.configuration;
-    const tradeAmount = config.tradeAmount || 0.001; // Default trade amount
+    // Use proper trade amount calculation from configuration
+    const amountPerTrade = config?.amountPerTrade || 100; // Default €100
+    const tradeAmount = amountPerTrade / price; // Calculate units based on EUR amount and current price
+    
+    console.log('🚨 TRADE_CALCULATION:', {
+      amountPerTrade,
+      price,
+      calculatedAmount: tradeAmount,
+      cryptocurrency
+    });
 
     if (action === 'buy') {
       const eurBalance = getBalance('EUR');
