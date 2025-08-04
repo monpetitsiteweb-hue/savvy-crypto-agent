@@ -6,6 +6,38 @@ const corsHeaders = {
 };
 
 // =============================================
+// DYNAMIC COIN LIST FROM COINBASE DATA
+// =============================================
+const COINBASE_COINS = [
+  { symbol: 'BTC', name: 'Bitcoin', category: 'major', tradingPair: 'BTC-EUR' },
+  { symbol: 'ETH', name: 'Ethereum', category: 'major', tradingPair: 'ETH-EUR' },
+  { symbol: 'XRP', name: 'XRP', category: 'altcoin', tradingPair: 'XRP-EUR' },
+  { symbol: 'ADA', name: 'Cardano', category: 'altcoin', tradingPair: 'ADA-EUR' },
+  { symbol: 'SOL', name: 'Solana', category: 'altcoin', tradingPair: 'SOL-EUR' },
+  { symbol: 'DOT', name: 'Polkadot', category: 'altcoin', tradingPair: 'DOT-EUR' },
+  { symbol: 'MATIC', name: 'Polygon', category: 'altcoin', tradingPair: 'MATIC-EUR' },
+  { symbol: 'AVAX', name: 'Avalanche', category: 'altcoin', tradingPair: 'AVAX-EUR' },
+  { symbol: 'LINK', name: 'Chainlink', category: 'altcoin', tradingPair: 'LINK-EUR' },
+  { symbol: 'UNI', name: 'Uniswap', category: 'defi', tradingPair: 'UNI-EUR' },
+  { symbol: 'AAVE', name: 'Aave', category: 'defi', tradingPair: 'AAVE-EUR' },
+  { symbol: 'CRV', name: 'Curve DAO', category: 'defi', tradingPair: 'CRV-EUR' },
+  { symbol: 'COMP', name: 'Compound', category: 'defi', tradingPair: 'COMP-EUR' },
+  { symbol: 'SUSHI', name: 'SushiSwap', category: 'defi', tradingPair: 'SUSHI-EUR' },
+  { symbol: 'USDC', name: 'USD Coin', category: 'stablecoin', tradingPair: 'USDC-EUR' },
+  { symbol: 'USDT', name: 'Tether', category: 'stablecoin', tradingPair: 'USDT-EUR' },
+  { symbol: 'DAI', name: 'Dai', category: 'stablecoin', tradingPair: 'DAI-EUR' },
+  { symbol: 'LTC', name: 'Litecoin', category: 'altcoin', tradingPair: 'LTC-EUR' },
+  { symbol: 'BCH', name: 'Bitcoin Cash', category: 'altcoin', tradingPair: 'BCH-EUR' },
+  { symbol: 'XLM', name: 'Stellar', category: 'altcoin', tradingPair: 'XLM-EUR' },
+  { symbol: 'ALGO', name: 'Algorand', category: 'altcoin', tradingPair: 'ALGO-EUR' },
+  { symbol: 'ATOM', name: 'Cosmos', category: 'altcoin', tradingPair: 'ATOM-EUR' },
+  { symbol: 'ICP', name: 'Internet Computer', category: 'altcoin', tradingPair: 'ICP-EUR' },
+  { symbol: 'FIL', name: 'Filecoin', category: 'altcoin', tradingPair: 'FIL-EUR' },
+];
+
+const VALID_COIN_SYMBOLS = COINBASE_COINS.map(coin => coin.symbol);
+
+// =============================================
 // COMPREHENSIVE FIELD DEFINITIONS - ALL 57 FIELDS
 // Based on complete cross-system field mapping analysis
 // =============================================
@@ -84,7 +116,7 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     type: 'array',
     dbPath: 'configuration.selectedCoins',
     aiCanExecute: true,
-    validValues: ['BTC', 'ETH', 'ADA', 'DOGE', 'XRP', 'LTC', 'BCH', 'LINK', 'DOT', 'UNI', 'SOL', 'MATIC', 'AVAX', 'ICP', 'XLM', 'VET', 'ALGO', 'FIL', 'TRX', 'ETC', 'THETA', 'XMR', 'XTZ', 'COMP', 'AAVE', 'MKR', 'SNX', 'CRV', 'YFI'],
+    validValues: [], // Will be populated dynamically from COINBASE_COINS
     phrases: ['selected coins', 'coin selection', 'coins to trade', 'trading pairs', 'add coin', 'remove coin', 'all coins', 'all available coins'],
     description: 'Array of selected cryptocurrency symbols'
   },
@@ -448,7 +480,7 @@ const FIELD_DEFINITIONS: Record<string, any> = {
   selectedCoins: {
     key: 'selectedCoins',
     type: 'array',
-    validValues: ['BTC', 'ETH', 'ADA', 'DOGE', 'XRP', 'LTC', 'BCH', 'LINK', 'DOT', 'UNI', 'SOL', 'MATIC', 'AVAX', 'ICP', 'XLM', 'VET', 'ALGO', 'ATOM', 'FIL', 'TRX', 'ETC', 'THETA', 'XMR', 'XTZ', 'COMP', 'AAVE', 'MKR', 'SNX', 'CRV', 'YFI'],
+    validValues: [], // Populated dynamically from COINBASE_COINS
     dbPath: 'configuration.selectedCoins',
     aiCanExecute: true,
     phrases: ['add coin', 'select coin', 'choose coins', 'trade', 'include', 'bitcoin', 'ethereum', 'btc', 'eth', 'xrp', 'ada', 'doge'],
@@ -1583,6 +1615,14 @@ class ResponseFormatter {
 What would you like me to configure?`;
   }
 }
+
+// =============================================
+// DYNAMIC COIN LIST INITIALIZATION
+// =============================================
+// Initialize selectedCoins validValues dynamically from COINBASE_COINS
+FIELD_DEFINITIONS.selectedCoins.validValues = VALID_COIN_SYMBOLS;
+
+console.log(`🪙 Dynamic coin validation initialized with ${VALID_COIN_SYMBOLS.length} coins:`, VALID_COIN_SYMBOLS.join(', '));
 
 // =============================================
 // MAIN HANDLER
