@@ -1648,15 +1648,39 @@ What would you like me to configure?`;
       lowerMessage.includes(coin.toLowerCase())
     );
     const coinsToAnalyze = mentionedCoins.length > 0 ? mentionedCoins : selectedCoins.slice(0, 3);
+
+    // ======================================
+    // ENHANCED CONTEXT INTEGRATION 
+    // ======================================
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
     
-    // Prepare market context for OpenAI
+    console.log('🔍 CONTEXT_ENRICHMENT: Collecting ecosystem signals...');
+    
+    // Collect comprehensive market intelligence
+    const enrichedData = await ResponseFormatter.collectMarketIntelligence(
+      supabase, 
+      coinsToAnalyze, 
+      strategy?.user_id
+    );
+    
+    // Prepare ENRICHED market context for OpenAI with full ecosystem data
     const marketContext = {
       userQuestion: message,
       strategyMode: strategy?.configuration?.aiIntelligenceConfig?.decisionMode || 'balanced',
       analysisCoins: coinsToAnalyze,
       marketData: {},
       technicalIndicators: {},
-      recentActivity: []
+      recentActivity: [],
+      // NEW: Full ecosystem intelligence
+      whaleAlerts: enrichedData.whaleAlerts,
+      newsSignals: enrichedData.newsSignals,
+      sentimentAnalysis: enrichedData.sentimentAnalysis,
+      liveSignals: enrichedData.liveSignals,
+      correlationSignals: enrichedData.correlationSignals,
+      alertHistory: enrichedData.alertHistory,
+      marketEvents: enrichedData.marketEvents
     };
 
     // Add market data
@@ -1711,24 +1735,65 @@ What would you like me to configure?`;
       }));
     }
 
-    const systemPrompt = `You are a professional crypto market expert AI assistant. Based on the user's question and market context provided, generate a conversational, insightful, and actionable response. 
+    const systemPrompt = `You are a professional crypto market expert AI assistant with access to comprehensive market intelligence. Based on the user's question and the rich ecosystem data provided, generate a conversational, insightful, and actionable response.
 
 Your response should:
 - Be conversational and expert-like (not a data dump)
-- Interpret technical indicators like a human would
-- Provide synthesized insights and reasoning
-- Include specific actionable guidance without giving financial advice
-- Sound professional but approachable
+- Reference specific whale activity, news sentiment, and signal patterns when relevant
+- Synthesize insights from multiple data sources (technical indicators, whale alerts, news sentiment, recent signals)
+- Provide contextualized guidance based on recent market events and alert history
+- Connect current market conditions to recent patterns and user's strategy mode
+- Sound like an expert who has been monitoring the market all day
 - Be concise but thorough (2-4 paragraphs max)
+
+CRITICAL: You have access to:
+- Recent whale transaction data and wallet activity
+- Real-time news sentiment and volume spikes  
+- Live trading signals (technical, sentiment, volume)
+- Alert history and signal patterns from the last 7 days
+- Cross-asset correlation signals
+- Market events and significant developments
+
+Use this data to provide intelligent, contextual responses that reference specific market activity.
 
 IMPORTANT: Do not give direct financial advice. Use phrases like "might consider", "could be worth monitoring", "appears to suggest", etc.`;
 
     const userPrompt = `User Question: "${message}"
 
-Market Context:
-${JSON.stringify(marketContext, null, 2)}
+COMPREHENSIVE MARKET INTELLIGENCE:
 
-Please analyze this data and provide expert insights on what's happening in the market and what the user should consider based on their ${marketContext.strategyMode} strategy mode.`;
+Current Market Data:
+${JSON.stringify(marketContext.marketData, null, 2)}
+
+Technical Indicators:
+${JSON.stringify(marketContext.technicalIndicators, null, 2)}
+
+Recent Trading Activity:
+${JSON.stringify(marketContext.recentActivity, null, 2)}
+
+🐋 WHALE ACTIVITY (Last 24h):
+${JSON.stringify(marketContext.whaleAlerts, null, 2)}
+
+📰 NEWS SENTIMENT ANALYSIS:
+${JSON.stringify(marketContext.newsSignals, null, 2)}
+
+📊 LIVE TRADING SIGNALS:
+${JSON.stringify(marketContext.liveSignals, null, 2)}
+
+🔗 CORRELATION SIGNALS:
+${JSON.stringify(marketContext.correlationSignals, null, 2)}
+
+📈 ALERT HISTORY (Signal Patterns):
+${JSON.stringify(marketContext.alertHistory, null, 2)}
+
+⚡ SIGNIFICANT MARKET EVENTS:
+${JSON.stringify(marketContext.marketEvents, null, 2)}
+
+STRATEGY CONTEXT:
+- Mode: ${marketContext.strategyMode}
+- Focus Coins: ${marketContext.analysisCoins.join(', ')}
+
+Please analyze this comprehensive data and provide expert insights that reference specific whale activity, sentiment trends, signal patterns, and market events. Connect the dots between different data sources to give contextual, intelligent advice.`;
 
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -1751,13 +1816,215 @@ Please analyze this data and provide expert insights on what's happening in the 
       const data = await response.json();
       const aiResponse = data.choices[0].message.content;
       
-      console.log('✅ CRYPTO_EXPERT: OpenAI analysis generated');
-      return `🔮 **Crypto Market Expert Analysis**\n\n${aiResponse}\n\n💡 *This analysis is based on current technical indicators and market data. Always consider your risk tolerance and do your own research.*`;
+      console.log('✅ CRYPTO_EXPERT: OpenAI analysis generated using enriched ecosystem data');
+      return `🔮 **Crypto Market Expert Analysis**\n\n${aiResponse}\n\n💡 *This analysis incorporates live whale activity, news sentiment, trading signals, and market events. Always consider your risk tolerance and do your own research.*`;
       
     } catch (error) {
       console.log(`❌ CRYPTO_EXPERT_ERROR: ${error.message}`);
       return `❌ Unable to generate market analysis at this time. Please try again later.\n\nError: ${error.message}`;
     }
+  }
+
+  // ======================================
+  // MARKET INTELLIGENCE COLLECTION
+  // ======================================
+  static async collectMarketIntelligence(supabase: any, coins: string[], userId?: string) {
+    console.log('🧠 INTELLIGENCE: Collecting signals for coins:', coins.join(', '));
+    
+    try {
+      // Get last 24 hours timeframe
+      const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const last7days = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      
+      // 1. Whale Activity & Alerts
+      const { data: whaleEvents } = await supabase
+        .from('whale_signal_events')
+        .select('*')
+        .in('symbol', coins)
+        .gte('timestamp', last24h)
+        .order('timestamp', { ascending: false })
+        .limit(10);
+      
+      // 2. Live Trading Signals (sentiment, technical, volume)
+      const { data: liveSignals } = await supabase
+        .from('live_signals')
+        .select('*')
+        .in('symbol', coins)
+        .gte('timestamp', last24h)
+        .order('timestamp', { ascending: false })
+        .limit(20);
+      
+      // 3. News & Sentiment Analysis
+      const { data: newsData } = await supabase
+        .from('crypto_news')
+        .select('*')
+        .in('symbol', coins)
+        .gte('timestamp', last24h)
+        .order('timestamp', { ascending: false })
+        .limit(15);
+      
+      // 4. Signal History & Patterns (last 7 days for context)
+      const { data: signalHistory } = await supabase
+        .from('live_signals')
+        .select('signal_type, symbol, signal_strength, timestamp')
+        .in('symbol', coins)
+        .gte('timestamp', last7days)
+        .order('timestamp', { ascending: false });
+      
+      // Process and structure the intelligence
+      const intelligence = {
+        whaleAlerts: ResponseFormatter.processWhaleAlerts(whaleEvents || []),
+        newsSignals: ResponseFormatter.processNewsSignals(newsData || []),
+        sentimentAnalysis: ResponseFormatter.processSentimentData(liveSignals || []),
+        liveSignals: ResponseFormatter.processLiveSignals(liveSignals || []),
+        correlationSignals: ResponseFormatter.processCorrelationSignals(liveSignals || []),
+        alertHistory: ResponseFormatter.processAlertHistory(signalHistory || []),
+        marketEvents: ResponseFormatter.processMarketEvents(liveSignals || [], newsData || [])
+      };
+      
+      console.log('📊 INTELLIGENCE_SUMMARY:', {
+        whaleEvents: whaleEvents?.length || 0,
+        liveSignals: liveSignals?.length || 0,
+        newsArticles: newsData?.length || 0,
+        signalHistory: signalHistory?.length || 0
+      });
+      
+      return intelligence;
+      
+    } catch (error) {
+      console.error('❌ Error collecting market intelligence:', error);
+      return {
+        whaleAlerts: [],
+        newsSignals: [],
+        sentimentAnalysis: {},
+        liveSignals: [],
+        correlationSignals: [],
+        alertHistory: [],
+        marketEvents: []
+      };
+    }
+  }
+
+  // ======================================
+  // SIGNAL PROCESSING METHODS
+  // ======================================
+  static processWhaleAlerts(whaleEvents: any[]) {
+    return whaleEvents.map(event => ({
+      timestamp: event.timestamp,
+      symbol: event.token_symbol || event.symbol,
+      amount: event.amount,
+      source: event.from_address,
+      destination: event.to_address,
+      type: event.event_type,
+      blockchain: event.blockchain,
+      txHash: event.transaction_hash,
+      significance: event.amount > 1000000 ? 'high' : event.amount > 100000 ? 'medium' : 'low'
+    }));
+  }
+
+  static processNewsSignals(newsData: any[]) {
+    const groupedBySymbol = newsData.reduce((acc, news) => {
+      if (!acc[news.symbol]) acc[news.symbol] = [];
+      acc[news.symbol].push(news);
+      return acc;
+    }, {});
+
+    return Object.entries(groupedBySymbol).map(([symbol, articles]: [string, any[]]) => ({
+      symbol,
+      sentiment: articles.reduce((sum, a) => sum + a.sentiment_score, 0) / articles.length,
+      volume: articles.length,
+      latestHeadlines: articles.slice(0, 3).map(a => a.headline),
+      trend: articles.reduce((sum, a) => sum + a.sentiment_score, 0) / articles.length > 0.6 ? 'bullish' : 
+             articles.reduce((sum, a) => sum + a.sentiment_score, 0) / articles.length < 0.4 ? 'bearish' : 'neutral'
+    }));
+  }
+
+  static processSentimentData(signals: any[]) {
+    const sentimentSignals = signals.filter(s => s.signal_type.includes('sentiment'));
+    const groupedBySymbol = sentimentSignals.reduce((acc, signal) => {
+      if (!acc[signal.symbol]) acc[signal.symbol] = [];
+      acc[signal.symbol].push(signal);
+      return acc;
+    }, {});
+
+    return Object.entries(groupedBySymbol).reduce((acc, [symbol, sigs]: [string, any[]]) => {
+      acc[symbol] = {
+        avgStrength: sigs.reduce((sum, s) => sum + s.signal_strength, 0) / sigs.length,
+        signalCount: sigs.length,
+        latestTrend: sigs[0]?.signal_type.includes('bullish') ? 'bullish' : 
+                     sigs[0]?.signal_type.includes('bearish') ? 'bearish' : 'neutral'
+      };
+      return acc;
+    }, {});
+  }
+
+  static processLiveSignals(signals: any[]) {
+    return signals.slice(0, 10).map(signal => ({
+      symbol: signal.symbol,
+      type: signal.signal_type,
+      strength: signal.signal_strength,
+      timestamp: signal.timestamp,
+      source: signal.source,
+      description: signal.data?.description || signal.signal_type.replace(/_/g, ' ')
+    }));
+  }
+
+  static processCorrelationSignals(signals: any[]) {
+    const maSignals = signals.filter(s => s.signal_type.includes('ma_cross'));
+    return maSignals.slice(0, 5).map(signal => ({
+      symbol: signal.symbol,
+      direction: signal.signal_type.includes('bullish') ? 'bullish' : 'bearish',
+      strength: signal.signal_strength,
+      timestamp: signal.timestamp
+    }));
+  }
+
+  static processAlertHistory(signalHistory: any[]) {
+    const last24h = signalHistory.filter(s => 
+      new Date(s.timestamp) > new Date(Date.now() - 24 * 60 * 60 * 1000)
+    );
+    
+    const signalCounts = last24h.reduce((acc, signal) => {
+      acc[signal.signal_type] = (acc[signal.signal_type] || 0) + 1;
+      return acc;
+    }, {});
+
+    return Object.entries(signalCounts)
+      .sort(([,a], [,b]) => (b as number) - (a as number))
+      .slice(0, 5)
+      .map(([type, count]) => ({ signalType: type, count }));
+  }
+
+  static processMarketEvents(signals: any[], news: any[]) {
+    const significantEvents = [];
+    
+    // High-strength signals as events
+    const strongSignals = signals.filter(s => s.signal_strength > 80);
+    strongSignals.forEach(signal => {
+      significantEvents.push({
+        type: 'signal',
+        symbol: signal.symbol,
+        description: `Strong ${signal.signal_type} signal detected`,
+        strength: signal.signal_strength,
+        timestamp: signal.timestamp
+      });
+    });
+
+    // High-impact news as events
+    const highImpactNews = news.filter(n => 
+      n.sentiment_score > 0.8 || n.sentiment_score < 0.2
+    );
+    highImpactNews.forEach(article => {
+      significantEvents.push({
+        type: 'news',
+        symbol: article.symbol,
+        description: article.headline,
+        sentiment: article.sentiment_score > 0.5 ? 'positive' : 'negative',
+        timestamp: article.timestamp
+      });
+    });
+
+    return significantEvents.slice(0, 8);
   }
 }
 
