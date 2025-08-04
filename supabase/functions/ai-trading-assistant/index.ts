@@ -6,8 +6,8 @@ const corsHeaders = {
 };
 
 // =============================================
-// FIELD DEFINITIONS - CANONICAL SOURCE OF TRUTH
-// Based on your comprehensive field mapping analysis
+// FIELD DEFINITIONS - COMPREHENSIVE CANONICAL SOURCE OF TRUTH
+// Based on complete cross-system field mapping analysis
 // =============================================
 const FIELD_DEFINITIONS: Record<string, any> = {
   // === AI Intelligence Config ===
@@ -64,105 +64,652 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     phrases: ['autonomy level', 'AI autonomy', 'set autonomy', 'autonomy'],
     description: 'Level of autonomous decision-making authority granted to AI'
   },
-  
-  // === Risk Management ===
-  riskLevel: {
-    key: 'riskLevel',
+  enablePatternRecognition: {
+    key: 'enablePatternRecognition',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → Pattern Recognition & Market Analysis',
+    dbPath: 'configuration.aiIntelligenceConfig.enablePatternRecognition',
+    csvMatch: 'Enable Pattern Recognition',
+    aiCanExecute: true,
+    phrases: ['enable pattern recognition', 'use pattern recognition', 'analyze patterns', 'pattern analysis'],
+    description: 'Enable AI to recognize and act on historical patterns'
+  },
+  patternLookbackHours: {
+    key: 'patternLookbackHours',
+    type: 'number',
+    range: [24, 720],
+    uiLocation: 'AI Intelligence → Pattern Recognition & Market Analysis',
+    dbPath: 'configuration.aiIntelligenceConfig.patternLookbackHours',
+    csvMatch: 'Pattern Analysis Lookback',
+    aiCanExecute: true,
+    phrases: ['pattern lookback', 'lookback hours', 'pattern history', 'analysis period'],
+    description: 'How far back to analyze for patterns (in hours)'
+  },
+  crossAssetCorrelation: {
+    key: 'crossAssetCorrelation',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → Pattern Recognition & Market Analysis',
+    dbPath: 'configuration.aiIntelligenceConfig.crossAssetCorrelation',
+    csvMatch: 'Cross-Asset Correlation Analysis',
+    aiCanExecute: true,
+    phrases: ['cross asset correlation', 'asset correlation', 'correlation analysis', 'check correlations'],
+    description: 'Analyze correlations between different assets'
+  },
+  marketStructureAnalysis: {
+    key: 'marketStructureAnalysis',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → Pattern Recognition & Market Analysis',
+    dbPath: 'configuration.aiIntelligenceConfig.marketStructureAnalysis',
+    csvMatch: 'Market Structure Analysis',
+    aiCanExecute: true,
+    phrases: ['market structure', 'structure analysis', 'market depth', 'liquidity analysis'],
+    description: 'Analyze market structure and liquidity patterns'
+  },
+  enableExternalSignals: {
+    key: 'enableExternalSignals',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → External Signal Processing',
+    dbPath: 'configuration.aiIntelligenceConfig.enableExternalSignals',
+    csvMatch: 'Enable External Signal Processing',
+    aiCanExecute: true,
+    phrases: ['enable external signals', 'use external signals', 'process signals', 'external data'],
+    description: 'Process and act on external market signals'
+  },
+  whaleActivityWeight: {
+    key: 'whaleActivityWeight',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → External Signal Processing',
+    dbPath: 'configuration.aiIntelligenceConfig.whaleActivityWeight',
+    csvMatch: 'Whale Activity',
+    aiCanExecute: true,
+    phrases: ['whale activity', 'whale weight', 'whale signals', 'whale movements'],
+    description: 'Weight given to whale activity signals'
+  },
+  sentimentWeight: {
+    key: 'sentimentWeight',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → External Signal Processing',
+    dbPath: 'configuration.aiIntelligenceConfig.sentimentWeight',
+    csvMatch: 'Market Sentiment',
+    aiCanExecute: true,
+    phrases: ['sentiment weight', 'market sentiment', 'sentiment analysis', 'sentiment signals'],
+    description: 'Weight given to market sentiment signals'
+  },
+  newsImpactWeight: {
+    key: 'newsImpactWeight',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → External Signal Processing',
+    dbPath: 'configuration.aiIntelligenceConfig.newsImpactWeight',
+    csvMatch: 'News Impact',
+    aiCanExecute: true,
+    phrases: ['news impact', 'news weight', 'news signals', 'news analysis'],
+    description: 'Weight given to news impact signals'
+  },
+  socialSignalsWeight: {
+    key: 'socialSignalsWeight',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → External Signal Processing',
+    dbPath: 'configuration.aiIntelligenceConfig.socialSignalsWeight',
+    csvMatch: 'Social Signals',
+    aiCanExecute: true,
+    phrases: ['social signals', 'social weight', 'social media', 'twitter sentiment'],
+    description: 'Weight given to social media signals'
+  },
+  decisionMode: {
+    key: 'decisionMode',
     type: 'string',
-    uiLocation: 'Strategy Configuration → Risk Management tab',
-    dbPath: 'configuration.riskLevel',
-    csvMatch: 'Risk Level',
+    validValues: ['conservative', 'balanced', 'aggressive'],
+    uiLocation: 'AI Intelligence → AI Intelligence Core',
+    dbPath: 'configuration.aiIntelligenceConfig.decisionMode',
+    csvMatch: 'Decision Making Mode',
     aiCanExecute: true,
-    phrases: ['risk level', 'set risk', 'risk tolerance'],
+    phrases: ['decision mode', 'decision making', 'be conservative', 'be aggressive', 'be balanced'],
+    description: 'AI decision-making style and risk approach'
+  },
+  enableLearning: {
+    key: 'enableLearning',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → Learning & Adaptation',
+    dbPath: 'configuration.aiIntelligenceConfig.enableLearning',
+    csvMatch: 'Enable AI Learning',
+    aiCanExecute: true,
+    phrases: ['enable learning', 'AI learning', 'learn from trades', 'adaptive learning'],
+    description: 'Enable AI to learn from trading results'
+  },
+  adaptToPerformance: {
+    key: 'adaptToPerformance',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → Learning & Adaptation',
+    dbPath: 'configuration.aiIntelligenceConfig.adaptToPerformance',
+    csvMatch: 'Adapt to Performance',
+    aiCanExecute: true,
+    phrases: ['adapt to performance', 'performance adaptation', 'adjust based on results'],
+    description: 'Adapt strategy based on performance results'
+  },
+  learningRate: {
+    key: 'learningRate',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → Learning & Adaptation',
+    dbPath: 'configuration.aiIntelligenceConfig.learningRate',
+    csvMatch: 'Learning Rate',
+    aiCanExecute: true,
+    phrases: ['learning rate', 'learning speed', 'adaptation rate'],
+    description: 'Speed of AI learning and adaptation'
+  },
+  explainDecisions: {
+    key: 'explainDecisions',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → Alerts & Communication',
+    dbPath: 'configuration.aiIntelligenceConfig.explainDecisions',
+    csvMatch: 'Explain AI Decisions',
+    aiCanExecute: true,
+    phrases: ['explain decisions', 'explain AI', 'decision explanations', 'tell me why'],
+    description: 'Provide explanations for AI decisions'
+  },
+  alertOnAnomalies: {
+    key: 'alertOnAnomalies',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → Alerts & Communication',
+    dbPath: 'configuration.aiIntelligenceConfig.alertOnAnomalies',
+    csvMatch: 'Alert on Anomalies',
+    aiCanExecute: true,
+    phrases: ['alert on anomalies', 'anomaly alerts', 'unusual activity alerts'],
+    description: 'Alert when AI detects anomalous market conditions'
+  },
+  alertOnOverrides: {
+    key: 'alertOnOverrides',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → Alerts & Communication',
+    dbPath: 'configuration.aiIntelligenceConfig.alertOnOverrides',
+    csvMatch: 'Alert on Overrides',
+    aiCanExecute: true,
+    phrases: ['alert on overrides', 'override alerts', 'notify when overriding'],
+    description: 'Alert when AI overrides strategy rules'
+  },
+  customInstructions: {
+    key: 'customInstructions',
+    type: 'string',
+    uiLocation: 'AI Intelligence → Alerts & Communication',
+    dbPath: 'configuration.aiIntelligenceConfig.customInstructions',
+    csvMatch: 'Custom Instructions',
+    aiCanExecute: true,
+    phrases: ['custom instructions', 'special instructions', 'AI instructions', 'additional guidance'],
+    description: 'Custom instructions for AI behavior'
+  },
+
+  // === Basic Settings ===
+  strategyName: {
+    key: 'strategyName',
+    type: 'string',
+    uiLocation: 'Basic Settings',
+    dbPath: 'strategy_name',
+    csvMatch: 'Strategy Name',
+    aiCanExecute: false, // Strategy name changes require careful consideration
+    phrases: ['strategy name', 'name strategy', 'call strategy'],
+    description: 'Name of the trading strategy'
+  },
+  riskProfile: {
+    key: 'riskProfile',
+    type: 'string',
+    validValues: ['low', 'medium', 'high', 'custom'],
+    uiLocation: 'Basic Settings',
+    dbPath: 'configuration.riskProfile',
+    csvMatch: 'Risk Profile',
+    aiCanExecute: true,
+    phrases: ['risk profile', 'risk level', 'risk tolerance', 'low risk', 'medium risk', 'high risk'],
     description: 'Overall risk tolerance level'
-  },
-  stopLossPercentage: {
-    key: 'stopLossPercentage',
-    type: 'number',
-    range: [0, 100],
-    uiLocation: 'Strategy Configuration → Risk Management tab → Stop Loss field',
-    dbPath: 'configuration.stopLossPercentage',
-    csvMatch: 'Stop Loss Percentage',
-    aiCanExecute: true,
-    phrases: ['stop loss', 'stop loss percentage', 'set stop loss'],
-    description: 'Stop loss percentage for trades'
-  },
-  takeProfitPercentage: {
-    key: 'takeProfitPercentage',
-    type: 'number',
-    range: [0, 100],
-    uiLocation: 'Strategy Configuration → Risk Management tab → Take Profit field',
-    dbPath: 'configuration.takeProfitPercentage',
-    csvMatch: 'Take Profit Percentage',
-    aiCanExecute: true,
-    phrases: ['take profit', 'take profit percentage', 'set take profit', 'profit target'],
-    description: 'Take profit percentage for trades'
   },
   maxWalletExposure: {
     key: 'maxWalletExposure',
     type: 'number',
-    range: [0, 100],
-    uiLocation: 'Risk Management → Position Sizing → Wallet Exposure',
-    dbPath: 'configuration.riskManagement.maxWalletExposure',
+    range: [1, 100],
+    uiLocation: 'Basic Settings',
+    dbPath: 'configuration.maxWalletExposure',
     csvMatch: 'Max Wallet Exposure',
     aiCanExecute: true,
     phrases: ['max wallet exposure', 'wallet exposure', 'exposure limit', 'maximum exposure'],
     description: 'Maximum percentage of wallet that can be exposed to trades'
   },
-  trailingStopPercentage: {
-    key: 'trailingStopPercentage',
-    type: 'number',
-    range: [0, 100],
-    uiLocation: 'Risk Management → Stop Loss → Trailing Stop',
-    dbPath: 'configuration.riskManagement.trailingStopPercentage',
-    csvMatch: 'Trailing Stop Percentage',
+  enableLiveTrading: {
+    key: 'enableLiveTrading',
+    type: 'boolean',
+    uiLocation: 'Basic Settings',
+    dbPath: 'configuration.enableLiveTrading',
+    csvMatch: 'Enable Live Trading',
+    aiCanExecute: false, // Safety: Don't allow AI to enable live trading
+    phrases: ['enable live trading', 'live trading', 'real trading'],
+    description: 'Enable live trading with real money'
+  },
+  enableTestTrading: {
+    key: 'enableTestTrading',
+    type: 'boolean',
+    uiLocation: 'Basic Settings',
+    dbPath: 'configuration.enableTestTrading',
+    csvMatch: 'Enable Test Trading',
     aiCanExecute: true,
-    phrases: ['trailing stop percentage', 'trailing stop', 'set trailing stop', 'trailing stop %'],
-    description: 'Percentage for trailing stop loss orders'
+    phrases: ['enable test trading', 'test trading', 'paper trading', 'demo trading'],
+    description: 'Enable test trading with simulated money'
   },
 
   // === Coins & Amounts ===
+  selectedCoins: {
+    key: 'selectedCoins',
+    type: 'array',
+    uiLocation: 'Coins and Amounts',
+    dbPath: 'configuration.selectedCoins',
+    csvMatch: 'Selected Coins',
+    aiCanExecute: true,
+    phrases: ['selected coins', 'coin selection', 'coins to trade', 'trading pairs', 'add coin', 'remove coin'],
+    description: 'List of selected cryptocurrencies to trade'
+  },
+  maxActiveCoins: {
+    key: 'maxActiveCoins',
+    type: 'number',
+    range: [1, 10],
+    uiLocation: 'Coins and Amounts',
+    dbPath: 'configuration.maxActiveCoins',
+    csvMatch: 'Max Active Coins',
+    aiCanExecute: true,
+    phrases: ['max active coins', 'maximum coins', 'coin limit', 'active coins'],
+    description: 'Maximum number of different cryptocurrencies that can be actively traded at once'
+  },
+  enableAutoCoinSelection: {
+    key: 'enableAutoCoinSelection',
+    type: 'boolean',
+    uiLocation: 'Coins and Amounts',
+    dbPath: 'configuration.enableAutoCoinSelection',
+    csvMatch: 'Auto Coin Selection',
+    aiCanExecute: true,
+    phrases: ['auto coin selection', 'automatic coin selection', 'auto select coins', 'let AI pick coins'],
+    description: 'Let the AI automatically choose which coins to trade based on market conditions'
+  },
   perTradeAllocation: {
     key: 'perTradeAllocation',
     type: 'number',
-    uiLocation: 'Strategy Configuration → Coins & Amounts tab → "Amount Per Trade" field',
+    uiLocation: 'Coins and Amounts',
     dbPath: 'configuration.perTradeAllocation',
     csvMatch: 'Amount Per Trade',
     aiCanExecute: true,
     phrases: ['amount per trade', 'trade amount', 'per trade allocation', 'trade size'],
     description: 'Amount allocated per individual trade'
   },
-  selectedCoins: {
-    key: 'selectedCoins',
-    type: 'array',
-    uiLocation: 'Strategy Configuration → Coins & Amounts tab → Coin selection checkboxes',
-    dbPath: 'configuration.selectedCoins',
-    csvMatch: 'Selected Coins',
+  allocationUnit: {
+    key: 'allocationUnit',
+    type: 'string',
+    validValues: ['euro', 'percentage'],
+    uiLocation: 'Coins and Amounts',
+    dbPath: 'configuration.allocationUnit',
+    csvMatch: 'Allocation Unit',
     aiCanExecute: true,
-    phrases: ['selected coins', 'coin selection', 'coins to trade', 'trading pairs'],
-    description: 'List of selected cryptocurrencies to trade'
+    phrases: ['allocation unit', 'trade in euros', 'trade in percentage', 'euro allocation', 'percentage allocation'],
+    description: 'Unit for trade allocation (euro or percentage)'
   },
 
   // === Buy/Sell Settings ===
   buyOrderType: {
     key: 'buyOrderType',
     type: 'string',
-    uiLocation: 'Strategy Configuration → Buy/Sell Settings → Buy Order Type',
+    validValues: ['market', 'limit', 'trailing_buy'],
+    uiLocation: 'Buy/Sell Settings',
     dbPath: 'configuration.buyOrderType',
     csvMatch: 'Buy Order Type',
     aiCanExecute: true,
-    phrases: ['buy order type', 'buy order', 'market order', 'limit order'],
-    description: 'Type of order to use for buying (market/limit)'
+    phrases: ['buy order type', 'buy order', 'market buy', 'limit buy'],
+    description: 'Type of order to use for buying'
+  },
+  trailingBuyPercentage: {
+    key: 'trailingBuyPercentage',
+    type: 'number',
+    range: [0.1, 10],
+    uiLocation: 'Buy/Sell Settings',
+    dbPath: 'configuration.trailingBuyPercentage',
+    csvMatch: 'Trailing Buy Percentage',
+    aiCanExecute: true,
+    phrases: ['trailing buy', 'trailing buy percentage', 'buy trailing'],
+    description: 'Percentage for trailing buy orders'
+  },
+  buyFrequency: {
+    key: 'buyFrequency',
+    type: 'string',
+    validValues: ['once', 'daily', 'interval', 'signal_based'],
+    uiLocation: 'Buy/Sell Settings',
+    dbPath: 'configuration.buyFrequency',
+    csvMatch: 'Buy Frequency',
+    aiCanExecute: true,
+    phrases: ['buy frequency', 'buy once', 'buy daily', 'buy on signal', 'signal based buying'],
+    description: 'How often to execute buy orders'
+  },
+  buyIntervalMinutes: {
+    key: 'buyIntervalMinutes',
+    type: 'number',
+    range: [1, 1440],
+    uiLocation: 'Buy/Sell Settings',
+    dbPath: 'configuration.buyIntervalMinutes',
+    csvMatch: 'Buy Interval (minutes)',
+    aiCanExecute: true,
+    phrases: ['buy interval', 'buy every', 'interval minutes'],
+    description: 'Minutes between automated buy orders when using interval buying'
+  },
+  buyCooldownMinutes: {
+    key: 'buyCooldownMinutes',
+    type: 'number',
+    range: [1, 1440],
+    uiLocation: 'Buy/Sell Settings',
+    dbPath: 'configuration.buyCooldownMinutes',
+    csvMatch: 'Buy Cooldown',
+    aiCanExecute: true,
+    phrases: ['buy cooldown', 'cooldown minutes', 'wait between buys'],
+    description: 'Cooldown period between buy orders'
   },
   sellOrderType: {
     key: 'sellOrderType',
     type: 'string',
-    uiLocation: 'Strategy Configuration → Buy/Sell Settings → Sell Order Type',
+    validValues: ['market', 'limit', 'trailing_stop', 'auto_close'],
+    uiLocation: 'Buy/Sell Settings',
     dbPath: 'configuration.sellOrderType',
     csvMatch: 'Sell Order Type',
     aiCanExecute: true,
-    phrases: ['sell order type', 'sell order'],
-    description: 'Type of order to use for selling (market/limit)'
+    phrases: ['sell order type', 'sell order', 'market sell', 'limit sell'],
+    description: 'Type of order to use for selling'
+  },
+  takeProfitPercentage: {
+    key: 'takeProfitPercentage',
+    type: 'number',
+    range: [0.1, 100],
+    uiLocation: 'Buy/Sell Settings',
+    dbPath: 'configuration.takeProfitPercentage',
+    csvMatch: 'Take Profit Percentage',
+    aiCanExecute: true,
+    phrases: ['take profit', 'take profit percentage', 'set take profit', 'profit target'],
+    description: 'Take profit percentage for trades'
+  },
+  stopLossPercentage: {
+    key: 'stopLossPercentage',
+    type: 'number',
+    range: [0.1, 50],
+    uiLocation: 'Buy/Sell Settings',
+    dbPath: 'configuration.stopLossPercentage',
+    csvMatch: 'Stop Loss Percentage',
+    aiCanExecute: true,
+    phrases: ['stop loss', 'stop loss percentage', 'set stop loss'],
+    description: 'Stop loss percentage for trades'
+  },
+  trailingStopLossPercentage: {
+    key: 'trailingStopLossPercentage',
+    type: 'number',
+    range: [0.1, 20],
+    uiLocation: 'Buy/Sell Settings',
+    dbPath: 'configuration.trailingStopLossPercentage',
+    csvMatch: 'Trailing Stop Loss Percentage',
+    aiCanExecute: true,
+    phrases: ['trailing stop loss', 'trailing stop', 'set trailing stop'],
+    description: 'Percentage for trailing stop loss orders'
+  },
+  autoCloseAfterHours: {
+    key: 'autoCloseAfterHours',
+    type: 'number',
+    range: [1, 168],
+    uiLocation: 'Buy/Sell Settings',
+    dbPath: 'configuration.autoCloseAfterHours',
+    csvMatch: 'Auto Close After Hours',
+    aiCanExecute: true,
+    phrases: ['auto close', 'close after hours', 'position timeout'],
+    description: 'Automatically close positions after specified hours'
+  },
+
+  // === Position Management ===
+  maxOpenPositions: {
+    key: 'maxOpenPositions',
+    type: 'number',
+    range: [1, 20],
+    uiLocation: 'Position Management',
+    dbPath: 'configuration.maxOpenPositions',
+    csvMatch: 'Max Open Positions',
+    aiCanExecute: true,
+    phrases: ['max open positions', 'maximum positions', 'position limit'],
+    description: 'Maximum number of open positions at any time'
+  },
+  dailyProfitTarget: {
+    key: 'dailyProfitTarget',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'Position Management',
+    dbPath: 'configuration.dailyProfitTarget',
+    csvMatch: 'Daily Profit Target',
+    aiCanExecute: true,
+    phrases: ['daily profit target', 'profit target', 'daily goal'],
+    description: 'Daily profit target percentage'
+  },
+  dailyLossLimit: {
+    key: 'dailyLossLimit',
+    type: 'number',
+    range: [0, 50],
+    uiLocation: 'Position Management',
+    dbPath: 'configuration.dailyLossLimit',
+    csvMatch: 'Daily Loss Limit',
+    aiCanExecute: true,
+    phrases: ['daily loss limit', 'loss limit', 'maximum daily loss'],
+    description: 'Maximum daily loss percentage'
+  },
+  maxTradesPerDay: {
+    key: 'maxTradesPerDay',
+    type: 'number',
+    range: [1, 100],
+    uiLocation: 'Position Management',
+    dbPath: 'configuration.maxTradesPerDay',
+    csvMatch: 'Max Trades Per Day',
+    aiCanExecute: true,
+    phrases: ['max trades per day', 'daily trade limit', 'trade limit'],
+    description: 'Maximum number of trades per day'
+  },
+  tradeCooldownMinutes: {
+    key: 'tradeCooldownMinutes',
+    type: 'number',
+    range: [1, 1440],
+    uiLocation: 'Position Management',
+    dbPath: 'configuration.tradeCooldownMinutes',
+    csvMatch: 'Trade Cooldown',
+    aiCanExecute: true,
+    phrases: ['trade cooldown', 'cooldown between trades', 'wait between trades'],
+    description: 'Cooldown period between trades'
+  },
+
+  // === DCA & Advanced ===
+  enableDCA: {
+    key: 'enableDCA',
+    type: 'boolean',
+    uiLocation: 'DCA & Advanced',
+    dbPath: 'configuration.enableDCA',
+    csvMatch: 'Enable DCA',
+    aiCanExecute: true,
+    phrases: ['enable DCA', 'dollar cost averaging', 'DCA', 'average down'],
+    description: 'Enable Dollar Cost Averaging'
+  },
+  dcaIntervalHours: {
+    key: 'dcaIntervalHours',
+    type: 'number',
+    range: [1, 168],
+    uiLocation: 'DCA & Advanced',
+    dbPath: 'configuration.dcaIntervalHours',
+    csvMatch: 'DCA Interval Hours',
+    aiCanExecute: true,
+    phrases: ['DCA interval', 'DCA hours', 'averaging interval'],
+    description: 'Hours between DCA purchases'
+  },
+  dcaSteps: {
+    key: 'dcaSteps',
+    type: 'number',
+    range: [2, 10],
+    uiLocation: 'DCA & Advanced',
+    dbPath: 'configuration.dcaSteps',
+    csvMatch: 'DCA Steps',
+    aiCanExecute: true,
+    phrases: ['DCA steps', 'averaging steps', 'DCA levels'],
+    description: 'Number of DCA steps'
+  },
+  enableStopLossTimeout: {
+    key: 'enableStopLossTimeout',
+    type: 'boolean',
+    uiLocation: 'DCA & Advanced',
+    dbPath: 'configuration.enableStopLossTimeout',
+    csvMatch: 'Enable Stop Loss Timeout',
+    aiCanExecute: true,
+    phrases: ['stop loss timeout', 'timeout stop loss', 'time based stop loss'],
+    description: 'Enable time-based stop loss'
+  },
+  stopLossTimeoutMinutes: {
+    key: 'stopLossTimeoutMinutes',
+    type: 'number',
+    range: [1, 10080],
+    uiLocation: 'DCA & Advanced',
+    dbPath: 'configuration.stopLossTimeoutMinutes',
+    csvMatch: 'Stop Loss Timeout Minutes',
+    aiCanExecute: true,
+    phrases: ['stop loss timeout minutes', 'timeout minutes'],
+    description: 'Minutes before stop loss timeout'
+  },
+  useTrailingStopOnly: {
+    key: 'useTrailingStopOnly',
+    type: 'boolean',
+    uiLocation: 'DCA & Advanced',
+    dbPath: 'configuration.useTrailingStopOnly',
+    csvMatch: 'Use Trailing Stop Only',
+    aiCanExecute: true,
+    phrases: ['trailing stop only', 'only trailing stop', 'disable fixed stop loss'],
+    description: 'Use only trailing stop loss'
+  },
+  resetStopLossAfterFail: {
+    key: 'resetStopLossAfterFail',
+    type: 'boolean',
+    uiLocation: 'DCA & Advanced',
+    dbPath: 'configuration.resetStopLossAfterFail',
+    csvMatch: 'Reset Stop Loss After Fail',
+    aiCanExecute: true,
+    phrases: ['reset stop loss', 'reset after fail', 'stop loss reset'],
+    description: 'Reset stop loss after failed execution'
+  },
+
+  // === Shorting ===
+  enableShorting: {
+    key: 'enableShorting',
+    type: 'boolean',
+    uiLocation: 'Shorting',
+    dbPath: 'configuration.enableShorting',
+    csvMatch: 'Enable Shorting',
+    aiCanExecute: true,
+    phrases: ['enable shorting', 'short selling', 'shorting'],
+    description: 'Enable short selling'
+  },
+  maxShortPositions: {
+    key: 'maxShortPositions',
+    type: 'number',
+    range: [1, 10],
+    uiLocation: 'Shorting',
+    dbPath: 'configuration.maxShortPositions',
+    csvMatch: 'Max Short Positions',
+    aiCanExecute: true,
+    phrases: ['max short positions', 'maximum shorts', 'short limit'],
+    description: 'Maximum number of short positions'
+  },
+  shortingMinProfitPercentage: {
+    key: 'shortingMinProfitPercentage',
+    type: 'number',
+    range: [0.1, 20],
+    uiLocation: 'Shorting',
+    dbPath: 'configuration.shortingMinProfitPercentage',
+    csvMatch: 'Shorting Min Profit Percentage',
+    aiCanExecute: true,
+    phrases: ['shorting profit', 'short profit percentage', 'minimum short profit'],
+    description: 'Minimum profit percentage for shorting'
+  },
+  autoCloseShorts: {
+    key: 'autoCloseShorts',
+    type: 'boolean',
+    uiLocation: 'Shorting',
+    dbPath: 'configuration.autoCloseShorts',
+    csvMatch: 'Auto Close Shorts',
+    aiCanExecute: true,
+    phrases: ['auto close shorts', 'automatically close shorts', 'close shorts'],
+    description: 'Automatically close short positions'
+  },
+
+  // === Notifications ===
+  notifyOnTrade: {
+    key: 'notifyOnTrade',
+    type: 'boolean',
+    uiLocation: 'Notifications',
+    dbPath: 'configuration.notifyOnTrade',
+    csvMatch: 'Notify on Trade',
+    aiCanExecute: true,
+    phrases: ['notify on trade', 'trade notifications', 'alert on trades'],
+    description: 'Send notifications when trades are executed'
+  },
+  notifyOnError: {
+    key: 'notifyOnError',
+    type: 'boolean',
+    uiLocation: 'Notifications',
+    dbPath: 'configuration.notifyOnError',
+    csvMatch: 'Notify on Error',
+    aiCanExecute: true,
+    phrases: ['notify on error', 'error notifications', 'alert on errors'],
+    description: 'Send notifications when errors occur'
+  },
+  notifyOnTargets: {
+    key: 'notifyOnTargets',
+    type: 'boolean',
+    uiLocation: 'Notifications',
+    dbPath: 'configuration.notifyOnTargets',
+    csvMatch: 'Notify on Targets',
+    aiCanExecute: true,
+    phrases: ['notify on targets', 'target notifications', 'alert on targets'],
+    description: 'Send notifications when targets are hit'
+  },
+
+  // === Advanced Settings ===
+  backtestingMode: {
+    key: 'backtestingMode',
+    type: 'boolean',
+    uiLocation: 'Advanced Settings',
+    dbPath: 'configuration.backtestingMode',
+    csvMatch: 'Backtesting Mode',
+    aiCanExecute: true,
+    phrases: ['backtesting mode', 'backtest', 'test strategy'],
+    description: 'Enable backtesting mode'
+  },
+  category: {
+    key: 'category',
+    type: 'string',
+    uiLocation: 'Advanced Settings',
+    dbPath: 'configuration.category',
+    csvMatch: 'Category',
+    aiCanExecute: true,
+    phrases: ['category', 'strategy category', 'set category'],
+    description: 'Strategy category'
+  },
+  tags: {
+    key: 'tags',
+    type: 'array',
+    uiLocation: 'Advanced Settings',
+    dbPath: 'configuration.tags',
+    csvMatch: 'Tags',
+    aiCanExecute: true,
+    phrases: ['tags', 'strategy tags', 'add tag', 'remove tag'],
+    description: 'Strategy tags'
+  },
+  notes: {
+    key: 'notes',
+    type: 'string',
+    uiLocation: 'Advanced Settings',
+    dbPath: 'description',
+    csvMatch: 'Notes',
+    aiCanExecute: true,
+    phrases: ['notes', 'description', 'strategy notes', 'add note'],
+    description: 'Strategy notes and description'
   }
 };
 
