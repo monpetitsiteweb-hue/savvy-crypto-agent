@@ -1634,6 +1634,12 @@ What would you like me to configure?`;
     
     console.log('🔮 CRYPTO_EXPERT: Analyzing market query:', message);
     
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!openaiApiKey) {
+      console.log('❌ OPENAI_API_KEY not found, falling back to basic response');
+      return '❌ AI analysis unavailable. OpenAI API key not configured.';
+    }
+
     const lowerMessage = message.toLowerCase();
     const selectedCoins = strategy?.configuration?.selectedCoins || [];
     
@@ -1643,114 +1649,115 @@ What would you like me to configure?`;
     );
     const coinsToAnalyze = mentionedCoins.length > 0 ? mentionedCoins : selectedCoins.slice(0, 3);
     
-    let response = '🔮 **Crypto Market Analysis**\n\n';
-    
-    // Market Overview
+    // Prepare market context for OpenAI
+    const marketContext = {
+      userQuestion: message,
+      strategyMode: strategy?.configuration?.aiIntelligenceConfig?.decisionMode || 'balanced',
+      analysisCoins: coinsToAnalyze,
+      marketData: {},
+      technicalIndicators: {},
+      recentActivity: []
+    };
+
+    // Add market data
     if (marketData && Object.keys(marketData).length > 0) {
-      response += '📊 **Current Market Data:**\n';
       for (const coin of coinsToAnalyze) {
         const coinPair = `${coin}-EUR`;
         const data = marketData[coinPair];
         if (data) {
-          response += `• **${coin}**: €${data.price} (Volume: ${data.volume?.toFixed(2) || 'N/A'})\n`;
+          marketContext.marketData[coin] = {
+            price: data.price,
+            volume: data.volume,
+            change24h: data.change_percentage_24h || 0
+          };
         }
       }
-      response += '\n';
     }
-    
-    // Technical Analysis
+
+    // Add technical indicators
     if (indicatorContext && Object.keys(indicatorContext).length > 0) {
-      response += '📈 **Technical Indicators:**\n';
       for (const coin of coinsToAnalyze) {
         const coinPair = `${coin}-EUR`;
         const indicators = indicatorContext[coinPair];
         if (indicators) {
-          const rsi = indicators.RSI?.value?.toFixed(1) || 'N/A';
-          const rsiSignal = indicators.RSI?.signal || 'neutral';
-          const emaDirection = indicators.EMA?.direction || 'neutral';
-          const macdCrossover = indicators.MACD?.crossover || 'neutral';
-          
-          response += `• **${coin}**: RSI ${rsi} (${rsiSignal}) | EMA ${emaDirection} | MACD ${macdCrossover}\n`;
+          marketContext.technicalIndicators[coin] = {
+            RSI: {
+              value: indicators.RSI?.value?.toFixed(1) || 'N/A',
+              signal: indicators.RSI?.signal || 'neutral'
+            },
+            EMA: {
+              direction: indicators.EMA?.direction || 'neutral'
+            },
+            MACD: {
+              crossover: indicators.MACD?.crossover || 'neutral'
+            }
+          };
         }
       }
-      response += '\n';
     }
-    
-    // Recent Trading Activity
+
+    // Add recent trading activity
     if (recentTrades && recentTrades.length > 0) {
-      response += '🕒 **Recent Activity:**\n';
       const relevantTrades = recentTrades
         .filter(trade => coinsToAnalyze.some(coin => trade.cryptocurrency.includes(coin)))
         .slice(0, 3);
         
-      for (const trade of relevantTrades) {
-        const timeAgo = new Date(trade.executed_at).toLocaleString();
-        response += `• ${trade.trade_type.toUpperCase()} ${trade.cryptocurrency} - €${trade.total_value} at ${timeAgo}\n`;
-      }
-      response += '\n';
+      marketContext.recentActivity = relevantTrades.map(trade => ({
+        type: trade.trade_type,
+        coin: trade.cryptocurrency,
+        value: trade.total_value,
+        profitLoss: trade.profit_loss,
+        timeAgo: new Date(trade.executed_at).toLocaleString()
+      }));
     }
-    
-    // Market Sentiment Analysis
-    response += '🎯 **Analysis Summary:**\n';
-    
-    // Analyze RSI levels for sentiment
-    let bullishCount = 0;
-    let bearishCount = 0;
-    let neutralCount = 0;
-    
-    for (const coin of coinsToAnalyze) {
-      const coinPair = `${coin}-EUR`;
-      const indicators = indicatorContext?.[coinPair];
-      if (indicators?.RSI) {
-        const rsi = indicators.RSI.value;
-        if (rsi < 30) bearishCount++;
-        else if (rsi > 70) bullishCount++;
-        else neutralCount++;
-      }
-    }
-    
-    if (bearishCount > bullishCount) {
-      response += '• **Sentiment**: Oversold conditions detected - potential buying opportunity\n';
-    } else if (bullishCount > bearishCount) {
-      response += '• **Sentiment**: Overbought conditions - consider taking profits\n';
-    } else {
-      response += '• **Sentiment**: Neutral market conditions - follow trend signals\n';
-    }
-    
-    // Strategy-specific advice
-    const aiConfig = strategy?.configuration?.aiIntelligenceConfig;
-    if (aiConfig?.decisionMode === 'aggressive') {
-      response += '• **Strategy Mode**: Aggressive - Ready for high-frequency opportunities\n';
-    } else if (aiConfig?.decisionMode === 'conservative') {
-      response += '• **Strategy Mode**: Conservative - Focus on strong signals only\n';
-    }
-    
-    // Specific coin analysis if mentioned
-    if (mentionedCoins.length === 1) {
-      const coin = mentionedCoins[0];
-      const coinPair = `${coin}-EUR`;
-      const indicators = indicatorContext?.[coinPair];
+
+    const systemPrompt = `You are a professional crypto market expert AI assistant. Based on the user's question and market context provided, generate a conversational, insightful, and actionable response. 
+
+Your response should:
+- Be conversational and expert-like (not a data dump)
+- Interpret technical indicators like a human would
+- Provide synthesized insights and reasoning
+- Include specific actionable guidance without giving financial advice
+- Sound professional but approachable
+- Be concise but thorough (2-4 paragraphs max)
+
+IMPORTANT: Do not give direct financial advice. Use phrases like "might consider", "could be worth monitoring", "appears to suggest", etc.`;
+
+    const userPrompt = `User Question: "${message}"
+
+Market Context:
+${JSON.stringify(marketContext, null, 2)}
+
+Please analyze this data and provide expert insights on what's happening in the market and what the user should consider based on their ${marketContext.strategyMode} strategy mode.`;
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 1500
+        })
+      });
+
+      const data = await response.json();
+      const aiResponse = data.choices[0].message.content;
       
-      if (indicators) {
-        response += `\n🎯 **${coin} Specific Analysis:**\n`;
-        
-        if (indicators.RSI?.value < 30) {
-          response += '• RSI indicates oversold - potential buy signal\n';
-        } else if (indicators.RSI?.value > 70) {
-          response += '• RSI indicates overbought - consider selling\n';
-        }
-        
-        if (indicators.EMA?.direction === 'bullish') {
-          response += '• EMA crossover shows bullish momentum\n';
-        } else if (indicators.EMA?.direction === 'bearish') {
-          response += '• EMA crossover shows bearish momentum\n';
-        }
-      }
+      console.log('✅ CRYPTO_EXPERT: OpenAI analysis generated');
+      return `🔮 **Crypto Market Expert Analysis**\n\n${aiResponse}\n\n💡 *This analysis is based on current technical indicators and market data. Always consider your risk tolerance and do your own research.*`;
+      
+    } catch (error) {
+      console.log(`❌ CRYPTO_EXPERT_ERROR: ${error.message}`);
+      return `❌ Unable to generate market analysis at this time. Please try again later.\n\nError: ${error.message}`;
     }
-    
-    response += '\n💡 *This analysis is based on current technical indicators and market data. Always consider your risk tolerance and do your own research.*';
-    
-    return response;
   }
 }
 
