@@ -29,8 +29,29 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     dbPath: 'configuration.aiIntelligenceConfig.aiConfidenceThreshold',
     csvMatch: 'Confidence Threshold',
     aiCanExecute: true,
-    phrases: ['confidence threshold', 'AI confidence', 'set confidence', 'confidence level', 'escalation threshold'],
+    phrases: ['confidence threshold', 'AI confidence', 'set confidence', 'confidence level'],
     description: 'Minimum confidence level required for AI to execute trades'
+  },
+  escalationThreshold: {
+    key: 'escalationThreshold',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Intelligence Core',
+    dbPath: 'configuration.aiIntelligenceConfig.escalationThreshold',
+    csvMatch: 'Escalation Threshold',
+    aiCanExecute: true,
+    phrases: ['escalation threshold', 'escalation', 'escalate threshold', 'set escalation'],
+    description: 'When AI should escalate vs act independently'
+  },
+  riskOverrideAllowed: {
+    key: 'riskOverrideAllowed',
+    type: 'boolean',
+    uiLocation: 'AI Intelligence → AI Intelligence Settings → AI Intelligence Core',
+    dbPath: 'configuration.aiIntelligenceConfig.riskOverrideAllowed',
+    csvMatch: 'Allow Risk Parameter Override',
+    aiCanExecute: true,
+    phrases: ['allow risk parameter override', 'risk override', 'override risk parameters', 'enable risk override', 'disable risk override'],
+    description: 'Allow AI to override risk parameters when opportunity justifies it'
   },
   aiAutonomyLevel: {
     key: 'aiAutonomyLevel',
