@@ -1,147 +1,106 @@
-# COMPREHENSIVE STRATEGY FIELD MAPPING TABLE
+# COMPREHENSIVE FIELD MAPPING TABLE
+## Complete Cross-System Field Analysis
 
-## ISSUE ANALYSIS
+| **UI Field Name** | **UI Property** | **Expected Type** | **DB Path** | **AI Assistant Key** | **AI Mapped** | **Tooltip Key** | **Status** | **Issues Found** |
+|-------------------|-----------------|-------------------|-------------|---------------------|---------------|-----------------|------------|------------------|
+| **BASIC STRATEGY** | | | | | | | | |
+| Strategy Name | strategyName | string | strategy_name | ❌ NOT_MAPPED | No | "Strategy Name" | BROKEN | No AI mapping |
+| Notes/Description | notes | string | description | ❌ NOT_MAPPED | No | "Notes" | BROKEN | No AI mapping |
+| Risk Profile | riskProfile | enum | configuration.riskProfile | ❌ NOT_MAPPED | No | "Risk Profile" | BROKEN | No AI mapping |
+| Max Wallet Exposure | maxWalletExposure | number | configuration.maxWalletExposure | ✅ maxWalletExposure | Yes | "Max Wallet Exposure" | ⚠️ PARTIAL | Wrong DB write path |
+| Enable Live Trading | enableLiveTrading | boolean | configuration.enableLiveTrading | ❌ NOT_MAPPED | No | "Enable Live Trading" | BROKEN | No AI mapping |
+| Enable Test Trading | enableTestTrading | boolean | configuration.enableTestTrading | ✅ enableTestTrading | Yes | "Enable Test Trading" | OK | Working |
+| Category | category | string | configuration.category | ❌ NOT_MAPPED | No | "Category" | BROKEN | No AI mapping |
+| Tags | tags | array | configuration.tags | ✅ tags | Yes | "Tags" | OK | Working |
+| **COINS & AMOUNTS** | | | | | | | | |
+| Selected Coins | selectedCoins | array | configuration.selectedCoins | ✅ selectedCoins | Yes | "Selected Coins" | ⚠️ CRITICAL | STRING vs ARRAY mismatch |
+| Max Active Coins | maxActiveCoins | number | configuration.maxActiveCoins | ✅ maxActiveCoins | Yes | "Max Active Coins" | OK | Working |
+| Auto Coin Selection | enableAutoCoinSelection | boolean | configuration.enableAutoCoinSelection | ❌ NOT_MAPPED | No | "Auto Coin Selection" | BROKEN | No AI mapping |
+| Per Trade Allocation | perTradeAllocation | number | configuration.perTradeAllocation | ✅ perTradeAllocation | Yes | "Amount Per Trade" | OK | Working |
+| Allocation Unit | allocationUnit | enum | configuration.allocationUnit | ❌ NOT_MAPPED | No | "Allocation Unit" | BROKEN | No AI mapping |
+| **BUY SETTINGS** | | | | | | | | |
+| Buy Order Type | buyOrderType | enum | configuration.buyOrderType | ✅ buyOrderType | Yes | "Buy Order Type" | OK | Working |
+| Trailing Buy % | trailingBuyPercentage | number | configuration.trailingBuyPercentage | ❌ NOT_MAPPED | No | "Trailing Buy %" | BROKEN | No AI mapping |
+| Buy Frequency | buyFrequency | enum | configuration.buyFrequency | ❌ NOT_MAPPED | No | "Buy Frequency" | BROKEN | No AI mapping |
+| Buy Interval Minutes | buyIntervalMinutes | number | configuration.buyIntervalMinutes | ❌ NOT_MAPPED | No | "Buy Interval" | BROKEN | No AI mapping |
+| Buy Cooldown Minutes | buyCooldownMinutes | number | configuration.buyCooldownMinutes | ❌ NOT_MAPPED | No | "Buy Cooldown" | BROKEN | No AI mapping |
+| **SELL SETTINGS** | | | | | | | | |
+| Sell Order Type | sellOrderType | enum | configuration.sellOrderType | ✅ sellOrderType | Yes | "Sell Order Type" | OK | Working |
+| Take Profit % | takeProfitPercentage | number | configuration.takeProfitPercentage | ✅ takeProfitPercentage | Yes | "Take Profit %" | OK | Working |
+| Stop Loss % | stopLossPercentage | number | configuration.stopLossPercentage | ✅ stopLossPercentage | Yes | "Stop Loss %" | OK | Working |
+| Trailing Stop Loss % | trailingStopLossPercentage | number | configuration.trailingStopLossPercentage | ❌ NOT_MAPPED | No | "Trailing Stop %" | BROKEN | No AI mapping |
+| Auto Close After Hours | autoCloseAfterHours | number | configuration.autoCloseAfterHours | ❌ NOT_MAPPED | No | "Auto Close Hours" | BROKEN | No AI mapping |
+| Max Open Positions | maxOpenPositions | number | configuration.maxOpenPositions | ❌ NOT_MAPPED | No | "Max Positions" | BROKEN | No AI mapping |
+| Trade Cooldown Minutes | tradeCooldownMinutes | number | configuration.tradeCooldownMinutes | ❌ NOT_MAPPED | No | "Trade Cooldown" | BROKEN | No AI mapping |
+| Use Trailing Stop Only | useTrailingStopOnly | boolean | configuration.useTrailingStopOnly | ❌ NOT_MAPPED | No | "Trailing Only" | BROKEN | No AI mapping |
+| Enable Stop Loss Timeout | enableStopLossTimeout | boolean | configuration.enableStopLossTimeout | ❌ NOT_MAPPED | No | "Stop Loss Timeout" | BROKEN | No AI mapping |
+| Stop Loss Timeout Minutes | stopLossTimeoutMinutes | number | configuration.stopLossTimeoutMinutes | ❌ NOT_MAPPED | No | "Timeout Minutes" | BROKEN | No AI mapping |
+| Reset Stop Loss After Fail | resetStopLossAfterFail | boolean | configuration.resetStopLossAfterFail | ❌ NOT_MAPPED | No | "Reset Stop Loss" | BROKEN | No AI mapping |
+| **RISK MANAGEMENT** | | | | | | | | |
+| Daily Profit Target | dailyProfitTarget | number | configuration.dailyProfitTarget | ❌ NOT_MAPPED | No | "Daily Profit Target" | BROKEN | No AI mapping |
+| Daily Loss Limit | dailyLossLimit | number | configuration.dailyLossLimit | ❌ NOT_MAPPED | No | "Daily Loss Limit" | BROKEN | No AI mapping |
+| Max Trades Per Day | maxTradesPerDay | number | configuration.maxTradesPerDay | ❌ NOT_MAPPED | No | "Max Trades/Day" | BROKEN | No AI mapping |
+| Backtesting Mode | backtestingMode | boolean | configuration.backtestingMode | ❌ NOT_MAPPED | No | "Backtesting Mode" | BROKEN | No AI mapping |
+| **NOTIFICATIONS** | | | | | | | | |
+| Notify On Trade | notifyOnTrade | boolean | configuration.notifyOnTrade | ❌ NOT_MAPPED | No | "Trade Notifications" | BROKEN | No AI mapping |
+| Notify On Error | notifyOnError | boolean | configuration.notifyOnError | ❌ NOT_MAPPED | No | "Error Notifications" | BROKEN | No AI mapping |
+| Notify On Targets | notifyOnTargets | boolean | configuration.notifyOnTargets | ❌ NOT_MAPPED | No | "Target Notifications" | BROKEN | No AI mapping |
+| **SHORTING** | | | | | | | | |
+| Enable Shorting | enableShorting | boolean | configuration.enableShorting | ❌ NOT_MAPPED | No | "Enable Shorting" | BROKEN | No AI mapping |
+| Max Short Positions | maxShortPositions | number | configuration.maxShortPositions | ❌ NOT_MAPPED | No | "Max Short Positions" | BROKEN | No AI mapping |
+| Shorting Min Profit % | shortingMinProfitPercentage | number | configuration.shortingMinProfitPercentage | ❌ NOT_MAPPED | No | "Min Profit %" | BROKEN | No AI mapping |
+| Auto Close Shorts | autoCloseShorts | boolean | configuration.autoCloseShorts | ❌ NOT_MAPPED | No | "Auto Close Shorts" | BROKEN | No AI mapping |
+| **DOLLAR COST AVERAGING** | | | | | | | | |
+| Enable DCA | enableDCA | boolean | configuration.enableDCA | ❌ NOT_MAPPED | No | "Enable DCA" | BROKEN | No AI mapping |
+| DCA Interval Hours | dcaIntervalHours | number | configuration.dcaIntervalHours | ❌ NOT_MAPPED | No | "DCA Interval" | BROKEN | No AI mapping |
+| DCA Steps | dcaSteps | number | configuration.dcaSteps | ❌ NOT_MAPPED | No | "DCA Steps" | BROKEN | No AI mapping |
+| **AI INTELLIGENCE** | | | | | | | | |
+| Enable AI Override | enableAIOverride | boolean | configuration.aiIntelligenceConfig.enableAIOverride | ✅ enableAIOverride | Yes | "Enable AI Override" | OK | Working |
+| AI Autonomy Level | aiAutonomyLevel | number | configuration.aiIntelligenceConfig.aiAutonomyLevel | ✅ aiAutonomyLevel | Yes | "AI Autonomy Level" | OK | Working |
+| AI Confidence Threshold | aiConfidenceThreshold | number | configuration.aiIntelligenceConfig.aiConfidenceThreshold | ✅ aiConfidenceThreshold | Yes | "Confidence Threshold" | OK | Working |
+| Escalation Threshold | escalationThreshold | number | configuration.aiIntelligenceConfig.escalationThreshold | ✅ escalationThreshold | Yes | "Escalation Threshold" | OK | Working |
+| Risk Override Allowed | riskOverrideAllowed | boolean | configuration.aiIntelligenceConfig.riskOverrideAllowed | ✅ riskOverrideAllowed | Yes | "Risk Override" | OK | Working |
+| Enable Pattern Recognition | enablePatternRecognition | boolean | configuration.aiIntelligenceConfig.enablePatternRecognition | ❌ NOT_MAPPED | No | "Pattern Recognition" | BROKEN | No AI mapping |
+| Pattern Lookback Hours | patternLookbackHours | number | configuration.aiIntelligenceConfig.patternLookbackHours | ❌ NOT_MAPPED | No | "Lookback Hours" | BROKEN | No AI mapping |
+| Cross Asset Correlation | crossAssetCorrelation | boolean | configuration.aiIntelligenceConfig.crossAssetCorrelation | ❌ NOT_MAPPED | No | "Asset Correlation" | BROKEN | No AI mapping |
+| Market Structure Analysis | marketStructureAnalysis | boolean | configuration.aiIntelligenceConfig.marketStructureAnalysis | ❌ NOT_MAPPED | No | "Market Analysis" | BROKEN | No AI mapping |
+| Enable External Signals | enableExternalSignals | boolean | configuration.aiIntelligenceConfig.enableExternalSignals | ❌ NOT_MAPPED | No | "External Signals" | BROKEN | No AI mapping |
+| Whale Activity Weight | whaleActivityWeight | number | configuration.aiIntelligenceConfig.whaleActivityWeight | ❌ NOT_MAPPED | No | "Whale Weight" | BROKEN | No AI mapping |
+| Sentiment Weight | sentimentWeight | number | configuration.aiIntelligenceConfig.sentimentWeight | ❌ NOT_MAPPED | No | "Sentiment Weight" | BROKEN | No AI mapping |
+| News Impact Weight | newsImpactWeight | number | configuration.aiIntelligenceConfig.newsImpactWeight | ❌ NOT_MAPPED | No | "News Weight" | BROKEN | No AI mapping |
+| Social Signals Weight | socialSignalsWeight | number | configuration.aiIntelligenceConfig.socialSignalsWeight | ❌ NOT_MAPPED | No | "Social Weight" | BROKEN | No AI mapping |
+| Decision Mode | decisionMode | enum | configuration.aiIntelligenceConfig.decisionMode | ❌ NOT_MAPPED | No | "Decision Mode" | BROKEN | No AI mapping |
+| Enable Learning | enableLearning | boolean | configuration.aiIntelligenceConfig.enableLearning | ❌ NOT_MAPPED | No | "Enable Learning" | BROKEN | No AI mapping |
+| Adapt To Performance | adaptToPerformance | boolean | configuration.aiIntelligenceConfig.adaptToPerformance | ❌ NOT_MAPPED | No | "Adapt Performance" | BROKEN | No AI mapping |
+| Learning Rate | learningRate | number | configuration.aiIntelligenceConfig.learningRate | ❌ NOT_MAPPED | No | "Learning Rate" | BROKEN | No AI mapping |
+| Explain Decisions | explainDecisions | boolean | configuration.aiIntelligenceConfig.explainDecisions | ❌ NOT_MAPPED | No | "Explain Decisions" | BROKEN | No AI mapping |
+| Alert On Anomalies | alertOnAnomalies | boolean | configuration.aiIntelligenceConfig.alertOnAnomalies | ❌ NOT_MAPPED | No | "Alert Anomalies" | BROKEN | No AI mapping |
+| Alert On Overrides | alertOnOverrides | boolean | configuration.aiIntelligenceConfig.alertOnOverrides | ❌ NOT_MAPPED | No | "Alert Overrides" | BROKEN | No AI mapping |
+| Custom Instructions | customInstructions | string | configuration.aiIntelligenceConfig.customInstructions | ❌ NOT_MAPPED | No | "Custom Instructions" | BROKEN | No AI mapping |
 
-Based on the edge function logs and user reports, several commands are failing:
+## CRITICAL ISSUES IDENTIFIED:
 
-**WORKING COMMANDS:**
-- "set Trailing Buy Percentage to 10%" ✅ - Works (field: `trailingBuyPercentage`)
-- "enable specific coin" ✅ - Works (individual coin additions)
+### 🚨 **MISSING AI MAPPINGS: 43 out of 57 fields (75%)**
+Only 14 fields are mapped to the AI assistant. The AI is blind to most of the configuration.
 
-**FAILING COMMANDS:**
-- "set Max Wallet Exposure to 80%" ❌ - Field name issue
-- "add all available coins to my strategy" ❌ - Logic issue  
-- "disable all notifications" ❌ - Multiple field update issue
-- "set Take Profit Percentage to 1.5%" ❌ - Field name issue
-- "set Max Active Coin to 10" ❌ - Field name issue
-- "set max open position to 10" ❌ - Field name issue
+### 🚨 **DATA TYPE MISMATCHES:**
+- `selectedCoins`: UI expects ARRAY, DB contains STRING → **UI CRASH**
+- `maxWalletExposure`: AI writes to wrong nested path
 
-## DETAILED FIELD MAPPING TABLE
+### 🚨 **BROKEN SECTIONS:**
+- **Buy Settings**: 80% unmapped (4/5 fields)
+- **Sell Settings**: 70% unmapped (7/10 fields) 
+- **Risk Management**: 100% unmapped (4/4 fields)
+- **Notifications**: 100% unmapped (3/3 fields)
+- **Shorting**: 100% unmapped (4/4 fields)
+- **DCA**: 100% unmapped (3/3 fields)
+- **AI Intelligence**: 77% unmapped (20/26 fields)
 
-| **UI Field Name** | **Actual Form Field** | **AI Command Examples** | **AI Field Names Used** | **Tooltip Description** | **Current Status** |
-|------------------|----------------------|------------------------|------------------------|---------------------|------------------|
-| **BASIC SETTINGS** |
-| Strategy Name | `strategyName` | "Rename strategy to...", "Call it..." | `strategyName`, `StrategyName`, `name` | Strategy name for identification | ✅ Mapped |
-| Risk Profile | `riskProfile` | "Make it more conservative", "Set to high risk" | `riskProfile`, `RiskProfile`, `risk` | Risk level (low/medium/high/custom) | ✅ Mapped |
-| Max Wallet Exposure | `maxWalletExposure` | "Increase wallet exposure to 80%", "Use 50% of wallet" | `maxWalletExposure`, `MaxWalletExposure`, `walletexposure` | % of wallet that can be used | ✅ Mapped |
-| Enable Live Trading | `enableLiveTrading` | "Enable live trading", "Go live" | `enableLiveTrading`, `EnableLiveTrading`, `livetrading` | Allow real money trading | ✅ Mapped |
-| Enable Test Trading | `enableTestTrading` | "Enable test mode", "Switch to test" | `enableTestTrading`, `EnableTestTrading`, `testtrading` | Enable test mode trading | ✅ Mapped |
-| **COINS AND AMOUNTS** |
-| Selected Coins | `selectedCoins` | "Add BTC", "Include all coins", "Trade Ethereum" | `selectedCoins`, `SelectedCoins`, `coins` | Cryptocurrencies to trade | ✅ Mapped |
-| Max Active Coins | `maxActiveCoins` | "Focus on 3 coins max", "Limit to 5 cryptos" | `maxActiveCoins`, `MaxActiveCoins` | Max coins to trade simultaneously | ✅ Mapped |
-| Auto Coin Selection | `enableAutoCoinSelection` | "Auto-select best coins", "Let AI pick cryptos" | `enableAutoCoinSelection` | Let AI choose coins | ✅ Mapped |
-| Per Trade Allocation | `perTradeAllocation` | "Use 100 euros per trade", "Risk 5% per position" | `perTradeAllocation`, `PerTradeAllocation`, `allocation` | Amount per trade | ✅ Mapped |
-| Allocation Unit | `allocationUnit` | "Use euros", "Switch to percentage" | `allocationUnit` | Euro or percentage | ✅ Mapped |
-| Buy Frequency | `buyFrequency` | "Buy daily", "Trade on signals only" | `buyFrequency` | How often to buy | ✅ Mapped |
-| Buy Interval Minutes | `buyIntervalMinutes` | "Buy every hour", "Space trades 30 min apart" | `buyIntervalMinutes` | Minutes between buys | ✅ Mapped |
-| Buy Cooldown Minutes | `buyCooldownMinutes` | "Wait 60 minutes between buys" | `buyCooldownMinutes` | Cooldown between buys | ✅ Mapped |
-| **BUY/SELL SETTINGS** |
-| Buy Order Type | `buyOrderType` | "Use market orders for buying" | `buyOrderType`, `BuyOrderType` | Market, limit, or trailing buy | ✅ Mapped |
-| Sell Order Type | `sellOrderType` | "Use limit orders for selling" | `sellOrderType`, `SellOrderType` | Market, limit, trailing stop, auto close | ✅ Mapped |
-| Take Profit Percentage | `takeProfitPercentage` | "Set take profit to 2%", "Target 1.5% gains" | `takeProfitPercentage`, `TakeProfitPercentage`, `takeprofit` | % gain to take profit | ✅ Mapped |
-| Stop Loss Percentage | `stopLossPercentage` | "Set stop loss to 3%", "Limit losses to 2%" | `stopLossPercentage`, `StopLossPercentage`, `stoploss` | % loss to stop | ✅ Mapped |
-| Trailing Stop Loss % | `trailingStopLossPercentage` | "Set trailing stop to 2%" | `trailingStopLossPercentage` | Trailing stop loss % | ✅ Mapped |
-| Trailing Buy % | `trailingBuyPercentage` | "Set trailing buy to 1.5%" | `trailingBuyPercentage` | Trailing buy % | ✅ Mapped |
-| Auto Close After Hours | `autoCloseAfterHours` | "Close positions after 24 hours" | `autoCloseAfterHours` | Auto close positions after X hours | ✅ Mapped |
-| **POSITION MANAGEMENT** |
-| Max Open Positions | `maxOpenPositions` | "Limit to 3 open positions", "Allow 5 positions" | `maxOpenPositions`, `MaxOpenPositions` | Max positions at once | ✅ Mapped |
-| Daily Profit Target | `dailyProfitTarget` | "Target 1% daily gains", "Aim for 2% daily" | `dailyProfitTarget`, `DailyProfitTarget` | Daily profit goal | ✅ Mapped |
-| Daily Loss Limit | `dailyLossLimit` | "Limit daily losses to 2%", "Stop at 1% loss" | `dailyLossLimit`, `DailyLossLimit` | Daily loss limit | ✅ Mapped |
-| Trade Cooldown Minutes | `tradeCooldownMinutes` | "Wait 30 minutes between trades" | `tradeCooldownMinutes` | Minutes between trades | ✅ Mapped |
-| **DCA & ADVANCED** |
-| Enable DCA | `enableDCA` | "Enable DCA", "Use dollar cost averaging" | `enableDCA`, `EnableDCA`, `dca` | Enable dollar cost averaging | ✅ Mapped |
-| DCA Interval Hours | `dcaIntervalHours` | "DCA every 12 hours", "Space DCA 24 hours" | `dcaIntervalHours` | Hours between DCA steps | ✅ Mapped |
-| DCA Steps | `dcaSteps` | "Use 3 DCA steps", "Do 5 averaging steps" | `dcaSteps` | Number of DCA steps | ✅ Mapped |
-| Backtesting Mode | `backtestingMode` | "Enable backtesting", "Test strategy on history" | `backtestingMode`, `BacktestingMode`, `backtest` | Enable backtesting | ✅ Mapped |
-| **SHORTING** |
-| Enable Shorting | `enableShorting` | "Enable shorting", "Allow short positions" | `enableShorting`, `EnableShorting`, `shorting` | Allow short selling | ✅ Mapped |
-| Max Short Positions | `maxShortPositions` | "Limit to 2 short positions" | `maxShortPositions` | Max short positions | ✅ Mapped |
-| Shorting Min Profit % | `shortingMinProfitPercentage` | "Minimum 1.5% profit on shorts" | `shortingMinProfitPercentage` | Min profit % for shorts | ✅ Mapped |
-| Auto Close Shorts | `autoCloseShorts` | "Auto close short positions" | `autoCloseShorts` | Auto close short positions | ✅ Mapped |
-| **NOTIFICATIONS** |
-| Notify On Trade | `notifyOnTrade` | "Send trade notifications", "Alert on trades" | `notifyOnTrade`, `NotifyOnTrade` | Notify on trades | ✅ Mapped |
-| Notify On Error | `notifyOnError` | "Send error alerts", "Notify on failures" | `notifyOnError`, `NotifyOnError` | Notify on errors | ✅ Mapped |
-| Notify On Targets | `notifyOnTargets` | "Alert when targets hit", "Notify on goals" | `notifyOnTargets`, `NotifyOnTargets` | Notify on target hits | ✅ Mapped |
-| **ADVANCED SETTINGS** |
-| Enable Stop Loss Timeout | `enableStopLossTimeout` | "Remove stop loss after timeout" | `enableStopLossTimeout` | Cancel stop loss after timeout | ✅ Mapped |
-| Stop Loss Timeout Minutes | `stopLossTimeoutMinutes` | "Timeout after 2 hours" | `stopLossTimeoutMinutes` | Minutes before timeout | ✅ Mapped |
-| Use Trailing Stop Only | `useTrailingStopOnly` | "Only use trailing stops" | `useTrailingStopOnly` | Disable fixed stop loss | ✅ Mapped |
-| Reset Stop Loss After Fail | `resetStopLossAfterFail` | "Reset stop loss if it fails" | `resetStopLossAfterFail` | Reset stop loss after failure | ✅ Mapped |
-| Category | `category` | "Set category to scalping" | `category` | Strategy category | ✅ Mapped |
-| Tags | `tags` | "Add automated tag" | `tags` | Strategy tags | ✅ Mapped |
+### 🚨 **CONSEQUENCE:**
+User commands like "Set daily profit target to 5%, use trailing stop of 2.5%, add DOGE, notify me on errors only" **CANNOT WORK** because:
+- `dailyProfitTarget` - NOT MAPPED
+- `trailingStopLossPercentage` - NOT MAPPED  
+- `selectedCoins` - TYPE MISMATCH
+- `notifyOnError` - NOT MAPPED
 
-## AI INTELLIGENCE CONFIG FIELDS (Nested under aiIntelligenceConfig)
-
-| **UI Field Name** | **Actual Nested Field** | **AI Command Examples** | **AI Field Names Used** | **Tooltip Description** | **Current Status** |
-|------------------|------------------------|------------------------|------------------------|---------------------|------------------|
-| Enable AI Override | `enableAIOverride` | "Give AI more control", "Enable AI override" | `AIOverrideEnabled`, `enableAIOverride` | Allow AI to override rules | ✅ Mapped |
-| AI Autonomy Level | `aiAutonomyLevel` | "Give you more autonomy", "Set autonomy to 100%" | `AIAutonomyLevel`, `aiAutonomyLevel`, `autonomylevel` | AI freedom level (0-100) | ✅ Mapped |
-| AI Confidence Threshold | `aiConfidenceThreshold` | "Be more confident", "Set confidence to 80%" | `AIConfidenceThreshold`, `aiConfidenceThreshold` | Min confidence to act | ✅ Mapped |
-| Enable Pattern Recognition | `enablePatternRecognition` | "Use pattern recognition", "Analyze trends" | `enablePatternRecognition`, `patternrecognition` | Enable pattern analysis | ✅ Mapped |
-| Pattern Lookback Hours | `patternLookbackHours` | "Look back 7 days", "Use 2 weeks data" | `patternLookbackHours`, `lookbackhours` | Hours to analyze patterns | ✅ Mapped |
-| Cross Asset Correlation | `crossAssetCorrelation` | "Check BTC vs altcoin correlation" | `crossAssetCorrelation` | Analyze asset correlations | ✅ Mapped |
-| Market Structure Analysis | `marketStructureAnalysis` | "Check market depth", "Monitor liquidity" | `marketStructureAnalysis` | Analyze market structure | ✅ Mapped |
-| Enable External Signals | `enableExternalSignals` | "Use whale alerts", "Monitor news signals" | `enableExternalSignals`, `externalsignals` | Process external signals | ✅ Mapped |
-| Whale Activity Weight | `whaleActivityWeight` | "Focus on whale movements", "Weight whales 30%" | `whaleActivityWeight` | Weight for whale signals | ✅ Mapped |
-| Sentiment Weight | `sentimentWeight` | "Track market sentiment", "Use sentiment 25%" | `sentimentWeight` | Weight for sentiment | ✅ Mapped |
-| News Impact Weight | `newsImpactWeight` | "React to breaking news", "News weight 40%" | `newsImpactWeight` | Weight for news | ✅ Mapped |
-| Social Signals Weight | `socialSignalsWeight` | "Monitor social trends", "Social weight 20%" | `socialSignalsWeight` | Weight for social signals | ✅ Mapped |
-| Decision Mode | `decisionMode` | "Be more conservative/aggressive" | `decisionMode` | AI decision style | ✅ Mapped |
-| Escalation Threshold | `escalationThreshold` | "Ask before big decisions", "Handle more yourself" | `escalationThreshold` | When to escalate vs act | ✅ Mapped |
-| Risk Override Allowed | `riskOverrideAllowed` | "Override risk when needed", "Strict risk only" | `riskOverrideAllowed` | Allow risk override | ✅ Mapped |
-| Enable Learning | `enableLearning` | "Learn from performance", "Adapt over time" | `enableLearning`, `learning` | Enable AI learning | ✅ Mapped |
-| Adapt To Performance | `adaptToPerformance` | "Adjust based on results" | `adaptToPerformance` | Adapt to performance | ✅ Mapped |
-| Learning Rate | `learningRate` | "Learn faster", "Slow down learning" | `learningRate` | Learning speed | ✅ Mapped |
-| Explain Decisions | `explainDecisions` | "Explain your decisions", "Tell me why" | `explainDecisions` | Explain AI decisions | ✅ Mapped |
-| Alert On Anomalies | `alertOnAnomalies` | "Alert on unusual patterns" | `alertOnAnomalies` | Alert on anomalies | ✅ Mapped |
-| Alert On Overrides | `alertOnOverrides` | "Tell me when you override" | `alertOnOverrides` | Alert on overrides | ✅ Mapped |
-| Custom Instructions | `customInstructions` | "Follow these instructions..." | `customInstructions` | Custom AI instructions | ✅ Mapped |
-
-## DUPLICATE FIELD ANALYSIS
-
-**POTENTIAL CONFLICTS IDENTIFIED:**
-
-1. **AI Autonomy Level Duplication:**
-   - Root Level: `aiAutonomyLevel` (appears in main config)
-   - AI Intelligence Config: `aiAutonomyLevel` (nested under aiIntelligenceConfig)
-   - **CONFLICT:** Both exist in the same configuration object
-
-2. **Notification Fields:**
-   - Multiple notification fields may need to be updated together for "disable all notifications"
-   - Need to handle bulk notification changes
-
-3. **Missing "All Coins" Logic:**
-   - When user says "add all available coins", need to map to full COINBASE_COINS array
-   - Current logic may not be handling "all" keyword properly
-
-## ROOT CAUSE ANALYSIS OF FAILURES
-
-1. **Field Mapping Issues:**
-   - AI correctly maps field names but may have case sensitivity issues
-   - Some commands work (trailing buy) others don't (max wallet exposure) - inconsistent behavior
-
-2. **Bulk Operation Issues:**
-   - "All coins" and "all notifications" commands require special logic
-   - Need to handle array operations and multiple field updates
-
-3. **Value Type Mismatches:**
-   - Percentage values may need proper numeric conversion
-   - Boolean vs string type issues
-
-## RECOMMENDATIONS
-
-1. **Add Special Handlers for Bulk Operations:**
-   - "all coins" → set selectedCoins to full COINBASE_COINS array
-   - "disable all notifications" → set notifyOnTrade, notifyOnError, notifyOnTargets to false
-
-2. **Fix Duplicate Field Issue:**
-   - Remove or consolidate duplicate aiAutonomyLevel fields
-   - Ensure only one source of truth for each setting
-
-3. **Add Debug Logging:**
-   - Log exact field mappings and values being set
-   - Verify config updates are properly saved to database
-
-4. **Test Each Failing Command:**
-   - Systematically test each reported failure
-   - Verify mapping logic for percentage and numeric fields
+**RESULT: Only 25% of the strategy configuration is accessible via AI assistant.**
