@@ -802,88 +802,212 @@ const FIELD_DEFINITIONS: Record<string, any> = {
 // TYPE VALIDATION AND CONVERSION
 // =============================================
 class TypeValidator {
-  static validateAndConvert(value: any, fieldDef: any): { valid: boolean; convertedValue?: any; error?: string } {
-    const { type, range, validValues } = fieldDef;
+  static normalizeValue(value: any, fieldDef: any): any {
+    if (!value && value !== 0 && value !== false) return value;
+    
+    // String normalization
+    if (typeof value === 'string') {
+      value = value.trim();
+      
+      // Handle percentage notation for numeric fields
+      if (fieldDef.type === 'number' && value.includes('%')) {
+        value = value.replace(/%/g, '');
+      }
+      
+      // Special normalization based on field type and key
+      if (fieldDef.type === 'string') {
+        // General enum normalization
+        if (fieldDef.key === 'sellOrderType') {
+          const normalized = value.toLowerCase();
+          if (normalized.includes('auto') && normalized.includes('close')) {
+            return 'auto_close';
+          } else if (normalized.includes('trailing') && normalized.includes('stop')) {
+            return 'trailing_stop';
+          } else if (normalized.includes('market')) {
+            return 'market';
+          } else if (normalized.includes('limit')) {
+            return 'limit';
+          }
+        }
+        
+        if (fieldDef.key === 'buyOrderType') {
+          const normalized = value.toLowerCase();
+          if (normalized.includes('trailing') && normalized.includes('buy')) {
+            return 'trailing_buy';
+          } else if (normalized.includes('market')) {
+            return 'market';
+          } else if (normalized.includes('limit')) {
+            return 'limit';
+          }
+        }
+        
+        // For other string enums, check case-insensitive against valid values
+        if (fieldDef.validValues) {
+          const exactMatch = fieldDef.validValues.find(valid => 
+            valid.toLowerCase() === value.toLowerCase()
+          );
+          if (exactMatch) return exactMatch;
+        }
+        
+        return value.toLowerCase();
+      }
+      
+      // For arrays (like selectedCoins), normalize individual values
+      if (fieldDef.type === 'array' && fieldDef.validValues) {
+        const upperValue = value.toUpperCase();
+        const validMatch = fieldDef.validValues.find(valid => 
+          valid.toUpperCase() === upperValue
+        );
+        return validMatch || value;
+      }
+    }
+    
+    return value;
+  }
+
+  static validateAndConvert(value: any, fieldDef: any, action: string = 'set'): { 
+    valid: boolean; 
+    convertedValue?: any; 
+    error?: string;
+    validationReport: any;
+  } {
+    const { type, range, validValues, key } = fieldDef;
+    
+    // Create validation report for debugging
+    const validationReport = {
+      field: key,
+      action,
+      input: value,
+      normalized: null,
+      valid: false,
+      reason: null,
+      type,
+      range: range || null,
+      validValues: validValues || null
+    };
     
     try {
+      // Step 1: Normalize the input
+      const normalizedValue = this.normalizeValue(value, fieldDef);
+      validationReport.normalized = normalizedValue;
+      
+      // Step 2: Type-specific validation
       if (type === 'boolean') {
-        if (typeof value === 'boolean') {
-          return { valid: true, convertedValue: value };
+        if (typeof normalizedValue === 'boolean') {
+          validationReport.valid = true;
+          return { valid: true, convertedValue: normalizedValue, validationReport };
         }
-        if (typeof value === 'string') {
-          const lowerValue = value.toLowerCase();
+        if (typeof normalizedValue === 'string') {
+          const lowerValue = normalizedValue.toLowerCase();
           if (['true', 'yes', 'on', '1', 'enable', 'enabled'].includes(lowerValue)) {
-            return { valid: true, convertedValue: true };
+            validationReport.valid = true;
+            return { valid: true, convertedValue: true, validationReport };
           }
           if (['false', 'no', 'off', '0', 'disable', 'disabled'].includes(lowerValue)) {
-            return { valid: true, convertedValue: false };
+            validationReport.valid = true;
+            return { valid: true, convertedValue: false, validationReport };
           }
         }
-        return { valid: false, error: `Invalid boolean value: ${value}` };
+        validationReport.reason = `Invalid boolean value: ${normalizedValue}`;
+        return { valid: false, error: validationReport.reason, validationReport };
       }
       
       if (type === 'number') {
         let numValue: number;
-        if (typeof value === 'number') {
-          numValue = value;
-        } else if (typeof value === 'string') {
-          // Handle percentage notation
-          const cleanValue = value.replace(/%/g, '').trim();
-          numValue = parseFloat(cleanValue);
+        if (typeof normalizedValue === 'number') {
+          numValue = normalizedValue;
+        } else if (typeof normalizedValue === 'string') {
+          numValue = parseFloat(normalizedValue);
         } else {
-          return { valid: false, error: `Invalid number value: ${value}` };
+          validationReport.reason = `Invalid number value: ${normalizedValue}`;
+          return { valid: false, error: validationReport.reason, validationReport };
         }
         
         if (isNaN(numValue)) {
-          return { valid: false, error: `Cannot convert to number: ${value}` };
+          validationReport.reason = `Cannot convert to number: ${normalizedValue}`;
+          return { valid: false, error: validationReport.reason, validationReport };
         }
         
+        // Range validation for ALL actions
         if (range && (numValue < range[0] || numValue > range[1])) {
-          return { valid: false, error: `Number ${numValue} outside valid range [${range[0]}, ${range[1]}]` };
+          validationReport.reason = `${numValue} outside valid range [${range[0]}, ${range[1]}]`;
+          return { valid: false, error: validationReport.reason, validationReport };
         }
         
-        return { valid: true, convertedValue: numValue };
+        validationReport.valid = true;
+        return { valid: true, convertedValue: numValue, validationReport };
       }
       
       if (type === 'string') {
-        let stringValue = String(value).toLowerCase().trim();
+        const stringValue = String(normalizedValue);
         
-        // Special normalization for sellOrderType
-        if (fieldDef.key === 'sellOrderType') {
-          // Normalize common variations
-          if (stringValue.includes('auto') && stringValue.includes('close')) {
-            stringValue = 'auto_close';
-          } else if (stringValue.includes('trailing') && stringValue.includes('stop')) {
-            stringValue = 'trailing_stop';
-          } else if (stringValue.includes('market')) {
-            stringValue = 'market';
-          } else if (stringValue.includes('limit')) {
-            stringValue = 'limit';
-          }
-        }
-        
+        // Enum validation for ALL actions
         if (validValues && !validValues.includes(stringValue)) {
-          return { valid: false, error: `Invalid value "${stringValue}". Valid options: ${validValues.join(', ')}` };
+          validationReport.reason = `Invalid value "${stringValue}". Valid options: ${validValues.join(', ')}`;
+          return { valid: false, error: validationReport.reason, validationReport };
         }
-        return { valid: true, convertedValue: stringValue };
+        
+        validationReport.valid = true;
+        return { valid: true, convertedValue: stringValue, validationReport };
       }
       
       if (type === 'array') {
-        if (Array.isArray(value)) {
-          return { valid: true, convertedValue: value };
+        // For add/remove operations, validate the individual value
+        if (action === 'add' || action === 'remove') {
+          // Validate single value against validValues
+          if (validValues && !validValues.includes(normalizedValue)) {
+            validationReport.reason = `Invalid array item "${normalizedValue}". Valid options: ${validValues.join(', ')}`;
+            return { valid: false, error: validationReport.reason, validationReport };
+          }
+          
+          validationReport.valid = true;
+          return { valid: true, convertedValue: normalizedValue, validationReport };
+        } else {
+          // For set operations, validate the entire array
+          if (Array.isArray(normalizedValue)) {
+            // Validate each item in the array
+            if (validValues) {
+              for (const item of normalizedValue) {
+                if (!validValues.includes(item)) {
+                  validationReport.reason = `Invalid array item "${item}". Valid options: ${validValues.join(', ')}`;
+                  return { valid: false, error: validationReport.reason, validationReport };
+                }
+              }
+            }
+            
+            validationReport.valid = true;
+            return { valid: true, convertedValue: normalizedValue, validationReport };
+          }
+          if (typeof normalizedValue === 'string') {
+            // Convert string to array (handle comma-separated values)
+            const arrayValue = normalizedValue.split(',').map(item => item.trim()).filter(item => item.length > 0);
+            
+            // Validate each item
+            if (validValues) {
+              for (const item of arrayValue) {
+                const normalizedItem = this.normalizeValue(item, fieldDef);
+                if (!validValues.includes(normalizedItem)) {
+                  validationReport.reason = `Invalid array item "${normalizedItem}". Valid options: ${validValues.join(', ')}`;
+                  return { valid: false, error: validationReport.reason, validationReport };
+                }
+              }
+            }
+            
+            validationReport.valid = true;
+            return { valid: true, convertedValue: arrayValue, validationReport };
+          }
+          
+          validationReport.reason = `Invalid array value: ${normalizedValue}`;
+          return { valid: false, error: validationReport.reason, validationReport };
         }
-        if (typeof value === 'string') {
-          // Convert string to array (handle comma-separated values)
-          const arrayValue = value.split(',').map(item => item.trim()).filter(item => item.length > 0);
-          return { valid: true, convertedValue: arrayValue };
-        }
-        return { valid: false, error: `Invalid array value: ${value}` };
       }
       
-      return { valid: false, error: `Unknown type: ${type}` };
+      validationReport.reason = `Unknown type: ${type}`;
+      return { valid: false, error: validationReport.reason, validationReport };
       
     } catch (error) {
-      return { valid: false, error: `Validation error: ${error.message}` };
+      validationReport.reason = `Validation error: ${error.message}`;
+      return { valid: false, error: validationReport.reason, validationReport };
     }
   }
 }
@@ -1087,22 +1211,44 @@ class ConfigManager {
       
       let finalValue: any;
       
-      // Handle array operations (add/remove)
+      // Handle array operations (add/remove) with FULL VALIDATION
       if (fieldDef.type === 'array') {
         const currentArray = Array.isArray(currentValue) ? currentValue : 
                            (typeof currentValue === 'string' ? currentValue.split(',').map(s => s.trim()).filter(s => s) : []);
         
         if (action === 'add') {
-          if (!currentArray.includes(value)) {
-            finalValue = [...currentArray, value];
+          // ✅ CRITICAL: Validate the value before adding
+          const validation = TypeValidator.validateAndConvert(value, fieldDef, action);
+          console.log(`🔍 VALIDATION_REPORT (${action}): ${JSON.stringify(validation.validationReport)}`);
+          
+          if (!validation.valid) {
+            errors.push(`${field}: ${validation.error}`);
+            continue;
+          }
+          
+          const normalizedValue = validation.convertedValue;
+          if (!currentArray.includes(normalizedValue)) {
+            finalValue = [...currentArray, normalizedValue];
           } else {
-            finalValue = currentArray; // No change needed
+            finalValue = currentArray; // No change needed - already exists
           }
         } else if (action === 'remove') {
-          finalValue = currentArray.filter(item => item !== value);
+          // ✅ CRITICAL: Validate the value before removing
+          const validation = TypeValidator.validateAndConvert(value, fieldDef, action);
+          console.log(`🔍 VALIDATION_REPORT (${action}): ${JSON.stringify(validation.validationReport)}`);
+          
+          if (!validation.valid) {
+            errors.push(`${field}: ${validation.error}`);
+            continue;
+          }
+          
+          const normalizedValue = validation.convertedValue;
+          finalValue = currentArray.filter(item => item !== normalizedValue);
         } else {
           // set/enable/disable - replace entire array
-          const validation = TypeValidator.validateAndConvert(value, fieldDef);
+          const validation = TypeValidator.validateAndConvert(value, fieldDef, action);
+          console.log(`🔍 VALIDATION_REPORT (${action}): ${JSON.stringify(validation.validationReport)}`);
+          
           if (!validation.valid) {
             errors.push(`${field}: ${validation.error}`);
             continue;
@@ -1116,8 +1262,10 @@ class ConfigManager {
         } else if (action === 'disable' && fieldDef.type === 'boolean') {
           finalValue = false;
         } else {
-          // Validate and convert the value
-          const validation = TypeValidator.validateAndConvert(value, fieldDef);
+          // ✅ CRITICAL: Validate and convert ALL other values
+          const validation = TypeValidator.validateAndConvert(value, fieldDef, action);
+          console.log(`🔍 VALIDATION_REPORT (${action}): ${JSON.stringify(validation.validationReport)}`);
+          
           if (!validation.valid) {
             errors.push(`${field}: ${validation.error}`);
             continue;
@@ -1149,6 +1297,28 @@ class ConfigManager {
         rawValue,
         expected: finalValue
       });
+    }
+    
+    // ✅ CRITICAL: Check for validation errors BEFORE attempting database update
+    if (errors.length > 0) {
+      console.log(`❌ VALIDATION_ERRORS: ${errors.join(' | ')}`);
+      console.log(`❌ FAILED_COMMANDS: ${JSON.stringify(commands.filter(cmd => 
+        errors.some(error => error.includes(cmd.field))
+      ))}`);
+      
+      return {
+        success: false,
+        message: `❌ Configuration validation failed: ${errors.join(' | ')}`,
+        results: [],
+        errors: errors,
+        details: {
+          totalCommands: commands.length,
+          failedCommands: commands.filter(cmd => 
+            errors.some(error => error.includes(cmd.field))
+          ).length,
+          validationFailures: errors
+        }
+      };
     }
     
     console.log(`📤 FINAL_STRATEGY_UPDATES: ${JSON.stringify(strategyUpdates, null, 2)}`);
