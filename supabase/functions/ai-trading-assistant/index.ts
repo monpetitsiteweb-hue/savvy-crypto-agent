@@ -234,13 +234,244 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     phrases: ['trade cooldown', 'cooldown minutes', 'wait between trades'],
     description: 'Trade cooldown in minutes'
   },
-  useTrailingStopOnly: {
-    key: 'useTrailingStopOnly',
-    type: 'boolean',
-    dbPath: 'configuration.useTrailingStopOnly',
+  trailingStopLossPercentage: {
+    key: 'trailingStopLossPercentage',
+    type: 'number',
+    range: [0.1, 50],
+    dbPath: 'configuration.trailingStopLossPercentage',
     aiCanExecute: true,
-    phrases: ['use trailing stop only', 'trailing only', 'only trailing'],
-    description: 'Use trailing stop only'
+    phrases: ['trailing stop loss', 'trailing stop percentage', 'set trailing stop'],
+    description: 'Trailing stop loss percentage'
+  },
+  autoCloseAfterHours: {
+    key: 'autoCloseAfterHours',
+    type: 'number',
+    range: [1, 168],
+    dbPath: 'configuration.autoCloseAfterHours',
+    aiCanExecute: true,
+    phrases: ['auto close after', 'close after hours', 'automatic close time'],
+    description: 'Auto close trades after X hours'
+  },
+
+  // === RISK MANAGEMENT ===
+  maxWalletExposure: {
+    key: 'maxWalletExposure',
+    type: 'number',
+    range: [1, 100],
+    dbPath: 'configuration.maxWalletExposure',
+    aiCanExecute: true,
+    phrases: ['max wallet exposure', 'wallet exposure', 'maximum exposure'],
+    description: 'Maximum wallet exposure percentage'
+  },
+  dailyProfitTarget: {
+    key: 'dailyProfitTarget',
+    type: 'number',
+    range: [0.1, 100],
+    dbPath: 'configuration.dailyProfitTarget',
+    aiCanExecute: true,
+    phrases: ['daily profit target', 'profit target', 'daily target'],
+    description: 'Daily profit target percentage'
+  },
+  dailyLossLimit: {
+    key: 'dailyLossLimit',
+    type: 'number',
+    range: [0.1, 100],
+    dbPath: 'configuration.dailyLossLimit',
+    aiCanExecute: true,
+    phrases: ['daily loss limit', 'loss limit', 'daily maximum loss'],
+    description: 'Daily loss limit percentage'
+  },
+  maxTradesPerDay: {
+    key: 'maxTradesPerDay',
+    type: 'number',
+    range: [1, 1000],
+    dbPath: 'configuration.maxTradesPerDay',
+    aiCanExecute: true,
+    phrases: ['max trades per day', 'maximum daily trades', 'trade limit'],
+    description: 'Maximum number of trades per day'
+  },
+  maxOpenPositions: {
+    key: 'maxOpenPositions',
+    type: 'number',
+    range: [1, 50],
+    dbPath: 'configuration.maxOpenPositions',
+    aiCanExecute: true,
+    phrases: ['max open positions', 'maximum positions', 'position limit'],
+    description: 'Maximum number of open positions'
+  },
+  tradeCooldownMinutes: {
+    key: 'tradeCooldownMinutes',
+    type: 'number',
+    range: [0, 1440],
+    dbPath: 'configuration.tradeCooldownMinutes',
+    aiCanExecute: true,
+    phrases: ['trade cooldown', 'cooldown between trades', 'trade interval'],
+    description: 'Cooldown between trades in minutes'
+  },
+
+  // === NOTIFICATIONS ===
+  notifyOnTrade: {
+    key: 'notifyOnTrade',
+    type: 'boolean',
+    dbPath: 'configuration.notifyOnTrade',
+    aiCanExecute: true,
+    phrases: ['notify on trade', 'trade notifications', 'notify trades'],
+    description: 'Send notifications for trades'
+  },
+  notifyOnError: {
+    key: 'notifyOnError',
+    type: 'boolean',
+    dbPath: 'configuration.notifyOnError',
+    aiCanExecute: true,
+    phrases: ['notify on error', 'error notifications', 'notify errors'],
+    description: 'Send notifications for errors'
+  },
+  notifyOnTargets: {
+    key: 'notifyOnTargets',
+    type: 'boolean',
+    dbPath: 'configuration.notifyOnTargets',
+    aiCanExecute: true,
+    phrases: ['notify on targets', 'target notifications', 'notify when targets hit'],
+    description: 'Send notifications when targets are hit'
+  },
+
+  // === SHORTING ===
+  enableShorting: {
+    key: 'enableShorting',
+    type: 'boolean',
+    dbPath: 'configuration.enableShorting',
+    aiCanExecute: true,
+    phrases: ['enable shorting', 'allow shorting', 'short selling'],
+    description: 'Enable short selling'
+  },
+  maxShortPositions: {
+    key: 'maxShortPositions',
+    type: 'number',
+    range: [1, 20],
+    dbPath: 'configuration.maxShortPositions',
+    aiCanExecute: true,
+    phrases: ['max short positions', 'maximum shorts', 'short limit'],
+    description: 'Maximum number of short positions'
+  },
+  shortingMinProfitPercentage: {
+    key: 'shortingMinProfitPercentage',
+    type: 'number',
+    range: [0.1, 50],
+    dbPath: 'configuration.shortingMinProfitPercentage',
+    aiCanExecute: true,
+    phrases: ['shorting minimum profit', 'min profit for shorts', 'short profit threshold'],
+    description: 'Minimum profit percentage for shorting'
+  },
+  autoCloseShorts: {
+    key: 'autoCloseShorts',
+    type: 'boolean',
+    dbPath: 'configuration.autoCloseShorts',
+    aiCanExecute: true,
+    phrases: ['auto close shorts', 'automatic short closing', 'close shorts automatically'],
+    description: 'Automatically close short positions'
+  },
+
+  // === DOLLAR COST AVERAGING ===
+  enableDCA: {
+    key: 'enableDCA',
+    type: 'boolean',
+    dbPath: 'configuration.enableDCA',
+    aiCanExecute: true,
+    phrases: ['enable dca', 'dollar cost averaging', 'dca enabled'],
+    description: 'Enable Dollar Cost Averaging'
+  },
+  dcaSteps: {
+    key: 'dcaSteps',
+    type: 'number',
+    range: [2, 20],
+    dbPath: 'configuration.dcaSteps',
+    aiCanExecute: true,
+    phrases: ['dca steps', 'number of dca steps', 'averaging steps'],
+    description: 'Number of DCA steps'
+  },
+  dcaIntervalHours: {
+    key: 'dcaIntervalHours',
+    type: 'number',
+    range: [1, 720],
+    dbPath: 'configuration.dcaIntervalHours',
+    aiCanExecute: true,
+    phrases: ['dca interval', 'dca hours', 'averaging interval'],
+    description: 'DCA interval in hours'
+  },
+
+  // === BASIC STRATEGY ===
+  maxActiveCoins: {
+    key: 'maxActiveCoins',
+    type: 'number',
+    range: [1, 50],
+    dbPath: 'configuration.maxActiveCoins',
+    aiCanExecute: true,
+    phrases: ['max active coins', 'maximum coins', 'coin limit'],
+    description: 'Maximum number of active coins'
+  },
+  enableAutoCoinSelection: {
+    key: 'enableAutoCoinSelection',
+    type: 'boolean',
+    dbPath: 'configuration.enableAutoCoinSelection',
+    aiCanExecute: true,
+    phrases: ['enable auto coin selection', 'automatic coin selection', 'auto select coins'],
+    description: 'Enable automatic coin selection'
+  },
+  backtestingMode: {
+    key: 'backtestingMode',
+    type: 'boolean',
+    dbPath: 'configuration.backtestingMode',
+    aiCanExecute: true,
+    phrases: ['enable backtesting', 'backtesting mode', 'test historical'],
+    description: 'Enable backtesting mode'
+  },
+  category: {
+    key: 'category',
+    type: 'string',
+    validValues: ['trend', 'momentum', 'scalping', 'swing', 'hodl'],
+    dbPath: 'configuration.category',
+    aiCanExecute: true,
+    phrases: ['strategy category', 'set category', 'trading style'],
+    description: 'Strategy category'
+  },
+  tags: {
+    key: 'tags',
+    type: 'array',
+    validValues: ['automated', 'manual', 'scalping', 'swing', 'hodl', 'high-risk', 'conservative'],
+    dbPath: 'configuration.tags',
+    aiCanExecute: true,
+    phrases: ['add tag', 'strategy tags', 'set tags'],
+    description: 'Strategy tags'
+  },
+
+  // === COINS & AMOUNTS ===
+  selectedCoins: {
+    key: 'selectedCoins',
+    type: 'array',
+    validValues: ['BTC', 'ETH', 'ADA', 'DOGE', 'XRP', 'LTC', 'BCH', 'LINK', 'DOT', 'UNI', 'SOL', 'MATIC', 'AVAX', 'ICP', 'XLM', 'VET', 'ALGO', 'ATOM', 'FIL', 'TRX', 'ETC', 'THETA', 'XMR', 'XTZ', 'COMP', 'AAVE', 'MKR', 'SNX', 'CRV', 'YFI'],
+    dbPath: 'configuration.selectedCoins',
+    aiCanExecute: true,
+    phrases: ['add coin', 'select coin', 'choose coins', 'trade', 'include', 'bitcoin', 'ethereum', 'btc', 'eth', 'xrp', 'ada', 'doge'],
+    description: 'Selected cryptocurrencies to trade'
+  },
+  perTradeAllocation: {
+    key: 'perTradeAllocation',
+    type: 'number',
+    range: [1, 100000],
+    dbPath: 'configuration.perTradeAllocation',
+    aiCanExecute: true,
+    phrases: ['per trade allocation', 'trade amount', 'allocation per trade'],
+    description: 'Amount allocated per trade'
+  },
+
+  // === ADVANCED ===
+  resetStopLossAfterFail: {
+    key: 'resetStopLossAfterFail',
+    type: 'boolean',
+    dbPath: 'configuration.resetStopLossAfterFail',
+    aiCanExecute: true,
+    phrases: ['reset stop loss after fail', 'reset stop loss', 'restart stop loss'],
+    description: 'Reset stop loss after failure'
   },
   resetStopLossAfterFail: {
     key: 'resetStopLossAfterFail',
