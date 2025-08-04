@@ -225,25 +225,6 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
               </div>
             </div>
 
-            <div className="space-y-2">
-              <TooltipField description="How often the strategy should execute buy orders." examples={["Buy once daily", "Trade based on signals only", "Execute trades every hour"]}>
-                <Label>Buy Frequency</Label>
-              </TooltipField>
-              <Select 
-                value={formData.buyFrequency} 
-                onValueChange={(value) => updateFormData('buyFrequency', value)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="once">One-time Purchase</SelectItem>
-                  <SelectItem value="daily">Daily</SelectItem>
-                  <SelectItem value="interval">Custom Interval</SelectItem>
-                  <SelectItem value="signal_based">Signal Based</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           {formData.buyFrequency === 'interval' && (
