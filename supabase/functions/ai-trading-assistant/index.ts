@@ -111,16 +111,6 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     phrases: ['amount per trade', 'trade amount', 'per trade allocation', 'trade size'],
     description: 'Amount allocated per individual trade'
   },
-  buyFrequency: {
-    key: 'buyFrequency',
-    type: 'string',
-    uiLocation: 'Strategy Configuration → Coins & Amounts tab → Buy Frequency',
-    dbPath: 'configuration.buyFrequency',
-    csvMatch: 'Buy Frequency',
-    aiCanExecute: true,
-    phrases: ['buy frequency', 'trading frequency', 'how often to buy', 'frequency'],
-    description: 'How frequently to execute buy orders'
-  },
   selectedCoins: {
     key: 'selectedCoins',
     type: 'array',
