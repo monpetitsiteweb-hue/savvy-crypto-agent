@@ -1623,6 +1623,135 @@ class ResponseFormatter {
 
 What would you like me to configure?`;
   }
+
+  static async formatCryptoExpertResponse(
+    message: string,
+    marketData: any,
+    indicatorContext: any,
+    recentTrades: any[],
+    strategy: any
+  ): Promise<string> {
+    
+    console.log('🔮 CRYPTO_EXPERT: Analyzing market query:', message);
+    
+    const lowerMessage = message.toLowerCase();
+    const selectedCoins = strategy?.configuration?.selectedCoins || [];
+    
+    // Analyze which coins are mentioned or focus on selected coins
+    const mentionedCoins = VALID_COIN_SYMBOLS.filter(coin => 
+      lowerMessage.includes(coin.toLowerCase())
+    );
+    const coinsToAnalyze = mentionedCoins.length > 0 ? mentionedCoins : selectedCoins.slice(0, 3);
+    
+    let response = '🔮 **Crypto Market Analysis**\n\n';
+    
+    // Market Overview
+    if (marketData && Object.keys(marketData).length > 0) {
+      response += '📊 **Current Market Data:**\n';
+      for (const coin of coinsToAnalyze) {
+        const coinPair = `${coin}-EUR`;
+        const data = marketData[coinPair];
+        if (data) {
+          response += `• **${coin}**: €${data.price} (Volume: ${data.volume?.toFixed(2) || 'N/A'})\n`;
+        }
+      }
+      response += '\n';
+    }
+    
+    // Technical Analysis
+    if (indicatorContext && Object.keys(indicatorContext).length > 0) {
+      response += '📈 **Technical Indicators:**\n';
+      for (const coin of coinsToAnalyze) {
+        const coinPair = `${coin}-EUR`;
+        const indicators = indicatorContext[coinPair];
+        if (indicators) {
+          const rsi = indicators.RSI?.value?.toFixed(1) || 'N/A';
+          const rsiSignal = indicators.RSI?.signal || 'neutral';
+          const emaDirection = indicators.EMA?.direction || 'neutral';
+          const macdCrossover = indicators.MACD?.crossover || 'neutral';
+          
+          response += `• **${coin}**: RSI ${rsi} (${rsiSignal}) | EMA ${emaDirection} | MACD ${macdCrossover}\n`;
+        }
+      }
+      response += '\n';
+    }
+    
+    // Recent Trading Activity
+    if (recentTrades && recentTrades.length > 0) {
+      response += '🕒 **Recent Activity:**\n';
+      const relevantTrades = recentTrades
+        .filter(trade => coinsToAnalyze.some(coin => trade.cryptocurrency.includes(coin)))
+        .slice(0, 3);
+        
+      for (const trade of relevantTrades) {
+        const timeAgo = new Date(trade.executed_at).toLocaleString();
+        response += `• ${trade.trade_type.toUpperCase()} ${trade.cryptocurrency} - €${trade.total_value} at ${timeAgo}\n`;
+      }
+      response += '\n';
+    }
+    
+    // Market Sentiment Analysis
+    response += '🎯 **Analysis Summary:**\n';
+    
+    // Analyze RSI levels for sentiment
+    let bullishCount = 0;
+    let bearishCount = 0;
+    let neutralCount = 0;
+    
+    for (const coin of coinsToAnalyze) {
+      const coinPair = `${coin}-EUR`;
+      const indicators = indicatorContext?.[coinPair];
+      if (indicators?.RSI) {
+        const rsi = indicators.RSI.value;
+        if (rsi < 30) bearishCount++;
+        else if (rsi > 70) bullishCount++;
+        else neutralCount++;
+      }
+    }
+    
+    if (bearishCount > bullishCount) {
+      response += '• **Sentiment**: Oversold conditions detected - potential buying opportunity\n';
+    } else if (bullishCount > bearishCount) {
+      response += '• **Sentiment**: Overbought conditions - consider taking profits\n';
+    } else {
+      response += '• **Sentiment**: Neutral market conditions - follow trend signals\n';
+    }
+    
+    // Strategy-specific advice
+    const aiConfig = strategy?.configuration?.aiIntelligenceConfig;
+    if (aiConfig?.decisionMode === 'aggressive') {
+      response += '• **Strategy Mode**: Aggressive - Ready for high-frequency opportunities\n';
+    } else if (aiConfig?.decisionMode === 'conservative') {
+      response += '• **Strategy Mode**: Conservative - Focus on strong signals only\n';
+    }
+    
+    // Specific coin analysis if mentioned
+    if (mentionedCoins.length === 1) {
+      const coin = mentionedCoins[0];
+      const coinPair = `${coin}-EUR`;
+      const indicators = indicatorContext?.[coinPair];
+      
+      if (indicators) {
+        response += `\n🎯 **${coin} Specific Analysis:**\n`;
+        
+        if (indicators.RSI?.value < 30) {
+          response += '• RSI indicates oversold - potential buy signal\n';
+        } else if (indicators.RSI?.value > 70) {
+          response += '• RSI indicates overbought - consider selling\n';
+        }
+        
+        if (indicators.EMA?.direction === 'bullish') {
+          response += '• EMA crossover shows bullish momentum\n';
+        } else if (indicators.EMA?.direction === 'bearish') {
+          response += '• EMA crossover shows bearish momentum\n';
+        }
+      }
+    }
+    
+    response += '\n💡 *This analysis is based on current technical indicators and market data. Always consider your risk tolerance and do your own research.*';
+    
+    return response;
+  }
 }
 
 // =============================================
@@ -1697,9 +1826,18 @@ Deno.serve(async (req) => {
         );
       }
       
+      // This is a market analysis question - provide crypto expert response
+      const marketAnalysisResponse = await ResponseFormatter.formatCryptoExpertResponse(
+        message, 
+        requestData.marketData, 
+        requestData.indicatorContext,
+        requestData.recentTrades,
+        strategy
+      );
+      
       return new Response(
         JSON.stringify({ 
-          response: ResponseFormatter.formatQuestionResponse(),
+          response: marketAnalysisResponse,
           success: true 
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
