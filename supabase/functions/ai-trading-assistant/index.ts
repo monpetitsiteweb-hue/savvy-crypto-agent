@@ -84,7 +84,8 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     type: 'array',
     dbPath: 'configuration.selectedCoins',
     aiCanExecute: true,
-    phrases: ['selected coins', 'coin selection', 'coins to trade', 'trading pairs', 'add coin', 'remove coin'],
+    validValues: ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'AAVE', 'CRV', 'COMP', 'SUSHI', 'USDC', 'USDT', 'DAI', 'LTC', 'BCH', 'XLM', 'ALGO', 'ATOM', 'ICP', 'FIL'],
+    phrases: ['selected coins', 'coin selection', 'coins to trade', 'trading pairs', 'add coin', 'remove coin', 'all coins', 'all available coins'],
     description: 'Array of selected cryptocurrency symbols'
   },
   maxActiveCoins: {
@@ -1032,20 +1033,33 @@ class ResponseFormatter {
     const failedResults = results.filter(r => !r.verified);
     
     if (verifiedResults.length > 0) {
+      response += '✅ **Configuration Updated Successfully:**\n\n';
       for (const result of verifiedResults) {
-        const oldDisplay = result.oldValue === null || result.oldValue === undefined ? 'not set' : 
-                          Array.isArray(result.oldValue) ? result.oldValue.join(',') : result.oldValue;
-        const newDisplay = Array.isArray(result.newValue) ? result.newValue.join(',') : result.newValue;
+        const fieldName = FIELD_DEFINITIONS[result.field]?.description || result.field;
+        const newDisplay = Array.isArray(result.newValue) ? result.newValue.join(', ') : result.newValue;
         
-        response += `✅ **${result.field} Updated**\n${oldDisplay} → ${newDisplay}\n\n`;
+        // Format specific responses based on field type
+        if (result.action === 'add' && Array.isArray(result.newValue)) {
+          const addedCoins = Array.isArray(result.oldValue) ? 
+            result.newValue.filter(coin => !result.oldValue.includes(coin)) : result.newValue;
+          response += `• Added ${addedCoins.join(', ')} to ${fieldName}\n`;
+        } else if (result.action === 'remove' && Array.isArray(result.newValue)) {
+          response += `• Removed ${result.rawValue} from ${fieldName}\n`;
+        } else if (result.action === 'enable') {
+          response += `• Enabled ${fieldName}\n`;
+        } else if (result.action === 'disable') {
+          response += `• Disabled ${fieldName}\n`;
+        } else {
+          response += `• ${fieldName} set to ${newDisplay}\n`;
+        }
       }
-      response += 'Configuration saved successfully.';
     }
     
     if (failedResults.length > 0) {
-      response += '\n\n❌ **Verification Failed:**\n';
+      response += '\n❌ **Failed Updates:**\n';
       for (const result of failedResults) {
-        response += `• ${result.field}: Expected ${JSON.stringify(result.expected)}, got ${JSON.stringify(result.actualValue)}\n`;
+        const fieldName = FIELD_DEFINITIONS[result.field]?.description || result.field;
+        response += `• ${fieldName}: Expected ${JSON.stringify(result.expected)}, got ${JSON.stringify(result.actualValue)}\n`;
       }
     }
     

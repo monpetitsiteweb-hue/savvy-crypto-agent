@@ -238,18 +238,6 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
             </div>
           </div>
 
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <TooltipField 
-              description="Use only trailing stop loss, disable fixed stop loss."
-              examples={["Only use trailing stops", "Disable fixed stop loss"]}
-            >
-              <Label>Use Trailing Stop Only</Label>
-            </TooltipField>
-            <Switch 
-              checked={formData.useTrailingStopOnly} 
-              onCheckedChange={(value) => updateFormData('useTrailingStopOnly', value)}
-            />
-          </div>
         </CardContent>
       </Card>
 
