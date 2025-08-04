@@ -1037,17 +1037,21 @@ class IntentProcessor {
       .map((f: any) => `${f.key}: ${f.description} (${f.phrases.slice(0, 3).join(', ')})`)
       .join('\n');
 
-    const prompt = `Parse this user message for trading strategy configuration commands.
+    const prompt = `Parse this user message for trading strategy BULK MODIFICATION commands.
+
+CRITICAL FOR PHASE 3 - BULK MODIFICATIONS:
+You MUST extract ALL field operations from complex commands. Break multi-field commands into atomic operations.
 
 Available fields that AI can modify:
 ${fieldsList}
 
 User message: "${message}"
 
-Extract ALL configuration commands from the message. For each command, identify:
-1. The action (set, enable, disable, add, remove)
-2. The exact field key from the list above
-3. The value to set
+BULK COMMAND PARSING RULES:
+1. Extract EVERY field operation - don't miss any
+2. For multi-coin additions like "add BTC and ETH" → create SEPARATE commands for each coin
+3. For complex commands like "Enable DCA with 6 steps, add ETH and BTC, stop loss to 5%" → extract ALL operations
+4. Parse ALL parts of the command independently
 
 Return ONLY a JSON object in this exact format:
 {
@@ -1062,10 +1066,11 @@ Return ONLY a JSON object in this exact format:
   ]
 }
 
-Examples:
-- "Set stop loss to 5%" → {"isCommand": true, "commands": [{"action": "set", "field": "stopLossPercentage", "value": "5", "rawValue": "5%"}]}
-- "Enable AI and set confidence to 80%" → {"isCommand": true, "commands": [{"action": "enable", "field": "enableAIOverride", "value": "true", "rawValue": "enable"}, {"action": "set", "field": "aiConfidenceThreshold", "value": "80", "rawValue": "80%"}]}
-- "Add BTC to my coins" → {"isCommand": true, "commands": [{"action": "add", "field": "selectedCoins", "value": "BTC", "rawValue": "BTC"}]}
+BULK PARSING EXAMPLES:
+- "Enable DCA with 6 steps" → {"isCommand": true, "commands": [{"action": "enable", "field": "enableDCA", "value": "true", "rawValue": "enable"}, {"action": "set", "field": "dcaSteps", "value": "6", "rawValue": "6 steps"}]}
+- "Add BTC and ETH" → {"isCommand": true, "commands": [{"action": "add", "field": "selectedCoins", "value": "BTC", "rawValue": "BTC"}, {"action": "add", "field": "selectedCoins", "value": "ETH", "rawValue": "ETH"}]}
+- "Set stop loss to 5% and max trades to 10" → {"isCommand": true, "commands": [{"action": "set", "field": "stopLossPercentage", "value": "5", "rawValue": "5%"}, {"action": "set", "field": "maxTradesPerDay", "value": "10", "rawValue": "10"}]}
+- "Enable DCA with 6 steps, set interval to 12h, add ETH and BTC, stop loss to 5%" → Extract 5+ commands
 
 If it's just a question, return: {"isCommand": false}`;
 
@@ -1077,10 +1082,13 @@ If it's just a question, return: {"isCommand": false}`;
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-4.1-2025-04-14',
-          messages: [{ role: 'user', content: prompt }],
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: 'You are a precise command parser that excels at BULK MODIFICATIONS. Extract ALL field operations from complex commands. Create separate commands for each coin in multi-coin additions. Always return valid JSON.' },
+            { role: 'user', content: prompt }
+          ],
           temperature: 0.1,
-          max_tokens: 500
+          max_tokens: 2000
         })
       });
 
@@ -1429,10 +1437,25 @@ class ResponseFormatter {
     let response = '';
     
     const verifiedResults = results.filter(r => r.verified);
-    const failedResults = results.filter(r => !r.verified);
+    const failedResults = results.filter(r => !r.verified && r.error);
+    
+    // Count successful operations by type for bulk feedback
+    const successCount = verifiedResults.length;
+    const failureCount = failedResults.length;
+    const totalOperations = successCount + failureCount;
+    
+    // Bulk summary header for multiple operations
+    if (totalOperations > 1) {
+      response += `📊 **Bulk Update Summary: ${successCount}/${totalOperations} successful**\n\n`;
+    }
     
     if (verifiedResults.length > 0) {
-      response += '✅ **Configuration Updated Successfully:**\n\n';
+      if (totalOperations === 1) {
+        response += '✅ **Updated Successfully:**\n\n';
+      } else {
+        response += '✅ **Successful Operations:**\n\n';
+      }
+      
       for (const result of verifiedResults) {
         const fieldName = FIELD_DEFINITIONS[result.field]?.description || result.field;
         const newDisplay = Array.isArray(result.newValue) ? result.newValue.join(', ') : result.newValue;
@@ -1440,7 +1463,7 @@ class ResponseFormatter {
         // Format specific responses based on action type
         if (result.action === 'add' && Array.isArray(result.newValue)) {
           const addedItems = Array.isArray(result.oldValue) ? 
-            result.newValue.filter(item => !result.oldValue.includes(item)) : result.newValue;
+            result.newValue.filter(item => !result.oldValue.includes(item)) : [result.rawValue];
           response += `• Added ${addedItems.join(', ')} to ${fieldName}\n`;
         } else if (result.action === 'remove') {
           response += `• Removed ${result.rawValue} from ${fieldName}\n`;
@@ -1455,10 +1478,15 @@ class ResponseFormatter {
     }
     
     if (failedResults.length > 0) {
-      response += '\n❌ **Failed Updates:**\n';
+      response += '\n❌ **Failed Operations:**\n\n';
       for (const result of failedResults) {
         const fieldName = FIELD_DEFINITIONS[result.field]?.description || result.field;
         response += `• ${fieldName}: ${result.error || 'Update failed'}\n`;
+      }
+      
+      // Add helpful note for bulk failures
+      if (failedResults.length > 1) {
+        response += '\n💡 *Tip: Each operation is validated independently - successful ones are still applied.*\n';
       }
     }
     
@@ -1474,7 +1502,7 @@ class ResponseFormatter {
   }
 
   static formatQuestionResponse(): string {
-    return `I can help you configure your trading strategy. Here are some examples:
+    return `I can help you configure your trading strategy. Here are examples of what I can do:
 
 **Basic Commands:**
 • "Enable AI" / "Disable AI"
@@ -1492,8 +1520,12 @@ class ResponseFormatter {
 • "Set confidence threshold to 75%"
 • "Enable pattern recognition"
 
-**Multiple Commands:**
-• "Set stop loss to 3%, enable DCA with 4 steps, and add ADA to my coins"
+**🆕 BULK MODIFICATIONS (Phase 3):**
+• "Enable DCA with 6 steps, set interval to 12h, add ETH and BTC, stop loss to 5%, max trades per day to 10, and notify on errors only"
+• "Add XRP, ADA, and DOGE to my coins and set take profit to 8%"
+• "Set stop loss to 3%, enable DCA with 4 steps, add ADA to my coins"
+
+**💡 I can handle complex multi-field commands in a single request!**
 
 What would you like me to configure?`;
   }
