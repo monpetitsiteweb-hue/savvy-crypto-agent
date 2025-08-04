@@ -1381,6 +1381,15 @@ class ConfigManager {
       };
     }
     
+    // Fix expected values to reflect final cumulative state for verification
+    // This prevents false negatives when multiple commands affect the same field
+    initialSuccessfulResults.forEach(result => {
+      const fieldDef = FIELD_DEFINITIONS[result.field];
+      if (fieldDef) {
+        result.expected = this.getCurrentValue(strategyUpdates, fieldDef.dbPath);
+      }
+    });
+    
     console.log(`📤 FINAL_STRATEGY_UPDATES: ${JSON.stringify(strategyUpdates, null, 2)}`);
     
     if (results.length === 0) {
