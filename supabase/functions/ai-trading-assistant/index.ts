@@ -84,7 +84,7 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     type: 'array',
     dbPath: 'configuration.selectedCoins',
     aiCanExecute: true,
-    validValues: ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'AAVE', 'CRV', 'COMP', 'SUSHI', 'USDC', 'USDT', 'DAI', 'LTC', 'BCH', 'XLM', 'ALGO', 'ATOM', 'ICP', 'FIL'],
+    validValues: ['BTC', 'ETH', 'ADA', 'DOGE', 'XRP', 'LTC', 'BCH', 'LINK', 'DOT', 'UNI', 'SOL', 'MATIC', 'AVAX', 'ICP', 'XLM', 'VET', 'ALGO', 'FIL', 'TRX', 'ETC', 'THETA', 'XMR', 'XTZ', 'COMP', 'AAVE', 'MKR', 'SNX', 'CRV', 'YFI'],
     phrases: ['selected coins', 'coin selection', 'coins to trade', 'trading pairs', 'add coin', 'remove coin', 'all coins', 'all available coins'],
     description: 'Array of selected cryptocurrency symbols'
   },
@@ -610,12 +610,20 @@ const FIELD_DEFINITIONS: Record<string, any> = {
   },
 
   // === AI INTELLIGENCE SETTINGS ===
+  enableAI: {
+    key: 'enableAI',
+    type: 'boolean',
+    dbPath: 'configuration.aiIntelligenceConfig.enableAIOverride',
+    aiCanExecute: true,
+    phrases: ['enable AI', 'turn on AI', 'activate AI', 'AI on', 'enable intelligence', 'activate intelligence'],
+    description: 'Enable AI to override trading decisions'
+  },
   enableAIOverride: {
     key: 'enableAIOverride',
     type: 'boolean',
     dbPath: 'configuration.aiIntelligenceConfig.enableAIOverride',
     aiCanExecute: true,
-    phrases: ['enable AI', 'turn on AI', 'activate AI', 'AI on', 'enable intelligence', 'activate intelligence', 'disable AI', 'turn off AI', 'deactivate AI', 'AI off', 'disable intelligence', 'deactivate intelligence'],
+    phrases: ['enable AI override', 'turn on AI override', 'activate AI override', 'AI override on', 'disable AI override', 'turn off AI override', 'deactivate AI override', 'AI override off'],
     description: 'Enable AI to override trading decisions'
   },
   aiAutonomyLevel: {
@@ -1221,8 +1229,15 @@ class ConfigManager {
       
       // Handle array operations (add/remove) with FULL VALIDATION
       if (fieldDef.type === 'array') {
-        const currentArray = Array.isArray(currentValue) ? currentValue : 
-                           (typeof currentValue === 'string' ? currentValue.split(',').map(s => s.trim()).filter(s => s) : []);
+        // Get current array state from strategy updates if already modified, otherwise from original strategy
+        let baseArray;
+        try {
+          baseArray = this.getCurrentValue(strategyUpdates, fieldDef.dbPath);
+        } catch {
+          baseArray = this.getCurrentValue(currentStrategy, fieldDef.dbPath);
+        }
+        const currentArray = Array.isArray(baseArray) ? baseArray : 
+                           (typeof baseArray === 'string' ? baseArray.split(',').map(s => s.trim()).filter(s => s) : []);
         
         if (action === 'add') {
           // ✅ CRITICAL: Validate the value before adding
@@ -1307,23 +1322,28 @@ class ConfigManager {
       });
     }
     
-    // ✅ CRITICAL: Check for validation errors BEFORE attempting database update
-    if (errors.length > 0) {
-      console.log(`❌ VALIDATION_ERRORS: ${errors.join(' | ')}`);
-      console.log(`❌ FAILED_COMMANDS: ${JSON.stringify(commands.filter(cmd => 
-        errors.some(error => error.includes(cmd.field))
-      ))}`);
-      
+    // Process successful and failed commands separately
+    const successfulResults = results.filter(result => 
+      !errors.some(error => error.includes(result.field))
+    );
+    const failedCommands = commands.filter(cmd => 
+      errors.some(error => error.includes(cmd.field))
+    );
+    
+    console.log(`❌ VALIDATION_ERRORS: ${errors.join(' | ')}`);
+    console.log(`❌ FAILED_COMMANDS: ${JSON.stringify(failedCommands)}`);
+    console.log(`✅ SUCCESSFUL_COMMANDS: ${successfulResults.length}/${commands.length}`);
+    
+    // If no successful commands, return early
+    if (successfulResults.length === 0) {
       return {
         success: false,
-        message: `❌ Configuration validation failed: ${errors.join(' | ')}`,
+        message: `❌ All commands failed validation: ${errors.join(' | ')}`,
         results: [],
         errors: errors,
         details: {
           totalCommands: commands.length,
-          failedCommands: commands.filter(cmd => 
-            errors.some(error => error.includes(cmd.field))
-          ).length,
+          failedCommands: failedCommands.length,
           validationFailures: errors
         }
       };
@@ -1384,10 +1404,30 @@ class ConfigManager {
       }
     }
 
+    // Return both successful and failed results for atomic processing
+    const allResults = results.map(result => ({
+      ...result,
+      success: !errors.some(error => error.includes(result.field))
+    }));
+    
+    const successfulResults = allResults.filter(r => r.success);
+    const failedResults = allResults.filter(r => !r.success);
+    
+    // Add error details to failed results
+    failedResults.forEach(result => {
+      const matchingError = errors.find(error => error.includes(result.field));
+      if (matchingError) {
+        result.error = matchingError.replace(`${result.field}: `, '');
+      }
+    });
+
     return { 
-      success: errors.length === 0, 
-      results, 
-      errors 
+      success: successfulResults.length > 0,
+      results: allResults,
+      errors,
+      successfulCount: successfulResults.length,
+      failedCount: failedResults.length,
+      totalCount: commands.length
     };
   }
 }
@@ -1428,7 +1468,10 @@ class StrategyResolver {
 // =============================================
 class ResponseFormatter {
   static formatSuccessResponse(
-    results: Array<any>
+    results: Array<any>,
+    successfulCount?: number,
+    failedCount?: number,
+    totalCount?: number
   ): string {
     if (results.length === 0) {
       return '✅ Configuration updated successfully.';
@@ -1437,12 +1480,12 @@ class ResponseFormatter {
     let response = '';
     
     const verifiedResults = results.filter(r => r.verified);
-    const failedResults = results.filter(r => !r.verified && r.error);
+    const failedResults = results.filter(r => !r.verified || r.error);
     
-    // Count successful operations by type for bulk feedback
-    const successCount = verifiedResults.length;
-    const failureCount = failedResults.length;
-    const totalOperations = successCount + failureCount;
+    // Use provided counts or calculate from results
+    const successCount = successfulCount || verifiedResults.length;
+    const failureCount = failedCount || failedResults.length;
+    const totalOperations = totalCount || (successCount + failureCount);
     
     // Bulk summary header for multiple operations
     if (totalOperations > 1) {
@@ -1464,7 +1507,7 @@ class ResponseFormatter {
         if (result.action === 'add' && Array.isArray(result.newValue)) {
           const addedItems = Array.isArray(result.oldValue) ? 
             result.newValue.filter(item => !result.oldValue.includes(item)) : [result.rawValue];
-          response += `• Added ${addedItems.join(', ')} to ${fieldName}\n`;
+          response += `• Added ${addedItems.join(', ')}\n`;
         } else if (result.action === 'remove') {
           response += `• Removed ${result.rawValue} from ${fieldName}\n`;
         } else if (result.action === 'enable') {
@@ -1475,13 +1518,23 @@ class ResponseFormatter {
           response += `• ${fieldName} set to ${newDisplay}\n`;
         }
       }
+      
+      // Show final state for selectedCoins
+      const coinsResult = verifiedResults.find(r => r.field === 'selectedCoins');
+      if (coinsResult && Array.isArray(coinsResult.newValue)) {
+        response += `\n💡 **Selected Coins:** ${coinsResult.newValue.join(', ')}\n`;
+      }
     }
     
     if (failedResults.length > 0) {
       response += '\n❌ **Failed Operations:**\n\n';
       for (const result of failedResults) {
         const fieldName = FIELD_DEFINITIONS[result.field]?.description || result.field;
-        response += `• ${fieldName}: ${result.error || 'Update failed'}\n`;
+        if (result.action === 'add' && result.field === 'selectedCoins') {
+          response += `• Failed to add ${result.rawValue}: Not in allowed coin list\n`;
+        } else {
+          response += `• ${fieldName}: ${result.error || 'Update failed'}\n`;
+        }
       }
       
       // Add helpful note for bulk failures
@@ -1634,7 +1687,12 @@ Deno.serve(async (req) => {
     );
     
     if (updateResult.success) {
-      const response = ResponseFormatter.formatSuccessResponse(updateResult.results);
+      const response = ResponseFormatter.formatSuccessResponse(
+        updateResult.results,
+        updateResult.successfulCount,
+        updateResult.failedCount,
+        updateResult.totalCount
+      );
       
       return new Response(
         JSON.stringify({ 
