@@ -1355,7 +1355,7 @@ class ConfigManager {
     }
     
     // Process successful and failed commands separately
-    const successfulResults = results.filter(result => 
+    const initialSuccessfulResults = results.filter(result => 
       !errors.some(error => error.includes(result.field))
     );
     const failedCommands = commands.filter(cmd => 
@@ -1364,10 +1364,10 @@ class ConfigManager {
     
     console.log(`❌ VALIDATION_ERRORS: ${errors.join(' | ')}`);
     console.log(`❌ FAILED_COMMANDS: ${JSON.stringify(failedCommands)}`);
-    console.log(`✅ SUCCESSFUL_COMMANDS: ${successfulResults.length}/${commands.length}`);
+    console.log(`✅ SUCCESSFUL_COMMANDS: ${initialSuccessfulResults.length}/${commands.length}`);
     
     // If no successful commands, return early
-    if (successfulResults.length === 0) {
+    if (initialSuccessfulResults.length === 0) {
       return {
         success: false,
         message: `❌ All commands failed validation: ${errors.join(' | ')}`,
