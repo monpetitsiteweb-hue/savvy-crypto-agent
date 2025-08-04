@@ -100,6 +100,7 @@ interface StrategyFormData {
   enableStopLossTimeout: boolean;
   stopLossTimeoutMinutes: number;
   resetStopLossAfterFail: boolean;
+  useTrailingStopOnly: boolean;
   // Tags and categories
   category: string;
   tags: string[];
@@ -282,6 +283,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     enableStopLossTimeout: false,
     stopLossTimeoutMinutes: 120,
     resetStopLossAfterFail: false,
+    useTrailingStopOnly: false,
     category: 'trend',
     tags: ['automated', 'scalping'],
     aiIntelligenceConfig: {
@@ -1477,9 +1479,23 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             Advanced selling configuration that defines when and how positions are closed. These settings work together with your basic sell settings to optimize exit timing.
                           </p>
                         </CardHeader>
-                        <CardContent className="space-y-6">
+                         <CardContent className="space-y-6">
                           <div className="space-y-4">
-
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <TooltipField 
+                                  description="Only use trailing stops, ignore regular stop losses."
+                                  examples={["Use only trailing stops", "Disable regular stop losses"]}
+                                >
+                                  <Label>Use Trailing Stop Only</Label>
+                                </TooltipField>
+                                <p className="text-sm text-muted-foreground">Ignore regular stop-losses, use trailing only</p>
+                              </div>
+                              <Switch
+                                checked={formData.useTrailingStopOnly || false}
+                                onCheckedChange={(checked) => updateFormData('useTrailingStopOnly', checked)}
+                              />
+                            </div>
 
                             <div className="flex items-center justify-between">
                               <div className="space-y-1">

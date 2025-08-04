@@ -177,7 +177,7 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     validValues: ['market', 'limit', 'trailing_stop', 'auto_close'],
     dbPath: 'configuration.sellOrderType',
     aiCanExecute: true,
-    phrases: ['sell order type', 'sell order', 'market sell', 'limit sell', 'trailing stop', 'trailing stop order', 'set sell to trailing stop'],
+    phrases: ['sell order type', 'sell order', 'market sell', 'limit sell', 'trailing stop', 'trailing stop order', 'set sell to trailing stop', 'auto close', 'automatic close'],
     description: 'Type of sell order (market, limit, trailing stop, auto close)'
   },
   takeProfitPercentage: {
@@ -632,7 +632,22 @@ class TypeValidator {
       }
       
       if (type === 'string') {
-        const stringValue = String(value);
+        let stringValue = String(value).toLowerCase().trim();
+        
+        // Special normalization for sellOrderType
+        if (fieldDef.key === 'sellOrderType') {
+          // Normalize common variations
+          if (stringValue.includes('auto') && stringValue.includes('close')) {
+            stringValue = 'auto_close';
+          } else if (stringValue.includes('trailing') && stringValue.includes('stop')) {
+            stringValue = 'trailing_stop';
+          } else if (stringValue.includes('market')) {
+            stringValue = 'market';
+          } else if (stringValue.includes('limit')) {
+            stringValue = 'limit';
+          }
+        }
+        
         if (validValues && !validValues.includes(stringValue)) {
           return { valid: false, error: `Invalid value "${stringValue}". Valid options: ${validValues.join(', ')}` };
         }
