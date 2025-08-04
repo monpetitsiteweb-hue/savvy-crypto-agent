@@ -7,8 +7,10 @@ const corsHeaders = {
 
 // =============================================
 // FIELD DEFINITIONS - CANONICAL SOURCE OF TRUTH
+// Based on your comprehensive field mapping analysis
 // =============================================
 const FIELD_DEFINITIONS: Record<string, any> = {
+  // === AI Intelligence Config ===
   enableAIOverride: {
     key: 'enableAIOverride',
     type: 'boolean',
@@ -27,7 +29,7 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     dbPath: 'configuration.aiIntelligenceConfig.aiConfidenceThreshold',
     csvMatch: 'Confidence Threshold',
     aiCanExecute: true,
-    phrases: ['confidence threshold', 'AI confidence', 'set confidence', 'confidence level'],
+    phrases: ['confidence threshold', 'AI confidence', 'set confidence', 'confidence level', 'escalation threshold'],
     description: 'Minimum confidence level required for AI to execute trades'
   },
   aiAutonomyLevel: {
@@ -40,6 +42,40 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     aiCanExecute: true,
     phrases: ['autonomy level', 'AI autonomy', 'set autonomy', 'autonomy'],
     description: 'Level of autonomous decision-making authority granted to AI'
+  },
+  
+  // === Risk Management ===
+  riskLevel: {
+    key: 'riskLevel',
+    type: 'string',
+    uiLocation: 'Strategy Configuration → Risk Management tab',
+    dbPath: 'configuration.riskLevel',
+    csvMatch: 'Risk Level',
+    aiCanExecute: true,
+    phrases: ['risk level', 'set risk', 'risk tolerance'],
+    description: 'Overall risk tolerance level'
+  },
+  stopLossPercentage: {
+    key: 'stopLossPercentage',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'Strategy Configuration → Risk Management tab → Stop Loss field',
+    dbPath: 'configuration.stopLossPercentage',
+    csvMatch: 'Stop Loss Percentage',
+    aiCanExecute: true,
+    phrases: ['stop loss', 'stop loss percentage', 'set stop loss'],
+    description: 'Stop loss percentage for trades'
+  },
+  takeProfitPercentage: {
+    key: 'takeProfitPercentage',
+    type: 'number',
+    range: [0, 100],
+    uiLocation: 'Strategy Configuration → Risk Management tab → Take Profit field',
+    dbPath: 'configuration.takeProfitPercentage',
+    csvMatch: 'Take Profit Percentage',
+    aiCanExecute: true,
+    phrases: ['take profit', 'take profit percentage', 'set take profit', 'profit target'],
+    description: 'Take profit percentage for trades'
   },
   maxWalletExposure: {
     key: 'maxWalletExposure',
@@ -62,6 +98,50 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     aiCanExecute: true,
     phrases: ['trailing stop percentage', 'trailing stop', 'set trailing stop', 'trailing stop %'],
     description: 'Percentage for trailing stop loss orders'
+  },
+
+  // === Coins & Amounts ===
+  perTradeAllocation: {
+    key: 'perTradeAllocation',
+    type: 'number',
+    uiLocation: 'Strategy Configuration → Coins & Amounts tab → "Amount Per Trade" field',
+    dbPath: 'configuration.perTradeAllocation',
+    csvMatch: 'Amount Per Trade',
+    aiCanExecute: true,
+    phrases: ['amount per trade', 'trade amount', 'per trade allocation', 'trade size'],
+    description: 'Amount allocated per individual trade'
+  },
+  selectedCoins: {
+    key: 'selectedCoins',
+    type: 'array',
+    uiLocation: 'Strategy Configuration → Coins & Amounts tab → Coin selection checkboxes',
+    dbPath: 'configuration.selectedCoins',
+    csvMatch: 'Selected Coins',
+    aiCanExecute: true,
+    phrases: ['selected coins', 'coin selection', 'coins to trade', 'trading pairs'],
+    description: 'List of selected cryptocurrencies to trade'
+  },
+
+  // === Buy/Sell Settings ===
+  buyOrderType: {
+    key: 'buyOrderType',
+    type: 'string',
+    uiLocation: 'Strategy Configuration → Buy/Sell Settings → Buy Order Type',
+    dbPath: 'configuration.buyOrderType',
+    csvMatch: 'Buy Order Type',
+    aiCanExecute: true,
+    phrases: ['buy order type', 'buy order', 'market order', 'limit order'],
+    description: 'Type of order to use for buying (market/limit)'
+  },
+  sellOrderType: {
+    key: 'sellOrderType',
+    type: 'string',
+    uiLocation: 'Strategy Configuration → Buy/Sell Settings → Sell Order Type',
+    dbPath: 'configuration.sellOrderType',
+    csvMatch: 'Sell Order Type',
+    aiCanExecute: true,
+    phrases: ['sell order type', 'sell order'],
+    description: 'Type of order to use for selling (market/limit)'
   }
 };
 
