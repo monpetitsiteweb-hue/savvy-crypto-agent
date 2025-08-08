@@ -35,16 +35,28 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
     totalFees: 0
   });
   const [loading, setLoading] = useState(true);
+  const [userFeeRate, setUserFeeRate] = useState<number>(0);
 
   const { marketData } = useRealTimeMarketData();
 
   useEffect(() => {
     if (user) {
+      fetchUserFeeRate();
       fetchPerformanceMetrics();
     }
-  }, [user, testMode, marketData]);
-
-  const fetchPerformanceMetrics = async () => {
+  const fetchUserFeeRate = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('fee_rate')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (!error && data) setUserFeeRate(Number(data.fee_rate || 0));
+    } catch (e) {
+      console.warn('Failed to fetch user fee rate', e);
+    }
+  };
     try {
       setLoading(true);
       

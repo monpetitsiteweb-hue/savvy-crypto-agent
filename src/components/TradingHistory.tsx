@@ -42,6 +42,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { toast } = useToast();
   const { getTotalValue } = useMockWallet();
   const { getCurrentData, marketData } = useRealTimeMarketData();
+  const [feeRate, setFeeRate] = useState<number>(0);
   
   console.log('🔍 TradingHistory: Component state:', { 
     user: !!user, 
@@ -220,8 +221,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       const sellValue = trade.amount * currentPrice;
       const buyValue = trade.total_value; // Already pro-rated for partials in getOpenPositions
 
-      // Derive fee rate from original buy if available; fallback to 0.5%
-      const inferredBuyFeeRate = trade.total_value > 0 ? (trade.fees || 0) / trade.total_value : 0.005;
+      // Derive fee rate from original buy if available; fallback to profile fee rate
+      const inferredBuyFeeRate = trade.total_value > 0 && (trade.fees || 0) > 0
+        ? (trade.fees || 0) / trade.total_value
+        : feeRate;
       const sellFee = sellValue * inferredBuyFeeRate;
       const buyFeeProrated = trade.fees || 0; // pro-rated in getOpenPositions
 
@@ -523,6 +526,26 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   }, [selectedConnection, testMode, user]);
 
+  // Fetch user profile fee rate (used as authoritative fee when needed)
+  useEffect(() => {
+    const fetchProfileFeeRate = async () => {
+      if (!user) return;
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('fee_rate')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (!error && data) {
+          setFeeRate(Number(data.fee_rate || 0));
+        }
+      } catch (e) {
+        console.warn('Could not fetch profile fee rate, defaulting to 0', e);
+      }
+    };
+    fetchProfileFeeRate();
+  }, [user]);
+
   // Set up real-time subscription for trading history
   useEffect(() => {
     if (!user) return;
@@ -663,6 +686,26 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             });
           } else {
             data = [];
+          }
+
+          // If Coinbase provides aggregated metrics, use them as source of truth (no local recalculation)
+          if (coinbaseData?.metrics) {
+            const m = coinbaseData.metrics as any;
+            const totalPositions = Number(m.totalPositions ?? ((m.openPositions ?? 0) + (m.closedPositions ?? 0)));
+            setTrades(data || []);
+            setStats({
+              totalTrades: totalPositions,
+              totalVolume: Number(m.totalVolume ?? 0),
+              netProfitLoss: Number(m.totalPL ?? ((m.unrealizedPL || 0) + (m.realizedPL || 0))),
+              openPositions: Number(m.openPositions ?? 0),
+              totalInvested: Number(m.totalInvested ?? 0),
+              currentPL: Number(m.unrealizedPL ?? 0),
+              totalPL: Number(m.totalPL ?? ((m.unrealizedPL || 0) + (m.realizedPL || 0))),
+              currentlyInvested: Number(m.currentlyInvested ?? 0)
+            });
+            setLoading(false);
+            setFetching(false);
+            return; // IMPORTANT: do not proceed to local calculations
           }
           error = null;
         } catch (apiError) {
