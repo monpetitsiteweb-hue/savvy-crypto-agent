@@ -39,13 +39,6 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
 
   const { marketData } = useRealTimeMarketData();
 
-  useEffect(() => {
-    if (user) {
-      fetchUserFeeRate();
-      fetchPerformanceMetrics();
-    }
-  }, [user, testMode, marketData]);
-
   const fetchUserFeeRate = async () => {
     if (!user) return;
     try {
@@ -157,6 +150,13 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (user) {
+      fetchUserFeeRate();
+      fetchPerformanceMetrics();
+    }
+  }, [user, testMode, marketData]);
 
   if (!hasActiveStrategy) {
     return (
