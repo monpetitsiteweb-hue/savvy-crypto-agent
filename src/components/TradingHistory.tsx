@@ -106,107 +106,55 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   };
 
-  // Helper functions to separate open and past positions and compute lifecycle counts
-  const computeLifecycleCounts = (allTrades: Trade[]) => {
-    // Count true position lifecycles per asset: a lifecycle opens when net goes from 0 -> >0 and closes when returns to ~0
-    const bySymbol = new Map<string, Trade[]>();
-    allTrades.forEach(t => {
-      if (!bySymbol.has(t.cryptocurrency)) bySymbol.set(t.cryptocurrency, []);
-      bySymbol.get(t.cryptocurrency)!.push(t);
-    });
-
-    let openCount = 0;
-    let closedCount = 0;
-
-    bySymbol.forEach((list) => {
-      const sorted = [...list].sort((a,b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
-      let net = 0;
-      let hasOpen = false;
-      for (const tr of sorted) {
-        if (tr.trade_type === 'buy') {
-          if (net <= 1e-9) {
-            // Opening a new lifecycle
-            hasOpen = true;
-          }
-          net += tr.amount;
-        } else if (tr.trade_type === 'sell') {
-          net -= tr.amount;
-          if (net <= 1e-9 && hasOpen) {
-            // Closed a lifecycle
-            closedCount += 1;
-            hasOpen = false;
-            net = 0; // normalize
-          }
+  // Helper functions: FIFO per-trade lots and counts (each trade = one position)
+  const buildFifoLots = (allTrades: Trade[]) => {
+    const sorted = [...allTrades].sort((a,b)=> new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
+    const lotsBySymbol = new Map<string, { trade: Trade; remaining: number }[]>();
+    for (const t of sorted) {
+      const sym = t.cryptocurrency;
+      if (!lotsBySymbol.has(sym)) lotsBySymbol.set(sym, []);
+      if (t.trade_type === 'buy') {
+        lotsBySymbol.get(sym)!.push({ trade: t, remaining: t.amount });
+      } else if (t.trade_type === 'sell') {
+        let sellRemaining = t.amount;
+        const lots = lotsBySymbol.get(sym)!;
+        for (let i = 0; i < lots.length && sellRemaining > 1e-12; i++) {
+          const lot = lots[i];
+          const used = Math.min(lot.remaining, sellRemaining);
+          lot.remaining -= used;
+          sellRemaining -= used;
         }
       }
-      if (hasOpen && net > 1e-9) {
-        openCount += 1;
-      }
+    }
+    const openLots: Trade[] = [];
+    let closedCount = 0;
+    lotsBySymbol.forEach((lots) => {
+      lots.forEach(({ trade, remaining }) => {
+        if (remaining > 1e-12) {
+          const ratio = remaining / trade.amount;
+          openLots.push({
+            ...trade,
+            amount: remaining,
+            total_value: trade.total_value * ratio,
+            fees: (trade.fees || 0) * ratio,
+          });
+        } else {
+          closedCount += 1;
+        }
+      });
     });
+    return { openLots, closedCount };
+  };
 
-    return { openCount, closedCount };
+  const computeLifecycleCounts = (allTrades: Trade[]) => {
+    const { openLots, closedCount } = buildFifoLots(allTrades);
+    return { openCount: openLots.length, closedCount };
   };
 
   const getOpenPositions = () => {
     if (trades.length === 0) return [] as Trade[];
-    
-    // Group trades by cryptocurrency to calculate net positions
-    const positionsBySymbol = new Map<string, { 
-      netAmount: number, 
-      buyTrades: Trade[], 
-      sellTrades: Trade[], 
-      totalBought: number, 
-      totalSold: number 
-    }>();
-    
-    trades.forEach(trade => {
-      const crypto = trade.cryptocurrency;
-      if (!positionsBySymbol.has(crypto)) {
-        positionsBySymbol.set(crypto, { 
-          netAmount: 0, 
-          buyTrades: [], 
-          sellTrades: [],
-          totalBought: 0,
-          totalSold: 0
-        });
-      }
-      const position = positionsBySymbol.get(crypto)!;
-      if (trade.trade_type === 'buy') {
-        position.netAmount += trade.amount;
-        position.totalBought += trade.amount;
-        position.buyTrades.push(trade);
-      } else if (trade.trade_type === 'sell') {
-        position.netAmount -= trade.amount;
-        position.totalSold += trade.amount;
-        position.sellTrades.push(trade);
-      }
-    });
-    
-    // Return buy trades for positions that still have net positive amount
-    const openTrades: Trade[] = [];
-    positionsBySymbol.forEach((position) => {
-      if (position.netAmount > 0.000001) {
-        // Show most recent buys representing the open portion
-        const sortedBuys = position.buyTrades.sort((a, b) => 
-          new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime()
-        );
-        let remainingAmount = position.netAmount;
-        for (const buyTrade of sortedBuys) {
-          if (remainingAmount <= 0) break;
-          const usedAmount = Math.min(buyTrade.amount, remainingAmount);
-          const amountRatio = usedAmount / buyTrade.amount;
-          openTrades.push({
-            ...buyTrade,
-            amount: usedAmount,
-            total_value: buyTrade.total_value * amountRatio,
-            fees: (buyTrade.fees || 0) * amountRatio,
-          });
-          remainingAmount -= usedAmount;
-        }
-      }
-    });
-    
-    return openTrades;
+    const { openLots } = buildFifoLots(trades);
+    return openLots;
   };
   
   const getPastPositions = () => {
