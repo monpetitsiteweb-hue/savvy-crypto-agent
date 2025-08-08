@@ -778,6 +778,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       // Count positions using lifecycle grouping
       const { openCount: lifecycleOpen, closedCount: lifecycleClosed } = computeLifecycleCounts(allTrades as Trade[]);
       const totalPositions = lifecycleOpen + lifecycleClosed;
+      const totalVolume = (allTrades as Trade[]).reduce((sum, t) => sum + Number(t.total_value || 0), 0);
 
       setStats({ 
         totalTrades: totalPositions,
