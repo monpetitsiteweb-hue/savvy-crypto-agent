@@ -151,10 +151,73 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return { openCount: openLots.length, closedCount };
   };
 
-  const getOpenPositions = () => {
+  const getOpenPositionsList = () => {
     if (trades.length === 0) return [] as Trade[];
     const { openLots } = buildFifoLots(trades);
     return openLots;
+  };
+
+  // Preserve original pro-rated method for P&L/invested calculations (do not change metrics)
+  const getOpenPositionsForPL = () => {
+    if (trades.length === 0) return [] as Trade[];
+    
+    // Group trades by cryptocurrency to calculate net positions
+    const positionsBySymbol = new Map<string, { 
+      netAmount: number, 
+      buyTrades: Trade[], 
+      sellTrades: Trade[], 
+      totalBought: number, 
+      totalSold: number 
+    }>();
+    
+    trades.forEach(trade => {
+      const crypto = trade.cryptocurrency;
+      if (!positionsBySymbol.has(crypto)) {
+        positionsBySymbol.set(crypto, { 
+          netAmount: 0, 
+          buyTrades: [], 
+          sellTrades: [],
+          totalBought: 0,
+          totalSold: 0
+        });
+      }
+      const position = positionsBySymbol.get(crypto)!;
+      if (trade.trade_type === 'buy') {
+        position.netAmount += trade.amount;
+        position.totalBought += trade.amount;
+        position.buyTrades.push(trade);
+      } else if (trade.trade_type === 'sell') {
+        position.netAmount -= trade.amount;
+        position.totalSold += trade.amount;
+        position.sellTrades.push(trade);
+      }
+    });
+    
+    // Return buy trades for positions that still have net positive amount
+    const openTrades: Trade[] = [];
+    positionsBySymbol.forEach((position) => {
+      if (position.netAmount > 0.000001) {
+        // Show most recent buys representing the open portion
+        const sortedBuys = position.buyTrades.sort((a, b) => 
+          new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime()
+        );
+        let remainingAmount = position.netAmount;
+        for (const buyTrade of sortedBuys) {
+          if (remainingAmount <= 0) break;
+          const usedAmount = Math.min(buyTrade.amount, remainingAmount);
+          const amountRatio = usedAmount / buyTrade.amount;
+          openTrades.push({
+            ...buyTrade,
+            amount: usedAmount,
+            total_value: buyTrade.total_value * amountRatio,
+            fees: (buyTrade.fees || 0) * amountRatio,
+          });
+          remainingAmount -= usedAmount;
+        }
+      }
+    });
+    
+    return openTrades;
   };
   
   const getPastPositions = () => {
@@ -768,7 +831,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       });
       
       // Calculate unrealized P&L by directly summing open positions' P&L
-      const openPositionsData = getOpenPositions();
+      const openPositionsData = getOpenPositionsForPL();
       let currentUnrealizedPL = 0;
       let currentlyInvested = 0;
       let currentlyOpenPositions = 0;
@@ -996,9 +1059,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         </TabsList>
 
         <TabsContent value="open" className="space-y-4">
-          {getOpenPositions().length > 0 ? (
+          {getOpenPositionsList().length > 0 ? (
             <div className="space-y-4">
-              {getOpenPositions().map((trade, index) => (
+              {getOpenPositionsList().map((trade, index) => (
                 <TradeCard key={`open-${trade.id}-${index}`} trade={trade} />
               ))}
             </div>
