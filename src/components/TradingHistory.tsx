@@ -639,8 +639,31 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
           console.log('📊 Coinbase API response:', coinbaseData);
           
-          // Use the trading history directly from Coinbase API response
-          data = coinbaseData.tradingHistory || [];
+          // Prefer normalized trades mapped by the Edge Function; fallback to mapping raw orders
+          if (coinbaseData?.normalizedTrades && Array.isArray(coinbaseData.normalizedTrades)) {
+            data = coinbaseData.normalizedTrades;
+          } else if (coinbaseData?.tradingHistory && Array.isArray(coinbaseData.tradingHistory)) {
+            data = coinbaseData.tradingHistory.map((order: any) => {
+              const cryptocurrency = order.product_id?.split('-')[0] || '';
+              const amount = parseFloat(order.filled_size || '0');
+              const total_value = parseFloat(order.filled_value || '0');
+              const price = amount > 0 ? total_value / amount : 0;
+              return {
+                id: order.order_id,
+                trade_type: (order.side || '').toLowerCase(),
+                cryptocurrency,
+                amount,
+                price,
+                total_value,
+                executed_at: order.created_time,
+                fees: parseFloat(order.total_fees || order.fill_fees || '0'),
+                notes: `Coinbase ${order.order_type || 'market'} order`,
+                coinbase_order_id: order.order_id,
+              } as Trade;
+            });
+          } else {
+            data = [];
+          }
           error = null;
         } catch (apiError) {
           console.error('Error fetching from Coinbase API:', apiError);

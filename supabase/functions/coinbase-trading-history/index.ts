@@ -280,7 +280,27 @@ serve(async (req) => {
         success: true, 
         message: 'Trading history fetched successfully',
         trades: tradingHistory.length,
-        tradingHistory: tradingHistory // Return the actual trading history data
+        tradingHistory: tradingHistory, // Raw Coinbase orders
+        normalizedTrades: tradingHistory.length > 0 ? tradingHistory.map(order => {
+          const cryptocurrency = order.product_id?.split('-')[0] || '';
+          const amount = parseFloat(order.filled_size || '0');
+          const total_value = parseFloat(order.filled_value || '0');
+          const price = amount > 0 ? total_value / amount : 0;
+          return {
+            id: order.order_id,
+            trade_type: (order.side || '').toLowerCase(),
+            cryptocurrency,
+            amount,
+            price,
+            total_value,
+            executed_at: order.created_time,
+            fees: parseFloat(order.total_fees || order.fill_fees || '0'),
+            notes: `Coinbase ${order.order_type || 'market'} order`,
+            user_coinbase_connection_id: connectionId,
+            coinbase_order_id: order.order_id,
+            trade_environment: testMode ? 'sandbox' : 'live'
+          };
+        }) : []
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
