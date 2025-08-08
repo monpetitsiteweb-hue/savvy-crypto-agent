@@ -105,9 +105,49 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   };
 
-  // Helper functions to separate open and past positions
+  // Helper functions to separate open and past positions and compute lifecycle counts
+  const computeLifecycleCounts = (allTrades: Trade[]) => {
+    // Count true position lifecycles per asset: a lifecycle opens when net goes from 0 -> >0 and closes when returns to ~0
+    const bySymbol = new Map<string, Trade[]>();
+    allTrades.forEach(t => {
+      if (!bySymbol.has(t.cryptocurrency)) bySymbol.set(t.cryptocurrency, []);
+      bySymbol.get(t.cryptocurrency)!.push(t);
+    });
+
+    let openCount = 0;
+    let closedCount = 0;
+
+    bySymbol.forEach((list) => {
+      const sorted = [...list].sort((a,b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
+      let net = 0;
+      let hasOpen = false;
+      for (const tr of sorted) {
+        if (tr.trade_type === 'buy') {
+          if (net <= 1e-9) {
+            // Opening a new lifecycle
+            hasOpen = true;
+          }
+          net += tr.amount;
+        } else if (tr.trade_type === 'sell') {
+          net -= tr.amount;
+          if (net <= 1e-9 && hasOpen) {
+            // Closed a lifecycle
+            closedCount += 1;
+            hasOpen = false;
+            net = 0; // normalize
+          }
+        }
+      }
+      if (hasOpen && net > 1e-9) {
+        openCount += 1;
+      }
+    });
+
+    return { openCount, closedCount };
+  };
+
   const getOpenPositions = () => {
-    if (trades.length === 0) return [];
+    if (trades.length === 0) return [] as Trade[];
     
     // Group trades by cryptocurrency to calculate net positions
     const positionsBySymbol = new Map<string, { 
@@ -129,9 +169,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           totalSold: 0
         });
       }
-      
       const position = positionsBySymbol.get(crypto)!;
-      
       if (trade.trade_type === 'buy') {
         position.netAmount += trade.amount;
         position.totalBought += trade.amount;
@@ -145,23 +183,24 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     
     // Return buy trades for positions that still have net positive amount
     const openTrades: Trade[] = [];
-    positionsBySymbol.forEach((position, crypto) => {
-      if (position.netAmount > 0.000001) { // Account for floating point precision
-        // For display purposes, show the most recent buy trades that represent the open position
+    positionsBySymbol.forEach((position) => {
+      if (position.netAmount > 0.000001) {
+        // Show most recent buys representing the open portion
         const sortedBuys = position.buyTrades.sort((a, b) => 
           new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime()
         );
-        
         let remainingAmount = position.netAmount;
         for (const buyTrade of sortedBuys) {
-          if (remainingAmount > 0) {
-            // Create a trade entry representing the open portion
-            openTrades.push({
-              ...buyTrade,
-              amount: Math.min(buyTrade.amount, remainingAmount)
-            });
-            remainingAmount -= buyTrade.amount;
-          }
+          if (remainingAmount <= 0) break;
+          const usedAmount = Math.min(buyTrade.amount, remainingAmount);
+          const amountRatio = usedAmount / buyTrade.amount;
+          openTrades.push({
+            ...buyTrade,
+            amount: usedAmount,
+            total_value: buyTrade.total_value * amountRatio,
+            fees: (buyTrade.fees || 0) * amountRatio,
+          });
+          remainingAmount -= usedAmount;
         }
       }
     });
@@ -170,19 +209,23 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   };
   
   const getPastPositions = () => {
-    // Return all sell trades as they represent closed positions
-    // For past positions, we need to preserve the original P&L at time of sale
+    // Return all sell trades as they represent closed legs; lifecycle counts are computed separately
     return trades.filter(trade => trade.trade_type === 'sell');
   };
-
   const sellPosition = async (trade: Trade) => {
     if (!user) return;
     
     try {
       const currentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
       const sellValue = trade.amount * currentPrice;
-      const buyValue = trade.amount * trade.price;
-      const realizedPL = sellValue - buyValue;
+      const buyValue = trade.total_value; // Already pro-rated for partials in getOpenPositions
+
+      // Derive fee rate from original buy if available; fallback to 0.5%
+      const inferredBuyFeeRate = trade.total_value > 0 ? (trade.fees || 0) / trade.total_value : 0.005;
+      const sellFee = sellValue * inferredBuyFeeRate;
+      const buyFeeProrated = trade.fees || 0; // pro-rated in getOpenPositions
+
+      const realizedPL = (sellValue - sellFee) - (buyValue + buyFeeProrated);
       
       const { error } = await supabase
         .from('mock_trades')
@@ -195,7 +238,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           price: currentPrice,
           total_value: sellValue,
           profit_loss: realizedPL,
-          fees: 0,
+          fees: sellFee,
           executed_at: new Date().toISOString(),
           is_test_mode: true,
           market_conditions: {
@@ -208,7 +251,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
       toast({
         title: "Position Sold",
-        description: `Successfully sold ${trade.amount.toFixed(6)} ${trade.cryptocurrency} for ${formatEuro(realizedPL)} ${realizedPL >= 0 ? 'profit' : 'loss'}`,
+        description: `Successfully sold ${trade.amount.toFixed(6)} ${trade.cryptocurrency}. Realized ${formatEuro(realizedPL)} ${realizedPL >= 0 ? 'profit' : 'loss'} (fees included)`,
       });
 
       // Refresh the trades
@@ -554,8 +597,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           .select('*')
           .eq('user_id', user.id)
           .eq('is_test_mode', true)
-          .order('executed_at', { ascending: false })
-          .limit(50);
+          .order('executed_at', { ascending: false });
         
         console.log('🔍 Mock trades query result:', { count: result.data?.length, error: result.error });
         
@@ -733,53 +775,17 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         });
       });
       
-      console.log(`🔍 Final Unrealized P&L: ${currentUnrealizedPL.toFixed(2)}€`);
-      
-      // Count positions for statistics
-      let totalPositionsEverOpened = 0;
-      let closedPositions = 0;
-      currentlyOpenPositions = openPositionsData.length;
-      
-      positionSummary.forEach((position, crypto) => {
-        if (position.hasEverHadPosition) {
-          totalPositionsEverOpened++;
-          
-          // Check if position is currently open
-          if (position.netAmount > 0.000001) {
-            position.isCurrentlyOpen = true;
-          } else {
-            // Position is closed if we had trades but net amount is ~0
-            position.isClosed = true;
-            closedPositions++;
-          }
-        }
-      });
-      
-      const totalTradeRecords = allTrades.length;
-      const totalVolume = allTrades.reduce((sum, trade) => sum + Number(trade.total_value), 0);
-      
-      console.log('📊 Position Analysis:', {
-        totalPositionsEverOpened,
-        currentlyOpenPositions,
-        closedPositions,
-        totalTradeRecords,
-        lifetimeTotalInvested,
-        currentlyInvested,
-        currentUnrealizedPL,
-        totalRealizedPL
-      });
-      
-      // CRITICAL FIX: Use actual arrays for accurate counting
-      const pastPositionsData = getPastPositions();
-      const totalPositions = openPositionsData.length + pastPositionsData.length;
-      
+      // Count positions using lifecycle grouping
+      const { openCount: lifecycleOpen, closedCount: lifecycleClosed } = computeLifecycleCounts(allTrades as Trade[]);
+      const totalPositions = lifecycleOpen + lifecycleClosed;
+
       setStats({ 
-        totalTrades: totalPositions, // FIXED: Total positions = open positions + past positions
+        totalTrades: totalPositions,
         totalVolume, 
         netProfitLoss: currentUnrealizedPL + totalRealizedPL, // Combined P&L
-        openPositions: currentlyOpenPositions, // Currently open positions
+        openPositions: lifecycleOpen, // True open lifecycles
         totalInvested: lifetimeTotalInvested, // Cumulative lifetime investment
-        currentPL: currentUnrealizedPL, // FIXED: This should match the sum of individual open position P&L
+        currentPL: currentUnrealizedPL, // Unrealized
         totalPL: currentUnrealizedPL + totalRealizedPL, // Total P&L = Unrealized + Realized
         currentlyInvested // Currently tied up in open positions
       });
@@ -964,13 +970,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             value="open" 
             className="data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-400"
           >
-            Open Positions ({Math.max(0, getOpenPositions().length)})
+            Open Positions ({computeLifecycleCounts(trades).openCount})
           </TabsTrigger>
           <TabsTrigger 
             value="past" 
             className="data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-400"
           >
-            Past Positions ({Math.max(0, getPastPositions().length)})
+            Past Positions ({computeLifecycleCounts(trades).closedCount})
           </TabsTrigger>
         </TabsList>
 

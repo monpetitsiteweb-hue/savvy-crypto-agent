@@ -7,6 +7,7 @@ import { useTestMode } from "@/hooks/useTestMode";
 import { TrendingUp, TrendingDown, DollarSign, Activity, Target, TestTube } from "lucide-react";
 import { NoActiveStrategyState } from "./NoActiveStrategyState";
 import { formatEuro } from '@/utils/currencyFormatter';
+import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 
 interface PerformanceMetrics {
   totalTrades: number;
@@ -35,63 +36,104 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
   });
   const [loading, setLoading] = useState(true);
 
+  const { marketData } = useRealTimeMarketData();
+
   useEffect(() => {
     if (user) {
       fetchPerformanceMetrics();
     }
-  }, [user, testMode]);
+  }, [user, testMode, marketData]);
 
   const fetchPerformanceMetrics = async () => {
     try {
       setLoading(true);
       
-      // Get trades from the appropriate table based on test mode
       const tableName = testMode ? 'mock_trades' : 'trading_history';
       const { data: trades, error } = await supabase
         .from(tableName)
         .select('*')
-        .eq('user_id', user?.id);
+        .eq('user_id', user?.id)
+        .order('executed_at', { ascending: true });
 
       if (error) throw error;
 
       if (trades && trades.length > 0) {
-        const totalTrades = trades.length;
-        let totalProfitLoss = 0;
+        // FIFO lots per symbol
+        type Lot = { remaining: number; unitPrice: number; feePerUnit: number };
+        const lotsBySymbol = new Map<string, Lot[]>();
+        const feeRateBySymbol = new Map<string, number>();
+
+        let realizedPL = 0;
+        let unrealizedPL = 0;
         let totalFees = 0;
         let winningTrades = 0;
         let losingTrades = 0;
+        let sellEvents = 0;
 
-        // Calculate metrics from trades
-        trades.forEach(trade => {
-          const fees = trade.fees || 0;
-          totalFees += fees;
-
-          // For profit/loss calculation, we need to track if this was profitable
-          // This is a simplified calculation - in reality it would be more complex
-          if (testMode && 'profit_loss' in trade && trade.profit_loss !== undefined) {
-            totalProfitLoss += trade.profit_loss;
-            if (trade.profit_loss > 0) winningTrades++;
-            else if (trade.profit_loss < 0) losingTrades++;
-          } else {
-            // For live trades, we'd need more sophisticated P&L calculation
-            // For now, simulate some profit/loss
-            const simulatedPL = (Math.random() - 0.45) * trade.total_value * 0.1;
-            totalProfitLoss += simulatedPL;
-            if (simulatedPL > 0) winningTrades++;
-            else losingTrades++;
+        // Pre-calc fee rates from buys
+        trades.forEach(t => {
+          totalFees += Number(t.fees || 0);
+          if (t.trade_type === 'buy' && t.total_value && t.fees) {
+            const rate = Number(t.fees) / Number(t.total_value);
+            if (!feeRateBySymbol.has(t.cryptocurrency)) feeRateBySymbol.set(t.cryptocurrency, rate);
           }
         });
 
-        const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+        for (const t of trades) {
+          const sym = t.cryptocurrency;
+          if (!lotsBySymbol.has(sym)) lotsBySymbol.set(sym, []);
+          const lots = lotsBySymbol.get(sym)!;
+
+          if (t.trade_type === 'buy') {
+            const unitPrice = Number(t.total_value) / Number(t.amount || 1);
+            const feePerUnit = Number(t.fees || 0) / Number(t.amount || 1);
+            lots.push({ remaining: Number(t.amount), unitPrice, feePerUnit });
+          } else if (t.trade_type === 'sell') {
+            let sellRemaining = Number(t.amount);
+            const sellPrice = Number(t.price);
+            const explicitSellFeePerUnit = Number(t.fees || 0) / (Number(t.amount) || 1);
+            const fallbackRate = feeRateBySymbol.get(sym) ?? 0.005;
+            const sellFeePerUnit = explicitSellFeePerUnit || (fallbackRate * sellPrice);
+
+            let sellRealized = 0;
+            while (sellRemaining > 1e-12 && lots.length > 0) {
+              const lot = lots[0];
+              const used = Math.min(lot.remaining, sellRemaining);
+              const buyCost = used * (lot.unitPrice + lot.feePerUnit);
+              const proceeds = used * (sellPrice - sellFeePerUnit);
+              sellRealized += (proceeds - buyCost);
+              lot.remaining -= used;
+              sellRemaining -= used;
+              if (lot.remaining <= 1e-12) lots.shift();
+            }
+            realizedPL += sellRealized;
+            sellEvents += 1;
+            if (sellRealized > 0) winningTrades += 1; else if (sellRealized < 0) losingTrades += 1;
+          }
+        }
+
+        // Unrealized from remaining lots at current prices
+        lotsBySymbol.forEach((lots, sym) => {
+          const current = marketData[sym]?.price;
+          if (!current) return;
+          lots.forEach(lot => {
+            unrealizedPL += lot.remaining * (current - lot.unitPrice) - (lot.remaining * lot.feePerUnit);
+          });
+        });
+
+        const totalTrades = trades.length;
+        const winRate = sellEvents > 0 ? (winningTrades / sellEvents) * 100 : 0;
 
         setMetrics({
           totalTrades,
           winningTrades,
           losingTrades,
-          totalProfitLoss,
+          totalProfitLoss: realizedPL + unrealizedPL,
           winRate,
           totalFees
         });
+      } else {
+        setMetrics({ totalTrades: 0, winningTrades: 0, losingTrades: 0, totalProfitLoss: 0, winRate: 0, totalFees: 0 });
       }
     } catch (error) {
       console.error('Error fetching performance metrics:', error);
