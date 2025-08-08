@@ -44,6 +44,8 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
       fetchUserFeeRate();
       fetchPerformanceMetrics();
     }
+  }, [user, testMode, marketData]);
+
   const fetchUserFeeRate = async () => {
     if (!user) return;
     try {
@@ -57,6 +59,8 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
       console.warn('Failed to fetch user fee rate', e);
     }
   };
+
+  const fetchPerformanceMetrics = async () => {
     try {
       setLoading(true);
       
