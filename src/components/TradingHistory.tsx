@@ -91,10 +91,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
     }
     
-    // For open positions, calculate unrealized P&L based on current market price
+    // For open positions, calculate unrealized P&L based on current market price (price-only)
     const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
     const currentValue = trade.amount * currentMarketPrice;
-    const gainLoss = currentValue - purchaseValue - fees;
+    const gainLoss = (currentMarketPrice - purchasePrice) * trade.amount;
     const gainLossPercentage = purchaseValue !== 0 ? (gainLoss / purchaseValue) * 100 : 0;
     
     return {
@@ -156,6 +156,44 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const { openLots } = buildFifoLots(trades);
     return openLots;
   };
+
+  // Realized P&L using strict FIFO and price-only formula (no fees)
+  const computeRealizedPLFIFO = (allTrades: Trade[]) => {
+    const sorted = [...allTrades].sort((a,b)=> new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
+    const lotsBySymbol = new Map<string, { price: number; remaining: number }[]>();
+    let realized = 0;
+    for (const t of sorted) {
+      const sym = t.cryptocurrency;
+      if (!lotsBySymbol.has(sym)) lotsBySymbol.set(sym, []);
+      if (t.trade_type === 'buy') {
+        lotsBySymbol.get(sym)!.push({ price: t.price, remaining: t.amount });
+      } else if (t.trade_type === 'sell') {
+        let q = t.amount;
+        const lots = lotsBySymbol.get(sym)!;
+        for (let i = 0; i < lots.length && q > 1e-12; i++) {
+          const lot = lots[i];
+          const used = Math.min(lot.remaining, q);
+          realized += (t.price - lot.price) * used;
+          lot.remaining -= used;
+          q -= used;
+        }
+      }
+    }
+    return realized;
+  };
+
+  // Unrealized P&L from open lots and current investment (price-only, no fees)
+  const computeUnrealizedPLFromOpenLots = (openLots: Trade[]) => {
+    let unrealizedPL = 0;
+    let invested = 0;
+    openLots.forEach((lot) => {
+      const currentPrice = marketData[lot.cryptocurrency]?.price || currentPrices[lot.cryptocurrency] || lot.price;
+      unrealizedPL += (currentPrice - lot.price) * lot.amount;
+      invested += lot.price * lot.amount;
+    });
+    return { unrealizedPL, invested };
+  };
+
 
   // Preserve original pro-rated method for P&L/invested calculations (do not change metrics)
   const getOpenPositionsForPL = () => {
@@ -591,6 +629,22 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   }, [user, testMode]);
 
+  // Recompute P&L dynamically when market data updates
+  useEffect(() => {
+    if (!trades || trades.length === 0) return;
+    if (!testMode) return; // In live mode, rely on Coinbase metrics to avoid inconsistency
+    const openLots = getOpenPositionsList();
+    const { unrealizedPL, invested } = computeUnrealizedPLFromOpenLots(openLots);
+    const realizedPL = computeRealizedPLFIFO(trades);
+    setStats((prev) => ({
+      ...prev,
+      currentPL: unrealizedPL,
+      totalPL: unrealizedPL + realizedPL,
+      netProfitLoss: unrealizedPL + realizedPL,
+      currentlyInvested: invested,
+    }));
+  }, [marketData, currentPrices, trades, testMode]);
+
   const fetchConnections = async () => {
     if (!user) return;
     
@@ -789,7 +843,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         isClosed: boolean
       }>();
       
-      let totalRealizedPL = 0;
       let lifetimeTotalInvested = 0;
       
       // Process all trades to build position summary
@@ -824,33 +877,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           position.totalSold += trade.amount;
           position.sellValue += trade.total_value;
           position.sellTrades.push(trade);
-          
-          // Add realized P&L from this sell trade
-          totalRealizedPL += trade.profit_loss || 0;
         }
       });
       
-      // Calculate unrealized P&L by directly summing open positions' P&L
-      const openPositionsData = getOpenPositionsForPL();
-      let currentUnrealizedPL = 0;
-      let currentlyInvested = 0;
-      let currentlyOpenPositions = 0;
-      
-      console.log('🔍 Starting Unrealized P&L calculation from open positions...');
-      
-      openPositionsData.forEach(trade => {
-        const performance = calculateTradePerformance(trade);
-        const positionPL = performance.gainLoss;
-        currentUnrealizedPL += positionPL;
-        currentlyInvested += performance.purchaseValue;
-        
-        console.log(`🔍 Position ${trade.cryptocurrency} P&L:`, {
-          crypto: trade.cryptocurrency,
-          amount: trade.amount.toFixed(6),
-          positionPL: positionPL.toFixed(2),
-          runningTotal: currentUnrealizedPL.toFixed(2)
-        });
-      });
+      // Compute P&L strictly per requested formulas (no fees)
+      const realizedFromFIFO = computeRealizedPLFIFO(allTrades as Trade[]);
+      const openLots = getOpenPositionsList();
+      const { unrealizedPL: currentUnrealizedPL, invested: currentlyInvested } = computeUnrealizedPLFromOpenLots(openLots);
       
       // Count positions using lifecycle grouping
       const { openCount: lifecycleOpen, closedCount: lifecycleClosed } = computeLifecycleCounts(allTrades as Trade[]);
@@ -860,12 +893,12 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       setStats({ 
         totalTrades: totalPositions,
         totalVolume, 
-        netProfitLoss: currentUnrealizedPL + totalRealizedPL, // Combined P&L
-        openPositions: lifecycleOpen, // True open lifecycles
-        totalInvested: lifetimeTotalInvested, // Cumulative lifetime investment
-        currentPL: currentUnrealizedPL, // Unrealized
-        totalPL: currentUnrealizedPL + totalRealizedPL, // Total P&L = Unrealized + Realized
-        currentlyInvested // Currently tied up in open positions
+        netProfitLoss: currentUnrealizedPL + realizedFromFIFO,
+        openPositions: lifecycleOpen,
+        totalInvested: lifetimeTotalInvested,
+        currentPL: currentUnrealizedPL,
+        totalPL: currentUnrealizedPL + realizedFromFIFO,
+        currentlyInvested
       });
     } catch (error) {
       console.error('Error fetching trading history:', error);
