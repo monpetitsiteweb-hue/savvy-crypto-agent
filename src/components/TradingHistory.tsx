@@ -77,14 +77,15 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const fees = trade.fees || 0;
     
     if (trade.trade_type === 'sell') {
-      // For closed positions (SELL trades): use the data as provided by Coinbase
-      const realizedPL = trade.profit_loss || 0; // This is the actual P&L from Coinbase
+      // For closed positions (SELL trades): calculate P&L properly
+      // Since there's no profit_loss field, we need to calculate it
       const exitGross = (trade.amount || 0) * (trade.price || 0); // Exit value before fees
       const exitFee = typeof trade.fees === 'number' ? trade.fees : (feeRate > 0 ? exitGross * feeRate : 0);
       const exitNet = exitGross - exitFee; // Net exit value after fees
       
-      // For SELL trades, total_value is the ORIGINAL purchase value, not exit value
+      // For SELL trades, total_value should be the original purchase value
       const purchaseValueGross = trade.total_value || 0;
+      const realizedPL = exitNet - purchaseValueGross;
       
       return {
         currentPrice: trade.price, // Exit (sell) unit price
