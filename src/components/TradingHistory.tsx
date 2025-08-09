@@ -77,6 +77,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const fees = trade.fees || 0;
     
     if (trade.trade_type === 'sell') {
+      // DEBUG: Log actual trade data to understand what we're working with
+      console.log('🚨 DEBUGGING SELL TRADE:', {
+        id: trade.id,
+        amount: trade.amount,
+        price: trade.price,
+        total_value: trade.total_value,
+        profit_loss: trade.profit_loss,
+        fees: trade.fees,
+        cryptocurrency: trade.cryptocurrency,
+        executed_at: trade.executed_at
+      });
+
       // For closed positions (SELL trades): calculate values correctly
       const realizedPL = trade.profit_loss || 0;
       const exitGross = (trade.amount || 0) * (trade.price || 0); // Exit value before fees
@@ -86,6 +98,14 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       // For SELL trades, total_value is the exit value, so we need to calculate original purchase value
       // Purchase Value = Exit Value - Realized P&L - Fees
       const purchaseValueGross = exitGross - realizedPL - exitFee;
+      
+      console.log('🚨 CALCULATED VALUES:', {
+        exitGross,
+        exitFee,
+        exitNet,
+        purchaseValueGross,
+        realizedPL
+      });
       
       return {
         currentPrice: trade.price, // Exit (sell) unit price
