@@ -80,7 +80,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       // For closed positions, compute Exit Value correctly: amount sold × exit price, adjusted for fees
       // Prefer recorded sell fees; otherwise estimate from user's fee rate (0 only for Pro as configured)
       const realizedPL = trade.profit_loss || 0;
-      const exitGross = (trade.amount || 0) * (trade.price || 0);
+      const exitGross = typeof trade.total_value === 'number' && trade.total_value > 0
+        ? trade.total_value
+        : (trade.amount || 0) * (trade.price || 0);
       const exitFee = typeof trade.fees === 'number' ? trade.fees : (feeRate > 0 ? exitGross * feeRate : 0);
       const exitNet = exitGross - exitFee;
 
