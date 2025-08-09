@@ -77,24 +77,21 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const fees = trade.fees || 0;
     
     if (trade.trade_type === 'sell') {
-      // For closed positions, compute Exit Value correctly: amount sold × exit price, adjusted for fees
-      // Prefer recorded sell fees; otherwise estimate from user's fee rate (0 only for Pro as configured)
+      // For closed positions: Exit Value = amount sold × exit price (trade.price for sell orders)
       const realizedPL = trade.profit_loss || 0;
-      const exitGross = typeof trade.total_value === 'number' && trade.total_value > 0
-        ? trade.total_value
-        : (trade.amount || 0) * (trade.price || 0);
+      const exitGross = (trade.amount || 0) * (trade.price || 0); // Exit value before fees
       const exitFee = typeof trade.fees === 'number' ? trade.fees : (feeRate > 0 ? exitGross * feeRate : 0);
-      const exitNet = exitGross - exitFee;
+      const exitNet = exitGross - exitFee; // Net exit value after fees
 
-      // Reconstruct the net purchase value from realized P&L and net exit value to keep consistency
-      const buyValueNet = exitNet - realizedPL;
+      // For closed positions, use the original purchase total_value as purchase value
+      const purchaseValueGross = trade.total_value || 0;
       
       return {
         currentPrice: trade.price, // Exit (sell) unit price
         currentValue: exitNet, // Exit Value (net of fees)
-        purchaseValue: buyValueNet, // Purchase Value (net of buy fees)
+        purchaseValue: purchaseValueGross, // Original purchase value
         gainLoss: realizedPL,
-        gainLossPercentage: buyValueNet !== 0 ? (realizedPL / buyValueNet) * 100 : 0
+        gainLossPercentage: purchaseValueGross !== 0 ? (realizedPL / purchaseValueGross) * 100 : 0
       };
     }
     
