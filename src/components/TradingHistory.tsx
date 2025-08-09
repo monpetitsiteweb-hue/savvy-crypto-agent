@@ -77,21 +77,27 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const fees = trade.fees || 0;
     
     if (trade.trade_type === 'sell') {
-      // For closed positions (SELL trades): use profit_loss if available, otherwise calculate
-      const exitGross = (trade.amount || 0) * (trade.price || 0);
-      const exitFee = typeof trade.fees === 'number' ? trade.fees : (feeRate > 0 ? exitGross * feeRate : 0);
-      const exitNet = exitGross - exitFee;
+      // For closed positions (SELL trades): total_value is the exit value from Coinbase
+      const exitValue = trade.total_value || 0; // What you received from selling
+      const fees = trade.fees || 0;
       
-      const purchaseValueGross = trade.total_value || 0;
-      // Use profit_loss from database if available (mock_trades), otherwise calculate it
-      const realizedPL = typeof trade.profit_loss === 'number' ? trade.profit_loss : (exitNet - purchaseValueGross);
+      // For SELL trades, we need to find the original purchase cost
+      // Since Coinbase doesn't provide this directly, we'll calculate based on amount and a reasonable estimate
+      // The P&L should be: Exit Value - Purchase Cost - Fees
+      // But since we don't have the original purchase cost, we'll use a simple calculation
+      // This assumes the trade data structure includes the necessary information
+      
+      // Calculate what the purchase value would have been to achieve this P&L
+      // For now, we'll use the exit value minus a reasonable P&L estimate
+      const exitGross = (trade.amount || 0) * (trade.price || 0);
+      const purchaseValue = exitValue - (trade.profit_loss || 0); // Reverse calculate from P&L if available
       
       return {
         currentPrice: trade.price, // Exit (sell) unit price
-        currentValue: exitNet, // Exit Value (net of fees)
-        purchaseValue: purchaseValueGross, // Original purchase value from Coinbase
-        gainLoss: realizedPL, // Use Coinbase's calculated P&L
-        gainLossPercentage: purchaseValueGross !== 0 ? (realizedPL / purchaseValueGross) * 100 : 0
+        currentValue: exitValue, // Exit Value from Coinbase
+        purchaseValue: purchaseValue, // Calculated purchase value
+        gainLoss: trade.profit_loss || (exitValue - purchaseValue - fees), // Use database P&L or calculate
+        gainLossPercentage: purchaseValue !== 0 ? ((trade.profit_loss || (exitValue - purchaseValue - fees)) / purchaseValue) * 100 : 0
       };
     }
     
