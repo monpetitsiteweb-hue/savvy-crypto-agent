@@ -77,19 +77,20 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const fees = trade.fees || 0;
     
     if (trade.trade_type === 'sell') {
-      // For closed positions: Exit Value = amount sold × exit price (trade.price for sell orders)
+      // For closed positions (SELL trades): calculate values correctly
       const realizedPL = trade.profit_loss || 0;
       const exitGross = (trade.amount || 0) * (trade.price || 0); // Exit value before fees
       const exitFee = typeof trade.fees === 'number' ? trade.fees : (feeRate > 0 ? exitGross * feeRate : 0);
       const exitNet = exitGross - exitFee; // Net exit value after fees
 
-      // For closed positions, use the original purchase total_value as purchase value
-      const purchaseValueGross = trade.total_value || 0;
+      // For SELL trades, total_value is the exit value, so we need to calculate original purchase value
+      // Purchase Value = Exit Value - Realized P&L - Fees
+      const purchaseValueGross = exitGross - realizedPL - exitFee;
       
       return {
         currentPrice: trade.price, // Exit (sell) unit price
         currentValue: exitNet, // Exit Value (net of fees)
-        purchaseValue: purchaseValueGross, // Original purchase value
+        purchaseValue: purchaseValueGross, // Calculated original purchase value
         gainLoss: realizedPL,
         gainLossPercentage: purchaseValueGross !== 0 ? (realizedPL / purchaseValueGross) * 100 : 0
       };
