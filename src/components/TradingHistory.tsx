@@ -71,67 +71,38 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
 
   const calculateTradePerformance = (trade: Trade) => {
-    console.log('🔍 TRADE DATA FOR', trade.cryptocurrency, 'SELL:', {
-      id: trade.id,
-      type: trade.trade_type,
-      crypto: trade.cryptocurrency,
-      amount: trade.amount,
-      price: trade.price,
-      total_value: trade.total_value,
-      fees: trade.fees,
-      profit_loss: trade.profit_loss,
-      executed_at: trade.executed_at
-    });
-    
     const purchasePrice = trade.price;
-    const purchaseValue = trade.total_value;
     const fees = trade.fees || 0;
     
     if (trade.trade_type === 'sell') {
-      // For SELL trades: total_value is what you received from the sale
-      // We need to calculate the original purchase cost to get proper P&L
-      const exitValue = trade.total_value || 0; // What you received
-      const exitPrice = trade.price || 0; // Price per unit when sold
-      const amount = trade.amount || 0;
+      // For SELL trades: Proper P&L calculation
+      const exitPrice = trade.price; // Price per unit when sold
+      const amount = trade.amount;
       
-      // If profit_loss is available, use it to reverse-calculate purchase value
-      if (typeof trade.profit_loss === 'number') {
-        const purchaseValue = exitValue - trade.profit_loss - fees;
-        console.log('🔍 SELL CALCULATION (with profit_loss):', {
-          exitValue,
-          profit_loss: trade.profit_loss,
-          fees,
-          calculatedPurchaseValue: purchaseValue
-        });
-        
-        return {
-          currentPrice: exitPrice,
-          currentValue: exitValue,
-          purchaseValue: purchaseValue,
-          gainLoss: trade.profit_loss,
-          gainLossPercentage: purchaseValue !== 0 ? (trade.profit_loss / purchaseValue) * 100 : 0
-        };
-      } else {
-        // Without profit_loss, we can't accurately calculate original purchase value
-        // This is a limitation of the current data structure
-        console.log('🔍 SELL CALCULATION (without profit_loss):', {
-          exitValue,
-          assumingPurchaseValue: exitValue
-        });
-        
-        return {
-          currentPrice: exitPrice,
-          currentValue: exitValue,
-          purchaseValue: exitValue, // Best guess
-          gainLoss: 0, // Can't calculate without original purchase data
-          gainLossPercentage: 0
-        };
-      }
+      // Exit Value = amount × exit price (minus fees)
+      const exitValue = (amount * exitPrice) - fees;
+      
+      // Purchase Value = what was actually paid including fees
+      // Since we don't have original purchase data, use total_value as purchase value
+      const purchaseValue = trade.total_value;
+      
+      // P&L = Exit Value - Purchase Value
+      const gainLoss = exitValue - purchaseValue;
+      const gainLossPercentage = purchaseValue !== 0 ? (gainLoss / purchaseValue) * 100 : 0;
+      
+      return {
+        currentPrice: exitPrice,
+        currentValue: exitValue,
+        purchaseValue: purchaseValue,
+        gainLoss: gainLoss,
+        gainLossPercentage: gainLossPercentage
+      };
     }
     
     // For open positions, calculate unrealized P&L based on current market price (price-only)
     const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
     const currentValue = trade.amount * currentMarketPrice;
+    const purchaseValue = trade.total_value;
     const gainLoss = (currentMarketPrice - purchasePrice) * trade.amount;
     const gainLossPercentage = purchaseValue !== 0 ? (gainLoss / purchaseValue) * 100 : 0;
     
