@@ -239,16 +239,9 @@ export const useTestTrading = () => {
       let profit_loss = 0;
       
       if (tradeData.trade_type === 'sell') {
-        // For sell trades, calculate a realistic P&L based on small percentage gains/losses
-        const sellValue = tradeData.total_value;
-        
-        // Generate realistic P&L: random between -10% to +15% of sell value
-        const randomPLPercent = (Math.random() * 0.25 - 0.10); // -10% to +15%
-        profit_loss = sellValue * randomPLPercent;
-        
-        // Subtract fees (0.5% of total transaction value)
-        const fees = sellValue * 0.005;
-        profit_loss -= fees;
+        // For sell trades, we need to find the corresponding buy trade(s) to calculate actual P&L
+        // For now, store P&L as 0 and let the frontend calculate it properly using FIFO
+        profit_loss = 0;
       } else {
         // For buy trades, P&L is 0 (unrealized until sold)
         profit_loss = 0;
@@ -262,7 +255,7 @@ export const useTestTrading = () => {
         amount: tradeData.amount,
         price: tradeData.price,
         total_value: tradeData.total_value,
-        fees: tradeData.total_value * 0.005, // 0.5% fee
+        fees: tradeData.total_value * 0.001, // 0.1% fee (more realistic for major exchanges)
         strategy_trigger: tradeData.strategy_trigger,
         notes: 'Automated test trade',
         is_test_mode: true,

@@ -74,36 +74,50 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const fees = trade.fees || 0;
     
     if (trade.trade_type === 'sell') {
-      // For SELL trades: This is a closed position with realized P&L
+      // For SELL trades: Calculate realized P&L using FIFO matching
       const sellPrice = trade.price;
-      const sellValue = trade.total_value; // Total EUR received from sale
-      const realizedPL = trade.profit_loss || 0;
+      const sellValue = trade.total_value;
+      const sellAmount = trade.amount;
       
-      // Calculate the original purchase value correctly
-      // If P&L is positive: Purchase Value = Sell Value - P&L
-      // If P&L is negative: Purchase Value = Sell Value + |P&L|
-      const originalPurchaseValue = sellValue - realizedPL;
+      // Find corresponding buy trades using FIFO to calculate actual cost basis
+      const buyTrades = trades.filter(t => 
+        t.trade_type === 'buy' && 
+        t.cryptocurrency === trade.cryptocurrency &&
+        new Date(t.executed_at) < new Date(trade.executed_at)
+      ).sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
       
-      // Calculate percentage based on original investment
-      const gainLossPercentage = originalPurchaseValue > 0 ? (realizedPL / originalPurchaseValue) * 100 : 0;
+      let remainingAmount = sellAmount;
+      let totalCostBasis = 0;
+      
+      for (const buyTrade of buyTrades) {
+        if (remainingAmount <= 0) break;
+        
+        const amountToUse = Math.min(remainingAmount, buyTrade.amount);
+        totalCostBasis += (amountToUse / buyTrade.amount) * buyTrade.total_value;
+        remainingAmount -= amountToUse;
+      }
+      
+      // Calculate realized P&L: Sell Value - Cost Basis - Fees
+      const realizedPL = sellValue - totalCostBasis - fees;
+      const gainLossPercentage = totalCostBasis > 0 ? (realizedPL / totalCostBasis) * 100 : 0;
       
       return {
         currentPrice: sellPrice,
         currentValue: sellValue,
-        purchaseValue: originalPurchaseValue,
+        purchaseValue: totalCostBasis,
         gainLoss: realizedPL,
         gainLossPercentage: gainLossPercentage
       };
     }
     
-    // For BUY trades (open positions): Calculate unrealized P&L
+    // For BUY trades (open positions): Calculate unrealized P&L based on current market price
     const purchasePrice = trade.price;
     const purchaseValue = trade.total_value;
     const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
     const currentValue = trade.amount * currentMarketPrice;
     
-    // Unrealized P&L = Current Value - Purchase Value (including fees)
-    const unrealizedPL = currentValue - purchaseValue;
+    // Unrealized P&L = Current Value - Purchase Value - Fees
+    const unrealizedPL = currentValue - purchaseValue - fees;
     const gainLossPercentage = purchaseValue !== 0 ? (unrealizedPL / purchaseValue) * 100 : 0;
     
     return {
