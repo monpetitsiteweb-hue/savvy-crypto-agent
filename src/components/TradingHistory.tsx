@@ -75,20 +75,19 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const fees = trade.fees || 0;
     
     if (trade.trade_type === 'sell') {
-      // For SELL trades: we need to calculate based on stored profit_loss or infer from data
+      // For SELL trades: use the stored profit_loss from database
       const exitPrice = trade.price; // Price when sold
       const amount = trade.amount;
       
       // Exit Value = amount × exit price - fees
       const exitValue = (amount * exitPrice) - fees;
       
-      // If we have stored profit_loss, use it to calculate purchase value
-      // Otherwise use total_value as fallback
-      const storedPL = trade.profit_loss || 0;
-      const purchaseValue = exitValue - storedPL;
+      // Use stored profit_loss directly - this is the correct P&L
+      const gainLoss = trade.profit_loss || 0;
       
-      // P&L = stored profit_loss or calculated difference
-      const gainLoss = storedPL || (exitValue - trade.total_value);
+      // Calculate purchase value from exit value - P&L
+      const purchaseValue = exitValue - gainLoss;
+      
       const gainLossPercentage = purchaseValue !== 0 ? (gainLoss / purchaseValue) * 100 : 0;
       
       return {
