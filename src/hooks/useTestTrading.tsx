@@ -235,16 +235,38 @@ export const useTestTrading = () => {
         throw new Error('strategy_id is required for trade recording');
       }
 
-      // Calculate P&L for the trade - REAL calculation
+      // Calculate P&L for the trade using REAL buy/sell trade matching
       let profit_loss = 0;
       
       if (tradeData.trade_type === 'sell') {
-        // For sell trades, we need to find the original buy price and calculate real P&L
-        // P&L = (sell_price - buy_price) * amount - fees
-        // For test mode, we'll calculate based on a simulated buy price that's 5% lower than sell price
-        const simulatedBuyPrice = tradeData.price * 0.95; // Assume bought 5% lower
-        const fees = tradeData.total_value * 0.005; // 0.5% fee
-        profit_loss = (tradeData.price - simulatedBuyPrice) * tradeData.amount - fees;
+        // For sell trades, find the matching buy trades to calculate real P&L
+        try {
+          // Fetch buy trades for this user and cryptocurrency to calculate real P&L
+          const { data: buyTrades, error } = await supabase
+            .from('mock_trades')
+            .select('*')
+            .eq('user_id', tradeData.user_id)
+            .eq('cryptocurrency', tradeData.cryptocurrency)
+            .eq('trade_type', 'buy')
+            .order('executed_at', { ascending: true }); // FIFO order
+
+          if (!error && buyTrades && buyTrades.length > 0) {
+            // Calculate weighted average buy price based on available buy trades
+            const totalBuyAmount = buyTrades.reduce((sum, buy) => sum + buy.amount, 0);
+            const totalBuyValue = buyTrades.reduce((sum, buy) => sum + (buy.price * buy.amount), 0);
+            const avgBuyPrice = totalBuyAmount > 0 ? totalBuyValue / totalBuyAmount : tradeData.price;
+            
+            // Calculate real P&L: (sell_price - avg_buy_price) * amount - fees
+            const fees = tradeData.total_value * 0.005; // 0.5% fee
+            profit_loss = (tradeData.price - avgBuyPrice) * tradeData.amount - fees;
+          } else {
+            // Fallback: no buy trades found, P&L = 0
+            profit_loss = 0;
+          }
+        } catch (error) {
+          console.error('Error calculating P&L:', error);
+          profit_loss = 0;
+        }
       } else {
         // For buy trades, P&L is 0 (unrealized until sold)
         profit_loss = 0;
