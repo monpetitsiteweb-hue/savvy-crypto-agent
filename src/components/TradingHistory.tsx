@@ -75,15 +75,14 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const fees = trade.fees || 0;
     
     if (trade.trade_type === 'sell') {
-      // For closed positions: Same logic as open positions
-      const purchasePrice = trade.price; // Price when originally bought
-      const exitPrice = trade.price; // Price when sold (same as purchase price in our data)
+      // For SELL trades: trade.price is the EXIT price, total_value is PURCHASE value
+      const exitPrice = trade.price; // Price when sold
       const amount = trade.amount;
       
-      // Purchase Value = what was originally paid (total_value includes fees)
+      // Purchase Value = what was originally paid
       const purchaseValue = trade.total_value;
       
-      // Exit Value = amount × exit price (minus fees for the sale)
+      // Exit Value = amount × exit price (minus sale fees)
       const exitValue = (amount * exitPrice) - fees;
       
       // P&L = Exit Value - Purchase Value
