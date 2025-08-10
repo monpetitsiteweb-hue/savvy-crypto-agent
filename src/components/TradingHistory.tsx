@@ -71,47 +71,49 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
 
   const calculateTradePerformance = (trade: Trade) => {
-    const purchasePrice = trade.price;
     const fees = trade.fees || 0;
     
     if (trade.trade_type === 'sell') {
-      // For SELL trades: use the stored profit_loss from database
-      const exitPrice = trade.price; // Price when sold
-      const amount = trade.amount;
+      // For SELL trades: This is a closed position with realized P&L
+      const sellPrice = trade.price;
+      const sellAmount = trade.amount;
+      const sellValue = trade.total_value; // Total EUR received from sale
       
-      // Exit Value = amount × exit price - fees
-      const exitValue = (amount * exitPrice) - fees;
+      // Use the profit_loss from database which should be calculated correctly
+      const realizedPL = trade.profit_loss || 0;
       
-      // Use stored profit_loss directly - this is the correct P&L
-      const gainLoss = trade.profit_loss || 0;
+      // For display purposes, calculate the original purchase value
+      // Purchase Value = Sell Value - Realized P&L
+      const originalPurchaseValue = sellValue - realizedPL;
       
-      // Calculate purchase value from exit value - P&L
-      const purchaseValue = exitValue - gainLoss;
-      
-      const gainLossPercentage = purchaseValue !== 0 ? (gainLoss / purchaseValue) * 100 : 0;
+      // Calculate percentage based on original investment
+      const gainLossPercentage = originalPurchaseValue !== 0 ? (realizedPL / originalPurchaseValue) * 100 : 0;
       
       return {
-        currentPrice: exitPrice,
-        currentValue: exitValue,
-        purchaseValue: purchaseValue,
-        gainLoss: gainLoss,
+        currentPrice: sellPrice,
+        currentValue: sellValue,
+        purchaseValue: originalPurchaseValue,
+        gainLoss: realizedPL,
         gainLossPercentage: gainLossPercentage
       };
     }
     
-    // For open positions, calculate unrealized P&L based on current market price (price-only)
+    // For BUY trades (open positions): Calculate unrealized P&L
+    const purchasePrice = trade.price;
+    const purchaseValue = trade.total_value;
     const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
     const currentValue = trade.amount * currentMarketPrice;
-    const purchaseValue = trade.total_value;
-    const gainLoss = (currentMarketPrice - purchasePrice) * trade.amount;
-    const gainLossPercentage = purchaseValue !== 0 ? (gainLoss / purchaseValue) * 100 : 0;
+    
+    // Unrealized P&L = Current Value - Purchase Value (including fees)
+    const unrealizedPL = currentValue - purchaseValue;
+    const gainLossPercentage = purchaseValue !== 0 ? (unrealizedPL / purchaseValue) * 100 : 0;
     
     return {
       currentPrice: currentMarketPrice,
-      currentValue: currentValue, // EUR value now
-      purchaseValue: purchaseValue, // EUR value at time of purchase
-      gainLoss,
-      gainLossPercentage
+      currentValue: currentValue,
+      purchaseValue: purchaseValue,
+      gainLoss: unrealizedPL,
+      gainLossPercentage: gainLossPercentage
     };
   };
 
@@ -360,7 +362,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* EUR Value at Trade */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Purchase Value' : 'Trade Value'}
+                {isOpen ? 'Entry Value' : 'Original Cost'}
               </div>
               <div className="font-medium text-white">€{performance.purchaseValue.toFixed(2)}</div>
             </div>
@@ -368,7 +370,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Current EUR Value */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Current Value' : 'Exit Value'}
+                {isOpen ? 'Market Value' : 'Sale Value'}
               </div>
               <div className="font-medium text-white">€{performance.currentValue.toFixed(2)}</div>
             </div>
@@ -376,7 +378,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Price */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Purchase Price' : 'Exit Price'}
+                {isOpen ? 'Entry Price' : 'Sale Price'}
               </div>
               <div className="font-medium text-white">€{trade.price.toLocaleString()}</div>
             </div>
@@ -384,7 +386,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Current/Exit Price */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Current Price' : 'Final Price'}
+                {isOpen ? 'Market Price' : 'Sale Price'}
               </div>
               <div className="font-medium text-white">€{performance.currentPrice.toLocaleString()}</div>
             </div>
@@ -471,37 +473,37 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
           </div>
 
-          {/* EUR Values Row */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-slate-400 text-sm">
-                {isOpen ? 'Purchase Value' : 'Trade Value'}
-              </div>
-              <div className="font-semibold text-white text-lg">€{performance.purchaseValue.toFixed(2)}</div>
-            </div>
-            <div>
-              <div className="text-slate-400 text-sm">
-                {isOpen ? 'Current Value' : 'Exit Value'}
-              </div>
-              <div className="font-semibold text-white text-lg">€{performance.currentValue.toFixed(2)}</div>
-            </div>
-          </div>
+           {/* EUR Values Row */}
+           <div className="grid grid-cols-2 gap-4">
+             <div>
+               <div className="text-slate-400 text-sm">
+                 {isOpen ? 'Entry Value' : 'Original Cost'}
+               </div>
+               <div className="font-semibold text-white text-lg">€{performance.purchaseValue.toFixed(2)}</div>
+             </div>
+             <div>
+               <div className="text-slate-400 text-sm">
+                 {isOpen ? 'Market Value' : 'Sale Value'}
+               </div>
+               <div className="font-semibold text-white text-lg">€{performance.currentValue.toFixed(2)}</div>
+             </div>
+           </div>
 
-          {/* Price Row */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-slate-400 text-sm">
-                {isOpen ? 'Purchase Price' : 'Exit Price'}
-              </div>
-              <div className="font-semibold text-white text-lg">€{trade.price.toLocaleString()}</div>
-            </div>
-            <div>
-              <div className="text-slate-400 text-sm">
-                {isOpen ? 'Current Price' : 'Final Price'}
-              </div>
-              <div className="font-semibold text-white text-lg">€{performance.currentPrice.toLocaleString()}</div>
-            </div>
-          </div>
+           {/* Price Row */}
+           <div className="grid grid-cols-2 gap-4">
+             <div>
+               <div className="text-slate-400 text-sm">
+                 {isOpen ? 'Entry Price' : 'Sale Price'}
+               </div>
+               <div className="font-semibold text-white text-lg">€{trade.price.toLocaleString()}</div>
+             </div>
+             <div>
+               <div className="text-slate-400 text-sm">
+                 {isOpen ? 'Market Price' : 'Sale Price'}
+               </div>
+               <div className="font-semibold text-white text-lg">€{performance.currentPrice.toLocaleString()}</div>
+             </div>
+           </div>
 
           {/* P&L Row */}
           <div className="grid grid-cols-2 gap-4">
