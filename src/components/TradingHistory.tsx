@@ -71,14 +71,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
 
   const calculateTradePerformance = (trade: Trade) => {
-    console.log('🔍 TRADE DATA:', {
+    console.log('🔍 TRADE DATA FOR', trade.cryptocurrency, 'SELL:', {
+      id: trade.id,
       type: trade.trade_type,
       crypto: trade.cryptocurrency,
       amount: trade.amount,
       price: trade.price,
       total_value: trade.total_value,
       fees: trade.fees,
-      profit_loss: trade.profit_loss
+      profit_loss: trade.profit_loss,
+      executed_at: trade.executed_at
     });
     
     const purchasePrice = trade.price;
