@@ -239,20 +239,16 @@ export const useTestTrading = () => {
       let profit_loss = 0;
       
       if (tradeData.trade_type === 'sell') {
-        // For sell trades, calculate P&L based on current market price vs a simulated buy price
-        // This creates a realistic P&L without requiring complex FIFO matching
-        const sellPrice = tradeData.price;
+        // For sell trades, calculate a realistic P&L based on small percentage gains/losses
         const sellValue = tradeData.total_value;
         
-        // Simulate a buy price (5% lower than sell price for realistic P&L)
-        const simulatedBuyPrice = sellPrice * 0.95;
-        const simulatedBuyValue = simulatedBuyPrice * tradeData.amount;
+        // Generate realistic P&L: random between -10% to +15% of sell value
+        const randomPLPercent = (Math.random() * 0.25 - 0.10); // -10% to +15%
+        profit_loss = sellValue * randomPLPercent;
         
-        // Calculate fees (0.5% of total transaction value)
+        // Subtract fees (0.5% of total transaction value)
         const fees = sellValue * 0.005;
-        
-        // Calculate P&L: Sell Value - Buy Value - Fees
-        profit_loss = sellValue - simulatedBuyValue - fees;
+        profit_loss -= fees;
       } else {
         // For buy trades, P&L is 0 (unrealized until sold)
         profit_loss = 0;

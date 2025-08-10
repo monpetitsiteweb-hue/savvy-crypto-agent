@@ -76,18 +76,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     if (trade.trade_type === 'sell') {
       // For SELL trades: This is a closed position with realized P&L
       const sellPrice = trade.price;
-      const sellAmount = trade.amount;
       const sellValue = trade.total_value; // Total EUR received from sale
-      
-      // Use the profit_loss from database which should be calculated correctly
       const realizedPL = trade.profit_loss || 0;
       
-      // For display purposes, calculate the original purchase value
-      // Purchase Value = Sell Value - Realized P&L
+      // Calculate the original purchase value correctly
+      // If P&L is positive: Purchase Value = Sell Value - P&L
+      // If P&L is negative: Purchase Value = Sell Value + |P&L|
       const originalPurchaseValue = sellValue - realizedPL;
       
       // Calculate percentage based on original investment
-      const gainLossPercentage = originalPurchaseValue !== 0 ? (realizedPL / originalPurchaseValue) * 100 : 0;
+      const gainLossPercentage = originalPurchaseValue > 0 ? (realizedPL / originalPurchaseValue) * 100 : 0;
       
       return {
         currentPrice: sellPrice,
