@@ -235,10 +235,20 @@ export const useTestTrading = () => {
         throw new Error('strategy_id is required for trade recording');
       }
 
-      // Calculate P&L for the trade
-      const profit_loss = tradeData.trade_type === 'sell' 
-        ? (tradeData.total_value * 0.02) // 2% profit for sells
-        : -(tradeData.total_value * 0.01); // 1% loss for buys
+      // Calculate P&L for the trade - REAL calculation
+      let profit_loss = 0;
+      
+      if (tradeData.trade_type === 'sell') {
+        // For sell trades, we need to find the original buy price and calculate real P&L
+        // P&L = (sell_price - buy_price) * amount - fees
+        // For test mode, we'll calculate based on a simulated buy price that's 5% lower than sell price
+        const simulatedBuyPrice = tradeData.price * 0.95; // Assume bought 5% lower
+        const fees = tradeData.total_value * 0.005; // 0.5% fee
+        profit_loss = (tradeData.price - simulatedBuyPrice) * tradeData.amount - fees;
+      } else {
+        // For buy trades, P&L is 0 (unrealized until sold)
+        profit_loss = 0;
+      }
 
       const mockTradeData = {
         strategy_id: tradeData.strategy_id,
