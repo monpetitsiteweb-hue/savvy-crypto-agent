@@ -359,31 +359,31 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* EUR Value at Trade */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Purchase Value' : 'Purchase Value'}
+                {isOpen ? 'Market Value' : 'Purchase Value'}
               </div>
               <div className="font-medium text-white">€{performance.purchaseValue.toFixed(2)}</div>
             </div>
-            
+
             {/* Current EUR Value */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Sale Value' : 'Sale Value'}
+                {isOpen ? 'Market Value' : 'Exit Value'}
               </div>
               <div className="font-medium text-white">€{performance.currentValue.toFixed(2)}</div>
             </div>
-            
+
             {/* Price */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Sale Price' : 'Sale Price'}
+                {isOpen ? 'Entry Price' : 'Purchase Price'}
               </div>
               <div className="font-medium text-white">€{trade.price.toLocaleString()}</div>
             </div>
-            
+
             {/* Current/Exit Price */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Exit Price' : 'Exit Price'}
+                {isOpen ? 'Market Price' : 'Exit Price'}
               </div>
               <div className="font-medium text-white">€{performance.currentPrice.toLocaleString()}</div>
             </div>
