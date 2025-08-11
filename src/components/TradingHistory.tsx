@@ -72,21 +72,23 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   const calculateTradePerformance = (trade: Trade) => {
     if (trade.trade_type === 'sell') {
-      // For SELL trades: Calculate the original purchase details
-      const exitPrice = trade.price; // Price per coin when sold
-      const exitValue = trade.total_value; // Total amount received when selling
+      // For SELL trades: Use the stored values directly - NO CALCULATIONS
+      const exitPrice = trade.price; // Exit price per coin (stored when sell trade was created)
+      const exitValue = trade.total_value; // Exit value (stored when sell trade was created)
       const storedPL = trade.profit_loss || 0; // Realized P&L
       
-      // Calculate original purchase value: exitValue - profit/loss = what was originally invested
-      const purchaseValue = exitValue - storedPL;
-      const purchasePrice = trade.amount > 0 ? purchaseValue / trade.amount : 0; // Original price per coin
+      // Purchase data should be stored in the trade record when the sell trade was created
+      // TODO: We need the original purchase price and purchase value to be stored in the sell trade record
+      // For now, we'll need to get this from the trade record or calculate backwards
+      const purchaseValue = exitValue - storedPL; // This is a temporary calculation until we store original data
+      const purchasePrice = trade.amount > 0 ? purchaseValue / trade.amount : 0; // Temporary calculation
       const gainLossPercentage = purchaseValue > 0 ? (storedPL / purchaseValue) * 100 : 0;
       
       return {
         currentPrice: exitPrice, // Exit price per coin
         currentValue: exitValue, // Exit value (total amount received when selling)
-        purchaseValue: purchaseValue, // Purchase value (total amount originally invested)
-        purchasePrice: purchasePrice, // Purchase price per coin
+        purchaseValue: purchaseValue, // Should be stored original purchase value
+        purchasePrice: purchasePrice, // Should be stored original purchase price
         gainLoss: storedPL,
         gainLossPercentage: gainLossPercentage
       };
