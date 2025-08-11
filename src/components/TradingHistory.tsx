@@ -71,8 +71,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
 
   const calculateTradePerformance = (trade: Trade) => {
-    const fees = trade.fees || 0;
-    
     if (trade.trade_type === 'sell') {
       // For SELL trades: Calculate realized P&L using FIFO matching
       const sellPrice = trade.price;
@@ -97,8 +95,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         remainingAmount -= amountToUse;
       }
       
+      // Calculate fees based on user's fee rate (not stored fees)
+      const buyFees = totalCostBasis * (feeRate / 100);
+      const sellFees = sellValue * (feeRate / 100);
+      const totalFees = buyFees + sellFees;
+      
       // Calculate realized P&L: Sell Value - Cost Basis - Fees
-      const realizedPL = sellValue - totalCostBasis - fees;
+      const realizedPL = sellValue - totalCostBasis - totalFees;
       const gainLossPercentage = totalCostBasis > 0 ? (realizedPL / totalCostBasis) * 100 : 0;
       
       return {
@@ -116,8 +119,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
     const currentValue = trade.amount * currentMarketPrice;
     
+    // Calculate fees based on user's fee rate (not stored fees)
+    const buyFees = purchaseValue * (feeRate / 100);
+    const sellFees = currentValue * (feeRate / 100); // Projected sell fees
+    const totalFees = buyFees + sellFees;
+    
     // Unrealized P&L = Current Value - Purchase Value - Fees
-    const unrealizedPL = currentValue - purchaseValue - fees;
+    const unrealizedPL = currentValue - purchaseValue - totalFees;
     const gainLossPercentage = purchaseValue !== 0 ? (unrealizedPL / purchaseValue) * 100 : 0;
     
     return {
