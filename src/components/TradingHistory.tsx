@@ -72,19 +72,21 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   const calculateTradePerformance = (trade: Trade) => {
     if (trade.trade_type === 'sell') {
-      // For SELL trades: Just use the stored P&L which should be calculated correctly when trade was executed
-      const sellPrice = trade.price;
-      const sellValue = trade.total_value;
-      const storedPL = trade.profit_loss || 0; // This should be the actual realized P&L
+      // For SELL trades: Calculate the original purchase details
+      const exitPrice = trade.price; // Price per coin when sold
+      const exitValue = trade.total_value; // Total amount received when selling
+      const storedPL = trade.profit_loss || 0; // Realized P&L
       
-      // For display: Show the actual purchase value (what was originally invested)
-      const purchaseValue = trade.total_value; // This is what was actually paid for the trade
+      // Calculate original purchase value: exitValue - profit/loss = what was originally invested
+      const purchaseValue = exitValue - storedPL;
+      const purchasePrice = trade.amount > 0 ? purchaseValue / trade.amount : 0; // Original price per coin
       const gainLossPercentage = purchaseValue > 0 ? (storedPL / purchaseValue) * 100 : 0;
       
       return {
-        currentPrice: sellPrice, // Exit price per coin
-        currentValue: purchaseValue, // Purchase value (total amount originally invested)
-        purchaseValue: sellValue, // Exit value (total amount received when selling)
+        currentPrice: exitPrice, // Exit price per coin
+        currentValue: exitValue, // Exit value (total amount received when selling)
+        purchaseValue: purchaseValue, // Purchase value (total amount originally invested)
+        purchasePrice: purchasePrice, // Purchase price per coin
         gainLoss: storedPL,
         gainLossPercentage: gainLossPercentage
       };
@@ -377,7 +379,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
               <div className="text-slate-400 text-xs">
                 {isOpen ? 'Purchase Price' : 'Purchase Price'}
               </div>
-              <div className="font-medium text-white">€{trade.price.toLocaleString()}</div>
+              <div className="font-medium text-white">
+                €{isOpen ? trade.price.toLocaleString() : (performance.purchasePrice || 0).toLocaleString()}
+              </div>
             </div>
 
             {/* Current/Exit Price */}
