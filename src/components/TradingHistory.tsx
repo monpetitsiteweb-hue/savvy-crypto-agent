@@ -77,9 +77,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       const sellValue = trade.total_value;
       const storedPL = trade.profit_loss || 0; // This should be the actual realized P&L
       
-      // For display: Show Purchase Value as 0 since it's already realized
-      const purchaseValue = 0; 
-      const gainLossPercentage = sellValue > 0 ? (storedPL / sellValue) * 100 : 0;
+      // For display: Show the actual purchase value (what was originally invested)
+      const purchaseValue = trade.total_value; // This is what was actually paid for the trade
+      const gainLossPercentage = purchaseValue > 0 ? (storedPL / purchaseValue) * 100 : 0;
       
       return {
         currentPrice: sellPrice,
