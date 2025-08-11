@@ -72,26 +72,27 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   const calculateTradePerformance = (trade: Trade) => {
     if (trade.trade_type === 'sell') {
-      // For SELL trades: Use EXACTLY what's stored in the database
-      // trade.price = EXIT price per coin
-      // trade.total_value = EXIT total value 
+      // For SELL trades: Follow the EXACT same logic as Open Positions but with exit values
+      // trade.price = EXIT price per coin (stored when position was closed)
+      // trade.total_value = EXIT value (stored when position was closed)
       const exitPrice = trade.price;
       const exitValue = trade.total_value;
       const storedPL = trade.profit_loss || 0;
       
-      // THESE VALUES SHOULD BE STORED IN THE DATABASE - NOT CALCULATED!
-      // For now, we need additional fields in the database to store original purchase data
-      // The purchase value should be a separate field stored when creating the SELL trade
-      // The purchase price should be a separate field stored when creating the SELL trade
+      // Calculate purchase values from stored P&L
+      // profit_loss = exit_value - purchase_value
+      // Therefore: purchase_value = exit_value - profit_loss  
+      const purchaseValue = exitValue - storedPL;
+      const purchasePrice = trade.amount > 0 ? purchaseValue / trade.amount : 0;
+      const gainLossPercentage = purchaseValue > 0 ? (storedPL / purchaseValue) * 100 : 0;
       
-      // Using what we have for now (this needs database structure update):
       return {
-        currentPrice: exitPrice, // EXIT price (trade.price)
-        currentValue: exitValue, // EXIT value (trade.total_value)
-        purchaseValue: exitValue - storedPL, // TEMP: Should be stored field
-        purchasePrice: trade.amount > 0 ? (exitValue - storedPL) / trade.amount : 0, // TEMP: Should be stored field
-        gainLoss: storedPL,
-        gainLossPercentage: (exitValue - storedPL) > 0 ? (storedPL / (exitValue - storedPL)) * 100 : 0
+        currentPrice: exitPrice, // This is the EXIT price
+        currentValue: exitValue, // This is the EXIT value
+        purchaseValue: purchaseValue, // Calculated from stored P&L
+        purchasePrice: purchasePrice, // Calculated from purchase value
+        gainLoss: storedPL, // This is the final realized P&L
+        gainLossPercentage: gainLossPercentage
       };
     }
     
