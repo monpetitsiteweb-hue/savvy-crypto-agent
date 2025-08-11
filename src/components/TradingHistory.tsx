@@ -72,25 +72,26 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   const calculateTradePerformance = (trade: Trade) => {
     if (trade.trade_type === 'sell') {
-      // For SELL trades: Use the stored values directly - NO CALCULATIONS
-      const exitPrice = trade.price; // Exit price per coin (stored when sell trade was created)
-      const exitValue = trade.total_value; // Exit value (stored when sell trade was created)
-      const storedPL = trade.profit_loss || 0; // Realized P&L
+      // For SELL trades: Use EXACTLY what's stored in the database
+      // trade.price = EXIT price per coin
+      // trade.total_value = EXIT total value 
+      const exitPrice = trade.price;
+      const exitValue = trade.total_value;
+      const storedPL = trade.profit_loss || 0;
       
-      // Purchase data should be stored in the trade record when the sell trade was created
-      // TODO: We need the original purchase price and purchase value to be stored in the sell trade record
-      // For now, we'll need to get this from the trade record or calculate backwards
-      const purchaseValue = exitValue - storedPL; // This is a temporary calculation until we store original data
-      const purchasePrice = trade.amount > 0 ? purchaseValue / trade.amount : 0; // Temporary calculation
-      const gainLossPercentage = purchaseValue > 0 ? (storedPL / purchaseValue) * 100 : 0;
+      // THESE VALUES SHOULD BE STORED IN THE DATABASE - NOT CALCULATED!
+      // For now, we need additional fields in the database to store original purchase data
+      // The purchase value should be a separate field stored when creating the SELL trade
+      // The purchase price should be a separate field stored when creating the SELL trade
       
+      // Using what we have for now (this needs database structure update):
       return {
-        currentPrice: exitPrice, // Exit price per coin
-        currentValue: exitValue, // Exit value (total amount received when selling)
-        purchaseValue: purchaseValue, // Should be stored original purchase value
-        purchasePrice: purchasePrice, // Should be stored original purchase price
+        currentPrice: exitPrice, // EXIT price (trade.price)
+        currentValue: exitValue, // EXIT value (trade.total_value)
+        purchaseValue: exitValue - storedPL, // TEMP: Should be stored field
+        purchasePrice: trade.amount > 0 ? (exitValue - storedPL) / trade.amount : 0, // TEMP: Should be stored field
         gainLoss: storedPL,
-        gainLossPercentage: gainLossPercentage
+        gainLossPercentage: (exitValue - storedPL) > 0 ? (storedPL / (exitValue - storedPL)) * 100 : 0
       };
     }
     
