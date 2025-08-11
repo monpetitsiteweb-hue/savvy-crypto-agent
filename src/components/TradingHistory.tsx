@@ -82,9 +82,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       const gainLossPercentage = purchaseValue > 0 ? (storedPL / purchaseValue) * 100 : 0;
       
       return {
-        currentPrice: sellPrice,
-        currentValue: sellValue,
-        purchaseValue: purchaseValue,
+        currentPrice: sellPrice, // Exit price per coin
+        currentValue: purchaseValue, // Purchase value (total amount originally invested)
+        purchaseValue: sellValue, // Exit value (total amount received when selling)
         gainLoss: storedPL,
         gainLossPercentage: gainLossPercentage
       };
