@@ -72,43 +72,20 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   const calculateTradePerformance = (trade: Trade) => {
     if (trade.trade_type === 'sell') {
-      // For SELL trades: Calculate realized P&L using FIFO matching
+      // For SELL trades: Just use the stored P&L which should be calculated correctly when trade was executed
       const sellPrice = trade.price;
       const sellValue = trade.total_value;
-      const sellAmount = trade.amount;
+      const storedPL = trade.profit_loss || 0; // This should be the actual realized P&L
       
-      // Find corresponding buy trades using FIFO to calculate actual cost basis
-      const buyTrades = trades.filter(t => 
-        t.trade_type === 'buy' && 
-        t.cryptocurrency === trade.cryptocurrency &&
-        new Date(t.executed_at) < new Date(trade.executed_at)
-      ).sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
-      
-      let remainingAmount = sellAmount;
-      let totalCostBasis = 0;
-      
-      for (const buyTrade of buyTrades) {
-        if (remainingAmount <= 0) break;
-        
-        const amountToUse = Math.min(remainingAmount, buyTrade.amount);
-        totalCostBasis += (amountToUse / buyTrade.amount) * buyTrade.total_value;
-        remainingAmount -= amountToUse;
-      }
-      
-      // Calculate fees based on user's fee rate (not stored fees)
-      const buyFees = totalCostBasis * (feeRate / 100);
-      const sellFees = sellValue * (feeRate / 100);
-      const totalFees = buyFees + sellFees;
-      
-      // Calculate realized P&L: Sell Value - Cost Basis - Fees
-      const realizedPL = sellValue - totalCostBasis - totalFees;
-      const gainLossPercentage = totalCostBasis > 0 ? (realizedPL / totalCostBasis) * 100 : 0;
+      // For display: Show Purchase Value as 0 since it's already realized
+      const purchaseValue = 0; 
+      const gainLossPercentage = sellValue > 0 ? (storedPL / sellValue) * 100 : 0;
       
       return {
         currentPrice: sellPrice,
         currentValue: sellValue,
-        purchaseValue: totalCostBasis,
-        gainLoss: realizedPL,
+        purchaseValue: purchaseValue,
+        gainLoss: storedPL,
         gainLossPercentage: gainLossPercentage
       };
     }
@@ -382,7 +359,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* EUR Value at Trade */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Entry Value' : 'Purchase Value'}
+                {isOpen ? 'Purchase Value' : 'Purchase Value'}
               </div>
               <div className="font-medium text-white">€{performance.purchaseValue.toFixed(2)}</div>
             </div>
@@ -390,7 +367,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Current EUR Value */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Market Value' : 'Sale Value'}
+                {isOpen ? 'Sale Value' : 'Sale Value'}
               </div>
               <div className="font-medium text-white">€{performance.currentValue.toFixed(2)}</div>
             </div>
@@ -398,7 +375,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Price */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Entry Price' : 'Sale Price'}
+                {isOpen ? 'Sale Price' : 'Sale Price'}
               </div>
               <div className="font-medium text-white">€{trade.price.toLocaleString()}</div>
             </div>
@@ -406,7 +383,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Current/Exit Price */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Market Price' : 'Exit Price'}
+                {isOpen ? 'Exit Price' : 'Exit Price'}
               </div>
               <div className="font-medium text-white">€{performance.currentPrice.toLocaleString()}</div>
             </div>
