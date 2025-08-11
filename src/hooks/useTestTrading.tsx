@@ -235,6 +235,15 @@ export const useTestTrading = () => {
         throw new Error('strategy_id is required for trade recording');
       }
 
+      // Get user's fee rate from profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('fee_rate')
+        .eq('id', tradeData.user_id)
+        .single();
+
+      const userFeeRate = profile?.fee_rate || 0; // Default to 0 if no profile found
+
       // Calculate P&L for the trade
       let profit_loss = 0;
       
@@ -255,7 +264,7 @@ export const useTestTrading = () => {
         amount: tradeData.amount,
         price: tradeData.price,
         total_value: tradeData.total_value,
-        fees: tradeData.total_value * 0.001, // 0.1% fee (more realistic for major exchanges)
+        fees: tradeData.total_value * (userFeeRate / 100), // Use user's fee rate from profile
         strategy_trigger: tradeData.strategy_trigger,
         notes: 'Automated test trade',
         is_test_mode: true,
