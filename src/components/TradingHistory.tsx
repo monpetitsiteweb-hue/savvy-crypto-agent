@@ -359,7 +359,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* EUR Value at Trade */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Market Value' : 'Purchase Value'}
+                {isOpen ? 'Purchase Value' : 'Purchase Value'}
               </div>
               <div className="font-medium text-white">€{performance.purchaseValue.toFixed(2)}</div>
             </div>
@@ -367,7 +367,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Current EUR Value */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Market Value' : 'Exit Value'}
+                {isOpen ? 'Current Value' : 'Exit Value'}
               </div>
               <div className="font-medium text-white">€{performance.currentValue.toFixed(2)}</div>
             </div>
@@ -375,7 +375,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Price */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Entry Price' : 'Purchase Price'}
+                {isOpen ? 'Purchase Price' : 'Purchase Price'}
               </div>
               <div className="font-medium text-white">€{trade.price.toLocaleString()}</div>
             </div>
@@ -383,7 +383,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Current/Exit Price */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">
-                {isOpen ? 'Market Price' : 'Exit Price'}
+                {isOpen ? 'Current Price' : 'Exit Price'}
               </div>
               <div className="font-medium text-white">€{performance.currentPrice.toLocaleString()}</div>
             </div>
