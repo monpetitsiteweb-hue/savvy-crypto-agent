@@ -608,15 +608,23 @@ export type Database = {
       mock_trades: {
         Row: {
           amount: number
+          buy_fees: number | null
           cryptocurrency: string
           executed_at: string
+          exit_value: number | null
           fees: number | null
           id: string
           is_test_mode: boolean | null
           market_conditions: Json | null
           notes: string | null
+          original_purchase_amount: number | null
+          original_purchase_price: number | null
+          original_purchase_value: number | null
           price: number
           profit_loss: number | null
+          realized_pnl: number | null
+          realized_pnl_pct: number | null
+          sell_fees: number | null
           strategy_id: string
           strategy_trigger: string | null
           total_value: number
@@ -625,15 +633,23 @@ export type Database = {
         }
         Insert: {
           amount: number
+          buy_fees?: number | null
           cryptocurrency: string
           executed_at?: string
+          exit_value?: number | null
           fees?: number | null
           id?: string
           is_test_mode?: boolean | null
           market_conditions?: Json | null
           notes?: string | null
+          original_purchase_amount?: number | null
+          original_purchase_price?: number | null
+          original_purchase_value?: number | null
           price: number
           profit_loss?: number | null
+          realized_pnl?: number | null
+          realized_pnl_pct?: number | null
+          sell_fees?: number | null
           strategy_id: string
           strategy_trigger?: string | null
           total_value: number
@@ -642,15 +658,23 @@ export type Database = {
         }
         Update: {
           amount?: number
+          buy_fees?: number | null
           cryptocurrency?: string
           executed_at?: string
+          exit_value?: number | null
           fees?: number | null
           id?: string
           is_test_mode?: boolean | null
           market_conditions?: Json | null
           notes?: string | null
+          original_purchase_amount?: number | null
+          original_purchase_price?: number | null
+          original_purchase_value?: number | null
           price?: number
           profit_loss?: number | null
+          realized_pnl?: number | null
+          realized_pnl_pct?: number | null
+          sell_fees?: number | null
           strategy_id?: string
           strategy_trigger?: string | null
           total_value?: number
@@ -1141,7 +1165,65 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      past_positions_view: {
+        Row: {
+          amount: number | null
+          buy_fees: number | null
+          exit_at: string | null
+          exit_price: number | null
+          exit_value: number | null
+          pnl: number | null
+          pnl_pct: number | null
+          purchase_price: number | null
+          purchase_value: number | null
+          sell_fees: number | null
+          sell_trade_id: string | null
+          strategy_id: string | null
+          symbol: string | null
+          user_id: string | null
+        }
+        Insert: {
+          amount?: number | null
+          buy_fees?: number | null
+          exit_at?: string | null
+          exit_price?: number | null
+          exit_value?: never
+          pnl?: number | null
+          pnl_pct?: number | null
+          purchase_price?: number | null
+          purchase_value?: number | null
+          sell_fees?: number | null
+          sell_trade_id?: string | null
+          strategy_id?: string | null
+          symbol?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          amount?: number | null
+          buy_fees?: number | null
+          exit_at?: string | null
+          exit_price?: number | null
+          exit_value?: never
+          pnl?: number | null
+          pnl_pct?: number | null
+          purchase_price?: number | null
+          purchase_value?: number | null
+          sell_fees?: number | null
+          sell_trade_id?: string | null
+          strategy_id?: string | null
+          symbol?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mock_trades_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       fetch_coinbase_connection_name: {
