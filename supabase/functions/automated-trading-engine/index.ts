@@ -389,15 +389,16 @@ async function evaluateExistingPositions(supabaseClient: any, strategy: any, mod
   console.log(`🎯 [TAKE PROFIT] Evaluating existing positions for strategy "${strategy.strategy_name}" with ${takeProfitPercentage}% target`);
   
   try {
-    // Get open positions by calculating net positions (buys minus sells)
+    // FIXED: Use the EXACT same query as the frontend to ensure data consistency
     const tableToQuery = mode === 'live' ? 'trading_history' : 'mock_trades';
+    
+    console.log(`🔍 [DEBUG] Querying ${tableToQuery} for user ${strategy.user_id}, strategy ${strategy.id}`);
     
     const { data: allTrades, error: tradesError } = await supabaseClient
       .from(tableToQuery)
       .select('*')
       .eq('user_id', strategy.user_id)
       .eq('strategy_id', strategy.id)
-      .gte('executed_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()) // Last 7 days
       .order('executed_at', { ascending: true });
 
     if (tradesError) {
@@ -405,66 +406,66 @@ async function evaluateExistingPositions(supabaseClient: any, strategy: any, mod
       return;
     }
 
+    console.log(`🔍 [DEBUG] Found ${allTrades?.length || 0} total trades in database`);
+    
     if (!allTrades || allTrades.length === 0) {
       console.log(`📊 No trades found for strategy "${strategy.strategy_name}"`);
       return;
     }
 
-    // Calculate net positions (open positions = buys - sells)
-    const netPositions = {};
+    // Log all trades for debugging
+    allTrades.forEach((trade, index) => {
+      console.log(`🔍 [DEBUG] Trade ${index + 1}: ${trade.trade_type} ${trade.amount} ${trade.cryptocurrency} @ €${trade.price} on ${trade.executed_at}`);
+    });
+
+    // FIXED: Only consider BUY trades that don't have corresponding SELL trades
+    const openPositions = {};
     
-    for (const trade of allTrades) {
-      const symbol = trade.cryptocurrency;
-      if (!netPositions[symbol]) {
-        netPositions[symbol] = { 
-          netAmount: 0, 
-          totalCost: 0, 
-          trades: [] 
+    // Get only BUY trades for open positions calculation
+    const buyTrades = allTrades.filter(trade => trade.trade_type === 'buy');
+    console.log(`🔍 [DEBUG] Found ${buyTrades.length} BUY trades`);
+    
+    for (const buyTrade of buyTrades) {
+      const symbol = buyTrade.cryptocurrency;
+      
+      if (!openPositions[symbol]) {
+        openPositions[symbol] = {
+          amount: 0,
+          totalCost: 0,
+          trades: []
         };
       }
       
-      if (trade.trade_type === 'buy') {
-        netPositions[symbol].netAmount += parseFloat(trade.amount);
-        netPositions[symbol].totalCost += parseFloat(trade.total_value);
-        netPositions[symbol].trades.push(trade);
-      } else if (trade.trade_type === 'sell') {
-        netPositions[symbol].netAmount -= parseFloat(trade.amount);
-        // For sells, we reduce cost proportionally
-        const sellValue = parseFloat(trade.total_value);
-        netPositions[symbol].totalCost -= sellValue;
-        netPositions[symbol].trades.push(trade);
-      }
+      openPositions[symbol].amount += parseFloat(buyTrade.amount);
+      openPositions[symbol].totalCost += parseFloat(buyTrade.total_value);
+      openPositions[symbol].trades.push(buyTrade);
+      openPositions[symbol].avgPrice = openPositions[symbol].totalCost / openPositions[symbol].amount;
     }
     
-    // Filter to only positions with positive net amounts (actual open positions)
-    const openPositions = {};
-    for (const [symbol, position] of Object.entries(netPositions)) {
-      if (position.netAmount > 0.0001) { // Small threshold to handle rounding
-        openPositions[symbol] = {
-          amount: position.netAmount,
-          avgPrice: position.totalCost / position.netAmount,
-          totalCost: position.totalCost,
-          trades: position.trades
-        };
+    // Filter to only positions with meaningful amounts
+    const filteredPositions = {};
+    for (const [symbol, position] of Object.entries(openPositions)) {
+      if (position.amount > 0.0001) { // Small threshold to handle rounding
+        filteredPositions[symbol] = position;
       }
     }
 
-    if (Object.keys(openPositions).length === 0) {
+    if (Object.keys(filteredPositions).length === 0) {
       console.log(`📊 No open positions found for strategy "${strategy.strategy_name}"`);
       return;
     }
 
-    console.log(`📊 Found ${Object.keys(openPositions).length} open positions for strategy "${strategy.strategy_name}"`);
-    Object.entries(openPositions).forEach(([symbol, pos]) => {
-      console.log(`🔍 ${symbol}: ${pos.amount.toFixed(6)} units @ avg €${pos.avgPrice.toFixed(2)}`);
+    console.log(`📊 Found ${Object.keys(filteredPositions).length} open positions for strategy "${strategy.strategy_name}"`);
+    Object.entries(filteredPositions).forEach(([symbol, pos]) => {
+      console.log(`🔍 ${symbol}: ${pos.amount.toFixed(6)} units @ avg €${pos.avgPrice.toFixed(2)} (${pos.trades.length} trades)`);
     });
 
     // Get current market prices for all symbols
-    const symbols = Object.keys(openPositions).map(crypto => `${crypto}-EUR`);
+    const symbols = Object.keys(filteredPositions).map(crypto => `${crypto}-EUR`);
     const marketData = await getCurrentMarketData(supabaseClient, symbols);
 
     // Evaluate each open position for take profit
-    for (const [cryptocurrency, position] of Object.entries(openPositions)) {
+    for (const [cryptocurrency, position] of Object.entries(filteredPositions)) {
       const symbol = `${cryptocurrency}-EUR`;
       const currentPrice = marketData[symbol]?.price || 0;
       
