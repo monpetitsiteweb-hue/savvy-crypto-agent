@@ -163,6 +163,30 @@ export const useTestTrading = () => {
       const cryptoBalance = getBalance(cryptocurrency);
       
       if (cryptoBalance >= tradeAmount) {
+        // PHASE 2: GUARDRAIL - Prevent duplicate SELL within 5 seconds
+        const { data: recentSells, error: dupError } = await supabase
+          .from('mock_trades')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('trade_type', 'sell')
+          .eq('cryptocurrency', cryptocurrency)
+          .eq('amount', tradeAmount)
+          .eq('price', price)
+          .gte('executed_at', new Date(Date.now() - 5000).toISOString())
+          .limit(1);
+          
+        if (dupError) {
+          console.error('🚨 DUPLICATE_CHECK: Error checking for duplicates:', dupError);
+        } else if (recentSells?.length) {
+          console.warn('🚨 DUPLICATE_CHECK: Duplicate sell detected, skipping');
+          toast({
+            title: "Duplicate Trade Detected",
+            description: "A similar sell trade was executed recently. Please wait before trying again.",
+            variant: "destructive"
+          });
+          return;
+        }
+        
         const tradeValue = tradeAmount * price;
         updateBalance(cryptocurrency, -tradeAmount);
         updateBalance('EUR', tradeValue);

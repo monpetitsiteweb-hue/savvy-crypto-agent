@@ -12,7 +12,6 @@ import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
-import { runBackfillTest } from '@/utils/testBackfill';
 
 interface Trade {
   id: string;
@@ -1013,28 +1012,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             <RefreshCw className={`w-4 h-4 ${fetching ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          {testMode && (
-            <Button
-              onClick={async () => {
-                const result = await runBackfillTest('single_user');
-                toast({
-                  title: result.success ? "Backfill Complete" : "Backfill Failed",
-                  description: result.success 
-                    ? `Updated ${result.data?.sell_updated || 0} of ${result.data?.sell_total || 0} trades in ${result.data?.duration_ms || 0}ms`
-                    : `Error: ${result.error?.message || 'Unknown error'}`,
-                  variant: result.success ? "default" : "destructive"
-                });
-                if (result.success) {
-                  fetchTradingHistory();
-                  fetchPastPositions();
-                }
-              }}
-              variant="outline"
-              className="flex items-center gap-2 bg-orange-500/20 text-orange-400 border-orange-500/30 hover:bg-orange-500/30"
-            >
-              Run Backfill (Single User)
-            </Button>
-          )}
         </div>
       </div>
 

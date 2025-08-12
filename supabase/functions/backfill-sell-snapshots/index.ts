@@ -89,6 +89,7 @@ Deno.serve(async (req) => {
       const feeRate = getFeeRate(accountType)
 
       // Get all trades for this user, ordered chronologically
+      // CRITICAL: Handle symbol inconsistency (XRP vs XRP-EUR)
       const { data: allTrades, error: tradesError } = await supabase
         .from('mock_trades')
         .select('*')
@@ -100,15 +101,25 @@ Deno.serve(async (req) => {
         continue
       }
 
-      // Process trades per cryptocurrency
+      // Normalize cryptocurrency symbols for matching
+      const normalizeSymbol = (symbol: string) => {
+        if (symbol === 'XRP') return 'XRP-EUR'
+        return symbol
+      }
+
+      // Process trades per cryptocurrency (with normalization)
       const cryptoTrades: Record<string, Trade[]> = {}
       
-      // Group trades by cryptocurrency
+      // Group trades by normalized cryptocurrency
       for (const trade of allTrades || []) {
-        if (!cryptoTrades[trade.cryptocurrency]) {
-          cryptoTrades[trade.cryptocurrency] = []
+        const normalizedSymbol = normalizeSymbol(trade.cryptocurrency)
+        if (!cryptoTrades[normalizedSymbol]) {
+          cryptoTrades[normalizedSymbol] = []
         }
-        cryptoTrades[trade.cryptocurrency].push(trade)
+        cryptoTrades[normalizedSymbol].push({
+          ...trade,
+          cryptocurrency: normalizedSymbol  // Use normalized symbol for processing
+        })
       }
 
       // Process each cryptocurrency separately
