@@ -784,6 +784,53 @@ async function getCurrentMarketData(supabaseClient: any, symbols: string[]) {
   const marketData: any = {};
   
   for (const symbol of symbols) {
+    try {
+      // First try to get fresh data from Coinbase API directly
+      console.log(`🔍 Fetching real-time price for ${symbol} from Coinbase API`);
+      
+      const tickerResponse = await fetch(
+        `https://api.exchange.coinbase.com/products/${symbol}/ticker`
+      );
+      
+      if (tickerResponse.ok) {
+        const tickerData = await tickerResponse.json();
+        const currentPrice = parseFloat(tickerData.price || '0');
+        
+        console.log(`📈 Real-time price for ${symbol}: €${currentPrice}`);
+        
+        marketData[symbol] = {
+          price: currentPrice,
+          volume: parseFloat(tickerData.volume || '0'),
+          timestamp: new Date().toISOString(),
+          source: 'coinbase_api_live'
+        };
+        
+        // Also store in database for caching
+        try {
+          await supabaseClient.from('price_data').insert({
+            symbol: symbol,
+            timestamp: new Date().toISOString(),
+            open_price: currentPrice,
+            high_price: currentPrice,
+            low_price: currentPrice,
+            close_price: currentPrice,
+            volume: parseFloat(tickerData.volume || '0'),
+            source: 'coinbase_api_automated',
+            source_id: crypto.randomUUID(),
+            user_id: crypto.randomUUID(),
+            interval_type: 'realtime'
+          });
+        } catch (dbError) {
+          console.log(`⚠️ Failed to cache price data for ${symbol}, but continuing with live price`);
+        }
+        
+        continue;
+      }
+    } catch (apiError) {
+      console.error(`⚠️ Coinbase API error for ${symbol}:`, apiError);
+    }
+    
+    // Fallback to database if API fails
     const { data: latestPrice, error } = await supabaseClient
       .from('price_data')
       .select('*')
@@ -793,13 +840,15 @@ async function getCurrentMarketData(supabaseClient: any, symbols: string[]) {
       .single();
 
     if (!error && latestPrice) {
+      console.log(`📊 Using cached price for ${symbol}: €${latestPrice.close_price}`);
       marketData[symbol] = {
         price: latestPrice.close_price,
         volume: latestPrice.volume,
-        timestamp: latestPrice.timestamp
+        timestamp: latestPrice.timestamp,
+        source: 'database_cache'
       };
     } else {
-      // Fallback to realistic mock prices based on actual market values
+      // Final fallback to realistic mock prices
       let fallbackPrice = 1; // Default for unknown coins
       
       if (symbol.includes('BTC')) fallbackPrice = 95000;
@@ -813,10 +862,13 @@ async function getCurrentMarketData(supabaseClient: any, symbols: string[]) {
       else if (symbol.includes('LINK')) fallbackPrice = 25;
       else if (symbol.includes('UNI')) fallbackPrice = 15;
       
+      console.log(`⚠️ Using fallback price for ${symbol}: €${fallbackPrice}`);
+      
       marketData[symbol] = {
         price: fallbackPrice,
         volume: 1000000,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        source: 'fallback_mock'
       };
     }
   }
