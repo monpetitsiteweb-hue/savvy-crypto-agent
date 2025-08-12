@@ -223,6 +223,95 @@ export const useTestTrading = () => {
   };
 
 
+  // Helper functions for rounding
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+  const round8 = (n: number) => Math.round(n * 1e8) / 1e8;
+
+  // Fee rate determination based on account type
+  const getFeeRate = (accountType: string) => {
+    return accountType === 'COINBASE_PRO' ? 0 : 0.05; // 0% or 5%
+  };
+
+  // FIFO allocation logic for SELL trades
+  const allocateSellToBuysFifo = async (userId: string, cryptocurrency: string, sellAmount: number) => {
+    // Fetch all trades for this user and cryptocurrency, ordered chronologically
+    const { data: trades, error } = await supabase
+      .from('mock_trades')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('cryptocurrency', cryptocurrency)
+      .order('executed_at', { ascending: true });
+
+    if (error) throw error;
+
+    // Build FIFO lots from BUY trades
+    const buyLots: Array<{
+      id: string;
+      amount: number;
+      price: number;
+      total_value: number;
+      executed_at: string;
+      remaining: number;
+    }> = [];
+
+    let currentHolding = 0;
+
+    for (const trade of trades) {
+      if (trade.trade_type === 'buy') {
+        buyLots.push({
+          id: trade.id,
+          amount: trade.amount,
+          price: trade.price,
+          total_value: trade.total_value,
+          executed_at: trade.executed_at,
+          remaining: trade.amount
+        });
+        currentHolding += trade.amount;
+      } else if (trade.trade_type === 'sell') {
+        // Allocate this SELL against existing buy lots (FIFO)
+        let remainingToSell = trade.amount;
+        for (const lot of buyLots) {
+          if (remainingToSell <= 0) break;
+          
+          const allocated = Math.min(lot.remaining, remainingToSell);
+          lot.remaining -= allocated;
+          remainingToSell -= allocated;
+        }
+        currentHolding -= trade.amount;
+      }
+    }
+
+    // Now allocate the new SELL against remaining buy lots
+    const allocation: Array<{
+      lotId: string;
+      matchedAmount: number;
+      buyPrice: number;
+      buyValuePortion: number;
+    }> = [];
+
+    let remainingToSell = sellAmount;
+    
+    for (const lot of buyLots) {
+      if (remainingToSell <= 0) break;
+      if (lot.remaining <= 0) continue;
+      
+      const allocated = Math.min(lot.remaining, remainingToSell);
+      const buyValuePortion = (allocated / lot.amount) * lot.total_value;
+      
+      allocation.push({
+        lotId: lot.id,
+        matchedAmount: allocated,
+        buyPrice: lot.price,
+        buyValuePortion: buyValuePortion
+      });
+      
+      remainingToSell -= allocated;
+    }
+
+    return allocation;
+  };
+
   const recordTrade = async (tradeData: any) => {
     try {
       console.log('🚨 TRADE_RECORDING: Recording trade with user_id:', tradeData.user_id);
@@ -235,42 +324,88 @@ export const useTestTrading = () => {
         throw new Error('strategy_id is required for trade recording');
       }
 
-      // Get user's fee rate from profile
+      // Get user's profile for account type (fee calculation)
       const { data: profile } = await supabase
         .from('profiles')
-        .select('fee_rate')
+        .select('fee_rate, username')
         .eq('id', tradeData.user_id)
         .single();
 
-      const userFeeRate = profile?.fee_rate || 0; // Default to 0 if no profile found
+      // Determine account type for fee calculation (simplified logic)
+      const accountType = profile?.username?.includes('coinbase') ? 'COINBASE_PRO' : 'OTHER';
+      const feeRate = getFeeRate(accountType);
 
-      // Calculate P&L for the trade
-      let profit_loss = 0;
-      
-      if (tradeData.trade_type === 'sell') {
-        // For sell trades, we need to find the corresponding buy trade(s) to calculate actual P&L
-        // For now, store P&L as 0 and let the frontend calculate it properly using FIFO
-        profit_loss = 0;
-      } else {
-        // For buy trades, P&L is 0 (unrealized until sold)
-        profit_loss = 0;
-      }
-
-      const mockTradeData = {
+      let mockTradeData: any = {
         strategy_id: tradeData.strategy_id,
         user_id: tradeData.user_id,
         trade_type: tradeData.trade_type,
         cryptocurrency: tradeData.cryptocurrency,
-        amount: tradeData.amount,
-        price: tradeData.price,
-        total_value: tradeData.total_value,
-        fees: tradeData.total_value * (userFeeRate / 100), // Use user's fee rate from profile
+        amount: round8(tradeData.amount),
+        price: round6(tradeData.price),
+        total_value: round2(tradeData.total_value),
+        fees: round2(tradeData.total_value * feeRate), // Legacy fees field
         strategy_trigger: tradeData.strategy_trigger,
         notes: 'Automated test trade',
         is_test_mode: true,
-        profit_loss,
+        profit_loss: 0, // Legacy field, will be calculated properly for SELLs
         executed_at: new Date().toISOString()
       };
+
+      // PHASE 2: Enhanced SELL processing with purchase snapshot + fees
+      if (tradeData.trade_type === 'sell') {
+        console.log('🔥 SELL_PROCESSING: Computing purchase snapshot for SELL trade');
+        
+        // 1) Allocate SELL -> BUY lots via FIFO
+        const allocation = await allocateSellToBuysFifo(
+          tradeData.user_id, 
+          tradeData.cryptocurrency, 
+          tradeData.amount
+        );
+
+        // 2) Aggregate purchase snapshot for THIS SELL
+        const original_purchase_amount = allocation.reduce((sum, a) => sum + a.matchedAmount, 0);
+        const original_purchase_value = round2(allocation.reduce((sum, a) => sum + a.buyValuePortion, 0));
+        const original_purchase_price = original_purchase_amount > 0 
+          ? round6(original_purchase_value / original_purchase_amount) 
+          : 0;
+
+        // 3) Exit values
+        const exit_value = round2(tradeData.price * tradeData.amount);
+
+        // 4) Fees (NET P&L policy) — based on account type
+        const buy_fees = round2(original_purchase_value * feeRate);
+        const sell_fees = round2(exit_value * feeRate);
+
+        // 5) Realized P&L (net of fees)
+        const realized_pnl = round2((exit_value - sell_fees) - (original_purchase_value + buy_fees));
+        const realized_pnl_pct = original_purchase_value > 0
+          ? round2((realized_pnl / original_purchase_value) * 100)
+          : 0;
+
+        // 6) Add snapshot columns to SELL trade row
+        mockTradeData = {
+          ...mockTradeData,
+          original_purchase_amount: round8(original_purchase_amount),
+          original_purchase_price,
+          original_purchase_value,
+          exit_value,
+          buy_fees,
+          sell_fees,
+          realized_pnl,
+          realized_pnl_pct
+        };
+
+        console.log('🔥 SELL_PROCESSING: Purchase snapshot computed:', {
+          original_purchase_amount,
+          original_purchase_price,
+          original_purchase_value,
+          exit_value,
+          buy_fees,
+          sell_fees,
+          realized_pnl,
+          realized_pnl_pct
+        });
+      }
 
       console.log('🚨 TRADE_RECORDING: Final trade data:', mockTradeData);
       

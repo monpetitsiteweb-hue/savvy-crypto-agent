@@ -12,6 +12,7 @@ import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
+import { runBackfillTest } from '@/utils/testBackfill';
 
 interface Trade {
   id: string;
@@ -27,6 +28,15 @@ interface Trade {
   strategy_trigger?: string;
   is_test_mode?: boolean;
   profit_loss?: number;
+  // PHASE 2: New snapshot fields for SELL trades
+  original_purchase_amount?: number;
+  original_purchase_price?: number;
+  original_purchase_value?: number;
+  exit_value?: number;
+  realized_pnl?: number;
+  realized_pnl_pct?: number;
+  buy_fees?: number;
+  sell_fees?: number;
 }
 
 interface TradingHistoryProps {
@@ -70,30 +80,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   });
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
 
+  // PHASE 2: Past Positions now use stored snapshot data (no calculations needed)
   const calculateTradePerformance = (trade: Trade) => {
     if (trade.trade_type === 'sell') {
-      // For SELL trades (Past Positions): Use STORED purchase data + exit data
-      // DO NOT CALCULATE purchase values - they should be stored when the position was opened
-      
-      // These should be STORED fields from when the position was opened:
-      const purchasePrice = trade.price; // This should be the ORIGINAL purchase price stored
-      const purchaseValue = trade.total_value; // This should be the ORIGINAL purchase value stored
-      
-      // These should be STORED fields from when the position was closed:
-      const exitPrice = trade.price; // This should be the exit price captured at close
-      const exitValue = trade.amount * exitPrice; // Calculate exit value from amount × exit price
-      
-      // Calculate P&L from the difference
-      const gainLoss = exitValue - purchaseValue;
-      const gainLossPercentage = purchaseValue > 0 ? (gainLoss / purchaseValue) * 100 : 0;
-      
+      // Past Positions: Use STORED snapshot data from past_positions_view
+      // All values are pre-calculated and stored at trade execution time
       return {
-        currentPrice: exitPrice, // Exit price for display
-        currentValue: exitValue, // Exit value for display  
-        purchaseValue: purchaseValue, // STORED original purchase value
-        purchasePrice: purchasePrice, // STORED original purchase price
-        gainLoss: gainLoss, // Calculated P&L
-        gainLossPercentage: gainLossPercentage
+        currentPrice: trade.price, // This is exit_price from the view
+        currentValue: trade.total_value, // This is exit_value from the view
+        purchaseValue: trade.original_purchase_value || 0, // Stored purchase value
+        purchasePrice: trade.original_purchase_price || 0, // Stored purchase price
+        gainLoss: trade.realized_pnl || 0, // Stored realized P&L (net of fees)
+        gainLossPercentage: trade.realized_pnl_pct || 0 // Stored P&L percentage
       };
     }
     
@@ -273,9 +271,49 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return openTrades;
   };
   
+  // PHASE 2: Use past_positions_view for Past Positions
+  const [pastPositions, setPastPositions] = useState<Trade[]>([]);
+  
+  const fetchPastPositions = async () => {
+    if (!user || !testMode) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('past_positions_view')
+        .select('*')
+        .order('exit_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      // Map view fields back to Trade interface for compatibility
+      const mappedTrades: Trade[] = (data || []).map(row => ({
+        id: row.sell_trade_id,
+        trade_type: 'sell',
+        cryptocurrency: row.symbol,
+        amount: row.amount,
+        price: row.exit_price,
+        total_value: row.exit_value,
+        executed_at: row.exit_at,
+        strategy_id: row.strategy_id,
+        // PHASE 2: Snapshot fields from view
+        original_purchase_amount: row.amount,
+        original_purchase_price: row.purchase_price,
+        original_purchase_value: row.purchase_value,
+        exit_value: row.exit_value,
+        realized_pnl: row.pnl,
+        realized_pnl_pct: row.pnl_pct,
+        buy_fees: row.buy_fees,
+        sell_fees: row.sell_fees
+      }));
+      
+      setPastPositions(mappedTrades);
+    } catch (error) {
+      console.error('Error fetching past positions:', error);
+    }
+  };
+  
   const getPastPositions = () => {
-    // Return all sell trades as they represent closed legs; lifecycle counts are computed separately
-    return trades.filter(trade => trade.trade_type === 'sell');
+    return pastPositions;
   };
   const sellPosition = async (trade: Trade) => {
     if (!user) return;
@@ -554,6 +592,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       console.log('🔄 TradingHistory: User or testMode changed, clearing trades and fetching fresh data');
       // CRITICAL: Clear trades immediately when switching modes or users to prevent stale data
       setTrades([]);
+      setPastPositions([]);
       setStats({
         totalTrades: 0,
         totalVolume: 0,
@@ -569,9 +608,11 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         fetchConnections();
       }
       fetchTradingHistory();
+      fetchPastPositions();
     } else {
       // No user - clear everything
       setTrades([]);
+      setPastPositions([]);
       setStats({
         totalTrades: 0,
         totalVolume: 0,
@@ -962,15 +1003,39 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {testMode ? 'Mock trading history (Test Mode)' : 'Live trading history'}
           </p>
         </div>
-        <Button
-          onClick={fetchTradingHistory}
-          disabled={fetching}
-          variant="outline"
-          className="flex items-center gap-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${fetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={fetchTradingHistory}
+            disabled={fetching}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${fetching ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          {testMode && (
+            <Button
+              onClick={async () => {
+                const result = await runBackfillTest();
+                toast({
+                  title: result.success ? "Backfill Complete" : "Backfill Failed",
+                  description: result.success 
+                    ? `Updated ${result.data?.summary?.total_updated || 0} trades`
+                    : `Error: ${result.error?.message || 'Unknown error'}`,
+                  variant: result.success ? "default" : "destructive"
+                });
+                if (result.success) {
+                  fetchTradingHistory();
+                  fetchPastPositions();
+                }
+              }}
+              variant="outline"
+              className="flex items-center gap-2 bg-orange-500/20 text-orange-400 border-orange-500/30 hover:bg-orange-500/30"
+            >
+              Run Backfill
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* KPIs Summary */}
