@@ -127,6 +127,7 @@ export const DebugPanel = () => {
     }
   };
 
+
   if (!user) {
     return (
       <Card className="border-yellow-500">
@@ -157,7 +158,7 @@ export const DebugPanel = () => {
         
         <CollapsibleContent>
           <CardContent className="space-y-4">
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button onClick={refreshDebugInfo} size="sm">Refresh Debug Info</Button>
               <Button onClick={() => testAICommand("is ai enabled?")} size="sm" variant="outline">
                 Test: Is AI Enabled?
