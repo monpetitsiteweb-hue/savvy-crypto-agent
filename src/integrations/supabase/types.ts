@@ -1190,7 +1190,7 @@ export type Database = {
           buy_fees?: number | null
           exit_at?: string | null
           exit_price?: number | null
-          exit_value?: never
+          exit_value?: number | null
           pnl?: number | null
           pnl_pct?: number | null
           purchase_price?: number | null
@@ -1206,7 +1206,7 @@ export type Database = {
           buy_fees?: number | null
           exit_at?: string | null
           exit_price?: number | null
-          exit_value?: never
+          exit_value?: number | null
           pnl?: number | null
           pnl_pct?: number | null
           purchase_price?: number | null
@@ -1249,7 +1249,7 @@ export type Database = {
           buy_fees?: number | null
           exit_at?: string | null
           exit_price?: number | null
-          exit_value?: never
+          exit_value?: number | null
           pnl?: number | null
           pnl_pct?: number | null
           purchase_price?: number | null
@@ -1265,7 +1265,7 @@ export type Database = {
           buy_fees?: number | null
           exit_at?: string | null
           exit_price?: number | null
-          exit_value?: never
+          exit_value?: number | null
           pnl?: number | null
           pnl_pct?: number | null
           purchase_price?: number | null
