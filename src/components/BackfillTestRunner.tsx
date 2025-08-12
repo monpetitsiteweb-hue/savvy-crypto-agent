@@ -14,18 +14,20 @@ export const BackfillTestRunner = () => {
     try {
       const testResults: any = {};
 
-      // 1. Run backfill function
+      // 1. Run backfill function with service role
       console.log('🔄 Running backfill function...');
-      const { data: backfillData, error: backfillError } = await supabase.functions.invoke('backfill-sell-snapshots', {
-        body: {
-          scope: 'single_user',
-          userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
-          mode: 'test',
-          dryRun: false
-        }
+      const { data: backfillData, error: backfillError } = await supabase.functions.invoke('test-data-seeder', {
+        body: {}
       });
       
-      testResults.backfill = backfillError ? { error: backfillError } : backfillData;
+      if (backfillError) {
+        console.error('Error:', backfillError);
+        testResults.error = backfillError;
+        setResults(testResults);
+        return;
+      }
+      
+      testResults.backfill_and_seeding = backfillData;
 
       // 2. Validation queries - we'll do these manually via console
       console.log('Run validation queries manually in Supabase SQL editor');
