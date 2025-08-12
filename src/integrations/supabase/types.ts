@@ -744,6 +744,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          account_type: string
           avatar_url: string | null
           created_at: string
           fee_rate: number | null
@@ -753,6 +754,7 @@ export type Database = {
           username: string | null
         }
         Insert: {
+          account_type?: string
           avatar_url?: string | null
           created_at?: string
           fee_rate?: number | null
@@ -762,6 +764,7 @@ export type Database = {
           username?: string | null
         }
         Update: {
+          account_type?: string
           avatar_url?: string | null
           created_at?: string
           fee_rate?: number | null
@@ -1224,8 +1227,110 @@ export type Database = {
           },
         ]
       }
+      past_positions_view_admin: {
+        Row: {
+          amount: number | null
+          buy_fees: number | null
+          exit_at: string | null
+          exit_price: number | null
+          exit_value: number | null
+          pnl: number | null
+          pnl_pct: number | null
+          purchase_price: number | null
+          purchase_value: number | null
+          sell_fees: number | null
+          sell_trade_id: string | null
+          strategy_id: string | null
+          symbol: string | null
+          user_id: string | null
+        }
+        Insert: {
+          amount?: number | null
+          buy_fees?: number | null
+          exit_at?: string | null
+          exit_price?: number | null
+          exit_value?: never
+          pnl?: number | null
+          pnl_pct?: number | null
+          purchase_price?: number | null
+          purchase_value?: number | null
+          sell_fees?: number | null
+          sell_trade_id?: string | null
+          strategy_id?: string | null
+          symbol?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          amount?: number | null
+          buy_fees?: number | null
+          exit_at?: string | null
+          exit_price?: number | null
+          exit_value?: never
+          pnl?: number | null
+          pnl_pct?: number | null
+          purchase_price?: number | null
+          purchase_value?: number | null
+          sell_fees?: number | null
+          sell_trade_id?: string | null
+          strategy_id?: string | null
+          symbol?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mock_trades_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      admin_list_past_positions: {
+        Args: { p_user: string }
+        Returns: {
+          sell_trade_id: string
+          symbol: string
+          amount: number
+          purchase_price: number
+          purchase_value: number
+          exit_price: number
+          exit_value: number
+          buy_fees: number
+          sell_fees: number
+          pnl: number
+          pnl_pct: number
+          exit_at: string
+        }[]
+      }
+      admin_seed_sequence: {
+        Args: {
+          p_user: string
+          p_symbol: string
+          p_amount: number
+          p_buy_price: number
+          p_sell_price: number
+          p_account_type: string
+          p_fee_rate: number
+        }
+        Returns: {
+          sell_id: string
+          user_id: string
+          symbol: string
+          amount: number
+          purchase_price: number
+          purchase_value: number
+          exit_price: number
+          exit_value: number
+          buy_fees: number
+          sell_fees: number
+          realized_pnl: number
+          realized_pnl_pct: number
+          executed_at: string
+        }[]
+      }
       fetch_coinbase_connection_name: {
         Args: { connection_id: string }
         Returns: string
