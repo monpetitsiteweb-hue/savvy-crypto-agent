@@ -1,11 +1,22 @@
 import { supabase } from '@/integrations/supabase/client';
 
-export const runBackfillTest = async () => {
+export const runBackfillTest = async (scope: 'single_user' | 'all_users' = 'single_user') => {
   try {
-    console.log('🔥 TESTING: Running backfill function...');
+    console.log(`🔥 TESTING: Running backfill function (${scope})...`);
     
+    // Get current user session
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session?.user?.id && scope === 'single_user') {
+      throw new Error('No authenticated user found for single_user scope');
+    }
+
+    const requestBody = scope === 'single_user' 
+      ? { scope: 'single_user', userId: session?.user?.id, mode: 'test' }
+      : { scope: 'all_users', mode: 'test' };
+
     const { data, error } = await supabase.functions.invoke('backfill-sell-snapshots', {
-      body: {}
+      body: requestBody
     });
 
     if (error) {

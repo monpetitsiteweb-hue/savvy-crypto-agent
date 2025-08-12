@@ -1016,11 +1016,11 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           {testMode && (
             <Button
               onClick={async () => {
-                const result = await runBackfillTest();
+                const result = await runBackfillTest('single_user');
                 toast({
                   title: result.success ? "Backfill Complete" : "Backfill Failed",
                   description: result.success 
-                    ? `Updated ${result.data?.summary?.total_updated || 0} trades`
+                    ? `Updated ${result.data?.sell_updated || 0} of ${result.data?.sell_total || 0} trades in ${result.data?.duration_ms || 0}ms`
                     : `Error: ${result.error?.message || 'Unknown error'}`,
                   variant: result.success ? "default" : "destructive"
                 });
@@ -1032,7 +1032,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
               variant="outline"
               className="flex items-center gap-2 bg-orange-500/20 text-orange-400 border-orange-500/30 hover:bg-orange-500/30"
             >
-              Run Backfill
+              Run Backfill (Single User)
             </Button>
           )}
         </div>

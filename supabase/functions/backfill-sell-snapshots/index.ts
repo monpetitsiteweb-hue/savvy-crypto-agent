@@ -33,22 +33,34 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders })
   }
 
+  const startTime = Date.now()
+
   try {
+    // Parse request body
+    const { scope = 'all_users', userId, mode = 'test' } = await req.json()
+    
     // Initialize Supabase client
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    console.log('🔥 BACKFILL: Starting backfill process for SELL trade snapshots')
+    console.log(`🔥 BACKFILL: Starting backfill process for SELL trade snapshots (scope: ${scope}, mode: ${mode})`)
 
     // Get all users who have SELL trades missing snapshots
-    const { data: usersWithMissingSells, error: usersError } = await supabase
+    let usersQuery = supabase
       .from('mock_trades')
       .select('user_id')
       .eq('trade_type', 'sell')
       .is('original_purchase_value', null)
       .order('user_id')
+
+    // If single user mode, filter by userId
+    if (scope === 'single_user' && userId) {
+      usersQuery = usersQuery.eq('user_id', userId)
+    }
+
+    const { data: usersWithMissingSells, error: usersError } = await usersQuery
 
     if (usersError) {
       throw usersError
@@ -225,16 +237,20 @@ Deno.serve(async (req) => {
       }
     }
 
+    const endTime = Date.now()
     console.log(`🔥 BACKFILL: Completed. Updated: ${totalUpdated}, Skipped: ${totalSkipped}`)
 
     return new Response(
       JSON.stringify({
         success: true,
-        summary: {
-          users_processed: uniqueUserIds.length,
-          total_updated: totalUpdated,
-          total_skipped: totalSkipped
-        },
+        scope,
+        userId: scope === 'single_user' ? userId : undefined,
+        sell_total: totalUpdated + totalSkipped,
+        sell_updated: totalUpdated,
+        sell_skipped: totalSkipped,
+        started_at: new Date(startTime).toISOString(),
+        ended_at: new Date(endTime).toISOString(),
+        duration_ms: endTime - startTime,
         sample_updated_trades: results
       }),
       {
