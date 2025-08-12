@@ -799,9 +799,22 @@ async function getCurrentMarketData(supabaseClient: any, symbols: string[]) {
         timestamp: latestPrice.timestamp
       };
     } else {
-      // Fallback to mock data
+      // Fallback to realistic mock prices based on actual market values
+      let fallbackPrice = 1; // Default for unknown coins
+      
+      if (symbol.includes('BTC')) fallbackPrice = 95000;
+      else if (symbol.includes('ETH')) fallbackPrice = 3500;
+      else if (symbol.includes('XRP')) fallbackPrice = 2.30;
+      else if (symbol.includes('ADA')) fallbackPrice = 1.05;
+      else if (symbol.includes('SOL')) fallbackPrice = 220;
+      else if (symbol.includes('DOT')) fallbackPrice = 8.50;
+      else if (symbol.includes('MATIC')) fallbackPrice = 0.50;
+      else if (symbol.includes('AVAX')) fallbackPrice = 45;
+      else if (symbol.includes('LINK')) fallbackPrice = 25;
+      else if (symbol.includes('UNI')) fallbackPrice = 15;
+      
       marketData[symbol] = {
-        price: symbol.includes('BTC') ? 50000 : symbol.includes('ETH') ? 3000 : 100,
+        price: fallbackPrice,
         volume: 1000000,
         timestamp: new Date().toISOString()
       };
