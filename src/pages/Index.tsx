@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Link2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BackfillTestRunner } from '@/components/BackfillTestRunner';
+
 
 const Index = () => {
   console.log('🔵 INDEX: Component rendering started');
@@ -212,12 +212,6 @@ const Index = () => {
                    </ErrorBoundary>
                  )}
                  
-                 {/* TEMP: Backfill Test Runner */}
-                 {role === 'admin' && (
-                   <div className="mt-8 border-t border-slate-600 pt-6">
-                     <BackfillTestRunner />
-                   </div>
-                 )}
               </div>
             </div>
           </div>
