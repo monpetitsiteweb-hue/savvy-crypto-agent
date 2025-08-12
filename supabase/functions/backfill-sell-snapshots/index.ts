@@ -196,7 +196,7 @@ Deno.serve(async (req) => {
                   amount: round8(trade.amount)
                 })
               }
-              continue
+              continue // Skip orphans - do not write 0 snapshots
             }
 
             // Calculate snapshot data
@@ -206,13 +206,31 @@ Deno.serve(async (req) => {
               ? round6(original_purchase_value / original_purchase_amount) 
               : 0
 
-            const exit_value = round2(trade.price * original_purchase_amount) // Only for matched portion
+            // Always set exit_value = round2(amount * price) for the SELL
+            const exit_value = round2(trade.amount * trade.price)
             const buy_fees = round2(original_purchase_value * feeRate)
             const sell_fees = round2(exit_value * feeRate)
             const realized_pnl = round2((exit_value - sell_fees) - (original_purchase_value + buy_fees))
             const realized_pnl_pct = original_purchase_value > 0
               ? round2((realized_pnl / original_purchase_value) * 100)
               : 0
+
+            // Guard: only UPDATE when original_purchase_amount > 0 AND original_purchase_value > 0 AND original_purchase_price > 0
+            if (original_purchase_amount <= 0 || original_purchase_value <= 0 || original_purchase_price <= 0) {
+              console.log(`⚠️ BACKFILL: Invalid snapshot data for SELL ${trade.id}, skipping update`)
+              totalSkippedOrphans++
+              
+              if (orphansSample.length < 20) {
+                orphansSample.push({
+                  sell_id: trade.id,
+                  symbol: trade.cryptocurrency,
+                  norm: normalizedCrypto,
+                  amount: round8(trade.amount),
+                  reason: 'invalid_snapshot_data'
+                })
+              }
+              continue
+            }
 
             // Update the SELL trade with snapshot data (if not dryRun)
             if (!dryRun) {
