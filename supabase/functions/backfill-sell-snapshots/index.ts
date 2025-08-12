@@ -27,6 +27,14 @@ const getFeeRate = (accountType: string) => {
   return accountType === 'COINBASE_PRO' ? 0 : 0.05 // 0% or 5%
 }
 
+// Symbol normalization for FIFO matching
+function normalizeSymbol(sym: string): string {
+  const s = sym.trim().toUpperCase().replace(/\s+/g, '');
+  if (s.includes('-')) return s;         // already base-quote
+  // Test mode is EUR-quoted; default to EUR when missing
+  return `${s}-EUR`;
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -37,18 +45,19 @@ Deno.serve(async (req) => {
 
   try {
     // Parse request body
-    const { scope = 'all_users', userId, mode = 'test' } = await req.json()
+    const { scope = 'all_users', userId, mode = 'test', dryRun = false } = await req.json()
     
-    // Initialize Supabase client
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    // Initialize Supabase admin client with service role
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, // service role
+      { auth: { persistSession: false } }
     )
 
-    console.log(`🔥 BACKFILL: Starting backfill process for SELL trade snapshots (scope: ${scope}, mode: ${mode})`)
+    console.log(`🔥 BACKFILL: Starting backfill process (scope: ${scope}, mode: ${mode}, dryRun: ${dryRun})`)
 
     // Get all users who have SELL trades missing snapshots
-    let usersQuery = supabase
+    let usersQuery = supabaseAdmin
       .from('mock_trades')
       .select('user_id')
       .eq('trade_type', 'sell')
@@ -71,7 +80,8 @@ Deno.serve(async (req) => {
     console.log(`🔥 BACKFILL: Found ${uniqueUserIds.length} users with missing SELL snapshots`)
 
     let totalUpdated = 0
-    let totalSkipped = 0
+    let totalSkippedOrphans = 0
+    const orphansSample: any[] = []
     const results: any[] = []
 
     // Process each user
@@ -79,7 +89,7 @@ Deno.serve(async (req) => {
       console.log(`🔥 BACKFILL: Processing user ${userId}`)
 
       // Get user profile for fee calculation
-      const { data: profile } = await supabase
+      const { data: profile } = await supabaseAdmin
         .from('profiles')
         .select('username')
         .eq('id', userId)
@@ -89,8 +99,7 @@ Deno.serve(async (req) => {
       const feeRate = getFeeRate(accountType)
 
       // Get all trades for this user, ordered chronologically
-      // CRITICAL: Handle symbol inconsistency (XRP vs XRP-EUR)
-      const { data: allTrades, error: tradesError } = await supabase
+      const { data: allTrades, error: tradesError } = await supabaseAdmin
         .from('mock_trades')
         .select('*')
         .eq('user_id', userId)
@@ -101,13 +110,7 @@ Deno.serve(async (req) => {
         continue
       }
 
-      // Normalize cryptocurrency symbols for matching
-      const normalizeSymbol = (symbol: string) => {
-        if (symbol === 'XRP') return 'XRP-EUR'
-        return symbol
-      }
-
-      // Process trades per cryptocurrency (with normalization)
+      // Process trades per normalized cryptocurrency symbol
       const cryptoTrades: Record<string, Trade[]> = {}
       
       // Group trades by normalized cryptocurrency
@@ -116,15 +119,12 @@ Deno.serve(async (req) => {
         if (!cryptoTrades[normalizedSymbol]) {
           cryptoTrades[normalizedSymbol] = []
         }
-        cryptoTrades[normalizedSymbol].push({
-          ...trade,
-          cryptocurrency: normalizedSymbol  // Use normalized symbol for processing
-        })
+        cryptoTrades[normalizedSymbol].push(trade)
       }
 
       // Process each cryptocurrency separately
-      for (const [crypto, trades] of Object.entries(cryptoTrades)) {
-        console.log(`🔥 BACKFILL: Processing ${crypto} trades for user ${userId}`)
+      for (const [normalizedCrypto, trades] of Object.entries(cryptoTrades)) {
+        console.log(`🔥 BACKFILL: Processing ${normalizedCrypto} trades for user ${userId}`)
 
         // Build FIFO lots and process SELLs
         const buyLots: Array<{
@@ -151,7 +151,6 @@ Deno.serve(async (req) => {
             // Check if this SELL already has snapshot data
             if (trade.original_purchase_value !== null && trade.original_purchase_value !== undefined) {
               console.log(`🔥 BACKFILL: SELL ${trade.id} already has snapshot data, skipping`)
-              totalSkipped++
               continue
             }
 
@@ -183,6 +182,23 @@ Deno.serve(async (req) => {
               remainingToSell -= allocated
             }
 
+            // Check if we have any BUY liquidity
+            if (allocation.length === 0) {
+              // Orphan SELL - no matching BUY trades
+              console.log(`⚠️ BACKFILL: Orphan SELL ${trade.id} - no BUY liquidity for ${normalizedCrypto}`)
+              totalSkippedOrphans++
+              
+              if (orphansSample.length < 20) {
+                orphansSample.push({
+                  sell_id: trade.id,
+                  symbol: trade.cryptocurrency,
+                  norm: normalizedCrypto,
+                  amount: round8(trade.amount)
+                })
+              }
+              continue
+            }
+
             // Calculate snapshot data
             const original_purchase_amount = allocation.reduce((sum, a) => sum + a.matchedAmount, 0)
             const original_purchase_value = round2(allocation.reduce((sum, a) => sum + a.buyValuePortion, 0))
@@ -190,7 +206,7 @@ Deno.serve(async (req) => {
               ? round6(original_purchase_value / original_purchase_amount) 
               : 0
 
-            const exit_value = round2(trade.price * trade.amount)
+            const exit_value = round2(trade.price * original_purchase_amount) // Only for matched portion
             const buy_fees = round2(original_purchase_value * feeRate)
             const sell_fees = round2(exit_value * feeRate)
             const realized_pnl = round2((exit_value - sell_fees) - (original_purchase_value + buy_fees))
@@ -198,50 +214,48 @@ Deno.serve(async (req) => {
               ? round2((realized_pnl / original_purchase_value) * 100)
               : 0
 
-            // Update the SELL trade with snapshot data
-            const { error: updateError } = await supabase
-              .from('mock_trades')
-              .update({
-                original_purchase_amount: round8(original_purchase_amount),
-                original_purchase_price,
-                original_purchase_value,
-                exit_value,
-                buy_fees,
-                sell_fees,
-                realized_pnl,
-                realized_pnl_pct
-              })
-              .eq('id', trade.id)
-
-            if (updateError) {
-              console.error(`❌ BACKFILL: Error updating SELL ${trade.id}:`, updateError)
-            } else {
-              console.log(`✅ BACKFILL: Updated SELL ${trade.id} with snapshot data`)
-              totalUpdated++
-              
-              // Store example for reporting
-              if (results.length < 5) {
-                results.push({
-                  trade_id: trade.id,
-                  user_id: userId,
-                  cryptocurrency: crypto,
-                  amount: trade.amount,
+            // Update the SELL trade with snapshot data (if not dryRun)
+            if (!dryRun) {
+              const { error: updateError } = await supabaseAdmin
+                .from('mock_trades')
+                .update({
                   original_purchase_amount: round8(original_purchase_amount),
                   original_purchase_price,
                   original_purchase_value,
                   exit_value,
+                  buy_fees,
+                  sell_fees,
                   realized_pnl,
                   realized_pnl_pct
                 })
+                .eq('id', trade.id)
+                .eq('trade_type', 'sell')  // Safety: only update SELLs
+                .is('original_purchase_value', null)  // Safety: only update missing snapshots
+
+              if (updateError) {
+                console.error(`❌ BACKFILL: Error updating SELL ${trade.id}:`, updateError)
+                continue
               }
             }
 
-            // Update lot remaining amounts for future SELLs
-            for (const lot of buyLots) {
-              const matchedAllocation = allocation.find(a => a.lotId === lot.id)
-              if (matchedAllocation) {
-                lot.remaining -= matchedAllocation.matchedAmount
-              }
+            console.log(`✅ BACKFILL: ${dryRun ? 'Would update' : 'Updated'} SELL ${trade.id} with snapshot data`)
+            totalUpdated++
+            
+            // Store example for reporting
+            if (results.length < 5) {
+              results.push({
+                trade_id: trade.id,
+                user_id: userId,
+                cryptocurrency: trade.cryptocurrency,
+                normalized_symbol: normalizedCrypto,
+                amount: trade.amount,
+                original_purchase_amount: round8(original_purchase_amount),
+                original_purchase_price,
+                original_purchase_value,
+                exit_value,
+                realized_pnl,
+                realized_pnl_pct
+              })
             }
           }
         }
@@ -249,19 +263,21 @@ Deno.serve(async (req) => {
     }
 
     const endTime = Date.now()
-    console.log(`🔥 BACKFILL: Completed. Updated: ${totalUpdated}, Skipped: ${totalSkipped}`)
+    console.log(`🔥 BACKFILL: Completed. Updated: ${totalUpdated}, Orphans: ${totalSkippedOrphans}`)
 
     return new Response(
       JSON.stringify({
         success: true,
         scope,
         userId: scope === 'single_user' ? userId : undefined,
-        sell_total: totalUpdated + totalSkipped,
+        sell_total: totalUpdated + totalSkippedOrphans,
         sell_updated: totalUpdated,
-        sell_skipped: totalSkipped,
+        sell_skipped_orphans: totalSkippedOrphans,
+        orphans_sample: orphansSample,
         started_at: new Date(startTime).toISOString(),
         ended_at: new Date(endTime).toISOString(),
         duration_ms: endTime - startTime,
+        dryRun,
         sample_updated_trades: results
       }),
       {
