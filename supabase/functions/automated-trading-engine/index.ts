@@ -832,30 +832,11 @@ async function getCurrentMarketData(supabaseClient: any, symbols: string[]) {
         throw new Error(`API responded with status ${tickerResponse.status}`);
       }
     } catch (apiError) {
-      console.error(`❌ CRITICAL: Both real-time function AND direct API failed for ${symbol}:`, apiError);
+      console.error(`❌ CRITICAL: All market data sources failed for ${symbol}:`, apiError);
+      console.error(`🚫 TRADING HALTED: Cannot proceed without real market data for ${symbol}`);
       
-      // LAST RESORT: Current realistic fallback prices (updated to current market levels)
-      let fallbackPrice = 1;
-      
-      if (symbol.includes('BTC')) fallbackPrice = 101000;      // Updated to current levels
-      else if (symbol.includes('ETH')) fallbackPrice = 3900;   // Updated to current levels  
-      else if (symbol.includes('XRP')) fallbackPrice = 2.68;   // Updated to current market price!
-      else if (symbol.includes('ADA')) fallbackPrice = 0.83;
-      else if (symbol.includes('SOL')) fallbackPrice = 166;
-      else if (symbol.includes('DOT')) fallbackPrice = 3.56;
-      else if (symbol.includes('MATIC')) fallbackPrice = 0.22;
-      else if (symbol.includes('AVAX')) fallbackPrice = 21.7;
-      else if (symbol.includes('LINK')) fallbackPrice = 22.2;
-      else if (symbol.includes('UNI')) fallbackPrice = 15;
-      
-      console.log(`⚠️ LAST RESORT: Using updated fallback price for ${symbol}: €${fallbackPrice}`);
-      
-      marketData[symbol] = {
-        price: fallbackPrice,
-        volume: 1000000,
-        timestamp: new Date().toISOString(),
-        source: 'updated_fallback'
-      };
+      // NO FALLBACKS - Fail gracefully instead of using hardcoded prices
+      throw new Error(`Market data unavailable for ${symbol}. Trading suspended to prevent losses from stale data.`);
     }
   }
   
@@ -864,7 +845,14 @@ async function getCurrentMarketData(supabaseClient: any, symbols: string[]) {
 
 async function runBacktestSimulation(strategy: any, signals: any[], prices: any[]) {
   const trades = [];
-  let portfolio = { cash: 10000, holdings: {} };
+  
+  // Get initial portfolio value from strategy configuration or fail
+  const initialCash = strategy.configuration?.backtestInitialBalance;
+  if (!initialCash) {
+    throw new Error('Backtest requires initial balance configuration - no hardcoded defaults allowed');
+  }
+  
+  let portfolio = { cash: initialCash, holdings: {} };
   
   // Group prices by symbol for easy lookup
   const pricesBySymbol = prices.reduce((acc, price) => {
@@ -938,7 +926,7 @@ async function runBacktestSimulation(strategy: any, signals: any[], prices: any[
     }
   }
 
-  const totalReturn = ((finalValue - 10000) / 10000) * 100;
+  const totalReturn = ((finalValue - initialCash) / initialCash) * 100;
   const winningTrades = trades.filter(t => t.action === 'sell').length;
   const winRate = trades.length > 0 ? (winningTrades / trades.length) * 100 : 0;
 
