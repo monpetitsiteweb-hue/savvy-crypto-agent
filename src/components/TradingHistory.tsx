@@ -166,7 +166,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const getOpenPositionsList = () => {
     if (trades.length === 0) return [] as Trade[];
     const { openLots } = buildFifoLots(trades);
-    return openLots;
+    // Sort open positions by execution date (newest first)
+    return openLots.sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime());
   };
 
   // Realized P&L using strict FIFO and price-only formula (no fees)
