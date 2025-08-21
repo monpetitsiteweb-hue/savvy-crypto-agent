@@ -277,36 +277,26 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [pastPositions, setPastPositions] = useState<Trade[]>([]);
   
   const fetchPastPositions = async () => {
-    if (!user) return;
+    console.log('🔍 PAST_POSITIONS: Starting fetchPastPositions, filtering from existing trades:', trades.length);
     
-    console.log('🔍 PAST_POSITIONS: Starting fetchPastPositions for user:', user.id);
+    // Filter existing trades to show only sell trades with proper snapshot data
+    const closedTrades = trades.filter(trade => 
+      trade.trade_type === 'sell' && 
+      trade.original_purchase_amount !== null && 
+      trade.original_purchase_amount !== undefined &&
+      trade.realized_pnl !== null &&
+      trade.realized_pnl !== undefined
+    );
     
-    try {
-      // Fetch sell trades directly from mock_trades table (same as open positions)
-      const { data, error } = await supabase
-        .from('mock_trades')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('trade_type', 'sell')
-        .eq('is_test_mode', true)
-        .order('executed_at', { ascending: false });
-      
-      console.log('🔍 PAST_POSITIONS: Query result - data count:', data?.length, 'error:', error);
-      
-      if (error) throw error;
-      
-      // Use the trades directly (they already have the snapshot fields)
-      const pastTrades: Trade[] = data || [];
-      
-      console.log('🔍 PAST_POSITIONS: Past trades count:', pastTrades.length);
-      console.log('🔍 PAST_POSITIONS: Setting pastPositions array');
-      
-      setPastPositions(pastTrades);
-      
-      console.log('🔍 PAST_POSITIONS: Finished - pastPositions should now have', pastTrades.length, 'items');
-    } catch (error) {
-      console.error('🚨 PAST_POSITIONS: Error fetching past positions:', error);
-    }
+    console.log('🔍 PAST_POSITIONS: Found', closedTrades.length, 'closed trades with snapshot data');
+    
+    // Sort by execution date (newest first)
+    const sortedClosedTrades = closedTrades.sort((a, b) => 
+      new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime()
+    );
+    
+    setPastPositions(sortedClosedTrades);
+    console.log('🔍 PAST_POSITIONS: Set pastPositions to', sortedClosedTrades.length, 'trades');
   };
   
   const getPastPositions = () => {
@@ -631,13 +621,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   }, [selectedConnection, testMode, user]);
 
-  // Fetch past positions when user changes
+  // Fetch past positions when trades are updated
   useEffect(() => {
-    if (user) {
-      console.log('🔄 TradingHistory: Fetching past positions for user change');
+    if (trades && trades.length > 0) {
+      console.log('🔄 TradingHistory: Trades updated, refreshing past positions');
       fetchPastPositions();
+    } else {
+      // Clear past positions when no trades
+      setPastPositions([]);
     }
-  }, [user]);
+  }, [trades]);
 
   // Fetch user profile fee rate (used as authoritative fee when needed)
   useEffect(() => {
