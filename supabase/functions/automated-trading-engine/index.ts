@@ -623,9 +623,11 @@ async function executeStrategyFromSignal(supabaseClient: any, strategy: any, sig
 async function executeTrade(supabaseClient: any, tradeData: any) {
   const { strategy, signal, evaluation, marketData, mode, userId, trigger, forceAmount, forceTotalValue } = tradeData;
   
+  let riskCheck = null;
+  
   // First, check risk management constraints (but skip for take profit sells)
   if (trigger !== 'take_profit_hit') {
-    const riskCheck = await checkRiskLimits(supabaseClient, userId, strategy, marketData);
+    riskCheck = await checkRiskLimits(supabaseClient, userId, strategy, marketData);
     if (!riskCheck.canExecute) {
       console.log(`🚫 Trade blocked by risk management: ${riskCheck.reason}`);
       return {
@@ -648,12 +650,28 @@ async function executeTrade(supabaseClient: any, tradeData: any) {
     totalValue = forceTotalValue;
     console.log(`🎯 [FORCED SELL] Using exact position: ${tradeAmount.toFixed(6)} units = €${totalValue.toFixed(2)}`);
   } else {
-    // For regular trades: use risk management
-    const riskCheck = await checkRiskLimits(supabaseClient, userId, strategy, marketData);
-    const baseTradeAmount = strategy.configuration?.perTradeAllocation || 1000;
-    const adjustedAmount = riskCheck.adjustedPositionSize || baseTradeAmount;
+    // For regular trades: use the ALREADY CALCULATED risk management results
+    const baseTradeAmount = strategy.configuration?.perTradeAllocation || 100; // Reduced default to €100
+    const adjustedAmount = riskCheck?.adjustedPositionSize || baseTradeAmount;
+    
+    // CRITICAL: If no risk check was done (shouldn't happen), do it now
+    if (!riskCheck) {
+      console.log(`⚠️ WARNING: No risk check performed, doing emergency check`);
+      riskCheck = await checkRiskLimits(supabaseClient, userId, strategy, marketData);
+      if (!riskCheck.canExecute) {
+        console.log(`🚫 EMERGENCY: Trade blocked by risk management: ${riskCheck.reason}`);
+        return {
+          blocked: true,
+          reason: `Emergency block: ${riskCheck.reason}`,
+          risk_assessment: riskCheck
+        };
+      }
+    }
+    
     tradeAmount = adjustedAmount / price;
     totalValue = adjustedAmount;
+    
+    console.log(`💰 [POSITION SIZING] Base: €${baseTradeAmount} | Risk Adjusted: €${adjustedAmount.toFixed(2)} | Amount: ${tradeAmount.toFixed(6)}`);
   }
   
   // Calculate profit/loss for sell trades
@@ -1015,8 +1033,28 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
     const todayTradesCount = todayTrades?.length || 0;
     const todayPnL = todayTrades?.reduce((sum, trade) => sum + (trade.profit_loss || 0), 0) || 0;
 
-    // Check limits
-    const blockingReasons = [];
+    // CRITICAL: Check trade cooldown to prevent excessive trading frequency
+    const tradeCooldownMinutes = strategy.configuration?.tradeCooldownMinutes || 60; // Default 1 hour between trades
+    const cooldownTime = new Date(Date.now() - tradeCooldownMinutes * 60 * 1000);
+    
+    const { data: recentTrades, error: recentTradesError } = await supabaseClient
+      .from('mock_trades')
+      .select('executed_at, trade_type, cryptocurrency')
+      .eq('user_id', userId)
+      .eq('strategy_id', strategy.id)
+      .gte('executed_at', cooldownTime.toISOString())
+      .order('executed_at', { ascending: false });
+
+    if (!recentTradesError && recentTrades && recentTrades.length > 0) {
+      const lastTradeTime = new Date(recentTrades[0].executed_at);
+      const minutesSinceLastTrade = (Date.now() - lastTradeTime.getTime()) / (1000 * 60);
+      
+      console.log(`⏱️ [COOLDOWN CHECK] Last trade: ${minutesSinceLastTrade.toFixed(1)} minutes ago (cooldown: ${tradeCooldownMinutes}min)`);
+      
+      if (minutesSinceLastTrade < tradeCooldownMinutes) {
+        blockingReasons.push(`Trade cooldown active (${(tradeCooldownMinutes - minutesSinceLastTrade).toFixed(1)} minutes remaining)`);
+      }
+    }
     
     if (todayTradesCount >= riskLimits.maxTradesPerDay) {
       blockingReasons.push(`Daily trade limit reached (${riskLimits.maxTradesPerDay})`);
