@@ -279,16 +279,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const fetchPastPositions = async () => {
     console.log('🔍 PAST_POSITIONS: Starting fetchPastPositions, filtering from existing trades:', trades.length);
     
-    // Filter existing trades to show only sell trades with proper snapshot data
-    const closedTrades = trades.filter(trade => 
-      trade.trade_type === 'sell' && 
-      trade.original_purchase_amount !== null && 
-      trade.original_purchase_amount !== undefined &&
-      trade.realized_pnl !== null &&
-      trade.realized_pnl !== undefined
-    );
+    // Filter existing trades to show ALL sell trades (not just ones with snapshot data)
+    const closedTrades = trades.filter(trade => trade.trade_type === 'sell');
     
-    console.log('🔍 PAST_POSITIONS: Found', closedTrades.length, 'closed trades with snapshot data');
+    console.log('🔍 PAST_POSITIONS: Found', closedTrades.length, 'sell trades');
     
     // Sort by execution date (newest first)
     const sortedClosedTrades = closedTrades.sort((a, b) => 
