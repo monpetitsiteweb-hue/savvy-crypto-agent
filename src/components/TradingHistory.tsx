@@ -55,7 +55,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // IMMEDIATE FETCH ON COMPONENT LOAD  
   useEffect(() => {
     console.log('🔍 TradingHistory: Component mounted, user:', !!user, 'testMode:', testMode);
-    if (user && testMode) {
+    if (user) {
       console.log('🔍 TradingHistory: IMMEDIATE FETCH triggered');
       fetchTradingHistory();
     }
