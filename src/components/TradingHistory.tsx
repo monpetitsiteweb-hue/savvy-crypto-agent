@@ -861,7 +861,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       }
       
       // Only process if we have actual data
+      console.log('💾 FETCH_TRADING: About to set trades with', data?.length || 0, 'items');
       setTrades(data);
+      console.log('💾 FETCH_TRADING: Trades state updated successfully');
       
       // Fetch current prices for all cryptocurrencies in trades
       const symbols = [...new Set((data as Trade[]).map(trade => `${trade.cryptocurrency}-EUR`))];
