@@ -1168,65 +1168,7 @@ export type Database = {
       }
     }
     Views: {
-      past_positions_view: {
-        Row: {
-          amount: number | null
-          buy_fees: number | null
-          exit_at: string | null
-          exit_price: number | null
-          exit_value: number | null
-          pnl: number | null
-          pnl_pct: number | null
-          purchase_price: number | null
-          purchase_value: number | null
-          sell_fees: number | null
-          sell_trade_id: string | null
-          strategy_id: string | null
-          symbol: string | null
-          user_id: string | null
-        }
-        Insert: {
-          amount?: number | null
-          buy_fees?: number | null
-          exit_at?: string | null
-          exit_price?: number | null
-          exit_value?: number | null
-          pnl?: number | null
-          pnl_pct?: number | null
-          purchase_price?: number | null
-          purchase_value?: number | null
-          sell_fees?: number | null
-          sell_trade_id?: string | null
-          strategy_id?: string | null
-          symbol?: string | null
-          user_id?: string | null
-        }
-        Update: {
-          amount?: number | null
-          buy_fees?: number | null
-          exit_at?: string | null
-          exit_price?: number | null
-          exit_value?: number | null
-          pnl?: number | null
-          pnl_pct?: number | null
-          purchase_price?: number | null
-          purchase_value?: number | null
-          sell_fees?: number | null
-          sell_trade_id?: string | null
-          strategy_id?: string | null
-          symbol?: string | null
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "mock_trades_strategy_id_fkey"
-            columns: ["strategy_id"]
-            isOneToOne: false
-            referencedRelation: "trading_strategies"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
+      [_ in never]: never
     }
     Functions: {
       admin_list_past_positions: {
