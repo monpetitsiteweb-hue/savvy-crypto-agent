@@ -46,6 +46,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import NaturalLanguageStrategy from './NaturalLanguageStrategy';
 import AIIntelligenceSettings, { AIIntelligenceConfig } from './AIIntelligenceSettings';
+import { TechnicalIndicatorSettings, TechnicalIndicatorConfig } from './TechnicalIndicatorSettings';
 
 // Coinbase-compatible coins list
 const COINBASE_COINS = [
@@ -104,6 +105,8 @@ interface StrategyFormData {
   tags: string[];
   // AI Intelligence settings - enableAIOverride is the single source of truth
   aiIntelligenceConfig: AIIntelligenceConfig;
+  // Technical Indicators settings
+  technicalIndicatorConfig: TechnicalIndicatorConfig;
 }
 
 interface ComprehensiveStrategyConfigProps {
@@ -158,7 +161,8 @@ const MENU_SECTIONS = [
     id: 'intelligence',
     title: 'AI INTELLIGENCE',
     items: [
-      { id: 'ai-intelligence', label: 'AI Intelligence Settings', icon: MessageCircle }
+      { id: 'ai-intelligence', label: 'AI Intelligence Settings', icon: MessageCircle },
+      { id: 'technical-indicators', label: 'Technical Indicators', icon: BarChart3 }
     ]
   },
   {
@@ -305,6 +309,46 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       alertOnAnomalies: true,
       alertOnOverrides: true,
       customInstructions: ''
+    },
+    technicalIndicatorConfig: {
+      rsi: {
+        enabled: true,
+        period: 14,
+        buyThreshold: 30,
+        sellThreshold: 70,
+      },
+      macd: {
+        enabled: true,
+        fast: 12,
+        slow: 26,
+        signal: 9,
+      },
+      ema: {
+        enabled: true,
+        shortPeriod: 12,
+        longPeriod: 26,
+      },
+      sma: {
+        enabled: false,
+        period: 20,
+      },
+      bollinger: {
+        enabled: false,
+        period: 20,
+        stdDev: 2,
+      },
+      adx: {
+        enabled: false,
+        period: 14,
+        threshold: 25,
+      },
+      stochasticRSI: {
+        enabled: false,
+        rsiPeriod: 14,
+        stochPeriod: 14,
+        kPeriod: 3,
+        dPeriod: 3,
+      },
     }
   });
 
@@ -334,6 +378,11 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         aiIntelligenceConfig: {
           ...prev.aiIntelligenceConfig,
           ...config.aiIntelligenceConfig
+        },
+        // Properly merge technical indicator config
+        technicalIndicatorConfig: {
+          ...prev.technicalIndicatorConfig,
+          ...config.technicalIndicatorConfig
         }
       }));
     }
@@ -1207,6 +1256,16 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                           )}
                         </CardContent>
                       </Card>
+                    </div>
+                  )}
+
+                  {/* Technical Indicators Section */}
+                  {activeSection === 'technical-indicators' && (
+                    <div className="space-y-6">
+                      <TechnicalIndicatorSettings 
+                        config={formData.technicalIndicatorConfig}
+                        onConfigChange={(config) => setFormData(prev => ({ ...prev, technicalIndicatorConfig: config }))}
+                      />
                     </div>
                   )}
 
