@@ -290,6 +290,22 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const fetchPastPositions = async () => {
     console.log('🔍 PAST_POSITIONS: Starting fetchPastPositions, filtering from existing trades:', trades.length);
     
+    // Debug: Check trade types distribution
+    if (trades.length > 0) {
+      const tradeTypes = trades.reduce((acc, trade) => {
+        acc[trade.trade_type] = (acc[trade.trade_type] || 0) + 1;
+        return acc;
+      }, {});
+      console.log('🔍 PAST_POSITIONS: Trade types distribution:', tradeTypes);
+      console.log('🔍 PAST_POSITIONS: Sample trades (first 3):', trades.slice(0, 3).map(t => ({
+        id: t.id,
+        trade_type: t.trade_type,
+        cryptocurrency: t.cryptocurrency,
+        amount: t.amount,
+        executed_at: t.executed_at
+      })));
+    }
+    
     // Filter existing trades to show ALL sell trades (not just ones with snapshot data)
     const closedTrades = trades.filter(trade => trade.trade_type === 'sell');
     
