@@ -643,6 +643,14 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   }, [selectedConnection, testMode, user]);
 
+  // Fetch past positions when user changes
+  useEffect(() => {
+    if (user) {
+      console.log('🔄 TradingHistory: Fetching past positions for user change');
+      fetchPastPositions();
+    }
+  }, [user]);
+
   // Fetch user profile fee rate (used as authoritative fee when needed)
   useEffect(() => {
     const fetchProfileFeeRate = async () => {
