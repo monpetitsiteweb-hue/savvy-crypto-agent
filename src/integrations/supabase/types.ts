@@ -7,7 +7,7 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instanciate createClient with right options
+  // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "12.2.3 (519615d)"
@@ -1291,44 +1291,44 @@ export type Database = {
       admin_list_past_positions: {
         Args: { p_user: string }
         Returns: {
-          sell_trade_id: string
-          symbol: string
           amount: number
-          purchase_price: number
-          purchase_value: number
+          buy_fees: number
+          exit_at: string
           exit_price: number
           exit_value: number
-          buy_fees: number
-          sell_fees: number
           pnl: number
           pnl_pct: number
-          exit_at: string
+          purchase_price: number
+          purchase_value: number
+          sell_fees: number
+          sell_trade_id: string
+          symbol: string
         }[]
       }
       admin_seed_sequence: {
         Args: {
-          p_user: string
-          p_symbol: string
+          p_account_type: string
           p_amount: number
           p_buy_price: number
-          p_sell_price: number
-          p_account_type: string
           p_fee_rate: number
+          p_sell_price: number
+          p_symbol: string
+          p_user: string
         }
         Returns: {
-          sell_id: string
-          user_id: string
-          symbol: string
           amount: number
-          purchase_price: number
-          purchase_value: number
+          buy_fees: number
+          executed_at: string
           exit_price: number
           exit_value: number
-          buy_fees: number
-          sell_fees: number
+          purchase_price: number
+          purchase_value: number
           realized_pnl: number
           realized_pnl_pct: number
-          executed_at: string
+          sell_fees: number
+          sell_id: string
+          symbol: string
+          user_id: string
         }[]
       }
       fetch_coinbase_connection_name: {
@@ -1348,8 +1348,8 @@ export type Database = {
       }
       has_role: {
         Args: {
-          _user_id: string
           _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
         }
         Returns: boolean
       }
