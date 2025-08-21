@@ -47,6 +47,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   console.log('🔍 TradingHistory: Render with props:', { hasActiveStrategy, testMode: undefined });
   
   const { user } = useAuth();
+  console.log('🔍 TradingHistory: useAuth result:', { user: !!user, userEmail: user?.email, userId: user?.id });
+  
   const { testMode } = useTestMode();
   const { toast } = useToast();
   const { getTotalValue } = useMockWallet();
@@ -55,7 +57,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   console.log('🔍 TradingHistory: Component state:', { 
     user: !!user, 
-    userId: user?.id, 
+    userId: user?.id,
     testMode, 
     hasActiveStrategy 
   });

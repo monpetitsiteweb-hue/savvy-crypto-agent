@@ -31,11 +31,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   useEffect(() => {
     let mounted = true;
+    console.log('🔑 AuthProvider: Setting up auth state listener');
     
     // Set up auth state listener
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('🔑 AuthProvider: Auth state change:', event, 'User:', session?.user?.email, 'Session exists:', !!session);
       if (mounted) {
         setSession(session);
         setUser(session?.user ?? null);
@@ -45,6 +47,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log('🔑 AuthProvider: Initial session check - User:', session?.user?.email, 'Session exists:', !!session);
       if (mounted) {
         setSession(session);
         setUser(session?.user ?? null);
