@@ -628,9 +628,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   // Fetch past positions when trades are updated
   useEffect(() => {
-    console.log('🔄 TRADES_EFFECT: Effect triggered! Trades length:', trades?.length || 0);
+    console.log('🔄 TRADES_EFFECT: Effect triggered! Current render ID:', Math.random().toString(36).substr(2, 5));
+    console.log('🔄 TRADES_EFFECT: Trades length:', trades?.length || 0);
     console.log('🔄 TRADES_EFFECT: Trades array type:', typeof trades, 'isArray:', Array.isArray(trades));
-    console.log('🔄 TRADES_EFFECT: Trades object:', trades);
+    console.log('🔄 TRADES_EFFECT: Trades reference:', trades === trades ? 'same' : 'different');
     
     if (trades && trades.length > 0) {
       console.log('🔄 TRADES_EFFECT: Processing', trades.length, 'trades');
@@ -641,6 +642,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       // Clear past positions when no trades
       setPastPositions([]);
     }
+  }, [trades]);
+
+  // Add a separate effect to monitor trades changes
+  useEffect(() => {
+    console.log('🔄 TRADES_MONITOR: Trades changed to length:', trades?.length || 0);
+    console.log('🔄 TRADES_MONITOR: First trade sample:', trades?.[0] ? {
+      id: trades[0].id,
+      trade_type: trades[0].trade_type,
+      cryptocurrency: trades[0].cryptocurrency
+    } : 'no trades');
   }, [trades]);
 
   // Fetch user profile fee rate (used as authoritative fee when needed)
