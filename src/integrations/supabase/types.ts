@@ -1186,32 +1186,32 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
-          amount?: number | null
-          buy_fees?: number | null
+          amount?: never
+          buy_fees?: never
           exit_at?: string | null
           exit_price?: number | null
           exit_value?: never
-          pnl?: number | null
-          pnl_pct?: number | null
-          purchase_price?: number | null
-          purchase_value?: number | null
-          sell_fees?: number | null
+          pnl?: never
+          pnl_pct?: never
+          purchase_price?: never
+          purchase_value?: never
+          sell_fees?: never
           sell_trade_id?: string | null
           strategy_id?: string | null
           symbol?: string | null
           user_id?: string | null
         }
         Update: {
-          amount?: number | null
-          buy_fees?: number | null
+          amount?: never
+          buy_fees?: never
           exit_at?: string | null
           exit_price?: number | null
           exit_value?: never
-          pnl?: number | null
-          pnl_pct?: number | null
-          purchase_price?: number | null
-          purchase_value?: number | null
-          sell_fees?: number | null
+          pnl?: never
+          pnl_pct?: never
+          purchase_price?: never
+          purchase_value?: never
+          sell_fees?: never
           sell_trade_id?: string | null
           strategy_id?: string | null
           symbol?: string | null
