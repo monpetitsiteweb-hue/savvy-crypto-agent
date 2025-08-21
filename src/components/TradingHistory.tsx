@@ -766,7 +766,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           .from('mock_trades')
           .select('*')
           .eq('user_id', user.id)
-          .eq('is_test_mode', true)
           .order('executed_at', { ascending: false });
         
         console.log('🔍 FETCH_TRADING: Mock trades query result:', { count: result.data?.length, error: result.error });
