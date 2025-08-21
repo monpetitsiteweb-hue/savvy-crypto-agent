@@ -1227,65 +1227,6 @@ export type Database = {
           },
         ]
       }
-      past_positions_view_admin: {
-        Row: {
-          amount: number | null
-          buy_fees: number | null
-          exit_at: string | null
-          exit_price: number | null
-          exit_value: number | null
-          pnl: number | null
-          pnl_pct: number | null
-          purchase_price: number | null
-          purchase_value: number | null
-          sell_fees: number | null
-          sell_trade_id: string | null
-          strategy_id: string | null
-          symbol: string | null
-          user_id: string | null
-        }
-        Insert: {
-          amount?: number | null
-          buy_fees?: number | null
-          exit_at?: string | null
-          exit_price?: number | null
-          exit_value?: number | null
-          pnl?: number | null
-          pnl_pct?: number | null
-          purchase_price?: number | null
-          purchase_value?: number | null
-          sell_fees?: number | null
-          sell_trade_id?: string | null
-          strategy_id?: string | null
-          symbol?: string | null
-          user_id?: string | null
-        }
-        Update: {
-          amount?: number | null
-          buy_fees?: number | null
-          exit_at?: string | null
-          exit_price?: number | null
-          exit_value?: number | null
-          pnl?: number | null
-          pnl_pct?: number | null
-          purchase_price?: number | null
-          purchase_value?: number | null
-          sell_fees?: number | null
-          sell_trade_id?: string | null
-          strategy_id?: string | null
-          symbol?: string | null
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "mock_trades_strategy_id_fkey"
-            columns: ["strategy_id"]
-            isOneToOne: false
-            referencedRelation: "trading_strategies"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
     }
     Functions: {
       admin_list_past_positions: {
@@ -1340,6 +1281,25 @@ export type Database = {
         Returns: {
           client_id_encrypted: string
           is_sandbox: boolean
+        }[]
+      }
+      get_all_past_positions: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          amount: number
+          buy_fees: number
+          exit_at: string
+          exit_price: number
+          exit_value: number
+          pnl: number
+          pnl_pct: number
+          purchase_price: number
+          purchase_value: number
+          sell_fees: number
+          sell_trade_id: string
+          strategy_id: string
+          symbol: string
+          user_id: string
         }[]
       }
       get_user_role: {
