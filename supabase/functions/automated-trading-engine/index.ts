@@ -418,55 +418,69 @@ async function evaluateExistingPositions(supabaseClient: any, strategy: any, mod
       console.log(`🔍 [DEBUG] Trade ${index + 1}: ${trade.trade_type} ${trade.amount} ${trade.cryptocurrency} @ €${trade.price} on ${trade.executed_at}`);
     });
 
-    // FIXED: Only consider BUY trades that don't have corresponding SELL trades
-    const openPositions = {};
+    // FIXED: Treat each BUY trade as an individual position for take profit
+    const individualPositions = [];
     
-    // Get only BUY trades for open positions calculation
+    // Get only BUY trades - each is a separate position
     const buyTrades = allTrades.filter(trade => trade.trade_type === 'buy');
     console.log(`🔍 [DEBUG] Found ${buyTrades.length} BUY trades`);
     
+    // Calculate how much of each BUY has already been sold using FIFO matching
+    const sellTrades = allTrades.filter(trade => trade.trade_type === 'sell');
+    console.log(`🔍 [DEBUG] Found ${sellTrades.length} SELL trades`);
+    
     for (const buyTrade of buyTrades) {
       const symbol = buyTrade.cryptocurrency;
+      const buyAmount = parseFloat(buyTrade.amount);
+      const buyPrice = parseFloat(buyTrade.price);
       
-      if (!openPositions[symbol]) {
-        openPositions[symbol] = {
-          amount: 0,
-          totalCost: 0,
-          trades: []
-        };
+      // Calculate how much of this specific buy has been sold
+      let remainingAmount = buyAmount;
+      
+      // Find sell trades for the same symbol that occurred after this buy
+      const relevantSells = sellTrades
+        .filter(sell => sell.cryptocurrency === symbol && new Date(sell.executed_at) >= new Date(buyTrade.executed_at))
+        .sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
+      
+      for (const sellTrade of relevantSells) {
+        if (remainingAmount <= 0) break;
+        
+        const sellAmount = parseFloat(sellTrade.amount);
+        const amountToDeduct = Math.min(remainingAmount, sellAmount);
+        remainingAmount -= amountToDeduct;
       }
       
-      openPositions[symbol].amount += parseFloat(buyTrade.amount);
-      openPositions[symbol].totalCost += parseFloat(buyTrade.total_value);
-      openPositions[symbol].trades.push(buyTrade);
-      openPositions[symbol].avgPrice = openPositions[symbol].totalCost / openPositions[symbol].amount;
-    }
-    
-    // Filter to only positions with meaningful amounts
-    const filteredPositions = {};
-    for (const [symbol, position] of Object.entries(openPositions)) {
-      if (position.amount > 0.0001) { // Small threshold to handle rounding
-        filteredPositions[symbol] = position;
+      // If there's still amount remaining, this is an open position
+      if (remainingAmount > 0.0001) { // Small threshold to handle rounding
+        individualPositions.push({
+          id: buyTrade.id,
+          cryptocurrency: symbol,
+          amount: remainingAmount,
+          entryPrice: buyPrice,
+          entryValue: remainingAmount * buyPrice,
+          executedAt: buyTrade.executed_at
+        });
       }
     }
 
-    if (Object.keys(filteredPositions).length === 0) {
+    if (individualPositions.length === 0) {
       console.log(`📊 No open positions found for strategy "${strategy.strategy_name}"`);
       return;
     }
 
-    console.log(`📊 Found ${Object.keys(filteredPositions).length} open positions for strategy "${strategy.strategy_name}"`);
-    Object.entries(filteredPositions).forEach(([symbol, pos]) => {
-      console.log(`🔍 ${symbol}: ${pos.amount.toFixed(6)} units @ avg €${pos.avgPrice.toFixed(2)} (${pos.trades.length} trades)`);
+    console.log(`📊 Found ${individualPositions.length} individual open positions for strategy "${strategy.strategy_name}"`);
+    individualPositions.forEach((pos, index) => {
+      console.log(`🔍 Position ${index + 1}: ${pos.amount.toFixed(6)} ${pos.cryptocurrency} @ €${pos.entryPrice.toFixed(2)} (from ${pos.executedAt})`);
     });
 
-    // Get current market prices for all symbols
-    const symbols = Object.keys(filteredPositions).map(crypto => `${crypto}-EUR`);
+    // Get current market prices for all unique symbols
+    const uniqueSymbols = [...new Set(individualPositions.map(pos => pos.cryptocurrency))];
+    const symbols = uniqueSymbols.map(crypto => `${crypto}-EUR`);
     const marketData = await getCurrentMarketData(supabaseClient, symbols);
 
-    // Evaluate each open position for take profit
-    for (const [cryptocurrency, position] of Object.entries(filteredPositions)) {
-      const symbol = `${cryptocurrency}-EUR`;
+    // Evaluate EACH INDIVIDUAL position for take profit
+    for (const position of individualPositions) {
+      const symbol = `${position.cryptocurrency}-EUR`;
       const currentPrice = marketData[symbol]?.price || 0;
       
       if (currentPrice === 0) {
@@ -474,14 +488,15 @@ async function evaluateExistingPositions(supabaseClient: any, strategy: any, mod
         continue;
       }
 
-      const gainPercentage = ((currentPrice - position.avgPrice) / position.avgPrice) * 100;
+      // Calculate gain for THIS SPECIFIC position (not averaged)
+      const gainPercentage = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
       
-      console.log(`📈 [TAKE PROFIT] ${cryptocurrency}: Entry €${position.avgPrice.toFixed(2)} → Current €${currentPrice.toFixed(2)} = ${gainPercentage.toFixed(2)}% gain (target: ${takeProfitPercentage}%)`);
+      console.log(`📈 [TAKE PROFIT] Individual Position: ${position.cryptocurrency} bought at €${position.entryPrice.toFixed(2)} → Current €${currentPrice.toFixed(2)} = ${gainPercentage.toFixed(2)}% gain (target: ${takeProfitPercentage}%)`);
       
       if (gainPercentage >= takeProfitPercentage) {
-        console.log(`🎯 [TAKE PROFIT] Selling ${cryptocurrency} at ${gainPercentage.toFixed(2)}% gain for user ${strategy.user_id}`);
+        console.log(`🎯 [TAKE PROFIT] Selling individual position of ${position.cryptocurrency} at ${gainPercentage.toFixed(2)}% gain for user ${strategy.user_id}`);
         
-        // Execute sell trade for the ENTIRE open position
+        // Execute sell trade for THIS SPECIFIC position only
         const sellTradeResult = await executeTrade(supabaseClient, {
           strategy,
           marketData: { [symbol]: marketData[symbol] },
@@ -490,23 +505,23 @@ async function evaluateExistingPositions(supabaseClient: any, strategy: any, mod
           trigger: 'take_profit_hit',
           evaluation: {
             action: 'sell',
-            reasoning: `Take profit target reached: ${gainPercentage.toFixed(2)}% gain (target: ${takeProfitPercentage}%) | Position: ${position.amount.toFixed(6)} ${cryptocurrency}`,
+            reasoning: `Take profit target reached: ${gainPercentage.toFixed(2)}% gain (target: ${takeProfitPercentage}%) | Individual Position: ${position.amount.toFixed(6)} ${position.cryptocurrency} from ${position.executedAt}`,
             confidence: 1.0
           },
           signal: {
-            symbol: cryptocurrency,
+            symbol: position.cryptocurrency,
             signal_type: 'take_profit',
             signal_strength: 100
           },
-          // CRITICAL: Sell the exact amount we have open
+          // CRITICAL: Sell only this specific position amount
           forceAmount: position.amount,
           forceTotalValue: position.amount * currentPrice
         });
         
         executionResults.push(sellTradeResult);
-        console.log(`✅ [TAKE PROFIT] Successfully sold ${cryptocurrency} position: ${position.amount.toFixed(6)} units at €${currentPrice.toFixed(2)}`);
+        console.log(`✅ [TAKE PROFIT] Successfully sold individual ${position.cryptocurrency} position: ${position.amount.toFixed(6)} units at €${currentPrice.toFixed(2)}`);
       } else {
-        console.log(`⏳ [TAKE PROFIT] Holding ${cryptocurrency} - ${gainPercentage.toFixed(2)}% gain (need ${takeProfitPercentage}%)`);
+        console.log(`⏳ [TAKE PROFIT] Holding individual ${position.cryptocurrency} position - ${gainPercentage.toFixed(2)}% gain (need ${takeProfitPercentage}%)`);
       }
     }
     
