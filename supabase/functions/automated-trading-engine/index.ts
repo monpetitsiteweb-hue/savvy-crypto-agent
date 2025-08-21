@@ -967,11 +967,40 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
     const strategyConfig = strategy.configuration || {};
     const riskLimits = userPrefs?.riskLimits || {
       maxDailyLoss: strategyConfig.dailyLossLimit || 500,
-      maxTradesPerDay: strategyConfig.maxTradesPerDay || 50, // Much higher default
+      maxTradesPerDay: strategyConfig.maxTradesPerDay || 10, // Reduced from 50 to 10
       maxPositionSize: strategyConfig.maxPositionSize || strategyConfig.perTradeAllocation || 1000,
       stopLossPercentage: strategyConfig.stopLossPercentage || 3,
       takeProfitPercentage: strategyConfig.takeProfitPercentage || 6
     };
+
+    // CRITICAL: Calculate actual portfolio value from trades
+    const { data: allUserTrades, error: allUserTradesError } = await supabaseClient
+      .from('mock_trades')
+      .select('cryptocurrency, trade_type, amount, price, total_value')
+      .eq('user_id', userId);
+
+    let availableEurBalance = 30000; // Starting balance
+    const cryptoHoldings = new Map<string, number>();
+
+    if (!allUserTradesError && allUserTrades) {
+      // Calculate current EUR balance and crypto holdings
+      allUserTrades.forEach((trade: any) => {
+        const crypto = trade.cryptocurrency;
+        const amount = parseFloat(trade.amount);
+        const totalValue = parseFloat(trade.total_value);
+
+        if (trade.trade_type === 'buy') {
+          availableEurBalance -= totalValue;
+          cryptoHoldings.set(crypto, (cryptoHoldings.get(crypto) || 0) + amount);
+        } else if (trade.trade_type === 'sell') {
+          availableEurBalance += totalValue;
+          cryptoHoldings.set(crypto, Math.max(0, (cryptoHoldings.get(crypto) || 0) - amount));
+        }
+      });
+    }
+
+    console.log(`💰 [BALANCE CHECK] Available EUR: €${availableEurBalance.toFixed(2)}`);
+    console.log(`🏦 [PORTFOLIO] Crypto holdings:`, Object.fromEntries(cryptoHoldings));
 
     // Check daily trading stats
     const today = new Date();
@@ -979,7 +1008,7 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
     
     const { data: todayTrades, error: tradesError } = await supabaseClient
       .from('mock_trades')
-      .select('profit_loss, total_value')
+      .select('profit_loss, total_value, trade_type')
       .eq('user_id', userId)
       .gte('executed_at', today.toISOString());
 
@@ -997,58 +1026,55 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
       blockingReasons.push(`Daily loss limit reached (€${riskLimits.maxDailyLoss})`);
     }
 
-    // Check max open positions limit from strategy configuration
+    // Check max open positions limit - COUNT TOTAL PORTFOLIO POSITIONS (NOT PER STRATEGY)
     const maxOpenPositions = strategy.configuration?.maxOpenPositions || 5;
     
-    // Get current open positions by calculating net positions per cryptocurrency
-    const { data: allTrades, error: allTradesError } = await supabaseClient
-      .from('mock_trades')
-      .select('cryptocurrency, trade_type, amount')
-      .eq('user_id', userId)
-      .eq('strategy_id', strategy.id);
-
-    if (!allTradesError && allTrades) {
-      const openPositions = new Map<string, number>();
+    // Get ALL user trades to calculate TOTAL open positions across ALL strategies
+    const totalOpenPositionsCount = Array.from(cryptoHoldings.values())
+      .filter(amount => amount > 0.000001).length;
       
-      // Calculate net positions by cryptocurrency
-      allTrades.forEach(trade => {
-        const crypto = trade.cryptocurrency;
-        const currentNet = openPositions.get(crypto) || 0;
-        
-        if (trade.trade_type === 'buy') {
-          openPositions.set(crypto, currentNet + trade.amount);
-        } else if (trade.trade_type === 'sell') {
-          openPositions.set(crypto, currentNet - trade.amount);
-        }
-      });
-      
-      // Count positions with net amount > 0.000001 (to account for floating point precision)
-      const currentOpenPositionsCount = Array.from(openPositions.values())
-        .filter(amount => amount > 0.000001).length;
-      
-      console.log(`📊 [POSITION CHECK] Current open positions: ${currentOpenPositionsCount}/${maxOpenPositions}`);
-      
-      if (currentOpenPositionsCount >= maxOpenPositions) {
-        blockingReasons.push(`Max open positions limit reached (${maxOpenPositions})`);
-      }
+    console.log(`📊 [TOTAL POSITION CHECK] Total open positions: ${totalOpenPositionsCount}/${maxOpenPositions}`);
+    
+    if (totalOpenPositionsCount >= maxOpenPositions) {
+      blockingReasons.push(`Max open positions limit reached (${maxOpenPositions})`);
     }
 
-    // Calculate position sizing - use strategy configuration directly
+    // CRITICAL: Check if user has sufficient EUR balance for the proposed trade
     const symbol = Object.keys(marketData)[0] || 'BTC-EUR';
     const price = marketData[symbol]?.price || 50000;
-    const baseAmount = strategy.configuration?.trade_amount || 
-                       strategy.configuration?.perTradeAllocation || 
-                       100;
+    const baseAmount = strategy.configuration?.perTradeAllocation || 100;
     
-    // Use the strategy's configured amount directly, but only cap by maxPositionSize if it's configured as a percentage
-    let adjustedPositionSize = baseAmount;
+    // Check max wallet exposure
+    const maxWalletExposure = strategy.configuration?.maxWalletExposure || 50; // Default 50%
+    const startingBalance = 30000;
+    const maxExposureAmount = startingBalance * (maxWalletExposure / 100);
+    const currentInvestedAmount = startingBalance - availableEurBalance;
     
-    // Only apply percentage-based limits if maxPositionSize is a percentage (< 100)
-    if (typeof riskLimits.maxPositionSize === 'number' && riskLimits.maxPositionSize < 100) {
-      const portfolioValue = 10000;
-      const maxPositionValue = portfolioValue * (riskLimits.maxPositionSize / 100);
-      adjustedPositionSize = Math.min(baseAmount, maxPositionValue);
+    console.log(`🛡️ [EXPOSURE CHECK] Current invested: €${currentInvestedAmount.toFixed(2)} / Max allowed: €${maxExposureAmount.toFixed(2)} (${maxWalletExposure}%)`);
+    
+    if (currentInvestedAmount >= maxExposureAmount) {
+      blockingReasons.push(`Max wallet exposure reached (${maxWalletExposure}%: €${maxExposureAmount.toFixed(2)})`);
     }
+
+    if (availableEurBalance < baseAmount) {
+      blockingReasons.push(`Insufficient EUR balance (€${availableEurBalance.toFixed(2)} < €${baseAmount})`);
+    }
+
+    if ((currentInvestedAmount + baseAmount) > maxExposureAmount) {
+      blockingReasons.push(`Trade would exceed max wallet exposure (${maxWalletExposure}%)`);
+    }
+
+    // Calculate position sizing using ACTUAL available balance
+    let adjustedPositionSize = Math.min(baseAmount, availableEurBalance);
+    
+    // Apply percentage-based limits if maxPositionSize is configured as a percentage
+    if (typeof riskLimits.maxPositionSize === 'number' && riskLimits.maxPositionSize < 100) {
+      const actualPortfolioValue = availableEurBalance + currentInvestedAmount; // Real portfolio value
+      const maxPositionValue = actualPortfolioValue * (riskLimits.maxPositionSize / 100);
+      adjustedPositionSize = Math.min(adjustedPositionSize, maxPositionValue);
+    }
+    
+    console.log(`💰 [POSITION SIZING] Base: €${baseAmount} | Available: €${availableEurBalance.toFixed(2)} | Adjusted: €${adjustedPositionSize.toFixed(2)}`);
 
     // Calculate stop loss and take profit
     const stopLoss = price * (1 - riskLimits.stopLossPercentage / 100);
@@ -1058,12 +1084,13 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
     
     const maxLoss = adjustedPositionSize * (riskLimits.stopLossPercentage / 100);
 
-    // Determine risk level
+    // Determine risk level using actual portfolio value
+    const actualPortfolioValue = availableEurBalance + currentInvestedAmount;
     let riskLevel = 'low';
-    if (adjustedPositionSize / portfolioValue > 0.03 || todayTradesCount > 5) {
+    if (adjustedPositionSize / actualPortfolioValue > 0.03 || todayTradesCount > 5) {
       riskLevel = 'medium';
     }
-    if (adjustedPositionSize / portfolioValue > 0.05 || todayTradesCount > 8 || Math.abs(todayPnL) > 200) {
+    if (adjustedPositionSize / actualPortfolioValue > 0.05 || todayTradesCount > 8 || Math.abs(todayPnL) > 200) {
       riskLevel = 'high';
     }
 
