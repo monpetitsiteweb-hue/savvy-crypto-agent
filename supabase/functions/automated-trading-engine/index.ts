@@ -555,12 +555,12 @@ function evaluateStrategyTrigger(signal: any, strategyConfig: any) {
   const rawThreshold = aiConfig.aiConfidenceThreshold;
   console.log(`🔍 DEBUG: Raw aiConfidenceThreshold from config: ${rawThreshold}`);
   
-  // Convert to decimal - if value is already between 0-1, use as is, otherwise divide by 100
+  // Convert to decimal and use much lower thresholds for more trading
   const confidenceThreshold = rawThreshold ? 
     (rawThreshold > 1 ? rawThreshold / 100 : rawThreshold) : 
-    0.05; // Default to 5% instead of 70%
+    0.01; // Default to 1% instead of 70%
     
-  const minimumStrength = 30; // Lower default minimum for more trades
+  const minimumStrength = 0.1; // Much lower threshold for more trades (0.1%)
   
   console.log(`🔍 DEBUG: Final confidenceThreshold: ${confidenceThreshold} (${(confidenceThreshold * 100).toFixed(1)}%)`);
   

@@ -119,11 +119,13 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
 
   // Get initial data on mount and update less frequently to avoid rate limiting
   useEffect(() => {
-    getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
+    // Expand to more coins that are commonly traded
+    const commonSymbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 'DOT-EUR', 'MATIC-EUR', 'AVAX-EUR', 'LINK-EUR', 'LTC-EUR'];
+    getCurrentData(commonSymbols);
     
     // Update data every 30 seconds to avoid rate limiting
     const intervalId = setInterval(() => {
-      getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
+      getCurrentData(commonSymbols);
     }, 30000); // 30 seconds to avoid rate limiting
 
     return () => clearInterval(intervalId);

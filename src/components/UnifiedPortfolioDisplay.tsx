@@ -43,19 +43,18 @@ export const UnifiedPortfolioDisplay = () => {
   useEffect(() => {
     const updateRealTimePrices = async () => {
       try {
-        const data = await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
+        const commonSymbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 'DOT-EUR', 'MATIC-EUR', 'AVAX-EUR', 'LINK-EUR', 'LTC-EUR'];
+        const data = await getCurrentData(commonSymbols);
         
         const prices: {[key: string]: number} = { EUR: 1 };
         
-        if (data['BTC-EUR']?.price) {
-          prices.BTC = data['BTC-EUR'].price;
-        }
-        if (data['ETH-EUR']?.price) {
-          prices.ETH = data['ETH-EUR'].price;
-        }
-        if (data['XRP-EUR']?.price) {
-          prices.XRP = data['XRP-EUR'].price;
-        }
+        // Update prices for all common symbols
+        commonSymbols.forEach(symbol => {
+          const crypto = symbol.split('-')[0];
+          if (data[symbol]?.price) {
+            prices[crypto] = data[symbol].price;
+          }
+        });
         
         setRealTimePrices(prices);
       } catch (error) {

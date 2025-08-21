@@ -57,9 +57,20 @@ export const useTestTrading = () => {
         return;
       }
 
+      // Get all coins from strategies and fetch market data for all of them
+      const allCoins = new Set<string>();
+      strategies.forEach(strategy => {
+        const config = strategy.configuration as any;
+        const selectedCoins = config?.selectedCoins || ['BTC', 'ETH', 'XRP'];
+        selectedCoins.forEach((coin: string) => allCoins.add(`${coin}-EUR`));
+      });
+      
+      const symbolsToFetch = Array.from(allCoins);
+      console.log('🚨 STRATEGY_DEBUG: Fetching market data for all coins:', symbolsToFetch);
+      
       // Get real market data - prioritize real-time data, fallback to API call
       const realTimeData = Object.keys(marketData).length > 0 ? marketData : null;
-      const currentMarketData = realTimeData || await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']); // Changed to EUR
+      const currentMarketData = realTimeData || await getCurrentData(symbolsToFetch);
       console.log('🚨 STRATEGY_DEBUG: Current market data:', currentMarketData);
       
       // Check each strategy against current market conditions
@@ -213,7 +224,7 @@ export const useTestTrading = () => {
   const getRealMarketData = async () => {
     try {
       // Use Coinbase public API - no authentication required
-      const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
+      const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 'DOT-EUR', 'MATIC-EUR', 'AVAX-EUR', 'LINK-EUR', 'LTC-EUR'];
       const promises = symbols.map(symbol => 
         fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`)
           .then(res => res.json())
@@ -241,7 +252,14 @@ export const useTestTrading = () => {
       return {
         BTC: { price: 45000, volume: 100, bid: 44990, ask: 45010 },
         ETH: { price: 3000, volume: 500, bid: 2995, ask: 3005 },
-        XRP: { price: 0.6, volume: 1000, bid: 0.599, ask: 0.601 }
+        XRP: { price: 0.6, volume: 1000, bid: 0.599, ask: 0.601 },
+        ADA: { price: 0.8, volume: 2000, bid: 0.799, ask: 0.801 },
+        SOL: { price: 150, volume: 300, bid: 149.5, ask: 150.5 },
+        DOT: { price: 12, volume: 800, bid: 11.95, ask: 12.05 },
+        MATIC: { price: 2.1, volume: 1500, bid: 2.095, ask: 2.105 },
+        AVAX: { price: 35, volume: 400, bid: 34.9, ask: 35.1 },
+        LINK: { price: 18, volume: 600, bid: 17.95, ask: 18.05 },
+        LTC: { price: 180, volume: 200, bid: 179.5, ask: 180.5 }
       };
     }
   };
