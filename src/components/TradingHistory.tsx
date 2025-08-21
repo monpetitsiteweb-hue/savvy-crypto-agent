@@ -612,13 +612,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   // Fetch past positions when trades are updated
   useEffect(() => {
-    console.log('🔄 TRADES_EFFECT: Trades changed, length:', trades?.length || 0);
+    console.log('🔄 TRADES_EFFECT: Effect triggered! Trades length:', trades?.length || 0);
+    console.log('🔄 TRADES_EFFECT: Trades array type:', typeof trades, 'isArray:', Array.isArray(trades));
+    console.log('🔄 TRADES_EFFECT: Trades object:', trades);
+    
     if (trades && trades.length > 0) {
-      console.log('🔄 TRADES_EFFECT: Trades updated, refreshing past positions');
+      console.log('🔄 TRADES_EFFECT: Processing', trades.length, 'trades');
       console.log('🔄 TRADES_EFFECT: Sample trades:', trades.slice(0, 2));
       fetchPastPositions();
     } else {
-      console.log('🔄 TRADES_EFFECT: No trades, clearing past positions');
+      console.log('🔄 TRADES_EFFECT: No trades or empty array, clearing past positions');
       // Clear past positions when no trades
       setPastPositions([]);
     }
