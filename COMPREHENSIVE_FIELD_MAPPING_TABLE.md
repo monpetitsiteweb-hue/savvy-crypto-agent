@@ -77,17 +77,43 @@
 | Alert On Anomalies | alertOnAnomalies | boolean | configuration.aiIntelligenceConfig.alertOnAnomalies | ❌ NOT_MAPPED | No | "Alert Anomalies" | BROKEN | No AI mapping |
 | Alert On Overrides | alertOnOverrides | boolean | configuration.aiIntelligenceConfig.alertOnOverrides | ❌ NOT_MAPPED | No | "Alert Overrides" | BROKEN | No AI mapping |
 | Custom Instructions | customInstructions | string | configuration.aiIntelligenceConfig.customInstructions | ❌ NOT_MAPPED | No | "Custom Instructions" | BROKEN | No AI mapping |
+| **TECHNICAL INDICATORS** | | | | | | | | |
+| RSI Enabled | rsiEnabled | boolean | configuration.technicalIndicatorConfig.rsi.enabled | ❌ NOT_MAPPED | No | "RSI Enable" | BROKEN | No AI mapping |
+| RSI Period | rsiPeriod | number | configuration.technicalIndicatorConfig.rsi.period | ❌ NOT_MAPPED | No | "RSI Period" | BROKEN | No AI mapping |
+| RSI Buy Threshold | rsiBuyThreshold | number | configuration.technicalIndicatorConfig.rsi.buyThreshold | ❌ NOT_MAPPED | No | "RSI Buy Threshold" | BROKEN | No AI mapping |
+| RSI Sell Threshold | rsiSellThreshold | number | configuration.technicalIndicatorConfig.rsi.sellThreshold | ❌ NOT_MAPPED | No | "RSI Sell Threshold" | BROKEN | No AI mapping |
+| MACD Enabled | macdEnabled | boolean | configuration.technicalIndicatorConfig.macd.enabled | ❌ NOT_MAPPED | No | "MACD Enable" | BROKEN | No AI mapping |
+| MACD Fast | macdFast | number | configuration.technicalIndicatorConfig.macd.fast | ❌ NOT_MAPPED | No | "MACD Fast EMA" | BROKEN | No AI mapping |
+| MACD Slow | macdSlow | number | configuration.technicalIndicatorConfig.macd.slow | ❌ NOT_MAPPED | No | "MACD Slow EMA" | BROKEN | No AI mapping |
+| MACD Signal | macdSignal | number | configuration.technicalIndicatorConfig.macd.signal | ❌ NOT_MAPPED | No | "MACD Signal Line" | BROKEN | No AI mapping |
+| EMA Enabled | emaEnabled | boolean | configuration.technicalIndicatorConfig.ema.enabled | ❌ NOT_MAPPED | No | "EMA Enable" | BROKEN | No AI mapping |
+| EMA Short Period | emaShortPeriod | number | configuration.technicalIndicatorConfig.ema.shortPeriod | ❌ NOT_MAPPED | No | "EMA Short Period" | BROKEN | No AI mapping |
+| EMA Long Period | emaLongPeriod | number | configuration.technicalIndicatorConfig.ema.longPeriod | ❌ NOT_MAPPED | No | "EMA Long Period" | BROKEN | No AI mapping |
+| SMA Enabled | smaEnabled | boolean | configuration.technicalIndicatorConfig.sma.enabled | ❌ NOT_MAPPED | No | "SMA Enable" | BROKEN | No AI mapping |
+| SMA Period | smaPeriod | number | configuration.technicalIndicatorConfig.sma.period | ❌ NOT_MAPPED | No | "SMA Period" | BROKEN | No AI mapping |
+| Bollinger Bands Enabled | bollingerEnabled | boolean | configuration.technicalIndicatorConfig.bollinger.enabled | ❌ NOT_MAPPED | No | "Bollinger Enable" | BROKEN | No AI mapping |
+| Bollinger Period | bollingerPeriod | number | configuration.technicalIndicatorConfig.bollinger.period | ❌ NOT_MAPPED | No | "Bollinger Period" | BROKEN | No AI mapping |
+| Bollinger Std Dev | bollingerStdDev | number | configuration.technicalIndicatorConfig.bollinger.stdDev | ❌ NOT_MAPPED | No | "Bollinger Std Dev" | BROKEN | No AI mapping |
+| ADX Enabled | adxEnabled | boolean | configuration.technicalIndicatorConfig.adx.enabled | ❌ NOT_MAPPED | No | "ADX Enable" | BROKEN | No AI mapping |
+| ADX Period | adxPeriod | number | configuration.technicalIndicatorConfig.adx.period | ❌ NOT_MAPPED | No | "ADX Period" | BROKEN | No AI mapping |
+| ADX Threshold | adxThreshold | number | configuration.technicalIndicatorConfig.adx.threshold | ❌ NOT_MAPPED | No | "ADX Threshold" | BROKEN | No AI mapping |
+| Stochastic RSI Enabled | stochasticRSIEnabled | boolean | configuration.technicalIndicatorConfig.stochasticRSI.enabled | ❌ NOT_MAPPED | No | "Stochastic RSI Enable" | BROKEN | No AI mapping |
+| Stochastic RSI Period | stochasticRSIPeriod | number | configuration.technicalIndicatorConfig.stochasticRSI.rsiPeriod | ❌ NOT_MAPPED | No | "Stochastic RSI Period" | BROKEN | No AI mapping |
+| Stochastic Period | stochasticPeriod | number | configuration.technicalIndicatorConfig.stochasticRSI.stochPeriod | ❌ NOT_MAPPED | No | "Stochastic Period" | BROKEN | No AI mapping |
+| K Period | kPeriod | number | configuration.technicalIndicatorConfig.stochasticRSI.kPeriod | ❌ NOT_MAPPED | No | "%K Period" | BROKEN | No AI mapping |
+| D Period | dPeriod | number | configuration.technicalIndicatorConfig.stochasticRSI.dPeriod | ❌ NOT_MAPPED | No | "%D Period" | BROKEN | No AI mapping |
 
 ## CRITICAL ISSUES IDENTIFIED:
 
-### 🚨 **MISSING AI MAPPINGS: 43 out of 57 fields (75%)**
-Only 14 fields are mapped to the AI assistant. The AI is blind to most of the configuration.
+### 🚨 **MISSING AI MAPPINGS: 64 out of 78 fields (82%)**
+Only 14 fields are mapped to the AI assistant. The AI is blind to most of the configuration including ALL technical indicators.
 
 ### 🚨 **DATA TYPE MISMATCHES:**
 - `selectedCoins`: UI expects ARRAY, DB contains STRING → **UI CRASH**
 - `maxWalletExposure`: AI writes to wrong nested path
 
 ### 🚨 **BROKEN SECTIONS:**
+- **Technical Indicators**: 100% unmapped (21/21 fields) - **COMPLETELY INVISIBLE TO AI**
 - **Buy Settings**: 80% unmapped (4/5 fields)
 - **Sell Settings**: 70% unmapped (7/10 fields) 
 - **Risk Management**: 100% unmapped (4/4 fields)
@@ -97,10 +123,11 @@ Only 14 fields are mapped to the AI assistant. The AI is blind to most of the co
 - **AI Intelligence**: 77% unmapped (20/26 fields)
 
 ### 🚨 **CONSEQUENCE:**
-User commands like "Set daily profit target to 5%, use trailing stop of 2.5%, add DOGE, notify me on errors only" **CANNOT WORK** because:
+User commands like "Enable RSI with 14 period, set MACD to 12/26/9, use Bollinger Bands with 2 std dev" **CANNOT WORK** because:
+- ALL technical indicator fields - NOT MAPPED
 - `dailyProfitTarget` - NOT MAPPED
 - `trailingStopLossPercentage` - NOT MAPPED  
 - `selectedCoins` - TYPE MISMATCH
 - `notifyOnError` - NOT MAPPED
 
-**RESULT: Only 25% of the strategy configuration is accessible via AI assistant.**
+**RESULT: Only 18% of the strategy configuration is accessible via AI assistant.**

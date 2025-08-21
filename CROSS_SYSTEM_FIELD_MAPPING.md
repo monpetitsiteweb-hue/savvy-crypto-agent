@@ -9,7 +9,7 @@
 | Risk Profile | riskProfile | configuration.riskProfile | "Risk Profile" | ❌ MISSING | Not mapped |
 | Max Wallet Exposure | maxWalletExposure | configuration.maxWalletExposure | "Max Wallet Exposure" | ✅ maxWalletExposure | Mapped |
 | Enable Live Trading | enableLiveTrading | configuration.enableLiveTrading | "Enable Live Trading" | ❌ MISSING | Not mapped |
-| Enable Test Trading | enableTestTrading | configuration.enableTestTrading | "Enable Test Trading" | ❌ MISSING | Not mapped |
+| Enable Test Trading | enableTestTrading | configuration.enableTestTrading | "Enable Test Trading" | ✅ enableTestTrading | Mapped |
 | **AI Intelligence** |  |  |  |  |  |
 | Enable AI Intelligence | enableAIOverride | configuration.aiIntelligenceConfig.enableAIOverride | "Enable AI Decision Override" | ✅ enableAIOverride | Mapped |
 | AI Autonomy Level | aiAutonomyLevel | configuration.aiIntelligenceConfig.aiAutonomyLevel | "AI Autonomy Level" | ✅ aiAutonomyLevel | Mapped |
@@ -33,9 +33,34 @@
 | Alert on Anomalies | alertOnAnomalies | configuration.aiIntelligenceConfig.alertOnAnomalies | "Alert on Anomalies" | ❌ MISSING | Not mapped |
 | Alert on Overrides | alertOnOverrides | configuration.aiIntelligenceConfig.alertOnOverrides | "Alert on Overrides" | ❌ MISSING | Not mapped |
 | Custom Instructions | customInstructions | configuration.aiIntelligenceConfig.customInstructions | "Custom Instructions" | ❌ MISSING | Not mapped |
+| **Technical Indicators** |  |  |  |  |  |
+| RSI Enabled | rsiEnabled | configuration.technicalIndicatorConfig.rsi.enabled | "RSI Enable" | ✅ rsiEnabled | Mapped |
+| RSI Period | rsiPeriod | configuration.technicalIndicatorConfig.rsi.period | "RSI Period" | ✅ rsiPeriod | Mapped |
+| RSI Buy Threshold | rsiBuyThreshold | configuration.technicalIndicatorConfig.rsi.buyThreshold | "RSI Buy Threshold" | ✅ rsiBuyThreshold | Mapped |
+| RSI Sell Threshold | rsiSellThreshold | configuration.technicalIndicatorConfig.rsi.sellThreshold | "RSI Sell Threshold" | ✅ rsiSellThreshold | Mapped |
+| MACD Enabled | macdEnabled | configuration.technicalIndicatorConfig.macd.enabled | "MACD Enable" | ✅ macdEnabled | Mapped |
+| MACD Fast EMA | macdFast | configuration.technicalIndicatorConfig.macd.fast | "MACD Fast EMA" | ✅ macdFast | Mapped |
+| MACD Slow EMA | macdSlow | configuration.technicalIndicatorConfig.macd.slow | "MACD Slow EMA" | ✅ macdSlow | Mapped |
+| MACD Signal Line | macdSignal | configuration.technicalIndicatorConfig.macd.signal | "MACD Signal Line" | ✅ macdSignal | Mapped |
+| EMA Enabled | emaEnabled | configuration.technicalIndicatorConfig.ema.enabled | "EMA Enable" | ✅ emaEnabled | Mapped |
+| EMA Short Period | emaShortPeriod | configuration.technicalIndicatorConfig.ema.shortPeriod | "EMA Short Period" | ✅ emaShortPeriod | Mapped |
+| EMA Long Period | emaLongPeriod | configuration.technicalIndicatorConfig.ema.longPeriod | "EMA Long Period" | ✅ emaLongPeriod | Mapped |
+| SMA Enabled | smaEnabled | configuration.technicalIndicatorConfig.sma.enabled | "SMA Enable" | ✅ smaEnabled | Mapped |
+| SMA Period | smaPeriod | configuration.technicalIndicatorConfig.sma.period | "SMA Period" | ✅ smaPeriod | Mapped |
+| Bollinger Bands Enabled | bollingerEnabled | configuration.technicalIndicatorConfig.bollinger.enabled | "Bollinger Enable" | ✅ bollingerEnabled | Mapped |
+| Bollinger Period | bollingerPeriod | configuration.technicalIndicatorConfig.bollinger.period | "Bollinger Period" | ✅ bollingerPeriod | Mapped |
+| Bollinger Std Dev | bollingerStdDev | configuration.technicalIndicatorConfig.bollinger.stdDev | "Bollinger Std Dev" | ✅ bollingerStdDev | Mapped |
+| ADX Enabled | adxEnabled | configuration.technicalIndicatorConfig.adx.enabled | "ADX Enable" | ✅ adxEnabled | Mapped |
+| ADX Period | adxPeriod | configuration.technicalIndicatorConfig.adx.period | "ADX Period" | ✅ adxPeriod | Mapped |
+| ADX Threshold | adxThreshold | configuration.technicalIndicatorConfig.adx.threshold | "ADX Threshold" | ✅ adxThreshold | Mapped |
+| Stochastic RSI Enabled | stochasticRSIEnabled | configuration.technicalIndicatorConfig.stochasticRSI.enabled | "Stochastic RSI Enable" | ✅ stochasticRSIEnabled | Mapped |
+| Stochastic RSI Period | stochasticRSIPeriod | configuration.technicalIndicatorConfig.stochasticRSI.rsiPeriod | "Stochastic RSI Period" | ✅ stochasticRSIPeriod | Mapped |
+| Stochastic Period | stochasticPeriod | configuration.technicalIndicatorConfig.stochasticRSI.stochPeriod | "Stochastic Period" | ✅ stochasticPeriod | Mapped |
+| %K Period | kPeriod | configuration.technicalIndicatorConfig.stochasticRSI.kPeriod | "%K Period" | ✅ kPeriod | Mapped |
+| %D Period | dPeriod | configuration.technicalIndicatorConfig.stochasticRSI.dPeriod | "%D Period" | ✅ dPeriod | Mapped |
 | **Coins and Amounts** |  |  |  |  |  |
 | Selected Coins | selectedCoins | configuration.selectedCoins | "Selected Coins" | ✅ selectedCoins | Mapped |
-| Max Active Coins | maxActiveCoins | configuration.maxActiveCoins | "Max Active Coins" | ❌ MISSING | Not mapped |
+| Max Active Coins | maxActiveCoins | configuration.maxActiveCoins | "Max Active Coins" | ✅ maxActiveCoins | Mapped |
 | Auto Coin Selection | enableAutoCoinSelection | configuration.enableAutoCoinSelection | "Auto Coin Selection" | ❌ MISSING | Not mapped |
 | Amount Per Trade | perTradeAllocation | configuration.perTradeAllocation | "Amount Per Trade" | ✅ perTradeAllocation | Mapped |
 | Allocation Unit | allocationUnit | configuration.allocationUnit | "Allocation Unit" | ❌ MISSING | Not mapped |
@@ -81,17 +106,16 @@
 
 ## Summary
 
-**✅ Currently Mapped Fields (5/60+):**
-- enableAIOverride
-- aiAutonomyLevel  
-- aiConfidenceThreshold
-- escalationThreshold
-- riskOverrideAllowed
+**✅ Currently Mapped Fields (26/81+):**
+- Basic: maxWalletExposure, enableTestTrading  
+- AI Intelligence: enableAIOverride, aiAutonomyLevel, aiConfidenceThreshold, escalationThreshold, riskOverrideAllowed
+- Technical Indicators: All 21 indicators (RSI, MACD, EMA, SMA, Bollinger, ADX, Stochastic RSI)
+- Coins: selectedCoins, maxActiveCoins, perTradeAllocation
+- Trading: buyOrderType, sellOrderType, takeProfitPercentage, stopLossPercentage
 
 **❌ Missing Fields (55+ fields):**
-- All Basic Settings fields
 - 18/23 AI Intelligence fields
-- 4/5 Coins and Amounts fields
+- 4/5 Coins and Amounts fields 
 - 7/9 Buy/Sell Settings fields
 - All Position Management fields (5 fields)
 - All DCA & Advanced fields (7 fields)
@@ -103,12 +127,12 @@
 
 1. **Field Name Consistency**: ✅ UI field names match system/database field names consistently
 2. **Tooltip System**: ✅ Uses correct UI field names, not hardcoded text
-3. **AI Assistant Coverage**: ❌ Only covers 8% of available fields (5 out of 60+)
+3. **AI Assistant Coverage**: ✅ NOW COVERS 32% - Technical indicators fully mapped (21 new fields)
 4. **Database Path Mapping**: ✅ Database paths are correctly structured and nested
 
 ## Recommended Actions
 
-1. **Add all missing field mappings** to the AI assistant's `FIELD_DEFINITIONS`
+1. **Add remaining missing field mappings** to the AI assistant's `FIELD_DEFINITIONS`
 2. **Create field validation** for array and enum types
 3. **Add bulk operation handlers** for "all coins" and notification management
 4. **Implement automated consistency checks** to prevent future drift
