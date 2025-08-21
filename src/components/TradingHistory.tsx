@@ -282,42 +282,28 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     console.log('🔍 PAST_POSITIONS: Starting fetchPastPositions for user:', user.id);
     
     try {
+      // Fetch sell trades directly from mock_trades table (same as open positions)
       const { data, error } = await supabase
-        .from('past_positions_view')
+        .from('mock_trades')
         .select('*')
-        .order('exit_at', { ascending: false });
+        .eq('user_id', user.id)
+        .eq('trade_type', 'sell')
+        .eq('is_test_mode', true)
+        .order('executed_at', { ascending: false });
       
       console.log('🔍 PAST_POSITIONS: Query result - data count:', data?.length, 'error:', error);
       
       if (error) throw error;
       
-      // Map view fields back to Trade interface for compatibility
-      const mappedTrades: Trade[] = (data || []).map(row => ({
-        id: row.sell_trade_id,
-        trade_type: 'sell',
-        cryptocurrency: row.symbol,
-        amount: row.amount,
-        price: row.exit_price,
-        total_value: row.exit_value,
-        executed_at: row.exit_at,
-        strategy_id: row.strategy_id,
-        // PHASE 2: Snapshot fields from view
-        original_purchase_amount: row.amount,
-        original_purchase_price: row.purchase_price,
-        original_purchase_value: row.purchase_value,
-        exit_value: row.exit_value,
-        realized_pnl: row.pnl,
-        realized_pnl_pct: row.pnl_pct,
-        buy_fees: row.buy_fees,
-        sell_fees: row.sell_fees
-      }));
+      // Use the trades directly (they already have the snapshot fields)
+      const pastTrades: Trade[] = data || [];
       
-      console.log('🔍 PAST_POSITIONS: Mapped trades count:', mappedTrades.length);
+      console.log('🔍 PAST_POSITIONS: Past trades count:', pastTrades.length);
       console.log('🔍 PAST_POSITIONS: Setting pastPositions array');
       
-      setPastPositions(mappedTrades);
+      setPastPositions(pastTrades);
       
-      console.log('🔍 PAST_POSITIONS: Finished - pastPositions should now have', mappedTrades.length, 'items');
+      console.log('🔍 PAST_POSITIONS: Finished - pastPositions should now have', pastTrades.length, 'items');
     } catch (error) {
       console.error('🚨 PAST_POSITIONS: Error fetching past positions:', error);
     }
