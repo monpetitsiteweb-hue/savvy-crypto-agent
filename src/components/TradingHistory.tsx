@@ -601,10 +601,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   // Fetch past positions when trades are updated
   useEffect(() => {
+    console.log('🔄 TRADES_EFFECT: Trades changed, length:', trades?.length || 0);
     if (trades && trades.length > 0) {
-      console.log('🔄 TradingHistory: Trades updated, refreshing past positions');
+      console.log('🔄 TRADES_EFFECT: Trades updated, refreshing past positions');
+      console.log('🔄 TRADES_EFFECT: Sample trades:', trades.slice(0, 2));
       fetchPastPositions();
     } else {
+      console.log('🔄 TRADES_EFFECT: No trades, clearing past positions');
       // Clear past positions when no trades
       setPastPositions([]);
     }
@@ -703,10 +706,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   };
 
   const fetchTradingHistory = async () => {
-    if (!user) return;
+    if (!user) {
+      console.log('🚨 FETCH_TRADING: No user found, aborting');
+      return;
+    }
     
     setFetching(true);
-    console.log('🔍 Fetching trading history for user:', user.id, 'testMode:', testMode);
+    console.log('🔍 FETCH_TRADING: Starting for user:', user.id, 'testMode:', testMode);
     
     try {
       let data, error;
@@ -722,7 +728,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           .eq('is_test_mode', true)
           .order('executed_at', { ascending: false });
         
-        console.log('🔍 Mock trades query result:', { count: result.data?.length, error: result.error });
+        console.log('🔍 FETCH_TRADING: Mock trades query result:', { count: result.data?.length, error: result.error });
+        console.log('🔍 FETCH_TRADING: First few trades:', result.data?.slice(0, 3));
         
         data = result.data;
         error = result.error;
