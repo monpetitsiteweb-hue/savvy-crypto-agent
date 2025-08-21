@@ -275,7 +275,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [pastPositions, setPastPositions] = useState<Trade[]>([]);
   
   const fetchPastPositions = async () => {
-    if (!user || !testMode) return;
+    if (!user) return;
     
     try {
       const { data, error } = await supabase
