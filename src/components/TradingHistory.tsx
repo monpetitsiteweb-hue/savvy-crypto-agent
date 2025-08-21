@@ -277,11 +277,15 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const fetchPastPositions = async () => {
     if (!user) return;
     
+    console.log('🔍 PAST_POSITIONS: Starting fetchPastPositions for user:', user.id);
+    
     try {
       const { data, error } = await supabase
         .from('past_positions_view')
         .select('*')
         .order('exit_at', { ascending: false });
+      
+      console.log('🔍 PAST_POSITIONS: Query result - data count:', data?.length, 'error:', error);
       
       if (error) throw error;
       
@@ -306,13 +310,19 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         sell_fees: row.sell_fees
       }));
       
+      console.log('🔍 PAST_POSITIONS: Mapped trades count:', mappedTrades.length);
+      console.log('🔍 PAST_POSITIONS: Setting pastPositions array');
+      
       setPastPositions(mappedTrades);
+      
+      console.log('🔍 PAST_POSITIONS: Finished - pastPositions should now have', mappedTrades.length, 'items');
     } catch (error) {
-      console.error('Error fetching past positions:', error);
+      console.error('🚨 PAST_POSITIONS: Error fetching past positions:', error);
     }
   };
   
   const getPastPositions = () => {
+    console.log('🔍 PAST_POSITIONS: getPastPositions called - returning', pastPositions.length, 'items');
     return pastPositions;
   };
   const sellPosition = async (trade: Trade) => {
@@ -1168,19 +1178,24 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         </TabsContent>
 
         <TabsContent value="past" className="space-y-4">
-          {getPastPositions().length > 0 ? (
-            <div className="space-y-4">
-              {getPastPositions().map((trade, index) => (
-                <TradeCard key={`past-${trade.id}-${index}`} trade={trade} />
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 border border-slate-600 rounded-lg bg-slate-800/30">
-              <Clock className="w-12 h-12 text-slate-500 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-slate-300 mb-2">No Past Trades</h3>
-              <p className="text-slate-400">No closed positions found</p>
-            </div>
-          )}
+          {(() => {
+            const pastPositionsData = getPastPositions();
+            console.log('🔍 PAST_POSITIONS: Rendering Past Positions tab - items:', pastPositionsData.length);
+            console.log('🔍 PAST_POSITIONS: First few items:', pastPositionsData.slice(0, 2));
+            return pastPositionsData.length > 0 ? (
+              <div className="space-y-4">
+                {getPastPositions().map((trade, index) => (
+                  <TradeCard key={`past-${trade.id}-${index}`} trade={trade} />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 border border-slate-600 rounded-lg bg-slate-800/30">
+                <Clock className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-slate-300 mb-2">No Past Trades</h3>
+                <p className="text-slate-400">No closed positions found</p>
+              </div>
+            );
+          })()}
         </TabsContent>
       </Tabs>
       
