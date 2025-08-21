@@ -651,7 +651,7 @@ async function executeTrade(supabaseClient: any, tradeData: any) {
     console.log(`🎯 [FORCED SELL] Using exact position: ${tradeAmount.toFixed(6)} units = €${totalValue.toFixed(2)}`);
   } else {
     // For regular trades: use the ALREADY CALCULATED risk management results
-    const baseTradeAmount = strategy.configuration?.perTradeAllocation || 100; // Reduced default to €100
+    const baseTradeAmount = strategy.configuration?.perTradeAllocation || 1000; // Use strategy config
     const adjustedAmount = riskCheck?.adjustedPositionSize || baseTradeAmount;
     
     // CRITICAL: If no risk check was done (shouldn't happen), do it now
@@ -981,11 +981,11 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
       }
     }
 
-    // Use strategy-specific risk limits or defaults
+    // Use strategy-specific risk limits - RESPECT THE STRATEGY CONFIGURATION
     const strategyConfig = strategy.configuration || {};
     const riskLimits = userPrefs?.riskLimits || {
       maxDailyLoss: strategyConfig.dailyLossLimit || 500,
-      maxTradesPerDay: strategyConfig.maxTradesPerDay || 10, // Reduced from 50 to 10
+      maxTradesPerDay: strategyConfig.maxTradesPerDay || 50, // Use strategy config or reasonable default
       maxPositionSize: strategyConfig.maxPositionSize || strategyConfig.perTradeAllocation || 1000,
       stopLossPercentage: strategyConfig.stopLossPercentage || 3,
       takeProfitPercentage: strategyConfig.takeProfitPercentage || 6
@@ -1032,6 +1032,9 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
 
     const todayTradesCount = todayTrades?.length || 0;
     const todayPnL = todayTrades?.reduce((sum, trade) => sum + (trade.profit_loss || 0), 0) || 0;
+
+     // Check limits
+     const blockingReasons = [];
 
     // CRITICAL: Check trade cooldown to prevent excessive trading frequency
     const tradeCooldownMinutes = strategy.configuration?.tradeCooldownMinutes || 60; // Default 1 hour between trades
