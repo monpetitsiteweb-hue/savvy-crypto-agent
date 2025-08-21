@@ -895,6 +895,17 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       setTrades(data);
       console.log('💾 FETCH_TRADING: Trades state updated successfully');
       
+      // IMMEDIATE FIX: Call fetchPastPositions directly since useEffect isn't firing
+      if (data && data.length > 0) {
+        console.log('💾 CALLING fetchPastPositions directly with', data.length, 'trades');
+        // Filter for sell trades immediately
+        const closedTrades = data.filter(trade => trade.trade_type === 'sell');
+        console.log('💾 Found', closedTrades.length, 'sell trades for past positions');
+        setPastPositions(closedTrades.sort((a, b) => 
+          new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime()
+        ));
+      }
+      
       // Fetch current prices for all cryptocurrencies in trades
       const symbols = [...new Set((data as Trade[]).map(trade => `${trade.cryptocurrency}-EUR`))];
       try {
