@@ -50,6 +50,17 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   console.log('🔍 TradingHistory: useAuth result:', { user: !!user, userEmail: user?.email, userId: user?.id });
   
   const { testMode } = useTestMode();
+  console.log('🔍 TradingHistory: testMode from hook:', testMode);
+  
+  // IMMEDIATE FETCH ON COMPONENT LOAD  
+  useEffect(() => {
+    console.log('🔍 TradingHistory: Component mounted, user:', !!user, 'testMode:', testMode);
+    if (user && testMode) {
+      console.log('🔍 TradingHistory: IMMEDIATE FETCH triggered');
+      fetchTradingHistory();
+    }
+  }, []);
+  
   const { toast } = useToast();
   const { getTotalValue } = useMockWallet();
   const { getCurrentData, marketData } = useRealTimeMarketData();
