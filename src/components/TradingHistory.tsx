@@ -592,25 +592,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         currentlyInvested: 0
       });
       
-      if (!testMode) {
-        fetchConnections();
-      }
+      // Fetch trading history for the user
+      console.log('🔄 TradingHistory: Fetching trading history for user change');
       fetchTradingHistory();
-      fetchPastPositions();
-    } else {
-      // No user - clear everything
-      setTrades([]);
-      setPastPositions([]);
-      setStats({
-        totalTrades: 0,
-        totalVolume: 0,
-        netProfitLoss: 0,
-        openPositions: 0,
-        totalInvested: 0,
-        currentPL: 0,
-        totalPL: 0,
-        currentlyInvested: 0
-      });
     }
   }, [user, testMode]);
 
