@@ -630,10 +630,6 @@ async function executeTrade(supabaseClient: any, tradeData: any) {
   // CRITICAL FIX: Always bypass risk limits for take profit sells (selling should never be blocked!)
   if (trigger !== 'take_profit_hit') {
     riskCheck = await checkRiskLimits(supabaseClient, userId, strategy, marketData);
-  } else {
-    console.log(`🎯 [TAKE PROFIT] Bypassing all risk limits for take profit sell`);
-    riskCheck = { canExecute: true, adjustedPositionSize: forceAmount || 100 };
-  }
     if (!riskCheck.canExecute) {
       console.log(`🚫 Trade blocked by risk management: ${riskCheck.reason}`);
       return {
@@ -642,6 +638,9 @@ async function executeTrade(supabaseClient: any, tradeData: any) {
         risk_assessment: riskCheck
       };
     }
+  } else {
+    console.log(`🎯 [TAKE PROFIT] Bypassing all risk limits for take profit sell`);
+    riskCheck = { canExecute: true, adjustedPositionSize: forceAmount || 100 };
   }
   
   const symbol = Object.keys(marketData)[0] || 'BTC-EUR';
