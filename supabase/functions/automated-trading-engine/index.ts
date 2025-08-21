@@ -551,41 +551,43 @@ function evaluateStrategyTrigger(signal: any, strategyConfig: any) {
   const aiConfig = strategyConfig?.aiIntelligenceConfig || {};
   console.log(`🔍 DEBUG: aiConfig object:`, JSON.stringify(aiConfig, null, 2));
   
-  // Fix: Properly read the confidence threshold from strategy config
-  const rawThreshold = aiConfig.aiConfidenceThreshold;
-  console.log(`🔍 DEBUG: Raw aiConfidenceThreshold from config: ${rawThreshold}`);
+  // FIXED: Separate market signal evaluation from AI trust level
+  // Market signals should be evaluated based on their own merit, not AI confidence
+  const minimumSignalStrength = 0.05; // 5% minimum signal strength to consider
   
-  // Convert to decimal and use much lower thresholds for more trading
-  const confidenceThreshold = rawThreshold ? 
-    (rawThreshold > 1 ? rawThreshold / 100 : rawThreshold) : 
-    0.01; // Default to 1% instead of 70%
-    
-  const minimumStrength = 0.1; // Much lower threshold for more trades (0.1%)
+  // AI Confidence Threshold is about trusting the AI system, not filtering signals
+  const aiConfidenceThreshold = aiConfig.aiConfidenceThreshold || 50; // Default 50% trust in AI
+  console.log(`🔍 DEBUG: AI Confidence Threshold: ${aiConfidenceThreshold}% (trust in AI system)`);
+  console.log(`🔍 DEBUG: Market Signal Strength: ${signal.signal_strength}% (market signal quality)`);
   
-  console.log(`🔍 DEBUG: Final confidenceThreshold: ${confidenceThreshold} (${(confidenceThreshold * 100).toFixed(1)}%)`);
+  // Evaluate market signal quality independently 
+  const signalStrength = signal.signal_strength;
+  const meetsSignalThreshold = signalStrength >= minimumSignalStrength;
   
-  const signalConfidence = signal.signal_strength / 100;
-  const meetsThreshold = signalConfidence >= confidenceThreshold;
-  const meetsStrength = signal.signal_strength >= minimumStrength;
+  // The AI confidence affects how much we trust the system's decision, not signal filtering
+  const systemConfidence = aiConfidenceThreshold / 100; // Convert to 0-1 range
   
-  console.log(`🎯 Evaluating signal: ${signal.signal_type} | Strength: ${signal.signal_strength}% | Confidence: ${(signalConfidence * 100).toFixed(1)}% | Required: ${(confidenceThreshold * 100).toFixed(1)}%`);
+  console.log(`🎯 Evaluating signal: ${signal.signal_type} | Signal Strength: ${signalStrength}% | Minimum Required: ${minimumSignalStrength}%`);
+  console.log(`🤖 AI System Trust Level: ${aiConfidenceThreshold}% (affects position sizing, not signal filtering)`);
   
   const reasoning = [
-    `Signal strength: ${signal.signal_strength}% (required: ${minimumStrength}%)`,
-    `Confidence: ${(signalConfidence * 100).toFixed(1)}% (required: ${(confidenceThreshold * 100).toFixed(1)}%)`
+    `Market signal strength: ${signalStrength}% (minimum required: ${minimumSignalStrength}%)`,
+    `AI system trust level: ${aiConfidenceThreshold}% (affects execution confidence)`
   ];
 
-  const shouldExecute = meetsThreshold && meetsStrength;
-  console.log(`🚦 Execution decision: ${shouldExecute ? 'EXECUTE' : 'SKIP'} | Meets strength: ${meetsStrength} | Meets threshold: ${meetsThreshold}`);
+  // Execute based on signal quality, not AI confidence threshold
+  const shouldExecute = meetsSignalThreshold;
+  console.log(`🚦 Signal decision: ${shouldExecute ? 'ACCEPT' : 'REJECT'} | Signal quality: ${meetsSignalThreshold ? 'GOOD' : 'WEAK'}`);
 
   return {
     execute: shouldExecute,
-    confidence: signalConfidence,
+    confidence: systemConfidence, // This is about trusting the AI system
+    signalStrength: signalStrength / 100, // This is about market signal quality
     reasoning: reasoning.join('; '),
     signal_type: signal.signal_type,
     action: signal.signal_type.includes('bullish') ? 'buy' : 
             signal.signal_type.includes('bearish') ? 'sell' : 
-            signal.signal_type.includes('news') ? 'buy' : 'hold' // News signals should trigger buys
+            signal.signal_type.includes('news') ? 'buy' : 'hold'
   };
 }
 
