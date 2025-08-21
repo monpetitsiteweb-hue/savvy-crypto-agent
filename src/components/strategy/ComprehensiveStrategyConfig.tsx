@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -1262,10 +1262,12 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                   {/* Technical Indicators Section */}
                   {activeSection === 'technical-indicators' && (
                     <div className="space-y-6">
-                      <TechnicalIndicatorSettings 
-                        config={formData.technicalIndicatorConfig}
-                        onConfigChange={(config) => setFormData(prev => ({ ...prev, technicalIndicatorConfig: config }))}
-                      />
+                      <TooltipProvider>
+                        <TechnicalIndicatorSettings 
+                          config={formData.technicalIndicatorConfig}
+                          onConfigChange={(config) => setFormData(prev => ({ ...prev, technicalIndicatorConfig: config }))}
+                        />
+                      </TooltipProvider>
                     </div>
                   )}
 
