@@ -45,8 +45,10 @@ export const useIntelligentTradingEngine = () => {
     console.log('🚨 ENGINE: checkStrategiesAndExecute called with testMode:', testMode, 'user:', !!user, 'loading:', loading, 'user email:', user?.email);
     console.log('🚨🚨🚨 EARLY EXIT CHECK: testMode:', testMode, 'user exists:', !!user, 'loading:', loading);
     
-    // TEMPORARILY BYPASS AUTH CHECKS FOR DEBUGGING
-    console.log('🚨 ENGINE: Auth bypass - user:', !!user, 'loading:', loading, 'testMode:', testMode);
+    if (!user || loading) {
+      console.log('🚨 ENGINE: Skipping - user:', !!user, 'loading:', loading);
+      return;
+    }
     
     if (!testMode) {
       console.log('🚨🚨🚨 TEST MODE IS OFF! You need to enable Test Mode to use the trading engine!');
@@ -56,10 +58,11 @@ export const useIntelligentTradingEngine = () => {
     try {
       console.log('🚨 INTELLIGENT_ENGINE: Starting comprehensive strategy check');
       
-      // Fetch active strategies - BYPASS USER FILTER FOR NOW
+      // Fetch active strategies
       const { data: strategies, error } = await supabase
         .from('trading_strategies')
         .select('*')
+        .eq('user_id', user.id)
         .eq('is_active_test', true);
 
       if (error || !strategies?.length) {
