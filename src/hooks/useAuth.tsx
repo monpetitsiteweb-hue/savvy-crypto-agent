@@ -41,11 +41,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         // Get initial session
         const { data: { session }, error } = await supabase.auth.getSession();
         console.log('🔑 AuthProvider: Initial session check - User:', session?.user?.email, 'User ID:', session?.user?.id, 'Session exists:', !!session, 'Error:', error);
+        console.log('🔑 AuthProvider: Full session object:', session);
+        console.log('🔑 AuthProvider: localStorage auth data:', localStorage.getItem('sb-fuieplftlcxdfkxyqzlt-auth-token'));
         
         if (mounted) {
           setSession(session);
           setUser(session?.user ?? null);
           setLoading(false);
+          console.log('🔑 AuthProvider: Setting user state to:', session?.user?.email || 'null');
         }
       } catch (err) {
         console.error('🔑 AuthProvider: Error getting session:', err);
@@ -60,10 +63,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🔑 AuthProvider: Auth state change:', event, 'User:', session?.user?.email, 'User ID:', session?.user?.id, 'Session exists:', !!session);
+      console.log('🔑 AuthProvider: Full auth state change session:', session);
       if (mounted) {
         setSession(session);
         setUser(session?.user ?? null);
+        console.log('🔑 AuthProvider: Updated user state to:', session?.user?.email || 'null');
         if (!session) {
+          setLoading(false);
+        } else {
           setLoading(false);
         }
       }

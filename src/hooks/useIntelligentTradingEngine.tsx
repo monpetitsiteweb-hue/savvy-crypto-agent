@@ -30,6 +30,8 @@ export const useIntelligentTradingEngine = () => {
   const { toast } = useToast();
   const { marketData, getCurrentData } = useRealTimeMarketData();
   
+  console.log('🚨 INTELLIGENT_ENGINE: Hook called with testMode:', testMode, 'user:', !!user, 'user email:', user?.email);
+  
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const tradingStateRef = useRef<TradingState>({
     dailyTrades: 0,
@@ -40,6 +42,7 @@ export const useIntelligentTradingEngine = () => {
   });
 
   const checkStrategiesAndExecute = async () => {
+    console.log('🚨 ENGINE: checkStrategiesAndExecute called with testMode:', testMode, 'user:', !!user, 'user email:', user?.email);
     if (!testMode || !user) {
       console.log('🚨 ENGINE: Skipping - testMode:', testMode, 'user:', !!user);
       return;
