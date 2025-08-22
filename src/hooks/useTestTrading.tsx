@@ -109,23 +109,15 @@ export const useTestTrading = () => {
   };
 
   const checkBuyConditions = (config: any, data: any, priceChange: number) => {
-    console.log('🚨 BUY_CHECK: Checking buy conditions', { priceChange, config });
-    
-    // Simple test condition: buy when price changes by any amount (for testing)
-    if (Math.abs(priceChange) > 0.1) { // Even 0.1% change triggers a buy for testing
-      console.log('🚨 BUY_CHECK: Buy condition met - price change:', priceChange);
-      return true;
-    }
-    
-    // Original condition as fallback
-    const buyThreshold = config.buyThreshold || -2; // Default -2% (less aggressive)
+    // Use actual buy threshold from strategy config, default to -2%
+    const buyThreshold = config.buyThreshold || -2;
     return priceChange <= buyThreshold;
   };
 
   const checkSellConditions = (config: any, data: any, priceChange: number) => {
-    // Example: Sell when price rises by threshold percentage
-    const sellThreshold = config.sellThreshold || 5; // Default 5%
-    return priceChange >= sellThreshold;
+    // Use actual take profit percentage from strategy config
+    const takeProfitThreshold = config.takeProfitPercentage || 2.5;
+    return priceChange >= takeProfitThreshold;
   };
 
   const executeTrade = async (strategy: any, action: 'buy' | 'sell', cryptocurrency: string, price: number) => {
