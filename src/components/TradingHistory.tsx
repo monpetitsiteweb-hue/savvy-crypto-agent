@@ -101,9 +101,12 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   useEffect(() => {
     const fetchAllPastTrades = async () => {
       if (!user) {
+        console.log('❌ PAST_TRADES: No user, skipping fetch');
         setPastLoading(false);
         return;
       }
+      
+      console.log('🔄 PAST_TRADES: Fetching all sell trades for user:', user.id);
       
       try {
         const { data, error } = await supabase
@@ -115,9 +118,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         
         if (error) throw error;
         
+        console.log('✅ PAST_TRADES: Found', data?.length || 0, 'sell trades');
         setAllPastTrades(data || []);
       } catch (error) {
-        console.error('Error fetching past trades:', error);
+        console.error('❌ Error fetching past trades:', error);
         setAllPastTrades([]);
       } finally {
         setPastLoading(false);
