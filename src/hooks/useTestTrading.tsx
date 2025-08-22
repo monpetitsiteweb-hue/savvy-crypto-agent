@@ -86,53 +86,178 @@ export const useTestTrading = () => {
   const checkStrategyConditions = async (strategy: any, marketData: any) => {
     const config = strategy.configuration;
     const currentPrices = marketData;
-    const lastPrices = lastPricesRef.current;
 
-    // Check strategy conditions based on configuration
-    for (const [symbol, data] of Object.entries(currentPrices) as [string, any][]) {
-      const lastPrice = lastPrices[symbol]?.price || data.price;
-      const priceChange = ((data.price - lastPrice) / lastPrice) * 100;
+    // INTELLIGENT LOGIC: Check existing positions for stop loss/take profit
+    await checkExistingPositions(strategy, currentPrices);
 
-      // Example strategy condition checks based on common patterns
-      const shouldBuy = checkBuyConditions(config, data, priceChange);
-      const shouldSell = checkSellConditions(config, data, priceChange);
-
-      if (shouldBuy) {
-        await executeTrade(strategy, 'buy', symbol, data.price);
-      } else if (shouldSell) {
-        await executeTrade(strategy, 'sell', symbol, data.price);
-      }
-    }
-
-    // Update last prices
-    lastPricesRef.current = currentPrices;
+    // Check for new buy opportunities
+    await checkBuyOpportunities(strategy, currentPrices);
   };
 
-  const checkBuyConditions = (config: any, data: any, priceChange: number) => {
-    // Use actual buy threshold from strategy config, default to -2%
-    const buyThreshold = config.buyThreshold || -2;
-    return priceChange <= buyThreshold;
+  // Type for position objects
+  interface Position {
+    cryptocurrency: string;
+    total_amount: number;
+    total_value: number;
+    remaining_amount: number;
+    average_price: number;
+  }
+
+  const checkExistingPositions = async (strategy: any, currentPrices: any) => {
+    if (!user?.id) return;
+
+    // Get user's open positions (buy trades without corresponding sells)
+    const { data: buyTrades, error } = await supabase
+      .from('mock_trades')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('trade_type', 'buy')
+      .eq('is_test_mode', true)
+      .order('executed_at', { ascending: true });
+
+    if (error || !buyTrades) return;
+
+    // Calculate remaining positions after accounting for sells
+    const openPositions = await calculateOpenPositions(buyTrades);
+
+    // Check each open position against stop loss and take profit
+    for (const position of openPositions) {
+      const currentPrice = currentPrices[position.cryptocurrency]?.price;
+      if (!currentPrice) continue;
+
+      const purchasePrice = position.average_price;
+      const pnlPercentage = ((currentPrice - purchasePrice) / purchasePrice) * 100;
+
+      const config = strategy.configuration;
+      const stopLoss = config.stopLossPercentage || 3; // Default 3% stop loss
+      const takeProfit = config.takeProfitPercentage || 2.5; // Default 2.5% take profit
+
+      console.log('🎯 POSITION_CHECK:', {
+        symbol: position.cryptocurrency,
+        amount: position.remaining_amount,
+        purchasePrice,
+        currentPrice,
+        pnlPercentage: pnlPercentage.toFixed(2) + '%',
+        stopLoss: -stopLoss + '%',
+        takeProfit: takeProfit + '%'
+      });
+
+      // SELL if position hits stop loss (negative P&L)
+      if (pnlPercentage <= -stopLoss) {
+        console.log('🛑 STOP LOSS TRIGGERED:', position.cryptocurrency, pnlPercentage.toFixed(2) + '%');
+        await executeTrade(strategy, 'sell', position.cryptocurrency, currentPrice, position.remaining_amount);
+      }
+      // SELL if position hits take profit (positive P&L)
+      else if (pnlPercentage >= takeProfit) {
+        console.log('💰 TAKE PROFIT TRIGGERED:', position.cryptocurrency, pnlPercentage.toFixed(2) + '%');
+        await executeTrade(strategy, 'sell', position.cryptocurrency, currentPrice, position.remaining_amount);
+      }
+    }
+  };
+
+  const calculateOpenPositions = async (buyTrades: any[]): Promise<Position[]> => {
+    if (!user?.id) return [];
+
+    // Get all sell trades to calculate what's been sold
+    const { data: sellTrades } = await supabase
+      .from('mock_trades')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('trade_type', 'sell')
+      .eq('is_test_mode', true);
+
+    const positions: Record<string, Position> = {};
+
+    // Add all buy trades
+    buyTrades.forEach(trade => {
+      const symbol = trade.cryptocurrency;
+      if (!positions[symbol]) {
+        positions[symbol] = {
+          cryptocurrency: symbol,
+          total_amount: 0,
+          total_value: 0,
+          remaining_amount: 0,
+          average_price: 0
+        };
+      }
+      positions[symbol].total_amount += trade.amount;
+      positions[symbol].total_value += trade.total_value;
+      positions[symbol].remaining_amount += trade.amount;
+    });
+
+    // Subtract sold amounts
+    if (sellTrades) {
+      sellTrades.forEach(trade => {
+        const symbol = trade.cryptocurrency;
+        if (positions[symbol]) {
+          positions[symbol].remaining_amount -= trade.amount;
+        }
+      });
+    }
+
+    // Calculate average price and filter out closed positions
+    return Object.values(positions).filter((pos: Position) => {
+      if (pos.remaining_amount > 0.00000001) { // Avoid floating point issues
+        pos.average_price = pos.total_value / pos.total_amount;
+        return true;
+      }
+      return false;
+    });
+  };
+
+  const checkBuyOpportunities = async (strategy: any, currentPrices: any) => {
+    const config = strategy.configuration;
+    const selectedCoins = config.selectedCoins || ['BTC', 'ETH', 'XRP'];
+
+    for (const coin of selectedCoins) {
+      const symbol = `${coin}-EUR`;
+      const currentData = currentPrices[symbol];
+      if (!currentData) continue;
+
+      // Use technical indicators or simple buy conditions from config
+      const shouldBuy = checkBuyConditions(config, currentData);
+      
+      if (shouldBuy) {
+        console.log('💵 BUY OPPORTUNITY:', symbol, 'at', currentData.price);
+        await executeTrade(strategy, 'buy', symbol, currentData.price);
+      }
+    }
+  };
+
+  const checkBuyConditions = (config: any, data: any) => {
+    // Simple buy condition - can be enhanced with technical indicators later
+    // For now, always allow buying (will be refined based on strategy config)
+    return Math.random() < 0.1; // 10% chance to buy for testing - replace with real logic
   };
 
   const checkSellConditions = (config: any, data: any, priceChange: number) => {
-    // Use actual take profit percentage from strategy config
+    // This function is no longer used - keeping for compatibility
     const takeProfitThreshold = config.takeProfitPercentage || 2.5;
     return priceChange >= takeProfitThreshold;
   };
 
-  const executeTrade = async (strategy: any, action: 'buy' | 'sell', cryptocurrency: string, price: number) => {
+  const executeTrade = async (strategy: any, action: 'buy' | 'sell', cryptocurrency: string, price: number, customAmount?: number) => {
     if (!user?.id) {
       console.error('🚨 TRADE_EXECUTION: Cannot execute trade - no authenticated user');
       return;
     }
 
     const config = strategy.configuration;
-    // Use proper trade amount calculation from configuration
-    const amountPerTrade = config?.amountPerTrade || 100; // Default €100
-    const tradeAmount = amountPerTrade / price; // Calculate units based on EUR amount and current price
+    // Use custom amount for sells (exact position size) or calculated amount for buys
+    let tradeAmount: number;
+    
+    if (action === 'sell' && customAmount !== undefined) {
+      tradeAmount = customAmount; // Use exact position amount for sells
+    } else {
+      // Use proper trade amount calculation from configuration for buys
+      const amountPerTrade = config?.amountPerTrade || 100; // Default €100
+      tradeAmount = amountPerTrade / price; // Calculate units based on EUR amount and current price
+    }
     
     console.log('🚨 TRADE_CALCULATION:', {
-      amountPerTrade,
+      action,
+      customAmount,
+      amountPerTrade: config?.amountPerTrade,
       price,
       calculatedAmount: tradeAmount,
       cryptocurrency
