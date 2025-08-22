@@ -94,6 +94,41 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     currentlyInvested: 0
   });
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
+  // DIRECT PAST POSITIONS FETCH - separate from complex state management
+  const [directPastPositions, setDirectPastPositions] = useState<Trade[]>([]);
+  const [pastLoading, setPastLoading] = useState(true);
+  
+  useEffect(() => {
+    const fetchDirectPastPositions = async () => {
+      if (!user) {
+        setPastLoading(false);
+        return;
+      }
+      
+      console.log('🔍 PAST_POSITIONS: Direct fetch from database for user:', user.id);
+      
+      try {
+        const { data, error } = await supabase
+          .from('mock_trades')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('trade_type', 'sell')
+          .order('executed_at', { ascending: false });
+        
+        if (error) throw error;
+        
+        console.log('🔍 PAST_POSITIONS: Direct fetch result:', data?.length || 0, 'sell trades');
+        setDirectPastPositions(data || []);
+      } catch (error) {
+        console.error('Error fetching past positions:', error);
+        setDirectPastPositions([]);
+      } finally {
+        setPastLoading(false);
+      }
+    };
+    
+    fetchDirectPastPositions();
+  }, [user]);
 
   // PHASE 2: Past Positions now use stored snapshot data (no calculations needed)
   const calculateTradePerformance = (trade: Trade) => {
@@ -1208,24 +1243,24 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         </TabsContent>
 
         <TabsContent value="past" className="space-y-4">
-          {(() => {
-            const pastPositionsData = getPastPositions();
-            console.log('🔍 PAST_POSITIONS: Rendering Past Positions tab - items:', pastPositionsData.length);
-            console.log('🔍 PAST_POSITIONS: First few items:', pastPositionsData.slice(0, 2));
-            return pastPositionsData.length > 0 ? (
-              <div className="space-y-4">
-                {getPastPositions().map((trade, index) => (
-                  <TradeCard key={`past-${trade.id}-${index}`} trade={trade} />
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 border border-slate-600 rounded-lg bg-slate-800/30">
-                <Clock className="w-12 h-12 text-slate-500 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-slate-300 mb-2">No Past Trades</h3>
-                <p className="text-slate-400">No closed positions found</p>
-              </div>
-            );
-          })()}
+          {pastLoading ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+              <p className="text-slate-400 mt-2">Loading past positions...</p>
+            </div>
+          ) : directPastPositions.length > 0 ? (
+            <div className="space-y-4">
+              {directPastPositions.map((trade, index) => (
+                <TradeCard key={`past-${trade.id}-${index}`} trade={trade} />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 border border-slate-600 rounded-lg bg-slate-800/30">
+              <Clock className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-slate-300 mb-2">No Past Trades</h3>
+              <p className="text-slate-400">No closed positions found</p>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
       
