@@ -138,7 +138,7 @@ export const useIntelligentTradingEngine = () => {
   };
 
   const manageExistingPositions = async (strategy: any, marketData: any) => {
-    const config = strategy.configuration;
+    const config = strategy.configuration as any;
     const positions = await calculateOpenPositions();
     
     console.log('📊 ENGINE: Managing', positions.length, 'open positions');
@@ -158,52 +158,182 @@ export const useIntelligentTradingEngine = () => {
         amount: position.remaining_amount
       });
 
-      // 1. AUTO CLOSE AFTER HOURS
-      if (config.autoCloseAfterHours && hoursSincePurchase >= config.autoCloseAfterHours) {
-        console.log('⏰ ENGINE: Auto-closing position after', config.autoCloseAfterHours, 'hours');
-        await executeTrade(strategy, 'sell', position.cryptocurrency, currentPrice, position.remaining_amount, 'AUTO_CLOSE_TIME');
-        continue;
-      }
-
-      // 2. STOP LOSS CHECK
-      if (config.stopLossPercentage && pnlPercentage <= -Math.abs(config.stopLossPercentage)) {
-        console.log('🛑 ENGINE: Stop loss triggered at', pnlPercentage.toFixed(2) + '%');
-        await executeTrade(strategy, 'sell', position.cryptocurrency, currentPrice, position.remaining_amount, 'STOP_LOSS');
-        continue;
-      }
-
-      // 3. TAKE PROFIT CHECK
-      if (config.takeProfitPercentage && pnlPercentage >= config.takeProfitPercentage) {
-        console.log('💰 ENGINE: Take profit triggered at', pnlPercentage.toFixed(2) + '%');
-        await executeTrade(strategy, 'sell', position.cryptocurrency, currentPrice, position.remaining_amount, 'TAKE_PROFIT');
-        continue;
-      }
-
-      // 4. TRAILING STOP LOSS (Advanced)
-      if (config.trailingStopLossPercentage && config.useTrailingStopOnly) {
-        // Implement trailing stop logic here
-        // This requires tracking the highest price since purchase
-        console.log('📈 ENGINE: Trailing stop loss check (TODO: implement)');
-      }
-
-      // 5. TECHNICAL INDICATOR SELL SIGNALS
-      if (await checkTechnicalSellSignals(config, position.cryptocurrency, marketData)) {
-        console.log('📊 ENGINE: Technical indicator sell signal');
-        await executeTrade(strategy, 'sell', position.cryptocurrency, currentPrice, position.remaining_amount, 'TECHNICAL_SIGNAL');
-        continue;
-      }
-
-      // 6. AI OVERRIDE SELL DECISION
-      if (config.aiIntelligenceConfig?.enableAIOverride && await checkAISellSignal(config, position, marketData)) {
-        console.log('🤖 ENGINE: AI override sell signal');
-        await executeTrade(strategy, 'sell', position.cryptocurrency, currentPrice, position.remaining_amount, 'AI_OVERRIDE');
-        continue;
+      // Execute sell based on sell order type and conditions
+      const sellDecision = await getSellDecision(config, position, currentPrice, pnlPercentage, hoursSincePurchase);
+      
+      if (sellDecision) {
+        await executeSellOrder(strategy, position, currentPrice, sellDecision);
       }
     }
   };
 
+  const getSellDecision = async (config: any, position: Position, currentPrice: number, pnlPercentage: number, hoursSincePurchase: number): Promise<{reason: string, orderType?: string} | null> => {
+    // 1. AUTO CLOSE AFTER HOURS (overrides everything)
+    if (config.autoCloseAfterHours && hoursSincePurchase >= config.autoCloseAfterHours) {
+      return { reason: 'AUTO_CLOSE_TIME', orderType: 'market' };
+    }
+
+    // 2. STOP LOSS CHECK
+    if (config.stopLossPercentage && pnlPercentage <= -Math.abs(config.stopLossPercentage)) {
+      // Check if we should reset stop loss after fail
+      if (config.resetStopLossAfterFail && await wasStopLossTriggeredBefore(position.cryptocurrency)) {
+        console.log('🔄 ENGINE: Stop loss was triggered before, resetting threshold');
+        // TODO: Implement reset logic - maybe adjust stop loss percentage
+      }
+      
+      return { 
+        reason: 'STOP_LOSS', 
+        orderType: config.sellOrderType || 'market' 
+      };
+    }
+
+    // 3. TAKE PROFIT CHECK
+    if (config.takeProfitPercentage && pnlPercentage >= config.takeProfitPercentage) {
+      return { 
+        reason: 'TAKE_PROFIT', 
+        orderType: config.sellOrderType || 'market' 
+      };
+    }
+
+    // 4. TRAILING STOP LOSS
+    if (config.trailingStopLossPercentage) {
+      const trailingStopTriggered = await checkTrailingStopLoss(config, position, currentPrice, pnlPercentage);
+      if (trailingStopTriggered) {
+        if (config.useTrailingStopOnly) {
+          // Only use trailing stop, ignore regular stop loss
+          return { 
+            reason: 'TRAILING_STOP_ONLY', 
+            orderType: 'trailing_stop' 
+          };
+        } else {
+          // Use trailing stop in addition to regular stop loss
+          return { 
+            reason: 'TRAILING_STOP', 
+            orderType: 'trailing_stop' 
+          };
+        }
+      }
+    }
+
+    // 5. TECHNICAL INDICATOR SELL SIGNALS
+    if (await checkTechnicalSellSignals(config, position.cryptocurrency, currentPrice)) {
+      return { 
+        reason: 'TECHNICAL_SIGNAL', 
+        orderType: config.sellOrderType || 'market' 
+      };
+    }
+
+    // 6. AI OVERRIDE SELL DECISION
+    if (config.aiIntelligenceConfig?.enableAIOverride && await checkAISellSignal(config, position, currentPrice)) {
+      return { 
+        reason: 'AI_OVERRIDE', 
+        orderType: config.sellOrderType || 'market' 
+      };
+    }
+
+    return null;
+  };
+
+  const executeSellOrder = async (strategy: any, position: Position, marketPrice: number, sellDecision: {reason: string, orderType?: string}) => {
+    const config = strategy.configuration as any;
+    const orderType = sellDecision.orderType || config.sellOrderType || 'market';
+
+    console.log('💸 ENGINE: Executing', orderType, 'sell order for', position.cryptocurrency, 'reason:', sellDecision.reason);
+
+    switch (orderType) {
+      case 'market':
+        await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason);
+        break;
+
+      case 'limit':
+        // TODO: Implement limit sell order logic
+        console.log('📝 ENGINE: Limit sell orders not yet implemented, using market order');
+        await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason + '_LIMIT_AS_MARKET');
+        break;
+
+      case 'trailing_stop':
+        await executeTrailingStopOrder(strategy, position, marketPrice, sellDecision.reason);
+        break;
+
+      case 'auto_close':
+        await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason + '_AUTO_CLOSE');
+        break;
+
+      default:
+        console.log('❌ ENGINE: Unknown sell order type:', orderType, 'using market order');
+        await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason);
+    }
+  };
+
+  const checkTrailingStopLoss = async (config: any, position: Position, currentPrice: number, pnlPercentage: number): Promise<boolean> => {
+    const trailingPercentage = config.trailingStopLossPercentage;
+    if (!trailingPercentage) return false;
+
+    // TODO: Implement proper trailing stop loss logic
+    // This requires tracking the highest price since purchase and triggering when price drops by trailing percentage from peak
+    
+    // For now, simplified logic: trigger if we're profitable but dropped by trailing percentage from some peak
+    if (pnlPercentage > 0) {
+      // Simulate that we had a peak and now we're trailing down
+      // In real implementation, this would track actual price peaks
+      const simulatedPeak = position.average_price * 1.1; // Assume we peaked at 10% profit
+      const dropFromPeak = ((simulatedPeak - currentPrice) / simulatedPeak) * 100;
+      
+      if (dropFromPeak >= trailingPercentage) {
+        console.log('📉 ENGINE: Trailing stop triggered - dropped', dropFromPeak.toFixed(2) + '% from peak');
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const executeTrailingStopOrder = async (strategy: any, position: Position, marketPrice: number, reason: string) => {
+    // TODO: Implement proper trailing stop order logic
+    // For now, execute as market order
+    console.log('📉 ENGINE: Trailing stop sell order (simplified as market order)');
+    await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, reason + '_TRAILING_STOP');
+  };
+
+  const wasStopLossTriggeredBefore = async (cryptocurrency: string): Promise<boolean> => {
+    // Check if we previously had a stop loss triggered for this crypto
+    const { data: previousStopLoss } = await supabase
+      .from('mock_trades')
+      .select('strategy_trigger')
+      .eq('user_id', user?.id)
+      .eq('cryptocurrency', cryptocurrency)
+      .eq('trade_type', 'sell')
+      .eq('is_test_mode', true)
+      .ilike('strategy_trigger', '%STOP_LOSS%')
+      .limit(1);
+    
+    return !!previousStopLoss?.length;
+  };
+
+  const checkTechnicalSellSignals = async (config: any, symbol: string, currentPrice: number): Promise<boolean> => {
+    const techConfig = config.technicalIndicatorConfig;
+    if (!techConfig) return false;
+
+    // RSI Overbought
+    if (techConfig.rsi?.enabled) {
+      const mockRSI = Math.random() * 100;
+      if (mockRSI >= techConfig.rsi.sellThreshold) {
+        console.log('📊 ENGINE: RSI sell signal:', mockRSI, '>=', techConfig.rsi.sellThreshold);
+        return true;
+      }
+    }
+
+    // TODO: Implement other technical indicators for sell signals
+    // - MACD bearish crossover
+    // - EMA crossover downward
+    // - Bollinger Band upper band touch
+    // - ADX trending down
+
+    return false;
+  };
+
   const checkBuyOpportunities = async (strategy: any, marketData: any) => {
-    const config = strategy.configuration;
+    const config = strategy.configuration as any;
     const positions = await calculateOpenPositions();
     
     // Check position limits
@@ -212,21 +342,28 @@ export const useIntelligentTradingEngine = () => {
       return;
     }
 
-    // Check trade cooldown
-    if (config.tradeCooldownMinutes && await isInCooldown(config.tradeCooldownMinutes)) {
-      console.log('⏳ ENGINE: Trade cooldown active');
+    // Check BUY frequency and timing
+    if (!await shouldBuyBasedOnFrequency(config)) {
+      console.log('⏰ ENGINE: Buy frequency/timing conditions not met');
       return;
     }
 
-    // Check buy frequency
-    if (!shouldBuyBasedOnFrequency(config)) {
-      console.log('⏰ ENGINE: Buy frequency conditions not met');
+    // Check buy cooldown (separate from trade cooldown)
+    if (config.buyCooldownMinutes && await isInBuyCooldown(config.buyCooldownMinutes)) {
+      console.log('⏳ ENGINE: Buy cooldown active');
       return;
     }
 
-    const selectedCoins = config.selectedCoins || ['BTC', 'ETH', 'XRP'];
+    // Get coins to analyze
+    let coinsToAnalyze: string[];
+    if (config.enableAutoCoinSelection) {
+      // TODO: Implement smart coin selection based on market conditions, AI signals, etc.
+      coinsToAnalyze = await getAutoSelectedCoins(config, marketData);
+    } else {
+      coinsToAnalyze = config.selectedCoins || ['BTC', 'ETH', 'XRP'];
+    }
     
-    for (const coin of selectedCoins) {
+    for (const coin of coinsToAnalyze) {
       const symbol = `${coin}-EUR`;
       const currentData = marketData[symbol];
       if (!currentData) continue;
@@ -238,27 +375,197 @@ export const useIntelligentTradingEngine = () => {
         continue;
       }
 
-      // 1. TECHNICAL INDICATOR BUY SIGNALS
-      if (await checkTechnicalBuySignals(config, symbol, marketData)) {
-        console.log('📊 ENGINE: Technical buy signal for', symbol);
-        await executeTrade(strategy, 'buy', symbol, currentData.price, undefined, 'TECHNICAL_SIGNAL');
-        continue;
-      }
+      // Check if we should buy this coin
+      const buySignal = await getBuySignal(config, symbol, marketData, hasPosition);
+      if (!buySignal) continue;
 
-      // 2. AI BUY DECISION
-      if (config.aiIntelligenceConfig?.enableAIOverride && await checkAIBuySignal(config, symbol, marketData)) {
-        console.log('🤖 ENGINE: AI buy signal for', symbol);
-        await executeTrade(strategy, 'buy', symbol, currentData.price, undefined, 'AI_SIGNAL');
-        continue;
-      }
-
-      // 3. DCA BUY (if enabled and have position)
-      if (config.enableDCA && hasPosition && await shouldDCABuy(config, symbol, positions)) {
-        console.log('💰 ENGINE: DCA buy signal for', symbol);
-        await executeTrade(strategy, 'buy', symbol, currentData.price, undefined, 'DCA');
-        continue;
-      }
+      // Execute buy based on order type
+      await executeBuyOrder(strategy, symbol, currentData.price, buySignal.reason);
     }
+  };
+
+  const shouldBuyBasedOnFrequency = async (config: any): Promise<boolean> => {
+    const frequency = config.buyFrequency || 'signal_based';
+    
+    switch (frequency) {
+      case 'once':
+        // Check if we've already bought any of the selected coins
+        const { data: existingBuys } = await supabase
+          .from('mock_trades')
+          .select('cryptocurrency')
+          .eq('user_id', user?.id)
+          .eq('trade_type', 'buy')
+          .eq('is_test_mode', true);
+        
+        const selectedCoins = config.selectedCoins || ['BTC', 'ETH', 'XRP'];
+        const hasExistingBuys = existingBuys?.some(trade => 
+          selectedCoins.some(coin => trade.cryptocurrency.includes(coin))
+        );
+        
+        if (hasExistingBuys) {
+          console.log('🛑 ENGINE: "Once" frequency - already have buys');
+          return false;
+        }
+        return true;
+
+      case 'daily':
+        // Check if we've bought today
+        const today = new Date().toDateString();
+        const { data: todayBuys } = await supabase
+          .from('mock_trades')
+          .select('executed_at')
+          .eq('user_id', user?.id)
+          .eq('trade_type', 'buy')
+          .eq('is_test_mode', true)
+          .gte('executed_at', new Date(today).toISOString());
+        
+        if (todayBuys?.length) {
+          console.log('🛑 ENGINE: Daily frequency - already bought today');
+          return false;
+        }
+        return true;
+
+      case 'interval':
+        // Check if enough time has passed since last buy
+        const intervalMinutes = config.buyIntervalMinutes || 60;
+        const { data: lastBuy } = await supabase
+          .from('mock_trades')
+          .select('executed_at')
+          .eq('user_id', user?.id)
+          .eq('trade_type', 'buy')
+          .eq('is_test_mode', true)
+          .order('executed_at', { ascending: false })
+          .limit(1);
+        
+        if (lastBuy?.length) {
+          const lastBuyTime = new Date(lastBuy[0].executed_at);
+          const nextBuyTime = new Date(lastBuyTime.getTime() + intervalMinutes * 60 * 1000);
+          
+          if (Date.now() < nextBuyTime.getTime()) {
+            console.log('🛑 ENGINE: Interval frequency - too soon since last buy');
+            return false;
+          }
+        }
+        return true;
+
+      case 'signal_based':
+      default:
+        return true; // Always allow signal-based buys
+    }
+  };
+
+  const isInBuyCooldown = async (buyCooldownMinutes: number): Promise<boolean> => {
+    const { data: lastBuy } = await supabase
+      .from('mock_trades')
+      .select('executed_at')
+      .eq('user_id', user?.id)
+      .eq('trade_type', 'buy')
+      .eq('is_test_mode', true)
+      .order('executed_at', { ascending: false })
+      .limit(1);
+    
+    if (!lastBuy?.length) return false;
+    
+    const lastBuyTime = new Date(lastBuy[0].executed_at);
+    const cooldownEnd = new Date(lastBuyTime.getTime() + buyCooldownMinutes * 60 * 1000);
+    
+    return Date.now() < cooldownEnd.getTime();
+  };
+
+  const getAutoSelectedCoins = async (config: any, marketData: any): Promise<string[]> => {
+    // TODO: Implement intelligent coin selection based on:
+    // - Market momentum
+    // - Technical indicators
+    // - AI signals
+    // - Volume analysis
+    // - Correlation analysis
+    
+    console.log('🤖 ENGINE: Auto coin selection (TODO: implement smart logic)');
+    
+    // For now, return top performing coins or fallback to selected coins
+    const allCoins = Object.keys(marketData);
+    const topCoins = allCoins.slice(0, Math.min(3, config.maxActiveCoins || 3));
+    
+    return topCoins.map(symbol => symbol.split('-')[0]); // Remove -EUR suffix
+  };
+
+  const getBuySignal = async (config: any, symbol: string, marketData: any, hasPosition: boolean): Promise<{reason: string} | null> => {
+    // 1. DCA BUY (if enabled and have position)
+    if (config.enableDCA && hasPosition && await shouldDCABuy(config, symbol)) {
+      return { reason: 'DCA_SIGNAL' };
+    }
+
+    // 2. TECHNICAL INDICATOR BUY SIGNALS
+    if (await checkTechnicalBuySignals(config, symbol, marketData)) {
+      return { reason: 'TECHNICAL_SIGNAL' };
+    }
+
+    // 3. AI BUY DECISION
+    if (config.aiIntelligenceConfig?.enableAIOverride && await checkAIBuySignal(config, symbol, marketData)) {
+      return { reason: 'AI_SIGNAL' };
+    }
+
+    // 4. SIMPLE PRICE-BASED SIGNALS (fallback)
+    if (await checkSimpleBuySignals(config, symbol, marketData)) {
+      return { reason: 'PRICE_SIGNAL' };
+    }
+
+    return null;
+  };
+
+  const checkSimpleBuySignals = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
+    // Simple fallback logic if no technical indicators or AI enabled
+    const currentPrice = marketData[symbol]?.price;
+    if (!currentPrice) return false;
+
+    // Very basic logic - can be enhanced
+    // Buy on slight dips or randomly for testing
+    return Math.random() < 0.05; // 5% chance for testing
+  };
+
+  const executeBuyOrder = async (strategy: any, symbol: string, marketPrice: number, reason: string) => {
+    const config = strategy.configuration as any;
+    const orderType = config.buyOrderType || 'market';
+
+    console.log('💰 ENGINE: Executing', orderType, 'buy order for', symbol, 'reason:', reason);
+
+    switch (orderType) {
+      case 'market':
+        await executeTrade(strategy, 'buy', symbol, marketPrice, undefined, reason);
+        break;
+
+      case 'limit':
+        // TODO: Implement limit order logic
+        // For now, execute as market order
+        console.log('📝 ENGINE: Limit buy orders not yet implemented, using market order');
+        await executeTrade(strategy, 'buy', symbol, marketPrice, undefined, reason + '_LIMIT_AS_MARKET');
+        break;
+
+      case 'trailing_buy':
+        await executeTrailingBuyOrder(strategy, symbol, marketPrice, reason);
+        break;
+
+      default:
+        console.log('❌ ENGINE: Unknown buy order type:', orderType);
+    }
+  };
+
+  const executeTrailingBuyOrder = async (strategy: any, symbol: string, currentPrice: number, reason: string) => {
+    const config = strategy.configuration as any;
+    const trailingPercentage = config.trailingBuyPercentage || 2; // Default 2%
+
+    // TODO: Implement proper trailing buy logic
+    // This requires tracking price movements and buying when price starts recovering
+    // For now, simulate trailing buy by waiting for a small dip
+    
+    console.log('📈 ENGINE: Trailing buy for', symbol, 'at', trailingPercentage + '% trail');
+    
+    // Simplified trailing buy: Buy if price dropped recently
+    // In real implementation, this would track highest price and buy when it recovers
+    const trailingBuyPrice = currentPrice * (1 - trailingPercentage / 100);
+    
+    console.log('📈 ENGINE: Trailing buy triggered at', trailingBuyPrice, '(current:', currentPrice, ')');
+    await executeTrade(strategy, 'buy', symbol, currentPrice, undefined, reason + '_TRAILING_BUY');
   };
 
   // Technical Analysis Functions
@@ -308,22 +615,6 @@ export const useIntelligentTradingEngine = () => {
     return signals >= signalThreshold;
   };
 
-  const checkTechnicalSellSignals = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
-    const techConfig = config.technicalIndicatorConfig;
-    if (!techConfig) return false;
-
-    // RSI Overbought
-    if (techConfig.rsi?.enabled) {
-      const mockRSI = Math.random() * 100;
-      if (mockRSI >= techConfig.rsi.sellThreshold) {
-        console.log('📊 ENGINE: RSI sell signal:', mockRSI, '>=', techConfig.rsi.sellThreshold);
-        return true;
-      }
-    }
-
-    return false;
-  };
-
   // AI Decision Functions
   const checkAIBuySignal = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
     const aiConfig = config.aiIntelligenceConfig;
@@ -357,27 +648,6 @@ export const useIntelligentTradingEngine = () => {
     return false; // Placeholder
   };
 
-  // Utility Functions
-  const shouldBuyBasedOnFrequency = (config: any): boolean => {
-    if (!config.buyFrequency) return true;
-    
-    switch (config.buyFrequency) {
-      case 'once':
-        // TODO: Check if we've already bought this coin
-        return true;
-      case 'daily':
-        // TODO: Check if we've bought today
-        return true;
-      case 'interval':
-        // TODO: Check interval timing
-        return true;
-      case 'signal_based':
-        return true; // Always allow signal-based buys
-      default:
-        return true;
-    }
-  };
-
   const isInCooldown = async (cooldownMinutes: number): Promise<boolean> => {
     if (!tradingStateRef.current.lastTradeTime) return false;
     
@@ -387,7 +657,7 @@ export const useIntelligentTradingEngine = () => {
     return Date.now() < cooldownEnd.getTime();
   };
 
-  const shouldDCABuy = async (config: any, symbol: string, positions: Position[]): Promise<boolean> => {
+  const shouldDCABuy = async (config: any, symbol: string): Promise<boolean> => {
     // TODO: Implement DCA logic based on:
     // - dcaIntervalHours
     // - dcaSteps
