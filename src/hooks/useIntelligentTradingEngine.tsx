@@ -756,9 +756,10 @@ export const useIntelligentTradingEngine = () => {
 
     const positions: Record<string, Position> = {};
 
-    // Add buy trades
+    // Add buy trades with normalized symbols
     buyTrades.forEach(trade => {
-      const symbol = trade.cryptocurrency;
+      // Normalize symbol - remove -EUR suffix if present
+      const symbol = trade.cryptocurrency.replace('-EUR', '');
       if (!positions[symbol]) {
         positions[symbol] = {
           cryptocurrency: symbol,
@@ -780,10 +781,11 @@ export const useIntelligentTradingEngine = () => {
 
     console.log('🧮 POSITIONS: Positions after buy trades:', Object.keys(positions).length);
 
-    // Subtract sell trades
+    // Subtract sell trades with normalized symbols
     if (sellTrades) {
       sellTrades.forEach(trade => {
-        const symbol = trade.cryptocurrency;
+        // Normalize symbol - remove -EUR suffix if present
+        const symbol = trade.cryptocurrency.replace('-EUR', '');
         console.log('🧮 POSITIONS: Processing sell trade for', symbol, 'amount:', trade.amount);
         if (positions[symbol]) {
           const beforeAmount = positions[symbol].remaining_amount;
