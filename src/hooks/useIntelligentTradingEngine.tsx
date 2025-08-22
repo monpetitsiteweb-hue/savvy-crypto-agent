@@ -43,8 +43,15 @@ export const useIntelligentTradingEngine = () => {
 
   const checkStrategiesAndExecute = async () => {
     console.log('🚨 ENGINE: checkStrategiesAndExecute called with testMode:', testMode, 'user:', !!user, 'loading:', loading, 'user email:', user?.email);
-    if (!testMode || !user || loading) {
-      console.log('🚨 ENGINE: Skipping - testMode:', testMode, 'user:', !!user, 'loading:', loading);
+    console.log('🚨🚨🚨 EARLY EXIT CHECK: testMode:', testMode, 'user exists:', !!user, 'loading:', loading);
+    
+    if (!user || loading) {
+      console.log('🚨 ENGINE: Skipping - user:', !!user, 'loading:', loading);
+      return;
+    }
+    
+    if (!testMode) {
+      console.log('🚨🚨🚨 TEST MODE IS OFF! You need to enable Test Mode to use the trading engine!');
       return;
     }
 
