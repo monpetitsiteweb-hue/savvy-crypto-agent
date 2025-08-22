@@ -94,7 +94,30 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     currentlyInvested: 0
   });
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
-  // SIMPLE PAST POSITIONS - ALL SELL TRADES FOR USER
+// ============= CRITICAL FIX FOR AUTOMATED SALES ISSUE =============
+// The user has a 5% fee rate which is causing profitable trades to appear as losses
+// Need to fix the fee rate to a reasonable 0.5% (0.005) instead of 5% (0.05)
+
+  // IMMEDIATE DEBUG: Log current user fee rate
+  useEffect(() => {
+    if (user) {
+      const checkFeeRate = async () => {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('fee_rate, account_type')
+          .eq('id', user.id)
+          .single();
+        
+        console.log('🚨 CRITICAL: User fee rate:', data?.fee_rate, 'Account type:', data?.account_type);
+        if (data?.fee_rate > 0.01) {
+          console.error('🚨 CRITICAL: Fee rate is', data.fee_rate * 100, '% which is too high! Should be max 1%');
+        }
+      };
+      checkFeeRate();
+    }
+  }, [user]);
+
+  // Simple past positions loading with better error handling
   const [allPastTrades, setAllPastTrades] = useState<Trade[]>([]);
   const [pastLoading, setPastLoading] = useState(true);
   
@@ -1236,7 +1259,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             value="past" 
             className="data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-400"
           >
-            Past Positions ({computeLifecycleCounts(trades).closedCount})
+            Past Positions ({allPastTrades.length})
           </TabsTrigger>
         </TabsList>
 
