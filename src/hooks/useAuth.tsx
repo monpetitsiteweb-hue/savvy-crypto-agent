@@ -25,23 +25,9 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
-  // EMERGENCY TEST - This ABSOLUTELY MUST show up
-  console.error('🚨🚨🚨 AUTHPROVIDER: COMPONENT IS MOUNTING!!! 🚨🚨🚨');
-  console.error('🚨 AUTHPROVIDER: Children exist:', !!children);
-  alert('AuthProvider is mounting!'); // Force visibility
-  
-  const [user, setUser] = useState<User | null>(() => {
-    console.log('🔑 AUTHPROVIDER: Initializing user state');
-    return null;
-  });
-  const [session, setSession] = useState<Session | null>(() => {
-    console.log('🔑 AUTHPROVIDER: Initializing session state');
-    return null;
-  });
-  const [loading, setLoading] = useState(() => {
-    console.log('🔑 AUTHPROVIDER: Initializing loading state');
-    return true;
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
 
   console.log('🔑 AUTHPROVIDER: State initialized - about to run useEffect');
 
