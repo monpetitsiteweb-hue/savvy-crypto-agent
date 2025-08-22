@@ -76,15 +76,21 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     
     setIsLoading(true);
     try {
-      console.log('🔄 Refreshing wallet from database for user:', user.id);
+      console.log('🚨 CRITICAL DEBUG: User ID being used for wallet refresh:', user.id);
+      console.log('🚨 CRITICAL DEBUG: User email:', user.email);
+      console.log('🚨 CRITICAL DEBUG: Full user object:', user);
       
       // Get all mock trades for this user
+      console.log('🚨 CRITICAL DEBUG: About to fetch trades with user_id:', user.id);
       const { data: trades, error } = await supabase
         .from('mock_trades')
         .select('*')
         .eq('user_id', user.id)
         .eq('is_test_mode', true)
         .order('executed_at', { ascending: true });
+      
+      console.log('🚨 CRITICAL DEBUG: Query result - trades found:', trades?.length || 0);
+      console.log('🚨 CRITICAL DEBUG: First few trades user_ids:', trades?.slice(0, 3).map(t => ({ user_id: t.user_id, crypto: t.cryptocurrency })));
 
       if (error) {
         console.error('Error fetching mock trades:', error);
