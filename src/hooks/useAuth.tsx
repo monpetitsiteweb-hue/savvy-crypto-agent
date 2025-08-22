@@ -40,7 +40,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       try {
         // Get initial session
         const { data: { session }, error } = await supabase.auth.getSession();
-        console.log('🔑 AuthProvider: Initial session check - User:', session?.user?.email, 'Session exists:', !!session, 'Error:', error);
+        console.log('🔑 AuthProvider: Initial session check - User:', session?.user?.email, 'User ID:', session?.user?.id, 'Session exists:', !!session, 'Error:', error);
         
         if (mounted) {
           setSession(session);
@@ -59,7 +59,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔑 AuthProvider: Auth state change:', event, 'User:', session?.user?.email, 'Session exists:', !!session);
+      console.log('🔑 AuthProvider: Auth state change:', event, 'User:', session?.user?.email, 'User ID:', session?.user?.id, 'Session exists:', !!session);
       if (mounted) {
         setSession(session);
         setUser(session?.user ?? null);

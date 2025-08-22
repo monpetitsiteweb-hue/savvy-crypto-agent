@@ -356,7 +356,9 @@ export const useTestTrading = () => {
 
   const recordTrade = async (tradeData: any) => {
     try {
-      console.log('🚨 TRADE_RECORDING: Recording trade with user_id:', tradeData.user_id);
+      console.log('🚨 CRITICAL_DEBUG: Recording trade with user_id:', tradeData.user_id);
+      console.log('🚨 CRITICAL_DEBUG: Auth user from hook:', user?.id, user?.email);
+      console.log('🚨 CRITICAL_DEBUG: Trade data user_id matches auth user:', tradeData.user_id === user?.id);
       
       if (!tradeData.user_id) {
         throw new Error('user_id is required for trade recording');
