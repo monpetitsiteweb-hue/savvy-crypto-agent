@@ -716,6 +716,8 @@ export const useIntelligentTradingEngine = () => {
   const calculateOpenPositions = async (): Promise<Position[]> => {
     if (!user?.id) return [];
 
+    console.log('🧮 POSITIONS: Starting position calculation for user:', user.id);
+
     const { data: buyTrades } = await supabase
       .from('mock_trades')
       .select('*')
@@ -733,8 +735,17 @@ export const useIntelligentTradingEngine = () => {
 
     console.log('🧮 POSITIONS: Buy trades found:', buyTrades?.length || 0);
     console.log('🧮 POSITIONS: Sell trades found:', sellTrades?.length || 0);
+    
+    if (buyTrades?.length) {
+      console.log('🧮 POSITIONS: Sample buy trades:', buyTrades.slice(0, 3).map(t => ({
+        symbol: t.cryptocurrency,
+        amount: t.amount,
+        executed_at: t.executed_at
+      })));
+    }
+    
     if (sellTrades?.length) {
-      console.log('🧮 POSITIONS: Recent sell trades:', sellTrades.slice(0, 5).map(t => ({
+      console.log('🧮 POSITIONS: Sample sell trades:', sellTrades.slice(0, 3).map(t => ({
         symbol: t.cryptocurrency,
         amount: t.amount,
         executed_at: t.executed_at
