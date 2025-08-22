@@ -55,11 +55,14 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // IMMEDIATE FETCH ON COMPONENT LOAD  
   useEffect(() => {
     console.log('🔍 TradingHistory: Component mounted, user:', !!user, 'testMode:', testMode);
+    console.log('🔍 TradingHistory: User object:', user);
     if (user) {
       console.log('🔍 TradingHistory: IMMEDIATE FETCH triggered');
       fetchTradingHistory();
+    } else {
+      console.log('🔍 TradingHistory: NO USER - not fetching');
     }
-  }, []);
+  }, [user]);
   
   const { toast } = useToast();
   const { getTotalValue } = useMockWallet();
