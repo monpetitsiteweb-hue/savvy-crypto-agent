@@ -909,21 +909,35 @@ export const useIntelligentTradingEngine = () => {
       };
 
       console.log('📝 ENGINE: About to insert trade into database:', mockTradeData);
+      console.log('📝 ENGINE: Calling supabase.from(mock_trades).insert...');
 
       const { data, error } = await supabase
         .from('mock_trades')
         .insert(mockTradeData)
         .select();
 
+      console.log('📝 ENGINE: Supabase response - data:', data, 'error:', error);
+
       if (error) {
-        console.error('❌ ENGINE: Database error:', error);
+        console.error('❌ ENGINE: Database error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+          mockTradeData
+        });
         throw error;
       }
       
-      console.log('✅ ENGINE: Successfully recorded REAL signal trade, inserted data:', data);
+      console.log('✅ ENGINE: Successfully recorded REAL signal trade, DB ID:', data?.[0]?.id, 'Type:', tradeData.trade_type, 'Symbol:', tradeData.cryptocurrency);
 
     } catch (error) {
-      console.error('❌ ENGINE: Failed to record trade:', error);
+      console.error('❌ ENGINE: Catch block error:', error);
+      console.error('❌ ENGINE: Error details:', {
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack
+      });
       throw error;
     }
   };
