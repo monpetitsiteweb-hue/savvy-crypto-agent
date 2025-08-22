@@ -98,6 +98,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [allPastTrades, setAllPastTrades] = useState<Trade[]>([]);
   const [pastLoading, setPastLoading] = useState(true);
   
+  console.log('🚨 PAST_TRADES_DEBUG: Component render -', {
+    user: !!user,
+    userId: user?.id,
+    allPastTrades: allPastTrades.length,
+    pastLoading
+  });
+  
   useEffect(() => {
     const fetchAllPastTrades = async () => {
       if (!user) {
