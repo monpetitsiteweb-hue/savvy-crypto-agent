@@ -193,8 +193,8 @@ export const useIntelligentTradingEngine = () => {
       
       if (sellDecision) {
         console.log('🚨 DEBUG SELL: EXECUTING SELL ORDER! Decision:', JSON.stringify(sellDecision));
-        console.log('🚨 DEBUG SELL: sellDecision type:', typeof sellDecision);
-        console.log('🚨 DEBUG SELL: sellDecision truthy check:', !!sellDecision);
+        console.log('🚨 DEBUG SELL: Position cryptocurrency before executeSellOrder:', position.cryptocurrency);
+        console.log('🚨 DEBUG SELL: Current price used:', currentPrice);
         await executeSellOrder(strategy, position, currentPrice, sellDecision);
       } else {
         console.log('🚨 DEBUG SELL: NO SELL DECISION - position will remain open');
@@ -805,6 +805,8 @@ export const useIntelligentTradingEngine = () => {
     customAmount?: number,
     trigger?: string
   ) => {
+    console.log('🔧 ENGINE: executeTrade called with action:', action, 'symbol:', cryptocurrency);
+    
     if (!user?.id) {
       console.error('❌ ENGINE: Cannot execute trade - no authenticated user');
       return;
