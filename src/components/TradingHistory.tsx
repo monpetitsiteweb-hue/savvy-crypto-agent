@@ -38,6 +38,16 @@ interface Trade {
   sell_fees?: number;
 }
 
+interface TradePerformance {
+  currentPrice: number;
+  currentValue: number;
+  purchaseValue: number | null;
+  purchasePrice: number | null;
+  gainLoss: number | null;
+  gainLossPercentage: number | null;
+  isAutomatedWithoutPnL?: boolean;
+}
+
 interface TradingHistoryProps {
   hasActiveStrategy: boolean;
   onCreateStrategy?: () => void;
@@ -149,6 +159,22 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // PHASE 2: Past Positions now use stored snapshot data (no calculations needed)
   const calculateTradePerformance = (trade: Trade) => {
     if (trade.trade_type === 'sell') {
+      // Check if this is an automated trade without P&L data
+      const isAutomatedWithoutPnL = !trade.original_purchase_value && trade.strategy_trigger;
+      
+      if (isAutomatedWithoutPnL) {
+        // Show automated trade with available data
+        return {
+          currentPrice: trade.price,
+          currentValue: trade.total_value, // Exit value
+          purchaseValue: null, // Mark as unknown
+          purchasePrice: null, // Mark as unknown  
+          gainLoss: null, // Mark as unknown
+          gainLossPercentage: null, // Mark as unknown
+          isAutomatedWithoutPnL: true
+        };
+      }
+      
       // Past Positions: Use STORED snapshot data from past_positions_view
       // All values are pre-calculated and stored at trade execution time
       return {
@@ -157,7 +183,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         purchaseValue: trade.original_purchase_value || 0, // Stored purchase value
         purchasePrice: trade.original_purchase_price || 0, // Stored purchase price
         gainLoss: trade.realized_pnl || 0, // Stored realized P&L (net of fees)
-        gainLossPercentage: trade.realized_pnl_pct || 0 // Stored P&L percentage
+        gainLossPercentage: trade.realized_pnl_pct || 0, // Stored P&L percentage
+        isAutomatedWithoutPnL: false
       };
     }
     
@@ -469,7 +496,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
               <div className="text-slate-400 text-xs">
                 {isOpen ? 'Purchase Value' : 'Purchase Value'}
               </div>
-              <div className="font-medium text-white">€{performance.purchaseValue.toFixed(2)}</div>
+              <div className="font-medium text-white">
+                {performance.isAutomatedWithoutPnL ? (
+                  <span className="text-orange-400 text-xs">Automated</span>
+                ) : (
+                  `€${performance.purchaseValue.toFixed(2)}`
+                )}
+              </div>
             </div>
 
             {/* Current EUR Value */}
@@ -486,7 +519,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                 {isOpen ? 'Purchase Price' : 'Purchase Price'}
               </div>
               <div className="font-medium text-white">
-                €{isOpen ? trade.price.toLocaleString() : (performance.purchasePrice || 0).toLocaleString()}
+                {performance.isAutomatedWithoutPnL ? (
+                  <span className="text-orange-400 text-xs">Unknown</span>
+                ) : isOpen ? (
+                  `€${trade.price.toLocaleString()}`
+                ) : (
+                  `€${(performance.purchasePrice || 0).toLocaleString()}`
+                )}
               </div>
             </div>
 
@@ -501,16 +540,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* P&L */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">P&L</div>
-              <div className={`font-medium ${performance.gainLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                €{performance.gainLoss.toFixed(2)}
+              <div className={`font-medium ${performance.isAutomatedWithoutPnL ? 'text-orange-400' : performance.gainLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {performance.isAutomatedWithoutPnL ? 'N/A' : `€${performance.gainLoss.toFixed(2)}`}
               </div>
             </div>
             
             {/* P&L % */}
             <div className="col-span-1">
               <div className="text-slate-400 text-xs">P&L %</div>
-              <div className={`font-medium ${performance.gainLossPercentage >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {performance.gainLossPercentage >= 0 ? '+' : ''}{performance.gainLossPercentage.toFixed(2)}%
+              <div className={`font-medium ${performance.isAutomatedWithoutPnL ? 'text-orange-400' : performance.gainLossPercentage >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {performance.isAutomatedWithoutPnL ? 'N/A' : `${performance.gainLossPercentage >= 0 ? '+' : ''}${performance.gainLossPercentage.toFixed(2)}%`}
               </div>
             </div>
             
@@ -586,7 +625,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                <div className="text-slate-400 text-sm">
                  {isOpen ? 'Entry Value' : 'Purchase Value'}
                </div>
-               <div className="font-semibold text-white text-lg">€{performance.purchaseValue.toFixed(2)}</div>
+               <div className="font-semibold text-white text-lg">
+                 {performance.isAutomatedWithoutPnL ? (
+                   <span className="text-orange-400 text-sm">Automated</span>
+                 ) : (
+                   `€${performance.purchaseValue.toFixed(2)}`
+                 )}
+               </div>
              </div>
              <div>
                <div className="text-slate-400 text-sm">
@@ -616,14 +661,14 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="text-slate-400 text-sm">Profit/Loss</div>
-              <div className={`font-bold text-xl ${performance.gainLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                €{performance.gainLoss.toFixed(2)}
+              <div className={`font-bold text-xl ${performance.isAutomatedWithoutPnL ? 'text-orange-400' : performance.gainLoss >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {performance.isAutomatedWithoutPnL ? 'N/A' : `€${performance.gainLoss.toFixed(2)}`}
               </div>
             </div>
             <div>
               <div className="text-slate-400 text-sm">Profit/Loss %</div>
-              <div className={`font-bold text-xl ${performance.gainLossPercentage >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {performance.gainLossPercentage >= 0 ? '+' : ''}{performance.gainLossPercentage.toFixed(2)}%
+              <div className={`font-bold text-xl ${performance.isAutomatedWithoutPnL ? 'text-orange-400' : performance.gainLossPercentage >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {performance.isAutomatedWithoutPnL ? 'N/A' : `${performance.gainLossPercentage >= 0 ? '+' : ''}${performance.gainLossPercentage.toFixed(2)}%`}
               </div>
             </div>
           </div>
