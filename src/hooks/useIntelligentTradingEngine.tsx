@@ -187,12 +187,19 @@ export const useIntelligentTradingEngine = () => {
       // Execute sell based on sell order type and conditions
       const sellDecision = await getSellDecision(config, position, currentPrice, pnlPercentage, hoursSincePurchase);
       console.log('🚨 DEBUG SELL: Sell decision for', position.cryptocurrency, ':', sellDecision);
+      console.log('🚨 DEBUG SELL: sellDecision JSON:', JSON.stringify(sellDecision));
+      console.log('🚨 DEBUG SELL: sellDecision typeof:', typeof sellDecision);
+      console.log('🚨 DEBUG SELL: sellDecision truthiness:', !!sellDecision, Boolean(sellDecision));
       
       if (sellDecision) {
-        console.log('🚨 DEBUG SELL: EXECUTING SELL ORDER!');
+        console.log('🚨 DEBUG SELL: EXECUTING SELL ORDER! Decision:', JSON.stringify(sellDecision));
+        console.log('🚨 DEBUG SELL: sellDecision type:', typeof sellDecision);
+        console.log('🚨 DEBUG SELL: sellDecision truthy check:', !!sellDecision);
         await executeSellOrder(strategy, position, currentPrice, sellDecision);
       } else {
         console.log('🚨 DEBUG SELL: NO SELL DECISION - position will remain open');
+        console.log('🚨 DEBUG SELL: sellDecision value:', sellDecision);
+        console.log('🚨 DEBUG SELL: sellDecision type:', typeof sellDecision);
       }
     }
   };
