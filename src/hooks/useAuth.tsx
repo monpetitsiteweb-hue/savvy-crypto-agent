@@ -32,6 +32,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   useEffect(() => {
     let mounted = true;
     console.log('🔑 AuthProvider: Setting up auth state listener');
+    console.log('🔑 AuthProvider: Supabase client initialized');
+    
+    // Test if supabase client is working
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      console.log('🔑 AuthProvider: Initial session check - User:', session?.user?.email, 'Session exists:', !!session, 'Error:', error);
+      if (mounted) {
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+      }
+    }).catch((err) => {
+      console.error('🔑 AuthProvider: Error getting session:', err);
+      setLoading(false);
+    });
     
     // Set up auth state listener
     const {
@@ -41,17 +55,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       if (mounted) {
         setSession(session);
         setUser(session?.user ?? null);
-        setLoading(false);
-      }
-    });
-
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log('🔑 AuthProvider: Initial session check - User:', session?.user?.email, 'Session exists:', !!session);
-      if (mounted) {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
       }
     });
 
