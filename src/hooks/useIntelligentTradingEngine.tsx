@@ -157,13 +157,19 @@ export const useIntelligentTradingEngine = () => {
     });
 
     for (const position of positions) {
-      const currentPrice = marketData[position.cryptocurrency]?.price;
-      console.log('🚨 DEBUG SELL: Processing position:', position.cryptocurrency, 'current price:', currentPrice);
-      
-      if (!currentPrice) {
-        console.log('🚨 DEBUG SELL: NO PRICE DATA for', position.cryptocurrency);
-        continue;
-      }
+        // Try to match symbol with market data (handle both "XRP" and "XRP-EUR" formats)
+        const symbol = position.cryptocurrency;
+        const symbolWithEUR = symbol.includes('-EUR') ? symbol : `${symbol}-EUR`;
+        const symbolWithoutEUR = symbol.replace('-EUR', '');
+        
+        const currentPrice = marketData[symbol]?.price || marketData[symbolWithEUR]?.price || marketData[symbolWithoutEUR]?.price;
+        console.log('🚨 DEBUG SELL: Processing position:', symbol, 'trying symbols:', [symbol, symbolWithEUR, symbolWithoutEUR]);
+        console.log('🚨 DEBUG SELL: Found price:', currentPrice, 'for symbol matching');
+        
+        if (!currentPrice) {
+          console.log('🚨 DEBUG SELL: NO PRICE DATA for any variant of', symbol);
+          continue;
+        }
 
       const purchasePrice = position.average_price;
       const pnlPercentage = ((currentPrice - purchasePrice) / purchasePrice) * 100;
