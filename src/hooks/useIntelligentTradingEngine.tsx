@@ -139,10 +139,24 @@ export const useIntelligentTradingEngine = () => {
     const positions = await calculateOpenPositions();
     
     console.log('📊 ENGINE: Managing', positions.length, 'open positions');
+    console.log('🚨 DEBUG SELL: Full positions data:', JSON.stringify(positions, null, 2));
+    console.log('🚨 DEBUG SELL: Market data available:', Object.keys(marketData));
+    console.log('🚨 DEBUG SELL: Strategy config sell settings:', {
+      stopLossPercentage: config.stopLossPercentage,
+      takeProfitPercentage: config.takeProfitPercentage,
+      trailingStopLossPercentage: config.trailingStopLossPercentage,
+      autoCloseAfterHours: config.autoCloseAfterHours,
+      sellOrderType: config.sellOrderType
+    });
 
     for (const position of positions) {
       const currentPrice = marketData[position.cryptocurrency]?.price;
-      if (!currentPrice) continue;
+      console.log('🚨 DEBUG SELL: Processing position:', position.cryptocurrency, 'current price:', currentPrice);
+      
+      if (!currentPrice) {
+        console.log('🚨 DEBUG SELL: NO PRICE DATA for', position.cryptocurrency);
+        continue;
+      }
 
       const purchasePrice = position.average_price;
       const pnlPercentage = ((currentPrice - purchasePrice) / purchasePrice) * 100;
@@ -152,14 +166,20 @@ export const useIntelligentTradingEngine = () => {
         symbol: position.cryptocurrency,
         pnlPercentage: pnlPercentage.toFixed(2) + '%',
         hoursSincePurchase: hoursSincePurchase.toFixed(1),
-        amount: position.remaining_amount
+        amount: position.remaining_amount,
+        purchasePrice,
+        currentPrice
       });
 
       // Execute sell based on sell order type and conditions
       const sellDecision = await getSellDecision(config, position, currentPrice, pnlPercentage, hoursSincePurchase);
+      console.log('🚨 DEBUG SELL: Sell decision for', position.cryptocurrency, ':', sellDecision);
       
       if (sellDecision) {
+        console.log('🚨 DEBUG SELL: EXECUTING SELL ORDER!');
         await executeSellOrder(strategy, position, currentPrice, sellDecision);
+      } else {
+        console.log('🚨 DEBUG SELL: NO SELL DECISION - position will remain open');
       }
     }
   };
