@@ -107,6 +107,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   useEffect(() => {
     const fetchAllPastTrades = async () => {
+      console.log('🔄 PAST_TRADES: useEffect triggered, user:', !!user, 'userId:', user?.id);
+      
       if (!user) {
         console.log('❌ PAST_TRADES: No user, skipping fetch');
         setPastLoading(false);
@@ -123,9 +125,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           .eq('trade_type', 'sell')
           .order('executed_at', { ascending: false });
         
-        if (error) throw error;
+        if (error) {
+          console.error('❌ PAST_TRADES: Database error:', error);
+          throw error;
+        }
         
-        console.log('✅ PAST_TRADES: Found', data?.length || 0, 'sell trades');
+        console.log('✅ PAST_TRADES: Database query successful, found', data?.length || 0, 'sell trades');
+        console.log('📄 PAST_TRADES: Sample data:', data?.slice(0, 2));
         setAllPastTrades(data || []);
       } catch (error) {
         console.error('❌ Error fetching past trades:', error);
