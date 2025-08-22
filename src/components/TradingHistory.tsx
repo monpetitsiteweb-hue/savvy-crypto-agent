@@ -758,25 +758,25 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     try {
       let data, error;
       
-      if (testMode) {
-        // In test mode, fetch from mock_trades table for current user
-        console.log('🔍 Fetching mock trades for user:', user.id);
-        
-        const result = await supabase
-          .from('mock_trades')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('executed_at', { ascending: false });
-        
-        console.log('🔍 FETCH_TRADING: Mock trades query result:', { count: result.data?.length, error: result.error });
-        console.log('🔍 FETCH_TRADING: First few trades:', result.data?.slice(0, 3));
-        
-        data = result.data;
-        error = result.error;
-        
-        // Get current portfolio value from mock wallet
+      // Always check mock_trades first since that's where the trading data is stored
+      console.log('🔍 Fetching mock trades for user:', user.id);
+      
+      const result = await supabase
+        .from('mock_trades')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('executed_at', { ascending: false });
+      
+      console.log('🔍 FETCH_TRADING: Mock trades query result:', { count: result.data?.length, error: result.error });
+      console.log('🔍 FETCH_TRADING: First few trades:', result.data?.slice(0, 3));
+      
+      data = result.data;
+      error = result.error;
+      
+      // If we have mock trades data, use it
+      if (data && data.length > 0) {
         setPortfolioValue(getTotalValue());
-      } else {
+      } else if (!testMode) {
         // In live mode, fetch directly from Coinbase API
         console.log('🔍 Fetching live trading history directly from Coinbase API');
         
