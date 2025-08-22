@@ -25,12 +25,12 @@ interface TradingState {
 
 export const useIntelligentTradingEngine = () => {
   const { testMode } = useTestMode();
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const { updateBalance, getBalance } = useMockWallet();
   const { toast } = useToast();
   const { marketData, getCurrentData } = useRealTimeMarketData();
   
-  console.log('🚨 INTELLIGENT_ENGINE: Hook called with testMode:', testMode, 'user:', !!user, 'user email:', user?.email);
+  console.log('🚨 INTELLIGENT_ENGINE: Hook called with testMode:', testMode, 'user:', !!user, 'loading:', loading, 'user email:', user?.email);
   
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const tradingStateRef = useRef<TradingState>({
@@ -42,9 +42,9 @@ export const useIntelligentTradingEngine = () => {
   });
 
   const checkStrategiesAndExecute = async () => {
-    console.log('🚨 ENGINE: checkStrategiesAndExecute called with testMode:', testMode, 'user:', !!user, 'user email:', user?.email);
-    if (!testMode || !user) {
-      console.log('🚨 ENGINE: Skipping - testMode:', testMode, 'user:', !!user);
+    console.log('🚨 ENGINE: checkStrategiesAndExecute called with testMode:', testMode, 'user:', !!user, 'loading:', loading, 'user email:', user?.email);
+    if (!testMode || !user || loading) {
+      console.log('🚨 ENGINE: Skipping - testMode:', testMode, 'user:', !!user, 'loading:', loading);
       return;
     }
 
