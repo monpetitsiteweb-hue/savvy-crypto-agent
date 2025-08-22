@@ -94,28 +94,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     currentlyInvested: 0
   });
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
-// ============= CRITICAL FIX FOR AUTOMATED SALES ISSUE =============
-// The user has a 5% fee rate which is causing profitable trades to appear as losses
-// Need to fix the fee rate to a reasonable 0.5% (0.005) instead of 5% (0.05)
-
-  // IMMEDIATE DEBUG: Log current user fee rate
-  useEffect(() => {
-    if (user) {
-      const checkFeeRate = async () => {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('fee_rate, account_type')
-          .eq('id', user.id)
-          .single();
-        
-        console.log('🚨 CRITICAL: User fee rate:', data?.fee_rate, 'Account type:', data?.account_type);
-        if (data?.fee_rate > 0.01) {
-          console.error('🚨 CRITICAL: Fee rate is', data.fee_rate * 100, '% which is too high! Should be max 1%');
-        }
-      };
-      checkFeeRate();
-    }
-  }, [user]);
+  // User's fee rate is fetched from their profile settings
 
   // Simple past positions loading with better error handling
   const [allPastTrades, setAllPastTrades] = useState<Trade[]>([]);
@@ -188,9 +167,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
     const currentValue = trade.amount * currentMarketPrice;
     
-    // Calculate fees based on user's fee rate (not stored fees)
-    const buyFees = purchaseValue * (feeRate / 100);
-    const sellFees = currentValue * (feeRate / 100); // Projected sell fees
+    // Calculate fees based on user's fee rate (fee_rate is stored as decimal in DB)
+    const buyFees = purchaseValue * feeRate;
+    const sellFees = currentValue * feeRate; // Projected sell fees
     const totalFees = buyFees + sellFees;
     
     // Unrealized P&L = Current Value - Purchase Value - Fees
@@ -407,7 +386,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       const sellValue = trade.amount * currentPrice;
       const buyValue = trade.total_value; // Already pro-rated for partials in getOpenPositions
 
-      // Derive fee rate from original buy if available; fallback to profile fee rate
+      // Derive fee rate from original buy if available; fallback to profile fee rate (stored as decimal)
       const inferredBuyFeeRate = trade.total_value > 0 && (trade.fees || 0) > 0
         ? (trade.fees || 0) / trade.total_value
         : feeRate;

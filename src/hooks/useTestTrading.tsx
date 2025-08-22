@@ -373,9 +373,8 @@ export const useTestTrading = () => {
         .eq('id', tradeData.user_id)
         .single();
 
-      // Determine account type for fee calculation (simplified logic)
-      const accountType = profile?.username?.includes('coinbase') ? 'COINBASE_PRO' : 'OTHER';
-      const feeRate = getFeeRate(accountType);
+      // Use the user's actual fee rate from their profile settings
+      const feeRate = profile?.fee_rate || 0;
 
       let mockTradeData: any = {
         strategy_id: tradeData.strategy_id,
