@@ -266,8 +266,18 @@ export const useIntelligentTradingEngine = () => {
   };
 
   const executeSellOrder = async (strategy: any, position: Position, marketPrice: number, sellDecision: {reason: string, orderType?: string}) => {
-    console.log('💸 ENGINE: Executing sell order for', position.cryptocurrency, 'reason:', sellDecision.reason);
-    await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason);
+    console.log('💸 ENGINE: executeSellOrder called!');
+    console.log('💸 ENGINE: Position:', position.cryptocurrency, 'Amount:', position.remaining_amount);
+    console.log('💸 ENGINE: Market price:', marketPrice, 'Reason:', sellDecision.reason);
+    console.log('💸 ENGINE: Strategy:', strategy?.id);
+    
+    try {
+      console.log('💸 ENGINE: About to call executeTrade...');
+      await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason);
+      console.log('💸 ENGINE: executeTrade completed successfully!');
+    } catch (error) {
+      console.error('💸 ENGINE: Error in executeTrade:', error);
+    }
   };
 
   const checkTrailingStopLoss = async (config: any, position: Position, currentPrice: number, pnlPercentage: number): Promise<boolean> => {
