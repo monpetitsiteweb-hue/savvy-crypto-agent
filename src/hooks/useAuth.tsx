@@ -25,11 +25,14 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
+  console.log('🚨🚨🚨 AUTHPROVIDER: COMPONENT IS RENDERING!!! 🚨🚨🚨');
+  
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  console.log('🔑 AUTHPROVIDER: State initialized - about to run useEffect');
+  console.log('🔑 AUTHPROVIDER: State initialized - Current values:', { user: !!user, session: !!session, loading });
+  console.log('🔑 AUTHPROVIDER: About to run useEffect');
 
   useEffect(() => {
     console.log('🔑 AUTHPROVIDER: === USEEFFECT STARTED ===');
