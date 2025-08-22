@@ -158,15 +158,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   // PHASE 2: Past Positions now use stored snapshot data (no calculations needed)
   const calculateTradePerformance = (trade: Trade) => {
-    console.log('🔥 P&L_DEBUG: Calculating performance for trade:', {
-      id: trade.id,
-      type: trade.trade_type,
-      symbol: trade.cryptocurrency,
-      amount: trade.amount,
-      price: trade.price,
-      total_value: trade.total_value,
-      fees: trade.fees
-    });
     
     if (trade.trade_type === 'sell') {
       // Check if this is an automated trade without P&L data
@@ -204,32 +195,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
     const currentValue = trade.amount * currentMarketPrice;
     
-    console.log('🔥 P&L_DEBUG: BUY trade calculation:', {
-      purchasePrice,
-      purchaseValue,
-      currentMarketPrice,
-      currentValue,
-      amount: trade.amount,
-      fees: trade.fees,
-      feeRate
-    });
-    
-    // For open positions, only consider already paid buy fees
-    // DO NOT double-count with projected sell fees that haven't happened yet
-    const buyFees = trade.fees || 0; // Use actual fees paid from the trade record
-    
-    // Unrealized P&L = Current Value - (Purchase Value + Buy Fees Already Paid)
-    const unrealizedPL = currentValue - (purchaseValue + buyFees);
+    // Simple P&L calculation without fees - fees will be handled by Coinbase integration
+    const unrealizedPL = currentValue - purchaseValue;
     const gainLossPercentage = purchaseValue !== 0 ? (unrealizedPL / purchaseValue) * 100 : 0;
-    
-    console.log('🔥 P&L_DEBUG: Final calculation:', {
-      currentValue,
-      purchaseValue,
-      buyFees,
-      unrealizedPL,
-      gainLossPercentage,
-      formula: `${currentValue} - (${purchaseValue} + ${buyFees}) = ${unrealizedPL}`
-    });
     
     return {
       currentPrice: currentMarketPrice,

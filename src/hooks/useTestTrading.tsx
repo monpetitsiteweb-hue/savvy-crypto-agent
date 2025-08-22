@@ -378,14 +378,6 @@ export const useTestTrading = () => {
       // Use the user's actual fee rate from their profile settings
       const feeRate = profile?.fee_rate || 0;
       
-      console.log('🔥 TRADE_RECORDING_DEBUG: User profile and fees:', {
-        userId: tradeData.user_id,
-        profileFeeRate: profile?.fee_rate,
-        actualFeeRate: feeRate,
-        tradeType: tradeData.trade_type,
-        tradeValue: tradeData.total_value
-      });
-
       let mockTradeData: any = {
         strategy_id: tradeData.strategy_id,
         user_id: tradeData.user_id,
@@ -394,7 +386,7 @@ export const useTestTrading = () => {
         amount: round8(tradeData.amount),
         price: round6(tradeData.price),
         total_value: round2(tradeData.total_value),
-        fees: round2(tradeData.total_value * feeRate), // Legacy fees field
+        fees: 0, // No fees for now - will be handled by Coinbase integration
         strategy_trigger: tradeData.strategy_trigger,
         notes: 'Automated test trade',
         is_test_mode: true,
@@ -423,12 +415,12 @@ export const useTestTrading = () => {
         // 3) Exit values
         const exit_value = round2(tradeData.price * tradeData.amount);
 
-        // 4) Fees (NET P&L policy) — based on account type
-        const buy_fees = round2(original_purchase_value * feeRate);
-        const sell_fees = round2(exit_value * feeRate);
+        // 4) No fees for now - will be handled by Coinbase integration
+        const buy_fees = 0;
+        const sell_fees = 0;
 
-        // 5) Realized P&L (net of fees)
-        const realized_pnl = round2((exit_value - sell_fees) - (original_purchase_value + buy_fees));
+        // 5) Realized P&L (without fees)
+        const realized_pnl = round2(exit_value - original_purchase_value);
         const realized_pnl_pct = original_purchase_value > 0
           ? round2((realized_pnl / original_purchase_value) * 100)
           : 0;
