@@ -25,11 +25,15 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
+  console.log('🔑 AuthProvider: Component is mounting!');
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  console.log('🔑 AuthProvider: State initialized, about to run useEffect');
+
   useEffect(() => {
+    console.log('🔑 AuthProvider: useEffect is running!');
     let mounted = true;
     console.log('🔑 AuthProvider: Setting up auth state listener');
     console.log('🔑 AuthProvider: Supabase client initialized');
