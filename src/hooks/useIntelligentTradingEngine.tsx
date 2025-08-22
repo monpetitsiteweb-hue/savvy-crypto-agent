@@ -797,7 +797,6 @@ export const useIntelligentTradingEngine = () => {
     return finalPositions;
   };
 
-  // Trade Execution
   const executeTrade = async (
     strategy: any, 
     action: 'buy' | 'sell', 
@@ -810,6 +809,10 @@ export const useIntelligentTradingEngine = () => {
       console.error('❌ ENGINE: Cannot execute trade - no authenticated user');
       return;
     }
+
+    // CRITICAL FIX: Normalize symbol format - remove -EUR suffix for database storage
+    const normalizedSymbol = cryptocurrency.replace('-EUR', '');
+    console.log('🔧 ENGINE: Symbol normalization:', cryptocurrency, '->', normalizedSymbol);
 
     const config = strategy.configuration;
     let tradeAmount: number;
@@ -833,13 +836,13 @@ export const useIntelligentTradingEngine = () => {
       
       if (eurBalance >= tradeValue) {
         updateBalance('EUR', -tradeValue);
-        updateBalance(cryptocurrency, tradeAmount);
+        updateBalance(normalizedSymbol, tradeAmount);
         
         await recordTrade({
           strategy_id: strategy.id,
           user_id: user.id,
           trade_type: 'buy',
-          cryptocurrency,
+          cryptocurrency: normalizedSymbol,
           amount: tradeAmount,
           price,
           total_value: tradeValue,
@@ -851,22 +854,22 @@ export const useIntelligentTradingEngine = () => {
 
         toast({
           title: "REAL Signal Trade Executed",
-          description: `Bought ${tradeAmount.toFixed(6)} ${cryptocurrency} at €${price.toFixed(2)} (${trigger})`,
+          description: `Bought ${tradeAmount.toFixed(6)} ${normalizedSymbol} at €${price.toFixed(2)} (${trigger})`,
         });
       }
     } else if (action === 'sell') {
-      const cryptoBalance = getBalance(cryptocurrency);
+      const cryptoBalance = getBalance(normalizedSymbol);
       
       if (cryptoBalance >= tradeAmount) {
         const tradeValue = tradeAmount * price;
-        updateBalance(cryptocurrency, -tradeAmount);
+        updateBalance(normalizedSymbol, -tradeAmount);
         updateBalance('EUR', tradeValue);
         
         await recordTrade({
           strategy_id: strategy.id,
           user_id: user.id,
           trade_type: 'sell',
-          cryptocurrency,
+          cryptocurrency: normalizedSymbol,
           amount: tradeAmount,
           price,
           total_value: tradeValue,
@@ -878,7 +881,7 @@ export const useIntelligentTradingEngine = () => {
 
         toast({
           title: "REAL Signal Trade Executed",
-          description: `Sold ${tradeAmount.toFixed(6)} ${cryptocurrency} at €${price.toFixed(2)} (${trigger})`,
+          description: `Sold ${tradeAmount.toFixed(6)} ${normalizedSymbol} at €${price.toFixed(2)} (${trigger})`,
         });
       }
     }
