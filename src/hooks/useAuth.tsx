@@ -25,9 +25,10 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
-  // BULLETPROOF LOGGING - This MUST show up
-  console.log('🔑 AUTHPROVIDER: === COMPONENT MOUNTING ===');
-  console.log('🔑 AUTHPROVIDER: React version check - children:', !!children);
+  // EMERGENCY TEST - This ABSOLUTELY MUST show up
+  console.error('🚨🚨🚨 AUTHPROVIDER: COMPONENT IS MOUNTING!!! 🚨🚨🚨');
+  console.error('🚨 AUTHPROVIDER: Children exist:', !!children);
+  alert('AuthProvider is mounting!'); // Force visibility
   
   const [user, setUser] = useState<User | null>(() => {
     console.log('🔑 AUTHPROVIDER: Initializing user state');
