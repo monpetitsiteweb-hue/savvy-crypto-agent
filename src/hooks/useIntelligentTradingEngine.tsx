@@ -192,13 +192,24 @@ export const useIntelligentTradingEngine = () => {
   };
 
   const getSellDecision = async (config: any, position: Position, currentPrice: number, pnlPercentage: number, hoursSincePurchase: number): Promise<{reason: string, orderType?: string} | null> => {
+    console.log('🚨 SELL DECISION DEBUG: Checking sell conditions for', position.cryptocurrency);
+    console.log('🚨 SELL DECISION DEBUG: Current price:', currentPrice, 'P&L%:', pnlPercentage, 'Hours held:', hoursSincePurchase);
+    console.log('🚨 SELL DECISION DEBUG: Config:', {
+      autoCloseAfterHours: config.autoCloseAfterHours,
+      stopLossPercentage: config.stopLossPercentage,
+      takeProfitPercentage: config.takeProfitPercentage,
+      trailingStopLossPercentage: config.trailingStopLossPercentage
+    });
+    
     // 1. AUTO CLOSE AFTER HOURS (overrides everything)
     if (config.autoCloseAfterHours && hoursSincePurchase >= config.autoCloseAfterHours) {
+      console.log('🚨 SELL DECISION: AUTO CLOSE TRIGGERED!', hoursSincePurchase, '>=', config.autoCloseAfterHours);
       return { reason: 'AUTO_CLOSE_TIME', orderType: 'market' };
     }
 
     // 2. STOP LOSS CHECK
     if (config.stopLossPercentage && pnlPercentage <= -Math.abs(config.stopLossPercentage)) {
+      console.log('🚨 SELL DECISION: STOP LOSS TRIGGERED!', pnlPercentage, '<=', -Math.abs(config.stopLossPercentage));
       return { 
         reason: 'STOP_LOSS', 
         orderType: config.sellOrderType || 'market' 
@@ -207,11 +218,17 @@ export const useIntelligentTradingEngine = () => {
 
     // 3. TAKE PROFIT CHECK
     if (config.takeProfitPercentage && pnlPercentage >= config.takeProfitPercentage) {
+      console.log('🚨 SELL DECISION: TAKE PROFIT TRIGGERED!', pnlPercentage, '>=', config.takeProfitPercentage);
       return { 
         reason: 'TAKE_PROFIT', 
         orderType: config.sellOrderType || 'market' 
       };
     }
+
+    console.log('🚨 SELL DECISION: NO SELL CONDITIONS MET - keeping position open');
+    console.log('🚨 SELL DECISION: Auto close check:', config.autoCloseAfterHours ? `${hoursSincePurchase} < ${config.autoCloseAfterHours}` : 'disabled');
+    console.log('🚨 SELL DECISION: Stop loss check:', config.stopLossPercentage ? `${pnlPercentage} > ${-Math.abs(config.stopLossPercentage)}` : 'disabled');
+    console.log('🚨 SELL DECISION: Take profit check:', config.takeProfitPercentage ? `${pnlPercentage} < ${config.takeProfitPercentage}` : 'disabled');
 
     // 4. TRAILING STOP LOSS
     if (config.trailingStopLossPercentage) {
