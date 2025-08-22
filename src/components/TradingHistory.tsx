@@ -194,13 +194,12 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
     const currentValue = trade.amount * currentMarketPrice;
     
-    // Calculate fees based on user's fee rate (fee_rate is stored as decimal in DB)
-    const buyFees = purchaseValue * feeRate;
-    const sellFees = currentValue * feeRate; // Projected sell fees
-    const totalFees = buyFees + sellFees;
+    // For open positions, only consider already paid buy fees
+    // DO NOT double-count with projected sell fees that haven't happened yet
+    const buyFees = trade.fees || 0; // Use actual fees paid from the trade record
     
-    // Unrealized P&L = Current Value - Purchase Value - Fees
-    const unrealizedPL = currentValue - purchaseValue - totalFees;
+    // Unrealized P&L = Current Value - (Purchase Value + Buy Fees Already Paid)
+    const unrealizedPL = currentValue - (purchaseValue + buyFees);
     const gainLossPercentage = purchaseValue !== 0 ? (unrealizedPL / purchaseValue) * 100 : 0;
     
     return {
