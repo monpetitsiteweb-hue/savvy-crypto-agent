@@ -94,18 +94,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     currentlyInvested: 0
   });
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
-  // DIRECT PAST POSITIONS FETCH - separate from complex state management
-  const [directPastPositions, setDirectPastPositions] = useState<Trade[]>([]);
+  // SIMPLE PAST POSITIONS - ALL SELL TRADES FOR USER
+  const [allPastTrades, setAllPastTrades] = useState<Trade[]>([]);
   const [pastLoading, setPastLoading] = useState(true);
   
   useEffect(() => {
-    const fetchDirectPastPositions = async () => {
+    const fetchAllPastTrades = async () => {
       if (!user) {
         setPastLoading(false);
         return;
       }
-      
-      console.log('🔍 PAST_POSITIONS: Direct fetch from database for user:', user.id);
       
       try {
         const { data, error } = await supabase
@@ -117,17 +115,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         
         if (error) throw error;
         
-        console.log('🔍 PAST_POSITIONS: Direct fetch result:', data?.length || 0, 'sell trades');
-        setDirectPastPositions(data || []);
+        setAllPastTrades(data || []);
       } catch (error) {
-        console.error('Error fetching past positions:', error);
-        setDirectPastPositions([]);
+        console.error('Error fetching past trades:', error);
+        setAllPastTrades([]);
       } finally {
         setPastLoading(false);
       }
     };
     
-    fetchDirectPastPositions();
+    fetchAllPastTrades();
   }, [user]);
 
   // PHASE 2: Past Positions now use stored snapshot data (no calculations needed)
@@ -1246,11 +1243,11 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           {pastLoading ? (
             <div className="text-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-              <p className="text-slate-400 mt-2">Loading past positions...</p>
+              <p className="text-slate-400 mt-2">Loading past trades...</p>
             </div>
-          ) : directPastPositions.length > 0 ? (
+          ) : allPastTrades.length > 0 ? (
             <div className="space-y-4">
-              {directPastPositions.map((trade, index) => (
+              {allPastTrades.map((trade, index) => (
                 <TradeCard key={`past-${trade.id}-${index}`} trade={trade} />
               ))}
             </div>
