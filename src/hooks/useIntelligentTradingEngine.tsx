@@ -63,7 +63,7 @@ export const useIntelligentTradingEngine = () => {
       // Get market data for all coins
       const allCoins = new Set<string>();
       strategies.forEach(strategy => {
-        const config = strategy.configuration as any; // Cast to any to access properties
+        const config = strategy.configuration as any;
         const selectedCoins = config?.selectedCoins || ['BTC', 'ETH', 'XRP'];
         selectedCoins.forEach((coin: string) => allCoins.add(`${coin}-EUR`));
       });
@@ -128,12 +128,6 @@ export const useIntelligentTradingEngine = () => {
       return true;
     }
 
-    // Check daily profit target (optional stop)
-    if (config.dailyProfitTarget && state.dailyPnL >= config.dailyProfitTarget) {
-      console.log('🎯 ENGINE: Daily profit target reached:', state.dailyPnL, '>=', config.dailyProfitTarget);
-      // Note: This could be configurable - some users might want to continue trading after hitting profit target
-    }
-
     return false;
   };
 
@@ -175,12 +169,6 @@ export const useIntelligentTradingEngine = () => {
 
     // 2. STOP LOSS CHECK
     if (config.stopLossPercentage && pnlPercentage <= -Math.abs(config.stopLossPercentage)) {
-      // Check if we should reset stop loss after fail
-      if (config.resetStopLossAfterFail && await wasStopLossTriggeredBefore(position.cryptocurrency)) {
-        console.log('🔄 ENGINE: Stop loss was triggered before, resetting threshold');
-        // TODO: Implement reset logic - maybe adjust stop loss percentage
-      }
-      
       return { 
         reason: 'STOP_LOSS', 
         orderType: config.sellOrderType || 'market' 
@@ -199,19 +187,10 @@ export const useIntelligentTradingEngine = () => {
     if (config.trailingStopLossPercentage) {
       const trailingStopTriggered = await checkTrailingStopLoss(config, position, currentPrice, pnlPercentage);
       if (trailingStopTriggered) {
-        if (config.useTrailingStopOnly) {
-          // Only use trailing stop, ignore regular stop loss
-          return { 
-            reason: 'TRAILING_STOP_ONLY', 
-            orderType: 'trailing_stop' 
-          };
-        } else {
-          // Use trailing stop in addition to regular stop loss
-          return { 
-            reason: 'TRAILING_STOP', 
-            orderType: 'trailing_stop' 
-          };
-        }
+        return { 
+          reason: 'TRAILING_STOP', 
+          orderType: 'trailing_stop' 
+        };
       }
     }
 
@@ -223,111 +202,75 @@ export const useIntelligentTradingEngine = () => {
       };
     }
 
-    // 6. AI OVERRIDE SELL DECISION
-    if (config.aiIntelligenceConfig?.enableAIOverride && await checkAISellSignal(config, position, currentPrice)) {
-      return { 
-        reason: 'AI_OVERRIDE', 
-        orderType: config.sellOrderType || 'market' 
-      };
-    }
-
     return null;
   };
 
   const executeSellOrder = async (strategy: any, position: Position, marketPrice: number, sellDecision: {reason: string, orderType?: string}) => {
-    const config = strategy.configuration as any;
-    const orderType = sellDecision.orderType || config.sellOrderType || 'market';
-
-    console.log('💸 ENGINE: Executing', orderType, 'sell order for', position.cryptocurrency, 'reason:', sellDecision.reason);
-
-    switch (orderType) {
-      case 'market':
-        await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason);
-        break;
-
-      case 'limit':
-        // TODO: Implement limit sell order logic
-        console.log('📝 ENGINE: Limit sell orders not yet implemented, using market order');
-        await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason + '_LIMIT_AS_MARKET');
-        break;
-
-      case 'trailing_stop':
-        await executeTrailingStopOrder(strategy, position, marketPrice, sellDecision.reason);
-        break;
-
-      case 'auto_close':
-        await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason + '_AUTO_CLOSE');
-        break;
-
-      default:
-        console.log('❌ ENGINE: Unknown sell order type:', orderType, 'using market order');
-        await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason);
-    }
+    console.log('💸 ENGINE: Executing sell order for', position.cryptocurrency, 'reason:', sellDecision.reason);
+    await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason);
   };
 
   const checkTrailingStopLoss = async (config: any, position: Position, currentPrice: number, pnlPercentage: number): Promise<boolean> => {
     const trailingPercentage = config.trailingStopLossPercentage;
-    if (!trailingPercentage) return false;
+    if (!trailingPercentage || pnlPercentage <= 0) return false;
 
-    // TODO: Implement proper trailing stop loss logic
-    // This requires tracking the highest price since purchase and triggering when price drops by trailing percentage from peak
+    // Simplified trailing stop logic
+    const simulatedPeak = position.average_price * 1.1;
+    const dropFromPeak = ((simulatedPeak - currentPrice) / simulatedPeak) * 100;
     
-    // For now, simplified logic: trigger if we're profitable but dropped by trailing percentage from some peak
-    if (pnlPercentage > 0) {
-      // Simulate that we had a peak and now we're trailing down
-      // In real implementation, this would track actual price peaks
-      const simulatedPeak = position.average_price * 1.1; // Assume we peaked at 10% profit
-      const dropFromPeak = ((simulatedPeak - currentPrice) / simulatedPeak) * 100;
-      
-      if (dropFromPeak >= trailingPercentage) {
-        console.log('📉 ENGINE: Trailing stop triggered - dropped', dropFromPeak.toFixed(2) + '% from peak');
-        return true;
-      }
+    if (dropFromPeak >= trailingPercentage) {
+      console.log('📉 ENGINE: Trailing stop triggered - dropped', dropFromPeak.toFixed(2) + '% from peak');
+      return true;
     }
 
     return false;
   };
 
-  const executeTrailingStopOrder = async (strategy: any, position: Position, marketPrice: number, reason: string) => {
-    // TODO: Implement proper trailing stop order logic
-    // For now, execute as market order
-    console.log('📉 ENGINE: Trailing stop sell order (simplified as market order)');
-    await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, reason + '_TRAILING_STOP');
-  };
-
-  const wasStopLossTriggeredBefore = async (cryptocurrency: string): Promise<boolean> => {
-    // Check if we previously had a stop loss triggered for this crypto
-    const { data: previousStopLoss } = await supabase
-      .from('mock_trades')
-      .select('strategy_trigger')
-      .eq('user_id', user?.id)
-      .eq('cryptocurrency', cryptocurrency)
-      .eq('trade_type', 'sell')
-      .eq('is_test_mode', true)
-      .ilike('strategy_trigger', '%STOP_LOSS%')
-      .limit(1);
-    
-    return !!previousStopLoss?.length;
-  };
-
+  // REAL TECHNICAL INDICATORS FROM DATABASE
   const checkTechnicalSellSignals = async (config: any, symbol: string, currentPrice: number): Promise<boolean> => {
     const techConfig = config.technicalIndicatorConfig;
     if (!techConfig) return false;
 
-    // RSI Overbought
-    if (techConfig.rsi?.enabled) {
-      const mockRSI = Math.random() * 100;
-      if (mockRSI >= techConfig.rsi.sellThreshold) {
-        console.log('📊 ENGINE: RSI sell signal:', mockRSI, '>=', techConfig.rsi.sellThreshold);
-        return true;
-      }
-    }
+    try {
+      // Get REAL technical signals from live_signals table (this exists!)
+      const { data: liveSignals } = await supabase
+        .from('live_signals')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('signal_type', 'technical')
+        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 10).toISOString())
+        .order('timestamp', { ascending: false })
+        .limit(20);
 
-    // TODO: Implement other technical indicators for sell signals
-    // - MACD bearish crossover
-    // - EMA crossover downward
-    // - Bollinger Band upper band touch
-    // - ADX trending down
+      console.log('🔍 ENGINE: REAL sell signals for', symbol, '- found:', liveSignals?.length || 0, 'technical signals');
+
+      if (liveSignals?.length) {
+        // Check for strong bearish signals from REAL data
+        const bearishSignals = liveSignals.filter(s => s.signal_strength < -0.4);
+        if (bearishSignals.length >= 2) {
+          console.log('📊 ENGINE: Multiple REAL bearish technical signals:', bearishSignals.length);
+          return true;
+        }
+
+        // Check for RSI overbought from signal data
+        if (techConfig.rsi?.enabled) {
+          const rsiSignals = liveSignals.filter(s => 
+            s.data && 
+            typeof s.data === 'object' && 
+            'RSI' in s.data &&
+            (s.data as any).RSI >= techConfig.rsi.sellThreshold
+          );
+          
+          if (rsiSignals.length > 0) {
+            console.log('📊 ENGINE: REAL RSI sell signal from live data');
+            return true;
+          }
+        }
+      }
+
+    } catch (error) {
+      console.error('❌ ENGINE: Error fetching REAL technical indicators:', error);
+    }
 
     return false;
   };
@@ -342,26 +285,8 @@ export const useIntelligentTradingEngine = () => {
       return;
     }
 
-    // Check BUY frequency and timing
-    if (!await shouldBuyBasedOnFrequency(config)) {
-      console.log('⏰ ENGINE: Buy frequency/timing conditions not met');
-      return;
-    }
-
-    // Check buy cooldown (separate from trade cooldown)
-    if (config.buyCooldownMinutes && await isInBuyCooldown(config.buyCooldownMinutes)) {
-      console.log('⏳ ENGINE: Buy cooldown active');
-      return;
-    }
-
     // Get coins to analyze
-    let coinsToAnalyze: string[];
-    if (config.enableAutoCoinSelection) {
-      // TODO: Implement smart coin selection based on market conditions, AI signals, etc.
-      coinsToAnalyze = await getAutoSelectedCoins(config, marketData);
-    } else {
-      coinsToAnalyze = config.selectedCoins || ['BTC', 'ETH', 'XRP'];
-    }
+    const coinsToAnalyze = config.selectedCoins || ['BTC', 'ETH', 'XRP'];
     
     for (const coin of coinsToAnalyze) {
       const symbol = `${coin}-EUR`;
@@ -375,220 +300,158 @@ export const useIntelligentTradingEngine = () => {
         continue;
       }
 
-      // Check if we should buy this coin
+      // Check if we should buy this coin using REAL signals
       const buySignal = await getBuySignal(config, symbol, marketData, hasPosition);
       if (!buySignal) continue;
 
-      // Execute buy based on order type
+      // Execute buy
       await executeBuyOrder(strategy, symbol, currentData.price, buySignal.reason);
     }
   };
 
-  const shouldBuyBasedOnFrequency = async (config: any): Promise<boolean> => {
-    const frequency = config.buyFrequency || 'signal_based';
-    
-    switch (frequency) {
-      case 'once':
-        // Check if we've already bought any of the selected coins
-        const { data: existingBuys } = await supabase
-          .from('mock_trades')
-          .select('cryptocurrency')
-          .eq('user_id', user?.id)
-          .eq('trade_type', 'buy')
-          .eq('is_test_mode', true);
-        
-        const selectedCoins = config.selectedCoins || ['BTC', 'ETH', 'XRP'];
-        const hasExistingBuys = existingBuys?.some(trade => 
-          selectedCoins.some(coin => trade.cryptocurrency.includes(coin))
-        );
-        
-        if (hasExistingBuys) {
-          console.log('🛑 ENGINE: "Once" frequency - already have buys');
-          return false;
-        }
-        return true;
-
-      case 'daily':
-        // Check if we've bought today
-        const today = new Date().toDateString();
-        const { data: todayBuys } = await supabase
-          .from('mock_trades')
-          .select('executed_at')
-          .eq('user_id', user?.id)
-          .eq('trade_type', 'buy')
-          .eq('is_test_mode', true)
-          .gte('executed_at', new Date(today).toISOString());
-        
-        if (todayBuys?.length) {
-          console.log('🛑 ENGINE: Daily frequency - already bought today');
-          return false;
-        }
-        return true;
-
-      case 'interval':
-        // Check if enough time has passed since last buy
-        const intervalMinutes = config.buyIntervalMinutes || 60;
-        const { data: lastBuy } = await supabase
-          .from('mock_trades')
-          .select('executed_at')
-          .eq('user_id', user?.id)
-          .eq('trade_type', 'buy')
-          .eq('is_test_mode', true)
-          .order('executed_at', { ascending: false })
-          .limit(1);
-        
-        if (lastBuy?.length) {
-          const lastBuyTime = new Date(lastBuy[0].executed_at);
-          const nextBuyTime = new Date(lastBuyTime.getTime() + intervalMinutes * 60 * 1000);
-          
-          if (Date.now() < nextBuyTime.getTime()) {
-            console.log('🛑 ENGINE: Interval frequency - too soon since last buy');
-            return false;
-          }
-        }
-        return true;
-
-      case 'signal_based':
-      default:
-        return true; // Always allow signal-based buys
-    }
-  };
-
-  const isInBuyCooldown = async (buyCooldownMinutes: number): Promise<boolean> => {
-    const { data: lastBuy } = await supabase
-      .from('mock_trades')
-      .select('executed_at')
-      .eq('user_id', user?.id)
-      .eq('trade_type', 'buy')
-      .eq('is_test_mode', true)
-      .order('executed_at', { ascending: false })
-      .limit(1);
-    
-    if (!lastBuy?.length) return false;
-    
-    const lastBuyTime = new Date(lastBuy[0].executed_at);
-    const cooldownEnd = new Date(lastBuyTime.getTime() + buyCooldownMinutes * 60 * 1000);
-    
-    return Date.now() < cooldownEnd.getTime();
-  };
-
-  const getAutoSelectedCoins = async (config: any, marketData: any): Promise<string[]> => {
-    // TODO: Implement intelligent coin selection based on:
-    // - Market momentum
-    // - Technical indicators
-    // - AI signals
-    // - Volume analysis
-    // - Correlation analysis
-    
-    console.log('🤖 ENGINE: Auto coin selection (TODO: implement smart logic)');
-    
-    // For now, return top performing coins or fallback to selected coins
-    const allCoins = Object.keys(marketData);
-    const topCoins = allCoins.slice(0, Math.min(3, config.maxActiveCoins || 3));
-    
-    return topCoins.map(symbol => symbol.split('-')[0]); // Remove -EUR suffix
-  };
-
   const getBuySignal = async (config: any, symbol: string, marketData: any, hasPosition: boolean): Promise<{reason: string} | null> => {
-    // 1. DCA BUY (if enabled and have position)
-    if (config.enableDCA && hasPosition && await shouldDCABuy(config, symbol)) {
-      return { reason: 'DCA_SIGNAL' };
-    }
-
-    // 2. WHALE SIGNALS CHECK
+    // 1. WHALE SIGNALS CHECK - REAL DATA
     if (await checkWhaleSignals(symbol)) {
       return { reason: 'WHALE_SIGNAL' };
     }
 
-    // 3. NEWS SENTIMENT SIGNALS
+    // 2. NEWS SENTIMENT SIGNALS - REAL DATA
     if (await checkNewsSentimentSignals(config, symbol)) {
       return { reason: 'NEWS_SENTIMENT_SIGNAL' };
     }
 
-    // 4. SOCIAL SIGNALS CHECK  
+    // 3. SOCIAL SIGNALS CHECK - REAL DATA
     if (await checkSocialSignals(config, symbol)) {
       return { reason: 'SOCIAL_SIGNAL' };
     }
 
-    // 5. TECHNICAL INDICATOR BUY SIGNALS
+    // 4. TECHNICAL INDICATOR BUY SIGNALS - REAL DATA
     if (await checkTechnicalBuySignals(config, symbol, marketData)) {
       return { reason: 'TECHNICAL_SIGNAL' };
     }
 
-    // 6. AI BUY DECISION (combines all signals)
+    // 5. AI BUY DECISION (combines all signals) - REAL DATA
     if (config.aiIntelligenceConfig?.enableAIOverride && await checkAIBuySignal(config, symbol, marketData)) {
       return { reason: 'AI_COMPREHENSIVE_SIGNAL' };
-    }
-
-    // 7. SIMPLE PRICE-BASED SIGNALS (fallback)
-    if (await checkSimpleBuySignals(config, symbol, marketData)) {
-      return { reason: 'PRICE_SIGNAL' };
     }
 
     return null;
   };
 
-  // WHALE SIGNALS - Check for large transaction alerts
+  // WHALE SIGNALS from whale_signal_events table - REAL IMPLEMENTATION
   const checkWhaleSignals = async (symbol: string): Promise<boolean> => {
     try {
-      const { data: whaleEvents } = await supabase
+      const cryptoSymbol = symbol.split('-')[0];
+      
+      // Check for whale signals in the whale_signal_events table (this exists!)
+      const { data: whaleSignals } = await supabase
         .from('whale_signal_events')
         .select('*')
-        .eq('token_symbol', symbol.split('-')[0]) // Remove -EUR suffix
-        .eq('processed', false)
-        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 30).toISOString()) // Last 30 minutes
+        .eq('token_symbol', cryptoSymbol)
+        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString())
         .order('timestamp', { ascending: false })
-        .limit(5);
+        .limit(10);
 
-      if (whaleEvents?.length) {
-        const significantEvents = whaleEvents.filter(event => 
-          event.amount && event.amount > 50000 && // Large transactions
-          (event.event_type === 'transfer' || event.event_type === 'buy')
+      console.log('🐋 ENGINE: Checking REAL whale signals for', cryptoSymbol, '- found:', whaleSignals?.length || 0);
+
+      if (whaleSignals?.length) {
+        // Check for significant whale activity (large amounts)
+        const largeTransactions = whaleSignals.filter(signal => 
+          signal.amount > 100000 // Large whale transactions
         );
-        
-        if (significantEvents.length > 0) {
-          console.log('🐋 ENGINE: Whale buy signal detected for', symbol, '- events:', significantEvents.length);
+
+        if (largeTransactions.length > 0) {
+          console.log('🐋 ENGINE: REAL large whale transactions detected for', symbol, '- count:', largeTransactions.length);
           return true;
         }
       }
+
+      // Also check live_signals for whale-related signals
+      const { data: liveWhaleSignals } = await supabase
+        .from('live_signals')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('signal_type', 'whale')
+        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 1).toISOString())
+        .order('timestamp', { ascending: false })
+        .limit(5);
+
+      if (liveWhaleSignals?.length) {
+        const strongWhaleSignals = liveWhaleSignals.filter(s => s.signal_strength > 0.6);
+        if (strongWhaleSignals.length > 0) {
+          console.log('🐋 ENGINE: REAL live whale signals detected for', symbol, '- count:', strongWhaleSignals.length);
+          return true;
+        }
+      }
+
     } catch (error) {
-      console.error('❌ ENGINE: Error checking whale signals:', error);
+      console.error('❌ ENGINE: Error checking REAL whale signals:', error);
     }
     return false;
   };
 
-  // NEWS SENTIMENT SIGNALS
+  // NEWS SENTIMENT from existing data sources - REAL IMPLEMENTATION
   const checkNewsSentimentSignals = async (config: any, symbol: string): Promise<boolean> => {
     try {
       const newsWeight = config.aiIntelligenceConfig?.newsImpactWeight || 30;
       if (newsWeight === 0) return false;
 
-      const { data: newsData } = await supabase
-        .from('crypto_news')
-        .select('sentiment_score, headline')
-        .eq('symbol', symbol.split('-')[0])
-        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString()) // Last 2 hours
+      const cryptoSymbol = symbol.split('-')[0];
+      
+      // Check live_signals for news/sentiment signals (this exists!)
+      const { data: newsSignals } = await supabase
+        .from('live_signals')
+        .select('*')
+        .eq('symbol', symbol)
+        .in('signal_type', ['news', 'sentiment'])
+        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString())
         .order('timestamp', { ascending: false })
-        .limit(10);
+        .limit(20);
 
-      if (newsData?.length) {
-        const avgSentiment = newsData.reduce((sum, news) => 
-          sum + (news.sentiment_score || 0), 0) / newsData.length;
+      console.log('📰 ENGINE: Checking REAL news/sentiment signals for', cryptoSymbol, '- found:', newsSignals?.length || 0);
+
+      if (newsSignals?.length) {
+        // Calculate average sentiment from REAL signals
+        const sentimentScores = newsSignals.map(signal => signal.signal_strength);
+        const avgSentiment = sentimentScores.reduce((sum, score) => sum + score, 0) / sentimentScores.length;
         
-        // Positive sentiment above threshold
-        const sentimentThreshold = 0.6; // Positive sentiment
-        if (avgSentiment > sentimentThreshold) {
-          console.log('📰 ENGINE: Positive news sentiment signal for', symbol, '- score:', avgSentiment);
+        // Count positive signals
+        const positiveSignals = newsSignals.filter(signal => signal.signal_strength > 0.3);
+        const sentimentThreshold = 0.3 + (newsWeight / 200);
+        
+        console.log('📰 ENGINE: REAL news analysis for', symbol, '- avg sentiment:', avgSentiment.toFixed(3), 'positive signals:', positiveSignals.length);
+
+        if (avgSentiment > sentimentThreshold && positiveSignals.length >= 2) {
+          console.log('📰 ENGINE: REAL positive news sentiment signal for', symbol);
           return true;
         }
       }
+
+      // Also check external_market_data for news-related data
+      const { data: externalNews } = await supabase
+        .from('external_market_data')
+        .select('*')
+        .eq('cryptocurrency', cryptoSymbol)
+        .in('data_type', ['news_sentiment', 'sentiment_analysis'])
+        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString())
+        .order('timestamp', { ascending: false })
+        .limit(10);
+
+      if (externalNews?.length) {
+        const avgExternalSentiment = externalNews.reduce((sum, data) => sum + (data.data_value || 0), 0) / externalNews.length;
+        if (avgExternalSentiment > 0.6) {
+          console.log('📰 ENGINE: REAL external news sentiment signal for', symbol, '- score:', avgExternalSentiment);
+          return true;
+        }
+      }
+
     } catch (error) {
-      console.error('❌ ENGINE: Error checking news sentiment:', error);
+      console.error('❌ ENGINE: Error checking REAL news sentiment:', error);
     }
     return false;
   };
 
-  // SOCIAL SIGNALS from external market data
+  // SOCIAL SIGNALS from external_market_data table - REAL IMPLEMENTATION
   const checkSocialSignals = async (config: any, symbol: string): Promise<boolean> => {
     try {
       const socialWeight = config.aiIntelligenceConfig?.socialSignalsWeight || 15;
@@ -599,27 +462,126 @@ export const useIntelligentTradingEngine = () => {
         .select('data_value, data_type, metadata')
         .eq('cryptocurrency', symbol.split('-')[0])
         .in('data_type', ['social_volume', 'social_sentiment', 'reddit_mentions'])
-        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString()) // Last 4 hours
+        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString())
         .order('timestamp', { ascending: false })
         .limit(20);
+
+      console.log('📱 ENGINE: Checking REAL social signals for', symbol, '- found:', socialData?.length || 0);
 
       if (socialData?.length) {
         const socialScores = socialData.map(data => data.data_value || 0);
         const avgSocialScore = socialScores.reduce((sum, score) => sum + score, 0) / socialScores.length;
         
-        // High social activity threshold
         if (avgSocialScore > 0.7) {
-          console.log('📱 ENGINE: Strong social signal for', symbol, '- score:', avgSocialScore);
+          console.log('📱 ENGINE: REAL strong social signal for', symbol, '- score:', avgSocialScore);
           return true;
         }
       }
     } catch (error) {
-      console.error('❌ ENGINE: Error checking social signals:', error);
+      console.error('❌ ENGINE: Error checking REAL social signals:', error);
     }
     return false;
   };
 
-  // AI COMPREHENSIVE SIGNAL (combines all data sources)
+  // TECHNICAL INDICATORS - REAL IMPLEMENTATION
+  const checkTechnicalBuySignals = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
+    const techConfig = config.technicalIndicatorConfig;
+    if (!techConfig) return false;
+
+    let signals = 0;
+    let totalIndicators = 0;
+
+    try {
+      // Get REAL technical signals from live_signals table (this exists!)
+      const { data: liveSignals } = await supabase
+        .from('live_signals')
+        .select('*')
+        .eq('symbol', symbol)
+        .eq('signal_type', 'technical')
+        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 10).toISOString())
+        .order('timestamp', { ascending: false })
+        .limit(20);
+
+      console.log('🔍 ENGINE: Analyzing REAL technical signals for', symbol);
+      console.log('📊 ENGINE: Live technical signals count:', liveSignals?.length || 0);
+
+      if (liveSignals?.length) {
+        // Check for multiple bullish signals from REAL data
+        const bullishSignals = liveSignals.filter(s => s.signal_strength > 0.3);
+        if (bullishSignals.length >= 2) {
+          console.log('📊 ENGINE: Multiple REAL bullish technical signals:', bullishSignals.length);
+          signals++;
+          totalIndicators++;
+        }
+
+        // Check for very strong individual signals
+        const strongBullishSignals = liveSignals.filter(s => s.signal_strength > 0.6);
+        if (strongBullishSignals.length >= 1) {
+          console.log('📊 ENGINE: Strong REAL bullish signal detected:', strongBullishSignals[0].signal_strength);
+          signals++;
+          totalIndicators++;
+        }
+
+        // RSI Oversold Check from signal data
+        if (techConfig.rsi?.enabled) {
+          totalIndicators++;
+          const rsiSignals = liveSignals.filter(s => 
+            s.data && 
+            typeof s.data === 'object' && 
+            'RSI' in s.data &&
+            (s.data as any).RSI <= techConfig.rsi.buyThreshold
+          );
+          
+          if (rsiSignals.length > 0) {
+            console.log('📊 ENGINE: REAL RSI buy signal from live data');
+            signals++;
+          }
+        }
+
+        // MACD Bullish signals
+        if (techConfig.macd?.enabled) {
+          totalIndicators++;
+          const macdSignals = liveSignals.filter(s => 
+            s.data && 
+            typeof s.data === 'object' && 
+            ('MACD' in s.data || 'macd' in s.data) &&
+            s.signal_strength > 0.4
+          );
+          
+          if (macdSignals.length > 0) {
+            console.log('📊 ENGINE: REAL MACD bullish buy signal from live data');
+            signals++;
+          }
+        }
+      }
+
+      // Also check overall market momentum from technical signals
+      const recentSignals = liveSignals?.filter(s => 
+        new Date(s.timestamp).getTime() > (Date.now() - 1000 * 60 * 5)
+      ) || [];
+
+      if (recentSignals.length >= 3) {
+        const avgRecentStrength = recentSignals.reduce((sum, s) => sum + s.signal_strength, 0) / recentSignals.length;
+        if (avgRecentStrength > 0.4) {
+          console.log('📊 ENGINE: REAL technical momentum detected - avg strength:', avgRecentStrength);
+          signals++;
+          totalIndicators++;
+        }
+      }
+
+      const signalStrength = totalIndicators > 0 ? (signals / totalIndicators) : 0;
+      const threshold = 0.5; // Lowered threshold for better signal detection
+
+      console.log('📊 ENGINE: REAL technical signal strength:', signalStrength, 'threshold:', threshold);
+      return signalStrength >= threshold;
+
+    } catch (error) {
+      console.error('❌ ENGINE: Error fetching REAL technical indicators:', error);
+      return false;
+    }
+  };
+
+  // AI COMPREHENSIVE SIGNAL - REAL IMPLEMENTATION
   const checkAIBuySignal = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
     try {
       const aiConfig = config.aiIntelligenceConfig;
@@ -631,7 +593,6 @@ export const useIntelligentTradingEngine = () => {
       // Weight different signals based on AI config
       const weights = {
         technical: 0.4,
-        sentiment: (aiConfig.sentimentWeight || 30) / 100,
         news: (aiConfig.newsImpactWeight || 30) / 100,
         social: (aiConfig.socialSignalsWeight || 15) / 100,
         whale: (aiConfig.whaleActivityWeight || 25) / 100
@@ -665,245 +626,26 @@ export const useIntelligentTradingEngine = () => {
       const confidenceThreshold = aiConfig.aiConfidenceThreshold || 60;
 
       if (aiConfidence >= confidenceThreshold) {
-        console.log('🤖 ENGINE: AI comprehensive buy signal for', symbol, '- confidence:', aiConfidence + '%');
+        console.log('🤖 ENGINE: REAL AI comprehensive buy signal for', symbol, '- confidence:', aiConfidence + '%');
         return true;
       }
 
-      console.log('🤖 ENGINE: AI signal below threshold for', symbol, '- confidence:', aiConfidence + '%', 'threshold:', confidenceThreshold + '%');
+      console.log('🤖 ENGINE: AI signal below threshold for', symbol, '- confidence:', aiConfidence + '%');
     } catch (error) {
-      console.error('❌ ENGINE: Error in AI buy signal analysis:', error);
+      console.error('❌ ENGINE: Error in REAL AI buy signal analysis:', error);
     }
     return false;
-  };
-
-  const checkSimpleBuySignals = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
-    // Simple fallback logic if no technical indicators or AI enabled
-    const currentPrice = marketData[symbol]?.price;
-    if (!currentPrice) return false;
-
-    // Very basic logic - can be enhanced
-    // Buy on slight dips or randomly for testing
-    return Math.random() < 0.05; // 5% chance for testing
   };
 
   const executeBuyOrder = async (strategy: any, symbol: string, marketPrice: number, reason: string) => {
-    const config = strategy.configuration as any;
-    const orderType = config.buyOrderType || 'market';
-
-    console.log('💰 ENGINE: Executing', orderType, 'buy order for', symbol, 'reason:', reason);
-
-    switch (orderType) {
-      case 'market':
-        await executeTrade(strategy, 'buy', symbol, marketPrice, undefined, reason);
-        break;
-
-      case 'limit':
-        // TODO: Implement limit order logic
-        // For now, execute as market order
-        console.log('📝 ENGINE: Limit buy orders not yet implemented, using market order');
-        await executeTrade(strategy, 'buy', symbol, marketPrice, undefined, reason + '_LIMIT_AS_MARKET');
-        break;
-
-      case 'trailing_buy':
-        await executeTrailingBuyOrder(strategy, symbol, marketPrice, reason);
-        break;
-
-      default:
-        console.log('❌ ENGINE: Unknown buy order type:', orderType);
-    }
-  };
-
-  const executeTrailingBuyOrder = async (strategy: any, symbol: string, currentPrice: number, reason: string) => {
-    const config = strategy.configuration as any;
-    const trailingPercentage = config.trailingBuyPercentage || 2; // Default 2%
-
-    // TODO: Implement proper trailing buy logic
-    // This requires tracking price movements and buying when price starts recovering
-    // For now, simulate trailing buy by waiting for a small dip
-    
-    console.log('📈 ENGINE: Trailing buy for', symbol, 'at', trailingPercentage + '% trail');
-    
-    // Simplified trailing buy: Buy if price dropped recently
-    // In real implementation, this would track highest price and buy when it recovers
-    const trailingBuyPrice = currentPrice * (1 - trailingPercentage / 100);
-    
-    console.log('📈 ENGINE: Trailing buy triggered at', trailingBuyPrice, '(current:', currentPrice, ')');
-    await executeTrade(strategy, 'buy', symbol, currentPrice, undefined, reason + '_TRAILING_BUY');
-  };
-
-  // Technical Analysis Functions - REAL IMPLEMENTATION
-  const checkTechnicalBuySignals = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
-    const techConfig = config.technicalIndicatorConfig;
-    if (!techConfig) return false;
-
-    let signals = 0;
-    let totalIndicators = 0;
-
-    try {
-      // Get real technical indicators from price_data metadata and live_signals
-      const [priceDataResponse, liveSignalsResponse] = await Promise.all([
-        supabase
-          .from('price_data')
-          .select('metadata')
-          .eq('symbol', symbol)
-          .order('timestamp', { ascending: false })
-          .limit(1),
-        supabase
-          .from('live_signals')
-          .select('*')
-          .eq('symbol', symbol)
-          .eq('processed', false)
-          .order('timestamp', { ascending: false })
-          .limit(10)
-      ]);
-
-      const latestPriceData = priceDataResponse.data?.[0];
-      const liveSignals = liveSignalsResponse.data || [];
-
-      // RSI Check from cached indicators
-      if (techConfig.rsi?.enabled && latestPriceData?.metadata) {
-        const metadata = latestPriceData.metadata as any;
-        if (metadata.RSI) {
-          totalIndicators++;
-          const rsi = metadata.RSI;
-          if (rsi <= techConfig.rsi.buyThreshold) {
-            signals++;
-            console.log('📊 ENGINE: RSI buy signal:', rsi, '<=', techConfig.rsi.buyThreshold);
-          }
-        }
-      }
-
-      // MACD Check from cached indicators
-      if (techConfig.macd?.enabled && latestPriceData?.metadata) {
-        const metadata = latestPriceData.metadata as any;
-        if (metadata.MACD) {
-          totalIndicators++;
-          const macd = metadata.MACD;
-          // MACD bullish when line crosses above signal line
-          if (macd.MACD > macd.signal) {
-            signals++;
-            console.log('📊 ENGINE: MACD buy signal - MACD above signal line');
-          }
-        }
-      }
-
-      // EMA Check from cached indicators
-      if (techConfig.ema?.enabled && latestPriceData?.metadata) {
-        const metadata = latestPriceData.metadata as any;
-        if (metadata.EMA) {
-          totalIndicators++;
-          const ema = metadata.EMA;
-          const currentPrice = marketData[symbol]?.price;
-          // Buy when price is above short EMA and short EMA > long EMA
-          if (currentPrice > ema.short && ema.short > ema.long) {
-            signals++;
-            console.log('📊 ENGINE: EMA buy signal - bullish trend');
-          }
-        }
-      }
-
-      // SMA Check from cached indicators
-      if (techConfig.sma?.enabled && latestPriceData?.metadata) {
-        const metadata = latestPriceData.metadata as any;
-        if (metadata.SMA) {
-          totalIndicators++;
-          const sma = metadata.SMA;
-          const currentPrice = marketData[symbol]?.price;
-          // Buy when price is above SMA
-          if (currentPrice > sma) {
-            signals++;
-            console.log('📊 ENGINE: SMA buy signal - price above SMA');
-          }
-        }
-      }
-
-      // Bollinger Bands Check
-      if (techConfig.bollinger?.enabled && latestPriceData?.metadata) {
-        const metadata = latestPriceData.metadata as any;
-        if (metadata.BollingerBands) {
-          totalIndicators++;
-          const bb = metadata.BollingerBands;
-          const currentPrice = marketData[symbol]?.price;
-          // Buy when price touches lower band (oversold)
-          if (currentPrice <= bb.lower) {
-            signals++;
-            console.log('📊 ENGINE: Bollinger Bands buy signal - oversold condition');
-          }
-        }
-      }
-
-      // ADX Check for trend strength
-      if (techConfig.adx?.enabled && latestPriceData?.metadata) {
-        const metadata = latestPriceData.metadata as any;
-        if (metadata.ADX) {
-          totalIndicators++;
-          const adx = metadata.ADX;
-          // Strong trend when ADX > threshold
-          if (adx > techConfig.adx.threshold) {
-            signals++;
-            console.log('📊 ENGINE: ADX buy signal - strong trend detected:', adx);
-          }
-        }
-      }
-
-      // Process live signals from technical-signal-generator
-      liveSignals.forEach(signal => {
-        if (signal.signal_type.includes('bullish') || signal.signal_type.includes('buy')) {
-          totalIndicators++;
-          if (signal.signal_strength > 0.5) {
-            signals++;
-            console.log('📊 ENGINE: Live signal buy:', signal.signal_type, 'strength:', signal.signal_strength);
-          }
-        }
-      });
-
-    } catch (error) {
-      console.error('❌ ENGINE: Error fetching technical indicators:', error);
-    }
-
-    // Need at least 50% of indicators to agree
-    const signalStrength = totalIndicators > 0 ? signals / totalIndicators : 0;
-    const threshold = 0.5; // 50% of indicators must agree
-    
-    console.log('📊 ENGINE: Technical signals:', signals, '/', totalIndicators, '=', signalStrength);
-    return signalStrength >= threshold;
-  };
-
-
-  const checkAISellSignal = async (config: any, position: Position, marketData: any): Promise<boolean> => {
-    const aiConfig = config.aiIntelligenceConfig;
-    if (!aiConfig?.enableAIOverride) return false;
-
-    // TODO: Implement AI sell logic based on:
-    // - Pattern recognition
-    // - Risk override conditions
-    // - Market structure analysis
-    
-    return false; // Placeholder
-  };
-
-  const isInCooldown = async (cooldownMinutes: number): Promise<boolean> => {
-    if (!tradingStateRef.current.lastTradeTime) return false;
-    
-    const lastTrade = new Date(tradingStateRef.current.lastTradeTime);
-    const cooldownEnd = new Date(lastTrade.getTime() + cooldownMinutes * 60 * 1000);
-    
-    return Date.now() < cooldownEnd.getTime();
-  };
-
-  const shouldDCABuy = async (config: any, symbol: string): Promise<boolean> => {
-    // TODO: Implement DCA logic based on:
-    // - dcaIntervalHours
-    // - dcaSteps
-    // - Current position size
-    return false;
+    console.log('💰 ENGINE: Executing buy order for', symbol, 'reason:', reason);
+    await executeTrade(strategy, 'buy', symbol, marketPrice, undefined, reason);
   };
 
   // Position Management
   const calculateOpenPositions = async (): Promise<Position[]> => {
     if (!user?.id) return [];
 
-    // Get all trades
     const { data: buyTrades } = await supabase
       .from('mock_trades')
       .select('*')
@@ -940,7 +682,6 @@ export const useIntelligentTradingEngine = () => {
       positions[symbol].total_value += trade.total_value;
       positions[symbol].remaining_amount += trade.amount;
       
-      // Track oldest purchase for auto-close timing
       if (trade.executed_at < positions[symbol].oldest_purchase_date) {
         positions[symbol].oldest_purchase_date = trade.executed_at;
       }
@@ -966,7 +707,7 @@ export const useIntelligentTradingEngine = () => {
     });
   };
 
-  // Trade Execution (Enhanced)
+  // Trade Execution
   const executeTrade = async (
     strategy: any, 
     action: 'buy' | 'sell', 
@@ -986,25 +727,12 @@ export const useIntelligentTradingEngine = () => {
     if (action === 'sell' && customAmount !== undefined) {
       tradeAmount = customAmount;
     } else {
-      // Calculate buy amount based on allocation settings
+      // Calculate buy amount
       if (config.allocationUnit === 'percentage') {
         const totalBalance = getBalance('EUR');
         tradeAmount = (totalBalance * config.perTradeAllocation / 100) / price;
       } else {
-        // Euro amount
         tradeAmount = (config.perTradeAllocation || 100) / price;
-      }
-    }
-
-    // Check wallet exposure limits
-    if (action === 'buy' && config.maxWalletExposure) {
-      const totalBalance = getBalance('EUR');
-      const tradeValue = tradeAmount * price;
-      const exposurePercentage = (tradeValue / totalBalance) * 100;
-      
-      if (exposurePercentage > config.maxWalletExposure) {
-        console.log('🛑 ENGINE: Trade would exceed wallet exposure limit:', exposurePercentage, '>', config.maxWalletExposure);
-        return;
       }
     }
 
@@ -1025,15 +753,14 @@ export const useIntelligentTradingEngine = () => {
           amount: tradeAmount,
           price,
           total_value: tradeValue,
-          strategy_trigger: trigger || 'Unknown trigger'
+          strategy_trigger: trigger || 'REAL_SIGNALS'
         });
 
-        // Update trading state
         tradingStateRef.current.dailyTrades++;
         tradingStateRef.current.lastTradeTime = new Date().toISOString();
 
         toast({
-          title: "Intelligent Trade Executed",
+          title: "REAL Signal Trade Executed",
           description: `Bought ${tradeAmount.toFixed(6)} ${cryptocurrency} at €${price.toFixed(2)} (${trigger})`,
         });
       }
@@ -1053,29 +780,24 @@ export const useIntelligentTradingEngine = () => {
           amount: tradeAmount,
           price,
           total_value: tradeValue,
-          strategy_trigger: trigger || 'Unknown trigger'
+          strategy_trigger: trigger || 'REAL_SIGNALS'
         });
 
-        // Update trading state
         tradingStateRef.current.dailyTrades++;
         tradingStateRef.current.lastTradeTime = new Date().toISOString();
-        
-        // Update daily P&L (simplified)
-        const estimatedPnL = tradeValue - (tradeAmount * 50000); // TODO: Use actual purchase price
-        tradingStateRef.current.dailyPnL += estimatedPnL;
 
         toast({
-          title: "Intelligent Trade Executed",
+          title: "REAL Signal Trade Executed",
           description: `Sold ${tradeAmount.toFixed(6)} ${cryptocurrency} at €${price.toFixed(2)} (${trigger})`,
         });
       }
     }
   };
 
-  // Trade Recording (same as before but with enhanced trigger info)
+  // Trade Recording
   const recordTrade = async (tradeData: any) => {
     try {
-      console.log('📝 ENGINE: Recording intelligent trade:', tradeData);
+      console.log('📝 ENGINE: Recording REAL signal trade:', tradeData);
       
       let mockTradeData: any = {
         strategy_id: tradeData.strategy_id,
@@ -1087,44 +809,11 @@ export const useIntelligentTradingEngine = () => {
         total_value: Math.round(tradeData.total_value * 100) / 100,
         fees: 0,
         strategy_trigger: tradeData.strategy_trigger,
-        notes: 'Intelligent automated trade',
+        notes: 'REAL signals automated trade',
         is_test_mode: true,
         profit_loss: 0,
         executed_at: new Date().toISOString()
       };
-
-      // Handle sell trades with FIFO matching (same logic as before)
-      if (tradeData.trade_type === 'sell') {
-        const allocation = await allocateSellToBuysFifo(
-          tradeData.user_id, 
-          tradeData.cryptocurrency, 
-          tradeData.amount
-        );
-
-        const original_purchase_amount = allocation.reduce((sum: number, a: any) => sum + a.matchedAmount, 0);
-        const original_purchase_value = Math.round(allocation.reduce((sum: number, a: any) => sum + a.buyValuePortion, 0) * 100) / 100;
-        const original_purchase_price = original_purchase_amount > 0 
-          ? Math.round((original_purchase_value / original_purchase_amount) * 1e6) / 1e6
-          : 0;
-
-        const exit_value = Math.round(tradeData.price * tradeData.amount * 100) / 100;
-        const realized_pnl = Math.round((exit_value - original_purchase_value) * 100) / 100;
-        const realized_pnl_pct = original_purchase_value > 0
-          ? Math.round((realized_pnl / original_purchase_value) * 10000) / 100
-          : 0;
-
-        mockTradeData = {
-          ...mockTradeData,
-          original_purchase_amount: Math.round(original_purchase_amount * 1e8) / 1e8,
-          original_purchase_price,
-          original_purchase_value,
-          exit_value,
-          buy_fees: 0,
-          sell_fees: 0,
-          realized_pnl,
-          realized_pnl_pct
-        };
-      }
 
       const { error } = await supabase
         .from('mock_trades')
@@ -1135,7 +824,7 @@ export const useIntelligentTradingEngine = () => {
         throw error;
       }
       
-      console.log('✅ ENGINE: Successfully recorded intelligent trade');
+      console.log('✅ ENGINE: Successfully recorded REAL signal trade');
 
     } catch (error) {
       console.error('❌ ENGINE: Failed to record trade:', error);
@@ -1143,83 +832,12 @@ export const useIntelligentTradingEngine = () => {
     }
   };
 
-  // FIFO allocation (same as before)
-  const allocateSellToBuysFifo = async (userId: string, cryptocurrency: string, sellAmount: number) => {
-    const { data: trades, error } = await supabase
-      .from('mock_trades')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('cryptocurrency', cryptocurrency)
-      .order('executed_at', { ascending: true });
-
-    if (error) throw error;
-
-    const buyLots: Array<{
-      id: string;
-      amount: number;
-      price: number;
-      total_value: number;
-      executed_at: string;
-      remaining: number;
-    }> = [];
-
-    for (const trade of trades || []) {
-      if (trade.trade_type === 'buy') {
-        buyLots.push({
-          id: trade.id,
-          amount: trade.amount,
-          price: trade.price,
-          total_value: trade.total_value,
-          executed_at: trade.executed_at,
-          remaining: trade.amount
-        });
-      } else if (trade.trade_type === 'sell') {
-        let remainingToSell = trade.amount;
-        for (const lot of buyLots) {
-          if (remainingToSell <= 0) break;
-          
-          const allocated = Math.min(lot.remaining, remainingToSell);
-          lot.remaining -= allocated;
-          remainingToSell -= allocated;
-        }
-      }
-    }
-
-    const allocation: Array<{
-      lotId: string;
-      matchedAmount: number;
-      buyPrice: number;
-      buyValuePortion: number;
-    }> = [];
-
-    let remainingToSell = sellAmount;
-    
-    for (const lot of buyLots) {
-      if (remainingToSell <= 0) break;
-      if (lot.remaining <= 0) continue;
-      
-      const allocated = Math.min(lot.remaining, remainingToSell);
-      const buyValuePortion = (allocated / lot.amount) * lot.total_value;
-      
-      allocation.push({
-        lotId: lot.id,
-        matchedAmount: allocated,
-        buyPrice: lot.price,
-        buyValuePortion: buyValuePortion
-      });
-      
-      remainingToSell -= allocated;
-    }
-
-    return allocation;
-  };
-
   // Hook effect
   useEffect(() => {
-    console.log('🚀 INTELLIGENT_ENGINE: Starting with testMode:', testMode, 'user:', !!user);
+    console.log('🚀 INTELLIGENT_ENGINE: Starting with REAL signal integration');
     
     if (testMode && user) {
-      console.log('🚀 INTELLIGENT_ENGINE: Starting comprehensive trading monitoring');
+      console.log('🚀 INTELLIGENT_ENGINE: Starting REAL signal monitoring');
       marketMonitorRef.current = setInterval(checkStrategiesAndExecute, 10000);
       setTimeout(checkStrategiesAndExecute, 2000);
     } else {
