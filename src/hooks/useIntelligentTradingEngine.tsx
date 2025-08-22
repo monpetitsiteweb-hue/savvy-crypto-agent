@@ -731,6 +731,16 @@ export const useIntelligentTradingEngine = () => {
       .eq('trade_type', 'sell')
       .eq('is_test_mode', true);
 
+    console.log('🧮 POSITIONS: Buy trades found:', buyTrades?.length || 0);
+    console.log('🧮 POSITIONS: Sell trades found:', sellTrades?.length || 0);
+    if (sellTrades?.length) {
+      console.log('🧮 POSITIONS: Recent sell trades:', sellTrades.slice(0, 5).map(t => ({
+        symbol: t.cryptocurrency,
+        amount: t.amount,
+        executed_at: t.executed_at
+      })));
+    }
+
     if (!buyTrades) return [];
 
     const positions: Record<string, Position> = {};
@@ -757,24 +767,34 @@ export const useIntelligentTradingEngine = () => {
       }
     });
 
+    console.log('🧮 POSITIONS: Positions after buy trades:', Object.keys(positions).length);
+
     // Subtract sell trades
     if (sellTrades) {
       sellTrades.forEach(trade => {
         const symbol = trade.cryptocurrency;
+        console.log('🧮 POSITIONS: Processing sell trade for', symbol, 'amount:', trade.amount);
         if (positions[symbol]) {
+          const beforeAmount = positions[symbol].remaining_amount;
           positions[symbol].remaining_amount -= trade.amount;
+          console.log('🧮 POSITIONS: Updated', symbol, 'from', beforeAmount, 'to', positions[symbol].remaining_amount);
+        } else {
+          console.log('🧮 POSITIONS: Warning - sell trade for', symbol, 'but no position found!');
         }
       });
     }
 
     // Filter and calculate averages
-    return Object.values(positions).filter(pos => {
+    const finalPositions = Object.values(positions).filter(pos => {
       if (pos.remaining_amount > 0.00000001) {
         pos.average_price = pos.total_value / pos.total_amount;
         return true;
       }
       return false;
     });
+
+    console.log('🧮 POSITIONS: Final open positions:', finalPositions.length);
+    return finalPositions;
   };
 
   // Trade Execution
@@ -885,16 +905,19 @@ export const useIntelligentTradingEngine = () => {
         executed_at: new Date().toISOString()
       };
 
-      const { error } = await supabase
+      console.log('📝 ENGINE: About to insert trade into database:', mockTradeData);
+
+      const { data, error } = await supabase
         .from('mock_trades')
-        .insert(mockTradeData);
+        .insert(mockTradeData)
+        .select();
 
       if (error) {
         console.error('❌ ENGINE: Database error:', error);
         throw error;
       }
       
-      console.log('✅ ENGINE: Successfully recorded REAL signal trade');
+      console.log('✅ ENGINE: Successfully recorded REAL signal trade, inserted data:', data);
 
     } catch (error) {
       console.error('❌ ENGINE: Failed to record trade:', error);
