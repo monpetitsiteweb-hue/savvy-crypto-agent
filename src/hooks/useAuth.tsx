@@ -35,32 +35,42 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   useEffect(() => {
     console.log('🔑 AuthProvider: useEffect is running!');
     let mounted = true;
-    console.log('🔑 AuthProvider: Setting up auth state listener');
-    console.log('🔑 AuthProvider: Supabase client initialized');
     
-    // Test if supabase client is working
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      console.log('🔑 AuthProvider: Initial session check - User:', session?.user?.email, 'Session exists:', !!session, 'Error:', error);
-      if (mounted) {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
+    const initializeAuth = async () => {
+      try {
+        // Get initial session
+        const { data: { session }, error } = await supabase.auth.getSession();
+        console.log('🔑 AuthProvider: Initial session check - User:', session?.user?.email, 'Session exists:', !!session, 'Error:', error);
+        
+        if (mounted) {
+          setSession(session);
+          setUser(session?.user ?? null);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error('🔑 AuthProvider: Error getting session:', err);
+        if (mounted) {
+          setLoading(false);
+        }
       }
-    }).catch((err) => {
-      console.error('🔑 AuthProvider: Error getting session:', err);
-      setLoading(false);
-    });
+    };
     
-    // Set up auth state listener
+    // Set up auth state listener first
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🔑 AuthProvider: Auth state change:', event, 'User:', session?.user?.email, 'Session exists:', !!session);
       if (mounted) {
         setSession(session);
         setUser(session?.user ?? null);
+        if (!session) {
+          setLoading(false);
+        }
       }
     });
+
+    // Initialize auth after setting up listener
+    initializeAuth();
 
     return () => {
       mounted = false;
