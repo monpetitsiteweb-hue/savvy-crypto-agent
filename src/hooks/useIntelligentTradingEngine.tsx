@@ -789,6 +789,12 @@ export const useIntelligentTradingEngine = () => {
           const beforeAmount = positions[symbol].remaining_amount;
           positions[symbol].remaining_amount -= trade.amount;
           console.log('🧮 POSITIONS: Updated', symbol, 'from', beforeAmount, 'to', positions[symbol].remaining_amount);
+          
+          // Remove position if completely sold
+          if (positions[symbol].remaining_amount <= 0.000001) {
+            console.log('🧮 POSITIONS: Removing position', symbol, 'due to zero balance');
+            delete positions[symbol];
+          }
         } else {
           console.log('🧮 POSITIONS: Warning - sell trade for', symbol, 'but no position found!');
         }
