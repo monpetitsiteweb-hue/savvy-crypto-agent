@@ -495,22 +495,185 @@ export const useIntelligentTradingEngine = () => {
       return { reason: 'DCA_SIGNAL' };
     }
 
-    // 2. TECHNICAL INDICATOR BUY SIGNALS
+    // 2. WHALE SIGNALS CHECK
+    if (await checkWhaleSignals(symbol)) {
+      return { reason: 'WHALE_SIGNAL' };
+    }
+
+    // 3. NEWS SENTIMENT SIGNALS
+    if (await checkNewsSentimentSignals(config, symbol)) {
+      return { reason: 'NEWS_SENTIMENT_SIGNAL' };
+    }
+
+    // 4. SOCIAL SIGNALS CHECK  
+    if (await checkSocialSignals(config, symbol)) {
+      return { reason: 'SOCIAL_SIGNAL' };
+    }
+
+    // 5. TECHNICAL INDICATOR BUY SIGNALS
     if (await checkTechnicalBuySignals(config, symbol, marketData)) {
       return { reason: 'TECHNICAL_SIGNAL' };
     }
 
-    // 3. AI BUY DECISION
+    // 6. AI BUY DECISION (combines all signals)
     if (config.aiIntelligenceConfig?.enableAIOverride && await checkAIBuySignal(config, symbol, marketData)) {
-      return { reason: 'AI_SIGNAL' };
+      return { reason: 'AI_COMPREHENSIVE_SIGNAL' };
     }
 
-    // 4. SIMPLE PRICE-BASED SIGNALS (fallback)
+    // 7. SIMPLE PRICE-BASED SIGNALS (fallback)
     if (await checkSimpleBuySignals(config, symbol, marketData)) {
       return { reason: 'PRICE_SIGNAL' };
     }
 
     return null;
+  };
+
+  // WHALE SIGNALS - Check for large transaction alerts
+  const checkWhaleSignals = async (symbol: string): Promise<boolean> => {
+    try {
+      const { data: whaleEvents } = await supabase
+        .from('whale_signal_events')
+        .select('*')
+        .eq('token_symbol', symbol.split('-')[0]) // Remove -EUR suffix
+        .eq('processed', false)
+        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 30).toISOString()) // Last 30 minutes
+        .order('timestamp', { ascending: false })
+        .limit(5);
+
+      if (whaleEvents?.length) {
+        const significantEvents = whaleEvents.filter(event => 
+          event.amount && event.amount > 50000 && // Large transactions
+          (event.event_type === 'transfer' || event.event_type === 'buy')
+        );
+        
+        if (significantEvents.length > 0) {
+          console.log('🐋 ENGINE: Whale buy signal detected for', symbol, '- events:', significantEvents.length);
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('❌ ENGINE: Error checking whale signals:', error);
+    }
+    return false;
+  };
+
+  // NEWS SENTIMENT SIGNALS
+  const checkNewsSentimentSignals = async (config: any, symbol: string): Promise<boolean> => {
+    try {
+      const newsWeight = config.aiIntelligenceConfig?.newsImpactWeight || 30;
+      if (newsWeight === 0) return false;
+
+      const { data: newsData } = await supabase
+        .from('crypto_news')
+        .select('sentiment_score, headline')
+        .eq('symbol', symbol.split('-')[0])
+        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString()) // Last 2 hours
+        .order('timestamp', { ascending: false })
+        .limit(10);
+
+      if (newsData?.length) {
+        const avgSentiment = newsData.reduce((sum, news) => 
+          sum + (news.sentiment_score || 0), 0) / newsData.length;
+        
+        // Positive sentiment above threshold
+        const sentimentThreshold = 0.6; // Positive sentiment
+        if (avgSentiment > sentimentThreshold) {
+          console.log('📰 ENGINE: Positive news sentiment signal for', symbol, '- score:', avgSentiment);
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('❌ ENGINE: Error checking news sentiment:', error);
+    }
+    return false;
+  };
+
+  // SOCIAL SIGNALS from external market data
+  const checkSocialSignals = async (config: any, symbol: string): Promise<boolean> => {
+    try {
+      const socialWeight = config.aiIntelligenceConfig?.socialSignalsWeight || 15;
+      if (socialWeight === 0) return false;
+
+      const { data: socialData } = await supabase
+        .from('external_market_data')
+        .select('data_value, data_type, metadata')
+        .eq('cryptocurrency', symbol.split('-')[0])
+        .in('data_type', ['social_volume', 'social_sentiment', 'reddit_mentions'])
+        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString()) // Last 4 hours
+        .order('timestamp', { ascending: false })
+        .limit(20);
+
+      if (socialData?.length) {
+        const socialScores = socialData.map(data => data.data_value || 0);
+        const avgSocialScore = socialScores.reduce((sum, score) => sum + score, 0) / socialScores.length;
+        
+        // High social activity threshold
+        if (avgSocialScore > 0.7) {
+          console.log('📱 ENGINE: Strong social signal for', symbol, '- score:', avgSocialScore);
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('❌ ENGINE: Error checking social signals:', error);
+    }
+    return false;
+  };
+
+  // AI COMPREHENSIVE SIGNAL (combines all data sources)
+  const checkAIBuySignal = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
+    try {
+      const aiConfig = config.aiIntelligenceConfig;
+      if (!aiConfig?.enableAIOverride) return false;
+
+      let signalStrength = 0;
+      let maxSignalStrength = 0;
+
+      // Weight different signals based on AI config
+      const weights = {
+        technical: 0.4,
+        sentiment: (aiConfig.sentimentWeight || 30) / 100,
+        news: (aiConfig.newsImpactWeight || 30) / 100,
+        social: (aiConfig.socialSignalsWeight || 15) / 100,
+        whale: (aiConfig.whaleActivityWeight || 25) / 100
+      };
+
+      // Technical indicators
+      if (await checkTechnicalBuySignals(config, symbol, marketData)) {
+        signalStrength += weights.technical;
+      }
+      maxSignalStrength += weights.technical;
+
+      // News sentiment
+      if (await checkNewsSentimentSignals(config, symbol)) {
+        signalStrength += weights.news;
+      }
+      maxSignalStrength += weights.news;
+
+      // Social signals
+      if (await checkSocialSignals(config, symbol)) {
+        signalStrength += weights.social;
+      }
+      maxSignalStrength += weights.social;
+
+      // Whale activity
+      if (await checkWhaleSignals(symbol)) {
+        signalStrength += weights.whale;
+      }
+      maxSignalStrength += weights.whale;
+
+      const aiConfidence = maxSignalStrength > 0 ? (signalStrength / maxSignalStrength) * 100 : 0;
+      const confidenceThreshold = aiConfig.aiConfidenceThreshold || 60;
+
+      if (aiConfidence >= confidenceThreshold) {
+        console.log('🤖 ENGINE: AI comprehensive buy signal for', symbol, '- confidence:', aiConfidence + '%');
+        return true;
+      }
+
+      console.log('🤖 ENGINE: AI signal below threshold for', symbol, '- confidence:', aiConfidence + '%', 'threshold:', confidenceThreshold + '%');
+    } catch (error) {
+      console.error('❌ ENGINE: Error in AI buy signal analysis:', error);
+    }
+    return false;
   };
 
   const checkSimpleBuySignals = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
@@ -568,7 +731,7 @@ export const useIntelligentTradingEngine = () => {
     await executeTrade(strategy, 'buy', symbol, currentPrice, undefined, reason + '_TRAILING_BUY');
   };
 
-  // Technical Analysis Functions
+  // Technical Analysis Functions - REAL IMPLEMENTATION
   const checkTechnicalBuySignals = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
     const techConfig = config.technicalIndicatorConfig;
     if (!techConfig) return false;
@@ -576,65 +739,136 @@ export const useIntelligentTradingEngine = () => {
     let signals = 0;
     let totalIndicators = 0;
 
-    // RSI Check
-    if (techConfig.rsi?.enabled) {
-      totalIndicators++;
-      // TODO: Calculate actual RSI from price data
-      // For now, simulate based on recent price action
-      const mockRSI = Math.random() * 100;
-      if (mockRSI <= techConfig.rsi.buyThreshold) {
-        signals++;
-        console.log('📊 ENGINE: RSI buy signal:', mockRSI, '<=', techConfig.rsi.buyThreshold);
+    try {
+      // Get real technical indicators from price_data metadata and live_signals
+      const [priceDataResponse, liveSignalsResponse] = await Promise.all([
+        supabase
+          .from('price_data')
+          .select('metadata')
+          .eq('symbol', symbol)
+          .order('timestamp', { ascending: false })
+          .limit(1),
+        supabase
+          .from('live_signals')
+          .select('*')
+          .eq('symbol', symbol)
+          .eq('processed', false)
+          .order('timestamp', { ascending: false })
+          .limit(10)
+      ]);
+
+      const latestPriceData = priceDataResponse.data?.[0];
+      const liveSignals = liveSignalsResponse.data || [];
+
+      // RSI Check from cached indicators
+      if (techConfig.rsi?.enabled && latestPriceData?.metadata) {
+        const metadata = latestPriceData.metadata as any;
+        if (metadata.RSI) {
+          totalIndicators++;
+          const rsi = metadata.RSI;
+          if (rsi <= techConfig.rsi.buyThreshold) {
+            signals++;
+            console.log('📊 ENGINE: RSI buy signal:', rsi, '<=', techConfig.rsi.buyThreshold);
+          }
+        }
       }
+
+      // MACD Check from cached indicators
+      if (techConfig.macd?.enabled && latestPriceData?.metadata) {
+        const metadata = latestPriceData.metadata as any;
+        if (metadata.MACD) {
+          totalIndicators++;
+          const macd = metadata.MACD;
+          // MACD bullish when line crosses above signal line
+          if (macd.MACD > macd.signal) {
+            signals++;
+            console.log('📊 ENGINE: MACD buy signal - MACD above signal line');
+          }
+        }
+      }
+
+      // EMA Check from cached indicators
+      if (techConfig.ema?.enabled && latestPriceData?.metadata) {
+        const metadata = latestPriceData.metadata as any;
+        if (metadata.EMA) {
+          totalIndicators++;
+          const ema = metadata.EMA;
+          const currentPrice = marketData[symbol]?.price;
+          // Buy when price is above short EMA and short EMA > long EMA
+          if (currentPrice > ema.short && ema.short > ema.long) {
+            signals++;
+            console.log('📊 ENGINE: EMA buy signal - bullish trend');
+          }
+        }
+      }
+
+      // SMA Check from cached indicators
+      if (techConfig.sma?.enabled && latestPriceData?.metadata) {
+        const metadata = latestPriceData.metadata as any;
+        if (metadata.SMA) {
+          totalIndicators++;
+          const sma = metadata.SMA;
+          const currentPrice = marketData[symbol]?.price;
+          // Buy when price is above SMA
+          if (currentPrice > sma) {
+            signals++;
+            console.log('📊 ENGINE: SMA buy signal - price above SMA');
+          }
+        }
+      }
+
+      // Bollinger Bands Check
+      if (techConfig.bollinger?.enabled && latestPriceData?.metadata) {
+        const metadata = latestPriceData.metadata as any;
+        if (metadata.BollingerBands) {
+          totalIndicators++;
+          const bb = metadata.BollingerBands;
+          const currentPrice = marketData[symbol]?.price;
+          // Buy when price touches lower band (oversold)
+          if (currentPrice <= bb.lower) {
+            signals++;
+            console.log('📊 ENGINE: Bollinger Bands buy signal - oversold condition');
+          }
+        }
+      }
+
+      // ADX Check for trend strength
+      if (techConfig.adx?.enabled && latestPriceData?.metadata) {
+        const metadata = latestPriceData.metadata as any;
+        if (metadata.ADX) {
+          totalIndicators++;
+          const adx = metadata.ADX;
+          // Strong trend when ADX > threshold
+          if (adx > techConfig.adx.threshold) {
+            signals++;
+            console.log('📊 ENGINE: ADX buy signal - strong trend detected:', adx);
+          }
+        }
+      }
+
+      // Process live signals from technical-signal-generator
+      liveSignals.forEach(signal => {
+        if (signal.signal_type.includes('bullish') || signal.signal_type.includes('buy')) {
+          totalIndicators++;
+          if (signal.signal_strength > 0.5) {
+            signals++;
+            console.log('📊 ENGINE: Live signal buy:', signal.signal_type, 'strength:', signal.signal_strength);
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ ENGINE: Error fetching technical indicators:', error);
     }
 
-    // MACD Check
-    if (techConfig.macd?.enabled) {
-      totalIndicators++;
-      // TODO: Implement MACD calculation
-      // Simulate MACD bullish signal
-      if (Math.random() < 0.3) {
-        signals++;
-        console.log('📊 ENGINE: MACD buy signal');
-      }
-    }
-
-    // EMA Crossover
-    if (techConfig.ema?.enabled) {
-      totalIndicators++;
-      // TODO: Implement EMA crossover logic
-      // Simulate EMA crossover
-      if (Math.random() < 0.2) {
-        signals++;
-        console.log('📊 ENGINE: EMA crossover buy signal');
-      }
-    }
-
-    // Require at least 50% of enabled indicators to signal buy
-    const signalThreshold = Math.ceil(totalIndicators * 0.5);
-    return signals >= signalThreshold;
+    // Need at least 50% of indicators to agree
+    const signalStrength = totalIndicators > 0 ? signals / totalIndicators : 0;
+    const threshold = 0.5; // 50% of indicators must agree
+    
+    console.log('📊 ENGINE: Technical signals:', signals, '/', totalIndicators, '=', signalStrength);
+    return signalStrength >= threshold;
   };
 
-  // AI Decision Functions
-  const checkAIBuySignal = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
-    const aiConfig = config.aiIntelligenceConfig;
-    if (!aiConfig?.enableAIOverride) return false;
-
-    // TODO: Implement comprehensive AI analysis
-    // - Pattern recognition
-    // - External signals (whale activity, sentiment, news)
-    // - Cross-asset correlation
-    // For now, simulate based on confidence threshold
-    
-    const aiConfidence = Math.random() * 100;
-    const meetsThreshold = aiConfidence >= aiConfig.aiConfidenceThreshold;
-    
-    if (meetsThreshold) {
-      console.log('🤖 ENGINE: AI buy confidence:', aiConfidence, '>=', aiConfig.aiConfidenceThreshold);
-    }
-    
-    return meetsThreshold;
-  };
 
   const checkAISellSignal = async (config: any, position: Position, marketData: any): Promise<boolean> => {
     const aiConfig = config.aiIntelligenceConfig;
