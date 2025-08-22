@@ -1056,27 +1056,53 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
      // Check limits
      const blockingReasons = [];
 
-    // CRITICAL: Check trade cooldown to prevent excessive trading frequency
-    const tradeCooldownMinutes = strategy.configuration?.tradeCooldownMinutes || 60; // Default 1 hour between trades
-    const cooldownTime = new Date(Date.now() - tradeCooldownMinutes * 60 * 1000);
+    // CRITICAL: Check separate cooldowns for buys vs sells
+    const buyCooldownMinutes = strategy.configuration?.buyCooldownMinutes || 60; // Default 1 hour between buys
+    const tradeCooldownMinutes = strategy.configuration?.tradeCooldownMinutes || 60; // Default 1 hour between sells
     
-    const { data: recentTrades, error: recentTradesError } = await supabaseClient
+    // Check buy cooldown - only look at recent BUY trades
+    const buyCooldownTime = new Date(Date.now() - buyCooldownMinutes * 60 * 1000);
+    const { data: recentBuyTrades, error: recentBuyTradesError } = await supabaseClient
       .from('mock_trades')
       .select('executed_at, trade_type, cryptocurrency')
       .eq('user_id', userId)
       .eq('strategy_id', strategy.id)
-      .gte('executed_at', cooldownTime.toISOString())
-      .order('executed_at', { ascending: false });
+      .eq('trade_type', 'buy')
+      .gte('executed_at', buyCooldownTime.toISOString())
+      .order('executed_at', { ascending: false })
+      .limit(1);
 
-    if (!recentTradesError && recentTrades && recentTrades.length > 0) {
-      const lastTradeTime = new Date(recentTrades[0].executed_at);
-      const minutesSinceLastTrade = (Date.now() - lastTradeTime.getTime()) / (1000 * 60);
+    if (!recentBuyTradesError && recentBuyTrades && recentBuyTrades.length > 0) {
+      const lastBuyTime = new Date(recentBuyTrades[0].executed_at);
+      const minutesSinceLastBuy = (Date.now() - lastBuyTime.getTime()) / (1000 * 60);
       
-      console.log(`⏱️ [COOLDOWN CHECK] Last trade: ${minutesSinceLastTrade.toFixed(1)} minutes ago (cooldown: ${tradeCooldownMinutes}min)`);
+      console.log(`⏱️ [BUY COOLDOWN CHECK] Last buy: ${minutesSinceLastBuy.toFixed(1)} minutes ago (buy cooldown: ${buyCooldownMinutes}min)`);
       
-      if (minutesSinceLastTrade < tradeCooldownMinutes) {
-        blockingReasons.push(`Trade cooldown active (${(tradeCooldownMinutes - minutesSinceLastTrade).toFixed(1)} minutes remaining)`);
+      if (minutesSinceLastBuy < buyCooldownMinutes) {
+        blockingReasons.push(`Buy cooldown active (${(buyCooldownMinutes - minutesSinceLastBuy).toFixed(1)} minutes remaining)`);
       }
+    }
+    
+    // Check sell cooldown - only look at recent SELL trades
+    const sellCooldownTime = new Date(Date.now() - tradeCooldownMinutes * 60 * 1000);
+    const { data: recentSellTrades, error: recentSellTradesError } = await supabaseClient
+      .from('mock_trades')
+      .select('executed_at, trade_type, cryptocurrency')
+      .eq('user_id', userId)
+      .eq('strategy_id', strategy.id)
+      .eq('trade_type', 'sell')
+      .gte('executed_at', sellCooldownTime.toISOString())
+      .order('executed_at', { ascending: false })
+      .limit(1);
+
+    if (!recentSellTradesError && recentSellTrades && recentSellTrades.length > 0) {
+      const lastSellTime = new Date(recentSellTrades[0].executed_at);
+      const minutesSinceLastSell = (Date.now() - lastSellTime.getTime()) / (1000 * 60);
+      
+      console.log(`⏱️ [SELL COOLDOWN CHECK] Last sell: ${minutesSinceLastSell.toFixed(1)} minutes ago (sell cooldown: ${tradeCooldownMinutes}min)`);
+      
+      // Note: This sell cooldown will be checked later when actually attempting sells
+      // For now, we're primarily checking buy cooldown for buy decisions
     }
     
     if (todayTradesCount >= riskLimits.maxTradesPerDay) {
