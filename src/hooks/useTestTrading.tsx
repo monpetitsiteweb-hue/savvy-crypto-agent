@@ -377,6 +377,14 @@ export const useTestTrading = () => {
 
       // Use the user's actual fee rate from their profile settings
       const feeRate = profile?.fee_rate || 0;
+      
+      console.log('🔥 TRADE_RECORDING_DEBUG: User profile and fees:', {
+        userId: tradeData.user_id,
+        profileFeeRate: profile?.fee_rate,
+        actualFeeRate: feeRate,
+        tradeType: tradeData.trade_type,
+        tradeValue: tradeData.total_value
+      });
 
       let mockTradeData: any = {
         strategy_id: tradeData.strategy_id,
