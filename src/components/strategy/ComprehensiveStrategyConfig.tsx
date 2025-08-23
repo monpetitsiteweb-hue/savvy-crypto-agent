@@ -1402,10 +1402,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             <div className="space-y-4">
                               <div className="space-y-2">
                                 <TooltipField 
-                                  description="Stop trading once this daily profit level is reached."
-                                  examples={["Stop trading after 3% gain", "Pause the bot when it earns enough for the day"]}
+                                  description="📊 PORTFOLIO-LEVEL DAILY TARGET: Stop all trading activity once your entire portfolio gains this percentage for the day. This is calculated across ALL positions, not individual trades."
+                                  examples={["Portfolio starts at €10,000 → Stop trading at €10,050 (+0.5%)", "Combined daily performance across all coins", "Prevents overtrading after reaching daily goal"]}
                                 >
-                                  <Label>Daily Profit Target (%)</Label>
+                                  <Label>Daily Profit Target (Portfolio-Wide %)</Label>
                                 </TooltipField>
                                 <Input
                                   type="number"

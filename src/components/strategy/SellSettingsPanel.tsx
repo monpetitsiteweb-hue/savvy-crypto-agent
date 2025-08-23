@@ -122,10 +122,10 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <TooltipField 
-              description="The gain percentage at which the trade should close to secure profits."
-              examples={["Take profits at 5%", "Sell once I make 3%", "Close when I hit my target"]}
+              description="🎯 PER-POSITION LIMIT: Each individual buy order will automatically sell when it reaches this profit percentage. This is independent of your overall portfolio performance."
+              examples={["Buy ETH at €4000 → Sell at €4020 (+0.5%)", "Buy BTC at €98000 → Sell at €98490 (+0.5%)", "Each position closes individually at this % gain"]}
             >
-              <Label>Take Profit Percentage: {formData.takeProfitPercentage}%</Label>
+              <Label>Take Profit Percentage (Per Position): {formData.takeProfitPercentage}%</Label>
             </TooltipField>
             <div className="space-y-2">
               <Slider
