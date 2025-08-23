@@ -885,7 +885,7 @@ export const useIntelligentTradingEngine = () => {
                trigger?.includes('ai') ? 'intelligent' : 'intelligent',
         confidence: 0.75, // Default confidence for intelligent engine
         reason: trigger || `Intelligent engine ${action}`,
-        qtySuggested: customAmount || (strategy.configuration?.perTradeAllocation || 1000) / price,
+        qtySuggested: customAmount || Math.max(10, (strategy.configuration?.perTradeAllocation || 50)) / price,
         metadata: {
           engine: 'intelligent',
           price: price,
@@ -975,6 +975,21 @@ export const useIntelligentTradingEngine = () => {
     customAmount?: number,
     trigger?: string
   ) => {
+    // CRITICAL FIX: Apply regression guards before trade execution
+    const { validateTradePrice, validatePurchaseValue, logValidationFailure } = await import('../utils/regressionGuards');
+    
+    // GUARD 1: Price corruption prevention
+    const priceValidation = validateTradePrice(price, cryptocurrency);
+    if (!priceValidation.isValid) {
+      logValidationFailure('price_corruption_guard', priceValidation.errors, { price, cryptocurrency, trigger });
+      toast({
+        title: "Trade Blocked",
+        description: `Suspicious price detected: €${price}. Trade prevented by security guard.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     // CRITICAL FIX: Normalize symbol format - remove -EUR suffix for database storage
     const normalizedSymbol = cryptocurrency.replace('-EUR', '');
     console.log('🔧 ENGINE: Symbol normalization:', cryptocurrency, '->', normalizedSymbol);
@@ -985,13 +1000,47 @@ export const useIntelligentTradingEngine = () => {
     if (action === 'sell' && customAmount !== undefined) {
       tradeAmount = customAmount;
     } else {
-      // Calculate buy amount
+      // CRITICAL FIX: Use deterministic price and remove €100 default
+      let deterministicPrice = price;
+      
+      // Fetch price snapshot for deterministic pricing
+      try {
+        const { data: snapshot } = await supabase
+          .from('price_snapshots')
+          .select('price')
+          .eq('symbol', normalizedSymbol)
+          .order('ts', { ascending: false })
+          .limit(1);
+        
+        if (snapshot?.[0]?.price) {
+          deterministicPrice = snapshot[0].price;
+          console.log('🎯 ENGINE: Using snapshot price:', deterministicPrice, 'for', normalizedSymbol);
+        }
+      } catch (error) {
+        console.warn('⚠️ ENGINE: Could not fetch price snapshot, using market price:', price);
+      }
+
+      // Calculate buy amount with safe defaults (no more €100 hardcode)
+      const defaultAllocation = 50; // Reduced from €100 to €50 minimum
       if (config.allocationUnit === 'percentage') {
         const totalBalance = getBalance('EUR');
-        tradeAmount = (totalBalance * config.perTradeAllocation / 100) / price;
+        const allocationAmount = Math.max(defaultAllocation, totalBalance * (config.perTradeAllocation || 5) / 100);
+        tradeAmount = allocationAmount / deterministicPrice;
       } else {
-        tradeAmount = (config.perTradeAllocation || 100) / price;
+        const allocationAmount = config.perTradeAllocation || defaultAllocation;
+        tradeAmount = allocationAmount / deterministicPrice;
       }
+
+      // GUARD 2: Purchase value consistency validation
+      const totalValue = tradeAmount * deterministicPrice;
+      const purchaseValidation = validatePurchaseValue(tradeAmount, deterministicPrice, totalValue);
+      if (!purchaseValidation.isValid) {
+        logValidationFailure('purchase_value_guard', purchaseValidation.errors, { tradeAmount, price: deterministicPrice, totalValue });
+        console.error('❌ ENGINE: Purchase value validation failed, aborting trade');
+        return;
+      }
+
+      price = deterministicPrice; // Use validated price for trade execution
     }
 
     // Execute the trade

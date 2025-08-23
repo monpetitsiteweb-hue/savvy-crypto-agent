@@ -12,6 +12,7 @@ import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
+import { CorruptionWarning } from './CorruptionWarning';
 
 interface Trade {
   id: string;
@@ -46,6 +47,8 @@ interface TradePerformance {
   gainLoss: number | null;
   gainLossPercentage: number | null;
   isAutomatedWithoutPnL?: boolean;
+  isCorrupted?: boolean;
+  corruptionReasons?: string[];
 }
 
 interface TradingHistoryProps {
@@ -156,8 +159,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     fetchAllPastTrades();
   }, [user]);
 
-  // PHASE 2: Past Positions now use stored snapshot data (no calculations needed)
-  const calculateTradePerformance = (trade: Trade) => {
+  // PHASE 2: Use ValuationService for consistent P&L calculations
+  const calculateTradePerformance = (trade: Trade): TradePerformance => {
     
     if (trade.trade_type === 'sell') {
       // Check if this is an automated trade without P&L data
@@ -189,22 +192,48 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
     }
     
-    // For BUY trades (open positions): Calculate unrealized P&L based on current market price
-    const purchasePrice = trade.price;
-    const purchaseValue = trade.total_value;
-    const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
-    const currentValue = trade.amount * currentMarketPrice;
+    // CRITICAL FIX: For BUY trades (open positions), apply integrity checks
+    const { checkIntegrity } = require('../utils/valuationService');
     
-    // Simple P&L calculation without fees - fees will be handled by Coinbase integration
-    const unrealizedPL = currentValue - purchaseValue;
-    const gainLossPercentage = purchaseValue !== 0 ? (unrealizedPL / purchaseValue) * 100 : 0;
+    // Check integrity first and exclude corrupted positions
+    const integrityCheck = checkIntegrity({
+      symbol: trade.cryptocurrency,
+      amount: trade.amount,
+      entry_price: trade.price,
+      purchase_value: trade.total_value
+    });
+
+    if (!integrityCheck.is_valid) {
+      console.warn('🛡️ HISTORY: Corrupted position detected:', integrityCheck.errors);
+      // Mark as corrupted but still display with warning
+      const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+      return {
+        currentPrice: currentMarketPrice,
+        currentValue: 0, // Set to 0 to exclude from totals
+        purchaseValue: trade.total_value,
+        purchasePrice: trade.price,
+        gainLoss: 0, // Set to 0 to exclude from totals
+        gainLossPercentage: 0,
+        isCorrupted: true,
+        corruptionReasons: integrityCheck.errors
+      } as TradePerformance;
+    }
+
+    // CRITICAL FIX: Use consistent ValuationService calculation for open positions
+    const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
     
+    // Apply the same formulas as ValuationService
+    const current_value = trade.amount * currentMarketPrice;
+    const pnl_eur = current_value - trade.total_value;
+    const pnl_pct = trade.price > 0 ? ((currentMarketPrice / trade.price) - 1) * 100 : 0;
+
     return {
-      currentPrice: currentMarketPrice,
-      currentValue: currentValue,
-      purchaseValue: purchaseValue,
-      gainLoss: unrealizedPL,
-      gainLossPercentage: gainLossPercentage
+      currentPrice: Math.round(currentMarketPrice * 100) / 100,
+      currentValue: Math.round(current_value * 100) / 100,
+      purchaseValue: trade.total_value,
+      purchasePrice: trade.price,
+      gainLoss: Math.round(pnl_eur * 100) / 100,
+      gainLossPercentage: Math.round(pnl_pct * 100) / 100
     };
   };
 
@@ -285,15 +314,31 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return realized;
   };
 
-  // Unrealized P&L from open lots and current investment (price-only, no fees)
+  // Unrealized P&L from open lots and current investment (price-only, no fees) - EXCLUDES CORRUPTED
   const computeUnrealizedPLFromOpenLots = (openLots: Trade[]) => {
     let unrealizedPL = 0;
     let invested = 0;
+    let corruptedCount = 0;
+    
     openLots.forEach((lot) => {
+      // CRITICAL FIX: Check position integrity and exclude corrupted positions from KPIs
+      const performance = calculateTradePerformance(lot);
+      
+      if (performance.isCorrupted) {
+        corruptedCount++;
+        console.warn('🛡️ KPI: Excluding corrupted position from totals:', lot.cryptocurrency, performance.corruptionReasons);
+        return; // Skip corrupted positions in KPI calculations
+      }
+
       const currentPrice = marketData[lot.cryptocurrency]?.price || currentPrices[lot.cryptocurrency] || lot.price;
       unrealizedPL += (currentPrice - lot.price) * lot.amount;
       invested += lot.price * lot.amount;
     });
+
+    if (corruptedCount > 0) {
+      console.log('🛡️ KPI: Excluded', corruptedCount, 'corrupted positions from KPI totals');
+    }
+
     return { unrealizedPL, invested };
   };
 
@@ -405,7 +450,42 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     if (!user) return;
     
     try {
-      const currentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+      // CRITICAL FIX: Apply regression guards and use deterministic pricing
+      const { validateTradePrice, logValidationFailure } = await import('../utils/regressionGuards');
+      
+      // Get current price with snapshot fallback for deterministic pricing
+      let currentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+      
+      // Try to get deterministic price from snapshots
+      try {
+        const normalizedSymbol = trade.cryptocurrency.replace('-EUR', '');
+        const { data: snapshot } = await supabase
+          .from('price_snapshots')
+          .select('price')
+          .eq('symbol', normalizedSymbol)
+          .order('ts', { ascending: false })
+          .limit(1);
+        
+        if (snapshot?.[0]?.price) {
+          currentPrice = snapshot[0].price;
+          console.log('🎯 HISTORY: Using snapshot price for sell:', currentPrice, 'for', normalizedSymbol);
+        }
+      } catch (error) {
+        console.warn('⚠️ HISTORY: Could not fetch price snapshot for sell, using market price');
+      }
+
+      // Apply price validation guard
+      const priceValidation = validateTradePrice(currentPrice, trade.cryptocurrency);
+      if (!priceValidation.isValid) {
+        logValidationFailure('sell_price_corruption_guard', priceValidation.errors, { currentPrice, symbol: trade.cryptocurrency });
+        toast({
+          title: "Sell Blocked",
+          description: `Suspicious price detected: €${currentPrice}. Sell prevented by security guard.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
       const sellValue = trade.amount * currentPrice;
       const buyValue = trade.total_value; // Already pro-rated for partials in getOpenPositions
 
@@ -478,7 +558,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                   {trade.trade_type.toUpperCase()}
                 </Badge>
               </div>
-              <div className="font-medium text-white mt-1">{trade.cryptocurrency}</div>
+              <div className="font-medium text-white mt-1 flex items-center gap-1">
+                {trade.cryptocurrency}
+                <CorruptionWarning 
+                  isCorrupted={performance.isCorrupted} 
+                  integrityReason={performance.corruptionReasons?.join('; ')}
+                />
+              </div>
             </div>
             
             {/* Amount */}
@@ -565,14 +651,32 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Actions */}
             <div className="col-span-1">
               {trade.trade_type === 'buy' && testMode && (
-                <Button
-                  onClick={() => sellPosition(trade)}
-                  size="sm"
-                  variant="outline"
-                  className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
-                >
-                  Sell
-                </Button>
+                performance.isCorrupted ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled
+                    className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-not-allowed"
+                    onClick={() => {
+                      toast({
+                        title: "Trade Locked",
+                        description: "Position corrupted - cannot sell until data integrity is restored",
+                        variant: "destructive",
+                      });
+                    }}
+                  >
+                    🔒 Locked
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => sellPosition(trade)}
+                    size="sm"
+                    variant="outline"
+                    className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
+                  >
+                    Sell
+                  </Button>
+                )
               )}
             </div>
           </div>
@@ -592,14 +696,32 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
               <span className="font-bold text-white text-lg">{trade.cryptocurrency}</span>
             </div>
             {trade.trade_type === 'buy' && testMode && (
-              <Button
-                onClick={() => sellPosition(trade)}
-                size="sm"
-                variant="outline"
-                className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
-              >
-                Sell Position
-              </Button>
+              performance.isCorrupted ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled
+                  className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-not-allowed"
+                  onClick={() => {
+                    toast({
+                      title: "Trade Locked",
+                      description: "Position corrupted - cannot sell until data integrity is restored",
+                      variant: "destructive",
+                    });
+                  }}
+                >
+                  🔒 Position Locked
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => sellPosition(trade)}
+                  size="sm"
+                  variant="outline"
+                  className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
+                >
+                  Sell Position
+                </Button>
+              )
             )}
           </div>
 
