@@ -598,26 +598,7 @@ async function evaluateExistingPositionsAndEmitIntents(supabaseClient: any, stra
       }
     }
 
-  } catch (error) {
-    console.error('❌ POSITION_MGMT: Error in position evaluation:', error);
-  }
 }
-  const takeProfitPercentage = strategy.configuration?.takeProfitPercentage || 999; // Default to 999% (no take profit)
-  const stopLossPercentage = strategy.configuration?.stopLossPercentage || 999; // Default to 999% (no stop loss)
-  
-  if (takeProfitPercentage >= 999 && stopLossPercentage >= 999) {
-    console.log(`📊 Strategy "${strategy.strategy_name}" has no take profit (${takeProfitPercentage}%) or stop loss (${stopLossPercentage}%) targets set`);
-    return;
-  }
-  
-  console.log(`🎯 [POSITION MANAGEMENT] Evaluating existing positions for strategy "${strategy.strategy_name}" - Take Profit: ${takeProfitPercentage}%, Stop Loss: ${stopLossPercentage}%`);
-  
-  try {
-    // FIXED: Use the EXACT same query as the frontend to ensure data consistency
-    const tableToQuery = mode === 'live' ? 'trading_history' : 'mock_trades';
-    
-    console.log(`🔍 [DEBUG] Querying ${tableToQuery} for user ${strategy.user_id}, strategy ${strategy.id}`);
-    
     const { data: allTrades, error: tradesError } = await supabaseClient
       .from(tableToQuery)
       .select('*')
