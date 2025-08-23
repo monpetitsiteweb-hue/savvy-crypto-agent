@@ -282,17 +282,27 @@ export const useIntelligentTradingEngine = () => {
 
   const checkTrailingStopLoss = async (config: any, position: Position, currentPrice: number, pnlPercentage: number): Promise<boolean> => {
     const trailingPercentage = config.trailingStopLossPercentage;
-    if (!trailingPercentage || pnlPercentage <= 0) return false;
-
-    // Simplified trailing stop logic
-    const simulatedPeak = position.average_price * 1.1;
-    const dropFromPeak = ((simulatedPeak - currentPrice) / simulatedPeak) * 100;
     
-    if (dropFromPeak >= trailingPercentage) {
-      console.log('📉 ENGINE: Trailing stop triggered - dropped', dropFromPeak.toFixed(2) + '% from peak');
-      return true;
+    // FIXED: Trailing stop should ONLY activate when position is actually profitable
+    // Don't trigger trailing stop unless we're in profit
+    if (!trailingPercentage || pnlPercentage <= 0) {
+      console.log('🚫 TRAILING_STOP: Not in profit (', pnlPercentage.toFixed(2), '%) - trailing stop disabled');
+      return false;
     }
 
+    // Only activate trailing stop if we've reached a minimum profit threshold (e.g., 1%)
+    const minProfitForTrailing = 1.0; // Minimum 1% profit before trailing activates
+    if (pnlPercentage < minProfitForTrailing) {
+      console.log('🚫 TRAILING_STOP: Below minimum profit threshold (', pnlPercentage.toFixed(2), '% < 1%) - trailing stop disabled');
+      return false;
+    }
+
+    // For now, we need to track the actual peak price over time
+    // Since we don't have peak tracking yet, let's disable trailing stop completely
+    // until we implement proper peak tracking
+    console.log('🚫 TRAILING_STOP: Peak tracking not implemented yet - trailing stop disabled');
+    console.log('💡 TRAILING_STOP: Use regular take-profit (', config.takeProfitPercentage, '%) instead');
+    
     return false;
   };
 
