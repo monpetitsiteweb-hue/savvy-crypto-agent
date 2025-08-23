@@ -963,6 +963,48 @@ export type Database = {
           },
         ]
       }
+      trade_decisions_log: {
+        Row: {
+          confidence: number
+          created_at: string
+          decision_action: string
+          decision_reason: string | null
+          id: string
+          intent_side: string
+          intent_source: string
+          metadata: Json
+          strategy_id: string
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          confidence: number
+          created_at?: string
+          decision_action: string
+          decision_reason?: string | null
+          id?: string
+          intent_side: string
+          intent_source: string
+          metadata?: Json
+          strategy_id: string
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          decision_action?: string
+          decision_reason?: string | null
+          id?: string
+          intent_side?: string
+          intent_source?: string
+          metadata?: Json
+          strategy_id?: string
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       trading_history: {
         Row: {
           amount: number
@@ -1050,6 +1092,7 @@ export type Database = {
           is_active_test: boolean | null
           strategy_name: string
           test_mode: boolean | null
+          unified_config: Json | null
           updated_at: string
           user_id: string
         }
@@ -1063,6 +1106,7 @@ export type Database = {
           is_active_test?: boolean | null
           strategy_name: string
           test_mode?: boolean | null
+          unified_config?: Json | null
           updated_at?: string
           user_id: string
         }
@@ -1076,6 +1120,7 @@ export type Database = {
           is_active_test?: boolean | null
           strategy_name?: string
           test_mode?: boolean | null
+          unified_config?: Json | null
           updated_at?: string
           user_id?: string
         }
