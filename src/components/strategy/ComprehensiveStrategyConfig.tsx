@@ -122,6 +122,13 @@ interface StrategyFormData {
     price_tick: number;
     min_order_notional: number;
   };
+  // Unified Decisions configuration
+  unifiedConfig?: {
+    enableUnifiedDecisions: boolean;
+    minHoldPeriodMs: number;
+    cooldownBetweenOppositeActionsMs: number;
+    confidenceOverrideThreshold: number;
+  };
 }
 
 interface ComprehensiveStrategyConfigProps {
@@ -199,6 +206,13 @@ const MENU_SECTIONS = [
       { id: 'pool-exit-management', label: 'Pool Exit Management', icon: Shield },
       { id: 'shorting-settings', label: 'Shorting settings', icon: TrendingDown },
       { id: 'dollar-cost-averaging', label: 'Dollar Cost Averaging', icon: DollarSign }
+    ]
+  },
+  {
+    id: 'decisions',
+    title: 'UNIFIED DECISIONS',
+    items: [
+      { id: 'unified-decisions', label: 'Unified Decisions', icon: Shield }
     ]
   }
 ];
@@ -1837,6 +1851,20 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                     <PoolExitManagementPanel 
                       formData={formData} 
                       updateFormData={updateFormData} 
+                    />
+                  )}
+
+                  {/* Unified Decisions Panel */}
+                  {activeSection === 'unified-decisions' && (
+                    <UnifiedDecisionsConfig 
+                      config={formData.unifiedConfig || {
+                        enableUnifiedDecisions: false,
+                        minHoldPeriodMs: 120000,
+                        cooldownBetweenOppositeActionsMs: 30000,
+                        confidenceOverrideThreshold: 0.70
+                      }}
+                      onChange={(unifiedConfig) => updateFormData('unifiedConfig', unifiedConfig)}
+                      isActive={formData.enableTestTrading || formData.enableLiveTrading}
                     />
                   )}
                 </form>
