@@ -380,13 +380,14 @@ async function getExecutionLog(supabaseClient: any, params: any) {
 
 async function evaluateExistingPositions(supabaseClient: any, strategy: any, mode: string, executionResults: any[]) {
   const takeProfitPercentage = strategy.configuration?.takeProfitPercentage || 999; // Default to 999% (no take profit)
+  const stopLossPercentage = strategy.configuration?.stopLossPercentage || 999; // Default to 999% (no stop loss)
   
-  if (takeProfitPercentage >= 999) {
-    console.log(`📊 Strategy "${strategy.strategy_name}" has no take profit target set (${takeProfitPercentage}%)`);
+  if (takeProfitPercentage >= 999 && stopLossPercentage >= 999) {
+    console.log(`📊 Strategy "${strategy.strategy_name}" has no take profit (${takeProfitPercentage}%) or stop loss (${stopLossPercentage}%) targets set`);
     return;
   }
   
-  console.log(`🎯 [TAKE PROFIT] Evaluating existing positions for strategy "${strategy.strategy_name}" with ${takeProfitPercentage}% target`);
+  console.log(`🎯 [POSITION MANAGEMENT] Evaluating existing positions for strategy "${strategy.strategy_name}" - Take Profit: ${takeProfitPercentage}%, Stop Loss: ${stopLossPercentage}%`);
   
   try {
     // FIXED: Use the EXACT same query as the frontend to ensure data consistency
@@ -490,10 +491,48 @@ async function evaluateExistingPositions(supabaseClient: any, strategy: any, mod
 
       // Calculate gain for THIS SPECIFIC position (not averaged)
       const gainPercentage = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+      const lossPercentage = -gainPercentage; // Convert to positive loss percentage for clarity
       
-      console.log(`📈 [TAKE PROFIT] Individual Position: ${position.cryptocurrency} bought at €${position.entryPrice.toFixed(2)} → Current €${currentPrice.toFixed(2)} = ${gainPercentage.toFixed(2)}% gain (target: ${takeProfitPercentage}%)`);
+      console.log(`📈 [POSITION CHECK] Individual Position: ${position.cryptocurrency} bought at €${position.entryPrice.toFixed(2)} → Current €${currentPrice.toFixed(2)} = ${gainPercentage.toFixed(2)}% change (TP: ${takeProfitPercentage}%, SL: ${stopLossPercentage}%)`);
       
-      if (gainPercentage >= takeProfitPercentage) {
+      // Check STOP LOSS first (higher priority)
+      if (stopLossPercentage < 999 && lossPercentage >= stopLossPercentage) {
+        console.log(`🔴 [STOP LOSS] Selling individual position of ${position.cryptocurrency} at ${lossPercentage.toFixed(2)}% loss for user ${strategy.user_id}`);
+        
+        // Execute sell trade for THIS SPECIFIC position only
+        const sellTradeResult = await executeTrade(supabaseClient, {
+          strategy,
+          marketData: { [symbol]: marketData[symbol] },
+          mode,
+          userId: strategy.user_id,
+          trigger: 'stop_loss_hit',
+          evaluation: {
+            action: 'sell',
+            reasoning: `Stop loss target reached: ${lossPercentage.toFixed(2)}% loss (limit: ${stopLossPercentage}%) | Individual Position: ${position.amount.toFixed(6)} ${position.cryptocurrency} from ${position.executedAt}`,
+            confidence: 1.0
+          },
+          signal: {
+            symbol: position.cryptocurrency,
+            signal_type: 'stop_loss',
+            signal_strength: 100
+          },
+          // CRITICAL: Sell only this specific position amount
+          forceAmount: position.amount,
+          forceTotalValue: position.amount * currentPrice
+        });
+        
+        if (sellTradeResult.success) {
+          executionResults.push(sellTradeResult);
+          console.log(`✅ [STOP LOSS] Successfully sold ${position.amount.toFixed(6)} ${position.cryptocurrency} at ${lossPercentage.toFixed(2)}% loss`);
+        } else {
+          console.error(`❌ [STOP LOSS] Failed to sell ${position.cryptocurrency}: ${sellTradeResult.error}`);
+        }
+        
+        continue; // Skip take profit check for this position
+      }
+      
+      // Check TAKE PROFIT
+      if (takeProfitPercentage < 999 && gainPercentage >= takeProfitPercentage) {
         console.log(`🎯 [TAKE PROFIT] Selling individual position of ${position.cryptocurrency} at ${gainPercentage.toFixed(2)}% gain for user ${strategy.user_id}`);
         
         // Execute sell trade for THIS SPECIFIC position only
@@ -518,10 +557,14 @@ async function evaluateExistingPositions(supabaseClient: any, strategy: any, mod
           forceTotalValue: position.amount * currentPrice
         });
         
-        executionResults.push(sellTradeResult);
-        console.log(`✅ [TAKE PROFIT] Successfully sold individual ${position.cryptocurrency} position: ${position.amount.toFixed(6)} units at €${currentPrice.toFixed(2)}`);
+        if (sellTradeResult.success) {
+          executionResults.push(sellTradeResult);
+          console.log(`✅ [TAKE PROFIT] Successfully sold ${position.amount.toFixed(6)} ${position.cryptocurrency} at ${gainPercentage.toFixed(2)}% gain`);
+        } else {
+          console.error(`❌ [TAKE PROFIT] Failed to sell ${position.cryptocurrency}: ${sellTradeResult.error}`);
+        }
       } else {
-        console.log(`⏳ [TAKE PROFIT] Holding individual ${position.cryptocurrency} position - ${gainPercentage.toFixed(2)}% gain (need ${takeProfitPercentage}%)`);
+        console.log(`⏳ [HOLDING] Individual ${position.cryptocurrency} position - ${gainPercentage.toFixed(2)}% change (TP: ${takeProfitPercentage}%, SL: ${stopLossPercentage}%)`);
       }
     }
     
