@@ -78,6 +78,7 @@ interface StrategyFormData {
   takeProfitPercentage: number;
   stopLossPercentage: number;
   trailingStopLossPercentage: number;
+  trailingStopMinProfitThreshold: number;
   autoCloseAfterHours: number;
   maxOpenPositions: number;
   dailyProfitTarget: number;
@@ -265,6 +266,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     takeProfitPercentage: 2.5,
     stopLossPercentage: 3,
     trailingStopLossPercentage: 2,
+    trailingStopMinProfitThreshold: 1,
     autoCloseAfterHours: 24,
     maxOpenPositions: 5,
     dailyProfitTarget: 0,

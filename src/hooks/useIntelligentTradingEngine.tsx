@@ -290,10 +290,10 @@ export const useIntelligentTradingEngine = () => {
       return false;
     }
 
-    // Only activate trailing stop if we've reached a minimum profit threshold (e.g., 1%)
-    const minProfitForTrailing = 1.0; // Minimum 1% profit before trailing activates
+    // Only activate trailing stop if we've reached a minimum profit threshold
+    const minProfitForTrailing = config.trailingStopMinProfitThreshold || 1.0;
     if (pnlPercentage < minProfitForTrailing) {
-      console.log('🚫 TRAILING_STOP: Below minimum profit threshold (', pnlPercentage.toFixed(2), '% < 1%) - trailing stop disabled');
+      console.log('🚫 TRAILING_STOP: Below minimum profit threshold (', pnlPercentage.toFixed(2), '% <', minProfitForTrailing, '%) - trailing stop disabled');
       return false;
     }
 
