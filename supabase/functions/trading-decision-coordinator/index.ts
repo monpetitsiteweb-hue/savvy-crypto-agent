@@ -214,6 +214,14 @@ async function processUnifiedDecision(
   strategyConfig: any
 ): Promise<TradeDecision> {
   
+  // DEBUG: Log configuration values at decision time
+  console.log(`🔍 COORDINATOR DEBUG: Strategy ${intent.strategyId} config:`, {
+    enableUnifiedDecisions: config.enableUnifiedDecisions,
+    minHoldPeriodMs: config.minHoldPeriodMs,
+    cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs,
+    confidenceOverrideThreshold: config.confidenceOverrideThreshold
+  });
+  
   console.log(`🧠 COORDINATOR: Processing unified decision for ${intent.symbol} ${intent.side} from ${intent.source}`);
 
   // Check recent trade history for anti-flip-flop logic
