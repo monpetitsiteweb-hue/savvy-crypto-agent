@@ -1387,6 +1387,14 @@ export type Database = {
         }
         Returns: boolean
       }
+      pg_advisory_unlock: {
+        Args: { key: number }
+        Returns: boolean
+      }
+      pg_try_advisory_lock: {
+        Args: { key: number }
+        Returns: boolean
+      }
       reset_mock_wallet_balances: {
         Args: { target_balance?: number }
         Returns: undefined

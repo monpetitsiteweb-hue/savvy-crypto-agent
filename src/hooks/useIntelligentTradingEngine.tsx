@@ -851,6 +851,102 @@ export const useIntelligentTradingEngine = () => {
       return;
     }
 
+    // Check if strategy has unified decisions enabled
+    const unifiedConfig = strategy?.configuration?.unifiedConfig || { enableUnifiedDecisions: false };
+    
+    if (unifiedConfig.enableUnifiedDecisions) {
+      // NEW: Emit intent to coordinator
+      console.log('🎯 INTELLIGENT: Using unified decision system');
+      return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger);
+    } else {
+      // Legacy direct execution (backward compatibility)
+      console.log('🔄 INTELLIGENT: Unified decisions disabled, executing trade directly');
+      return await executeTradeDirectly(strategy, action, cryptocurrency, price, customAmount, trigger);
+    }
+  };
+
+  // NEW: Emit trade intent to coordinator
+  const emitTradeIntentToCoordinator = async (
+    strategy: any, 
+    action: 'buy' | 'sell', 
+    cryptocurrency: string, 
+    price: number, 
+    customAmount?: number,
+    trigger?: string
+  ) => {
+    try {
+      const intent = {
+        userId: user!.id,
+        strategyId: strategy.id,
+        symbol: cryptocurrency.includes('-EUR') ? cryptocurrency : `${cryptocurrency}-EUR`,
+        side: action.toUpperCase() as 'BUY' | 'SELL',
+        source: trigger?.includes('whale') ? 'whale' : 
+               trigger?.includes('news') ? 'news' : 
+               trigger?.includes('ai') ? 'intelligent' : 'intelligent',
+        confidence: 0.75, // Default confidence for intelligent engine
+        reason: trigger || `Intelligent engine ${action}`,
+        qtySuggested: customAmount || (strategy.configuration?.perTradeAllocation || 1000) / price,
+        metadata: {
+          engine: 'intelligent',
+          price: price,
+          symbol_normalized: cryptocurrency.replace('-EUR', ''),
+          trigger: trigger
+        },
+        ts: new Date().toISOString()
+      };
+
+      console.log('🎯 INTELLIGENT: Emitting intent to coordinator:', JSON.stringify(intent, null, 2));
+
+      const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
+        body: { intent }
+      });
+
+      if (error) {
+        console.error('❌ INTELLIGENT: Coordinator call failed:', error);
+        toast({
+          title: "Trade Intent Failed",
+          description: `Failed to process ${action} intent for ${cryptocurrency}: ${error.message}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.log('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
+
+      if (decision.approved && decision.action !== 'HOLD') {
+        toast({
+          title: "Trade Executed",
+          description: `${decision.action} order for ${cryptocurrency} approved: ${decision.reason}`,
+        });
+        console.log(`✅ INTELLIGENT: Trade intent approved and executed: ${decision.action} ${cryptocurrency}`);
+      } else {
+        toast({
+          title: "Trade Intent Blocked",
+          description: `${action.toUpperCase()} for ${cryptocurrency} blocked: ${decision.reason}`,
+          variant: "destructive",
+        });
+        console.log(`❌ INTELLIGENT: Trade intent blocked: ${decision.reason}`);
+      }
+
+    } catch (error) {
+      console.error('❌ INTELLIGENT: Error executing trade intent:', error);
+      toast({
+        title: "Trade Error",
+        description: `Error processing ${action} for ${cryptocurrency}`,
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Legacy direct execution function (backward compatibility) 
+  const executeTradeDirectly = async (
+    strategy: any, 
+    action: 'buy' | 'sell', 
+    cryptocurrency: string, 
+    price: number, 
+    customAmount?: number,
+    trigger?: string
+  ) => {
     // CRITICAL FIX: Normalize symbol format - remove -EUR suffix for database storage
     const normalizedSymbol = cryptocurrency.replace('-EUR', '');
     console.log('🔧 ENGINE: Symbol normalization:', cryptocurrency, '->', normalizedSymbol);

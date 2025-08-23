@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { UnifiedDecisionsConfig } from './UnifiedDecisionsConfig';
 import { CoinsAmountsPanel } from './CoinsAmountsPanel';
 import { PerformancePanel } from './PerformancePanel';
 import { SellSettingsPanel } from './SellSettingsPanel';

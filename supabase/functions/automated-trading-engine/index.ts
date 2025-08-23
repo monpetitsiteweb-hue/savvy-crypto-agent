@@ -136,10 +136,10 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
       console.log(`📋 DEBUG: Strategy config perTradeAllocation: ${strategyConfig?.perTradeAllocation}`);
       console.log(`📋 DEBUG: Strategy config takeProfitPercentage: ${strategyConfig?.takeProfitPercentage}`);
       
-      // STEP 1: Check existing positions for take profit opportunities
-      await evaluateExistingPositions(supabaseClient, strategy, mode, executionResults);
+      // STEP 1: Check existing positions for take profit opportunities - EMIT INTENTS
+      await evaluateExistingPositionsAndEmitIntents(supabaseClient, strategy, mode, executionResults);
       
-      // STEP 2: Process new signals
+      // STEP 2: Process new signals - EMIT INTENTS
       const relevantSignals = (signals || []).filter(signal => 
         isSignalRelevantToStrategy(signal, strategyConfig)
       );
@@ -156,15 +156,15 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
           console.log(`⚖️ DEBUG: Evaluation result for ${signal.symbol}:`, JSON.stringify(shouldExecute, null, 2));
           
           if (shouldExecute.execute) {
-            console.log(`✅ EXECUTING TRADE for ${signal.symbol} with strength ${signal.signal_strength}`);
-            const execution = await executeStrategyFromSignal(
+            console.log(`🎯 EMITTING INTENT for ${signal.symbol} with strength ${signal.signal_strength}`);
+            const execution = await emitTradeIntentToCoordinator(
               supabaseClient, 
               strategy, 
               signal, 
               shouldExecute, 
               mode
             );
-            console.log(`📈 Trade execution result:`, JSON.stringify(execution, null, 2));
+            console.log(`📈 Intent result:`, JSON.stringify(execution, null, 2));
             executionResults.push(execution);
             
             // Mark signal as processed
@@ -173,7 +173,7 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
               .update({ processed: true })
               .eq('id', signal.id);
           } else {
-            console.log(`❌ SKIPPING trade for ${signal.symbol} - Reason: ${shouldExecute.reason || 'Not specified'}`);
+            console.log(`❌ SKIPPING intent for ${signal.symbol} - Reason: ${shouldExecute.reason || 'Not specified'}`);
           }
         }
       } else {
@@ -181,14 +181,14 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
       }
     }
 
-    console.log(`✅ Processed ${executionResults.length} strategy executions`);
+    console.log(`✅ Processed ${executionResults.length} strategy intents`);
     
     return new Response(JSON.stringify({ 
       success: true, 
       executions: executionResults,
       strategies_checked: strategies?.length || 0,
       signals_processed: signals?.length || 0,
-      message: `Processed ${executionResults.length} strategy executions in ${mode} mode`
+      message: `Processed ${executionResults.length} strategy intents in ${mode} mode`
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
@@ -376,9 +376,232 @@ async function getExecutionLog(supabaseClient: any, params: any) {
   }
 }
 
-// Helper functions
+// NEW: Emit trade intent to coordinator instead of direct execution
+async function emitTradeIntentToCoordinator(
+  supabaseClient: any,
+  strategy: any,
+  signal: any,
+  evaluation: any,
+  mode: string
+) {
+  try {
+    const intent = {
+      userId: strategy.user_id,
+      strategyId: strategy.id,
+      symbol: signal.symbol,
+      side: evaluation.action?.toUpperCase() || 'BUY',
+      source: 'automated',
+      confidence: signal.signal_strength,
+      reason: `Signal: ${signal.signal_type}, ${evaluation.reasoning}`,
+      qtySuggested: calculateTradeQuantity(strategy.configuration, signal),
+      metadata: {
+        signal_id: signal.id,
+        signal_type: signal.signal_type,
+        evaluation: evaluation,
+        mode: mode
+      },
+      ts: new Date().toISOString()
+    };
 
-async function evaluateExistingPositions(supabaseClient: any, strategy: any, mode: string, executionResults: any[]) {
+    console.log(`🎯 AUTOMATED: Emitting intent to coordinator:`, JSON.stringify(intent, null, 2));
+
+    // Call the trading decision coordinator
+    const coordinatorResponse = await supabaseClient.functions.invoke('trading-decision-coordinator', {
+      body: { intent }
+    });
+
+    if (coordinatorResponse.error) {
+      console.error('❌ AUTOMATED: Coordinator call failed:', coordinatorResponse.error);
+      return {
+        success: false,
+        error: coordinatorResponse.error.message,
+        intent: intent
+      };
+    }
+
+    const decision = coordinatorResponse.data;
+    console.log(`📋 AUTOMATED: Coordinator decision:`, JSON.stringify(decision, null, 2));
+
+    return {
+      success: decision.approved,
+      decision: decision,
+      intent: intent,
+      executed: decision.approved && decision.action !== 'HOLD'
+    };
+
+  } catch (error) {
+    console.error('❌ AUTOMATED: Error emitting intent:', error);
+    return {
+      success: false,
+      error: error.message,
+      intent: null
+    };
+  }
+}
+
+// NEW: Evaluate existing positions and emit SELL intents instead of direct execution  
+async function evaluateExistingPositionsAndEmitIntents(supabaseClient: any, strategy: any, mode: string, executionResults: any[]) {
+  const takeProfitPercentage = strategy.configuration?.takeProfitPercentage || 999;
+  const stopLossPercentage = strategy.configuration?.stopLossPercentage || 999;
+  
+  if (takeProfitPercentage >= 999 && stopLossPercentage >= 999) {
+    console.log(`📊 Strategy "${strategy.strategy_name}" has no take profit (${takeProfitPercentage}%) or stop loss (${stopLossPercentage}%) targets set`);
+    return;
+  }
+  
+  console.log(`🎯 [POSITION MANAGEMENT] Evaluating existing positions for strategy "${strategy.strategy_name}" - Take Profit: ${takeProfitPercentage}%, Stop Loss: ${stopLossPercentage}%`);
+  
+  try {
+    const tableToQuery = mode === 'live' ? 'trading_history' : 'mock_trades';
+    
+    console.log(`🔍 [DEBUG] Querying ${tableToQuery} for user ${strategy.user_id}, strategy ${strategy.id}`);
+    
+    const { data: allTrades, error: tradesError } = await supabaseClient
+      .from(tableToQuery)
+      .select('*')
+      .eq('user_id', strategy.user_id)
+      .eq('strategy_id', strategy.id)
+      .order('executed_at', { ascending: true });
+
+    if (tradesError) {
+      console.error(`❌ Error fetching trades: ${tradesError.message}`);
+      return;
+    }
+
+    if (!allTrades || allTrades.length === 0) {
+      console.log(`📊 No trades found for strategy "${strategy.strategy_name}"`);
+      return;
+    }
+
+    // Calculate individual positions
+    const individualPositions = [];
+    const buyTrades = allTrades.filter(trade => trade.trade_type === 'buy');
+    const sellTrades = allTrades.filter(trade => trade.trade_type === 'sell');
+    
+    for (const buyTrade of buyTrades) {
+      const symbol = buyTrade.cryptocurrency;
+      const buyAmount = parseFloat(buyTrade.amount);
+      const buyPrice = parseFloat(buyTrade.price);
+      
+      // Calculate how much of this specific buy has been sold
+      let remainingAmount = buyAmount;
+      
+      const relevantSells = sellTrades
+        .filter(sell => sell.cryptocurrency === symbol && new Date(sell.executed_at) >= new Date(buyTrade.executed_at))
+        .sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
+      
+      for (const sellTrade of relevantSells) {
+        if (remainingAmount <= 0) break;
+        const sellAmount = parseFloat(sellTrade.amount);
+        const amountToDeduct = Math.min(remainingAmount, sellAmount);
+        remainingAmount -= amountToDeduct;
+      }
+      
+      if (remainingAmount > 0.0001) {
+        individualPositions.push({
+          id: buyTrade.id,
+          cryptocurrency: symbol,
+          amount: remainingAmount,
+          entryPrice: buyPrice,
+          entryValue: remainingAmount * buyPrice,
+          executedAt: buyTrade.executed_at
+        });
+      }
+    }
+
+    if (individualPositions.length === 0) {
+      console.log(`📊 No open positions found for strategy "${strategy.strategy_name}"`);
+      return;
+    }
+
+    console.log(`📊 Found ${individualPositions.length} individual open positions for strategy "${strategy.strategy_name}"`);
+
+    // Get current market prices
+    const uniqueSymbols = [...new Set(individualPositions.map(pos => pos.cryptocurrency))];
+    const symbols = uniqueSymbols.map(crypto => `${crypto}-EUR`);
+    const marketData = await getCurrentMarketData(supabaseClient, symbols);
+
+    // Evaluate each position and emit intents if needed
+    for (const position of individualPositions) {
+      const symbol = `${position.cryptocurrency}-EUR`;
+      const currentPrice = marketData[symbol]?.price || 0;
+      
+      if (currentPrice === 0) {
+        console.log(`⚠️ No current price data for ${symbol}, skipping position check`);
+        continue;
+      }
+
+      const gainPercentage = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+      const lossPercentage = -gainPercentage;
+      
+      console.log(`📈 [POSITION CHECK] Individual Position: ${position.cryptocurrency} bought at €${position.entryPrice.toFixed(2)} → Current €${currentPrice.toFixed(2)} = ${gainPercentage.toFixed(2)}% change (TP: ${takeProfitPercentage}%, SL: ${stopLossPercentage}%)`);
+      
+      let shouldSell = false;
+      let sellReason = '';
+      
+      // Check STOP LOSS first (higher priority)
+      if (stopLossPercentage < 999 && lossPercentage >= stopLossPercentage) {
+        shouldSell = true;
+        sellReason = `stop_loss_${lossPercentage.toFixed(2)}pct`;
+        console.log(`🔴 [STOP LOSS] Emitting SELL intent for ${position.cryptocurrency} at ${lossPercentage.toFixed(2)}% loss`);
+      }
+      // Check TAKE PROFIT
+      else if (takeProfitPercentage < 999 && gainPercentage >= takeProfitPercentage) {
+        shouldSell = true;
+        sellReason = `take_profit_${gainPercentage.toFixed(2)}pct`;
+        console.log(`🟢 [TAKE PROFIT] Emitting SELL intent for ${position.cryptocurrency} at ${gainPercentage.toFixed(2)}% gain`);
+      }
+
+      if (shouldSell) {
+        // Emit SELL intent to coordinator
+        const sellIntent = {
+          userId: strategy.user_id,
+          strategyId: strategy.id,
+          symbol: symbol,
+          side: 'SELL',
+          source: 'automated',
+          confidence: 0.95, // High confidence for risk management
+          reason: sellReason,
+          qtySuggested: position.amount,
+          metadata: {
+            position_id: position.id,
+            entry_price: position.entryPrice,
+            current_price: currentPrice,
+            gain_percentage: gainPercentage,
+            position_management: true
+          },
+          ts: new Date().toISOString()
+        };
+
+        console.log(`🎯 POSITION_MGMT: Emitting SELL intent:`, JSON.stringify(sellIntent, null, 2));
+
+        const coordinatorResponse = await supabaseClient.functions.invoke('trading-decision-coordinator', {
+          body: { intent: sellIntent }
+        });
+
+        if (coordinatorResponse.error) {
+          console.error('❌ POSITION_MGMT: Coordinator call failed:', coordinatorResponse.error);
+        } else {
+          const decision = coordinatorResponse.data;
+          console.log(`📋 POSITION_MGMT: Coordinator decision:`, JSON.stringify(decision, null, 2));
+          
+          executionResults.push({
+            success: decision.approved,
+            decision: decision,
+            intent: sellIntent,
+            executed: decision.approved && decision.action !== 'HOLD',
+            type: 'position_management'
+          });
+        }
+      } else {
+        console.log(`⏳ [HOLDING] Individual ${position.cryptocurrency} position - ${gainPercentage.toFixed(2)}% change (TP: ${takeProfitPercentage}%, SL: ${stopLossPercentage}%)`);
+      }
+    }
+
+  } catch (error) {
+    console.error('❌ POSITION_MGMT: Error in position evaluation:', error);
+  }
+}
   const takeProfitPercentage = strategy.configuration?.takeProfitPercentage || 999; // Default to 999% (no take profit)
   const stopLossPercentage = strategy.configuration?.stopLossPercentage || 999; // Default to 999% (no stop loss)
   
@@ -647,6 +870,13 @@ function evaluateStrategyTrigger(signal: any, strategyConfig: any) {
             signal.signal_type.includes('bearish') ? 'sell' : 
             signal.signal_type.includes('news') ? 'buy' : 'hold'
   };
+}
+
+// Calculate trade quantity based on strategy configuration
+function calculateTradeQuantity(strategyConfig: any, signal: any): number {
+  const perTradeAllocation = strategyConfig?.perTradeAllocation || 1000;
+  const defaultPrice = 100; // Placeholder - in production would use real market price
+  return perTradeAllocation / defaultPrice;
 }
 
 async function executeStrategyFromSignal(supabaseClient: any, strategy: any, signal: any, evaluation: any, mode: string) {

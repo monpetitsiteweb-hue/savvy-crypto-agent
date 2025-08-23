@@ -67,7 +67,7 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
   };
 
   /**
-   * Execute a sell order for pool exit
+   * Execute a sell order for pool exit - EMIT INTENT TO COORDINATOR
    */
   const executeSellOrder = async (
     symbol: string, 
@@ -79,13 +79,109 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
     if (!user || !testMode) return false;
 
     try {
-      console.log(`🔄 POOL_MANAGER: Executing ${orderType} sell for ${symbol}:`, {
+      console.log(`🔄 POOL_MANAGER: Emitting ${orderType} sell intent for ${symbol}:`, {
         qty: qty.toFixed(8),
         price: price.toFixed(2),
         value: (qty * price).toFixed(2)
       });
 
-      // In test mode, create a mock sell trade
+      // Check if strategy has unified decisions enabled
+      const { data: strategy, error: strategyError } = await supabase
+        .from('trading_strategies')
+        .select('unified_config, configuration')
+        .eq('id', strategyId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (strategyError || !strategy) {
+        console.error('❌ POOL_MANAGER: Cannot fetch strategy for unified decision check');
+        return false;
+      }
+
+      const unifiedConfig = (strategy.unified_config as any) || { enableUnifiedDecisions: false };
+
+      if ((unifiedConfig as any)?.enableUnifiedDecisions) {
+        // NEW: Emit intent to coordinator
+        console.log('🎯 POOL_MANAGER: Using unified decision system');
+        
+        const intent = {
+          userId: user.id,
+          strategyId: strategyId,
+          symbol: symbol.includes('-EUR') ? symbol : `${symbol}-EUR`,
+          side: 'SELL' as const,
+          source: 'pool' as const,
+          confidence: 0.90, // High confidence for pool exits
+          reason: `Pool ${orderType} exit`,
+          qtySuggested: qty,
+          metadata: {
+            engine: 'pool_manager',
+            order_type: orderType,
+            price: price,
+            pool_logic: true
+          },
+          ts: new Date().toISOString()
+        };
+
+        console.log('🎯 POOL_MANAGER: Emitting intent to coordinator:', JSON.stringify(intent, null, 2));
+
+        const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
+          body: { intent }
+        });
+
+        if (error) {
+          console.error('❌ POOL_MANAGER: Coordinator call failed:', error);
+          toast({
+            title: "Pool Exit Intent Failed",
+            description: `Failed to process ${orderType} exit intent for ${symbol}: ${error.message}`,
+            variant: "destructive",
+          });
+          return false;
+        }
+
+        console.log('📋 POOL_MANAGER: Coordinator decision:', JSON.stringify(decision, null, 2));
+
+        if (decision.approved && decision.action === 'SELL') {
+          toast({
+            title: "Pool Exit Executed",
+            description: `${orderType} exit for ${symbol} approved: ${decision.reason}`,
+          });
+          console.log(`✅ POOL_MANAGER: Pool exit intent approved and executed`);
+          return true;
+        } else {
+          toast({
+            title: "Pool Exit Blocked",
+            description: `${orderType} exit for ${symbol} blocked: ${decision.reason}`,
+            variant: "destructive",
+          });
+          console.log(`❌ POOL_MANAGER: Pool exit intent blocked: ${decision.reason}`);
+          return false;
+        }
+      } else {
+        // Legacy direct execution (backward compatibility)
+        console.log('🔄 POOL_MANAGER: Unified decisions disabled, executing pool exit directly');
+        return await executePoolSellOrderDirectly(symbol, qty, price, strategyId, orderType);
+      }
+
+    } catch (error) {
+      console.error('❌ POOL_MANAGER: Error in pool exit intent:', error);
+      toast({
+        title: "Pool Exit Error",
+        description: `Error processing ${orderType} exit for ${symbol}`,
+        variant: "destructive",
+      });
+      return false;
+    }
+  };
+
+  // Legacy pool exit execution (backward compatibility)
+  const executePoolSellOrderDirectly = async (
+    symbol: string, 
+    qty: number, 
+    price: number, 
+    strategyId: string,
+    orderType: 'secure' | 'runner'
+  ): Promise<boolean> => {
+    try {
       const sellTrade = {
         user_id: user.id,
         strategy_id: strategyId,
