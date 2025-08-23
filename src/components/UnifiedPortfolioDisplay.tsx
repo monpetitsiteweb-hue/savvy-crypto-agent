@@ -122,6 +122,12 @@ export const UnifiedPortfolioDisplay = () => {
       const valuations: Record<string, any> = {};
       
       for (const position of positions) {
+        // Skip corrupted positions from KPI calculations
+        if (position.is_corrupted) {
+          console.log(`⚠️ Skipping corrupted position ${position.symbol} from valuations`);
+          continue;
+        }
+        
         const currentPrice = realTimePrices[position.symbol] || 0;
         if (currentPrice > 0) {
           try {

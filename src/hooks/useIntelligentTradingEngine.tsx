@@ -925,26 +925,34 @@ export const useIntelligentTradingEngine = () => {
 
       console.log('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
 
-      if (decision.approved && decision.action !== 'HOLD') {
+      // Parse decision response properly - coordinator always returns structured response
+      const decisionData = decision?.decision || decision;
+      const requestId = decisionData?.request_id || 'unknown';
+
+      if (decisionData?.action === 'BUY' || decisionData?.action === 'SELL') {
         // Successful trade execution
         toast({
           title: "Trade Executed",
-          description: `${decision.action} order placed for ${cryptocurrency}: ${decision.reason}`,
+          description: `${decisionData.action} order placed for ${cryptocurrency}`,
+          className: "border-green-200 bg-green-50 text-green-800",
         });
-        console.log(`✅ INTELLIGENT: Trade intent approved and executed: ${decision.action} ${cryptocurrency}`);
-      } else if (!decision.approved && decision.action === 'HOLD') {
-        // This is a HOLD decision - show standardized reason in yellow toast
-        console.log('⏸️ INTELLIGENT: Trade intent held/rejected:', decision.reason);
+        console.log(`✅ INTELLIGENT: Trade executed: ${decisionData.action} ${cryptocurrency} (${requestId})`);
+      } else if (decisionData?.action === 'HOLD') {
+        // HOLD decision - show standardized reason in yellow toast
+        const reason = decisionData.reason || "unified_decisions_hold";
+        console.log('⏸️ INTELLIGENT: Trade held:', reason, `(${requestId})`);
         toast({
           title: "Trade Held",
-          description: decision.reason || "Trade held by unified decisions",
-          className: "border-yellow-200 bg-yellow-50",
+          description: `${reason.replace(/_/g, ' ')}`,
+          className: "border-yellow-200 bg-yellow-50 text-yellow-800",
         });
       } else {
-        // Other cases
+        // Unknown decision format - this should never happen with proper coordinator
+        console.error('❌ INTELLIGENT: Unknown decision format:', decisionData);
         toast({
-          title: "Trade Status",
-          description: `${action} intent processed: ${decision.reason || 'Status unknown'}`,
+          title: "Unknown Decision",
+          description: `Unexpected coordinator response (${requestId})`,
+          variant: "destructive",
         });
       }
 
