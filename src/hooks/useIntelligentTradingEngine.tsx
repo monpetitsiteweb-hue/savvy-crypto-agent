@@ -906,18 +906,18 @@ export const useIntelligentTradingEngine = () => {
         console.error('❌ INTELLIGENT: Coordinator call failed:', error);
         toast({
           title: "Trade Intent Failed",
-          description: `Failed to process ${action} intent for ${cryptocurrency}: ${error.message}`,
+          description: `Network error processing ${action} for ${cryptocurrency}: ${error.message}`,
           variant: "destructive",
         });
         return;
       }
 
-      // Handle non-2xx responses from edge function
-      if (!decision || (decision.error && !decision.approved)) {
-        console.error('❌ INTELLIGENT: Coordinator returned error:', decision);
+      // Handle coordinator responses
+      if (!decision) {
+        console.error('❌ INTELLIGENT: No decision returned from coordinator');
         toast({
           title: "Trade Intent Failed", 
-          description: `Failed to process ${action} intent for ${cryptocurrency}: ${decision?.error || decision?.reason || 'Unknown error'}`,
+          description: `No response from trading coordinator for ${action} on ${cryptocurrency}`,
           variant: "destructive",
         });
         return;
@@ -926,18 +926,25 @@ export const useIntelligentTradingEngine = () => {
       console.log('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
 
       if (decision.approved && decision.action !== 'HOLD') {
+        // Successful trade execution
         toast({
           title: "Trade Executed",
-          description: `${decision.action} order for ${cryptocurrency} approved: ${decision.reason}`,
+          description: `${decision.action} order placed for ${cryptocurrency}: ${decision.reason}`,
         });
         console.log(`✅ INTELLIGENT: Trade intent approved and executed: ${decision.action} ${cryptocurrency}`);
-      } else if (decision.action === 'HOLD' || !decision.approved) {
-        // Trade was rejected/held - show informational toast  
+      } else if (!decision.approved && decision.action === 'HOLD') {
+        // This is a HOLD decision - show standardized reason in yellow toast
         console.log('⏸️ INTELLIGENT: Trade intent held/rejected:', decision.reason);
         toast({
-          title: "Trade Intent Held",
-          description: `${action.toUpperCase()} intent for ${cryptocurrency} was held: ${decision.reason}`,
-          variant: "default",
+          title: "Trade Held",
+          description: decision.reason || "Trade held by unified decisions",
+          className: "border-yellow-200 bg-yellow-50",
+        });
+      } else {
+        // Other cases
+        toast({
+          title: "Trade Status",
+          description: `${action} intent processed: ${decision.reason || 'Status unknown'}`,
         });
       }
 

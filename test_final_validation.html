@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Final Validation Tests</title>
+    <style>
+        .test { margin: 20px 0; padding: 15px; border: 2px solid #ddd; border-radius: 8px; }
+        .result { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .success { border-color: #28a745; }
+        .warning { border-color: #ffc107; }
+        .error { border-color: #dc3545; }
+        pre { font-size: 11px; overflow: auto; }
+        button { margin: 5px; padding: 8px 16px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Final Unified Decisions Validation</h1>
+    
+    <div class="test">
+        <h3>Test B: Pool Precedence</h3>
+        <button onclick="testPoolPrecedence()">Run Pool vs Scheduler Test</button>
+        <div id="testB-result"></div>
+    </div>
+
+    <div class="test">
+        <h3>Test C: Min Hold Period</h3>
+        <button onclick="testMinHoldPeriod()">Run Min Hold Test</button>
+        <div id="testC-result"></div>
+    </div>
+
+    <div class="test">
+        <h3>Test D: Cooldown Period</h3>
+        <button onclick="testCooldownPeriod()">Run Cooldown Test</button>
+        <div id="testD-result"></div>
+    </div>
+
+    <div class="test">
+        <h3>Soak Test</h3>
+        <button onclick="startSoakTest()">Start 15-min Soak Test</button>
+        <button onclick="stopSoakTest()">Stop Soak Test</button>
+        <div id="soak-result"></div>
+    </div>
+
+    <script>
+        const API_URL = 'https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/trading-decision-coordinator';
+        const AUTH = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8';
+        
+        const USER_ID = '25a0c221-1f0e-431d-8d79-db9fb4db9cb3';
+        const STRATEGY_ID = '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e';
+        
+        let soakInterval = null;
+        let soakResults = [];
+
+        async function sendIntent(intent, testName) {
+            const startTime = Date.now();
+            
+            try {
+                console.log(`🚀 ${testName}: Sending intent:`, intent);
+                
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': AUTH },
+                    body: JSON.stringify({ intent })
+                });
+                
+                const data = await response.json();
+                const duration = Date.now() - startTime;
+                
+                const result = {
+                    testName,
+                    timestamp: new Date().toISOString(),
+                    intent: `${intent.source}_${intent.side}`,
+                    symbol: intent.symbol,
+                    status: response.status,
+                    decision: data,
+                    duration
+                };
+                
+                console.log(`✅ ${testName} Result:`, result);
+                return result;
+                
+            } catch (error) {
+                console.error(`❌ ${testName} Error:`, error);
+                return {
+                    testName,
+                    timestamp: new Date().toISOString(),
+                    error: error.message
+                };
+            }
+        }
+
+        // Test B: Pool precedence
+        async function testPoolPrecedence() {
+            const resultDiv = document.getElementById('testB-result');
+            resultDiv.innerHTML = '<div class="result">🔄 Running Pool Precedence Test...</div>';
+            
+            // Step 1: Send scheduler BUY intent
+            const schedulerBuy = {
+                userId: USER_ID,
+                strategyId: STRATEGY_ID,
+                symbol: 'BTC-EUR',
+                side: 'BUY',
+                source: 'automated',
+                confidence: 0.7,
+                reason: 'scheduler_signal',
+                qtySuggested: 10,
+                ts: new Date().toISOString()
+            };
+            
+            const buyResult = await sendIntent(schedulerBuy, 'Scheduler BUY');
+            
+            // Step 2: Immediately send pool SELL (should have precedence)
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            const poolSell = {
+                userId: USER_ID,
+                strategyId: STRATEGY_ID,
+                symbol: 'BTC-EUR',
+                side: 'SELL',
+                source: 'pool',
+                confidence: 0.95,
+                reason: 'secure_take_profit',
+                qtySuggested: 5,
+                ts: new Date().toISOString()
+            };
+            
+            const sellResult = await sendIntent(poolSell, 'Pool SELL');
+            
+            resultDiv.innerHTML = `
+                <div class="result">
+                    <h4>📊 Test B Results:</h4>
+                    <p><strong>Scheduler BUY:</strong> ${buyResult.decision?.action || 'ERROR'} - ${buyResult.decision?.reason || buyResult.error}</p>
+                    <p><strong>Pool SELL:</strong> ${sellResult.decision?.action || 'ERROR'} - ${sellResult.decision?.reason || sellResult.error}</p>
+                    <pre>${JSON.stringify({ buyResult, sellResult }, null, 2)}</pre>
+                </div>
+            `;
+        }
+
+        // Test C: Min hold period
+        async function testMinHoldPeriod() {
+            const resultDiv = document.getElementById('testC-result');
+            resultDiv.innerHTML = '<div class="result">🔄 Running Min Hold Test...</div>';
+            
+            // Step 1: Execute a BUY
+            const buyIntent = {
+                userId: USER_ID,
+                strategyId: STRATEGY_ID,
+                symbol: 'ADA-EUR',
+                side: 'BUY',
+                source: 'manual',
+                confidence: 0.95,
+                reason: 'test_setup_buy',
+                qtySuggested: 20,
+                ts: new Date().toISOString()
+            };
+            
+            const buyResult = await sendIntent(buyIntent, 'Setup BUY');
+            
+            // Step 2: Wait 5 seconds (much less than 120s), then try SELL
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            
+            const sellIntent = {
+                userId: USER_ID,
+                strategyId: STRATEGY_ID,
+                symbol: 'ADA-EUR',
+                side: 'SELL',
+                source: 'automated',
+                confidence: 0.6,
+                reason: 'technical_signal',
+                qtySuggested: 15,
+                ts: new Date().toISOString()
+            };
+            
+            const sellResult = await sendIntent(sellIntent, 'Technical SELL within min hold');
+            
+            resultDiv.innerHTML = `
+                <div class="result">
+                    <h4>📊 Test C Results:</h4>
+                    <p><strong>Setup BUY:</strong> ${buyResult.decision?.action || 'ERROR'} - ${buyResult.decision?.reason || buyResult.error}</p>
+                    <p><strong>Technical SELL (within 120s):</strong> ${sellResult.decision?.action || 'ERROR'} - ${sellResult.decision?.reason || sellResult.error}</p>
+                    <pre>${JSON.stringify({ buyResult, sellResult }, null, 2)}</pre>
+                </div>
+            `;
+        }
+
+        // Test D: Cooldown period
+        async function testCooldownPeriod() {
+            const resultDiv = document.getElementById('testD-result');
+            resultDiv.innerHTML = '<div class="result">🔄 Running Cooldown Test...</div>';
+            
+            // Step 1: Execute a SELL
+            const sellIntent = {
+                userId: USER_ID,
+                strategyId: STRATEGY_ID,
+                symbol: 'SOL-EUR',
+                side: 'SELL',
+                source: 'manual',
+                confidence: 0.95,
+                reason: 'test_setup_sell',
+                qtySuggested: 5,
+                ts: new Date().toISOString()
+            };
+            
+            const sellResult = await sendIntent(sellIntent, 'Setup SELL');
+            
+            // Step 2: Wait 2 seconds (much less than 30s), then try BUY
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            const buyIntent = {
+                userId: USER_ID,
+                strategyId: STRATEGY_ID,
+                symbol: 'SOL-EUR',
+                side: 'BUY',
+                source: 'intelligent',
+                confidence: 0.65, // Below threshold
+                reason: 'ai_bullish_signal',
+                qtySuggested: 8,
+                ts: new Date().toISOString()
+            };
+            
+            const buyResult = await sendIntent(buyIntent, 'AI BUY within cooldown');
+            
+            resultDiv.innerHTML = `
+                <div class="result">
+                    <h4>📊 Test D Results:</h4>
+                    <p><strong>Setup SELL:</strong> ${sellResult.decision?.action || 'ERROR'} - ${sellResult.decision?.reason || sellResult.error}</p>
+                    <p><strong>AI BUY (within 30s, low confidence):</strong> ${buyResult.decision?.action || 'ERROR'} - ${buyResult.decision?.reason || buyResult.error}</p>
+                    <pre>${JSON.stringify({ sellResult, buyResult }, null, 2)}</pre>
+                </div>
+            `;
+        }
+
+        // Soak test
+        async function startSoakTest() {
+            const resultDiv = document.getElementById('soak-result');
+            soakResults = [];
+            
+            if (soakInterval) {
+                clearInterval(soakInterval);
+            }
+            
+            resultDiv.innerHTML = '<div class="result">🔄 Starting 15-minute soak test...</div>';
+            
+            const symbols = ['BTC-EUR', 'ETH-EUR', 'ADA-EUR'];
+            let counter = 0;
+            
+            soakInterval = setInterval(async () => {
+                counter++;
+                
+                for (const symbol of symbols) {
+                    // Alternate between different intent types
+                    const intents = [
+                        {
+                            userId: USER_ID,
+                            strategyId: STRATEGY_ID,
+                            symbol: symbol,
+                            side: Math.random() > 0.5 ? 'BUY' : 'SELL',
+                            source: ['automated', 'intelligent', 'pool'][Math.floor(Math.random() * 3)],
+                            confidence: 0.5 + Math.random() * 0.4,
+                            reason: 'soak_test_' + counter,
+                            qtySuggested: 5 + Math.random() * 10,
+                            ts: new Date().toISOString()
+                        }
+                    ];
+                    
+                    for (const intent of intents) {
+                        const result = await sendIntent(intent, `Soak-${counter}-${symbol}`);
+                        soakResults.push(result);
+                    }
+                }
+                
+                // Update display every 30 seconds
+                if (counter % 6 === 0) {
+                    updateSoakDisplay();
+                }
+                
+                // Stop after 15 minutes (900 seconds / 5 second intervals = 180 iterations)
+                if (counter >= 180) {
+                    stopSoakTest();
+                }
+                
+            }, 5000); // Every 5 seconds
+        }
+        
+        function stopSoakTest() {
+            if (soakInterval) {
+                clearInterval(soakInterval);
+                soakInterval = null;
+            }
+            updateSoakDisplay();
+        }
+        
+        function updateSoakDisplay() {
+            const resultDiv = document.getElementById('soak-result');
+            
+            // Analyze results by symbol
+            const summary = {};
+            const symbols = ['BTC-EUR', 'ETH-EUR', 'ADA-EUR'];
+            
+            symbols.forEach(symbol => {
+                const symbolResults = soakResults.filter(r => r.symbol === symbol);
+                const buyCount = symbolResults.filter(r => r.decision?.action === 'BUY').length;
+                const sellCount = symbolResults.filter(r => r.decision?.action === 'SELL').length;
+                const holdCount = symbolResults.filter(r => r.decision?.action === 'HOLD').length;
+                const errors = symbolResults.filter(r => r.error).length;
+                
+                const reasons = {};
+                symbolResults.forEach(r => {
+                    const reason = r.decision?.reason || r.error || 'unknown';
+                    reasons[reason] = (reasons[reason] || 0) + 1;
+                });
+                
+                summary[symbol] = {
+                    total: symbolResults.length,
+                    BUY: buyCount,
+                    SELL: sellCount,
+                    HOLD: holdCount,
+                    errors: errors,
+                    reasons: reasons
+                };
+            });
+            
+            resultDiv.innerHTML = `
+                <div class="result">
+                    <h4>📈 Soak Test Summary (${soakResults.length} total decisions)</h4>
+                    ${Object.entries(summary).map(([symbol, stats]) => `
+                        <div style="margin: 10px 0; padding: 10px; border: 1px solid #ddd;">
+                            <strong>${symbol}:</strong> ${stats.total} decisions
+                            <br>BUY: ${stats.BUY}, SELL: ${stats.SELL}, HOLD: ${stats.HOLD}, Errors: ${stats.errors}
+                            <br><small>Reasons: ${Object.entries(stats.reasons).map(([r, c]) => `${r}(${c})`).join(', ')}</small>
+                        </div>
+                    `).join('')}
+                    <pre>${JSON.stringify(summary, null, 2)}</pre>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

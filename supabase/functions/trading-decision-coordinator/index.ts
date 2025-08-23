@@ -233,7 +233,7 @@ async function processUnifiedDecision(
     return {
       approved: true,
       action: intent.side,
-      reason: 'Manual override - highest precedence',
+      reason: 'manual_override',
       qty: intent.qtySuggested
     };
   }
@@ -243,7 +243,7 @@ async function processUnifiedDecision(
     return {
       approved: true,
       action: intent.side,
-      reason: 'Stop-loss triggered - risk management override',
+      reason: 'blocked_by_precedence:HARD_RISK',
       qty: intent.qtySuggested
     };
   }
@@ -260,14 +260,14 @@ async function processUnifiedDecision(
       return {
         approved: false,
         action: 'HOLD',
-        reason: `Pool exit blocked: Recent BUY within ${config.cooldownBetweenOppositeActionsMs}ms cooldown`
+        reason: 'blocked_by_cooldown'
       };
     }
     
     return {
       approved: true,
       action: intent.side,
-      reason: 'Pool exit (secure/trailing) - high precedence',
+      reason: 'blocked_by_precedence:POOL_EXIT',
       qty: intent.qtySuggested
     };
   }
@@ -282,7 +282,7 @@ async function processUnifiedDecision(
         return {
           approved: false,
           action: 'HOLD',
-          reason: `Technical SELL blocked: Minimum hold period not met (${timeSinceBuy}ms < ${config.minHoldPeriodMs}ms)`
+          reason: 'min_hold_period_not_met'
         };
       }
     }
@@ -290,7 +290,7 @@ async function processUnifiedDecision(
     return {
       approved: true,
       action: intent.side,
-      reason: 'Technical SELL signal - medium precedence',
+      reason: 'technical_sell_approved',
       qty: intent.qtySuggested
     };
   }
@@ -307,7 +307,7 @@ async function processUnifiedDecision(
           return {
             approved: false,
             action: 'HOLD',
-            reason: `AI/News/Whale BUY blocked: Recent SELL within cooldown, confidence ${intent.confidence} < ${config.confidenceOverrideThreshold} threshold`
+            reason: 'confidence_below_threshold'
           };
         }
       }
@@ -316,7 +316,7 @@ async function processUnifiedDecision(
     return {
       approved: true,
       action: intent.side,
-      reason: `${intent.source.toUpperCase()} BUY signal approved`,
+      reason: `${intent.source}_buy_approved`,
       qty: intent.qtySuggested
     };
   }
@@ -331,7 +331,7 @@ async function processUnifiedDecision(
         return {
           approved: false,
           action: 'HOLD',
-          reason: `Scheduler BUY blocked: Recent SELL within extended cooldown (${timeSinceSell}ms < ${config.cooldownBetweenOppositeActionsMs * 2}ms)`
+          reason: 'blocked_by_cooldown'
         };
       }
     }
@@ -339,7 +339,7 @@ async function processUnifiedDecision(
     return {
       approved: true,
       action: intent.side,
-      reason: 'Scheduler BUY - lowest precedence, no conflicts detected',
+      reason: 'scheduler_buy_approved',
       qty: intent.qtySuggested
     };
   }
@@ -348,7 +348,7 @@ async function processUnifiedDecision(
   return {
     approved: false,
     action: 'HOLD',
-    reason: `Intent not recognized or blocked: ${intent.source} ${intent.side}`
+    reason: 'blocked_by_lock'
   };
 }
 
