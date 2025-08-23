@@ -662,6 +662,8 @@ export type Database = {
           exit_value: number | null
           fees: number | null
           id: string
+          integrity_reason: string | null
+          is_corrupted: boolean
           is_test_mode: boolean | null
           market_conditions: Json | null
           notes: string | null
@@ -687,6 +689,8 @@ export type Database = {
           exit_value?: number | null
           fees?: number | null
           id?: string
+          integrity_reason?: string | null
+          is_corrupted?: boolean
           is_test_mode?: boolean | null
           market_conditions?: Json | null
           notes?: string | null
@@ -712,6 +716,8 @@ export type Database = {
           exit_value?: number | null
           fees?: number | null
           id?: string
+          integrity_reason?: string | null
+          is_corrupted?: boolean
           is_test_mode?: boolean | null
           market_conditions?: Json | null
           notes?: string | null
@@ -738,6 +744,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      mock_trades_fix_audit: {
+        Row: {
+          created_at: string
+          id: string
+          new_amount: number | null
+          new_price: number | null
+          old_amount: number | null
+          old_price: number | null
+          reason: string
+          source: string
+          strategy_id: string | null
+          symbol: string | null
+          trade_id: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          new_amount?: number | null
+          new_price?: number | null
+          old_amount?: number | null
+          old_price?: number | null
+          reason: string
+          source: string
+          strategy_id?: string | null
+          symbol?: string | null
+          trade_id: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          new_amount?: number | null
+          new_price?: number | null
+          old_amount?: number | null
+          old_price?: number | null
+          reason?: string
+          source?: string
+          strategy_id?: string | null
+          symbol?: string | null
+          trade_id?: string
+          user_id?: string | null
+        }
+        Relationships: []
       }
       price_data: {
         Row: {
@@ -787,6 +838,24 @@ export type Database = {
           timestamp?: string
           user_id?: string
           volume?: number | null
+        }
+        Relationships: []
+      }
+      price_snapshots: {
+        Row: {
+          price: number
+          symbol: string
+          ts: string
+        }
+        Insert: {
+          price: number
+          symbol: string
+          ts: string
+        }
+        Update: {
+          price?: number
+          symbol?: string
+          ts?: string
         }
         Relationships: []
       }
@@ -1365,8 +1434,28 @@ export type Database = {
           user_id: string
         }[]
       }
+      armor: {
+        Args: { "": string }
+        Returns: string
+      }
+      dearmor: {
+        Args: { "": string }
+        Returns: string
+      }
       fetch_coinbase_connection_name: {
         Args: { connection_id: string }
+        Returns: string
+      }
+      gen_random_bytes: {
+        Args: { "": number }
+        Returns: string
+      }
+      gen_random_uuid: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      gen_salt: {
+        Args: { "": string }
         Returns: string
       }
       get_active_oauth_credentials: {
@@ -1394,6 +1483,14 @@ export type Database = {
       pg_try_advisory_lock: {
         Args: { key: number }
         Returns: boolean
+      }
+      pgp_armor_headers: {
+        Args: { "": string }
+        Returns: Record<string, unknown>[]
+      }
+      pgp_key_id: {
+        Args: { "": string }
+        Returns: string
       }
       reset_mock_wallet_balances: {
         Args: { target_balance?: number }
