@@ -695,13 +695,12 @@ async function evaluateExistingPositionsAndEmitIntents(supabaseClient: any, stra
 
       // Calculate gain for THIS SPECIFIC position (not averaged)
       const gainPercentage = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
-      const lossPercentage = -gainPercentage; // Convert to positive loss percentage for clarity
       
       console.log(`📈 [POSITION CHECK] Individual Position: ${position.cryptocurrency} bought at €${position.entryPrice.toFixed(2)} → Current €${currentPrice.toFixed(2)} = ${gainPercentage.toFixed(2)}% change (TP: ${takeProfitPercentage}%, SL: ${stopLossPercentage}%)`);
       
       // Check STOP LOSS first (higher priority) - EMIT INTENT
-      if (stopLossPercentage < 999 && lossPercentage >= stopLossPercentage) {
-        console.log(`🚨 [STOP LOSS] Emitting intent for ${position.cryptocurrency} at ${lossPercentage.toFixed(2)}% loss for user ${strategy.user_id}`);
+      if (stopLossPercentage < 999 && gainPercentage < 0 && Math.abs(gainPercentage) >= stopLossPercentage) {
+        console.log(`🚨 [STOP LOSS] Emitting intent for ${position.cryptocurrency} at ${Math.abs(gainPercentage).toFixed(2)}% loss for user ${strategy.user_id}`);
         
         const stopLossIntent = await emitTradeIntentToCoordinator(
           supabaseClient,
@@ -715,7 +714,7 @@ async function evaluateExistingPositionsAndEmitIntents(supabaseClient: any, stra
           },
           {
             action: 'sell',
-            reasoning: `Stop loss target reached: ${lossPercentage.toFixed(2)}% loss (limit: ${stopLossPercentage}%) | Individual Position: ${position.amount.toFixed(6)} ${position.cryptocurrency} from ${position.executedAt}`,
+            reasoning: `Stop loss target reached: ${Math.abs(gainPercentage).toFixed(2)}% loss (limit: ${stopLossPercentage}%) | Individual Position: ${position.amount.toFixed(6)} ${position.cryptocurrency} from ${position.executedAt}`,
             confidence: 1.0,
             execute: true
           },
