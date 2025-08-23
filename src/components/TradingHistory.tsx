@@ -13,6 +13,7 @@ import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 import { CorruptionWarning } from './CorruptionWarning';
+import { checkIntegrity } from '@/utils/valuationService';
 
 interface Trade {
   id: string;
@@ -193,7 +194,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
     
     // CRITICAL FIX: For BUY trades (open positions), apply integrity checks
-    const { checkIntegrity } = require('../utils/valuationService');
     
     // Check integrity first and exclude corrupted positions
     const integrityCheck = checkIntegrity({
