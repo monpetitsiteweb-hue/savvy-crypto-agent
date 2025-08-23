@@ -901,11 +901,23 @@ export const useIntelligentTradingEngine = () => {
         body: { intent }
       });
 
+      // Handle Supabase client errors (network, auth, etc.)
       if (error) {
         console.error('❌ INTELLIGENT: Coordinator call failed:', error);
         toast({
           title: "Trade Intent Failed",
           description: `Failed to process ${action} intent for ${cryptocurrency}: ${error.message}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Handle non-2xx responses from edge function
+      if (!decision || (decision.error && !decision.approved)) {
+        console.error('❌ INTELLIGENT: Coordinator returned error:', decision);
+        toast({
+          title: "Trade Intent Failed", 
+          description: `Failed to process ${action} intent for ${cryptocurrency}: ${decision?.error || decision?.reason || 'Unknown error'}`,
           variant: "destructive",
         });
         return;
@@ -919,13 +931,14 @@ export const useIntelligentTradingEngine = () => {
           description: `${decision.action} order for ${cryptocurrency} approved: ${decision.reason}`,
         });
         console.log(`✅ INTELLIGENT: Trade intent approved and executed: ${decision.action} ${cryptocurrency}`);
-      } else {
+      } else if (decision.action === 'HOLD' || !decision.approved) {
+        // Trade was rejected/held - show informational toast  
+        console.log('⏸️ INTELLIGENT: Trade intent held/rejected:', decision.reason);
         toast({
-          title: "Trade Intent Blocked",
-          description: `${action.toUpperCase()} for ${cryptocurrency} blocked: ${decision.reason}`,
-          variant: "destructive",
+          title: "Trade Intent Held",
+          description: `${action.toUpperCase()} intent for ${cryptocurrency} was held: ${decision.reason}`,
+          variant: "default",
         });
-        console.log(`❌ INTELLIGENT: Trade intent blocked: ${decision.reason}`);
       }
 
     } catch (error) {
