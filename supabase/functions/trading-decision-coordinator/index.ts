@@ -129,6 +129,26 @@ serve(async (req) => {
     if (!lockResult) {
       console.log('⏳ COORDINATOR: Could not acquire lock, concurrent processing detected');
       // CRITICAL: Return HTTP 200 with HOLD decision, not 429
+      
+      // Log the blocked decision
+      await supabaseClient
+        .from('trade_decisions_log')
+        .insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          symbol: intent.symbol,
+          intent_side: intent.side,
+          intent_source: intent.source,
+          confidence: intent.confidence,
+          decision_action: 'HOLD',
+          decision_reason: 'blocked_by_lock',
+          metadata: {
+            ...intent.metadata,
+            request_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            lock_key: lockKey
+          }
+        });
+      
       return new Response(JSON.stringify({
         ok: true,
         decision: {
@@ -142,38 +162,44 @@ serve(async (req) => {
     }
 
     try {
-      // Process the intent with unified decision logic
+      // CRITICAL: Reduced critical section - get strategy config outside main logic
+      console.log(`🧠 COORDINATOR: Processing unified decision for ${intent.symbol} ${intent.side} from ${intent.source}`);
+      
+      // Process the intent with unified decision logic (shorter critical section)
       const decision = await processUnifiedDecision(supabaseClient, intent, unifiedConfig, strategy.configuration);
       
-      // Log the decision
-      await supabaseClient
-        .from('trade_decisions_log')
-        .insert({
-          user_id: intent.userId,
-          strategy_id: intent.strategyId,
-          symbol: intent.symbol,
-          intent_side: intent.side,
-          intent_source: intent.source,
-          confidence: intent.confidence,
-          decision_action: decision.action,
-          decision_reason: decision.reason,
-          metadata: {
-            ...intent.metadata,
-            qtySuggested: intent.qtySuggested,
-            unifiedConfig,
-            request_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-          }
-        });
+      // Log the decision (minimize time in critical section)
+      const logEntry = {
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        symbol: intent.symbol,
+        intent_side: intent.side,
+        intent_source: intent.source,
+        confidence: intent.confidence,
+        decision_action: decision.action,
+        decision_reason: decision.reason,
+        metadata: {
+          ...intent.metadata,
+          qtySuggested: intent.qtySuggested,
+          unifiedConfig,
+          request_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        }
+      };
 
-      // Execute the trade if approved
+      // Execute trade if approved (keep in critical section for consistency)
       if (decision.approved && decision.action !== 'HOLD') {
         const executionResult = await executeTradeOrder(supabaseClient, intent, decision, strategy.configuration);
         if (!executionResult.success) {
           decision.approved = false;
           decision.reason = `execution_failed: ${executionResult.error}`;
           decision.action = 'HOLD';
+          logEntry.decision_action = 'HOLD';
+          logEntry.decision_reason = decision.reason;
         }
       }
+
+      // Log after processing to minimize lock time
+      await supabaseClient.from('trade_decisions_log').insert(logEntry);
 
       console.log(`✅ COORDINATOR: Decision made:`, JSON.stringify(decision, null, 2));
       
