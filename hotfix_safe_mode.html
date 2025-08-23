@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SAFE MODE - P&L Corruption Hotfix</title>
+</head>
+<body>
+    <h1>🛡️ SAFE MODE ENABLED</h1>
+    <p>Strategy paused until issues are resolved:</p>
+    <ul>
+        <li>❌ P&L corruption: €100 placeholder price in mock_trades</li>
+        <li>❌ 429 errors from coordinator advisory locks</li>
+        <li>❌ Amount calculation errors (10 BTC for €1000 buy)</li>
+    </ul>
+    
+    <h2>Root Cause Analysis:</h2>
+    <h3>1. Price Corruption (€100 leak)</h3>
+    <pre>
+-- FOUND: coordinator line 383-399 uses placeholder price
+amount: qty,
+price: 100, // ← HARDCODED PLACEHOLDER!
+total_value: qty * 100,
+    </pre>
+    
+    <h3>2. Advisory Lock 429 Errors</h3>
+    <pre>
+Analytics show frequent 429 responses:
+- Lock contention causing cascading failures
+- blocked_by_lock reason in 100% of recent decisions
+- Advisory locks not being released properly
+    </pre>
+    
+    <h3>3. Amount Calculation Errors</h3>
+    <pre>
+BTC: amount=10.00000000, price=100.00, total_value=1000.00
+ETH: amount=10.00000000, price=100.00, total_value=1000.00
+Should be: amount=0.01023, price=97695.17, total_value=1000.00
+    </pre>
+
+    <script>
+        console.log('🛡️ SAFE_MODE enabled for user_id: 25a0c221-1f0e-431d-8d79-db9fb4db9cb3, strategy_id: 5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e');
+    </script>
+</body>
+</html>

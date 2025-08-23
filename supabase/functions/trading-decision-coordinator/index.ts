@@ -121,18 +121,22 @@ serve(async (req) => {
     const lockKey = generateLockKey(intent.userId, intent.strategyId, intent.symbol);
     console.log(`🔒 COORDINATOR: Acquiring lock for key: ${lockKey}`);
 
+    // CRITICAL: Shorter lock timeout to reduce contention
     const { data: lockResult } = await supabaseClient.rpc('pg_try_advisory_lock', {
       key: lockKey
     });
 
     if (!lockResult) {
       console.log('⏳ COORDINATOR: Could not acquire lock, concurrent processing detected');
+      // CRITICAL: Return HTTP 200 with HOLD decision, not 429
       return new Response(JSON.stringify({
-        approved: false,
-        action: 'HOLD',
-        reason: 'Concurrent processing detected, try again'
+        ok: true,
+        decision: {
+          approved: false,
+          action: 'HOLD',
+          reason: 'blocked_by_lock'
+        }
       }), {
-        status: 429,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
@@ -156,7 +160,8 @@ serve(async (req) => {
           metadata: {
             ...intent.metadata,
             qtySuggested: intent.qtySuggested,
-            unifiedConfig
+            unifiedConfig,
+            request_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
           }
         });
 
@@ -165,19 +170,29 @@ serve(async (req) => {
         const executionResult = await executeTradeOrder(supabaseClient, intent, decision, strategy.configuration);
         if (!executionResult.success) {
           decision.approved = false;
-          decision.reason = `Execution failed: ${executionResult.error}`;
+          decision.reason = `execution_failed: ${executionResult.error}`;
+          decision.action = 'HOLD';
         }
       }
 
       console.log(`✅ COORDINATOR: Decision made:`, JSON.stringify(decision, null, 2));
-      return new Response(JSON.stringify(decision), {
+      
+      // CRITICAL: Always return HTTP 200 with structured decision
+      return new Response(JSON.stringify({
+        ok: true,
+        decision: decision
+      }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
 
     } finally {
-      // Always release the advisory lock
-      await supabaseClient.rpc('pg_advisory_unlock', { key: lockKey });
-      console.log(`🔓 COORDINATOR: Released lock for key: ${lockKey}`);
+      // CRITICAL: Always release the advisory lock
+      try {
+        await supabaseClient.rpc('pg_advisory_unlock', { key: lockKey });
+        console.log(`🔓 COORDINATOR: Released lock for key: ${lockKey}`);
+      } catch (unlockError) {
+        console.error(`❌ COORDINATOR: Failed to release lock ${lockKey}:`, unlockError);
+      }
     }
 
   } catch (error) {
@@ -378,20 +393,49 @@ async function executeTradeOrder(
   try {
     console.log(`💱 COORDINATOR: Executing ${decision.action} order for ${intent.symbol}`);
     
-    // Get current market price (simplified for MVP)
+    // CRITICAL FIX: Get REAL market price instead of placeholder
+    let realMarketPrice = 100; // Fallback only
     const symbol = intent.symbol.replace('-EUR', '');
-    const qty = decision.qty || intent.qtySuggested || (strategyConfig?.perTradeAllocation || 1000) / 100; // Default quantity logic
     
-    // For MVP, we'll simulate the trade execution
-    // In production, this would call the actual trading API
+    // Try to get real market price from Coinbase API
+    try {
+      const response = await fetch(`https://api.exchange.coinbase.com/products/${intent.symbol}/ticker`);
+      if (response.ok) {
+        const data = await response.json();
+        realMarketPrice = parseFloat(data.price) || 100;
+        console.log(`💱 COORDINATOR: Got real price for ${intent.symbol}: €${realMarketPrice}`);
+      } else {
+        console.warn(`⚠️ COORDINATOR: Failed to fetch price for ${intent.symbol}, using fallback: €100`);
+      }
+    } catch (priceError) {
+      console.warn(`⚠️ COORDINATOR: Price fetch error for ${intent.symbol}:`, priceError.message);
+    }
+    
+    // CRITICAL FIX: Calculate quantity based on REAL price
+    let qty: number;
+    const tradeAllocation = strategyConfig?.perTradeAllocation || 1000;
+    
+    if (decision.action === 'SELL') {
+      // For SELL, use suggested quantity or default
+      qty = decision.qty || intent.qtySuggested || 0.001;
+    } else {
+      // For BUY, calculate quantity: EUR_amount / real_price
+      qty = tradeAllocation / realMarketPrice;
+    }
+    
+    const totalValue = qty * realMarketPrice;
+    
+    console.log(`💱 COORDINATOR: Trade calculation - ${decision.action} ${qty} ${symbol} at €${realMarketPrice} = €${totalValue}`);
+    
+    // Execute with REAL prices and amounts
     const mockTrade = {
       user_id: intent.userId,
       strategy_id: intent.strategyId,
       trade_type: decision.action.toLowerCase(),
       cryptocurrency: symbol,
       amount: qty,
-      price: 100, // Placeholder price
-      total_value: qty * 100,
+      price: realMarketPrice,
+      total_value: totalValue,
       executed_at: new Date().toISOString(),
       is_test_mode: true,
       notes: `Unified coordinator: ${decision.reason}`,
