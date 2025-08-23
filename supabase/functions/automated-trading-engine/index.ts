@@ -718,73 +718,67 @@ async function evaluateExistingPositionsAndEmitIntents(supabaseClient: any, stra
       
       console.log(`📈 [POSITION CHECK] Individual Position: ${position.cryptocurrency} bought at €${position.entryPrice.toFixed(2)} → Current €${currentPrice.toFixed(2)} = ${gainPercentage.toFixed(2)}% change (TP: ${takeProfitPercentage}%, SL: ${stopLossPercentage}%)`);
       
-      // Check STOP LOSS first (higher priority)
+      // Check STOP LOSS first (higher priority) - EMIT INTENT
       if (stopLossPercentage < 999 && lossPercentage >= stopLossPercentage) {
-        console.log(`🔴 [STOP LOSS] Selling individual position of ${position.cryptocurrency} at ${lossPercentage.toFixed(2)}% loss for user ${strategy.user_id}`);
+        console.log(`🚨 [STOP LOSS] Emitting intent for ${position.cryptocurrency} at ${lossPercentage.toFixed(2)}% loss for user ${strategy.user_id}`);
         
-        // Execute sell trade for THIS SPECIFIC position only
-        const sellTradeResult = await executeTrade(supabaseClient, {
+        const stopLossIntent = await emitTradeIntentToCoordinator(
+          supabaseClient,
           strategy,
-          marketData: { [symbol]: marketData[symbol] },
-          mode,
-          userId: strategy.user_id,
-          trigger: 'stop_loss_hit',
-          evaluation: {
-            action: 'sell',
-            reasoning: `Stop loss target reached: ${lossPercentage.toFixed(2)}% loss (limit: ${stopLossPercentage}%) | Individual Position: ${position.amount.toFixed(6)} ${position.cryptocurrency} from ${position.executedAt}`,
-            confidence: 1.0
-          },
-          signal: {
+          {
+            id: `stop_loss_${position.cryptocurrency}_${Date.now()}`,
             symbol: position.cryptocurrency,
             signal_type: 'stop_loss',
-            signal_strength: 100
+            signal_strength: 100,
+            timestamp: new Date().toISOString()
           },
-          // CRITICAL: Sell only this specific position amount
-          forceAmount: position.amount,
-          forceTotalValue: position.amount * currentPrice
-        });
+          {
+            action: 'sell',
+            reasoning: `Stop loss target reached: ${lossPercentage.toFixed(2)}% loss (limit: ${stopLossPercentage}%) | Individual Position: ${position.amount.toFixed(6)} ${position.cryptocurrency} from ${position.executedAt}`,
+            confidence: 1.0,
+            execute: true
+          },
+          mode
+        );
         
-        if (sellTradeResult.success) {
-          executionResults.push(sellTradeResult);
-          console.log(`✅ [STOP LOSS] Successfully sold ${position.amount.toFixed(6)} ${position.cryptocurrency} at ${lossPercentage.toFixed(2)}% loss`);
+        if (stopLossIntent.success) {
+          executionResults.push(stopLossIntent);
+          console.log(`✅ [STOP LOSS] Intent emitted for ${position.amount.toFixed(6)} ${position.cryptocurrency}`);
         } else {
-          console.error(`❌ [STOP LOSS] Failed to sell ${position.cryptocurrency}: ${sellTradeResult.error}`);
+          console.error(`❌ [STOP LOSS] Intent failed for ${position.cryptocurrency}: ${stopLossIntent.error}`);
         }
         
         continue; // Skip take profit check for this position
       }
       
-      // Check TAKE PROFIT
+      // Check TAKE PROFIT - EMIT INTENT
       if (takeProfitPercentage < 999 && gainPercentage >= takeProfitPercentage) {
-        console.log(`🎯 [TAKE PROFIT] Selling individual position of ${position.cryptocurrency} at ${gainPercentage.toFixed(2)}% gain for user ${strategy.user_id}`);
+        console.log(`🎯 [TAKE PROFIT] Emitting intent for ${position.cryptocurrency} at ${gainPercentage.toFixed(2)}% gain for user ${strategy.user_id}`);
         
-        // Execute sell trade for THIS SPECIFIC position only
-        const sellTradeResult = await executeTrade(supabaseClient, {
+        const takeProfitIntent = await emitTradeIntentToCoordinator(
+          supabaseClient,
           strategy,
-          marketData: { [symbol]: marketData[symbol] },
-          mode,
-          userId: strategy.user_id,
-          trigger: 'take_profit_hit',
-          evaluation: {
-            action: 'sell',
-            reasoning: `Take profit target reached: ${gainPercentage.toFixed(2)}% gain (target: ${takeProfitPercentage}%) | Individual Position: ${position.amount.toFixed(6)} ${position.cryptocurrency} from ${position.executedAt}`,
-            confidence: 1.0
-          },
-          signal: {
+          {
+            id: `take_profit_${position.cryptocurrency}_${Date.now()}`,
             symbol: position.cryptocurrency,
             signal_type: 'take_profit',
-            signal_strength: 100
+            signal_strength: 100,
+            timestamp: new Date().toISOString()
           },
-          // CRITICAL: Sell only this specific position amount
-          forceAmount: position.amount,
-          forceTotalValue: position.amount * currentPrice
-        });
+          {
+            action: 'sell',
+            reasoning: `Take profit target reached: ${gainPercentage.toFixed(2)}% gain (target: ${takeProfitPercentage}%) | Individual Position: ${position.amount.toFixed(6)} ${position.cryptocurrency} from ${position.executedAt}`,
+            confidence: 1.0,
+            execute: true
+          },
+          mode
+        );
         
-        if (sellTradeResult.success) {
-          executionResults.push(sellTradeResult);
-          console.log(`✅ [TAKE PROFIT] Successfully sold ${position.amount.toFixed(6)} ${position.cryptocurrency} at ${gainPercentage.toFixed(2)}% gain`);
+        if (takeProfitIntent.success) {
+          executionResults.push(takeProfitIntent);
+          console.log(`✅ [TAKE PROFIT] Intent emitted for ${position.amount.toFixed(6)} ${position.cryptocurrency}`);
         } else {
-          console.error(`❌ [TAKE PROFIT] Failed to sell ${position.cryptocurrency}: ${sellTradeResult.error}`);
+          console.error(`❌ [TAKE PROFIT] Intent failed for ${position.cryptocurrency}: ${takeProfitIntent.error}`);
         }
       } else {
         console.log(`⏳ [HOLDING] Individual ${position.cryptocurrency} position - ${gainPercentage.toFixed(2)}% change (TP: ${takeProfitPercentage}%, SL: ${stopLossPercentage}%)`);
