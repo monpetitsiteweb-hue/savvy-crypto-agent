@@ -47,6 +47,7 @@ import { useToast } from '@/hooks/use-toast';
 import NaturalLanguageStrategy from './NaturalLanguageStrategy';
 import AIIntelligenceSettings, { AIIntelligenceConfig } from './AIIntelligenceSettings';
 import { TechnicalIndicatorSettings, TechnicalIndicatorConfig } from './TechnicalIndicatorSettings';
+import { PoolExitManagementPanel } from './PoolExitManagementPanel';
 
 // Coinbase-compatible coins list
 const COINBASE_COINS = [
@@ -108,6 +109,18 @@ interface StrategyFormData {
   aiIntelligenceConfig: AIIntelligenceConfig;
   // Technical Indicators settings
   technicalIndicatorConfig: TechnicalIndicatorConfig;
+  // Pool Exit Management settings (Agent-aware)
+  poolExitConfig: {
+    pool_enabled: boolean;
+    secure_pct: number;
+    secure_tp_pct: number;
+    secure_sl_pct?: number;
+    runner_trail_pct: number;
+    runner_arm_pct: number;
+    qty_tick: number;
+    price_tick: number;
+    min_order_notional: number;
+  };
 }
 
 interface ComprehensiveStrategyConfigProps {
@@ -182,6 +195,7 @@ const MENU_SECTIONS = [
     items: [
       { id: 'sell-settings', label: 'Sell settings', icon: TrendingDown },
       { id: 'sell-strategy', label: 'Sell strategy', icon: BarChart3 },
+      { id: 'pool-exit-management', label: 'Pool Exit Management', icon: Shield },
       { id: 'shorting-settings', label: 'Shorting settings', icon: TrendingDown },
       { id: 'dollar-cost-averaging', label: 'Dollar Cost Averaging', icon: DollarSign }
     ]
@@ -311,6 +325,17 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       alertOnAnomalies: true,
       alertOnOverrides: true,
       customInstructions: ''
+    },
+    poolExitConfig: {
+      pool_enabled: false,
+      secure_pct: 0.4, // 40% secure portion
+      secure_tp_pct: 0.7, // +0.7% target
+      secure_sl_pct: 0.6, // -0.6% floor until TP (optional)
+      runner_trail_pct: 1.0, // 1% trailing distance
+      runner_arm_pct: 0.5, // arm at +0.5% profit
+      qty_tick: 0.00000001, // default precision
+      price_tick: 0.01, // default price precision
+      min_order_notional: 10 // minimum order size in EUR
     },
     technicalIndicatorConfig: {
       rsi: {
@@ -1801,6 +1826,14 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                   {/* Sell Settings Panel */}
                   {activeSection === 'sell-settings' && (
                     <SellSettingsPanel 
+                      formData={formData} 
+                      updateFormData={updateFormData} 
+                    />
+                  )}
+
+                  {/* Pool Exit Management Panel */}
+                  {activeSection === 'pool-exit-management' && (
+                    <PoolExitManagementPanel 
                       formData={formData} 
                       updateFormData={updateFormData} 
                     />

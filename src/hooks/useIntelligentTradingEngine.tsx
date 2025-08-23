@@ -5,6 +5,10 @@ import { useMockWallet } from './useMockWallet';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from './use-toast';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
+import { usePoolExitManager } from './usePoolExitManager';
+
+// Import and expose pool tests for console access
+import '../utils/poolExitTests';
 
 interface Position {
   cryptocurrency: string;
@@ -29,6 +33,12 @@ export const useIntelligentTradingEngine = () => {
   const { updateBalance, getBalance } = useMockWallet();
   const { toast } = useToast();
   const { marketData, getCurrentData } = useRealTimeMarketData();
+  
+  // Initialize pool exit manager
+  const { processAllPools } = usePoolExitManager({ 
+    isEnabled: true, 
+    testMode 
+  });
   
   console.log('🚨 INTELLIGENT_ENGINE: Hook called with testMode:', testMode, 'user:', !!user, 'loading:', loading, 'user email:', user?.email);
   
