@@ -252,6 +252,54 @@ export type Database = {
         }
         Relationships: []
       }
+      coin_pool_states: {
+        Row: {
+          config_snapshot: Json
+          created_at: string
+          high_water_price: number | null
+          id: string
+          is_armed: boolean
+          last_trailing_stop_price: number | null
+          runner_remaining_qty: number
+          secure_filled_qty: number
+          secure_target_qty: number
+          strategy_id: string
+          symbol: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          config_snapshot?: Json
+          created_at?: string
+          high_water_price?: number | null
+          id?: string
+          is_armed?: boolean
+          last_trailing_stop_price?: number | null
+          runner_remaining_qty?: number
+          secure_filled_qty?: number
+          secure_target_qty?: number
+          strategy_id: string
+          symbol: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          config_snapshot?: Json
+          created_at?: string
+          high_water_price?: number | null
+          id?: string
+          is_armed?: boolean
+          last_trailing_stop_price?: number | null
+          runner_remaining_qty?: number
+          secure_filled_qty?: number
+          secure_target_qty?: number
+          strategy_id?: string
+          symbol?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       coinbase_oauth_credentials: {
         Row: {
           app_name: string
