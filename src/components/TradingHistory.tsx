@@ -151,7 +151,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       isCorrupted: !integrityCheck.is_valid,
       corruptionReasons: integrityCheck.errors
     };
-  }, [marketData, currentPrices]);
+  }, [marketData, currentPrices, calculateValuation, checkIntegrity]);
 
   // Helper functions: FIFO per-trade lots and counts
   const buildFifoLots = (allTrades: Trade[]) => {
