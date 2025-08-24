@@ -129,17 +129,17 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   // Check if this is corrupted placeholder data (exactly €100)
   if (trade.price === 100) {
-    // Try to get real price from wallet balances or market data
-    const walletBalance = balances.find(b => b.currency === trade.cryptocurrency.replace('-EUR', ''));
-    if (walletBalance && walletBalance.amount > 0 && currentMarketPrice) {
-      // Use current market price as fallback for corrupted purchase price
-      actualPurchasePrice = currentMarketPrice;
-      // Corrupted price fixed (logging reduced to prevent spam)
-    }
+    // Mark as corrupted but DON'T use fallback prices - fail visibly
+    console.error(`🚫 CORRUPTED: Trade ${trade.id} has €100 placeholder - no fallback used`);
   }
   
-  // Use current market price or fallback to purchase price
-  const displayCurrentPrice = currentMarketPrice || actualPurchasePrice;
+  // CRITICAL: Use live market price for current price, never fallback to purchase price
+  const displayCurrentPrice = currentMarketPrice;
+  
+  // If no live price available, fail visibly
+  if (!displayCurrentPrice) {
+    throw new Error(`No live price available for ${trade.cryptocurrency}`);
+  }
     
     // Use ValuationService for all calculations with corrected purchase price
     const valuation = await calculateValuation({
@@ -432,8 +432,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         .single();
 
       if (profile) {
-        // CRITICAL FIX: Zero fees for Coinbase Pro accounts in test mode
-        const effectiveFeeRate = (profile.account_type === 'COINBASE_PRO' || testMode) ? 0 : (profile.fee_rate || 0);
+        // CRITICAL FIX: Always zero fees in test mode and exclude from calculations
+        const effectiveFeeRate = 0;
         setFeeRate(effectiveFeeRate);
         console.log('📊 HISTORY: User fee rate set to', effectiveFeeRate, '- Account type:', profile.account_type, '- Test mode:', testMode);
       }
@@ -447,8 +447,38 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     if (user) {
       fetchTradingHistory();
       fetchUserProfile();
+      // CRITICAL: Update current prices for live calculations
+      updateCurrentPrices();
     }
   }, [user, testMode]);
+
+  // Update current prices from market data
+  const updateCurrentPrices = async () => {
+    try {
+      const symbols = [...new Set(trades.map(t => t.cryptocurrency))];
+      if (symbols.length > 0) {
+        const priceData = await getCurrentData(symbols);
+        const prices: Record<string, number> = {};
+        Object.entries(priceData).forEach(([symbol, data]) => {
+          prices[symbol] = data.price;
+        });
+        setCurrentPrices(prices);
+        console.log('📈 HISTORY: Updated current prices for', symbols.length, 'symbols');
+      }
+    } catch (error) {
+      console.error('❌ HISTORY: Error updating current prices:', error);
+    }
+  };
+
+  // Update prices when trades change
+  useEffect(() => {
+    if (trades.length > 0) {
+      updateCurrentPrices();
+      // Set up interval to update prices every 30 seconds
+      const priceInterval = setInterval(updateCurrentPrices, 30000);
+      return () => clearInterval(priceInterval);
+    }
+  }, [trades]);
 
   // Real-time subscription to mock_trades changes (throttled to prevent blinking)
   useEffect(() => {
@@ -605,10 +635,22 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           
           <div>
             <p className="text-muted-foreground">
-              {trade.trade_type === 'buy' ? 'Purchase Price' : 'Exit Price'}
+              {trade.trade_type === 'buy' ? 'Entry Price' : 'Exit Price'}
             </p>
-            <p className="font-medium">{formatEuro(performance.purchasePrice || performance.currentPrice)}</p>
+            <p className="font-medium">
+              {trade.trade_type === 'buy' 
+                ? formatEuro(performance.purchasePrice || 0)
+                : formatEuro(performance.currentPrice)
+              }
+            </p>
           </div>
+          
+          {trade.trade_type === 'sell' && trade.original_purchase_price && (
+            <div>
+              <p className="text-muted-foreground">Entry Price</p>
+              <p className="font-medium">{formatEuro(trade.original_purchase_price)}</p>
+            </div>
+          )}
           
           {trade.trade_type === 'buy' && (
             <>
@@ -625,10 +667,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           )}
           
           {trade.trade_type === 'sell' && (
-            <div>
-              <p className="text-muted-foreground">Exit Value</p>
-              <p className="font-medium">{formatEuro(performance.currentValue)}</p>
-            </div>
+            <>
+              <div>
+                <p className="text-muted-foreground">Exit Value</p>
+                <p className="font-medium">{formatEuro(performance.currentValue)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Fees</p>
+                <p className="font-medium text-muted-foreground">{formatEuro(0)}</p>
+              </div>
+            </>
           )}
           
           {!performance.isAutomatedWithoutPnL && performance.gainLoss !== null && (
@@ -736,7 +784,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Total Positions</span>
-                <span className="text-sm text-muted-foreground">Open + Closed</span>
+                <span className="text-lg font-bold">{stats.openPositions + pastPositions.length}</span>
               </div>
             </div>
           </Card>
