@@ -17,12 +17,11 @@ import { TradingViewMarketDashboard } from '@/components/market/TradingViewMarke
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useTestMode } from '@/hooks/useTestMode';
-import { useTestTrading } from '@/hooks/useTestTrading';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Link2 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 
@@ -45,10 +44,7 @@ const Index = () => {
     role
   });
   
-  console.log('🔵 INDEX: Before useTestTrading call', { user: !!user, loading, testMode });
-  // Initialize test trading when component mounts
-  useTestTrading();
-  console.log('🔵 INDEX: After useTestTrading call');
+  console.log('🔵 INDEX: REMOVED useTestTrading call to fix infinite loop blinking issue');
 
   if (loading || roleLoading) {
     return (

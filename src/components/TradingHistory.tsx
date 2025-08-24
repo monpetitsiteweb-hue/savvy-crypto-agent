@@ -62,21 +62,13 @@ interface TradingHistoryProps {
 }
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
-  console.log('🚨 HOOK 1: About to call useAuth');
   const { user } = useAuth();
-  console.log('🚨 HOOK 2: About to call useTestMode');
   const { testMode } = useTestMode();
-  console.log('🚨 HOOK 3: About to call useToast');
   const { toast } = useToast();
-  console.log('🚨 HOOK 4: About to call useCoordinatorToast');
   const { handleCoordinatorResponse } = useCoordinatorToast();
-  console.log('🚨 HOOK 5: About to call useMockWallet');
   const { getTotalValue } = useMockWallet();
-  console.log('🚨 HOOK 6: About to call useRealTimeMarketData');
   const { getCurrentData, marketData } = useRealTimeMarketData();
-  console.log('🚨 HOOK 7: About to call useState for feeRate');
   const [feeRate, setFeeRate] = useState<number>(0);
-  console.log('🚨 ALL HOOKS COMPLETE - Component will render');
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
