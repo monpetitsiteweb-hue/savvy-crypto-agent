@@ -88,6 +88,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     currentlyInvested: 0
   });
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
+  const [coordinatorReasons, setCoordinatorReasons] = useState<Record<string, string>>({});
 
   // Use ValuationService for all P&L calculations (single source of truth)
   const calculateTradePerformance = useCallback(async (trade: Trade): Promise<TradePerformance> => {
@@ -518,8 +519,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     );
   };
 
-  // TradeCard component - MEMOIZED to prevent unnecessary re-renders
-  const TradeCard = React.memo(({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
+  // TradeCard component - Properly memoized
+  const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -648,7 +649,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         )}
       </Card>
     );
-  });
+  };
 
   if (loading) {
     return (
