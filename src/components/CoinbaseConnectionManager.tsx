@@ -38,8 +38,8 @@ export const CoinbaseConnectionManager = () => {
   const fetchConnections = async () => {
     try {
       const { data, error } = await supabase
-        .from('user_coinbase_connections')
-        .select('*')
+        .from('user_connections_safe')
+        .select('id, user_id, connected_at, is_active, connection_type, has_credentials')
         .eq('user_id', user?.id)
         .eq('is_active', true) // Only show active connections
         .order('connected_at', { ascending: false });

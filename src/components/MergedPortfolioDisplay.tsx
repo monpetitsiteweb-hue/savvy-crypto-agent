@@ -29,7 +29,7 @@ interface PortfolioData {
 
 interface Connection {
   id: string;
-  api_name_encrypted: string;
+  connection_type: string;
   connected_at: string;
 }
 
@@ -107,10 +107,11 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
   const fetchConnections = async () => {
     try {
       const { data, error } = await supabase
-        .from('user_coinbase_connections')
-        .select('id, api_name_encrypted, connected_at')
+        .from('user_connections_safe')
+        .select('id, connection_type, connected_at')
         .eq('user_id', user?.id)
-        .eq('is_active', true);
+        .eq('is_active', true)
+        .order('connected_at', { ascending: false });
 
       if (error) throw error;
 
@@ -320,7 +321,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
               <SelectContent>
                 {connections.map((connection) => (
                   <SelectItem key={connection.id} value={connection.id}>
-                    {connection.api_name_encrypted || 'Coinbase Account'}
+                    {connection.connection_type || 'Coinbase Account'}
                   </SelectItem>
                 ))}
               </SelectContent>

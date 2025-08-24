@@ -1142,6 +1142,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "trading_history_user_coinbase_connection_id_fkey"
+            columns: ["user_coinbase_connection_id"]
+            isOneToOne: false
+            referencedRelation: "user_connections_safe"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "trading_history_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
@@ -1389,8 +1396,48 @@ export type Database = {
           },
         ]
       }
+      user_connections_safe: {
+        Row: {
+          coinbase_user_id: string | null
+          connected_at: string | null
+          connection_type: string | null
+          expires_at: string | null
+          has_credentials: boolean | null
+          id: string | null
+          is_active: boolean | null
+          last_sync: string | null
+          user_id: string | null
+        }
+        Insert: {
+          coinbase_user_id?: string | null
+          connected_at?: string | null
+          connection_type?: never
+          expires_at?: string | null
+          has_credentials?: never
+          id?: string | null
+          is_active?: boolean | null
+          last_sync?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          coinbase_user_id?: string | null
+          connected_at?: string | null
+          connection_type?: never
+          expires_at?: string | null
+          has_credentials?: never
+          id?: string | null
+          is_active?: boolean | null
+          last_sync?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      admin_get_connection_name: {
+        Args: { connection_id: string }
+        Returns: string
+      }
       admin_list_past_positions: {
         Args: { p_user: string }
         Returns: {
@@ -1465,6 +1512,18 @@ export type Database = {
           is_sandbox: boolean
         }[]
       }
+      get_user_connection_status: {
+        Args: { connection_id: string }
+        Returns: {
+          connected_at: string
+          connection_type: string
+          expires_at: string
+          has_credentials: boolean
+          id: string
+          is_active: boolean
+          last_sync: string
+        }[]
+      }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
@@ -1475,6 +1534,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      log_connection_access: {
+        Args: { access_type?: string; connection_id: string }
+        Returns: undefined
       }
       pg_advisory_unlock: {
         Args: { key: number }

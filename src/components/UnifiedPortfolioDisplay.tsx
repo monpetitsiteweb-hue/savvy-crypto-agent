@@ -198,8 +198,8 @@ export const UnifiedPortfolioDisplay = () => {
     
     try {
       const { data, error } = await supabase
-        .from('user_coinbase_connections')
-        .select('id, is_active, connected_at, user_id, api_name_encrypted')
+        .from('user_connections_safe')
+        .select('id, is_active, connected_at, user_id, connection_type')
         .eq('user_id', user.id)
         .eq('is_active', true)
         .order('connected_at', { ascending: false });
