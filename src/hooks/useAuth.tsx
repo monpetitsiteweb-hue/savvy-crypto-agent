@@ -26,6 +26,7 @@ interface AuthProviderProps {
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   console.log('🚨🚨🚨 AUTHPROVIDER: COMPONENT IS RENDERING!!! 🚨🚨🚨');
+  console.log('🔑 AUTHPROVIDER: Supabase client check:', !!supabase);
   
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -42,6 +43,13 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       console.log('🔑 AUTHPROVIDER: initializeAuth starting');
       try {
         console.log('🔑 AUTHPROVIDER: Calling supabase.auth.getSession()');
+        
+        if (!supabase?.auth) {
+          console.error('🔑 AUTHPROVIDER: CRITICAL - Supabase client or auth not available!');
+          setLoading(false);
+          return;
+        }
+        
         const { data: { session }, error } = await supabase.auth.getSession();
         console.log('🔑 AUTHPROVIDER: Session result - User:', session?.user?.email, 'Error:', error);
         console.log('🔑 AUTHPROVIDER: Full session object:', session);

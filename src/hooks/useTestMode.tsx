@@ -9,11 +9,19 @@ interface TestModeContextType {
 const TestModeContext = createContext<TestModeContextType | undefined>(undefined);
 
 export const TestModeProvider = ({ children }: { children: ReactNode }) => {
+  console.log('🧪 TestModeProvider: COMPONENT INITIALIZING');
+  console.log('🧪 TestModeProvider: localStorage check:', typeof localStorage, Object.keys(localStorage || {}));
+  
   const [testMode, setTestModeState] = useState<boolean>(() => {
-    const saved = localStorage.getItem('global-test-mode');
-    const initialMode = saved ? JSON.parse(saved) : false;
-    console.log('🧪 TestModeProvider: Initializing with mode:', initialMode, 'from localStorage:', saved);
-    return initialMode;
+    try {
+      const saved = localStorage.getItem('global-test-mode');
+      const initialMode = saved ? JSON.parse(saved) : false;
+      console.log('🧪 TestModeProvider: Initializing with mode:', initialMode, 'from localStorage:', saved);
+      return initialMode;
+    } catch (error) {
+      console.error('🧪 TestModeProvider: Error reading localStorage:', error);
+      return false;
+    }
   });
 
   const setTestMode = (enabled: boolean) => {
