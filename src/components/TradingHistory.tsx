@@ -11,7 +11,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
-import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 import { checkIntegrity, calculateValuation } from '@/utils/valuationService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertTriangle, Lock } from 'lucide-react';
@@ -67,7 +66,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { toast } = useToast();
   const { handleCoordinatorResponse } = useCoordinatorToast();
   const { getTotalValue } = useMockWallet();
-  const { getCurrentData, marketData } = useRealTimeMarketData();
   const [feeRate, setFeeRate] = useState<number>(0);
   
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -118,8 +116,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
     }
     
-    // For BUY trades (open positions): Apply ValuationService consistently
-    const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+    // For BUY trades (open positions): Use static price to prevent blinking
+    const currentMarketPrice = currentPrices[trade.cryptocurrency] || trade.price;
     
     // Use ValuationService for all calculations
     const valuation = await calculateValuation({
@@ -255,8 +253,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       // CRITICAL FIX: Apply regression guards and use deterministic pricing
       const { validateTradePrice, validatePurchaseValue, logValidationFailure } = await import('../utils/regressionGuards');
       
-      // Get current price with snapshot fallback for deterministic pricing
-      let currentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+      // Get current price with static fallback to prevent blinking
+      let currentPrice = currentPrices[trade.cryptocurrency] || trade.price;
       
       // Try to get deterministic price from snapshots first
       try {
@@ -431,17 +429,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   }, [user, testMode]);
 
-  // Remove real-time subscription that causes constant blinking
-  // Real-time updates will only happen on manual refresh
+  // NO REAL-TIME SUBSCRIPTION - ONLY MANUAL REFRESH TO PREVENT BLINKING
   useEffect(() => {
-    if (!user) return;
-
-    console.log('🔄 HISTORY: Real-time subscription disabled to prevent blinking');
-
-    // Only manual refresh, no automatic real-time updates
-    return () => {
-      console.log('🔄 HISTORY: No cleanup needed - real-time disabled');
-    };
+    // Real-time disabled completely to prevent blinking
+    console.log('🔄 HISTORY: Real-time updates disabled to prevent UI blinking');
   }, [user]);
 
   // Badge component with single strip layout and tooltips
