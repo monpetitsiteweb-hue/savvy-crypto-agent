@@ -238,13 +238,17 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
   };
 
   const handleResetPortfolio = async () => {
+    console.log('🚨 RESET CLICKED: Starting portfolio reset...');
     try {
+      console.log('🚨 RESET: Calling resetPortfolio function...');
       await resetPortfolio();
+      console.log('🚨 RESET: Success! Showing success toast...');
       toast({
         title: "Portfolio Reset",
         description: "All trades deleted and portfolio reset to €30,000",
       });
     } catch (error) {
+      console.error('🚨 RESET ERROR:', error);
       toast({
         title: "Reset Failed",
         description: "Failed to reset portfolio. Please try again.",
