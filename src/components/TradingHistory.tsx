@@ -13,7 +13,7 @@ import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 import { checkIntegrity, calculateValuation } from '@/utils/valuationService';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
-import { TradeCard } from './trading/TradeCard';
+import { TradeCard } from './trading';
 
 interface Trade {
   id: string;
@@ -61,6 +61,8 @@ interface TradingHistoryProps {
 
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
+  console.log('🔍 TradingHistory: Component rendering started, TradeCard:', TradeCard);
+  
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { toast } = useToast();
@@ -617,16 +619,19 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         <TabsContent value="open" className="mt-4">
           {openPositions.length > 0 ? (
             <div className="space-y-4">
-              {openPositions.map(trade => (
-                <TradeCard
-                  key={trade.id}
-                  trade={trade}
-                  showSellButton={true}
-                  onSell={sellPosition}
-                  performance={tradePerformances[trade.id] || null}
-                  coordinatorReason={coordinatorReasons[trade.id]}
-                />
-              ))}
+              {openPositions.map(trade => {
+                console.log('🔍 Rendering TradeCard for trade:', trade.id, 'TradeCard component:', TradeCard);
+                return (
+                  <TradeCard
+                    key={trade.id}
+                    trade={trade}
+                    showSellButton={true}
+                    onSell={sellPosition}
+                    performance={tradePerformances[trade.id] || null}
+                    coordinatorReason={coordinatorReasons[trade.id]}
+                  />
+                );
+              })}
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
