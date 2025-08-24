@@ -151,7 +151,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       isCorrupted: !integrityCheck.is_valid,
       corruptionReasons: integrityCheck.errors
     };
-  }, [marketData, currentPrices, calculateValuation, checkIntegrity]);
+  }, [marketData, currentPrices]);
 
   // Helper functions: FIFO per-trade lots and counts
   const buildFifoLots = (allTrades: Trade[]) => {
@@ -414,7 +414,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, calculateTradePerformance, getOpenPositionsList, computeUnrealizedPLFromOpenLots, toast]);
 
   // Fetch user profile data
   const fetchUserProfile = useCallback(async () => {
