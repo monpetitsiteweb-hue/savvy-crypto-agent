@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Unified Decisions</title>
+</head>
+<body>
+    <h1>Unified Decisions Test</h1>
+    <button onclick="testCoordinator()">Test Coordinator</button>
+    <pre id="result"></pre>
+    
+    <script>
+        async function testCoordinator() {
+            const resultEl = document.getElementById('result');
+            resultEl.textContent = 'Testing...';
+            
+            const intent = {
+                userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+                strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+                symbol: 'BTC',
+                side: 'BUY',
+                source: 'manual',
+                confidence: 0.95,
+                reason: 'Manual test of unified decisions',
+                qtySuggested: 10,
+                metadata: { test: true, timestamp: new Date().toISOString() }
+            };
+            
+            try {
+                const response = await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/trading-decision-coordinator', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8'
+                    },
+                    body: JSON.stringify({ intent })
+                });
+                
+                const data = await response.json();
+                resultEl.textContent = JSON.stringify({ 
+                    status: response.status,
+                    response: data 
+                }, null, 2);
+                
+            } catch (error) {
+                resultEl.textContent = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>

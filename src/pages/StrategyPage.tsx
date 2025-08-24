@@ -8,6 +8,8 @@ import { StrategyAutomation } from "@/components/strategy/StrategyAutomation";
 import { RiskManagementPanel } from "@/components/RiskManagementPanel";
 import { Bot, BarChart3, Activity, Settings, Shield } from 'lucide-react';
 
+import { DecisionsView } from "@/components/strategy/DecisionsView";
+
 export default function StrategyPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -19,7 +21,7 @@ export default function StrategyPage() {
       </div>
 
       <Tabs defaultValue="automation" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="automation" className="flex items-center gap-2">
             <Bot className="h-4 w-4" />
             Automation
@@ -39,6 +41,10 @@ export default function StrategyPage() {
           <TabsTrigger value="risk" className="flex items-center gap-2">
             <Shield className="h-4 w-4" />
             Risk Management
+          </TabsTrigger>
+          <TabsTrigger value="decisions" className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" />
+            Decisions
           </TabsTrigger>
         </TabsList>
 
@@ -60,6 +66,10 @@ export default function StrategyPage() {
 
         <TabsContent value="risk" className="space-y-6">
           <RiskManagementPanel />
+        </TabsContent>
+
+        <TabsContent value="decisions" className="space-y-6">
+          <DecisionsView strategyId="5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e" />
         </TabsContent>
       </Tabs>
     </div>

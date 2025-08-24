@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Comprehensive Unified Decisions Validation</title>
+    <style>
+        .test { margin: 15px 0; padding: 10px; border: 1px solid #ddd; }
+        .result { background: #f9f9f9; padding: 8px; margin: 5px 0; }
+        pre { font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h1>Comprehensive Unified Decisions Validation</h1>
+    <button onclick="runAllTests()">🚀 Run All Tests</button>
+    <div id="output"></div>
+    
+    <script>
+        const API_URL = 'https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/trading-decision-coordinator';
+        const AUTH = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8';
+        
+        const USER_ID = '25a0c221-1f0e-431d-8d79-db9fb4db9cb3';
+        const STRATEGY_ID = '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e';
+        
+        let testResults = [];
+        
+        async function sendIntent(intent, testName) {
+            const startTime = Date.now();
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': AUTH },
+                    body: JSON.stringify({ intent })
+                });
+                
+                const data = await response.json();
+                const duration = Date.now() - startTime;
+                
+                const result = {
+                    testName,
+                    timestamp: new Date().toISOString(),
+                    intent: `${intent.source}_${intent.side}`,
+                    symbol: intent.symbol,
+                    status: response.status,
+                    decision: data,
+                    duration
+                };
+                
+                testResults.push(result);
+                logTest(result);
+                return result;
+                
+            } catch (error) {
+                const result = {
+                    testName,
+                    timestamp: new Date().toISOString(),
+                    error: error.message
+                };
+                testResults.push(result);
+                logTest(result);
+                return result;
+            }
+        }
+        
+        function logTest(result) {
+            const output = document.getElementById('output');
+            const div = document.createElement('div');
+            div.className = 'result';
+            
+            if (result.error) {
+                div.innerHTML = `❌ ${result.testName}: ERROR - ${result.error}`;
+            } else {
+                const approved = result.decision?.approved ? '✅' : '⏸️';
+                div.innerHTML = `${approved} ${result.testName}: ${result.intent} → ${result.decision?.action} (${result.status}) - ${result.decision?.reason}`;
+            }
+            
+            output.appendChild(div);
+            console.log('Test Result:', result);
+        }
+        
+        async function runAllTests() {
+            const output = document.getElementById('output');
+            output.innerHTML = '<h2>🚀 Running Validation Tests...</h2>';
+            testResults = [];
+            
+            try {
+                // Test B: Pool Precedence - Pool SELL should execute
+                await sendIntent({
+                    userId: USER_ID,
+                    strategyId: STRATEGY_ID,
+                    symbol: 'BTC-EUR',
+                    side: 'SELL',
+                    source: 'pool',
+                    confidence: 0.9,
+                    reason: 'secure_take_profit',
+                    qtySuggested: 15,
+                    ts: new Date().toISOString()
+                }, 'Test B: Pool Precedence SELL');
+                
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Test C: Min Hold - First do a BUY
+                await sendIntent({
+                    userId: USER_ID,
+                    strategyId: STRATEGY_ID,
+                    symbol: 'ADA-EUR',
+                    side: 'BUY',
+                    source: 'manual',
+                    confidence: 0.95,
+                    reason: 'test_setup_buy',
+                    qtySuggested: 20,
+                    ts: new Date().toISOString()
+                }, 'Test C.1: Setup BUY for min hold test');
+                
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Then try SELL within min hold period
+                await sendIntent({
+                    userId: USER_ID,
+                    strategyId: STRATEGY_ID,
+                    symbol: 'ADA-EUR',
+                    side: 'SELL',
+                    source: 'automated',
+                    confidence: 0.6,
+                    reason: 'technical_signal_test',
+                    qtySuggested: 15,
+                    ts: new Date().toISOString()
+                }, 'Test C.2: SELL within min hold (should HOLD)');
+                
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Test D: Cooldown - First do a SELL
+                await sendIntent({
+                    userId: USER_ID,
+                    strategyId: STRATEGY_ID,
+                    symbol: 'SOL-EUR',
+                    side: 'SELL',
+                    source: 'manual',
+                    confidence: 0.95,
+                    reason: 'test_setup_sell',
+                    qtySuggested: 5,
+                    ts: new Date().toISOString()
+                }, 'Test D.1: Setup SELL for cooldown test');
+                
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Then try BUY within cooldown with low confidence
+                await sendIntent({
+                    userId: USER_ID,
+                    strategyId: STRATEGY_ID,
+                    symbol: 'SOL-EUR',
+                    side: 'BUY',
+                    source: 'intelligent',
+                    confidence: 0.65, // Below 0.70 threshold
+                    reason: 'ai_bullish_signal',
+                    qtySuggested: 8,
+                    ts: new Date().toISOString()
+                }, 'Test D.2: BUY within cooldown (should HOLD)');
+                
+                // Summary
+                const output2 = document.getElementById('output');
+                output2.innerHTML += '<h2>📊 Test Summary</h2>';
+                
+                const summary = testResults.map(r => {
+                    if (r.error) return `❌ ${r.testName}: ERROR`;
+                    const status = r.decision?.approved ? 'APPROVED' : 'HELD';
+                    return `${r.decision?.approved ? '✅' : '⏸️'} ${r.testName}: ${status} - ${r.decision?.reason}`;
+                }).join('<br>');
+                
+                output2.innerHTML += `<div class="result">${summary}</div>`;
+                
+                console.log('All test results:', testResults);
+                
+            } catch (error) {
+                output.innerHTML += `<div class="result">❌ Test execution error: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>

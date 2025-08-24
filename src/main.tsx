@@ -7,8 +7,21 @@ import './index.css'
 import { Toaster } from "@/components/ui/sonner";
 import { checkAndClearLegacyStorage } from './utils/clearLocalSession';
 
-// Clear legacy storage before app initialization
-checkAndClearLegacyStorage();
+// Check version but DON'T clear storage if user is already logged in
+const preservedAuth = localStorage.getItem('supabase.auth.token');
+const preservedTestMode = localStorage.getItem('global-test-mode');
+
+if (!preservedAuth) {
+  // Only clear storage if no auth session exists
+  checkAndClearLegacyStorage();
+} else {
+  console.log('🔒 PRESERVING: Found existing auth session, skipping storage clear');
+}
+
+// Always restore test mode
+if (preservedTestMode) {
+  localStorage.setItem('global-test-mode', preservedTestMode);
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {

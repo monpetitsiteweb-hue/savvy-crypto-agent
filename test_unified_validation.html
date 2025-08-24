@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Unified Decisions Validation Tests</title>
+    <style>
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .results { background: #f5f5f5; padding: 10px; margin-top: 10px; }
+        pre { font-size: 12px; max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>Unified Decisions Validation Tests</h1>
+    
+    <div class="test-section">
+        <h3>Test B - Pool Precedence</h3>
+        <button onclick="testPoolPrecedence()">Run Pool vs Scheduler Test</button>
+        <div id="testB-results" class="results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test C - Min Hold Period</h3>
+        <button onclick="testMinHoldPeriod()">Run Min Hold Test</button>
+        <div id="testC-results" class="results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test D - Cooldown After SELL</h3>
+        <button onclick="testCooldownAfterSell()">Run Cooldown Test</button>
+        <div id="testD-results" class="results"></div>
+    </div>
+    
+    <script>
+        const API_URL = 'https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/trading-decision-coordinator';
+        const AUTH_HEADER = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreXFsYiIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzUyMjI4Nzk0LCJleHAiOjIwNjc4MDQ3OTR9.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8';
+        
+        const USER_ID = '25a0c221-1f0e-431d-8d79-db9fb4db9cb3';
+        const STRATEGY_ID = '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e';
+
+        async function sendIntent(intent, testName) {
+            console.log(`${testName}: Sending intent:`, intent);
+            
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': AUTH_HEADER
+                },
+                body: JSON.stringify({ intent })
+            });
+            
+            const data = await response.json();
+            console.log(`${testName}: Response:`, { status: response.status, data });
+            
+            return { status: response.status, data };
+        }
+
+        async function testPoolPrecedence() {
+            const results = document.getElementById('testB-results');
+            results.innerHTML = 'Running Test B - Pool Precedence...<br>';
+            
+            try {
+                // First: Emit scheduler BUY intent
+                const schedulerBuy = {
+                    userId: USER_ID,
+                    strategyId: STRATEGY_ID,
+                    symbol: 'BTC-EUR',
+                    side: 'BUY',
+                    source: 'automated',
+                    confidence: 0.4,
+                    reason: 'scheduled_signal',
+                    qtySuggested: 10,
+                    ts: new Date().toISOString()
+                };
+                
+                const result1 = await sendIntent(schedulerBuy, 'Test B.1');
+                results.innerHTML += `Scheduler BUY: ${result1.status} - ${JSON.stringify(result1.data)}<br><br>`;
+                
+                // Wait 1 second, then emit pool SELL (higher precedence)
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                const poolSell = {
+                    userId: USER_ID,
+                    strategyId: STRATEGY_ID,
+                    symbol: 'BTC-EUR',
+                    side: 'SELL',
+                    source: 'pool',
+                    confidence: 0.9,
+                    reason: 'secure_take_profit',
+                    qtySuggested: 15,
+                    ts: new Date().toISOString()
+                };
+                
+                const result2 = await sendIntent(poolSell, 'Test B.2');
+                results.innerHTML += `Pool SELL: ${result2.status} - ${JSON.stringify(result2.data)}<br>`;
+                results.innerHTML += `<strong>Expected: Pool SELL approved, Scheduler BUY should be blocked by precedence</strong>`;
+                
+            } catch (error) {
+                results.innerHTML += `Error: ${error.message}`;
+            }
+        }
+
+        async function testMinHoldPeriod() {
+            const results = document.getElementById('testC-results');
+            results.innerHTML = 'Running Test C - Min Hold Period...<br>';
+            
+            try {
+                // First: Execute a BUY
+                const buyIntent = {
+                    userId: USER_ID,
+                    strategyId: STRATEGY_ID,
+                    symbol: 'ETH-EUR',
+                    side: 'BUY',
+                    source: 'manual',  // Manual has highest precedence
+                    confidence: 0.95,
+                    reason: 'test_min_hold_setup',
+                    qtySuggested: 8,
+                    ts: new Date().toISOString()
+                };
+                
+                const result1 = await sendIntent(buyIntent, 'Test C.1');
+                results.innerHTML += `Setup BUY: ${result1.status} - ${JSON.stringify(result1.data)}<br><br>`;
+                
+                // Wait 2 seconds (way less than 120s), then emit technical SELL
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                const technicalSell = {
+                    userId: USER_ID,
+                    strategyId: STRATEGY_ID,
+                    symbol: 'ETH-EUR',
+                    side: 'SELL',
+                    source: 'automated',
+                    confidence: 0.6,
+                    reason: 'technical_signal_rsi_overbought',
+                    qtySuggested: 5,
+                    ts: new Date().toISOString()
+                };
+                
+                const result2 = await sendIntent(technicalSell, 'Test C.2');
+                results.innerHTML += `Technical SELL (${Date.now()}ms after BUY): ${result2.status} - ${JSON.stringify(result2.data)}<br>`;
+                results.innerHTML += `<strong>Expected: HOLD with min_hold_period_not_met reason</strong>`;
+                
+            } catch (error) {
+                results.innerHTML += `Error: ${error.message}`;
+            }
+        }
+
+        async function testCooldownAfterSell() {
+            const results = document.getElementById('testD-results');
+            results.innerHTML = 'Running Test D - Cooldown After SELL...<br>';
+            
+            try {
+                // First: Execute a SELL
+                const sellIntent = {
+                    userId: USER_ID,
+                    strategyId: STRATEGY_ID,
+                    symbol: 'XRP-EUR',
+                    side: 'SELL',
+                    source: 'manual',  // Manual to ensure it executes
+                    confidence: 0.95,
+                    reason: 'test_cooldown_setup',
+                    qtySuggested: 12,
+                    ts: new Date().toISOString()
+                };
+                
+                const result1 = await sendIntent(sellIntent, 'Test D.1');
+                results.innerHTML += `Setup SELL: ${result1.status} - ${JSON.stringify(result1.data)}<br><br>`;
+                
+                // Wait 2 seconds (way less than 30s), then emit intelligent BUY
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                const intelligentBuy = {
+                    userId: USER_ID,
+                    strategyId: STRATEGY_ID,
+                    symbol: 'XRP-EUR',
+                    side: 'BUY',
+                    source: 'intelligent',
+                    confidence: 0.65,  // Below threshold
+                    reason: 'ai_signal_bullish',
+                    qtySuggested: 8,
+                    ts: new Date().toISOString()
+                };
+                
+                const result2 = await sendIntent(intelligentBuy, 'Test D.2');
+                results.innerHTML += `Intelligent BUY (${Date.now()}ms after SELL): ${result2.status} - ${JSON.stringify(result2.data)}<br>`;
+                results.innerHTML += `<strong>Expected: HOLD with cooldown blocked reason (confidence 0.65 < 0.70 threshold)</strong>`;
+                
+            } catch (error) {
+                results.innerHTML += `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

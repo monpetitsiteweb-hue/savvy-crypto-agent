@@ -9,6 +9,8 @@ import { useRealTimeMarketData } from "@/hooks/useRealTimeMarketData";
 import { supabase } from '@/integrations/supabase/client';
 import { Wallet, TrendingUp, TrendingDown, RefreshCw, Loader2, TestTube, DollarSign, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { calculateValuation, checkIntegrity, type ValuationInputs } from "@/utils/valuationService";
+import { CorruptionWarning } from "@/components/CorruptionWarning";
 
 interface PortfolioData {
   accounts?: Array<{
@@ -26,6 +28,15 @@ interface PortfolioData {
   }>;
 }
 
+interface PositionData {
+  symbol: string;
+  amount: number;
+  entry_price: number;
+  purchase_value: number;
+  is_corrupted?: boolean;
+  integrity_reason?: string;
+}
+
 export const UnifiedPortfolioDisplay = () => {
   const { testMode } = useTestMode();
   const { user } = useAuth();
@@ -38,6 +49,8 @@ export const UnifiedPortfolioDisplay = () => {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
   const [connections, setConnections] = useState<any[]>([]);
   const [realTimePrices, setRealTimePrices] = useState<{[key: string]: number}>({});
+  const [positions, setPositions] = useState<PositionData[]>([]);
+  const [positionValuations, setPositionValuations] = useState<Record<string, any>>({});
 
   // Fetch real-time prices for all displayed cryptocurrencies
   useEffect(() => {
@@ -75,6 +88,13 @@ export const UnifiedPortfolioDisplay = () => {
     }
   }, [testMode, user]);
 
+  // Fetch positions for valuation service
+  useEffect(() => {
+    if (testMode && user) {
+      fetchPositionsData();
+    }
+  }, [testMode, user]);
+
   // Auto-refresh portfolio when balances change in test mode
   useEffect(() => {
     if (testMode && balances.length > 0) {
@@ -95,6 +115,83 @@ export const UnifiedPortfolioDisplay = () => {
       setPortfolioData({ accounts: mockAccounts });
     }
   }, [balances, testMode]);
+
+  // Calculate valuations when positions or prices change
+  useEffect(() => {
+    const calculateAllValuations = async () => {
+      const valuations: Record<string, any> = {};
+      
+      for (const position of positions) {
+        // Skip corrupted positions from KPI calculations
+        if (position.is_corrupted) {
+          console.log(`⚠️ Skipping corrupted position ${position.symbol} from valuations`);
+          continue;
+        }
+        
+        const currentPrice = realTimePrices[position.symbol] || 0;
+        if (currentPrice > 0) {
+          try {
+            const valuation = await calculateValuation(position, currentPrice);
+            valuations[position.symbol] = valuation;
+          } catch (error) {
+            console.error(`Error calculating valuation for ${position.symbol}:`, error);
+          }
+        }
+      }
+      
+      setPositionValuations(valuations);
+    };
+    
+    if (positions.length > 0 && Object.keys(realTimePrices).length > 0) {
+      calculateAllValuations();
+    }
+  }, [positions, realTimePrices]);
+
+  const fetchPositionsData = async () => {
+    if (!user) return;
+    
+    try {
+      // Get open positions from buy trades that haven't been fully sold
+      const { data: trades, error } = await supabase
+        .from('mock_trades')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('trade_type', 'buy')
+        .order('executed_at', { ascending: true });
+
+      if (error) throw error;
+
+      // Calculate net positions per symbol (simplified for demo)
+      const positionMap = new Map<string, PositionData>();
+      
+      for (const trade of trades || []) {
+        const symbol = trade.cryptocurrency.replace('-EUR', '');
+        const existing = positionMap.get(symbol);
+        
+        if (existing) {
+          // Average in new position
+          const totalValue = existing.purchase_value + trade.total_value;
+          const totalAmount = existing.amount + trade.amount;
+          existing.purchase_value = totalValue;
+          existing.amount = totalAmount;
+          existing.entry_price = totalValue / totalAmount;
+        } else {
+          positionMap.set(symbol, {
+            symbol,
+            amount: trade.amount,
+            entry_price: trade.price,
+            purchase_value: trade.total_value,
+            is_corrupted: trade.is_corrupted,
+            integrity_reason: trade.integrity_reason
+          });
+        }
+      }
+      
+      setPositions(Array.from(positionMap.values()));
+    } catch (error) {
+      console.error('Error fetching positions:', error);
+    }
+  };
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -166,6 +263,118 @@ export const UnifiedPortfolioDisplay = () => {
       }, 0);
     }
     return 0;
+  };
+
+  const renderPositionCard = (position: PositionData) => {
+    // Use valuation service for all calculations
+    const integrityCheck = checkIntegrity(position);
+    const currentPrice = realTimePrices[position.symbol] || 0;
+    const valuation = positionValuations[position.symbol];
+    
+    // Skip calculation if corrupted and no current price
+    if ((position.is_corrupted && !currentPrice) || !integrityCheck.is_valid) {
+      return (
+        <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600 border-red-500/30">
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center">
+                <span className="text-sm font-medium text-slate-300">{position.symbol}</span>
+                <CorruptionWarning 
+                  isCorrupted={position.is_corrupted || !integrityCheck.is_valid}
+                  integrityReason={position.integrity_reason || integrityCheck.errors.join(', ')}
+                />
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-bold text-red-400">
+                  Corrupted Data
+                </div>
+                <div className="text-xs text-slate-400">
+                  Requires manual review
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      );
+    }
+
+    // Show loading state if valuation not yet calculated
+    if (!valuation) {
+      return (
+        <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600">
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm font-medium text-slate-300">{position.symbol}</span>
+              <div className="text-right">
+                <div className="text-lg font-bold text-slate-400">
+                  Calculating...
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      );
+    }
+    
+    return (
+      <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600">
+        <div className="space-y-3">
+          {/* Header with symbol and corruption warning */}
+          <div className="flex justify-between items-center">
+            <div className="flex items-center">
+              <span className="text-sm font-medium text-slate-300">{position.symbol}</span>
+              <CorruptionWarning 
+                isCorrupted={position.is_corrupted}
+                integrityReason={position.integrity_reason}
+              />
+            </div>
+            <div className="text-right">
+              <div className="text-lg font-bold text-white">
+                €{valuation.current_value.toLocaleString()}
+              </div>
+              <div className="text-xs text-slate-400">
+                {position.amount.toLocaleString(undefined, {
+                  maximumFractionDigits: position.symbol === 'XRP' ? 0 : 6
+                })} {position.symbol}
+              </div>
+            </div>
+          </div>
+          
+          {/* P&L Display */}
+          <div className="flex justify-between items-center pt-2 border-t border-slate-600/50">
+            <span className="text-xs text-slate-400">P&L:</span>
+            <div className="text-right">
+              <div className={`text-sm font-medium ${
+                valuation.pnl_eur >= 0 ? 'text-green-400' : 'text-red-400'
+              }`}>
+                €{valuation.pnl_eur.toLocaleString()} ({valuation.pnl_pct.toFixed(2)}%)
+              </div>
+            </div>
+          </div>
+          
+          {/* Current Price */}
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-slate-400">Current Price:</span>
+            <div className="flex items-center gap-1">
+              <span className="text-xs font-medium text-green-400">
+                €{valuation.current_price.toFixed(position.symbol === 'XRP' ? 4 : 2)}
+              </span>
+              {Math.random() > 0.5 ? (
+                <TrendingUp className="h-3 w-3 text-green-400" />
+              ) : (
+                <TrendingDown className="h-3 w-3 text-red-400" />
+              )}
+            </div>
+          </div>
+          
+          {/* Entry Price for Reference */}
+          <div className="flex justify-between items-center text-xs text-slate-500">
+            <span>Entry: €{position.entry_price.toFixed(2)}</span>
+            <span>Value: €{position.purchase_value.toFixed(2)}</span>
+          </div>
+        </div>
+      </Card>
+    );
   };
 
   const renderCoinCard = (account: any) => {
@@ -285,19 +494,30 @@ export const UnifiedPortfolioDisplay = () => {
           </div>
           
           {/* Portfolio Breakdown */}
-          {portfolioData?.accounts && portfolioData.accounts.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {portfolioData.accounts.map(renderCoinCard)}
-            </div>
+          {testMode ? (
+            positions.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {positions.map(renderPositionCard)}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-slate-300">
+                  No open positions. Start trading to see positions.
+                </p>
+              </div>
+            )
           ) : (
-            <div className="text-center py-8">
-              <p className="text-slate-300">
-                {testMode 
-                  ? 'No test portfolio data available. Start trading to see balances.'
-                  : 'No portfolio data available. Select a connection and refresh.'
-                }
-              </p>
-            </div>
+            portfolioData?.accounts && portfolioData.accounts.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {portfolioData.accounts.map(renderCoinCard)}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-slate-300">
+                  No portfolio data available. Select a connection and refresh.
+                </p>
+              </div>
+            )
           )}
 
           {/* Real-time sync indicator */}

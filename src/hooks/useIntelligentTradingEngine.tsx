@@ -5,6 +5,10 @@ import { useMockWallet } from './useMockWallet';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from './use-toast';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
+import { usePoolExitManager } from './usePoolExitManager';
+
+// Import and expose pool tests for console access
+import '../utils/poolExitTests';
 
 interface Position {
   cryptocurrency: string;
@@ -30,7 +34,22 @@ export const useIntelligentTradingEngine = () => {
   const { toast } = useToast();
   const { marketData, getCurrentData } = useRealTimeMarketData();
   
+  // Initialize pool exit manager
+  const { processAllPools } = usePoolExitManager({ 
+    isEnabled: true, 
+    testMode 
+  });
+  
   console.log('🚨 INTELLIGENT_ENGINE: Hook called with testMode:', testMode, 'user:', !!user, 'loading:', loading, 'user email:', user?.email);
+  console.log('🚨 INTELLIGENT_ENGINE: DETAILED DEBUG', {
+    testMode,
+    testModeType: typeof testMode,
+    user: user ? { id: user.id, email: user.email } : null,
+    userExists: !!user,
+    loading,
+    loadingType: typeof loading,
+    localStorage_testMode: localStorage.getItem('global-test-mode')
+  });
   
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const tradingStateRef = useRef<TradingState>({
@@ -193,8 +212,8 @@ export const useIntelligentTradingEngine = () => {
       
       if (sellDecision) {
         console.log('🚨 DEBUG SELL: EXECUTING SELL ORDER! Decision:', JSON.stringify(sellDecision));
-        console.log('🚨 DEBUG SELL: sellDecision type:', typeof sellDecision);
-        console.log('🚨 DEBUG SELL: sellDecision truthy check:', !!sellDecision);
+        console.log('🚨 DEBUG SELL: Position cryptocurrency before executeSellOrder:', position.cryptocurrency);
+        console.log('🚨 DEBUG SELL: Current price used:', currentPrice);
         await executeSellOrder(strategy, position, currentPrice, sellDecision);
       } else {
         console.log('🚨 DEBUG SELL: NO SELL DECISION - position will remain open');
@@ -282,17 +301,27 @@ export const useIntelligentTradingEngine = () => {
 
   const checkTrailingStopLoss = async (config: any, position: Position, currentPrice: number, pnlPercentage: number): Promise<boolean> => {
     const trailingPercentage = config.trailingStopLossPercentage;
-    if (!trailingPercentage || pnlPercentage <= 0) return false;
-
-    // Simplified trailing stop logic
-    const simulatedPeak = position.average_price * 1.1;
-    const dropFromPeak = ((simulatedPeak - currentPrice) / simulatedPeak) * 100;
     
-    if (dropFromPeak >= trailingPercentage) {
-      console.log('📉 ENGINE: Trailing stop triggered - dropped', dropFromPeak.toFixed(2) + '% from peak');
-      return true;
+    // FIXED: Trailing stop should ONLY activate when position is actually profitable
+    // Don't trigger trailing stop unless we're in profit
+    if (!trailingPercentage || pnlPercentage <= 0) {
+      console.log('🚫 TRAILING_STOP: Not in profit (', pnlPercentage.toFixed(2), '%) - trailing stop disabled');
+      return false;
     }
 
+    // Only activate trailing stop if we've reached a minimum profit threshold
+    const minProfitForTrailing = config.trailingStopMinProfitThreshold || 1.0;
+    if (pnlPercentage < minProfitForTrailing) {
+      console.log('🚫 TRAILING_STOP: Below minimum profit threshold (', pnlPercentage.toFixed(2), '% <', minProfitForTrailing, '%) - trailing stop disabled');
+      return false;
+    }
+
+    // For now, we need to track the actual peak price over time
+    // Since we don't have peak tracking yet, let's disable trailing stop completely
+    // until we implement proper peak tracking
+    console.log('🚫 TRAILING_STOP: Peak tracking not implemented yet - trailing stop disabled');
+    console.log('💡 TRAILING_STOP: Use regular take-profit (', config.takeProfitPercentage, '%) instead');
+    
     return false;
   };
 
@@ -716,6 +745,8 @@ export const useIntelligentTradingEngine = () => {
   const calculateOpenPositions = async (): Promise<Position[]> => {
     if (!user?.id) return [];
 
+    console.log('🧮 POSITIONS: Starting position calculation for user:', user.id);
+
     const { data: buyTrades } = await supabase
       .from('mock_trades')
       .select('*')
@@ -731,13 +762,33 @@ export const useIntelligentTradingEngine = () => {
       .eq('trade_type', 'sell')
       .eq('is_test_mode', true);
 
+    console.log('🧮 POSITIONS: Buy trades found:', buyTrades?.length || 0);
+    console.log('🧮 POSITIONS: Sell trades found:', sellTrades?.length || 0);
+    
+    if (buyTrades?.length) {
+      console.log('🧮 POSITIONS: Sample buy trades:', buyTrades.slice(0, 3).map(t => ({
+        symbol: t.cryptocurrency,
+        amount: t.amount,
+        executed_at: t.executed_at
+      })));
+    }
+    
+    if (sellTrades?.length) {
+      console.log('🧮 POSITIONS: Sample sell trades:', sellTrades.slice(0, 3).map(t => ({
+        symbol: t.cryptocurrency,
+        amount: t.amount,
+        executed_at: t.executed_at
+      })));
+    }
+
     if (!buyTrades) return [];
 
     const positions: Record<string, Position> = {};
 
-    // Add buy trades
+    // Add buy trades with normalized symbols
     buyTrades.forEach(trade => {
-      const symbol = trade.cryptocurrency;
+      // Normalize symbol - remove -EUR suffix if present
+      const symbol = trade.cryptocurrency.replace('-EUR', '');
       if (!positions[symbol]) {
         positions[symbol] = {
           cryptocurrency: symbol,
@@ -757,27 +808,43 @@ export const useIntelligentTradingEngine = () => {
       }
     });
 
-    // Subtract sell trades
+    console.log('🧮 POSITIONS: Positions after buy trades:', Object.keys(positions).length);
+
+    // Subtract sell trades with normalized symbols
     if (sellTrades) {
       sellTrades.forEach(trade => {
-        const symbol = trade.cryptocurrency;
+        // Normalize symbol - remove -EUR suffix if present
+        const symbol = trade.cryptocurrency.replace('-EUR', '');
+        console.log('🧮 POSITIONS: Processing sell trade for', symbol, 'amount:', trade.amount);
         if (positions[symbol]) {
+          const beforeAmount = positions[symbol].remaining_amount;
           positions[symbol].remaining_amount -= trade.amount;
+          console.log('🧮 POSITIONS: Updated', symbol, 'from', beforeAmount, 'to', positions[symbol].remaining_amount);
+          
+          // Remove position if completely sold
+          if (positions[symbol].remaining_amount <= 0.000001) {
+            console.log('🧮 POSITIONS: Removing position', symbol, 'due to zero balance');
+            delete positions[symbol];
+          }
+        } else {
+          console.log('🧮 POSITIONS: Warning - sell trade for', symbol, 'but no position found!');
         }
       });
     }
 
     // Filter and calculate averages
-    return Object.values(positions).filter(pos => {
+    const finalPositions = Object.values(positions).filter(pos => {
       if (pos.remaining_amount > 0.00000001) {
         pos.average_price = pos.total_value / pos.total_amount;
         return true;
       }
       return false;
     });
+
+    console.log('🧮 POSITIONS: Final open positions:', finalPositions.length);
+    return finalPositions;
   };
 
-  // Trade Execution
   const executeTrade = async (
     strategy: any, 
     action: 'buy' | 'sell', 
@@ -786,10 +853,155 @@ export const useIntelligentTradingEngine = () => {
     customAmount?: number,
     trigger?: string
   ) => {
+    console.log('🔧 ENGINE: executeTrade called with action:', action, 'symbol:', cryptocurrency);
+    
     if (!user?.id) {
       console.error('❌ ENGINE: Cannot execute trade - no authenticated user');
       return;
     }
+
+    // Check if strategy has unified decisions enabled
+    const unifiedConfig = strategy?.configuration?.unifiedConfig || { enableUnifiedDecisions: false };
+    
+    if (unifiedConfig.enableUnifiedDecisions) {
+      // NEW: Emit intent to coordinator
+      console.log('🎯 INTELLIGENT: Using unified decision system');
+      return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger);
+    } else {
+      // Legacy direct execution (backward compatibility)
+      console.log('🔄 INTELLIGENT: Unified decisions disabled, executing trade directly');
+      return await executeTradeDirectly(strategy, action, cryptocurrency, price, customAmount, trigger);
+    }
+  };
+
+  // NEW: Emit trade intent to coordinator
+  const emitTradeIntentToCoordinator = async (
+    strategy: any, 
+    action: 'buy' | 'sell', 
+    cryptocurrency: string, 
+    price: number, 
+    customAmount?: number,
+    trigger?: string
+  ) => {
+    try {
+      const intent = {
+        userId: user!.id,
+        strategyId: strategy.id,
+        symbol: cryptocurrency.includes('-EUR') ? cryptocurrency : `${cryptocurrency}-EUR`,
+        side: action.toUpperCase() as 'BUY' | 'SELL',
+        source: trigger?.includes('whale') ? 'whale' : 
+               trigger?.includes('news') ? 'news' : 
+               trigger?.includes('ai') ? 'intelligent' : 'intelligent',
+        confidence: 0.75, // Default confidence for intelligent engine
+        reason: trigger || `Intelligent engine ${action}`,
+        qtySuggested: customAmount || Math.max(10, (strategy.configuration?.perTradeAllocation || 50)) / price,
+        metadata: {
+          engine: 'intelligent',
+          price: price,
+          symbol_normalized: cryptocurrency.replace('-EUR', ''),
+          trigger: trigger
+        },
+        ts: new Date().toISOString()
+      };
+
+      console.log('🎯 INTELLIGENT: Emitting intent to coordinator:', JSON.stringify(intent, null, 2));
+
+      const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
+        body: { intent }
+      });
+
+      // Handle Supabase client errors (network, auth, etc.)
+      if (error) {
+        console.error('❌ INTELLIGENT: Coordinator call failed:', error);
+        toast({
+          title: "Trade Intent Failed",
+          description: `Network error processing ${action} for ${cryptocurrency}: ${error.message}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Handle coordinator responses
+      if (!decision) {
+        console.error('❌ INTELLIGENT: No decision returned from coordinator');
+        toast({
+          title: "Trade Intent Failed", 
+          description: `No response from trading coordinator for ${action} on ${cryptocurrency}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.log('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
+
+      // Parse decision response properly - coordinator always returns structured response
+      const decisionData = decision?.decision || decision;
+      const requestId = decisionData?.request_id || 'unknown';
+
+      if (decisionData?.action === 'BUY' || decisionData?.action === 'SELL') {
+        // Successful trade execution
+        toast({
+          title: "Trade Executed",
+          description: `${decisionData.action} order placed for ${cryptocurrency}`,
+          className: "border-green-200 bg-green-50 text-green-800",
+        });
+        console.log(`✅ INTELLIGENT: Trade executed: ${decisionData.action} ${cryptocurrency} (${requestId})`);
+      } else if (decisionData?.action === 'HOLD') {
+        // HOLD decision - show standardized reason in yellow toast
+        const reason = decisionData.reason || "unified_decisions_hold";
+        console.log('⏸️ INTELLIGENT: Trade held:', reason, `(${requestId})`);
+        toast({
+          title: "Trade Held",
+          description: `${reason.replace(/_/g, ' ')}`,
+          className: "border-yellow-200 bg-yellow-50 text-yellow-800",
+        });
+      } else {
+        // Unknown decision format - this should never happen with proper coordinator
+        console.error('❌ INTELLIGENT: Unknown decision format:', decisionData);
+        toast({
+          title: "Unknown Decision",
+          description: `Unexpected coordinator response (${requestId})`,
+          variant: "destructive",
+        });
+      }
+
+    } catch (error) {
+      console.error('❌ INTELLIGENT: Error executing trade intent:', error);
+      toast({
+        title: "Trade Error",
+        description: `Error processing ${action} for ${cryptocurrency}`,
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Legacy direct execution function (backward compatibility) 
+  const executeTradeDirectly = async (
+    strategy: any, 
+    action: 'buy' | 'sell', 
+    cryptocurrency: string, 
+    price: number, 
+    customAmount?: number,
+    trigger?: string
+  ) => {
+    // CRITICAL FIX: Apply regression guards before trade execution
+    const { validateTradePrice, validatePurchaseValue, logValidationFailure } = await import('../utils/regressionGuards');
+    
+    // GUARD 1: Price corruption prevention
+    const priceValidation = validateTradePrice(price, cryptocurrency);
+    if (!priceValidation.isValid) {
+      logValidationFailure('price_corruption_guard', priceValidation.errors, { price, cryptocurrency, trigger });
+      toast({
+        title: "Trade Blocked",
+        description: `Suspicious price detected: €${price}. Trade prevented by security guard.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // CRITICAL FIX: Normalize symbol format - remove -EUR suffix for database storage
+    const normalizedSymbol = cryptocurrency.replace('-EUR', '');
+    console.log('🔧 ENGINE: Symbol normalization:', cryptocurrency, '->', normalizedSymbol);
 
     const config = strategy.configuration;
     let tradeAmount: number;
@@ -797,13 +1009,47 @@ export const useIntelligentTradingEngine = () => {
     if (action === 'sell' && customAmount !== undefined) {
       tradeAmount = customAmount;
     } else {
-      // Calculate buy amount
+      // CRITICAL FIX: Use deterministic price and remove €100 default
+      let deterministicPrice = price;
+      
+      // Fetch price snapshot for deterministic pricing
+      try {
+        const { data: snapshot } = await supabase
+          .from('price_snapshots')
+          .select('price')
+          .eq('symbol', normalizedSymbol)
+          .order('ts', { ascending: false })
+          .limit(1);
+        
+        if (snapshot?.[0]?.price) {
+          deterministicPrice = snapshot[0].price;
+          console.log('🎯 ENGINE: Using snapshot price:', deterministicPrice, 'for', normalizedSymbol);
+        }
+      } catch (error) {
+        console.warn('⚠️ ENGINE: Could not fetch price snapshot, using market price:', price);
+      }
+
+      // Calculate buy amount with safe defaults (no more €100 hardcode)
+      const defaultAllocation = 50; // Reduced from €100 to €50 minimum
       if (config.allocationUnit === 'percentage') {
         const totalBalance = getBalance('EUR');
-        tradeAmount = (totalBalance * config.perTradeAllocation / 100) / price;
+        const allocationAmount = Math.max(defaultAllocation, totalBalance * (config.perTradeAllocation || 5) / 100);
+        tradeAmount = allocationAmount / deterministicPrice;
       } else {
-        tradeAmount = (config.perTradeAllocation || 100) / price;
+        const allocationAmount = config.perTradeAllocation || defaultAllocation;
+        tradeAmount = allocationAmount / deterministicPrice;
       }
+
+      // GUARD 2: Purchase value consistency validation
+      const totalValue = tradeAmount * deterministicPrice;
+      const purchaseValidation = validatePurchaseValue(tradeAmount, deterministicPrice, totalValue);
+      if (!purchaseValidation.isValid) {
+        logValidationFailure('purchase_value_guard', purchaseValidation.errors, { tradeAmount, price: deterministicPrice, totalValue });
+        console.error('❌ ENGINE: Purchase value validation failed, aborting trade');
+        return;
+      }
+
+      price = deterministicPrice; // Use validated price for trade execution
     }
 
     // Execute the trade
@@ -813,13 +1059,13 @@ export const useIntelligentTradingEngine = () => {
       
       if (eurBalance >= tradeValue) {
         updateBalance('EUR', -tradeValue);
-        updateBalance(cryptocurrency, tradeAmount);
+        updateBalance(normalizedSymbol, tradeAmount);
         
         await recordTrade({
           strategy_id: strategy.id,
           user_id: user.id,
           trade_type: 'buy',
-          cryptocurrency,
+          cryptocurrency: normalizedSymbol,
           amount: tradeAmount,
           price,
           total_value: tradeValue,
@@ -831,22 +1077,22 @@ export const useIntelligentTradingEngine = () => {
 
         toast({
           title: "REAL Signal Trade Executed",
-          description: `Bought ${tradeAmount.toFixed(6)} ${cryptocurrency} at €${price.toFixed(2)} (${trigger})`,
+          description: `Bought ${tradeAmount.toFixed(6)} ${normalizedSymbol} at €${price.toFixed(2)} (${trigger})`,
         });
       }
     } else if (action === 'sell') {
-      const cryptoBalance = getBalance(cryptocurrency);
+      const cryptoBalance = getBalance(normalizedSymbol);
       
       if (cryptoBalance >= tradeAmount) {
         const tradeValue = tradeAmount * price;
-        updateBalance(cryptocurrency, -tradeAmount);
+        updateBalance(normalizedSymbol, -tradeAmount);
         updateBalance('EUR', tradeValue);
         
         await recordTrade({
           strategy_id: strategy.id,
           user_id: user.id,
           trade_type: 'sell',
-          cryptocurrency,
+          cryptocurrency: normalizedSymbol,
           amount: tradeAmount,
           price,
           total_value: tradeValue,
@@ -858,7 +1104,7 @@ export const useIntelligentTradingEngine = () => {
 
         toast({
           title: "REAL Signal Trade Executed",
-          description: `Sold ${tradeAmount.toFixed(6)} ${cryptocurrency} at €${price.toFixed(2)} (${trigger})`,
+          description: `Sold ${tradeAmount.toFixed(6)} ${normalizedSymbol} at €${price.toFixed(2)} (${trigger})`,
         });
       }
     }
@@ -885,19 +1131,36 @@ export const useIntelligentTradingEngine = () => {
         executed_at: new Date().toISOString()
       };
 
-      const { error } = await supabase
+      console.log('📝 ENGINE: About to insert trade into database:', mockTradeData);
+      console.log('📝 ENGINE: Calling supabase.from(mock_trades).insert...');
+
+      const { data, error } = await supabase
         .from('mock_trades')
-        .insert(mockTradeData);
+        .insert(mockTradeData)
+        .select();
+
+      console.log('📝 ENGINE: Supabase response - data:', data, 'error:', error);
 
       if (error) {
-        console.error('❌ ENGINE: Database error:', error);
+        console.error('❌ ENGINE: Database error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+          mockTradeData
+        });
         throw error;
       }
       
-      console.log('✅ ENGINE: Successfully recorded REAL signal trade');
+      console.log('✅ ENGINE: Successfully recorded REAL signal trade, DB ID:', data?.[0]?.id, 'Type:', tradeData.trade_type, 'Symbol:', tradeData.cryptocurrency);
 
     } catch (error) {
-      console.error('❌ ENGINE: Failed to record trade:', error);
+      console.error('❌ ENGINE: Catch block error:', error);
+      console.error('❌ ENGINE: Error details:', {
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack
+      });
       throw error;
     }
   };
@@ -905,12 +1168,19 @@ export const useIntelligentTradingEngine = () => {
   // Hook effect
   useEffect(() => {
     console.log('🚀 INTELLIGENT_ENGINE: Starting with REAL signal integration');
+    console.log('🚀 INTELLIGENT_ENGINE: Current state - testMode:', testMode, 'user:', !!user, 'user email:', user?.email, 'loading:', loading);
     
-    if (testMode && user) {
-      console.log('🚀 INTELLIGENT_ENGINE: Starting REAL signal monitoring');
+    if (testMode && user && !loading) {
+      console.log('🚀 INTELLIGENT_ENGINE: ✅ ALL CONDITIONS MET - Starting REAL signal monitoring');
       marketMonitorRef.current = setInterval(checkStrategiesAndExecute, 10000);
       setTimeout(checkStrategiesAndExecute, 2000);
     } else {
+      console.log('🚀 INTELLIGENT_ENGINE: ❌ CONDITIONS NOT MET - Stopping trading engine', {
+        testMode,
+        hasUser: !!user,
+        loading,
+        reason: !testMode ? 'Test mode disabled' : !user ? 'Not authenticated' : loading ? 'Still loading' : 'Unknown'
+      });
       if (marketMonitorRef.current) {
         clearInterval(marketMonitorRef.current);
         marketMonitorRef.current = null;
@@ -922,7 +1192,7 @@ export const useIntelligentTradingEngine = () => {
         clearInterval(marketMonitorRef.current);
       }
     };
-  }, [testMode, user]);
+  }, [testMode, user, loading]);
 
   return { checkStrategiesAndExecute };
 };

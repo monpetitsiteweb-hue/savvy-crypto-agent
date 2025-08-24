@@ -122,10 +122,10 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <TooltipField 
-              description="The gain percentage at which the trade should close to secure profits."
-              examples={["Take profits at 5%", "Sell once I make 3%", "Close when I hit my target"]}
+              description="🎯 PER-POSITION LIMIT: Each individual buy order will automatically sell when it reaches this profit percentage. This is independent of your overall portfolio performance."
+              examples={["Buy ETH at €4000 → Sell at €4020 (+0.5%)", "Buy BTC at €98000 → Sell at €98490 (+0.5%)", "Each position closes individually at this % gain"]}
             >
-              <Label>Take Profit Percentage: {formData.takeProfitPercentage}%</Label>
+              <Label>Take Profit Percentage (Per Position): {formData.takeProfitPercentage}%</Label>
             </TooltipField>
             <div className="space-y-2">
               <Slider
@@ -189,25 +189,50 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <TooltipField 
-              description="Tracks price as it rises and closes the trade if it drops by this percentage from the peak."
-              examples={["Let the profits ride", "Use a trailing stop of 2%", "Sell if it drops after going up"]}
-            >
-              <Label>Trailing Stop Percentage: {formData.trailingStopLossPercentage}%</Label>
-            </TooltipField>
+          <div className="space-y-4">
             <div className="space-y-2">
-              <Slider
-                min={0.5}
-                max={10}
-                step={0.1}
-                value={[formData.trailingStopLossPercentage]}
-                onValueChange={(value) => updateFormData('trailingStopLossPercentage', value[0])}
-                className="w-full"
-              />
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>0.5%</span>
-                <span>10%</span>
+              <TooltipField 
+                description="Tracks price as it rises and closes the trade if it drops by this percentage from the peak."
+                examples={["Let the profits ride", "Use a trailing stop of 2%", "Sell if it drops after going up"]}
+              >
+                <Label>Trailing Stop Percentage: {formData.trailingStopLossPercentage}%</Label>
+              </TooltipField>
+              <div className="space-y-2">
+                <Slider
+                  min={0.5}
+                  max={10}
+                  step={0.1}
+                  value={[formData.trailingStopLossPercentage]}
+                  onValueChange={(value) => updateFormData('trailingStopLossPercentage', value[0])}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>0.5%</span>
+                  <span>10%</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <TooltipField 
+                description="Minimum profit percentage required before trailing stop activates. This prevents premature selling when position hasn't reached meaningful profit."
+                examples={["Only trail after 1% profit", "Wait for 0.5% gain before trailing", "Don't trail unless profitable"]}
+              >
+                <Label>Minimum Profit Before Trailing: {formData.trailingStopMinProfitThreshold}%</Label>
+              </TooltipField>
+              <div className="space-y-2">
+                <Slider
+                  min={0.1}
+                  max={5}
+                  step={0.1}
+                  value={[formData.trailingStopMinProfitThreshold]}
+                  onValueChange={(value) => updateFormData('trailingStopMinProfitThreshold', value[0])}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>0.1%</span>
+                  <span>5%</span>
+                </div>
               </div>
             </div>
           </div>

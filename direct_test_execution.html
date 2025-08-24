@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html><head><title>Direct Test Execution</title></head><body>
+<h1>Direct Test Execution - Unified Decisions Evidence</h1>
+<button onclick="testPoolPrecedence()">Test B: Pool Precedence</button>
+<button onclick="testMinHold()">Test C: Min Hold</button>
+<button onclick="testCooldown()">Test D: Cooldown</button>
+<pre id="log"></pre>
+
+<script>
+const log = document.getElementById('log');
+const API_URL = 'https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/trading-decision-coordinator';
+const AUTH = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8';
+
+async function sendIntent(intent, testName) {
+  log.textContent += `\n${testName}: Sending ${intent.source}_${intent.side} for ${intent.symbol}...`;
+  
+  const response = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': AUTH },
+    body: JSON.stringify({ intent })
+  });
+  
+  const data = await response.json();
+  log.textContent += `\n${testName}: ${response.status} - ${data.action} - ${data.reason}\n`;
+  return data;
+}
+
+async function testPoolPrecedence() {
+  log.textContent += '\n=== TEST B: POOL PRECEDENCE ===';
+  
+  // Pool SELL should have high precedence
+  await sendIntent({
+    userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+    strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+    symbol: 'BTC-EUR',
+    side: 'SELL',
+    source: 'pool',
+    confidence: 0.9,
+    reason: 'secure_take_profit',
+    qtySuggested: 15,
+    ts: new Date().toISOString()
+  }, 'Pool SELL');
+}
+
+async function testMinHold() {
+  log.textContent += '\n=== TEST C: MIN HOLD PERIOD ===';
+  
+  // 1. Manual BUY (will execute)
+  await sendIntent({
+    userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+    strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+    symbol: 'ADA-EUR',
+    side: 'BUY',
+    source: 'manual',
+    confidence: 0.95,
+    reason: 'test_setup_buy',
+    qtySuggested: 20,
+    ts: new Date().toISOString()
+  }, 'Manual BUY');
+  
+  setTimeout(async () => {
+    // 2. Technical SELL within hold period (should be blocked)
+    await sendIntent({
+      userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+      strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+      symbol: 'ADA-EUR',
+      side: 'SELL',
+      source: 'automated',
+      confidence: 0.6,
+      reason: 'technical_signal_test',
+      qtySuggested: 15,
+      ts: new Date().toISOString()
+    }, 'Technical SELL (within 120s hold)');
+  }, 3000);
+}
+
+async function testCooldown() {
+  log.textContent += '\n=== TEST D: COOLDOWN AFTER SELL ===';
+  
+  // 1. Manual SELL (will execute)
+  await sendIntent({
+    userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+    strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+    symbol: 'SOL-EUR',
+    side: 'SELL',
+    source: 'manual',
+    confidence: 0.95,
+    reason: 'test_setup_sell',
+    qtySuggested: 5,
+    ts: new Date().toISOString()
+  }, 'Manual SELL');
+  
+  setTimeout(async () => {
+    // 2. Intelligent BUY with low confidence (should be blocked)
+    await sendIntent({
+      userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+      strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+      symbol: 'SOL-EUR',
+      side: 'BUY',
+      source: 'intelligent',
+      confidence: 0.65,  // Below 0.70 threshold
+      reason: 'ai_bullish_signal',
+      qtySuggested: 8,
+      ts: new Date().toISOString()
+    }, 'Intelligent BUY (within 30s cooldown, conf < 0.70)');
+  }, 2000);
+}
+</script>
+</body></html>
