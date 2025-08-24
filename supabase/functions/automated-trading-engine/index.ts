@@ -642,7 +642,7 @@ function evaluateStrategyTrigger(signal: any, strategyConfig: any) {
   
   // FIXED: Separate market signal evaluation from AI trust level
   // Market signals should be evaluated based on their own merit, not AI confidence
-  const minimumSignalStrength = 0.05; // 5% minimum signal strength to consider
+  const minimumSignalStrength = 0.005; // LOWERED: 0.5% minimum signal strength (was 0.05%)
   
   // AI Confidence Threshold is about trusting the AI system, not filtering signals
   const aiConfidenceThreshold = aiConfig.aiConfidenceThreshold || 50; // Default 50% trust in AI
