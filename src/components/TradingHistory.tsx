@@ -522,6 +522,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+      console.log('🚨 BLINKING: TradeCard useEffect triggered for', trade.cryptocurrency, 'Dependencies changed:', {
+        tradeId: trade.id,
+        currentPricesKeys: Object.keys(currentPrices),
+        marketDataKeys: Object.keys(marketData),
+        marketDataTimestamp: marketData[trade.cryptocurrency]?.timestamp
+      });
+      
       const loadPerformance = async () => {
         try {
           const perf = await calculateTradePerformance(trade);
