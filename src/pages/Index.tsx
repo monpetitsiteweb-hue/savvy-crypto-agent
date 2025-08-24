@@ -35,6 +35,16 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
+  console.log('🔵 INDEX: DETAILED AUTH STATE CHECK', { 
+    user: user ? { id: user.id, email: user.email } : null, 
+    userExists: !!user,
+    loading, 
+    testMode,
+    testModeFromLocalStorage: localStorage.getItem('global-test-mode'),
+    roleLoading,
+    role
+  });
+  
   console.log('🔵 INDEX: Before useTestTrading call', { user: !!user, loading, testMode });
   // Initialize test trading when component mounts
   useTestTrading();

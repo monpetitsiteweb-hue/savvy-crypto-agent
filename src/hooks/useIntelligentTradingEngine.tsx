@@ -41,6 +41,15 @@ export const useIntelligentTradingEngine = () => {
   });
   
   console.log('🚨 INTELLIGENT_ENGINE: Hook called with testMode:', testMode, 'user:', !!user, 'loading:', loading, 'user email:', user?.email);
+  console.log('🚨 INTELLIGENT_ENGINE: DETAILED DEBUG', {
+    testMode,
+    testModeType: typeof testMode,
+    user: user ? { id: user.id, email: user.email } : null,
+    userExists: !!user,
+    loading,
+    loadingType: typeof loading,
+    localStorage_testMode: localStorage.getItem('global-test-mode')
+  });
   
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const tradingStateRef = useRef<TradingState>({
