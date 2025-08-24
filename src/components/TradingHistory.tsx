@@ -156,53 +156,35 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     fetchAllPastTrades();
   }, [user]);
 
-  // PHASE 2: Past Positions now use stored snapshot data (no calculations needed)
+  // SIMPLE P&L CALCULATION - DIRECT AND CLEAR
   const calculateTradePerformance = (trade: Trade) => {
     
     if (trade.trade_type === 'sell') {
-      // Check if this is an automated trade without P&L data
-      const isAutomatedWithoutPnL = !trade.original_purchase_value && trade.strategy_trigger;
-      
-      if (isAutomatedWithoutPnL) {
-        // Show automated trade with available data
-        return {
-          currentPrice: trade.price,
-          currentValue: trade.total_value, // Exit value
-          purchaseValue: null, // Mark as unknown
-          purchasePrice: null, // Mark as unknown  
-          gainLoss: null, // Mark as unknown
-          gainLossPercentage: null, // Mark as unknown
-          isAutomatedWithoutPnL: true
-        };
-      }
-      
-      // Past Positions: Use STORED snapshot data from past_positions_view
-      // All values are pre-calculated and stored at trade execution time
+      // PAST POSITIONS: Use stored snapshot data (already calculated at trade time)
       return {
-        currentPrice: trade.price, // This is exit_price from the view
-        currentValue: trade.total_value, // This is exit_value from the view
+        currentPrice: trade.price, // Exit price
+        currentValue: trade.total_value, // Exit value  
         purchaseValue: trade.original_purchase_value || 0, // Stored purchase value
         purchasePrice: trade.original_purchase_price || 0, // Stored purchase price
-        gainLoss: trade.realized_pnl || 0, // Stored realized P&L (net of fees)
+        gainLoss: trade.realized_pnl || 0, // Stored realized P&L
         gainLossPercentage: trade.realized_pnl_pct || 0, // Stored P&L percentage
         isAutomatedWithoutPnL: false
       };
     }
     
-    // For BUY trades (open positions): Calculate unrealized P&L based on current market price
+    // OPEN POSITIONS: Simple direct calculations
     const purchasePrice = trade.price;
     const purchaseValue = trade.total_value;
     const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || purchasePrice;
     const currentValue = trade.amount * currentMarketPrice;
-    
-    // Simple P&L calculation without fees - fees will be handled by Coinbase integration
     const unrealizedPL = currentValue - purchaseValue;
-    const gainLossPercentage = purchaseValue !== 0 ? (unrealizedPL / purchaseValue) * 100 : 0;
+    const gainLossPercentage = purchaseValue > 0 ? (unrealizedPL / purchaseValue) * 100 : 0;
     
     return {
       currentPrice: currentMarketPrice,
       currentValue: currentValue,
       purchaseValue: purchaseValue,
+      purchasePrice: purchasePrice,
       gainLoss: unrealizedPL,
       gainLossPercentage: gainLossPercentage
     };
