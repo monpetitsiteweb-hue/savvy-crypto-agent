@@ -519,10 +519,15 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     );
   };
 
-  // TradeCard component - Properly memoized
+  // TradeCard component - Fixed to prevent infinite renders
   const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
     const [loading, setLoading] = useState(true);
+
+    // Memoize the current price to prevent infinite loops
+    const currentPrice = useMemo(() => {
+      return marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+    }, [marketData, currentPrices, trade.cryptocurrency, trade.price]);
 
     useEffect(() => {
       const loadPerformance = async () => {
@@ -537,7 +542,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
 
       loadPerformance();
-    }, [trade.id, trade.cryptocurrency, marketData[trade.cryptocurrency]?.price]); // Only re-calculate when price changes
+    }, [trade.id, currentPrice]); // Use memoized price instead of direct market data access
 
     if (loading || !performance) {
       return (
