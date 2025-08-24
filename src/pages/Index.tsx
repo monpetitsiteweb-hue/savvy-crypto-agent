@@ -50,12 +50,13 @@ const Index = () => {
     testMode,
     testModeFromLocalStorage: localStorage.getItem('global-test-mode'),
     roleLoading,
-    role
+    role,
+    activeTab: activeTab
   });
   
   console.log('🔵 INDEX: Before useTestTrading call', { user: !!user, loading, testMode });
-  // Initialize test trading when component mounts
-  useTestTrading();
+  // Temporarily disabled to stop infinite re-render loop
+  // useTestTrading();
   console.log('🔵 INDEX: After useTestTrading call');
 
   if (loading || roleLoading) {
