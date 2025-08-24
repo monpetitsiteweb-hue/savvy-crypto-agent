@@ -28,7 +28,15 @@ import { Link } from 'react-router-dom';
 
 const Index = () => {
   console.log('🔵 INDEX: Component rendering started');
+  console.log('🔵 INDEX: Calling useAuth()...');
+  
   const { user, loading } = useAuth();
+  
+  console.log('🔵 INDEX: useAuth returned - user:', user, 'loading:', loading);
+  console.log('🔵 INDEX: user type:', typeof user);
+  console.log('🔵 INDEX: user id:', user?.id);
+  console.log('🔵 INDEX: user email:', user?.email);
+  
   const { role, loading: roleLoading } = useUserRole();
   const { testMode, setTestMode } = useTestMode();
   const { hasActiveStrategy } = useActiveStrategy();
