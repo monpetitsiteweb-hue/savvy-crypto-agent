@@ -7,8 +7,12 @@ import './index.css'
 import { Toaster } from "@/components/ui/sonner";
 import { checkAndClearLegacyStorage } from './utils/clearLocalSession';
 
-// Clear legacy storage before app initialization
+// Clear legacy storage before app initialization - but preserve test mode
+const preservedTestMode = localStorage.getItem('global-test-mode');
 checkAndClearLegacyStorage();
+if (preservedTestMode) {
+  localStorage.setItem('global-test-mode', preservedTestMode);
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {

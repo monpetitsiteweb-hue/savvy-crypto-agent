@@ -44,13 +44,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         console.log('🔑 AUTHPROVIDER: Calling supabase.auth.getSession()');
         const { data: { session }, error } = await supabase.auth.getSession();
         console.log('🔑 AUTHPROVIDER: Session result - User:', session?.user?.email, 'Error:', error);
+        console.log('🔑 AUTHPROVIDER: Full session object:', session);
         
         if (mounted) {
           console.log('🔑 AUTHPROVIDER: Setting states - mounted is true');
           setSession(session);
           setUser(session?.user ?? null);
           setLoading(false);
-          console.log('🔑 AUTHPROVIDER: States updated successfully');
+          console.log('🔑 AUTHPROVIDER: States updated - User now:', !!session?.user, 'Email:', session?.user?.email);
         } else {
           console.log('🔑 AUTHPROVIDER: Component unmounted, skipping state update');
         }
@@ -68,17 +69,18 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       const {
         data: { subscription },
       } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log('🔑 AUTHPROVIDER: Auth state change event:', event);
+        console.log('🔑 AUTHPROVIDER: Auth state change event:', event, 'Session:', !!session);
+        console.log('🔑 AUTHPROVIDER: Auth change - User email:', session?.user?.email);
         if (mounted) {
           setSession(session);
           setUser(session?.user ?? null);
           setLoading(false);
-          console.log('🔑 AUTHPROVIDER: Auth state updated via listener');
+          console.log('🔑 AUTHPROVIDER: Auth state updated via listener - User now:', !!session?.user);
         }
       });
 
       console.log('🔑 AUTHPROVIDER: Auth listener set up, calling initializeAuth');
-      // Initialize auth after setting up listener
+      // Initialize auth immediately 
       initializeAuth();
 
       return () => {
@@ -88,7 +90,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       };
     } catch (err) {
       console.error('🔑 AUTHPROVIDER: ERROR setting up auth listener:', err);
-      setLoading(false);
+      if (mounted) {
+        setLoading(false);
+      }
     }
   }, []);
 
