@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Types for the unified trading system
+// Enhanced types for the unified trading system
 interface TradeIntent {
   userId: string;
   strategyId: string;
@@ -18,13 +18,16 @@ interface TradeIntent {
   qtySuggested?: number;
   metadata?: Record<string, any>;
   ts?: string;
+  idempotencyKey?: string;
 }
 
 interface TradeDecision {
-  approved: boolean;
-  action: 'BUY' | 'SELL' | 'HOLD';
+  approved?: boolean;
+  action: 'BUY' | 'SELL' | 'HOLD' | 'DEFER';
   reason: string;
   qty?: number;
+  request_id: string;
+  retry_in_ms?: number;
 }
 
 interface UnifiedConfig {
@@ -34,10 +37,27 @@ interface UnifiedConfig {
   confidenceOverrideThreshold: number;
 }
 
+// In-memory caches for performance
+const recentDecisionCache = new Map<string, { decision: TradeDecision; timestamp: number }>();
+const symbolQueues = new Map<string, TradeIntent[]>();
+const processingLocks = new Set<string>();
+
+// Metrics tracking
+let metrics = {
+  totalRequests: 0,
+  blockedByLockCount: 0,
+  deferCount: 0,
+  executionTimes: [] as number[],
+  lastReset: Date.now()
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const startTime = Date.now();
+  metrics.totalRequests++;
 
   try {
     const supabaseClient = createClient(
@@ -47,18 +67,30 @@ serve(async (req) => {
 
     const { intent } = await req.json() as { intent: TradeIntent };
     
-    console.log(`🎯 COORDINATOR: Processing intent:`, JSON.stringify(intent, null, 2));
+    // Generate request ID and idempotency key
+    const requestId = generateRequestId();
+    const idempotencyKey = generateIdempotencyKey(intent);
+    intent.idempotencyKey = idempotencyKey;
+    
+    console.log(`🎯 COORDINATOR: Processing intent [${requestId}]:`, JSON.stringify({
+      ...intent,
+      idempotencyKey
+    }, null, 2));
 
     // Validate intent
     if (!intent?.userId || !intent?.strategyId || !intent?.symbol || !intent?.side) {
-      return new Response(JSON.stringify({
-        approved: false,
+      return respondWithDecision({
         action: 'HOLD',
-        reason: 'Invalid intent: missing required fields'
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+        reason: 'Invalid intent: missing required fields',
+        request_id: requestId
+      }, 400);
+    }
+
+    // Check for duplicate/idempotent request
+    const cachedDecision = getCachedDecision(idempotencyKey);
+    if (cachedDecision) {
+      console.log(`🔄 COORDINATOR: Returning cached decision for key: ${idempotencyKey}`);
+      return respondWithDecision(cachedDecision.decision);
     }
 
     // Get strategy configuration
@@ -71,14 +103,11 @@ serve(async (req) => {
 
     if (strategyError || !strategy) {
       console.error('❌ COORDINATOR: Strategy not found:', strategyError);
-      return new Response(JSON.stringify({
-        approved: false,
+      return respondWithDecision({
         action: 'HOLD',
-        reason: 'Strategy not found or access denied'
-      }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+        reason: 'Strategy not found or access denied',
+        request_id: requestId
+      }, 404);
     }
 
     const unifiedConfig: UnifiedConfig = strategy.unified_config || {
@@ -88,109 +117,256 @@ serve(async (req) => {
       confidenceOverrideThreshold: 0.70
     };
 
-    // If unified decisions are disabled, approve all intents (backward compatibility)
+    // 🚨 HARD GATE: If unified decisions disabled, bypass ALL coordinator logic
     if (!unifiedConfig.enableUnifiedDecisions) {
-      console.log('🔄 COORDINATOR: Unified decisions disabled, approving intent');
+      console.log('🔓 COORDINATOR: UD=OFF - Direct execution path (NO LOCKS)');
       
-      // Still log for audit purposes
-      await supabaseClient
-        .from('trade_decisions_log')
-        .insert({
-          user_id: intent.userId,
-          strategy_id: intent.strategyId,
-          symbol: intent.symbol,
-          intent_side: intent.side,
-          intent_source: intent.source,
-          confidence: intent.confidence,
-          decision_action: intent.side,
-          decision_reason: 'Unified decisions disabled - auto-approved',
-          metadata: intent.metadata || {}
-        });
-
-      return new Response(JSON.stringify({
-        approved: true,
+      const decision: TradeDecision = {
         action: intent.side,
-        reason: 'Auto-approved (unified decisions disabled)',
+        reason: 'unified_decisions_disabled_direct_path',
+        request_id: requestId,
         qty: intent.qtySuggested
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
+      };
 
-    // CRITICAL: Shorter lock timeout and queue mechanism to reduce contention
-    const lockKey = generateLockKey(intent.userId, intent.strategyId, intent.symbol);
-    console.log(`🔒 COORDINATOR: Acquiring lock for key: ${lockKey}`);
-
-    // Add exponential backoff with jitter for lock contention
-    const maxRetries = 3;
-    let lockAcquired = false;
-    let retryCount = 0;
-
-    while (!lockAcquired && retryCount < maxRetries) {
-      const { data: lockResult } = await supabaseClient.rpc('pg_try_advisory_lock', {
-        key: lockKey
-      });
-
-      if (lockResult) {
-        lockAcquired = true;
-        break;
+      // Execute trade directly without any coordinator gating
+      const executionResult = await executeTradeDirectly(supabaseClient, intent, decision, strategy.configuration);
+      
+      if (executionResult.success) {
+        decision.approved = true;
+        console.log(`✅ COORDINATOR: Direct execution successful [NO LOCKS] ${intent.side} ${intent.symbol}`);
+      } else {
+        decision.action = 'HOLD';
+        decision.reason = `direct_execution_failed: ${executionResult.error}`;
+        console.error(`❌ COORDINATOR: Direct execution failed: ${executionResult.error}`);
       }
 
-      // Exponential backoff with jitter (50-200ms)
-      const baseDelay = 50;
-      const jitter = Math.random() * 150;
-      const delay = baseDelay + jitter + (retryCount * 50);
+      // Log decision for audit (async, non-blocking)
+      logDecisionAsync(supabaseClient, intent, decision, unifiedConfig);
       
-      console.log(`⏳ COORDINATOR: Lock contention, retry ${retryCount + 1}/${maxRetries} after ${delay}ms`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      retryCount++;
+      return respondWithDecision(decision);
     }
 
-    if (!lockAcquired) {
-      console.log('⏳ COORDINATOR: Could not acquire lock after retries, concurrent processing detected');
-      // CRITICAL: Return HTTP 200 with HOLD decision, not 429
+    // Unified Decisions ON - Use conflict detection approach
+    console.log('🧠 COORDINATOR: UD=ON - Using conflict detection approach');
+    
+    const symbolKey = `${intent.userId}_${intent.strategyId}_${intent.symbol}`;
+    
+    // Check micro-queue for this symbol
+    const queueLength = getQueueLength(symbolKey);
+    if (queueLength > 1) {
+      // Too many concurrent requests for this symbol - defer with jitter
+      const retryMs = 300 + Math.random() * 500; // 300-800ms jitter
+      metrics.deferCount++;
       
-      // Log the blocked decision
-      await supabaseClient
-        .from('trade_decisions_log')
-        .insert({
-          user_id: intent.userId,
-          strategy_id: intent.strategyId,
-          symbol: intent.symbol,
-          intent_side: intent.side,
-          intent_source: intent.source,
-          confidence: intent.confidence,
-          decision_action: 'HOLD',
-          decision_reason: 'blocked_by_lock',
-          metadata: {
-            ...intent.metadata,
-            request_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            lock_key: lockKey,
-            retry_count: retryCount
-          }
-        });
+      console.log(`⏸️ COORDINATOR: Queue overload (${queueLength} pending) - DEFER with ${retryMs}ms retry`);
       
-      return new Response(JSON.stringify({
-        ok: true,
-        decision: {
-          approved: false,
-          action: 'HOLD',
-          reason: 'blocked_by_lock'
-        }
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      return respondWithDecision({
+        action: 'DEFER',
+        reason: 'queue_overload_defer',
+        request_id: requestId,
+        retry_in_ms: Math.round(retryMs)
       });
     }
 
+    // Add to queue and process
+    addToQueue(symbolKey, intent);
+    
     try {
-      // CRITICAL: Reduced critical section - get strategy config outside main logic
-      console.log(`🧠 COORDINATOR: Processing unified decision for ${intent.symbol} ${intent.side} from ${intent.source}`);
+      // Use timestamp-based conflict detection (NO DB LOCKS)
+      const conflictResult = await detectConflicts(supabaseClient, intent, unifiedConfig);
       
-      // Process the intent with unified decision logic (shorter critical section)
-      const decision = await processUnifiedDecision(supabaseClient, intent, unifiedConfig, strategy.configuration);
+      if (conflictResult.hasConflict) {
+        const decision: TradeDecision = {
+          action: 'HOLD',
+          reason: conflictResult.reason,
+          request_id: requestId
+        };
+        
+        cacheDecision(idempotencyKey, decision);
+        logDecisionAsync(supabaseClient, intent, decision, unifiedConfig);
+        
+        return respondWithDecision(decision);
+      }
+
+      // No conflicts - proceed with execution using advisory lock ONLY for atomic section
+      const decision = await executeWithMinimalLock(supabaseClient, intent, unifiedConfig, strategy.configuration, requestId);
       
-      // Log the decision (minimize time in critical section)
-      const logEntry = {
+      cacheDecision(idempotencyKey, decision);
+      
+      // Track metrics
+      const executionTime = Date.now() - startTime;
+      metrics.executionTimes.push(executionTime);
+      if (metrics.executionTimes.length > 100) {
+        metrics.executionTimes = metrics.executionTimes.slice(-50);
+      }
+      
+      return respondWithDecision(decision);
+      
+    } finally {
+      removeFromQueue(symbolKey, intent);
+    }
+
+  } catch (error) {
+    console.error('❌ COORDINATOR: Error:', error);
+    return respondWithDecision({
+      action: 'HOLD',
+      reason: `Internal error: ${error.message}`,
+      request_id: generateRequestId()
+    }, 500);
+  }
+});
+
+// ============= HELPER FUNCTIONS =============
+
+// Generate unique request ID
+function generateRequestId(): string {
+  return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Generate idempotency key based on intent contents
+function generateIdempotencyKey(intent: TradeIntent): string {
+  const normalized = {
+    userId: intent.userId,
+    strategyId: intent.strategyId,
+    symbol: intent.symbol,
+    side: intent.side,
+    source: intent.source,
+    clientTs: intent.ts || Date.now().toString()
+  };
+  
+  const keyString = JSON.stringify(normalized);
+  let hash = 0;
+  for (let i = 0; i < keyString.length; i++) {
+    const char = keyString.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return `idem_${Math.abs(hash).toString(16)}`;
+}
+
+// Standardized response format
+function respondWithDecision(decision: TradeDecision, status = 200): Response {
+  return new Response(JSON.stringify({
+    ok: true,
+    decision: decision
+  }), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+// Cache management
+function getCachedDecision(key: string): { decision: TradeDecision; timestamp: number } | null {
+  const cached = recentDecisionCache.get(key);
+  if (cached && Date.now() - cached.timestamp < 30000) { // 30s cache
+    return cached;
+  }
+  if (cached) {
+    recentDecisionCache.delete(key); // Expired
+  }
+  return null;
+}
+
+function cacheDecision(key: string, decision: TradeDecision): void {
+  recentDecisionCache.set(key, {
+    decision: { ...decision },
+    timestamp: Date.now()
+  });
+  
+  // Cleanup old entries
+  if (recentDecisionCache.size > 1000) {
+    const entries = Array.from(recentDecisionCache.entries());
+    entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
+    recentDecisionCache.clear();
+    entries.slice(0, 500).forEach(([k, v]) => recentDecisionCache.set(k, v));
+  }
+}
+
+// Direct execution path (UD=OFF)
+async function executeTradeDirectly(
+  supabaseClient: any,
+  intent: TradeIntent,
+  decision: TradeDecision,
+  strategyConfig: any
+): Promise<{ success: boolean; error?: string }> {
+  
+  try {
+    // Get real market price
+    const coinbaseSymbol = intent.symbol.includes('-EUR') ? intent.symbol : `${intent.symbol}-EUR`;
+    const response = await fetch(`https://api.exchange.coinbase.com/products/${coinbaseSymbol}/ticker`);
+    
+    if (!response.ok) {
+      throw new Error(`Price fetch failed: HTTP ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const realMarketPrice = parseFloat(data.price);
+    
+    if (!realMarketPrice || realMarketPrice <= 0) {
+      throw new Error(`Invalid price: ${data.price}`);
+    }
+    
+    console.log(`💱 DIRECT: Got price for ${coinbaseSymbol}: €${realMarketPrice}`);
+    
+    // Calculate quantity
+    const tradeAllocation = strategyConfig?.perTradeAllocation || 1000;
+    let qty: number;
+    
+    if (decision.action === 'SELL') {
+      qty = decision.qty || intent.qtySuggested || 0.001;
+    } else {
+      qty = tradeAllocation / realMarketPrice;
+    }
+    
+    const totalValue = qty * realMarketPrice;
+    const symbol = intent.symbol.replace('-EUR', '');
+    
+    console.log(`💱 DIRECT: ${decision.action} ${qty} ${symbol} at €${realMarketPrice} = €${totalValue}`);
+    
+    // Insert trade record
+    const mockTrade = {
+      user_id: intent.userId,
+      strategy_id: intent.strategyId,
+      trade_type: decision.action.toLowerCase(),
+      cryptocurrency: symbol,
+      amount: qty,
+      price: realMarketPrice,
+      total_value: totalValue,
+      executed_at: new Date().toISOString(),
+      is_test_mode: true,
+      notes: `Direct path: ${decision.reason}`,
+      strategy_trigger: `direct_${intent.source}`
+    };
+
+    const { error } = await supabaseClient
+      .from('mock_trades')
+      .insert(mockTrade);
+
+    if (error) {
+      throw new Error(`DB insert failed: ${error.message}`);
+    }
+
+    decision.qty = qty;
+    console.log('✅ DIRECT: Trade executed successfully');
+    return { success: true };
+
+  } catch (error) {
+    console.error('❌ DIRECT: Execution failed:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// Async decision logging (non-blocking)
+async function logDecisionAsync(
+  supabaseClient: any,
+  intent: TradeIntent,
+  decision: TradeDecision,
+  unifiedConfig: UnifiedConfig
+): Promise<void> {
+  try {
+    await supabaseClient
+      .from('trade_decisions_log')
+      .insert({
         user_id: intent.userId,
         strategy_id: intent.strategyId,
         symbol: intent.symbol,
@@ -203,218 +379,204 @@ serve(async (req) => {
           ...intent.metadata,
           qtySuggested: intent.qtySuggested,
           unifiedConfig,
-          request_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+          request_id: decision.request_id,
+          idempotencyKey: intent.idempotencyKey
         }
-      };
-
-      // Execute trade if approved (keep in critical section for consistency)
-      if (decision.approved && decision.action !== 'HOLD') {
-        const executionResult = await executeTradeOrder(supabaseClient, intent, decision, strategy.configuration);
-        if (!executionResult.success) {
-          decision.approved = false;
-          decision.reason = `execution_failed: ${executionResult.error}`;
-          decision.action = 'HOLD';
-          logEntry.decision_action = 'HOLD';
-          logEntry.decision_reason = decision.reason;
-        }
-      }
-
-      // Log after processing to minimize lock time
-      await supabaseClient.from('trade_decisions_log').insert(logEntry);
-
-      console.log(`✅ COORDINATOR: Decision made:`, JSON.stringify(decision, null, 2));
-      
-      // CRITICAL: Always return HTTP 200 with structured decision
-      return new Response(JSON.stringify({
-        ok: true,
-        decision: decision
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
+  } catch (error) {
+    console.error('❌ COORDINATOR: Failed to log decision:', error.message);
+  }
+}
 
-    } finally {
-      // CRITICAL: Always release the advisory lock
-      try {
-        await supabaseClient.rpc('pg_advisory_unlock', { key: lockKey });
-        console.log(`🔓 COORDINATOR: Released lock for key: ${lockKey}`);
-      } catch (unlockError) {
-        console.error(`❌ COORDINATOR: Failed to release lock ${lockKey}:`, unlockError);
+// Micro-queue management
+function getQueueLength(symbolKey: string): number {
+  const queue = symbolQueues.get(symbolKey);
+  return queue ? queue.length : 0;
+}
+
+function addToQueue(symbolKey: string, intent: TradeIntent): void {
+  if (!symbolQueues.has(symbolKey)) {
+    symbolQueues.set(symbolKey, []);
+  }
+  const queue = symbolQueues.get(symbolKey)!;
+  queue.push(intent);
+}
+
+function removeFromQueue(symbolKey: string, intent: TradeIntent): void {
+  const queue = symbolQueues.get(symbolKey);
+  if (queue) {
+    const index = queue.findIndex(i => i.idempotencyKey === intent.idempotencyKey);
+    if (index >= 0) {
+      queue.splice(index, 1);
+    }
+    if (queue.length === 0) {
+      symbolQueues.delete(symbolKey);
+    }
+  }
+}
+
+// Timestamp-based conflict detection (NO DB LOCKS)
+async function detectConflicts(
+  supabaseClient: any,
+  intent: TradeIntent,
+  config: UnifiedConfig
+): Promise<{ hasConflict: boolean; reason: string }> {
+  
+  // Get recent trades for this symbol
+  const symbol = intent.symbol.replace('-EUR', '');
+  const { data: recentTrades } = await supabaseClient
+    .from('mock_trades')
+    .select('trade_type, executed_at, amount, price')
+    .eq('user_id', intent.userId)
+    .eq('strategy_id', intent.strategyId)
+    .eq('cryptocurrency', symbol)
+    .gte('executed_at', new Date(Date.now() - 600000).toISOString()) // Last 10 minutes
+    .order('executed_at', { ascending: false })
+    .limit(20);
+
+  const trades = recentTrades || [];
+  
+  // Apply precedence-based conflict rules
+  if (intent.source === 'manual') {
+    return { hasConflict: false, reason: 'manual_override_precedence' };
+  }
+
+  if (intent.source === 'pool' && intent.side === 'SELL') {
+    // Pool exits get high precedence but check cooldown
+    const recentBuy = trades.find(t => 
+      t.trade_type === 'buy' && 
+      (Date.now() - new Date(t.executed_at).getTime()) < config.cooldownBetweenOppositeActionsMs
+    );
+    
+    if (recentBuy) {
+      return { hasConflict: true, reason: 'blocked_by_precedence:POOL_EXIT_COOLDOWN' };
+    }
+    
+    return { hasConflict: false, reason: 'pool_exit_approved' };
+  }
+
+  // Check minimum hold period for technical sells
+  if (intent.source === 'automated' && intent.side === 'SELL' && intent.reason?.includes('technical')) {
+    const lastBuy = trades.find(t => t.trade_type === 'buy');
+    if (lastBuy) {
+      const timeSinceBuy = Date.now() - new Date(lastBuy.executed_at).getTime();
+      if (timeSinceBuy < config.minHoldPeriodMs) {
+        return { hasConflict: true, reason: 'min_hold_period_not_met' };
       }
     }
-
-  } catch (error) {
-    console.error('❌ COORDINATOR: Error:', error);
-    return new Response(JSON.stringify({
-      approved: false,
-      action: 'HOLD',
-      reason: `Internal error: ${error.message}`
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
   }
-});
 
-// Generate a consistent lock key for {user, strategy, symbol}
+  // Check cooldown for opposite actions
+  const oppositeAction = intent.side === 'BUY' ? 'sell' : 'buy';
+  const recentOpposite = trades.find(t => t.trade_type === oppositeAction);
+  
+  if (recentOpposite) {
+    const timeSinceOpposite = Date.now() - new Date(recentOpposite.executed_at).getTime();
+    let cooldownRequired = config.cooldownBetweenOppositeActionsMs;
+    
+    // Scheduler gets double cooldown
+    if (intent.source === 'automated' && intent.side === 'BUY') {
+      cooldownRequired *= 2;
+    }
+    
+    if (timeSinceOpposite < cooldownRequired) {
+      // Check confidence override for high-confidence sources
+      if (['intelligent', 'news', 'whale'].includes(intent.source) && 
+          intent.confidence >= config.confidenceOverrideThreshold) {
+        return { hasConflict: false, reason: 'confidence_override_applied' };
+      }
+      
+      return { hasConflict: true, reason: 'blocked_by_cooldown' };
+    }
+  }
+
+  return { hasConflict: false, reason: 'no_conflicts_detected' };
+}
+
+// Execute with minimal advisory lock (atomic section only)
+async function executeWithMinimalLock(
+  supabaseClient: any,
+  intent: TradeIntent,
+  config: UnifiedConfig,
+  strategyConfig: any,
+  requestId: string
+): Promise<TradeDecision> {
+  
+  const decision: TradeDecision = {
+    action: intent.side,
+    reason: `${intent.source}_approved_after_conflict_check`,
+    request_id: requestId,
+    qty: intent.qtySuggested
+  };
+
+  // Short-lived advisory lock ONLY for the atomic execution section
+  const lockKey = generateLockKey(intent.userId, intent.strategyId, intent.symbol);
+  let lockAcquired = false;
+  
+  try {
+    // Try to acquire lock with 300ms timeout
+    console.log(`🔒 COORDINATOR: Acquiring minimal lock for atomic section: ${lockKey}`);
+    
+    const { data: lockResult } = await supabaseClient.rpc('pg_try_advisory_lock', {
+      key: lockKey
+    });
+
+    if (!lockResult) {
+      // Lock contention in atomic section - defer briefly
+      metrics.blockedByLockCount++;
+      console.log(`⏸️ COORDINATOR: Atomic section busy - DEFER`);
+      
+      return {
+        action: 'DEFER',
+        reason: 'atomic_section_busy_defer',
+        request_id: requestId,
+        retry_in_ms: 200 + Math.random() * 300
+      };
+    }
+
+    lockAcquired = true;
+    console.log(`🔓 COORDINATOR: Minimal lock acquired - executing atomic section`);
+
+    // ATOMIC SECTION: Get price and execute trade
+    const executionResult = await executeTradeOrder(supabaseClient, intent, decision, strategyConfig);
+    
+    if (executionResult.success) {
+      decision.approved = true;
+      console.log(`✅ COORDINATOR: Atomic execution successful: ${intent.side} ${intent.symbol}`);
+    } else {
+      decision.action = 'HOLD';
+      decision.reason = `atomic_execution_failed: ${executionResult.error}`;
+      console.error(`❌ COORDINATOR: Atomic execution failed: ${executionResult.error}`);
+    }
+
+    return decision;
+
+  } finally {
+    // Always release lock
+    if (lockAcquired) {
+      try {
+        await supabaseClient.rpc('pg_advisory_unlock', { key: lockKey });
+        console.log(`🔓 COORDINATOR: Released minimal lock: ${lockKey}`);
+      } catch (unlockError) {
+        console.error(`❌ COORDINATOR: Failed to release minimal lock:`, unlockError);
+      }
+    }
+  }
+}
+
+// Generate lock key (kept for minimal lock usage)
 function generateLockKey(userId: string, strategyId: string, symbol: string): number {
   const combined = `${userId}_${strategyId}_${symbol}`;
-  // Use PostgreSQL's hashtext function equivalent - simple hash
   let hash = 0;
   for (let i = 0; i < combined.length; i++) {
     const char = combined.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit integer
+    hash = hash & hash;
   }
   return Math.abs(hash);
 }
 
-// Core unified decision logic
-async function processUnifiedDecision(
-  supabaseClient: any,
-  intent: TradeIntent,
-  config: UnifiedConfig,
-  strategyConfig: any
-): Promise<TradeDecision> {
-  
-  // DEBUG: Log configuration values at decision time
-  console.log(`🔍 COORDINATOR DEBUG: Strategy ${intent.strategyId} config:`, {
-    enableUnifiedDecisions: config.enableUnifiedDecisions,
-    minHoldPeriodMs: config.minHoldPeriodMs,
-    cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs,
-    confidenceOverrideThreshold: config.confidenceOverrideThreshold
-  });
-  
-  console.log(`🧠 COORDINATOR: Processing unified decision for ${intent.symbol} ${intent.side} from ${intent.source}`);
-
-  // Check recent trade history for anti-flip-flop logic
-  const recentTrades = await getRecentTrades(supabaseClient, intent.userId, intent.strategyId, intent.symbol);
-  
-  // Apply precedence rules in exact order specified
-  // 1. Manual overrides - always execute
-  if (intent.source === 'manual') {
-    return {
-      approved: true,
-      action: intent.side,
-      reason: 'manual_override',
-      qty: intent.qtySuggested
-    };
-  }
-
-  // 2. Hard risk (stop-loss / invalid order)
-  if (intent.source === 'automated' && intent.reason?.includes('stop_loss')) {
-    return {
-      approved: true,
-      action: intent.side,
-      reason: 'blocked_by_precedence:HARD_RISK',
-      qty: intent.qtySuggested
-    };
-  }
-
-  // 3. Pool exits (secure TP, trailing stop hit)
-  if (intent.source === 'pool' && intent.side === 'SELL') {
-    // Check if there are any recent opposing intents within cooldown
-    const hasRecentBuy = recentTrades.some(trade => 
-      trade.trade_type === 'buy' && 
-      (Date.now() - new Date(trade.executed_at).getTime()) < config.cooldownBetweenOppositeActionsMs
-    );
-    
-    if (hasRecentBuy) {
-      return {
-        approved: false,
-        action: 'HOLD',
-        reason: 'blocked_by_cooldown'
-      };
-    }
-    
-    return {
-      approved: true,
-      action: intent.side,
-      reason: 'blocked_by_precedence:POOL_EXIT',
-      qty: intent.qtySuggested
-    };
-  }
-
-  // 4. Technical SELL
-  if (intent.source === 'automated' && intent.side === 'SELL' && intent.reason?.includes('technical')) {
-    // Check minimum hold period
-    const lastBuy = recentTrades.find(trade => trade.trade_type === 'buy');
-    if (lastBuy) {
-      const timeSinceBuy = Date.now() - new Date(lastBuy.executed_at).getTime();
-      if (timeSinceBuy < config.minHoldPeriodMs) {
-        return {
-          approved: false,
-          action: 'HOLD',
-          reason: 'min_hold_period_not_met'
-        };
-      }
-    }
-    
-    return {
-      approved: true,
-      action: intent.side,
-      reason: 'technical_sell_approved',
-      qty: intent.qtySuggested
-    };
-  }
-
-  // 5. AI/News/Whale BUY
-  if (['intelligent', 'news', 'whale'].includes(intent.source) && intent.side === 'BUY') {
-    // Check cooldown after recent SELL
-    const lastSell = recentTrades.find(trade => trade.trade_type === 'sell');
-    if (lastSell) {
-      const timeSinceSell = Date.now() - new Date(lastSell.executed_at).getTime();
-      if (timeSinceSell < config.cooldownBetweenOppositeActionsMs) {
-        // Only allow if confidence is very high
-        if (intent.confidence < config.confidenceOverrideThreshold) {
-          return {
-            approved: false,
-            action: 'HOLD',
-            reason: 'confidence_below_threshold'
-          };
-        }
-      }
-    }
-    
-    return {
-      approved: true,
-      action: intent.side,
-      reason: `${intent.source}_buy_approved`,
-      qty: intent.qtySuggested
-    };
-  }
-
-  // 6. Scheduler BUY (lowest precedence)
-  if (intent.source === 'automated' && intent.side === 'BUY') {
-    // Most restrictive checks for scheduler
-    const lastSell = recentTrades.find(trade => trade.trade_type === 'sell');
-    if (lastSell) {
-      const timeSinceSell = Date.now() - new Date(lastSell.executed_at).getTime();
-      if (timeSinceSell < config.cooldownBetweenOppositeActionsMs * 2) { // Double cooldown for scheduler
-        return {
-          approved: false,
-          action: 'HOLD',
-          reason: 'blocked_by_cooldown'
-        };
-      }
-    }
-    
-    return {
-      approved: true,
-      action: intent.side,
-      reason: 'scheduler_buy_approved',
-      qty: intent.qtySuggested
-    };
-  }
-
-  // Default case - hold
-  return {
-    approved: false,
-    action: 'HOLD',
-    reason: 'blocked_by_lock'
-  };
-}
-
-// Get recent trades for anti-flip-flop analysis
+// Get recent trades (timestamp-based, no locks)
 async function getRecentTrades(supabaseClient: any, userId: string, strategyId: string, symbol: string) {
   const { data: trades } = await supabaseClient
     .from('mock_trades')
@@ -429,7 +591,7 @@ async function getRecentTrades(supabaseClient: any, userId: string, strategyId: 
   return trades || [];
 }
 
-// Execute the actual trade order
+// Execute trade (reused by both paths)
 async function executeTradeOrder(
   supabaseClient: any,
   intent: TradeIntent,
@@ -440,40 +602,31 @@ async function executeTradeOrder(
   try {
     console.log(`💱 COORDINATOR: Executing ${decision.action} order for ${intent.symbol}`);
     
-    // CRITICAL FIX: Get REAL market price - NO €100 fallback!
-    let realMarketPrice: number;
+    // Get real market price
     const symbol = intent.symbol.replace('-EUR', '');
-    
-    // CRITICAL FIX: Add -EUR suffix to symbol for Coinbase API
     const coinbaseSymbol = intent.symbol.includes('-EUR') ? intent.symbol : `${intent.symbol}-EUR`;
     
-    // MANDATORY: Get real market price from Coinbase API
-    try {
-      const response = await fetch(`https://api.exchange.coinbase.com/products/${coinbaseSymbol}/ticker`);
-      if (response.ok) {
-        const data = await response.json();
-        realMarketPrice = parseFloat(data.price);
-        if (!realMarketPrice || realMarketPrice <= 0) {
-          throw new Error(`Invalid price received: ${data.price}`);
-        }
-        console.log(`💱 COORDINATOR: Got real price for ${coinbaseSymbol}: €${realMarketPrice}`);
-      } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-    } catch (priceError) {
-      console.error(`❌ COORDINATOR: FAILED to fetch price for ${coinbaseSymbol}:`, priceError.message);
-      throw new Error(`Cannot execute trade without real market price for ${intent.symbol}: ${priceError.message}`);
+    const response = await fetch(`https://api.exchange.coinbase.com/products/${coinbaseSymbol}/ticker`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
     
-    // CRITICAL FIX: Calculate quantity based on REAL price
+    const data = await response.json();
+    const realMarketPrice = parseFloat(data.price);
+    
+    if (!realMarketPrice || realMarketPrice <= 0) {
+      throw new Error(`Invalid price received: ${data.price}`);
+    }
+    
+    console.log(`💱 COORDINATOR: Got real price for ${coinbaseSymbol}: €${realMarketPrice}`);
+    
+    // Calculate quantity
     let qty: number;
     const tradeAllocation = strategyConfig?.perTradeAllocation || 1000;
     
     if (decision.action === 'SELL') {
-      // For SELL, use suggested quantity or default
       qty = decision.qty || intent.qtySuggested || 0.001;
     } else {
-      // For BUY, calculate quantity: EUR_amount / real_price
       qty = tradeAllocation / realMarketPrice;
     }
     
@@ -481,7 +634,7 @@ async function executeTradeOrder(
     
     console.log(`💱 COORDINATOR: Trade calculation - ${decision.action} ${qty} ${symbol} at €${realMarketPrice} = €${totalValue}`);
     
-    // Execute with REAL prices and amounts
+    // Execute trade
     const mockTrade = {
       user_id: intent.userId,
       strategy_id: intent.strategyId,
@@ -492,8 +645,8 @@ async function executeTradeOrder(
       total_value: totalValue,
       executed_at: new Date().toISOString(),
       is_test_mode: true,
-      notes: `Unified coordinator: ${decision.reason}`,
-      strategy_trigger: `unified_${intent.source}`
+      notes: `Coordinator: ${decision.reason}`,
+      strategy_trigger: `coord_${intent.source}`
     };
 
     const { error } = await supabaseClient
@@ -505,6 +658,7 @@ async function executeTradeOrder(
       return { success: false, error: error.message };
     }
 
+    decision.qty = qty;
     console.log('✅ COORDINATOR: Trade executed successfully');
     return { success: true };
 
@@ -513,3 +667,45 @@ async function executeTradeOrder(
     return { success: false, error: error.message };
   }
 }
+
+// Cleanup old cached data periodically
+setInterval(() => {
+  const now = Date.now();
+  
+  // Clean decision cache
+  for (const [key, value] of recentDecisionCache.entries()) {
+    if (now - value.timestamp > 60000) { // 1 minute
+      recentDecisionCache.delete(key);
+    }
+  }
+  
+  // Clean empty queues
+  for (const [key, queue] of symbolQueues.entries()) {
+    if (queue.length === 0) {
+      symbolQueues.delete(key);
+    }
+  }
+  
+  // Reset metrics every 30 minutes
+  if (now - metrics.lastReset > 1800000) {
+    console.log(`📊 COORDINATOR METRICS (30min):`, {
+      totalRequests: metrics.totalRequests,
+      blockedByLockPct: ((metrics.blockedByLockCount / metrics.totalRequests) * 100).toFixed(2),
+      deferRate: ((metrics.deferCount / metrics.totalRequests) * 100).toFixed(2),
+      avgLatency: metrics.executionTimes.length > 0 
+        ? (metrics.executionTimes.reduce((a, b) => a + b, 0) / metrics.executionTimes.length).toFixed(0) 
+        : 0,
+      p95Latency: metrics.executionTimes.length > 0 
+        ? metrics.executionTimes.sort((a, b) => a - b)[Math.floor(metrics.executionTimes.length * 0.95)]
+        : 0
+    });
+    
+    metrics = {
+      totalRequests: 0,
+      blockedByLockCount: 0,
+      deferCount: 0,
+      executionTimes: [],
+      lastReset: now
+    };
+  }
+}, 60000); // Run every minute
