@@ -76,6 +76,12 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   console.log('💼 WALLET DATA:', { balances, totalValue: getTotalValue() });
   
   const [trades, setTrades] = useState<Trade[]>([]);
+  console.log('💰 PURCHASE PRICE DEBUG:', { trades: trades.slice(0,2).map(t => ({ 
+    symbol: t.cryptocurrency, 
+    type: t.trade_type, 
+    price: t.price,
+    originalPrice: t.original_purchase_price 
+  })) });
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<any[]>([]);
   const [selectedConnection, setSelectedConnection] = useState<string>('');

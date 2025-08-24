@@ -161,7 +161,7 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
     }, 30000); // 30 seconds to avoid rate limiting
 
     return () => clearInterval(intervalId);
-  }, [getCurrentData]);
+  }, []); // FIXED: Remove getCurrentData dependency to prevent infinite loop
 
   return {
     marketData,
