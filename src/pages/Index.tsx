@@ -1,5 +1,4 @@
 
-import React, { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthPage } from '@/components/auth/AuthPage';
 import { Header } from '@/components/Header';
@@ -18,36 +17,22 @@ import { TradingViewMarketDashboard } from '@/components/market/TradingViewMarke
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useTestMode } from '@/hooks/useTestMode';
-
+import { useTestTrading } from '@/hooks/useTestTrading';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Link2 } from 'lucide-react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 
-const Index = React.memo(() => {
+const Index = () => {
   console.log('🔵 INDEX: Component rendering started');
-  console.log('🔵 INDEX: Calling useAuth()...');
-  
   const { user, loading } = useAuth();
-  
-  console.log('🔵 INDEX: useAuth returned - user:', user, 'loading:', loading);
-  console.log('🔵 INDEX: user type:', typeof user);
-  console.log('🔵 INDEX: user id:', user?.id);
-  console.log('🔵 INDEX: user email:', user?.email);
-  
-  // Temporarily disable problematic hooks to stop infinite loop
-  // const { role, loading: roleLoading } = useUserRole();
-  const role = 'admin'; // hardcoded temporarily
-  const roleLoading = false;
-  
+  const { role, loading: roleLoading } = useUserRole();
   const { testMode, setTestMode } = useTestMode();
-  
-  // const { hasActiveStrategy } = useActiveStrategy();
-  const hasActiveStrategy = true; // hardcoded temporarily
-  
-  const [activeTab, setActiveTab] = useState('history');
+  const { hasActiveStrategy } = useActiveStrategy();
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
   console.log('🔵 INDEX: DETAILED AUTH STATE CHECK', { 
@@ -57,10 +42,13 @@ const Index = React.memo(() => {
     testMode,
     testModeFromLocalStorage: localStorage.getItem('global-test-mode'),
     roleLoading,
-    role,
-    activeTab: activeTab
+    role
   });
   
+  console.log('🔵 INDEX: Before useTestTrading call', { user: !!user, loading, testMode });
+  // Initialize test trading when component mounts
+  useTestTrading();
+  console.log('🔵 INDEX: After useTestTrading call');
 
   if (loading || roleLoading) {
     return (
@@ -243,6 +231,6 @@ const Index = React.memo(() => {
       <Footer />
     </div>
   );
-});
+};
 
 export default Index;

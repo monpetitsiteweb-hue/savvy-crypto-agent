@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, Target } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,8 +12,9 @@ import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
-import { TradeCard } from './trading';
 import { checkIntegrity, calculateValuation } from '@/utils/valuationService';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { AlertTriangle, Lock } from 'lucide-react';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 
 interface Trade {
@@ -59,11 +61,7 @@ interface TradingHistoryProps {
   onCreateStrategy?: () => void;
 }
 
-
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
-  console.log('🔍 TradingHistory: Component rendering started');
-  console.log('🔍 TradingHistory: hasActiveStrategy:', hasActiveStrategy, 'onCreateStrategy:', onCreateStrategy);
-  
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { toast } = useToast();
@@ -90,11 +88,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     currentlyInvested: 0
   });
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
-  const [coordinatorReasons, setCoordinatorReasons] = useState<Record<string, string>>({});
-  const [tradePerformances, setTradePerformances] = useState<Record<string, TradePerformance>>({});
 
   // Use ValuationService for all P&L calculations (single source of truth)
-  const calculateTradePerformance = useCallback(async (trade: Trade): Promise<TradePerformance> => {
+  const calculateTradePerformance = async (trade: Trade): Promise<TradePerformance> => {
     
     if (trade.trade_type === 'sell') {
       // Past Positions: Use stored snapshot data when available  
@@ -122,7 +118,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
     }
     
-    // For BUY trades (open positions): Use live market data for real-time updates
+    // For BUY trades (open positions): Apply ValuationService consistently
     const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
     
     // Use ValuationService for all calculations
@@ -151,7 +147,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       isCorrupted: !integrityCheck.is_valid,
       corruptionReasons: integrityCheck.errors
     };
-  }, [marketData, currentPrices]);
+  };
 
   // Helper functions: FIFO per-trade lots and counts
   const buildFifoLots = (allTrades: Trade[]) => {
@@ -193,11 +189,11 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return { openLots, closedCount };
   };
 
-  const getOpenPositionsList = useCallback(() => {
+  const getOpenPositionsList = () => {
     if (trades.length === 0) return [] as Trade[];
     const { openLots } = buildFifoLots(trades);
     return openLots.sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime());
-  }, [trades]);
+  };
 
   // Realized P&L using strict FIFO 
   const computeRealizedPLFIFO = (allTrades: Trade[]) => {
@@ -259,7 +255,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       // CRITICAL FIX: Apply regression guards and use deterministic pricing
       const { validateTradePrice, validatePurchaseValue, logValidationFailure } = await import('../utils/regressionGuards');
       
-      // Get current price with live market data for real-time updates
+      // Get current price with snapshot fallback for deterministic pricing
       let currentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
       
       // Try to get deterministic price from snapshots first
@@ -357,7 +353,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   };
 
   // Fetch trading history with proper error handling
-  const fetchTradingHistory = useCallback(async () => {
+  const fetchTradingHistory = async () => {
     if (!user) return;
 
     try {
@@ -375,20 +371,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       console.log('✅ HISTORY: Fetched', data?.length || 0, 'trades');
       setTrades(data || []);
 
-      // Calculate performance for all trades
+      // Calculate stats with ValuationService
       if (data && data.length > 0) {
-        const performances: Record<string, TradePerformance> = {};
-        
-        for (const trade of data) {
-          try {
-            performances[trade.id] = await calculateTradePerformance(trade);
-          } catch (error) {
-            console.error('Error calculating performance for trade:', trade.id, error);
-          }
-        }
-        
-        setTradePerformances(performances);
-
         const openPositions = getOpenPositionsList();
         const realizedPL = computeRealizedPLFIFO(data);
         const { unrealizedPL, invested } = await computeUnrealizedPLFromOpenLots(openPositions);
@@ -414,10 +398,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     } finally {
       setLoading(false);
     }
-  }, [user, toast]);
+  };
 
   // Fetch user profile data
-  const fetchUserProfile = useCallback(async () => {
+  const fetchUserProfile = async () => {
     if (!user) return;
 
     try {
@@ -436,7 +420,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     } catch (error) {
       console.error('❌ HISTORY: Error fetching user profile:', error);
     }
-  }, [user, testMode]);
+  };
 
   // Load data on component mount and when user changes
   useEffect(() => {
@@ -447,13 +431,11 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   }, [user, testMode]);
 
-  // Real-time subscription with throttling to prevent blinking
+  // Real-time subscription to mock_trades changes
   useEffect(() => {
     if (!user) return;
 
-    console.log('🔄 HISTORY: Setting up throttled real-time subscription for user:', user.id);
-
-    let updateTimeout: NodeJS.Timeout;
+    console.log('🔄 HISTORY: Setting up real-time subscription for user:', user.id);
 
     const channel = supabase
       .channel('mock_trades_changes')
@@ -467,21 +449,193 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         },
         (payload) => {
           console.log('🔄 HISTORY: Real-time change detected:', payload.eventType);
-          // Throttle updates to prevent excessive re-renders
-          clearTimeout(updateTimeout);
-          updateTimeout = setTimeout(() => {
-            fetchTradingHistory();
-          }, 500); // 500ms throttle
+          fetchTradingHistory();
         }
       )
       .subscribe();
 
     return () => {
       console.log('🔄 HISTORY: Cleaning up real-time subscription');
-      clearTimeout(updateTimeout);
       supabase.removeChannel(channel);
     };
   }, [user]);
+
+  // Badge component with single strip layout and tooltips
+  const StatusBadges = ({ trade, coordinatorReason }: { trade: Trade; coordinatorReason?: string }) => {
+    const isCorrupted = trade.is_corrupted;
+    const isLocked = coordinatorReason === 'blocked_by_lock';
+    
+    if (!isCorrupted && !isLocked) return null;
+
+    return (
+      <TooltipProvider>
+        <div className="flex gap-1 mb-1">
+          {isCorrupted && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="destructive" className="text-xs">
+                  <AlertTriangle className="w-3 h-3 mr-1" />
+                  Corrupted
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-sm">
+                  <strong>Data Integrity Issue:</strong><br />
+                  {trade.integrity_reason || 'Unknown corruption detected'}
+                  <br /><br />
+                  This position has corrupted data and needs manual review.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {isLocked && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className="text-xs">
+                  <Lock className="w-3 h-3 mr-1" />
+                  Locked
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-sm">
+                  <strong>Trade Processing Lock:</strong><br />
+                  Concurrent trading activity detected for this symbol.
+                  <br />
+                  This prevents race conditions and ensures data integrity.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      </TooltipProvider>
+    );
+  };
+
+  // TradeCard component for rendering individual trades
+  const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
+    const [performance, setPerformance] = useState<TradePerformance | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+      const loadPerformance = async () => {
+        try {
+          const perf = await calculateTradePerformance(trade);
+          setPerformance(perf);
+        } catch (error) {
+          console.error('Error calculating trade performance:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      loadPerformance();
+    }, [trade, currentPrices, marketData]);
+
+    if (loading || !performance) {
+      return (
+        <Card className="p-4 animate-pulse">
+          <div className="h-4 bg-muted rounded w-1/3 mb-2"></div>
+          <div className="h-3 bg-muted rounded w-1/2"></div>
+        </Card>
+      );
+    }
+
+    const isProfit = (performance.gainLoss || 0) > 0;
+    const isLoss = (performance.gainLoss || 0) < 0;
+
+    return (
+      <Card className="p-4 hover:shadow-md transition-shadow">
+        <StatusBadges trade={trade} />
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${
+              trade.trade_type === 'buy' ? 'bg-emerald-500' : 'bg-red-500'
+            }`} />
+            <span className="font-semibold text-lg">{trade.cryptocurrency}</span>
+          </div>
+          <Badge variant={trade.trade_type === 'buy' ? 'default' : 'secondary'}>
+            {trade.trade_type.toUpperCase()}
+          </Badge>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <p className="text-muted-foreground">Amount</p>
+            <p className="font-medium">{trade.amount.toFixed(8)}</p>
+          </div>
+          
+          <div>
+            <p className="text-muted-foreground">
+              {trade.trade_type === 'buy' ? 'Purchase Price' : 'Exit Price'}
+            </p>
+            <p className="font-medium">{formatEuro(performance.purchasePrice || performance.currentPrice)}</p>
+          </div>
+          
+          {trade.trade_type === 'buy' && (
+            <>
+              <div>
+                <p className="text-muted-foreground">Current Value</p>
+                <p className="font-medium">{formatEuro(performance.currentValue)}</p>
+              </div>
+              
+              <div>
+                <p className="text-muted-foreground">Current Price</p>
+                <p className="font-medium">{formatEuro(performance.currentPrice)}</p>
+              </div>
+            </>
+          )}
+          
+          {trade.trade_type === 'sell' && (
+            <>
+              <div>
+                <p className="text-muted-foreground">Exit Value</p>
+                <p className="font-medium">{formatEuro(performance.currentValue)}</p>
+              </div>
+              
+              <div>
+                <p className="text-muted-foreground">Purchase Price</p>
+                <p className="font-medium">{formatEuro(performance.purchasePrice || 0)}</p>
+              </div>
+            </>
+          )}
+          
+          {!performance.isAutomatedWithoutPnL && performance.gainLoss !== null && (
+            <>
+              <div>
+                <p className="text-muted-foreground">P&L (EUR)</p>
+                <p className={`font-medium ${isProfit ? 'text-emerald-600' : isLoss ? 'text-red-600' : ''}`}>
+                  {formatEuro(performance.gainLoss)}
+                </p>
+              </div>
+              
+              <div>
+                <p className="text-muted-foreground">P&L (%)</p>
+                <p className={`font-medium ${isProfit ? 'text-emerald-600' : isLoss ? 'text-red-600' : ''}`}>
+                  {formatPercentage(performance.gainLossPercentage || 0)}
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+        
+        <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
+          <p>Executed: {new Date(trade.executed_at).toLocaleString()}</p>
+          {trade.notes && <p className="mt-1">Note: {trade.notes}</p>}
+        </div>
+        
+        {showSellButton && trade.trade_type === 'buy' && !performance.isCorrupted && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => sellPosition(trade)}
+            className="w-full mt-3"
+          >
+            Sell Position
+          </Button>
+        )}
+      </Card>
+    );
+  };
 
   if (loading) {
     return (
@@ -507,9 +661,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
-  // Use memoized function directly (getOpenPositionsList is already useCallback)
   const openPositions = getOpenPositionsList();
-  const pastPositions = useMemo(() => trades.filter(t => t.trade_type === 'sell'), [trades]);
+  const pastPositions = trades.filter(t => t.trade_type === 'sell');
 
   return (
     <Card className="p-6">
@@ -530,78 +683,43 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         </Button>
       </div>
 
-      {/* Strategy KPIs Overview */}
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Activity className="w-5 h-5" />
-          Strategy KPIs Overview
-        </h2>
+      {/* KPI Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <Card className="p-4">
+          <div className="flex items-center gap-2">
+            <Target className="w-4 h-4 text-blue-500" />
+            <p className="text-sm font-medium">Open Positions</p>
+          </div>
+          <p className="text-2xl font-bold">{stats.openPositions}</p>
+        </Card>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          {/* Positions Summary */}
-          <Card className="p-4 bg-card/50 border-border/50">
-            <div className="flex items-center gap-2 mb-3">
-              <PieChart className="w-4 h-4 text-blue-500" />
-              <span className="text-sm font-medium text-muted-foreground">Positions Summary</span>
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Open Positions</span>
-                <span className="text-lg font-bold">{stats.openPositions}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Total Positions</span>
-                <span className="text-sm text-muted-foreground">Open + Closed</span>
-              </div>
-            </div>
-          </Card>
-          
-          {/* Investment Metrics */}
-          <Card className="p-4 bg-card/50 border-border/50">
-            <div className="flex items-center gap-2 mb-3">
-              <DollarSign className="w-4 h-4 text-yellow-500" />
-              <span className="text-sm font-medium text-muted-foreground">Investment Metrics</span>
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Currently Invested</span>
-                <span className="text-lg font-bold">{formatEuro(stats.currentlyInvested)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Total Invested</span>
-                <span className="text-sm">{formatEuro(stats.totalInvested)}</span>
-              </div>
-            </div>
-          </Card>
-          
-          {/* Performance Metrics */}
-          <Card className="p-4 bg-card/50 border-border/50">
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingUp className="w-4 h-4 text-green-500" />
-              <span className="text-sm font-medium text-muted-foreground">Performance Metrics</span>
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Unrealized P&L</span>
-                <span className={`text-lg font-bold ${stats.currentPL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {formatEuro(stats.currentPL)}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Realized P&L</span>
-                <span className={`text-sm ${(stats.totalPL - stats.currentPL) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {formatEuro(stats.totalPL - stats.currentPL)}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Total P&L</span>
-                <span className={`text-sm ${stats.totalPL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {formatEuro(stats.totalPL)}
-                </span>
-              </div>
-            </div>
-          </Card>
-        </div>
+        <Card className="p-4">
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-green-500" />
+            <p className="text-sm font-medium">Currently Invested</p>
+          </div>
+          <p className="text-2xl font-bold">{formatEuro(stats.currentlyInvested)}</p>
+        </Card>
+        
+        <Card className="p-4">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-purple-500" />
+            <p className="text-sm font-medium">Unrealized P&L</p>
+          </div>
+          <p className={`text-2xl font-bold ${stats.currentPL > 0 ? 'text-emerald-600' : stats.currentPL < 0 ? 'text-red-600' : ''}`}>
+            {formatEuro(stats.currentPL)}
+          </p>
+        </Card>
+        
+        <Card className="p-4">
+          <div className="flex items-center gap-2">
+            <PieChart className="w-4 h-4 text-orange-500" />
+            <p className="text-sm font-medium">Total P&L</p>
+          </div>
+          <p className={`text-2xl font-bold ${stats.totalPL > 0 ? 'text-emerald-600' : stats.totalPL < 0 ? 'text-red-600' : ''}`}>
+            {formatEuro(stats.totalPL)}
+          </p>
+        </Card>
       </div>
 
       {/* Tabs */}
@@ -620,19 +738,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         <TabsContent value="open" className="mt-4">
           {openPositions.length > 0 ? (
             <div className="space-y-4">
-              {openPositions.map(trade => {
-                console.log('🔍 Rendering TradeCard for trade:', trade.id, 'TradeCard component:', TradeCard);
-                return (
-                  <TradeCard
-                    key={trade.id}
-                    trade={trade}
-                    showSellButton={true}
-                    onSell={sellPosition}
-                    performance={tradePerformances[trade.id] || null}
-                    coordinatorReason={coordinatorReasons[trade.id]}
-                  />
-                );
-              })}
+              {openPositions.map(trade => (
+                <TradeCard
+                  key={trade.id}
+                  trade={trade}
+                  showSellButton={true}
+                />
+              ))}
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
@@ -651,8 +763,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                   key={trade.id}
                   trade={trade}
                   showSellButton={false}
-                  performance={tradePerformances[trade.id] || null}
-                  coordinatorReason={coordinatorReasons[trade.id]}
                 />
               ))}
             </div>
