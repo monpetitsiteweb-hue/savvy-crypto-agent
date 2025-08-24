@@ -62,6 +62,7 @@ interface TradingHistoryProps {
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
   console.log('🔍 TradingHistory: Component rendering started, TradeCard:', TradeCard);
+  console.log('🔍 TradingHistory: hasActiveStrategy:', hasActiveStrategy, 'onCreateStrategy:', onCreateStrategy);
   
   const { user } = useAuth();
   const { testMode } = useTestMode();
