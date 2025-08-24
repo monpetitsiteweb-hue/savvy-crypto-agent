@@ -62,6 +62,8 @@ interface TradingHistoryProps {
 }
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
+  console.log('🚨 MAIN BLINKING: TradingHistory re-rendering at', new Date().toISOString());
+  
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { toast } = useToast();
