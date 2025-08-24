@@ -431,11 +431,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   }, [user, testMode]);
 
-  // Real-time subscription to mock_trades changes
+  // Real-time subscription to mock_trades changes (throttled to prevent blinking)
   useEffect(() => {
     if (!user) return;
 
     console.log('🔄 HISTORY: Setting up real-time subscription for user:', user.id);
+
+    let refreshTimeout: NodeJS.Timeout;
 
     const channel = supabase
       .channel('mock_trades_changes')
@@ -449,13 +451,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         },
         (payload) => {
           console.log('🔄 HISTORY: Real-time change detected:', payload.eventType);
-          fetchTradingHistory();
+          // Throttle updates to prevent constant blinking
+          clearTimeout(refreshTimeout);
+          refreshTimeout = setTimeout(() => {
+            fetchTradingHistory();
+          }, 1000); // Wait 1 second before refreshing
         }
       )
       .subscribe();
 
     return () => {
       console.log('🔄 HISTORY: Cleaning up real-time subscription');
+      clearTimeout(refreshTimeout);
       supabase.removeChannel(channel);
     };
   }, [user]);
@@ -565,6 +572,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           </div>
           
           <div>
+            <p className="text-muted-foreground">Purchase Value</p>
+            <p className="font-medium">
+              {trade.trade_type === 'buy' 
+                ? formatEuro(trade.total_value) 
+                : formatEuro(trade.original_purchase_value || 0)
+              }
+            </p>
+          </div>
+          
+          <div>
             <p className="text-muted-foreground">
               {trade.trade_type === 'buy' ? 'Purchase Price' : 'Exit Price'}
             </p>
@@ -586,17 +603,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           )}
           
           {trade.trade_type === 'sell' && (
-            <>
-              <div>
-                <p className="text-muted-foreground">Exit Value</p>
-                <p className="font-medium">{formatEuro(performance.currentValue)}</p>
-              </div>
-              
-              <div>
-                <p className="text-muted-foreground">Purchase Price</p>
-                <p className="font-medium">{formatEuro(performance.purchasePrice || 0)}</p>
-              </div>
-            </>
+            <div>
+              <p className="text-muted-foreground">Exit Value</p>
+              <p className="font-medium">{formatEuro(performance.currentValue)}</p>
+            </div>
           )}
           
           {!performance.isAutomatedWithoutPnL && performance.gainLoss !== null && (
@@ -683,43 +693,78 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         </Button>
       </div>
 
-      {/* KPI Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <Card className="p-4">
-          <div className="flex items-center gap-2">
-            <Target className="w-4 h-4 text-blue-500" />
-            <p className="text-sm font-medium">Open Positions</p>
-          </div>
-          <p className="text-2xl font-bold">{stats.openPositions}</p>
-        </Card>
+      {/* Strategy KPIs Overview */}
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Activity className="w-5 h-5" />
+          Strategy KPIs Overview
+        </h2>
         
-        <Card className="p-4">
-          <div className="flex items-center gap-2">
-            <DollarSign className="w-4 h-4 text-green-500" />
-            <p className="text-sm font-medium">Currently Invested</p>
-          </div>
-          <p className="text-2xl font-bold">{formatEuro(stats.currentlyInvested)}</p>
-        </Card>
-        
-        <Card className="p-4">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-purple-500" />
-            <p className="text-sm font-medium">Unrealized P&L</p>
-          </div>
-          <p className={`text-2xl font-bold ${stats.currentPL > 0 ? 'text-emerald-600' : stats.currentPL < 0 ? 'text-red-600' : ''}`}>
-            {formatEuro(stats.currentPL)}
-          </p>
-        </Card>
-        
-        <Card className="p-4">
-          <div className="flex items-center gap-2">
-            <PieChart className="w-4 h-4 text-orange-500" />
-            <p className="text-sm font-medium">Total P&L</p>
-          </div>
-          <p className={`text-2xl font-bold ${stats.totalPL > 0 ? 'text-emerald-600' : stats.totalPL < 0 ? 'text-red-600' : ''}`}>
-            {formatEuro(stats.totalPL)}
-          </p>
-        </Card>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {/* Positions Summary */}
+          <Card className="p-4 bg-card/50 border-border/50">
+            <div className="flex items-center gap-2 mb-3">
+              <PieChart className="w-4 h-4 text-blue-500" />
+              <span className="text-sm font-medium text-muted-foreground">Positions Summary</span>
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Open Positions</span>
+                <span className="text-lg font-bold">{stats.openPositions}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Total Positions</span>
+                <span className="text-sm text-muted-foreground">Open + Closed</span>
+              </div>
+            </div>
+          </Card>
+          
+          {/* Investment Metrics */}
+          <Card className="p-4 bg-card/50 border-border/50">
+            <div className="flex items-center gap-2 mb-3">
+              <DollarSign className="w-4 h-4 text-yellow-500" />
+              <span className="text-sm font-medium text-muted-foreground">Investment Metrics</span>
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Currently Invested</span>
+                <span className="text-lg font-bold">{formatEuro(stats.currentlyInvested)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Total Invested</span>
+                <span className="text-sm">{formatEuro(stats.totalInvested)}</span>
+              </div>
+            </div>
+          </Card>
+          
+          {/* Performance Metrics */}
+          <Card className="p-4 bg-card/50 border-border/50">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className="w-4 h-4 text-green-500" />
+              <span className="text-sm font-medium text-muted-foreground">Performance Metrics</span>
+            </div>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Unrealized P&L</span>
+                <span className={`text-lg font-bold ${stats.currentPL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {formatEuro(stats.currentPL)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Realized P&L</span>
+                <span className={`text-sm ${(stats.totalPL - stats.currentPL) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {formatEuro(stats.totalPL - stats.currentPL)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Total P&L</span>
+                <span className={`text-sm ${stats.totalPL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {formatEuro(stats.totalPL)}
+                </span>
+              </div>
+            </div>
+          </Card>
+        </div>
       </div>
 
       {/* Tabs */}
