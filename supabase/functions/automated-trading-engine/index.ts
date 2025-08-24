@@ -738,8 +738,11 @@ async function calculateTradeQuantity(strategyConfig: any, signal: any): Promise
   // Get REAL market price from Coinbase API - NO FALLBACKS
   let realPrice: number;
   
+  // CRITICAL FIX: Add -EUR suffix to symbol for Coinbase API
+  const coinbaseSymbol = signal.symbol.includes('-EUR') ? signal.symbol : `${signal.symbol}-EUR`;
+  
   try {
-    const response = await fetch(`https://api.exchange.coinbase.com/products/${signal.symbol}/ticker`);
+    const response = await fetch(`https://api.exchange.coinbase.com/products/${coinbaseSymbol}/ticker`);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
@@ -748,9 +751,9 @@ async function calculateTradeQuantity(strategyConfig: any, signal: any): Promise
     if (!realPrice || realPrice <= 0) {
       throw new Error(`Invalid price received: ${data.price}`);
     }
-    console.log(`💰 Got REAL price for ${signal.symbol}: €${realPrice}`);
+    console.log(`💰 Got REAL price for ${coinbaseSymbol}: €${realPrice}`);
   } catch (error) {
-    console.error(`❌ FAILED to get real price for ${signal.symbol}:`, error.message);
+    console.error(`❌ FAILED to get real price for ${coinbaseSymbol}:`, error.message);
     throw new Error(`Cannot calculate quantity without real market price: ${error.message}`);
   }
   
