@@ -731,11 +731,23 @@ function evaluateStrategyTrigger(signal: any, strategyConfig: any) {
   };
 }
 
-// Calculate trade quantity based on strategy configuration
+// Calculate trade quantity based on strategy configuration and REAL market price
 function calculateTradeQuantity(strategyConfig: any, signal: any): number {
   const perTradeAllocation = strategyConfig?.perTradeAllocation || 1000;
-  const defaultPrice = 100; // Placeholder - in production would use real market price
-  return perTradeAllocation / defaultPrice;
+  
+  // CRITICAL FIX: Use real market price from signal data instead of €100 placeholder
+  let realPrice = 100; // Only as emergency fallback
+  
+  if (signal?.data?.current_price) {
+    realPrice = parseFloat(signal.data.current_price);
+    console.log(`💰 Using real price from signal: €${realPrice} for ${signal.symbol}`);
+  } else {
+    console.warn(`⚠️ No real price in signal data, using fallback: €${realPrice} for ${signal.symbol}`);
+  }
+  
+  const quantity = perTradeAllocation / realPrice;
+  console.log(`🧮 Calculated quantity: ${quantity} (€${perTradeAllocation} / €${realPrice})`);
+  return quantity;
 }
 
 async function executeStrategyFromSignal(supabaseClient: any, strategy: any, signal: any, evaluation: any, mode: string) {

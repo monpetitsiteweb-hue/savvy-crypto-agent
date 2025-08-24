@@ -1190,7 +1190,7 @@ export const useIntelligentTradingEngine = () => {
     
     if (testMode && user && !loading) {
       console.log('🚀 INTELLIGENT_ENGINE: ✅ ALL CONDITIONS MET - Starting REAL signal monitoring');
-      marketMonitorRef.current = setInterval(checkStrategiesAndExecute, 10000);
+      marketMonitorRef.current = setInterval(checkStrategiesAndExecute, 30000); // Reduced to 30 seconds
       setTimeout(checkStrategiesAndExecute, 2000);
     } else {
       console.log('🚀 INTELLIGENT_ENGINE: ❌ CONDITIONS NOT MET - Stopping trading engine', {
@@ -1210,7 +1210,7 @@ export const useIntelligentTradingEngine = () => {
         clearInterval(marketMonitorRef.current);
       }
     };
-  }, [testMode, user, loading]);
+  }, [testMode, user?.id, loading]); // CRITICAL: Only depend on user.id not full user object
 
   return { checkStrategiesAndExecute };
 };

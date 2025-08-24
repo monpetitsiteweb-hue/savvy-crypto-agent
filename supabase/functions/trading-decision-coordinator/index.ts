@@ -440,22 +440,26 @@ async function executeTradeOrder(
   try {
     console.log(`💱 COORDINATOR: Executing ${decision.action} order for ${intent.symbol}`);
     
-    // CRITICAL FIX: Get REAL market price instead of placeholder
-    let realMarketPrice = 100; // Fallback only
+    // CRITICAL FIX: Get REAL market price - NO €100 fallback!
+    let realMarketPrice: number;
     const symbol = intent.symbol.replace('-EUR', '');
     
-    // Try to get real market price from Coinbase API
+    // MANDATORY: Get real market price from Coinbase API
     try {
       const response = await fetch(`https://api.exchange.coinbase.com/products/${intent.symbol}/ticker`);
       if (response.ok) {
         const data = await response.json();
-        realMarketPrice = parseFloat(data.price) || 100;
+        realMarketPrice = parseFloat(data.price);
+        if (!realMarketPrice || realMarketPrice <= 0) {
+          throw new Error(`Invalid price received: ${data.price}`);
+        }
         console.log(`💱 COORDINATOR: Got real price for ${intent.symbol}: €${realMarketPrice}`);
       } else {
-        console.warn(`⚠️ COORDINATOR: Failed to fetch price for ${intent.symbol}, using fallback: €100`);
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
     } catch (priceError) {
-      console.warn(`⚠️ COORDINATOR: Price fetch error for ${intent.symbol}:`, priceError.message);
+      console.error(`❌ COORDINATOR: FAILED to fetch price for ${intent.symbol}:`, priceError.message);
+      throw new Error(`Cannot execute trade without real market price for ${intent.symbol}: ${priceError.message}`);
     }
     
     // CRITICAL FIX: Calculate quantity based on REAL price
