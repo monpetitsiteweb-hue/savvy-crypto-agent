@@ -425,7 +425,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // Load data on component mount and when user changes
   useEffect(() => {
     if (user) {
-      console.log('🔍 HISTORY: Component mounted, user:', user.id, 'testMode:', testMode);
+      console.log('🔍 BLINKING DEBUG: Main useEffect triggered at', new Date().toISOString(), 'user:', user.id, 'testMode:', testMode);
       fetchTradingHistory();
       fetchUserProfile();
     }
@@ -450,10 +450,11 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          console.log('🔄 HISTORY: Real-time change detected:', payload.eventType);
+          console.log('🔄 BLINKING DEBUG: Real-time change detected at', new Date().toISOString(), '- Event:', payload.eventType);
           // Throttle updates to prevent constant blinking
           clearTimeout(refreshTimeout);
           refreshTimeout = setTimeout(() => {
+            console.log('🔄 BLINKING DEBUG: Executing throttled refresh at', new Date().toISOString());
             fetchTradingHistory();
           }, 1000); // Wait 1 second before refreshing
         }
@@ -524,6 +525,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+      console.log('🔄 BLINKING DEBUG: TradeCard useEffect triggered for', trade.cryptocurrency, 'at', new Date().toISOString());
+      
       const loadPerformance = async () => {
         try {
           const perf = await calculateTradePerformance(trade);
