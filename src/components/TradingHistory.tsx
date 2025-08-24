@@ -12,6 +12,9 @@ import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 import { TradeCard } from './trading/TradeCard';
+console.log('🔍 IMPORT DEBUG: TradeCard imported as:', TradeCard);
+console.log('🔍 IMPORT DEBUG: TradeCard type:', typeof TradeCard);
+console.log('🔍 IMPORT DEBUG: TradeCard is function:', typeof TradeCard === 'function');
 import { checkIntegrity, calculateValuation } from '@/utils/valuationService';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 
