@@ -62,8 +62,6 @@ interface TradingHistoryProps {
 }
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
-  console.log('🚨 MAIN BLINKING: TradingHistory re-rendering at', new Date().toISOString());
-  
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { toast } = useToast();
@@ -71,6 +69,21 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { getTotalValue } = useMockWallet();
   const { getCurrentData, marketData } = useRealTimeMarketData();
   const [feeRate, setFeeRate] = useState<number>(0);
+  
+  // Debug what's causing re-renders
+  console.log('🚨 MAIN BLINKING: TradingHistory re-rendering. Checking dependencies:', {
+    timestamp: new Date().toISOString(),
+    user: user ? `exists-${user.id}` : 'null',
+    testMode: testMode,
+    hasActiveStrategy: hasActiveStrategy,
+    onCreateStrategy: typeof onCreateStrategy,
+    marketDataKeys: Object.keys(marketData || {}),
+    marketDataSize: Object.keys(marketData || {}).length,
+    toastExists: !!toast,
+    handleCoordinatorResponseExists: !!handleCoordinatorResponse,
+    getTotalValueExists: !!getTotalValue,
+    getCurrentDataExists: !!getCurrentData
+  });
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
