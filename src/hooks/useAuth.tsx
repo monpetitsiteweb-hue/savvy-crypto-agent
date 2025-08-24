@@ -49,14 +49,23 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         }
         
         // FIXED: Force refresh session to ensure we get current state
-        const { data: { session }, error } = await supabase.auth.refreshSession();
-        console.log('🔑 AUTHPROVIDER: FORCED REFRESH - Session result:', !!session, 'User:', session?.user?.email, 'Error:', error);
+        const { data: { session }, error } = await supabase.auth.getSession();
+        console.log('🔑 AUTHPROVIDER: Raw session data:', session);
+        console.log('🔑 AUTHPROVIDER: Session user object:', session?.user);
+        console.log('🔑 AUTHPROVIDER: User ID from session:', session?.user?.id);
+        console.log('🔑 AUTHPROVIDER: User email from session:', session?.user?.email);
+        console.log('🔑 AUTHPROVIDER: Session error:', error);
         
         if (mounted) {
+          // FIXED: Properly extract user from session
+          const extractedUser = session?.user || null;
+          console.log('🔑 AUTHPROVIDER: Extracted user:', extractedUser);
+          console.log('🔑 AUTHPROVIDER: User exists check:', !!extractedUser);
+          
           setSession(session);
-          setUser(session?.user ?? null);
+          setUser(extractedUser);
           setLoading(false);
-          console.log('🔑 AUTHPROVIDER: ✅ Auth state FIXED - User authenticated:', !!session?.user);
+          console.log('🔑 AUTHPROVIDER: ✅ States set - User:', !!extractedUser, 'ID:', extractedUser?.id);
         }
       } catch (err) {
         console.error('🔑 AUTHPROVIDER: ERROR in initializeAuth:', err);
@@ -69,11 +78,17 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🔑 AUTHPROVIDER: Auth event:', event, 'Session exists:', !!session);
+      console.log('🔑 AUTHPROVIDER: Listener session user:', session?.user);
+      console.log('🔑 AUTHPROVIDER: Listener user ID:', session?.user?.id);
+      
       if (mounted) {
+        const extractedUser = session?.user || null;
+        console.log('🔑 AUTHPROVIDER: Listener extracted user:', extractedUser);
+        
         setSession(session);
-        setUser(session?.user ?? null);
+        setUser(extractedUser);
         setLoading(false);
-        console.log('🔑 AUTHPROVIDER: ✅ Auth state synced via listener - User:', !!session?.user);
+        console.log('🔑 AUTHPROVIDER: ✅ Listener states set - User:', !!extractedUser, 'ID:', extractedUser?.id);
       }
     });
 
