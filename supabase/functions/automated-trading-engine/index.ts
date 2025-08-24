@@ -121,6 +121,57 @@ async function processSignalsForStrategies(supabaseClient: any, params: any) {
     }
 
     console.log(`📊 DEBUG: Found ${signals?.length || 0} unprocessed signals`);
+    
+    // CRITICAL FIX: If no signals found, trigger signal generation for this user
+    if (!signals || signals.length === 0) {
+      console.log(`🔄 DEBUG: No signals found - triggering signal generation for user ${userId}`);
+      try {
+        // Get all selected coins from active strategies
+        const allSelectedCoins = new Set();
+        (strategies || []).forEach(strategy => {
+          const coins = strategy.configuration?.selectedCoins || [];
+          coins.forEach(coin => {
+            // Ensure EUR pairs
+            const symbol = coin.includes('-') ? coin : `${coin}-EUR`;
+            allSelectedCoins.add(symbol);
+          });
+        });
+        
+        const symbolsToAnalyze = Array.from(allSelectedCoins).slice(0, 10); // Limit to 10 for performance
+        console.log(`📊 DEBUG: Triggering signal generation for symbols: ${symbolsToAnalyze.join(', ')}`);
+        
+        // Call technical signal generator for this user
+        const signalGenResult = await supabaseClient.functions.invoke('technical-signal-generator', {
+          body: {
+            userId: userId,
+            symbols: symbolsToAnalyze
+          }
+        });
+        
+        if (signalGenResult.error) {
+          console.error('❌ Error generating signals:', signalGenResult.error);
+        } else {
+          console.log(`✅ Signal generation completed:`, signalGenResult.data);
+          
+          // Re-fetch signals after generation
+          const { data: newSignals } = await supabaseClient
+            .from('live_signals')
+            .select('*')
+            .eq('user_id', userId)
+            .gte('timestamp', timeThreshold)
+            .eq('processed', false)
+            .order('timestamp', { ascending: false });
+            
+          if (newSignals && newSignals.length > 0) {
+            console.log(`🎯 DEBUG: Found ${newSignals.length} new signals after generation`);
+            signals = newSignals; // Use the newly generated signals
+          }
+        }
+      } catch (genError) {
+        console.error('❌ Signal generation failed:', genError);
+      }
+    }
+    
     signals?.forEach((signal, idx) => {
       console.log(`🎵 Signal ${idx + 1}: ${signal.symbol} - ${signal.signal_type} (strength: ${signal.signal_strength})`);
     });

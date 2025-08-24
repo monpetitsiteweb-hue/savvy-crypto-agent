@@ -30,6 +30,11 @@ serve(async (req) => {
       .single();
 
     if (!dataSource) {
+      // If no data source exists, we need a user ID to create one
+      if (!userId) {
+        throw new Error('No userId provided and no existing technical analysis data source found');
+      }
+      
       const { data: newSource } = await supabaseClient
         .from('ai_data_sources')
         .insert({
@@ -39,7 +44,7 @@ serve(async (req) => {
           is_active: true,
           update_frequency: '5min',
           configuration: { symbols, indicators: ['rsi', 'macd', 'price_change', 'volume_spike'] },
-          user_id: userId || 'cf4252a5-5aee-473d-bdbc-44a2e992ec6f' // Use default user if not provided
+          user_id: userId
         })
         .select()
         .single();
@@ -47,7 +52,31 @@ serve(async (req) => {
       dataSource = newSource;
     }
 
+    // CRITICAL FIX: Always use the provided userId, or the userId from existing dataSource
     const actualUserId = userId || dataSource.user_id;
+    
+    // If still no userId, get all active users with strategies and generate signals for them
+    if (!actualUserId) {
+      const { data: activeUsers } = await supabaseClient
+        .from('trading_strategies')
+        .select('user_id')
+        .eq('is_active_test', true)
+        .or('is_active.eq.true');
+      
+      if (activeUsers && activeUsers.length > 0) {
+        // Generate signals for each active user
+        for (const user of activeUsers) {
+          await generateSignalsForUser(user.user_id, symbols, dataSource.id, supabaseClient);
+        }
+        return new Response(JSON.stringify({
+          success: true,
+          message: `Generated signals for ${activeUsers.length} active users`,
+          users_processed: activeUsers.length
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
     const actualSourceId = sourceId || dataSource.id;
 
     console.log(`🔍 Analyzing technical indicators for symbols: ${symbols.join(', ')}`);
@@ -132,6 +161,50 @@ serve(async (req) => {
     });
   }
 });
+
+async function generateSignalsForUser(userId: string, symbols: string[], sourceId: string, supabaseClient: any) {
+  console.log(`📊 Generating signals for user: ${userId}`);
+  
+  const signals = [];
+  const now = new Date();
+  const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
+
+  for (const symbol of symbols) {
+    try {
+      // Get recent price data
+      const { data: priceData, error: priceError } = await supabaseClient
+        .from('price_data')
+        .select('*')
+        .eq('symbol', symbol)
+        .gte('timestamp', thirtyMinutesAgo.toISOString())
+        .order('timestamp', { ascending: true });
+
+      if (priceError || !priceData || priceData.length < 2) {
+        continue;
+      }
+
+      // Generate signals for this user
+      const technicalSignals = await generateTechnicalSignals(symbol, priceData, userId, sourceId);
+      signals.push(...technicalSignals);
+
+    } catch (error) {
+      console.error(`❌ Error generating signals for user ${userId}, symbol ${symbol}:`, error);
+    }
+  }
+
+  // Insert signals for this user
+  if (signals.length > 0) {
+    const { error: signalError } = await supabaseClient
+      .from('live_signals')
+      .insert(signals);
+
+    if (!signalError) {
+      console.log(`✅ Generated ${signals.length} signals for user ${userId}`);
+    }
+  }
+
+  return signals;
+}
 
 async function generateTechnicalSignals(symbol: string, priceData: any[], userId: string, sourceId: string) {
   const signals = [];
