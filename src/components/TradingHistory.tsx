@@ -445,7 +445,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       fetchTradingHistory();
       fetchUserProfile();
     }
-  }, [user, testMode, fetchTradingHistory, fetchUserProfile]);
+  }, [user, testMode]);
 
   // Real-time subscription with throttling to prevent blinking
   useEffect(() => {
