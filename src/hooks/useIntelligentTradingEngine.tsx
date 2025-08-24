@@ -50,6 +50,21 @@ export const useIntelligentTradingEngine = () => {
     loadingType: typeof loading,
     localStorage_testMode: localStorage.getItem('global-test-mode')
   });
+
+  // FIXED: Auto-run trading engine when authentication becomes available
+  useEffect(() => {
+    console.log('🚨 INTELLIGENT_ENGINE: Auth state changed - user:', !!user, 'loading:', loading, 'testMode:', testMode);
+    
+    if (!loading && user && testMode) {
+      console.log('🚨 INTELLIGENT_ENGINE: ✅ AUTH ESTABLISHED - Starting trading engine automatically!');
+      // Small delay to ensure all hooks are initialized
+      setTimeout(() => {
+        checkStrategiesAndExecute();
+      }, 1000);
+    } else {
+      console.log('🚨 INTELLIGENT_ENGINE: ❌ Waiting for auth - loading:', loading, 'user:', !!user, 'testMode:', testMode);
+    }
+  }, [user, loading, testMode]); // React to auth changes
   
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const tradingStateRef = useRef<TradingState>({
