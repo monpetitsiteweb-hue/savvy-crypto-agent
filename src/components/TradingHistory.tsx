@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
+import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 import { checkIntegrity, calculateValuation } from '@/utils/valuationService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertTriangle, Lock } from 'lucide-react';
@@ -66,6 +67,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { toast } = useToast();
   const { handleCoordinatorResponse } = useCoordinatorToast();
   const { getTotalValue } = useMockWallet();
+  const { getCurrentData, marketData } = useRealTimeMarketData();
   const [feeRate, setFeeRate] = useState<number>(0);
   
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -88,7 +90,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
 
   // Use ValuationService for all P&L calculations (single source of truth)
-  const calculateTradePerformance = async (trade: Trade): Promise<TradePerformance> => {
+  const calculateTradePerformance = useCallback(async (trade: Trade): Promise<TradePerformance> => {
     
     if (trade.trade_type === 'sell') {
       // Past Positions: Use stored snapshot data when available  
@@ -116,8 +118,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
     }
     
-    // For BUY trades (open positions): Use static price to prevent blinking
-    const currentMarketPrice = currentPrices[trade.cryptocurrency] || trade.price;
+    // For BUY trades (open positions): Use live market data for real-time updates
+    const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
     
     // Use ValuationService for all calculations
     const valuation = await calculateValuation({
@@ -145,7 +147,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       isCorrupted: !integrityCheck.is_valid,
       corruptionReasons: integrityCheck.errors
     };
-  };
+  }, [marketData, currentPrices]);
 
   // Helper functions: FIFO per-trade lots and counts
   const buildFifoLots = (allTrades: Trade[]) => {
@@ -253,8 +255,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       // CRITICAL FIX: Apply regression guards and use deterministic pricing
       const { validateTradePrice, validatePurchaseValue, logValidationFailure } = await import('../utils/regressionGuards');
       
-      // Get current price with static fallback to prevent blinking
-      let currentPrice = currentPrices[trade.cryptocurrency] || trade.price;
+      // Get current price with live market data for real-time updates
+      let currentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
       
       // Try to get deterministic price from snapshots first
       try {
@@ -429,10 +431,40 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   }, [user, testMode]);
 
-  // NO REAL-TIME SUBSCRIPTION - ONLY MANUAL REFRESH TO PREVENT BLINKING
+  // Real-time subscription with throttling to prevent blinking
   useEffect(() => {
-    // Real-time disabled completely to prevent blinking
-    console.log('🔄 HISTORY: Real-time updates disabled to prevent UI blinking');
+    if (!user) return;
+
+    console.log('🔄 HISTORY: Setting up throttled real-time subscription for user:', user.id);
+
+    let updateTimeout: NodeJS.Timeout;
+
+    const channel = supabase
+      .channel('mock_trades_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'mock_trades',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('🔄 HISTORY: Real-time change detected:', payload.eventType);
+          // Throttle updates to prevent excessive re-renders
+          clearTimeout(updateTimeout);
+          updateTimeout = setTimeout(() => {
+            fetchTradingHistory();
+          }, 500); // 500ms throttle
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('🔄 HISTORY: Cleaning up real-time subscription');
+      clearTimeout(updateTimeout);
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   // Badge component with single strip layout and tooltips
@@ -486,8 +518,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     );
   };
 
-  // TradeCard component - FIXED VERSION
-  const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
+  // TradeCard component - MEMOIZED to prevent unnecessary re-renders
+  const TradeCard = React.memo(({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -504,7 +536,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
 
       loadPerformance();
-    }, [trade.id]); // Only depend on trade ID
+    }, [trade.id, trade.cryptocurrency, marketData[trade.cryptocurrency]?.price]); // Only re-calculate when price changes
 
     if (loading || !performance) {
       return (
@@ -616,7 +648,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         )}
       </Card>
     );
-  };
+  });
 
   if (loading) {
     return (
@@ -642,8 +674,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
-  const openPositions = getOpenPositionsList();
-  const pastPositions = trades.filter(t => t.trade_type === 'sell');
+  // Memoize position calculations to prevent unnecessary re-renders
+  const openPositions = useMemo(() => getOpenPositionsList(), [trades]);
+  const pastPositions = useMemo(() => trades.filter(t => t.trade_type === 'sell'), [trades]);
 
   return (
     <Card className="p-6">
