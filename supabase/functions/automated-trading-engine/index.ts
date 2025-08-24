@@ -444,7 +444,7 @@ async function emitTradeIntentToCoordinator(
       source: 'automated',
       confidence: signal.signal_strength,
       reason: `Signal: ${signal.signal_type}, ${evaluation.reasoning}`,
-      qtySuggested: calculateTradeQuantity(strategy.configuration, signal),
+      qtySuggested: await calculateTradeQuantity(strategy.configuration, signal),
       metadata: {
         signal_id: signal.id,
         signal_type: signal.signal_type,
@@ -732,17 +732,26 @@ function evaluateStrategyTrigger(signal: any, strategyConfig: any) {
 }
 
 // Calculate trade quantity based on strategy configuration and REAL market price
-function calculateTradeQuantity(strategyConfig: any, signal: any): number {
+async function calculateTradeQuantity(strategyConfig: any, signal: any): Promise<number> {
   const perTradeAllocation = strategyConfig?.perTradeAllocation || 1000;
   
-  // CRITICAL FIX: Use real market price from signal data instead of €100 placeholder
-  let realPrice = 100; // Only as emergency fallback
+  // Get REAL market price from Coinbase API - NO FALLBACKS
+  let realPrice: number;
   
-  if (signal?.data?.current_price) {
-    realPrice = parseFloat(signal.data.current_price);
-    console.log(`💰 Using real price from signal: €${realPrice} for ${signal.symbol}`);
-  } else {
-    console.warn(`⚠️ No real price in signal data, using fallback: €${realPrice} for ${signal.symbol}`);
+  try {
+    const response = await fetch(`https://api.exchange.coinbase.com/products/${signal.symbol}/ticker`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    const data = await response.json();
+    realPrice = parseFloat(data.price);
+    if (!realPrice || realPrice <= 0) {
+      throw new Error(`Invalid price received: ${data.price}`);
+    }
+    console.log(`💰 Got REAL price for ${signal.symbol}: €${realPrice}`);
+  } catch (error) {
+    console.error(`❌ FAILED to get real price for ${signal.symbol}:`, error.message);
+    throw new Error(`Cannot calculate quantity without real market price: ${error.message}`);
   }
   
   const quantity = perTradeAllocation / realPrice;
