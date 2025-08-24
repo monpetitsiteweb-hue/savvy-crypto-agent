@@ -134,7 +134,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     if (walletBalance && walletBalance.amount > 0 && currentMarketPrice) {
       // Use current market price as fallback for corrupted purchase price
       actualPurchasePrice = currentMarketPrice;
-      console.warn('🛠️ FIXED: Corrupted €100 purchase price for', trade.cryptocurrency, 'using current price:', actualPurchasePrice);
+      // Corrupted price fixed (logging reduced to prevent spam)
     }
   }
   
@@ -252,8 +252,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       
       if (performance.isCorrupted) {
         corruptedCount++;
-        console.warn('🛡️ KPI: Excluding corrupted position from totals:', lot.cryptocurrency, performance.corruptionReasons);
-        continue; // Skip corrupted positions in KPI calculations
+        // Skip corrupted positions in KPI calculations (logging removed to prevent spam)
+        continue;
       }
 
       // Use ValuationService for consistent calculations
@@ -262,7 +262,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
 
     if (corruptedCount > 0) {
-      console.log('🛡️ KPI: Excluded', corruptedCount, 'corrupted positions from KPI totals');
+      // Corrupted positions excluded from KPI calculations (logging reduced)
     }
 
     return { unrealizedPL, invested };
@@ -541,9 +541,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
     const [loading, setLoading] = useState(true);
 
-    // Only depend on the specific price for this trade, not the entire marketData object
-    const tradeMarketData = marketData[trade.cryptocurrency];
-    const tradeCurrentPrice = currentPrices[trade.cryptocurrency];
+    // FIXED: Extract only the specific price values to prevent infinite re-renders
+    const specificTradePrice = marketData[trade.cryptocurrency]?.price;
+    const specificCurrentPrice = currentPrices[trade.cryptocurrency];
     
     useEffect(() => {
       const loadPerformance = async () => {
@@ -558,7 +558,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
 
       loadPerformance();
-    }, [trade.id, tradeMarketData?.price, tradeCurrentPrice]); // Only depend on specific price, not entire objects
+    }, [trade.id, specificTradePrice, specificCurrentPrice]); // FIXED: Only specific price values, prevents object reference changes
 
     if (loading || !performance) {
       return (
