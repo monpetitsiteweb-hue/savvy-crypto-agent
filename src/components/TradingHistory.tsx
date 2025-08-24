@@ -507,14 +507,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
-  // Memoize position calculations to prevent unnecessary re-renders
-  const openPositions = useMemo(() => {
-    console.log('🔍 DEBUG: Total trades:', trades.length);
-    console.log('🔍 DEBUG: Trades data:', trades);
-    const openPos = getOpenPositionsList();
-    console.log('🔍 DEBUG: Open positions found:', openPos.length, openPos);
-    return openPos;
-  }, [trades]);
+  // Use memoized function directly (getOpenPositionsList is already useCallback)
+  const openPositions = getOpenPositionsList();
   const pastPositions = useMemo(() => trades.filter(t => t.trade_type === 'sell'), [trades]);
 
   return (
