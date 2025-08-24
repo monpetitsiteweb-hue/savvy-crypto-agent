@@ -100,7 +100,21 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
 
       // Only update state if we have new data to prevent unnecessary re-renders
       if (Object.keys(marketDataMap).length > 0) {
-        setMarketData(prev => ({ ...prev, ...marketDataMap }));
+        setMarketData(prev => {
+          // Check if any data actually changed before updating
+          let hasChanged = false;
+          const newData = { ...prev };
+          
+          Object.entries(marketDataMap).forEach(([symbol, data]) => {
+            if (!prev[symbol] || prev[symbol].price !== data.price || prev[symbol].timestamp !== data.timestamp) {
+              hasChanged = true;
+              newData[symbol] = data;
+            }
+          });
+          
+          // Only return new object if something actually changed
+          return hasChanged ? newData : prev;
+        });
         setError(null);
       }
       

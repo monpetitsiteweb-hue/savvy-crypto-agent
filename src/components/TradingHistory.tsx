@@ -521,14 +521,11 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
     const [loading, setLoading] = useState(true);
 
+    // Only depend on the specific price for this trade, not the entire marketData object
+    const tradeMarketData = marketData[trade.cryptocurrency];
+    const tradeCurrentPrice = currentPrices[trade.cryptocurrency];
+    
     useEffect(() => {
-      console.log('🚨 BLINKING: TradeCard useEffect triggered for', trade.cryptocurrency, 'Dependencies changed:', {
-        tradeId: trade.id,
-        currentPricesKeys: Object.keys(currentPrices),
-        marketDataKeys: Object.keys(marketData),
-        marketDataTimestamp: marketData[trade.cryptocurrency]?.timestamp
-      });
-      
       const loadPerformance = async () => {
         try {
           const perf = await calculateTradePerformance(trade);
@@ -541,7 +538,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
 
       loadPerformance();
-    }, [trade, currentPrices, marketData]);
+    }, [trade.id, tradeMarketData?.price, tradeCurrentPrice]); // Only depend on specific price, not entire objects
 
     if (loading || !performance) {
       return (
