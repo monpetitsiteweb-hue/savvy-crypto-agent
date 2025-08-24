@@ -26,7 +26,6 @@ import { Link } from 'react-router-dom';
 
 
 const Index = () => {
-  console.log('🚨 PARENT BLINKING: Index component rendering at', new Date().toISOString());
   const { user, loading } = useAuth();
   const { role, loading: roleLoading } = useUserRole();
   const { testMode, setTestMode } = useTestMode();
@@ -34,17 +33,15 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
-  console.log('🔵 INDEX: DETAILED AUTH STATE CHECK', { 
+  
+  console.log('🔵 INDEX: AUTH STATE CHECK', { 
     user: user ? { id: user.id, email: user.email } : null, 
     userExists: !!user,
     loading, 
     testMode,
-    testModeFromLocalStorage: localStorage.getItem('global-test-mode'),
     roleLoading,
     role
   });
-  
-  console.log('🔵 INDEX: REMOVED useTestTrading call to fix infinite loop blinking issue');
 
   if (loading || roleLoading) {
     return (

@@ -62,8 +62,6 @@ interface TradingHistoryProps {
 }
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
-  console.log('🚨 BLINKING: TradingHistory render attempt');
-  
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { toast } = useToast();
@@ -75,8 +73,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   const { getCurrentData, marketData } = useRealTimeMarketData();
   const [feeRate, setFeeRate] = useState<number>(0);
-  
-  console.log('🚨 BLINKING: All hooks completed, marketData keys:', Object.keys(marketData || {}));
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
