@@ -12,8 +12,7 @@ import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
-import { CorruptionWarning } from './CorruptionWarning';
-import { checkIntegrity } from '@/utils/valuationService';
+import { checkIntegrity, calculateValuation } from '@/utils/valuationService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertTriangle } from 'lucide-react';
 
@@ -162,42 +161,36 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     fetchAllPastTrades();
   }, [user]);
 
-  // PHASE 2: Use ValuationService for consistent P&L calculations
+  // Use ValuationService for all P&L calculations (single source of truth)
   const calculateTradePerformance = (trade: Trade): TradePerformance => {
     
     if (trade.trade_type === 'sell') {
-      // Check if this is an automated trade without P&L data
-      const isAutomatedWithoutPnL = !trade.original_purchase_value && trade.strategy_trigger;
-      
-      if (isAutomatedWithoutPnL) {
-        // Show automated trade with available data
+      // Past Positions: Use stored snapshot data when available
+      if (trade.original_purchase_value && trade.original_purchase_price) {
         return {
-          currentPrice: trade.price,
-          currentValue: trade.total_value, // Exit value
-          purchaseValue: null, // Mark as unknown
-          purchasePrice: null, // Mark as unknown  
-          gainLoss: null, // Mark as unknown
-          gainLossPercentage: null, // Mark as unknown
-          isAutomatedWithoutPnL: true
+          currentPrice: trade.price, // Exit price
+          currentValue: trade.total_value, // Exit value  
+          purchaseValue: trade.original_purchase_value,
+          purchasePrice: trade.original_purchase_price,
+          gainLoss: trade.realized_pnl || ((trade.total_value || 0) - (trade.original_purchase_value || 0)),
+          gainLossPercentage: trade.realized_pnl_pct || (trade.original_purchase_price > 0 ? ((trade.price / trade.original_purchase_price) - 1) * 100 : 0),
+          isAutomatedWithoutPnL: false
         };
       }
       
-      // Past Positions: Use STORED snapshot data from past_positions_view
-      // All values are pre-calculated and stored at trade execution time
+      // Fallback for automated trades without P&L data
       return {
-        currentPrice: trade.price, // This is exit_price from the view
-        currentValue: trade.total_value, // This is exit_value from the view
-        purchaseValue: trade.original_purchase_value || 0, // Stored purchase value
-        purchasePrice: trade.original_purchase_price || 0, // Stored purchase price
-        gainLoss: trade.realized_pnl || 0, // Stored realized P&L (net of fees)
-        gainLossPercentage: trade.realized_pnl_pct || 0, // Stored P&L percentage
-        isAutomatedWithoutPnL: false
+        currentPrice: trade.price,
+        currentValue: trade.total_value,
+        purchaseValue: null,
+        purchasePrice: null,  
+        gainLoss: null,
+        gainLossPercentage: null,
+        isAutomatedWithoutPnL: true
       };
     }
     
-    // CRITICAL FIX: For BUY trades (open positions), apply integrity checks
-    
-    // Check integrity first and exclude corrupted positions
+    // For BUY trades (open positions): Check integrity first
     const integrityCheck = checkIntegrity({
       symbol: trade.cryptocurrency,
       amount: trade.amount,
@@ -205,30 +198,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       purchase_value: trade.total_value
     });
 
-    if (!integrityCheck.is_valid) {
-      console.warn('🛡️ HISTORY: Corrupted position detected:', integrityCheck.errors);
-      // CRITICAL FIX: Show actual values but mark as corrupted (KPIs exclude, UI shows values)
-      const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
-      const current_value = trade.amount * currentMarketPrice;
-      const pnl_eur = current_value - trade.total_value;
-      const pnl_pct = trade.price > 0 ? ((currentMarketPrice / trade.price) - 1) * 100 : 0;
-      
-      return {
-        currentPrice: Math.round(currentMarketPrice * 100) / 100,
-        currentValue: Math.round(current_value * 100) / 100, // Show actual value, not zero
-        purchaseValue: trade.total_value,
-        purchasePrice: trade.price,
-        gainLoss: Math.round(pnl_eur * 100) / 100, // Show actual P&L, not zero
-        gainLossPercentage: Math.round(pnl_pct * 100) / 100,
-        isCorrupted: true,
-        corruptionReasons: integrityCheck.errors
-      } as TradePerformance;
-    }
-
-    // CRITICAL FIX: Use consistent ValuationService calculation for open positions
+    // Get current market price
     const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
     
-    // Apply the same formulas as ValuationService
+    // Apply ValuationService formulas directly (synchronously)
     const current_value = trade.amount * currentMarketPrice;
     const pnl_eur = current_value - trade.total_value;
     const pnl_pct = trade.price > 0 ? ((currentMarketPrice / trade.price) - 1) * 100 : 0;
@@ -239,7 +212,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       purchaseValue: trade.total_value,
       purchasePrice: trade.price,
       gainLoss: Math.round(pnl_eur * 100) / 100,
-      gainLossPercentage: Math.round(pnl_pct * 100) / 100
+      gainLossPercentage: Math.round(pnl_pct * 100) / 100,
+      isCorrupted: !integrityCheck.is_valid,
+      corruptionReasons: integrityCheck.errors
     };
   };
 
@@ -564,18 +539,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                   {trade.trade_type.toUpperCase()}
                 </Badge>
               </div>
-              <div className="font-medium text-white mt-1 flex items-center gap-2">
-                {trade.cryptocurrency}
-                <div className="flex items-center gap-1">
+              <div className="font-medium text-white mt-1">
+                <div className="flex items-center gap-2">
+                  <span>{trade.cryptocurrency}</span>
                   {performance.isCorrupted && (
                     <Badge variant="destructive" className="text-xs px-1 py-0">
                       <AlertTriangle className="w-3 h-3 mr-1" />
                       Corrupted
-                    </Badge>
-                  )}
-                  {trade.trade_type === 'buy' && testMode && performance.isCorrupted && (
-                    <Badge variant="secondary" className="text-xs px-1 py-0 bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
-                      🔒 Locked
                     </Badge>
                   )}
                 </div>
