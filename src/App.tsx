@@ -9,6 +9,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import AdminPage from "./pages/AdminPage";
 import ProfilePage from "./pages/ProfilePage";
+import ValidationPage from "./pages/ValidationPage";
 import NotFound from "./pages/NotFound";
 
 const App = () => (
@@ -24,6 +25,7 @@ const App = () => (
                 <Route path="/" element={<Index />} />
                 <Route path="/admin" element={<AdminPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/validation" element={<ValidationPage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>
