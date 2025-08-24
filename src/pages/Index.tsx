@@ -18,6 +18,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useTestMode } from '@/hooks/useTestMode';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
+import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Link2 } from 'lucide-react';
@@ -32,6 +33,9 @@ const Index = () => {
   const { hasActiveStrategy } = useActiveStrategy();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
+  
+  // ✅ START THE TRADING ENGINE! This was missing - that's why no trades happened
+  const { checkStrategiesAndExecute } = useIntelligentTradingEngine();
   
   
   console.log('🔵 INDEX: AUTH STATE CHECK', { 
