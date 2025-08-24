@@ -109,7 +109,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         };
       }
       
-      // Fallback for automated trades without P&L data
+      // Remove fallback logic - return null for incomplete data
       return {
         currentPrice: trade.price,
         currentValue: trade.total_value,
@@ -121,25 +121,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
     }
     
-  // For BUY trades (open positions): Calculate proper purchase price from wallet data
-  const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency];
-  
-  // CRITICAL FIX: Use wallet data for purchase price instead of corrupted €100 placeholders
-  let actualPurchasePrice = trade.price;
-  
-  // Check if this is corrupted placeholder data (exactly €100)
-  if (trade.price === 100) {
-    // Try to get real price from wallet balances or market data
-    const walletBalance = balances.find(b => b.currency === trade.cryptocurrency.replace('-EUR', ''));
-    if (walletBalance && walletBalance.amount > 0 && currentMarketPrice) {
-      // Use current market price as fallback for corrupted purchase price
-      actualPurchasePrice = currentMarketPrice;
-      // Corrupted price fixed (logging reduced to prevent spam)
-    }
-  }
-  
-  // Use current market price or fallback to purchase price
-  const displayCurrentPrice = currentMarketPrice || actualPurchasePrice;
+  // For BUY trades (open positions): Use exact trade data without fallbacks
+  const actualPurchasePrice = trade.price;
+  const displayCurrentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency];
     
     // Use ValuationService for all calculations with corrected purchase price
     const valuation = await calculateValuation({
@@ -160,12 +144,12 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return {
       currentPrice: displayCurrentPrice,
       currentValue: valuation.current_value,
-      purchaseValue: trade.amount * actualPurchasePrice, // Use corrected calculation
-      purchasePrice: actualPurchasePrice, // Use corrected price
+      purchaseValue: trade.amount * actualPurchasePrice,
+      purchasePrice: actualPurchasePrice,
       gainLoss: valuation.pnl_eur,
       gainLossPercentage: valuation.pnl_pct,
-      isCorrupted: !integrityCheck.is_valid || trade.price === 100, // Mark €100 as corrupted
-      corruptionReasons: trade.price === 100 ? ['€100 placeholder detected'] : integrityCheck.errors
+      isCorrupted: !integrityCheck.is_valid,
+      corruptionReasons: integrityCheck.errors
     };
   };
 
@@ -199,7 +183,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             ...trade,
             amount: remaining,
             total_value: trade.total_value * ratio,
-            fees: (trade.fees || 0) * ratio,
+            fees: 0, // Zero fees for all transactions
           });
         } else {
           closedCount += 1;
@@ -275,8 +259,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       // CRITICAL FIX: Apply regression guards and use deterministic pricing
       const { validateTradePrice, validatePurchaseValue, logValidationFailure } = await import('../utils/regressionGuards');
       
-      // Get current price with snapshot fallback for deterministic pricing
-      let currentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+      // Get current price from market data
+      let currentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency];
       
       // Try to get deterministic price from snapshots first
       try {
@@ -334,7 +318,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         amount: trade.amount,
         price: currentPrice,
         total_value: sellAmount,
-        fees: sellAmount * feeRate,
+        fees: 0, // Zero fees for all transactions
         executed_at: new Date().toISOString(),
         is_test_mode: true,
         notes: `Manual sell from History panel`
@@ -432,10 +416,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         .single();
 
       if (profile) {
-        // CRITICAL FIX: Zero fees for Coinbase Pro accounts in test mode
-        const effectiveFeeRate = (profile.account_type === 'COINBASE_PRO' || testMode) ? 0 : (profile.fee_rate || 0);
-        setFeeRate(effectiveFeeRate);
-        console.log('📊 HISTORY: User fee rate set to', effectiveFeeRate, '- Account type:', profile.account_type, '- Test mode:', testMode);
+        setFeeRate(0); // Always zero fees
+        console.log('📊 HISTORY: Fees set to 0.00 for all transactions');
       }
     } catch (error) {
       console.error('❌ HISTORY: Error fetching user profile:', error);
