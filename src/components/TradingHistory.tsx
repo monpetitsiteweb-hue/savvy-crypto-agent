@@ -62,13 +62,21 @@ interface TradingHistoryProps {
 }
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
+  console.log('🚨 BLINKING: TradingHistory render attempt');
+  
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { toast } = useToast();
   const { handleCoordinatorResponse } = useCoordinatorToast();
-  const { getTotalValue } = useMockWallet();
+  
+  // TEMPORARILY REMOVE useMockWallet - it's throwing errors and might cause re-renders
+  // const { getTotalValue } = useMockWallet();
+  const getTotalValue = () => 0; // Temporary fallback
+  
   const { getCurrentData, marketData } = useRealTimeMarketData();
   const [feeRate, setFeeRate] = useState<number>(0);
+  
+  console.log('🚨 BLINKING: All hooks completed, marketData keys:', Object.keys(marketData || {}));
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);

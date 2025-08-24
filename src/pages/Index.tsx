@@ -26,7 +26,7 @@ import { Link } from 'react-router-dom';
 
 
 const Index = () => {
-  console.log('🔵 INDEX: Component rendering started');
+  console.log('🚨 PARENT BLINKING: Index component rendering at', new Date().toISOString());
   const { user, loading } = useAuth();
   const { role, loading: roleLoading } = useUserRole();
   const { testMode, setTestMode } = useTestMode();
