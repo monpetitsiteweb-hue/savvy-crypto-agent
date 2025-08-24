@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -431,39 +431,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   }, [user, testMode]);
 
-  // Real-time subscription to mock_trades changes (throttled to prevent blinking)
+  // Remove real-time subscription that causes constant blinking
+  // Real-time updates will only happen on manual refresh
   useEffect(() => {
     if (!user) return;
 
-    console.log('🔄 HISTORY: Setting up real-time subscription for user:', user.id);
+    console.log('🔄 HISTORY: Real-time subscription disabled to prevent blinking');
 
-    let refreshTimeout: NodeJS.Timeout;
-
-    const channel = supabase
-      .channel('mock_trades_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'mock_trades',
-          filter: `user_id=eq.${user.id}`
-        },
-        (payload) => {
-          console.log('🔄 HISTORY: Real-time change detected:', payload.eventType);
-          // Throttle updates to prevent constant blinking
-          clearTimeout(refreshTimeout);
-          refreshTimeout = setTimeout(() => {
-            fetchTradingHistory();
-          }, 1000); // Wait 1 second before refreshing
-        }
-      )
-      .subscribe();
-
+    // Only manual refresh, no automatic real-time updates
     return () => {
-      console.log('🔄 HISTORY: Cleaning up real-time subscription');
-      clearTimeout(refreshTimeout);
-      supabase.removeChannel(channel);
+      console.log('🔄 HISTORY: No cleanup needed - real-time disabled');
     };
   }, [user]);
 
@@ -518,11 +495,12 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     );
   };
 
-  // TradeCard component for rendering individual trades
+  // TradeCard component for rendering individual trades - STABLE VERSION
   const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [initialLoad, setInitialLoad] = useState(true);
 
+    // Calculate performance only once on mount - prevent constant re-calculations
     useEffect(() => {
       const loadPerformance = async () => {
         try {
@@ -531,18 +509,23 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         } catch (error) {
           console.error('Error calculating trade performance:', error);
         } finally {
-          setLoading(false);
+          setInitialLoad(false);
         }
       };
 
-      loadPerformance();
-    }, [trade, currentPrices, marketData]);
+      if (initialLoad) {
+        loadPerformance();
+      }
+    }, [trade.id, initialLoad]); // Only depend on trade.id, not market data
 
-    if (loading || !performance) {
+    if (initialLoad || !performance) {
       return (
-        <Card className="p-4 animate-pulse">
-          <div className="h-4 bg-muted rounded w-1/3 mb-2"></div>
-          <div className="h-3 bg-muted rounded w-1/2"></div>
+        <Card className="p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-muted animate-pulse" />
+            <div className="h-4 bg-muted rounded w-24 animate-pulse" />
+          </div>
+          <div className="h-3 bg-muted rounded w-32 animate-pulse" />
         </Card>
       );
     }
@@ -671,8 +654,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
-  const openPositions = getOpenPositionsList();
-  const pastPositions = trades.filter(t => t.trade_type === 'sell');
+  const openPositions = useMemo(() => getOpenPositionsList(), [trades]);
+  const pastPositions = useMemo(() => trades.filter(t => t.trade_type === 'sell'), [trades]);
 
   return (
     <Card className="p-6">
