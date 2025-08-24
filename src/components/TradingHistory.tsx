@@ -62,9 +62,6 @@ interface TradingHistoryProps {
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
   console.log('🔍 TradingHistory: Component rendering started');
-  console.log('🔍 TradingHistory: TradeCard type:', typeof TradeCard);
-  console.log('🔍 TradingHistory: TradeCard value:', TradeCard);
-  console.log('🔍 TradingHistory: TradeCard is function:', typeof TradeCard === 'function');
   console.log('🔍 TradingHistory: hasActiveStrategy:', hasActiveStrategy, 'onCreateStrategy:', onCreateStrategy);
   
   const { user } = useAuth();
@@ -360,7 +357,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   };
 
   // Fetch trading history with proper error handling
-  const fetchTradingHistory = async () => {
+  const fetchTradingHistory = useCallback(async () => {
     if (!user) return;
 
     try {
@@ -417,10 +414,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, calculateTradePerformance, getOpenPositionsList, computeRealizedPLFIFO, computeUnrealizedPLFromOpenLots, toast]);
 
   // Fetch user profile data
-  const fetchUserProfile = async () => {
+  const fetchUserProfile = useCallback(async () => {
     if (!user) return;
 
     try {
@@ -439,7 +436,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     } catch (error) {
       console.error('❌ HISTORY: Error fetching user profile:', error);
     }
-  };
+  }, [user, testMode]);
 
   // Load data on component mount and when user changes
   useEffect(() => {
@@ -448,7 +445,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       fetchTradingHistory();
       fetchUserProfile();
     }
-  }, [user, testMode]);
+  }, [user, testMode, fetchTradingHistory, fetchUserProfile]);
 
   // Real-time subscription with throttling to prevent blinking
   useEffect(() => {
