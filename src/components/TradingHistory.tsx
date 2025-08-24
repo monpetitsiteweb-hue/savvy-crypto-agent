@@ -391,9 +391,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       console.log('✅ HISTORY: Fetched', data?.length || 0, 'trades');
       setTrades(data || []);
 
-      // Calculate stats with ValuationService
+      // Calculate stats with ValuationService - USE DATA DIRECTLY NOT STATE
       if (data && data.length > 0) {
-        const openPositions = getOpenPositionsList();
+        const { openLots } = buildFifoLots(data);
+        const openPositions = openLots.sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime());
         const realizedPL = computeRealizedPLFIFO(data);
         const { unrealizedPL, invested } = await computeUnrealizedPLFromOpenLots(openPositions);
 
