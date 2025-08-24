@@ -11,10 +11,7 @@ import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
-import { TradeCard } from './trading/TradeCard';
-console.log('🔍 IMPORT DEBUG: TradeCard imported as:', TradeCard);
-console.log('🔍 IMPORT DEBUG: TradeCard type:', typeof TradeCard);
-console.log('🔍 IMPORT DEBUG: TradeCard is function:', typeof TradeCard === 'function');
+import { TradeCard } from './trading';
 import { checkIntegrity, calculateValuation } from '@/utils/valuationService';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 
@@ -64,7 +61,10 @@ interface TradingHistoryProps {
 
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
-  console.log('🔍 TradingHistory: Component rendering started, TradeCard:', TradeCard);
+  console.log('🔍 TradingHistory: Component rendering started');
+  console.log('🔍 TradingHistory: TradeCard type:', typeof TradeCard);
+  console.log('🔍 TradingHistory: TradeCard value:', TradeCard);
+  console.log('🔍 TradingHistory: TradeCard is function:', typeof TradeCard === 'function');
   console.log('🔍 TradingHistory: hasActiveStrategy:', hasActiveStrategy, 'onCreateStrategy:', onCreateStrategy);
   
   const { user } = useAuth();
