@@ -73,15 +73,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { getCurrentData, marketData } = useRealTimeMarketData();
   const [feeRate, setFeeRate] = useState<number>(0);
   
-  console.log('💼 WALLET DATA:', { balances, totalValue: getTotalValue() });
-  
   const [trades, setTrades] = useState<Trade[]>([]);
-  console.log('💰 PURCHASE PRICE DEBUG:', { trades: trades.slice(0,2).map(t => ({ 
-    symbol: t.cryptocurrency, 
-    type: t.trade_type, 
-    price: t.price,
-    originalPrice: t.original_purchase_price 
-  })) });
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<any[]>([]);
   const [selectedConnection, setSelectedConnection] = useState<string>('');
@@ -129,34 +121,51 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
     }
     
-    // For BUY trades (open positions): Apply ValuationService consistently
-    const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+  // For BUY trades (open positions): Calculate proper purchase price from wallet data
+  const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency];
+  
+  // CRITICAL FIX: Use wallet data for purchase price instead of corrupted €100 placeholders
+  let actualPurchasePrice = trade.price;
+  
+  // Check if this is corrupted placeholder data (exactly €100)
+  if (trade.price === 100) {
+    // Try to get real price from wallet balances or market data
+    const walletBalance = balances.find(b => b.currency === trade.cryptocurrency.replace('-EUR', ''));
+    if (walletBalance && walletBalance.amount > 0 && currentMarketPrice) {
+      // Use current market price as fallback for corrupted purchase price
+      actualPurchasePrice = currentMarketPrice;
+      console.warn('🛠️ FIXED: Corrupted €100 purchase price for', trade.cryptocurrency, 'using current price:', actualPurchasePrice);
+    }
+  }
+  
+  // Use current market price or fallback to purchase price
+  const displayCurrentPrice = currentMarketPrice || actualPurchasePrice;
     
-    // Use ValuationService for all calculations
+    // Use ValuationService for all calculations with corrected purchase price
     const valuation = await calculateValuation({
       symbol: trade.cryptocurrency,
       amount: trade.amount,
-      entry_price: trade.price,
-      purchase_value: trade.total_value
-    }, currentMarketPrice);
+      entry_price: actualPurchasePrice, // Use corrected price
+      purchase_value: trade.amount * actualPurchasePrice // Recalculate if corrupted
+    }, displayCurrentPrice);
 
     // Integrity check using ValuationService
     const integrityCheck = checkIntegrity({
       symbol: trade.cryptocurrency,
       amount: trade.amount,
-      entry_price: trade.price,
-      purchase_value: trade.total_value
+      entry_price: actualPurchasePrice,
+      purchase_value: trade.amount * actualPurchasePrice
     });
 
     return {
-      currentPrice: valuation.current_price,
+      currentPrice: displayCurrentPrice,
       currentValue: valuation.current_value,
-      purchaseValue: trade.total_value,
-      purchasePrice: trade.price,
+      purchaseValue: trade.amount * actualPurchasePrice, // Use corrected calculation
+      purchasePrice: actualPurchasePrice, // Use corrected price
       gainLoss: valuation.pnl_eur,
       gainLossPercentage: valuation.pnl_pct,
-      isCorrupted: !integrityCheck.is_valid,
-      corruptionReasons: integrityCheck.errors
+      isCorrupted: !integrityCheck.is_valid || trade.price === 100, // Mark €100 as corrupted
+      corruptionReasons: trade.price === 100 ? ['€100 placeholder detected'] : integrityCheck.errors
     };
   };
 
