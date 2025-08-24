@@ -444,21 +444,24 @@ async function executeTradeOrder(
     let realMarketPrice: number;
     const symbol = intent.symbol.replace('-EUR', '');
     
+    // CRITICAL FIX: Add -EUR suffix to symbol for Coinbase API
+    const coinbaseSymbol = intent.symbol.includes('-EUR') ? intent.symbol : `${intent.symbol}-EUR`;
+    
     // MANDATORY: Get real market price from Coinbase API
     try {
-      const response = await fetch(`https://api.exchange.coinbase.com/products/${intent.symbol}/ticker`);
+      const response = await fetch(`https://api.exchange.coinbase.com/products/${coinbaseSymbol}/ticker`);
       if (response.ok) {
         const data = await response.json();
         realMarketPrice = parseFloat(data.price);
         if (!realMarketPrice || realMarketPrice <= 0) {
           throw new Error(`Invalid price received: ${data.price}`);
         }
-        console.log(`💱 COORDINATOR: Got real price for ${intent.symbol}: €${realMarketPrice}`);
+        console.log(`💱 COORDINATOR: Got real price for ${coinbaseSymbol}: €${realMarketPrice}`);
       } else {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
     } catch (priceError) {
-      console.error(`❌ COORDINATOR: FAILED to fetch price for ${intent.symbol}:`, priceError.message);
+      console.error(`❌ COORDINATOR: FAILED to fetch price for ${coinbaseSymbol}:`, priceError.message);
       throw new Error(`Cannot execute trade without real market price for ${intent.symbol}: ${priceError.message}`);
     }
     
