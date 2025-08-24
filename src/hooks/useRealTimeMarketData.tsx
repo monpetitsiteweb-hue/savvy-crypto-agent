@@ -31,15 +31,32 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
 
   const getCurrentData = useCallback(async (symbols: string[]): Promise<Record<string, MarketData>> => {
     try {
-      // Use a direct API call to a reliable crypto price source as fallback
-      console.log('🔍 Fetching current market data for symbols:', symbols);
+      // Normalize symbols to Coinbase format (add -EUR if missing)
+      const normalizedSymbols = symbols.map(symbol => {
+        if (symbol.includes('-')) return symbol;
+        return `${symbol}-EUR`;
+      });
+
+      // Filter out invalid symbols that cause 404s
+      const validSymbols = normalizedSymbols.filter(symbol => {
+        const validCoinbaseSymbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 
+                                     'DOT-EUR', 'MATIC-EUR', 'AVAX-EUR', 'LINK-EUR', 'LTC-EUR'];
+        return validCoinbaseSymbols.includes(symbol);
+      });
+
+      if (validSymbols.length === 0) {
+        console.warn('No valid symbols to fetch');
+        return {};
+      }
+
+      console.log('🔍 Fetching market data for valid symbols:', validSymbols);
       
       // Add delay between requests to avoid rate limiting
-      const promises = symbols.map(async (symbol, index) => {
+      const promises = validSymbols.map(async (symbol, index) => {
         try {
           // Stagger requests to avoid overwhelming the API
           if (index > 0) {
-            await new Promise(resolve => setTimeout(resolve, 100 * index));
+            await new Promise(resolve => setTimeout(resolve, 200 * index));
           }
           
           const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
@@ -61,12 +78,13 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
               }
             };
           } else if (response.status === 429) {
-            console.warn(`⚠️  Rate limited for ${symbol}, using cached data`);
+            console.warn(`⚠️  Rate limited for ${symbol}, skipping update`);
             return { [symbol]: null };
           }
-          throw new Error(`Failed to fetch ${symbol}`);
+          console.warn(`API error for ${symbol}: ${response.status}`);
+          return { [symbol]: null };
         } catch (err) {
-          console.error(`Error fetching ${symbol}:`, err);
+          console.warn(`Network error for ${symbol}:`, err);
           return { [symbol]: null };
         }
       });
@@ -80,16 +98,16 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
         return acc;
       }, {} as Record<string, MarketData>);
 
-      console.log('📈 Fetched market data:', marketDataMap);
-      
-      // Update local state with current data
-      setMarketData(prev => ({ ...prev, ...marketDataMap }));
-      setError(null);
+      // Only update state if we have new data to prevent unnecessary re-renders
+      if (Object.keys(marketDataMap).length > 0) {
+        setMarketData(prev => ({ ...prev, ...marketDataMap }));
+        setError(null);
+      }
       
       return marketDataMap;
     } catch (err) {
       console.error('Error in getCurrentData:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      // Don't update error state too frequently to prevent re-renders
       return {};
     }
   }, []);
