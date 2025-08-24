@@ -117,17 +117,37 @@ serve(async (req) => {
       });
     }
 
-    // Acquire advisory lock for this {user, strategy, symbol} combination
+    // CRITICAL: Shorter lock timeout and queue mechanism to reduce contention
     const lockKey = generateLockKey(intent.userId, intent.strategyId, intent.symbol);
     console.log(`🔒 COORDINATOR: Acquiring lock for key: ${lockKey}`);
 
-    // CRITICAL: Shorter lock timeout to reduce contention
-    const { data: lockResult } = await supabaseClient.rpc('pg_try_advisory_lock', {
-      key: lockKey
-    });
+    // Add exponential backoff with jitter for lock contention
+    const maxRetries = 3;
+    let lockAcquired = false;
+    let retryCount = 0;
 
-    if (!lockResult) {
-      console.log('⏳ COORDINATOR: Could not acquire lock, concurrent processing detected');
+    while (!lockAcquired && retryCount < maxRetries) {
+      const { data: lockResult } = await supabaseClient.rpc('pg_try_advisory_lock', {
+        key: lockKey
+      });
+
+      if (lockResult) {
+        lockAcquired = true;
+        break;
+      }
+
+      // Exponential backoff with jitter (50-200ms)
+      const baseDelay = 50;
+      const jitter = Math.random() * 150;
+      const delay = baseDelay + jitter + (retryCount * 50);
+      
+      console.log(`⏳ COORDINATOR: Lock contention, retry ${retryCount + 1}/${maxRetries} after ${delay}ms`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      retryCount++;
+    }
+
+    if (!lockAcquired) {
+      console.log('⏳ COORDINATOR: Could not acquire lock after retries, concurrent processing detected');
       // CRITICAL: Return HTTP 200 with HOLD decision, not 429
       
       // Log the blocked decision
@@ -145,7 +165,8 @@ serve(async (req) => {
           metadata: {
             ...intent.metadata,
             request_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            lock_key: lockKey
+            lock_key: lockKey,
+            retry_count: retryCount
           }
         });
       
