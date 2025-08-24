@@ -14,10 +14,9 @@ import { Trash2, Edit, Plus, RefreshCw, TestTube } from 'lucide-react';
 
 interface Connection {
   id: string;
-  connection_type: string;
+  api_name_encrypted: string;
   connected_at: string;
   is_active: boolean;
-  user_id: string;
 }
 
 interface PortfolioData {
@@ -92,8 +91,8 @@ export const DashboardPanel = () => {
     
     try {
       const { data, error } = await supabase
-        .from('user_connections_safe')
-        .select('id, is_active, connected_at, user_id, connection_type')
+        .from('user_coinbase_connections')
+        .select('id, is_active, connected_at, user_id, api_name_encrypted')
         .eq('user_id', user.id)
         .eq('is_active', true)
         .order('connected_at', { ascending: false });
@@ -298,8 +297,8 @@ export const DashboardPanel = () => {
     // Find the connection and allow editing the API name
     const connection = connections.find(c => c.id === connectionId);
     if (connection) {
-      const newName = prompt("Enter new connection name:", connection.connection_type || "");
-      if (newName && newName !== connection.connection_type) {
+      const newName = prompt("Enter new connection name:", connection.api_name_encrypted || "");
+      if (newName && newName !== connection.api_name_encrypted) {
         updateConnectionName(connectionId, newName);
       }
     }
@@ -307,19 +306,23 @@ export const DashboardPanel = () => {
 
   const updateConnectionName = async (connectionId: string, newName: string) => {
     try {
-      // Use the secure admin function to update connection names
-      console.warn('Connection name updates are restricted for security. Displaying as:', newName);
-      
+      const { error } = await supabase
+        .from('user_coinbase_connections')
+        .update({ api_name_encrypted: newName })
+        .eq('id', connectionId);
+
+      if (error) throw error;
+
       toast({
         title: "Connection Updated",
-        description: "Connection display updated (name changes are restricted for security)",
+        description: "Connection name updated successfully",
       });
       
       fetchConnections(); // Refresh the list
     } catch (error) {
       console.error('Error updating connection:', error);
       toast({
-        title: "Error", 
+        title: "Error",
         description: "Failed to update connection name",
         variant: "destructive",
       });
@@ -367,7 +370,7 @@ export const DashboardPanel = () => {
               <div key={connection.id} className="flex items-center justify-between p-4 bg-slate-700/50 rounded-lg border border-slate-600/50">
                 <div className="flex items-center space-x-3">
                   <Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">
-                    {connection.connection_type || 'Coinbase Connection'}
+                    {connection.api_name_encrypted || 'Coinbase Connection'}
                   </Badge>
                   <span className="text-sm text-slate-300">
                     Connected {new Date(connection.connected_at).toLocaleDateString()}
@@ -427,9 +430,9 @@ export const DashboardPanel = () => {
                   </SelectTrigger>
                   <SelectContent>
                     {connections.map((connection) => (
-                    <SelectItem key={connection.id} value={connection.id}>
-                      {connection.connection_type || 'Coinbase Account'}
-                    </SelectItem>
+                      <SelectItem key={connection.id} value={connection.id}>
+                        {connection.api_name_encrypted || 'Coinbase Account'}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

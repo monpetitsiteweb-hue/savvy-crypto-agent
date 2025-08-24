@@ -34,7 +34,7 @@ interface ProfileData {
 
 interface ConnectionData {
   id: string;
-  connection_type: string;
+  api_name_encrypted: string | null;
   is_active: boolean;
   connected_at: string;
 }
@@ -132,8 +132,8 @@ const ProfilePage = () => {
 
     try {
       const { data, error } = await supabase
-        .from('user_connections_safe')
-        .select('id, connection_type, is_active, connected_at')
+        .from('user_coinbase_connections')
+        .select('id, api_name_encrypted, is_active, connected_at')
         .eq('user_id', user.id)
         .order('connected_at', { ascending: false });
 

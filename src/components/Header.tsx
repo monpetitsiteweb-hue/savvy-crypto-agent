@@ -29,8 +29,8 @@ export const Header = () => {
 
       try {
         const { data, error } = await supabase
-          .from('user_connections_safe')
-          .select('is_active, has_credentials')
+          .from('user_coinbase_connections')
+          .select('is_active, expires_at, access_token_encrypted, api_private_key_encrypted')
           .eq('user_id', user.id)
           .eq('is_active', true);
 
@@ -38,9 +38,17 @@ export const Header = () => {
           console.error('Error checking Coinbase connection:', error);
           setIsConnectedToCoinbase(false);
         } else {
-          // Check if any connection has valid credentials
+          // Check if any connection is valid (either API key or non-expired OAuth)
           const hasValidConnection = data && data.some(conn => {
-            return conn.has_credentials;
+            // API key connections (no expiry) are always valid if active
+            if (conn.api_private_key_encrypted) {
+              return true;
+            }
+            // OAuth connections must not be expired
+            if (conn.access_token_encrypted && conn.expires_at) {
+              return new Date(conn.expires_at) > new Date();
+            }
+            return false;
           });
           setIsConnectedToCoinbase(!!hasValidConnection);
         }
