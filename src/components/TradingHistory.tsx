@@ -14,6 +14,8 @@ import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 import { CorruptionWarning } from './CorruptionWarning';
 import { checkIntegrity } from '@/utils/valuationService';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { AlertTriangle } from 'lucide-react';
 
 interface Trade {
   id: string;
@@ -205,15 +207,19 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
     if (!integrityCheck.is_valid) {
       console.warn('🛡️ HISTORY: Corrupted position detected:', integrityCheck.errors);
-      // Mark as corrupted but still display with warning
+      // CRITICAL FIX: Show actual values but mark as corrupted (KPIs exclude, UI shows values)
       const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+      const current_value = trade.amount * currentMarketPrice;
+      const pnl_eur = current_value - trade.total_value;
+      const pnl_pct = trade.price > 0 ? ((currentMarketPrice / trade.price) - 1) * 100 : 0;
+      
       return {
-        currentPrice: currentMarketPrice,
-        currentValue: 0, // Set to 0 to exclude from totals
+        currentPrice: Math.round(currentMarketPrice * 100) / 100,
+        currentValue: Math.round(current_value * 100) / 100, // Show actual value, not zero
         purchaseValue: trade.total_value,
         purchasePrice: trade.price,
-        gainLoss: 0, // Set to 0 to exclude from totals
-        gainLossPercentage: 0,
+        gainLoss: Math.round(pnl_eur * 100) / 100, // Show actual P&L, not zero
+        gainLossPercentage: Math.round(pnl_pct * 100) / 100,
         isCorrupted: true,
         corruptionReasons: integrityCheck.errors
       } as TradePerformance;
@@ -558,12 +564,21 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                   {trade.trade_type.toUpperCase()}
                 </Badge>
               </div>
-              <div className="font-medium text-white mt-1 flex items-center gap-1">
+              <div className="font-medium text-white mt-1 flex items-center gap-2">
                 {trade.cryptocurrency}
-                <CorruptionWarning 
-                  isCorrupted={performance.isCorrupted} 
-                  integrityReason={performance.corruptionReasons?.join('; ')}
-                />
+                <div className="flex items-center gap-1">
+                  {performance.isCorrupted && (
+                    <Badge variant="destructive" className="text-xs px-1 py-0">
+                      <AlertTriangle className="w-3 h-3 mr-1" />
+                      Corrupted
+                    </Badge>
+                  )}
+                  {trade.trade_type === 'buy' && testMode && performance.isCorrupted && (
+                    <Badge variant="secondary" className="text-xs px-1 py-0 bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
+                      🔒 Locked
+                    </Badge>
+                  )}
+                </div>
               </div>
             </div>
             
@@ -652,21 +667,25 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             <div className="col-span-1">
               {trade.trade_type === 'buy' && testMode && (
                 performance.isCorrupted ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled
-                    className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-not-allowed"
-                    onClick={() => {
-                      toast({
-                        title: "Trade Locked",
-                        description: "Position corrupted - cannot sell until data integrity is restored",
-                        variant: "destructive",
-                      });
-                    }}
-                  >
-                    🔒 Locked
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled
+                        className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-not-allowed"
+                      >
+                        🔒 Locked
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-sm max-w-xs">
+                        <strong>Position Locked</strong><br />
+                        Reason: {performance.corruptionReasons?.join('; ')}<br />
+                        Cannot trade until data integrity is restored.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
                 ) : (
                   <Button
                     onClick={() => sellPosition(trade)}
@@ -1248,7 +1267,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   }
 
   return (
-    <div className="space-y-6">
+    <TooltipProvider>
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -1452,6 +1472,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           </p>
         </div>
       )}
-    </div>
+      </div>
+    </TooltipProvider>
   );
 };
