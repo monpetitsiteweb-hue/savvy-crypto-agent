@@ -67,12 +67,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { toast } = useToast();
   const { handleCoordinatorResponse } = useCoordinatorToast();
   
-  // TEMPORARILY REMOVE useMockWallet - it's throwing errors and might cause re-renders
-  // const { getTotalValue } = useMockWallet();
-  const getTotalValue = () => 0; // Temporary fallback
+  // RESTORED: useMockWallet provides real portfolio data (not related to blinking issue)
+  const { getTotalValue, balances } = useMockWallet();
   
   const { getCurrentData, marketData } = useRealTimeMarketData();
   const [feeRate, setFeeRate] = useState<number>(0);
+  
+  console.log('💼 WALLET DATA:', { balances, totalValue: getTotalValue() });
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
