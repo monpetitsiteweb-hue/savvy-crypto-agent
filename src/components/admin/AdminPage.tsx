@@ -1,14 +1,13 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Shield, Settings, Database, Bot, Zap, Brain, Users, Monitor } from 'lucide-react';
+import { Shield, Settings, Database, Bot, Zap, Brain, Users } from 'lucide-react';
 import { CoinbaseOAuthPanel } from './CoinbaseOAuthPanel';
 import { CoinbaseSandboxPanel } from './CoinbaseSandboxPanel';
 import { LLMConfigPanel } from './LLMConfigPanel';
 import { DataSourcesPanel } from './DataSourcesPanel';
 import { AILearningPanel } from './AILearningPanel';
 import { CustomerManagementPanel } from './CustomerManagementPanel';
-import { PLMonitoringPanel } from './PLMonitoringPanel';
 import { Header } from '../Header';
 import { Footer } from '../Footer';
 
@@ -33,16 +32,11 @@ export const AdminPage = () => {
           {/* Admin Tabs */}
           <Tabs defaultValue="customers" className="space-y-6">
             <TabsList className="w-full bg-slate-800 overflow-x-auto">
-              <div className="grid grid-cols-3 md:grid-cols-7 gap-1 min-w-full">{/* Gap for smaller screens */}
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-1 min-w-full">{/* Gap for smaller screens */}
                 <TabsTrigger value="customers" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
                   <Users className="w-4 h-4" />
                   <span className="hidden sm:inline">Customers</span>
                   <span className="sm:hidden">Users</span>
-                </TabsTrigger>
-                <TabsTrigger value="monitoring" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
-                  <Monitor className="w-4 h-4" />
-                  <span className="hidden sm:inline">P&L Monitor</span>
-                  <span className="sm:hidden">P&L</span>
                 </TabsTrigger>
                 <TabsTrigger value="llm" className="flex items-center gap-1 md:gap-2 text-xs md:text-sm">
                   <Bot className="w-4 h-4" />
@@ -74,10 +68,6 @@ export const AdminPage = () => {
 
             <TabsContent value="customers">
               <CustomerManagementPanel />
-            </TabsContent>
-
-            <TabsContent value="monitoring">
-              <PLMonitoringPanel />
             </TabsContent>
 
             <TabsContent value="llm">

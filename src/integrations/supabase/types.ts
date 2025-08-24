@@ -252,54 +252,6 @@ export type Database = {
         }
         Relationships: []
       }
-      coin_pool_states: {
-        Row: {
-          config_snapshot: Json
-          created_at: string
-          high_water_price: number | null
-          id: string
-          is_armed: boolean
-          last_trailing_stop_price: number | null
-          runner_remaining_qty: number
-          secure_filled_qty: number
-          secure_target_qty: number
-          strategy_id: string
-          symbol: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          config_snapshot?: Json
-          created_at?: string
-          high_water_price?: number | null
-          id?: string
-          is_armed?: boolean
-          last_trailing_stop_price?: number | null
-          runner_remaining_qty?: number
-          secure_filled_qty?: number
-          secure_target_qty?: number
-          strategy_id: string
-          symbol: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          config_snapshot?: Json
-          created_at?: string
-          high_water_price?: number | null
-          id?: string
-          is_armed?: boolean
-          last_trailing_stop_price?: number | null
-          runner_remaining_qty?: number
-          secure_filled_qty?: number
-          secure_target_qty?: number
-          strategy_id?: string
-          symbol?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       coinbase_oauth_credentials: {
         Row: {
           app_name: string
@@ -662,8 +614,6 @@ export type Database = {
           exit_value: number | null
           fees: number | null
           id: string
-          integrity_reason: string | null
-          is_corrupted: boolean
           is_test_mode: boolean | null
           market_conditions: Json | null
           notes: string | null
@@ -689,8 +639,6 @@ export type Database = {
           exit_value?: number | null
           fees?: number | null
           id?: string
-          integrity_reason?: string | null
-          is_corrupted?: boolean
           is_test_mode?: boolean | null
           market_conditions?: Json | null
           notes?: string | null
@@ -716,8 +664,6 @@ export type Database = {
           exit_value?: number | null
           fees?: number | null
           id?: string
-          integrity_reason?: string | null
-          is_corrupted?: boolean
           is_test_mode?: boolean | null
           market_conditions?: Json | null
           notes?: string | null
@@ -744,51 +690,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      mock_trades_fix_audit: {
-        Row: {
-          created_at: string
-          id: string
-          new_amount: number | null
-          new_price: number | null
-          old_amount: number | null
-          old_price: number | null
-          reason: string
-          source: string
-          strategy_id: string | null
-          symbol: string | null
-          trade_id: string
-          user_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          new_amount?: number | null
-          new_price?: number | null
-          old_amount?: number | null
-          old_price?: number | null
-          reason: string
-          source: string
-          strategy_id?: string | null
-          symbol?: string | null
-          trade_id: string
-          user_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          new_amount?: number | null
-          new_price?: number | null
-          old_amount?: number | null
-          old_price?: number | null
-          reason?: string
-          source?: string
-          strategy_id?: string | null
-          symbol?: string | null
-          trade_id?: string
-          user_id?: string | null
-        }
-        Relationships: []
       }
       price_data: {
         Row: {
@@ -838,24 +739,6 @@ export type Database = {
           timestamp?: string
           user_id?: string
           volume?: number | null
-        }
-        Relationships: []
-      }
-      price_snapshots: {
-        Row: {
-          price: number
-          symbol: string
-          ts: string
-        }
-        Insert: {
-          price: number
-          symbol: string
-          ts: string
-        }
-        Update: {
-          price?: number
-          symbol?: string
-          ts?: string
         }
         Relationships: []
       }
@@ -1032,48 +915,6 @@ export type Database = {
           },
         ]
       }
-      trade_decisions_log: {
-        Row: {
-          confidence: number
-          created_at: string
-          decision_action: string
-          decision_reason: string | null
-          id: string
-          intent_side: string
-          intent_source: string
-          metadata: Json
-          strategy_id: string
-          symbol: string
-          user_id: string
-        }
-        Insert: {
-          confidence: number
-          created_at?: string
-          decision_action: string
-          decision_reason?: string | null
-          id?: string
-          intent_side: string
-          intent_source: string
-          metadata?: Json
-          strategy_id: string
-          symbol: string
-          user_id: string
-        }
-        Update: {
-          confidence?: number
-          created_at?: string
-          decision_action?: string
-          decision_reason?: string | null
-          id?: string
-          intent_side?: string
-          intent_source?: string
-          metadata?: Json
-          strategy_id?: string
-          symbol?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       trading_history: {
         Row: {
           amount: number
@@ -1161,7 +1002,6 @@ export type Database = {
           is_active_test: boolean | null
           strategy_name: string
           test_mode: boolean | null
-          unified_config: Json | null
           updated_at: string
           user_id: string
         }
@@ -1175,7 +1015,6 @@ export type Database = {
           is_active_test?: boolean | null
           strategy_name: string
           test_mode?: boolean | null
-          unified_config?: Json | null
           updated_at?: string
           user_id: string
         }
@@ -1189,7 +1028,6 @@ export type Database = {
           is_active_test?: boolean | null
           strategy_name?: string
           test_mode?: boolean | null
-          unified_config?: Json | null
           updated_at?: string
           user_id?: string
         }
@@ -1434,28 +1272,8 @@ export type Database = {
           user_id: string
         }[]
       }
-      armor: {
-        Args: { "": string }
-        Returns: string
-      }
-      dearmor: {
-        Args: { "": string }
-        Returns: string
-      }
       fetch_coinbase_connection_name: {
         Args: { connection_id: string }
-        Returns: string
-      }
-      gen_random_bytes: {
-        Args: { "": number }
-        Returns: string
-      }
-      gen_random_uuid: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      gen_salt: {
-        Args: { "": string }
         Returns: string
       }
       get_active_oauth_credentials: {
@@ -1475,22 +1293,6 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
-      }
-      pg_advisory_unlock: {
-        Args: { key: number }
-        Returns: boolean
-      }
-      pg_try_advisory_lock: {
-        Args: { key: number }
-        Returns: boolean
-      }
-      pgp_armor_headers: {
-        Args: { "": string }
-        Returns: Record<string, unknown>[]
-      }
-      pgp_key_id: {
-        Args: { "": string }
-        Returns: string
       }
       reset_mock_wallet_balances: {
         Args: { target_balance?: number }

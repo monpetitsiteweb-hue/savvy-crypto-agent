@@ -25,86 +25,58 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
-  console.log('🚨🚨🚨 AUTHPROVIDER: COMPONENT IS RENDERING!!! 🚨🚨🚨');
-  console.log('🔑 AUTHPROVIDER: Supabase client check:', !!supabase);
-  
+  console.log('🔑 AuthProvider: Component is mounting!');
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  console.log('🔑 AUTHPROVIDER: State initialized - Current values:', { user: !!user, session: !!session, loading });
-  console.log('🔑 AUTHPROVIDER: About to run useEffect');
+  console.log('🔑 AuthProvider: State initialized, about to run useEffect');
 
   useEffect(() => {
-    console.log('🔑 AUTHPROVIDER: === USEEFFECT STARTED ===');
+    console.log('🔑 AuthProvider: useEffect is running!');
     let mounted = true;
     
     const initializeAuth = async () => {
-      console.log('🔑 AUTHPROVIDER: initializeAuth starting');
       try {
-        console.log('🔑 AUTHPROVIDER: Calling supabase.auth.getSession()');
-        
-        if (!supabase?.auth) {
-          console.error('🔑 AUTHPROVIDER: CRITICAL - Supabase client or auth not available!');
-          setLoading(false);
-          return;
-        }
-        
+        // Get initial session
         const { data: { session }, error } = await supabase.auth.getSession();
-        console.log('🔑 AUTHPROVIDER: Session result - User:', session?.user?.email, 'Error:', error);
-        console.log('🔑 AUTHPROVIDER: Full session object:', session);
+        console.log('🔑 AuthProvider: Initial session check - User:', session?.user?.email, 'User ID:', session?.user?.id, 'Session exists:', !!session, 'Error:', error);
         
         if (mounted) {
-          console.log('🔑 AUTHPROVIDER: Setting states - mounted is true');
           setSession(session);
           setUser(session?.user ?? null);
           setLoading(false);
-          console.log('🔑 AUTHPROVIDER: States updated - User now:', !!session?.user, 'Email:', session?.user?.email);
-        } else {
-          console.log('🔑 AUTHPROVIDER: Component unmounted, skipping state update');
         }
       } catch (err) {
-        console.error('🔑 AUTHPROVIDER: ERROR in initializeAuth:', err);
+        console.error('🔑 AuthProvider: Error getting session:', err);
         if (mounted) {
           setLoading(false);
         }
       }
     };
     
-    console.log('🔑 AUTHPROVIDER: Setting up auth state listener');
     // Set up auth state listener first
-    try {
-      const {
-        data: { subscription },
-      } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log('🔑 AUTHPROVIDER: Auth state change event:', event, 'Session:', !!session);
-        console.log('🔑 AUTHPROVIDER: Auth change - User email:', session?.user?.email);
-        if (mounted) {
-          setSession(session);
-          setUser(session?.user ?? null);
-          setLoading(false);
-          console.log('🔑 AUTHPROVIDER: Auth state updated via listener - User now:', !!session?.user);
-        }
-      });
-
-      console.log('🔑 AUTHPROVIDER: Auth listener set up, calling initializeAuth');
-      // Initialize auth immediately 
-      initializeAuth();
-
-      return () => {
-        console.log('🔑 AUTHPROVIDER: Cleanup function called');
-        mounted = false;
-        subscription.unsubscribe();
-      };
-    } catch (err) {
-      console.error('🔑 AUTHPROVIDER: ERROR setting up auth listener:', err);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔑 AuthProvider: Auth state change:', event, 'User:', session?.user?.email, 'User ID:', session?.user?.id, 'Session exists:', !!session);
       if (mounted) {
-        setLoading(false);
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (!session) {
+          setLoading(false);
+        }
       }
-    }
-  }, []);
+    });
 
-  console.log('🔑 AUTHPROVIDER: About to render with user:', !!user, 'loading:', loading);
+    // Initialize auth after setting up listener
+    initializeAuth();
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const signOut = async () => {
     await supabase.auth.signOut();

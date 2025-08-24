@@ -12,7 +12,6 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { UnifiedDecisionsConfig } from './UnifiedDecisionsConfig';
 import { CoinsAmountsPanel } from './CoinsAmountsPanel';
 import { PerformancePanel } from './PerformancePanel';
 import { SellSettingsPanel } from './SellSettingsPanel';
@@ -48,7 +47,6 @@ import { useToast } from '@/hooks/use-toast';
 import NaturalLanguageStrategy from './NaturalLanguageStrategy';
 import AIIntelligenceSettings, { AIIntelligenceConfig } from './AIIntelligenceSettings';
 import { TechnicalIndicatorSettings, TechnicalIndicatorConfig } from './TechnicalIndicatorSettings';
-import { PoolExitManagementPanel } from './PoolExitManagementPanel';
 
 // Coinbase-compatible coins list
 const COINBASE_COINS = [
@@ -80,7 +78,6 @@ interface StrategyFormData {
   takeProfitPercentage: number;
   stopLossPercentage: number;
   trailingStopLossPercentage: number;
-  trailingStopMinProfitThreshold: number;
   autoCloseAfterHours: number;
   maxOpenPositions: number;
   dailyProfitTarget: number;
@@ -110,25 +107,6 @@ interface StrategyFormData {
   aiIntelligenceConfig: AIIntelligenceConfig;
   // Technical Indicators settings
   technicalIndicatorConfig: TechnicalIndicatorConfig;
-  // Pool Exit Management settings (Agent-aware)
-  poolExitConfig: {
-    pool_enabled: boolean;
-    secure_pct: number;
-    secure_tp_pct: number;
-    secure_sl_pct?: number;
-    runner_trail_pct: number;
-    runner_arm_pct: number;
-    qty_tick: number;
-    price_tick: number;
-    min_order_notional: number;
-  };
-  // Unified Decisions configuration
-  unifiedConfig?: {
-    enableUnifiedDecisions: boolean;
-    minHoldPeriodMs: number;
-    cooldownBetweenOppositeActionsMs: number;
-    confidenceOverrideThreshold: number;
-  };
 }
 
 interface ComprehensiveStrategyConfigProps {
@@ -203,16 +181,8 @@ const MENU_SECTIONS = [
     items: [
       { id: 'sell-settings', label: 'Sell settings', icon: TrendingDown },
       { id: 'sell-strategy', label: 'Sell strategy', icon: BarChart3 },
-      { id: 'pool-exit-management', label: 'Pool Exit Management', icon: Shield },
       { id: 'shorting-settings', label: 'Shorting settings', icon: TrendingDown },
       { id: 'dollar-cost-averaging', label: 'Dollar Cost Averaging', icon: DollarSign }
-    ]
-  },
-  {
-    id: 'decisions',
-    title: 'UNIFIED DECISIONS',
-    items: [
-      { id: 'unified-decisions', label: 'Unified Decisions', icon: Shield }
     ]
   }
 ];
@@ -295,7 +265,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     takeProfitPercentage: 2.5,
     stopLossPercentage: 3,
     trailingStopLossPercentage: 2,
-    trailingStopMinProfitThreshold: 1,
     autoCloseAfterHours: 24,
     maxOpenPositions: 5,
     dailyProfitTarget: 0,
@@ -340,17 +309,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       alertOnAnomalies: true,
       alertOnOverrides: true,
       customInstructions: ''
-    },
-    poolExitConfig: {
-      pool_enabled: false,
-      secure_pct: 0.4, // 40% secure portion
-      secure_tp_pct: 0.7, // +0.7% target
-      secure_sl_pct: 0.6, // -0.6% floor until TP (optional)
-      runner_trail_pct: 1.0, // 1% trailing distance
-      runner_arm_pct: 0.5, // arm at +0.5% profit
-      qty_tick: 0.00000001, // default precision
-      price_tick: 0.01, // default price precision
-      min_order_notional: 10 // minimum order size in EUR
     },
     technicalIndicatorConfig: {
       rsi: {
@@ -1444,10 +1402,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             <div className="space-y-4">
                               <div className="space-y-2">
                                 <TooltipField 
-                                  description="📊 PORTFOLIO-LEVEL DAILY TARGET: Stop all trading activity once your entire portfolio gains this percentage for the day. This is calculated across ALL positions, not individual trades."
-                                  examples={["Portfolio starts at €10,000 → Stop trading at €10,050 (+0.5%)", "Combined daily performance across all coins", "Prevents overtrading after reaching daily goal"]}
+                                  description="Stop trading once this daily profit level is reached."
+                                  examples={["Stop trading after 3% gain", "Pause the bot when it earns enough for the day"]}
                                 >
-                                  <Label>Daily Profit Target (Portfolio-Wide %)</Label>
+                                  <Label>Daily Profit Target (%)</Label>
                                 </TooltipField>
                                 <Input
                                   type="number"
@@ -1843,28 +1801,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                     <SellSettingsPanel 
                       formData={formData} 
                       updateFormData={updateFormData} 
-                    />
-                  )}
-
-                  {/* Pool Exit Management Panel */}
-                  {activeSection === 'pool-exit-management' && (
-                    <PoolExitManagementPanel 
-                      formData={formData} 
-                      updateFormData={updateFormData} 
-                    />
-                  )}
-
-                  {/* Unified Decisions Panel */}
-                  {activeSection === 'unified-decisions' && (
-                    <UnifiedDecisionsConfig 
-                      config={formData.unifiedConfig || {
-                        enableUnifiedDecisions: false,
-                        minHoldPeriodMs: 120000,
-                        cooldownBetweenOppositeActionsMs: 30000,
-                        confidenceOverrideThreshold: 0.70
-                      }}
-                      onChange={(unifiedConfig) => updateFormData('unifiedConfig', unifiedConfig)}
-                      isActive={formData.enableTestTrading || formData.enableLiveTrading}
                     />
                   )}
                 </form>
