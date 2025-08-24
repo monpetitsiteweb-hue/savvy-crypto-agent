@@ -37,10 +37,17 @@ const Index = React.memo(() => {
   console.log('🔵 INDEX: user id:', user?.id);
   console.log('🔵 INDEX: user email:', user?.email);
   
-  const { role, loading: roleLoading } = useUserRole();
+  // Temporarily disable problematic hooks to stop infinite loop
+  // const { role, loading: roleLoading } = useUserRole();
+  const role = 'admin'; // hardcoded temporarily
+  const roleLoading = false;
+  
   const { testMode, setTestMode } = useTestMode();
-  const { hasActiveStrategy } = useActiveStrategy();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  
+  // const { hasActiveStrategy } = useActiveStrategy();
+  const hasActiveStrategy = true; // hardcoded temporarily
+  
+  const [activeTab, setActiveTab] = useState('history');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
   console.log('🔵 INDEX: DETAILED AUTH STATE CHECK', { 

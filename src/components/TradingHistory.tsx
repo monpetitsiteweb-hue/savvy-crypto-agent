@@ -13,7 +13,7 @@ import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 import { checkIntegrity, calculateValuation } from '@/utils/valuationService';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
-import { TradeCard } from './trading';
+import { TradeCard } from './trading/TradeCard';
 
 interface Trade {
   id: string;
