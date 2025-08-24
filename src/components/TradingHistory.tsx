@@ -414,7 +414,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     } finally {
       setLoading(false);
     }
-  }, [user, calculateTradePerformance, getOpenPositionsList, computeRealizedPLFIFO, computeUnrealizedPLFromOpenLots, toast]);
+  }, [user]);
 
   // Fetch user profile data
   const fetchUserProfile = useCallback(async () => {
