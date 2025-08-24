@@ -165,7 +165,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const calculateTradePerformance = (trade: Trade): TradePerformance => {
     
     if (trade.trade_type === 'sell') {
-      // Past Positions: Use stored snapshot data when available
+      // Past Positions: Use stored snapshot data when available  
       if (trade.original_purchase_value && trade.original_purchase_price) {
         return {
           currentPrice: trade.price, // Exit price
@@ -190,21 +190,21 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
     }
     
-    // For BUY trades (open positions): Check integrity first
+    // For BUY trades (open positions): Apply ValuationService formulas
+    const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
+    
+    // ValuationService calculations (deterministic)
+    const current_value = trade.amount * currentMarketPrice;
+    const pnl_eur = current_value - trade.total_value;
+    const pnl_pct = trade.price > 0 ? ((currentMarketPrice / trade.price) - 1) * 100 : 0;
+
+    // Integrity check using ValuationService
     const integrityCheck = checkIntegrity({
       symbol: trade.cryptocurrency,
       amount: trade.amount,
       entry_price: trade.price,
       purchase_value: trade.total_value
     });
-
-    // Get current market price
-    const currentMarketPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency] || trade.price;
-    
-    // Apply ValuationService formulas directly (synchronously)
-    const current_value = trade.amount * currentMarketPrice;
-    const pnl_eur = current_value - trade.total_value;
-    const pnl_pct = trade.price > 0 ? ((currentMarketPrice / trade.price) - 1) * 100 : 0;
 
     return {
       currentPrice: Math.round(currentMarketPrice * 100) / 100,
@@ -539,16 +539,30 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                   {trade.trade_type.toUpperCase()}
                 </Badge>
               </div>
-              <div className="font-medium text-white mt-1">
-                <div className="flex items-center gap-2">
-                  <span>{trade.cryptocurrency}</span>
-                  {performance.isCorrupted && (
-                    <Badge variant="destructive" className="text-xs px-1 py-0">
-                      <AlertTriangle className="w-3 h-3 mr-1" />
-                      Corrupted
-                    </Badge>
-                  )}
-                </div>
+              <div className="font-medium text-white mt-1 flex items-center gap-2">
+                <span>{trade.cryptocurrency}</span>
+              </div>
+              {/* Single Badge Row - No Overlap */}
+              <div className="flex items-center gap-1 mt-1">
+                {performance.isCorrupted && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="destructive" className="text-xs px-1 py-0">
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                          Corrupted
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-sm">
+                          <strong>Data Integrity Issue:</strong><br />
+                          {performance.corruptionReasons?.join('; ')}<br />
+                          Position locked for manual review.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
               </div>
             </div>
             
@@ -636,36 +650,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             {/* Actions */}
             <div className="col-span-1">
               {trade.trade_type === 'buy' && testMode && (
-                performance.isCorrupted ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled
-                        className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-not-allowed"
-                      >
-                        🔒 Locked
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-sm max-w-xs">
-                        <strong>Position Locked</strong><br />
-                        Reason: {performance.corruptionReasons?.join('; ')}<br />
-                        Cannot trade until data integrity is restored.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <Button
-                    onClick={() => sellPosition(trade)}
-                    size="sm"
-                    variant="outline"
-                    className="bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
-                  >
-                    Sell
-                  </Button>
-                )
+                <Button
+                  onClick={performance.isCorrupted ? undefined : () => sellPosition(trade)}
+                  size="sm"
+                  variant="outline"
+                  disabled={performance.isCorrupted}
+                  className={performance.isCorrupted 
+                    ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/30 cursor-not-allowed"
+                    : "bg-red-500/20 text-red-400 border-red-500/30 hover:bg-red-500/30"
+                  }
+                >
+                  {performance.isCorrupted ? '🔒 Locked' : 'Sell'}
+                </Button>
               )}
             </div>
           </div>
