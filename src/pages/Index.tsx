@@ -18,7 +18,7 @@ import { TradingViewMarketDashboard } from '@/components/market/TradingViewMarke
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useTestMode } from '@/hooks/useTestMode';
-import { useTestTrading } from '@/hooks/useTestTrading';
+
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
@@ -61,10 +61,6 @@ const Index = React.memo(() => {
     activeTab: activeTab
   });
   
-  console.log('🔵 INDEX: Before useTestTrading call', { user: !!user, loading, testMode });
-  // Temporarily disabled to stop infinite re-render loop
-  // useTestTrading();
-  console.log('🔵 INDEX: After useTestTrading call');
 
   if (loading || roleLoading) {
     return (

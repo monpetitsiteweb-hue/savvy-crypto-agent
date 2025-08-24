@@ -11,6 +11,7 @@ import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
+import { TradeCard } from './trading/TradeCard';
 import { checkIntegrity, calculateValuation } from '@/utils/valuationService';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 
@@ -60,7 +61,7 @@ interface TradingHistoryProps {
 
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
-  console.log('🔍 TradingHistory: Component rendering started');
+  console.log('🔍 TradingHistory: Component rendering started, TradeCard:', TradeCard);
   console.log('🔍 TradingHistory: hasActiveStrategy:', hasActiveStrategy, 'onCreateStrategy:', onCreateStrategy);
   
   const { user } = useAuth();
@@ -626,14 +627,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           {openPositions.length > 0 ? (
             <div className="space-y-4">
               {openPositions.map(trade => {
-                console.log('🔍 Rendering trade card for trade:', trade.id);
+                console.log('🔍 Rendering TradeCard for trade:', trade.id, 'TradeCard component:', TradeCard);
                 return (
-                  <div key={trade.id} className="p-4 border border-slate-600 rounded-lg">
-                    <h3>Trade: {trade.cryptocurrency}</h3>
-                    <p>Type: {trade.trade_type}</p>
-                    <p>Amount: {trade.amount}</p>
-                    <p>Price: {trade.price}</p>
-                  </div>
+                  <TradeCard
+                    key={trade.id}
+                    trade={trade}
+                    showSellButton={true}
+                    onSell={sellPosition}
+                    performance={tradePerformances[trade.id] || null}
+                    coordinatorReason={coordinatorReasons[trade.id]}
+                  />
                 );
               })}
             </div>
@@ -650,13 +653,13 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           {pastPositions.length > 0 ? (
             <div className="space-y-4">
               {pastPositions.map(trade => (
-                <div key={trade.id} className="p-4 border border-slate-600 rounded-lg">
-                  <h3>Trade: {trade.cryptocurrency}</h3>
-                  <p>Type: {trade.trade_type}</p>
-                  <p>Amount: {trade.amount}</p>
-                  <p>Price: {trade.price}</p>
-                  <p>Status: Past Position</p>
-                </div>
+                <TradeCard
+                  key={trade.id}
+                  trade={trade}
+                  showSellButton={false}
+                  performance={tradePerformances[trade.id] || null}
+                  coordinatorReason={coordinatorReasons[trade.id]}
+                />
               ))}
             </div>
           ) : (
