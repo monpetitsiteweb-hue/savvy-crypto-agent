@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -495,12 +495,11 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     );
   };
 
-  // TradeCard component for rendering individual trades - STABLE VERSION
+  // TradeCard component - FIXED VERSION
   const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
-    const [initialLoad, setInitialLoad] = useState(true);
+    const [loading, setLoading] = useState(true);
 
-    // Calculate performance only once on mount - prevent constant re-calculations
     useEffect(() => {
       const loadPerformance = async () => {
         try {
@@ -509,16 +508,14 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         } catch (error) {
           console.error('Error calculating trade performance:', error);
         } finally {
-          setInitialLoad(false);
+          setLoading(false);
         }
       };
 
-      if (initialLoad) {
-        loadPerformance();
-      }
-    }, [trade.id, initialLoad]); // Only depend on trade.id, not market data
+      loadPerformance();
+    }, [trade.id]); // Only depend on trade ID
 
-    if (initialLoad || !performance) {
+    if (loading || !performance) {
       return (
         <Card className="p-4">
           <div className="flex items-center gap-2 mb-2">
@@ -654,8 +651,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
-  const openPositions = useMemo(() => getOpenPositionsList(), [trades]);
-  const pastPositions = useMemo(() => trades.filter(t => t.trade_type === 'sell'), [trades]);
+  const openPositions = getOpenPositionsList();
+  const pastPositions = trades.filter(t => t.trade_type === 'sell');
 
   return (
     <Card className="p-6">
