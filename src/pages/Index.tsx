@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthPage } from '@/components/auth/AuthPage';
 import { Header } from '@/components/Header';
@@ -48,6 +48,114 @@ const PIN_HISTORY_KEY = (() => {
     return RUNTIME_DEBUG && u.searchParams.get('pinHistoryKey') === '1';
   } catch { return false; }
 })();
+
+// Step 6: Debug toggles (traceTimers, traceNetwork, traceContexts, freezeIndexParent)
+const TRACE_TIMERS = (() => {
+  try {
+    const u = new URL(window.location.href);
+    return RUNTIME_DEBUG && u.searchParams.get('traceTimers') === '1';
+  } catch { return false; }
+})();
+
+const TRACE_NETWORK = (() => {
+  try {
+    const u = new URL(window.location.href);
+    return RUNTIME_DEBUG && u.searchParams.get('traceNetwork') === '1';
+  } catch { return false; }
+})();
+
+const TRACE_CONTEXTS = (() => {
+  try {
+    const u = new URL(window.location.href);
+    return RUNTIME_DEBUG && u.searchParams.get('traceContexts') === '1';
+  } catch { return false; }
+})();
+
+const FREEZE_INDEX_PARENT = (() => {
+  try {
+    const u = new URL(window.location.href);
+    return RUNTIME_DEBUG && u.searchParams.get('freezeIndexParent') === '1';
+  } catch { return false; }
+})();
+
+// Step 6: Timer monkey-patching
+if (TRACE_TIMERS && typeof window !== 'undefined') {
+  const timerStats = new Map<any, any>();
+  const originalSetInterval = window.setInterval;
+  const originalSetTimeout = window.setTimeout;
+  const originalRequestAnimationFrame = window.requestAnimationFrame;
+  
+  const logTimerStats = () => {
+    timerStats.forEach((stats, id) => {
+      const firesPerSec = stats.callCount;
+      if (firesPerSec >= 2) {
+        if (stats.type === 'setInterval') {
+          console.info(`[HistoryBlink] timer: setInterval interval=${stats.interval}ms firesPerSec=${firesPerSec} createdAt=${stats.createdAt}`);
+        } else if (stats.type === 'raf') {
+          console.info(`[HistoryBlink] raf: firesPerSec=${firesPerSec}`);
+        }
+      }
+      stats.callCount = 0; // Reset for next second
+    });
+    setTimeout(logTimerStats, 1000);
+  };
+  setTimeout(logTimerStats, 1000);
+
+  (window as any).setInterval = function(callback: any, ms: any, ...args: any[]) {
+    const id = originalSetInterval.call(this, (...callbackArgs: any[]) => {
+      const stats = timerStats.get(id);
+      if (stats) stats.callCount++;
+      return callback(...callbackArgs);
+    }, ms, ...args);
+    
+    timerStats.set(id, {
+      type: 'setInterval',
+      interval: ms,
+      createdAt: performance.now(),
+      callCount: 0
+    });
+    return id;
+  };
+
+  (window as any).requestAnimationFrame = function(callback: any) {
+    const id = originalRequestAnimationFrame.call(this, (timestamp: number) => {
+      const stats = timerStats.get(id) || { type: 'raf', callCount: 0, createdAt: performance.now() };
+      stats.callCount++;
+      timerStats.set(id, stats);
+      return callback(timestamp);
+    });
+    return id;
+  };
+}
+
+// Step 6: Network monkey-patching
+if (TRACE_NETWORK && typeof window !== 'undefined') {
+  const networkStats = new Map<string, any>();
+  const originalFetch = window.fetch;
+  
+  const logNetworkStats = () => {
+    networkStats.forEach((stats, endpoint) => {
+      if (stats.hitsPerSec >= 2) {
+        console.info(`[HistoryBlink] net: ${stats.method} ${endpoint} hitsPerSec=${stats.hitsPerSec}`);
+      }
+      stats.hitsPerSec = 0; // Reset for next second
+    });
+    setTimeout(logNetworkStats, 1000);
+  };
+  setTimeout(logNetworkStats, 1000);
+
+  (window as any).fetch = function(input: any, init?: any) {
+    const url = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+    const method = (init?.method || 'GET').toUpperCase();
+    const endpoint = url.split('?')[0]; // Remove query params for grouping
+    
+    const stats = networkStats.get(endpoint) || { method, hitsPerSec: 0 };
+    stats.hitsPerSec++;
+    networkStats.set(endpoint, stats);
+    
+    return originalFetch.call(this, input, init);
+  };
+}
 import { useTestMode } from '@/hooks/useTestMode';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
@@ -57,13 +165,22 @@ import { Link2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 
-export default function Index() {
+function IndexComponent() {
   // Step 3: Parent mount counter + rate limiting
   const parentMountCountRef = useRef(0);
   const parentLastLogRef = useRef(0);
   
   // Step 5: Provider fingerprint tracking
   const providerVersionRef = useRef(0);
+  
+  // Step 6: Context fingerprint tracking
+  const contextFingerprintRef = useRef({
+    priceVer: 0,
+    authVer: 0,
+    flagsVer: 0,
+    routeKey: ''
+  });
+  const contextLastLogRef = useRef(0);
   
   // Increment mount counter
   parentMountCountRef.current += 1;
@@ -75,7 +192,7 @@ export default function Index() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
-  // Step 3 & 5: Log parent mount + props + provider fingerprints (rate-limited to 1/sec)
+  // Step 3, 5 & 6: Log parent mount + props + provider fingerprints + context changes (rate-limited to 1/sec)
   useEffect(() => {
     if (DEBUG_HISTORY_BLINK) {
       const now = performance.now();
@@ -97,6 +214,23 @@ export default function Index() {
         }
         
         parentLastLogRef.current = now;
+      }
+      
+      // Step 6: Context change tracking
+      if (TRACE_CONTEXTS && now - contextLastLogRef.current > 1000) {
+        const currentFingerprint = {
+          priceVer: Math.floor(Date.now() / 1000), // Simple price tick simulation
+          authVer: user ? 1 : 0,
+          flagsVer: testMode ? 1 : 0,
+          routeKey: window.location.pathname + window.location.search
+        };
+        
+        const prev = contextFingerprintRef.current;
+        if (JSON.stringify(currentFingerprint) !== JSON.stringify(prev)) {
+          console.info(`[HistoryBlink] ctx: price.ver=${currentFingerprint.priceVer}, auth.ver=${currentFingerprint.authVer}, flags.ver=${currentFingerprint.flagsVer}, route.key=${currentFingerprint.routeKey.slice(-6)}`);
+          contextFingerprintRef.current = currentFingerprint;
+        }
+        contextLastLogRef.current = now;
       }
     }
   });
@@ -303,4 +437,23 @@ export default function Index() {
       <Footer />
     </div>
   );
+}
+
+// Step 6: freezeIndexParent memo wrapper
+const MemoizedIndexComponent = memo(IndexComponent, (prevProps, nextProps) => {
+  if (FREEZE_INDEX_PARENT) {
+    const isShallowEqual = JSON.stringify(prevProps) === JSON.stringify(nextProps);
+    if (isShallowEqual && DEBUG_HISTORY_BLINK) {
+      console.info('[HistoryBlink] freezeIndexParent active (blocking re-render on same props)');
+      return true; // Skip re-render
+    }
+  }
+  return false; // Always re-render normally
+});
+
+export default function Index() {
+  if (FREEZE_INDEX_PARENT) {
+    return <MemoizedIndexComponent />;
+  }
+  return <IndexComponent />;
 };
