@@ -494,9 +494,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // Badge component with single strip layout and tooltips
   const StatusBadges = ({ trade, coordinatorReason }: { trade: Trade; coordinatorReason?: string }) => {
     const isCorrupted = trade.is_corrupted;
-    const isLocked = coordinatorReason === 'blocked_by_lock';
+    const isDeferred = coordinatorReason === 'atomic_section_busy_defer';
     
-    if (!isCorrupted && !isLocked) return null;
+    if (!isCorrupted && !isDeferred) return null;
 
     return (
       <TooltipProvider>
@@ -519,20 +519,20 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
               </TooltipContent>
             </Tooltip>
           )}
-          {isLocked && (
+          {isDeferred && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Badge variant="outline" className="text-xs">
                   <Lock className="w-3 h-3 mr-1" />
-                  Locked
+                  Deferred
                 </Badge>
               </TooltipTrigger>
               <TooltipContent>
                 <p className="text-sm">
-                  <strong>Trade Processing Lock:</strong><br />
+                  <strong>Atomic Section Busy:</strong><br />
                   Concurrent trading activity detected for this symbol.
                   <br />
-                  This prevents race conditions and ensures data integrity.
+                  Request deferred with retry time.
                 </p>
               </TooltipContent>
             </Tooltip>

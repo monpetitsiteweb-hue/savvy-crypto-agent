@@ -8,8 +8,8 @@ interface ValidationMetrics {
   hold_count: number;
   defer_count: number;
   defer_rate: number;
-  blocked_by_lock_count: number;
-  blocked_by_lock_pct: number;
+  atomic_section_busy_count: number;
+  atomic_section_busy_pct: number;
   p95_coordinator_latency: number;
   p95_defer_wait: number;
   avg_latency: number;
@@ -26,7 +26,7 @@ interface ValidationWindow {
     executed_count: number;
     hold_count: number;
     defer_count: number;
-    blocked_by_lock_count: number;
+    atomic_section_busy_count: number;
     execution_times: number[];
     defer_times: number[];
     hold_reasons: Record<string, number>;
@@ -96,7 +96,7 @@ const ValidationPage = () => {
         executed_count: 0,
         hold_count: 0,
         defer_count: 0,
-        blocked_by_lock_count: 0,
+        atomic_section_busy_count: 0,
         execution_times: [],
         defer_times: [],
         hold_reasons: {},
@@ -209,8 +209,8 @@ const ValidationPage = () => {
             validation.metrics.hold_count++;
             const reason = result.data.decision.reason || 'unknown';
             validation.metrics.hold_reasons[reason] = (validation.metrics.hold_reasons[reason] || 0) + 1;
-            if (reason === 'blocked_by_lock') {
-              validation.metrics.blocked_by_lock_count++;
+            if (reason === 'atomic_section_busy_defer') {
+              validation.metrics.atomic_section_busy_count++;
             }
             break;
           case 'DEFER':
@@ -256,8 +256,8 @@ const ValidationPage = () => {
       ? (metrics.defer_count / metrics.intents_total * 100)
       : 0;
       
-    const blockedByLockPct = metrics.intents_total > 0 
-      ? (metrics.blocked_by_lock_count / metrics.intents_total * 100)
+    const atomicSectionBusyPct = metrics.intents_total > 0 
+      ? (metrics.atomic_section_busy_count / metrics.intents_total * 100)
       : 0;
       
     const p95DeferWait = metrics.defer_times.length > 0
@@ -270,8 +270,8 @@ const ValidationPage = () => {
       hold_count: metrics.hold_count,
       defer_count: metrics.defer_count,
       defer_rate: parseFloat(deferRate.toFixed(2)),
-      blocked_by_lock_count: metrics.blocked_by_lock_count,
-      blocked_by_lock_pct: parseFloat(blockedByLockPct.toFixed(2)),
+      atomic_section_busy_count: metrics.atomic_section_busy_count,
+      atomic_section_busy_pct: parseFloat(atomicSectionBusyPct.toFixed(2)),
       p95_coordinator_latency: p95Latency,
       p95_defer_wait: p95DeferWait,
       avg_latency: avgLatency,
@@ -288,10 +288,10 @@ const ValidationPage = () => {
         UD_ON: metricsData.UD_ON
       },
       slo_compliance: {
-        blocked_by_lock_pct_under_1: metricsData.UD_ON ? metricsData.UD_ON.blocked_by_lock_pct < 1 : false,
+        atomic_section_busy_pct_under_1: metricsData.UD_ON ? metricsData.UD_ON.atomic_section_busy_pct < 1 : false,
         defer_rate_under_10: metricsData.UD_ON ? metricsData.UD_ON.defer_rate < 10 : false,
         p95_latency_under_200ms: metricsData.UD_ON ? metricsData.UD_ON.p95_coordinator_latency < 200 : false,
-        ud_off_no_locks: metricsData.UD_OFF ? metricsData.UD_OFF.blocked_by_lock_pct === 0 : false
+        ud_off_no_locks: metricsData.UD_OFF ? metricsData.UD_OFF.atomic_section_busy_pct === 0 : false
       },
       ready_for_acceptance: true
     };
@@ -349,7 +349,7 @@ const ValidationPage = () => {
                 <div className="text-sm space-y-1">
                   <div>Total Intents: {metricsData.UD_OFF.intents_total}</div>
                   <div>Executed: {metricsData.UD_OFF.executed_count}</div>
-                  <div>Blocked by Lock: {metricsData.UD_OFF.blocked_by_lock_pct}% {metricsData.UD_OFF.blocked_by_lock_pct === 0 ? '✅' : '❌'}</div>
+                  <div>Atomic Section Busy: {metricsData.UD_OFF.atomic_section_busy_pct}% {metricsData.UD_OFF.atomic_section_busy_pct === 0 ? '✅' : '❌'}</div>
                   <div>P95 Latency: {metricsData.UD_OFF.p95_coordinator_latency}ms</div>
                 </div>
               </div>
@@ -387,7 +387,7 @@ const ValidationPage = () => {
                 <div className="text-sm space-y-1">
                   <div>Total Intents: {metricsData.UD_ON.intents_total}</div>
                   <div>Defer Rate: {metricsData.UD_ON.defer_rate}% {metricsData.UD_ON.defer_rate < 10 ? '✅' : '❌'}</div>
-                  <div>Blocked by Lock: {metricsData.UD_ON.blocked_by_lock_pct}% {metricsData.UD_ON.blocked_by_lock_pct < 1 ? '✅' : '❌'}</div>
+                  <div>Atomic Section Busy: {metricsData.UD_ON.atomic_section_busy_pct}% {metricsData.UD_ON.atomic_section_busy_pct < 1 ? '✅' : '❌'}</div>
                   <div>P95 Latency: {metricsData.UD_ON.p95_coordinator_latency}ms {metricsData.UD_ON.p95_coordinator_latency < 200 ? '✅' : '❌'}</div>
                 </div>
               </div>
@@ -417,8 +417,8 @@ const ValidationPage = () => {
                 <div className="text-sm text-muted-foreground">Deferred</div>
               </div>
               <div>
-                <div className="text-2xl font-bold">{currentValidation.metrics.blocked_by_lock_count}</div>
-                <div className="text-sm text-muted-foreground">Blocked by Lock</div>
+                <div className="text-2xl font-bold">{currentValidation.metrics.atomic_section_busy_count}</div>
+                <div className="text-sm text-muted-foreground">Atomic Section Busy</div>
               </div>
             </div>
           </CardContent>
@@ -435,8 +435,8 @@ const ValidationPage = () => {
             <div className="bg-muted p-4 rounded-lg">
               <h4 className="font-semibold mb-2">SLO Compliance Summary</h4>
               <div className="space-y-2 text-sm">
-                <div className={metricsData.UD_ON.blocked_by_lock_pct < 1 ? 'text-green-600' : 'text-red-600'}>
-                  ✅ blocked_by_lock_pct &lt; 1%: {metricsData.UD_ON.blocked_by_lock_pct}%
+                <div className={metricsData.UD_ON.atomic_section_busy_pct < 1 ? 'text-green-600' : 'text-red-600'}>
+                  ✅ atomic_section_busy_pct &lt; 1%: {metricsData.UD_ON.atomic_section_busy_pct}%
                 </div>
                 <div className={metricsData.UD_ON.defer_rate < 10 ? 'text-green-600' : 'text-red-600'}>
                   ✅ defer_rate &lt; 10%: {metricsData.UD_ON.defer_rate}%
@@ -444,8 +444,8 @@ const ValidationPage = () => {
                 <div className={metricsData.UD_ON.p95_coordinator_latency < 200 ? 'text-green-600' : 'text-red-600'}>
                   ✅ p95 coordinator latency &lt; 200ms: {metricsData.UD_ON.p95_coordinator_latency}ms
                 </div>
-                <div className={metricsData.UD_OFF.blocked_by_lock_pct === 0 ? 'text-green-600' : 'text-red-600'}>
-                  ✅ UD=OFF shows no lock attempts: {metricsData.UD_OFF.blocked_by_lock_pct}%
+                <div className={metricsData.UD_OFF.atomic_section_busy_pct === 0 ? 'text-green-600' : 'text-red-600'}>
+                  ✅ UD=OFF shows no lock attempts: {metricsData.UD_OFF.atomic_section_busy_pct}%
                 </div>
               </div>
             </div>

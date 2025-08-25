@@ -133,18 +133,18 @@ serve(async (req) => {
 
     // 🚨 HARD GATE: If unified decisions disabled, bypass ALL coordinator logic
     if (!unifiedConfig.enableUnifiedDecisions) {
-      console.log('🔓 COORDINATOR: UD=OFF - Direct execution path (NO LOCKS)');
+      console.log('🎯 UD_MODE=OFF → DIRECT EXECUTION: bypassing all locks and conflict detection');
       
       // Execute trade directly without any coordinator gating
       const executionResult = await executeTradeDirectly(supabaseClient, intent, strategy.configuration, requestId);
       
       if (executionResult.success) {
-        console.log(`✅ COORDINATOR: Direct execution successful [NO LOCKS] ${intent.side} ${intent.symbol}`);
+        console.log(`🎯 UD_MODE=OFF → DIRECT EXECUTION: action=${intent.side} symbol=${intent.symbol} lock=NONE`);
         // Log decision for audit (async, non-blocking)
         logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId);
         return respond(intent.side, 'unified_decisions_disabled_direct_path', requestId, 0, { qty: executionResult.qty });
       } else {
-        console.error(`❌ COORDINATOR: Direct execution failed: ${executionResult.error}`);
+        console.error(`❌ UD_MODE=OFF → DIRECT EXECUTION FAILED: ${executionResult.error}`);
         // Log decision for audit (async, non-blocking)
         logDecisionAsync(supabaseClient, intent, 'HOLD', 'direct_execution_failed', unifiedConfig, requestId);
         return respond('HOLD', 'direct_execution_failed', requestId);
@@ -152,7 +152,7 @@ serve(async (req) => {
     }
 
     // Unified Decisions ON - Use conflict detection approach
-    console.log('🧠 COORDINATOR: UD=ON - Using conflict detection approach');
+    console.log('🎯 UD_MODE=ON → CONFLICT DETECTION: checking for holds and conflicts');
     
     const symbolKey = `${intent.userId}_${intent.strategyId}_${intent.symbol}`;
     
@@ -163,7 +163,7 @@ serve(async (req) => {
       const retryMs = 300 + Math.random() * 500; // 300-800ms jitter
       metrics.deferCount++;
       
-      console.log(`⏸️ COORDINATOR: Queue overload (${queueLength} pending) - DEFER with ${retryMs}ms retry`);
+      console.log(`🎯 UD_MODE=ON → DEFER: reason=queue_overload_defer symbol=${intent.symbol} retry=${retryMs}ms`);
       
       return respond('DEFER', 'queue_overload_defer', requestId, Math.round(retryMs));
     }
@@ -176,6 +176,7 @@ serve(async (req) => {
       const conflictResult = await detectConflicts(supabaseClient, intent, unifiedConfig);
       
       if (conflictResult.hasConflict) {
+        console.log(`🎯 UD_MODE=ON → HOLD: reason=${conflictResult.reason} symbol=${intent.symbol}`);
         cacheDecision(idempotencyKey, { action: 'HOLD', reason: conflictResult.reason as Reason, request_id: requestId, retry_in_ms: 0 });
         logDecisionAsync(supabaseClient, intent, 'HOLD', conflictResult.reason as Reason, unifiedConfig, requestId);
         
@@ -280,29 +281,6 @@ async function executeTradeDirectly(
   strategyConfig: any,
   requestId: string
 ): Promise<{ success: boolean; error?: string; qty?: number }> {
-  
-// Get real-time prices from Coinbase API
-async function getMarketPrice(symbol: string): Promise<number> {
-  try {
-    const baseSymbol = toBaseSymbol(symbol);
-    const pairSymbol = toPairSymbol(baseSymbol);
-    console.log('💱 EXECUTION PRICE LOOKUP: base=', baseSymbol, 'pair=', pairSymbol, 'url=/products/', pairSymbol, '/ticker');
-    
-    const response = await fetch(`https://api.exchange.coinbase.com/products/${pairSymbol}/ticker`);
-    const data = await response.json();
-    
-    if (response.ok && data.price) {
-      const price = parseFloat(data.price);
-      console.log('💱 COORDINATOR: Got real price for', pairSymbol, ':', '€' + price);
-      return price;
-    }
-    
-    throw new Error(`Invalid price response: ${data.message || 'Unknown error'}`);
-  } catch (error) {
-    console.error('❌  Price fetch error for', symbol, ':', error.message);
-    throw error;
-  }
-}
   try {
     // Get real market price using symbol utilities
     const baseSymbol = toBaseSymbol(intent.symbol); 
@@ -323,7 +301,6 @@ async function getMarketPrice(symbol: string): Promise<number> {
     console.log(`💱 DIRECT: ${intent.side} ${qty} ${baseSymbol} at €${realMarketPrice} = €${totalValue}`);
     
     // Insert trade record - store base symbol only
-    const baseSymbol = toBaseSymbol(intent.symbol);
     const mockTrade = {
       user_id: intent.userId,
       strategy_id: intent.strategyId,
@@ -352,6 +329,29 @@ async function getMarketPrice(symbol: string): Promise<number> {
   } catch (error) {
     console.error('❌ DIRECT: Execution failed:', error.message);
     return { success: false, error: error.message };
+  }
+}
+
+// Get real-time prices from Coinbase API
+async function getMarketPrice(symbol: string): Promise<number> {
+  try {
+    const baseSymbol = toBaseSymbol(symbol);
+    const pairSymbol = toPairSymbol(baseSymbol);
+    console.log('💱 EXECUTION PRICE LOOKUP: base=', baseSymbol, 'pair=', pairSymbol, 'url=/products/', pairSymbol, '/ticker');
+    
+    const response = await fetch(`https://api.exchange.coinbase.com/products/${pairSymbol}/ticker`);
+    const data = await response.json();
+    
+    if (response.ok && data.price) {
+      const price = parseFloat(data.price);
+      console.log('💱 COORDINATOR: Got real price for', pairSymbol, ':', '€' + price);
+      return price;
+    }
+    
+    throw new Error(`Invalid price response: ${data.message || 'Unknown error'}`);
+  } catch (error) {
+    console.error('❌  Price fetch error for', symbol, ':', error.message);
+    throw error;
   }
 }
 
@@ -519,7 +519,7 @@ async function executeWithMinimalLock(
     if (!lockResult) {
       // Lock contention in atomic section - defer briefly
       metrics.blockedByLockCount++;
-      console.log(`⏸️ COORDINATOR: Atomic section busy - DEFER`);
+      console.log(`🎯 UD_MODE=ON → DEFER: reason=atomic_section_busy_defer symbol=${intent.symbol} retry=${Math.round(200 + Math.random() * 300)}ms`);
       
       return {
         action: 'DEFER',
@@ -530,13 +530,13 @@ async function executeWithMinimalLock(
     }
 
     lockAcquired = true;
-    console.log(`🔓 COORDINATOR: Minimal lock acquired - executing atomic section`);
+    console.log(`🔒 COORDINATOR: Minimal lock acquired - executing atomic section`);
 
     // ATOMIC SECTION: Get price and execute trade
     const executionResult = await executeTradeOrder(supabaseClient, intent, strategyConfig);
     
     if (executionResult.success) {
-      console.log(`✅ COORDINATOR: Atomic execution successful: ${intent.side} ${intent.symbol}`);
+      console.log(`🎯 UD_MODE=ON → EXECUTE: action=${intent.side} symbol=${intent.symbol} lock=OK`);
       return {
         action: intent.side as DecisionAction,
         reason: 'no_conflicts_detected',
@@ -545,7 +545,7 @@ async function executeWithMinimalLock(
         qty: executionResult.qty
       };
     } else {
-      console.error(`❌ COORDINATOR: Atomic execution failed: ${executionResult.error}`);
+      console.error(`❌ UD_MODE=ON → EXECUTE FAILED: ${executionResult.error}`);
       return {
         action: 'HOLD',
         reason: 'direct_execution_failed',
@@ -658,44 +658,44 @@ async function executeTradeOrder(
   }
 }
 
-// Cleanup old cached data periodically
-setInterval(() => {
-  const now = Date.now();
-  
-  // Clean decision cache
-  for (const [key, value] of recentDecisionCache.entries()) {
-    if (now - value.timestamp > 60000) { // 1 minute
-      recentDecisionCache.delete(key);
-    }
-  }
-  
-  // Clean empty queues
-  for (const [key, queue] of symbolQueues.entries()) {
-    if (queue.length === 0) {
-      symbolQueues.delete(key);
-    }
-  }
-  
-  // Reset metrics every 30 minutes
-  if (now - metrics.lastReset > 1800000) {
-    console.log(`📊 COORDINATOR METRICS (30min):`, {
-      totalRequests: metrics.totalRequests,
-      blockedByLockPct: ((metrics.blockedByLockCount / metrics.totalRequests) * 100).toFixed(2),
-      deferRate: ((metrics.deferCount / metrics.totalRequests) * 100).toFixed(2),
-      avgLatency: metrics.executionTimes.length > 0 
-        ? (metrics.executionTimes.reduce((a, b) => a + b, 0) / metrics.executionTimes.length).toFixed(0) 
-        : 0,
-      p95Latency: metrics.executionTimes.length > 0 
-        ? metrics.executionTimes.sort((a, b) => a - b)[Math.floor(metrics.executionTimes.length * 0.95)]
-        : 0
-    });
+  // Cleanup old cached data periodically
+  setInterval(() => {
+    const now = Date.now();
     
-    metrics = {
-      totalRequests: 0,
-      blockedByLockCount: 0,
-      deferCount: 0,
-      executionTimes: [],
-      lastReset: now
-    };
-  }
-}, 60000); // Run every minute
+    // Clean decision cache
+    for (const [key, value] of recentDecisionCache.entries()) {
+      if (now - value.timestamp > 60000) { // 1 minute
+        recentDecisionCache.delete(key);
+      }
+    }
+    
+    // Clean empty queues
+    for (const [key, queue] of symbolQueues.entries()) {
+      if (queue.length === 0) {
+        symbolQueues.delete(key);
+      }
+    }
+    
+    // Reset metrics every 30 minutes
+    if (now - metrics.lastReset > 1800000) {
+      console.log(`📊 COORDINATOR METRICS (30min):`, {
+        totalRequests: metrics.totalRequests,
+        atomicSectionBusyPct: ((metrics.blockedByLockCount / metrics.totalRequests) * 100).toFixed(2),
+        deferRate: ((metrics.deferCount / metrics.totalRequests) * 100).toFixed(2),
+        avgLatency: metrics.executionTimes.length > 0 
+          ? (metrics.executionTimes.reduce((a, b) => a + b, 0) / metrics.executionTimes.length).toFixed(0) 
+          : 0,
+        p95Latency: metrics.executionTimes.length > 0 
+          ? metrics.executionTimes.sort((a, b) => a - b)[Math.floor(metrics.executionTimes.length * 0.95)]
+          : 0
+      });
+    
+      metrics = {
+        totalRequests: 0,
+        blockedByLockCount: 0,
+        deferCount: 0,
+        executionTimes: [],
+        lastReset: now
+      };
+    }
+  }, 60000); // Run every minute
