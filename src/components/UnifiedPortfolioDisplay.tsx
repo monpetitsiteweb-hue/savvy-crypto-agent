@@ -38,8 +38,11 @@ interface PositionData {
 }
 
 export const UnifiedPortfolioDisplay = () => {
+  console.log('🔍 PORTFOLIO: Component rendered');
   const { testMode } = useTestMode();
   const { user } = useAuth();
+  console.log('🔍 PORTFOLIO: testMode =', testMode, 'user =', !!user);
+  
   const { balances, getTotalValue, refreshFromDatabase, resetPortfolio, isLoading } = useMockWallet();
   const { getCurrentData } = useRealTimeMarketData();
   const { toast } = useToast();
@@ -92,8 +95,12 @@ export const UnifiedPortfolioDisplay = () => {
 
   // Fetch positions for valuation service
   useEffect(() => {
+    console.log('🔍 PORTFOLIO: fetchPositionsData useEffect called, testMode =', testMode, 'user =', !!user);
     if (testMode && user) {
+      console.log('🔍 PORTFOLIO: About to fetch positions data');
       fetchPositionsData();
+    } else {
+      console.log('🔍 PORTFOLIO: NOT fetching positions - testMode:', testMode, 'user:', !!user);
     }
   }, [testMode, user]);
 
@@ -162,6 +169,8 @@ export const UnifiedPortfolioDisplay = () => {
   const fetchPositionsData = async () => {
     if (!user) return;
     
+    console.log('🔍 PORTFOLIO: fetchPositionsData called for user', user.id);
+    
     try {
       // Get open positions from buy trades that haven't been fully sold
       const { data: trades, error } = await supabase
@@ -172,6 +181,8 @@ export const UnifiedPortfolioDisplay = () => {
         .order('executed_at', { ascending: true });
 
       if (error) throw error;
+      
+      console.log('🔍 PORTFOLIO: Found', trades?.length || 0, 'buy trades');
 
       // Calculate net positions per symbol (simplified for demo)
       const positionMap = new Map<string, PositionData>();
@@ -200,8 +211,9 @@ export const UnifiedPortfolioDisplay = () => {
       }
       
       setPositions(Array.from(positionMap.values()));
+      console.log('🔍 PORTFOLIO: Calculated', positionMap.size, 'positions:', Array.from(positionMap.keys()));
     } catch (error) {
-      console.error('Error fetching positions:', error);
+      console.error('❌ PORTFOLIO: Error fetching positions:', error);
     }
   };
 
