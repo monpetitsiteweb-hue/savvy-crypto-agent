@@ -20,6 +20,7 @@ interface MarketDataContextType {
   isConnected: boolean;
   error: string | null;
   getCurrentData: (symbols: string[]) => Promise<Record<string, MarketData>>;
+  version?: number;
 }
 
 const MarketDataContext = createContext<MarketDataContextType | undefined>(undefined);
@@ -36,6 +37,7 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [marketData, setMarketData] = useState<Record<string, MarketData>>({});
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [contextVersion, setContextVersion] = useState(0);
 
   const getCurrentData = useCallback(async (symbols: BaseSymbol[]): Promise<Record<string, MarketData>> => {
     try {
@@ -120,7 +122,11 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           });
           
           // Only return new object if something actually changed
-          return hasChanged ? newData : prev;
+          if (hasChanged) {
+            setContextVersion(v => v + 1);
+            return newData;
+          }
+          return prev;
         });
         setError(null);
         setIsConnected(true);
@@ -172,7 +178,8 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       marketData,
       isConnected,
       error,
-      getCurrentData
+      getCurrentData,
+      version: contextVersion // Add version for change tracking
     }}>
       {children}
     </MarketDataContext.Provider>

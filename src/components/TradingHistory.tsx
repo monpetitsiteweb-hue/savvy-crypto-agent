@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { AlertTriangle, Lock } from 'lucide-react';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
+import { useFrozenMarketData, useFrozenAuth, useFrozenTestMode } from '@/components/ContextFreezeBarrier';
 
 // Master debug gate for Step 1 & 2 instrumentation with prod-safe runtime toggle
 const RUNTIME_DEBUG =
@@ -201,10 +202,20 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     }
   });
 
-  const { user } = useAuth();
-  const { testMode } = useTestMode();
+  const { user } = useFrozenAuth() || useAuth();
+  const { testMode } = useFrozenTestMode() || useTestMode();
   const { toast } = useToast();
   const { handleCoordinatorResponse } = useCoordinatorToast();
+  
+  // Check if contexts should be frozen
+  const shouldFreezeContexts = useMemo(() => {
+    try {
+      const url = new URL(window.location.href);
+      return url.searchParams.get('debug') === 'history' && url.searchParams.get('freezeContexts') === '1';
+    } catch {
+      return false;
+    }
+  }, []);
   
   // Step 1: Debug instrumentation refs
   const debugHeaderLogged = useRef(false);

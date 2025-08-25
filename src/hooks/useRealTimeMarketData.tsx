@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 
 interface MarketData {
   symbol: string;
@@ -27,11 +27,41 @@ interface UseRealTimeMarketDataReturn {
 import { useMarketData } from '@/contexts/MarketDataContext';
 
 export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
+  // Check for bypass toggle (debug only)
+  const shouldBypass = useMemo(() => {
+    try {
+      const url = new URL(window.location.href);
+      return url.searchParams.get('debug') === 'history' && url.searchParams.get('bypassMarketHook') === '1';
+    } catch {
+      return false;
+    }
+  }, []);
+
   const { marketData, isConnected, error, getCurrentData } = useMarketData();
   
+  // Capture stable snapshot on first call for bypass mode
+  const bypassSnapshot = useRef<UseRealTimeMarketDataReturn | null>(null);
+  
+  if (shouldBypass && !bypassSnapshot.current) {
+    bypassSnapshot.current = {
+      marketData: { ...marketData },
+      isConnected,
+      error,
+      subscribe: () => {},
+      getCurrentData: async () => marketData
+    };
+    console.log('[HistoryBlink] market hook bypassed (stable snapshot)');
+  }
+  
   const subscribe = useCallback((symbols: string[]) => {
+    if (shouldBypass) return;
     console.log('⚠️ Subscribe functionality disabled, using context provider');
-  }, []);
+  }, [shouldBypass]);
+
+  // Return snapshot if bypassing, otherwise return live data
+  if (shouldBypass && bypassSnapshot.current) {
+    return bypassSnapshot.current;
+  }
 
   return {
     marketData,

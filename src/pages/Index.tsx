@@ -17,6 +17,15 @@ import { MarketDashboard } from '@/components/market/MarketDashboard';
 import { TradingViewMarketDashboard } from '@/components/market/TradingViewMarketDashboard';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRole } from '@/hooks/useUserRole';
+import { ContextFreezeBarrier } from '@/components/ContextFreezeBarrier';
+import { useMarketData } from '@/contexts/MarketDataContext';
+import { useTestMode } from '@/hooks/useTestMode';
+import { useActiveStrategy } from '@/hooks/useActiveStrategy';
+import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
+import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
+import { Link2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 // Step 3 & 5: Parent debug gate and helpers
 const RUNTIME_DEBUG =
@@ -171,16 +180,6 @@ if (TRACE_NETWORK && typeof window !== 'undefined') {
     return originalFetch.call(this, input, init);
   };
 }
-import { useTestMode } from '@/hooks/useTestMode';
-import { useActiveStrategy } from '@/hooks/useActiveStrategy';
-import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
-import { Switch } from '@/components/ui/switch';
-import { Button } from '@/components/ui/button';
-import { Link2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
-
-
-// Step 8: setState tracer helper
 const stateCallLog = new Map<string, number>();
 const traceSet = (stateName: string, reasonTag: string) => {
   if (TRACE_PARENT_STATE) {
@@ -195,6 +194,8 @@ const traceSet = (stateName: string, reasonTag: string) => {
 
 function IndexComponent() {
   const { user, loading } = useAuth();
+  const marketData = useMarketData();
+  const testModeContext = useTestMode();
   
   const [activeTab, setActiveTab] = useState('dashboard');
   const setActiveTabTraced = (value: string) => {
@@ -227,9 +228,28 @@ function IndexComponent() {
   // Increment mount counter
   parentMountCountRef.current += 1;
   
-  const { testMode, setTestMode } = useTestMode();
+  const { testMode, setTestMode } = testModeContext;
   const { role, loading: roleLoading } = useUserRole();
   const { hasActiveStrategy } = useActiveStrategy();
+  
+  // Step 9: Context change logging with version tracking
+  const contextChangeLog = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (RUNTIME_DEBUG) {
+      const now = performance.now();
+      const lastLog = contextChangeLog.current.get('contextChange') || 0;
+      
+      if (now - lastLog > 1000) { // Rate limit to once per second
+        const priceVer = (marketData as any)?.version || 0;
+        const authVer = user ? 1 : 0; // Simple version based on user presence
+        const testModeVer = testMode ? 1 : 0;
+        const flagsVer = testModeVer; // Use testMode as flags for now
+        
+        console.info(`[HistoryBlink] ctxChange: price.ver=${priceVer} indicators.ver=0 auth.ver=${authVer} flags.ver=${flagsVer}`);
+        contextChangeLog.current.set('contextChange', now);
+      }
+    }
+  }, [marketData, user, testMode]);
   
   // Step 3, 5 & 6: Log parent mount + props + provider fingerprints + context changes (rate-limited to 1/sec)
   useEffect(() => {
@@ -447,10 +467,12 @@ function IndexComponent() {
                 )}
                 {activeTab === 'history' && (
                   <ErrorBoundary key={PIN_HISTORY_KEY ? 'history-stable' : undefined}>
-                    <TradingHistory 
-                      hasActiveStrategy={hasActiveStrategy}
-                        onCreateStrategy={() => setActiveTabTraced('strategy')}
-                    />
+                    <ContextFreezeBarrier>
+                      <TradingHistory 
+                        hasActiveStrategy={hasActiveStrategy}
+                          onCreateStrategy={() => setActiveTabTraced('strategy')}
+                      />
+                    </ContextFreezeBarrier>
                   </ErrorBoundary>
                 )}
                 {activeTab === 'strategy' && (
