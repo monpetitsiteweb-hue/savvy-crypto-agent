@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Settings, Bell, User, LogOut, Shield, Link, CheckCircle, Menu, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useTestMode } from '@/hooks/useTestMode';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -11,6 +13,7 @@ import { supabase } from '@/integrations/supabase/client';
 export const Header = () => {
   const { user, signOut } = useAuth();
   const { role } = useUserRole();
+  const { testMode, toggleTestMode } = useTestMode();
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -102,6 +105,18 @@ export const Header = () => {
 
           {/* Desktop Actions */}
           <div className="hidden md:flex items-center gap-4">
+            {/* Test Mode Toggle - Always Visible */}
+            <div className="flex items-center gap-2 bg-slate-700/50 px-3 py-2 rounded-lg border border-slate-600/50">
+              <span className={`text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
+                {testMode ? 'TEST MODE' : 'LIVE MODE'}
+              </span>
+              <Switch
+                checked={testMode}
+                onCheckedChange={toggleTestMode}
+                className="data-[state=checked]:bg-orange-500"
+              />
+            </div>
+
             <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
               <Bell className="w-4 h-4" />
             </Button>
@@ -215,6 +230,18 @@ export const Header = () => {
         {showMobileMenu && (
           <div className="md:hidden mt-4 pb-4 border-t border-slate-700 pt-4">
             <div className="space-y-3">
+              {/* Test Mode Toggle */}
+              <div className="flex items-center gap-2 bg-slate-700/50 px-3 py-2 rounded-lg border border-slate-600/50 mb-2">
+                <span className={`text-sm font-medium ${testMode ? 'text-orange-400' : 'text-slate-400'}`}>
+                  {testMode ? 'TEST MODE' : 'LIVE MODE'}
+                </span>
+                <Switch
+                  checked={testMode}
+                  onCheckedChange={toggleTestMode}
+                  className="data-[state=checked]:bg-orange-500"
+                />
+              </div>
+
               {/* Coinbase Connection */}
               {user && !isCheckingConnection && (
                 <Button
