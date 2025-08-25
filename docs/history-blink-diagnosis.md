@@ -63,6 +63,86 @@ DBG_EQUALITY_GUARD=false           # Shallow compare arrays before updates
 DBG_STRICTMODE_OFF_IN_DEV=false    # Disable StrictMode (dev builds only)
 ```
 
+## Step 0 — Pre-flight Baseline (NO CODE CHANGES)
+
+### Row Key Source
+- **Open Positions**: `trade.id` (src/components/TradingHistory.tsx:798-804) - immutable UUID from database
+- **Past Positions**: `trade.id` (src/components/TradingHistory.tsx:818-824) - immutable UUID from database  
+- **Skeleton Keys**: Static integers `i` (src/components/TradingHistory.tsx:673-675) - potentially unstable
+
+### Parent Containers
+- **Tab Container**: No dynamic keys on `<Tabs>` component (src/components/TradingHistory.tsx:786)
+- **TabsContent**: Static `value` props ("open", "past") - stable
+- **Card Wrapper**: No key prop - stable
+
+### React Query Config
+- **Global Defaults** (src/main.tsx:26-36):
+  - `staleTime: 30000` (30 seconds)
+  - `refetchOnWindowFocus: false`
+  - `refetchInterval: undefined` (no auto-refetch)
+  - `refetchOnMount: false`
+  - `refetchOnReconnect: undefined`
+- **TradingHistory**: Uses direct Supabase calls, not React Query
+- **Technical Indicators** (src/hooks/useOptimizedTechnicalIndicators.tsx:277-284):
+  - `staleTime: 30000`
+  - `refetchInterval: 15000` (15 seconds)
+  - `refetchOnWindowFocus: false`
+
+### Supabase Realtime
+- **Table**: `mock_trades` (src/components/TradingHistory.tsx:448-466)
+- **Filter**: `user_id=eq.${user.id}`
+- **Events**: All (*) - INSERT, UPDATE, DELETE
+- **Throttling**: 1000ms setTimeout debounce (line 461-463)
+- **Channel**: 'mock_trades_changes'
+- **Concurrent with React Query**: No - TradingHistory uses direct Supabase calls
+
+### WebSocket/Price Stream Tie-ins
+- **MarketDataProvider** (src/contexts/MarketDataContext.tsx:138-148):
+  - 60-second interval fetch via `setInterval`
+  - Uses Coinbase REST API (not WebSocket)
+  - State updates only if price/timestamp changed (lines 110-124)
+- **TradingHistory Connection** (src/components/TradingHistory.tsx:74):
+  - Uses `useRealTimeMarketData` hook (redirects to MarketDataProvider)
+  - TradeCard re-renders when `specificTradePrice` changes (line 547)
+
+### Sorting Logic
+- **Open Positions** (src/components/TradingHistory.tsx:202):
+  - `executed_at` DESC (newest first)
+  - Input: `new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime()`
+- **Past Positions** (src/components/TradingHistory.tsx:687):
+  - Filter only: `trade_type === 'sell'`
+  - Default order from Supabase query: `order('executed_at', { ascending: false })` (line 376)
+- **FIFO Lots** (src/components/TradingHistory.tsx:161, 207):
+  - `executed_at` ASC for FIFO calculations
+  - Input: `new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime()`
+
+### Loading/Animation States
+- **Main Loading** (src/components/TradingHistory.tsx:82, 662-679):
+  - `loading` state controls skeleton display
+  - `animate-pulse` class on skeleton container (line 670)
+  - `animate-spin` on RefreshCw icon (line 668)
+- **Refresh Button** (src/components/TradingHistory.tsx:703):
+  - `animate-spin` conditional on `loading` state
+- **TradeCard Loading** (src/components/TradingHistory.tsx:529, 549-556):
+  - Individual card `loading` state for performance calculations
+  - `animate-pulse` class on card skeleton (line 551)
+
+### StrictMode (Dev)
+- **Enabled**: `React.StrictMode` wrapper in src/main.tsx:39-45
+- **Effect Guards**: No duplicate-prevention guards found in useEffect subscriptions
+- **Double-invoke Risk**: Supabase subscriptions may duplicate in development
+
+## Baseline Summary
+
+**Row key**: trade.id (immutable UUID) for Open/Past  
+**Parent dynamic keys**: No - static tab values  
+**RQ**: staleTime=30s, refetchInterval=none, refetchOnWindowFocus=false, refetchOnReconnect=undefined  
+**Supabase realtime on positions**: Yes - mock_trades table with 1s throttle  
+**Other update sources**: MarketDataProvider (60s interval), no manual triggers  
+**Sorting**: executed_at DESC (Open), Supabase default DESC (Past), executed_at ASC (FIFO)  
+**Loading states/animations**: loading (main), animate-spin (refresh), animate-pulse (skeletons)  
+**StrictMode**: On (src/main.tsx:39) - no duplicate guards
+
 ## Test Sequence
 
 ### Step 0: Pre-flight Inspection (No Code Changes)
