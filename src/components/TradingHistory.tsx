@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { AlertTriangle, Lock } from 'lucide-react';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
+
+// Master debug gate for Step 1 instrumentation
+const DEBUG_HISTORY_BLINK = import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true');
 
 interface Trade {
   id: string;
@@ -67,6 +70,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { testMode } = useTestMode();
   const { toast } = useToast();
   const { handleCoordinatorResponse } = useCoordinatorToast();
+  
+  // Step 1: Debug instrumentation refs
+  const debugHeaderLogged = useRef(false);
+  const loggedKeysRef = useRef(false);
+  const openMounts = useRef(0);
+  const pastMounts = useRef(0);
+  const openRenders = useRef(0);
+  const pastRenders = useRef(0);
+  const openLastLog = useRef(0);
+  const pastLastLog = useRef(0);
   
   // RESTORED: useMockWallet provides real portfolio data (not related to blinking issue)
   const { getTotalValue, balances } = useMockWallet();
@@ -527,6 +540,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
     const [loading, setLoading] = useState(true);
+    
+    // Step 1: Row mount counter + stable id
+    const mountRef = useRef(false);
+    useEffect(() => {
+      if (DEBUG_HISTORY_BLINK && !mountRef.current) {
+        console.info('[HistoryBlink] row mount', trade.id);
+        mountRef.current = true;
+        return () => { 
+          if (DEBUG_HISTORY_BLINK) console.info('[HistoryBlink] row unmount', trade.id); 
+        };
+      }
+    }, [trade.id]);
 
     // FIXED: Extract only the specific price values to prevent infinite re-renders
     const specificTradePrice = marketData[trade.cryptocurrency]?.price;
@@ -548,7 +573,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
     if (loading || !performance) {
       return (
-        <Card className="p-4 animate-pulse">
+        <Card className="p-4 animate-pulse" data-position-row data-trade-id={trade.id}>
           <div className="h-4 bg-muted rounded w-1/3 mb-2"></div>
           <div className="h-3 bg-muted rounded w-1/2"></div>
         </Card>
@@ -559,7 +584,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     const isLoss = (performance.gainLoss || 0) < 0;
 
     return (
-      <Card className="p-4 hover:shadow-md transition-shadow">
+      <Card className="p-4 hover:shadow-md transition-shadow" data-position-row data-trade-id={trade.id}>
         <StatusBadges trade={trade} />
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
@@ -670,9 +695,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         <div className="animate-pulse">
           <div className="h-4 bg-muted rounded w-1/3 mb-4"></div>
           <div className="space-y-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-16 bg-muted rounded"></div>
-            ))}
+            {[1, 2, 3].map(i => {
+              if (DEBUG_HISTORY_BLINK) console.warn('[HistoryBlink] skeleton keys: static integers detected');
+              return <div key={i} className="h-16 bg-muted rounded"></div>;
+            })}
           </div>
         </div>
       </Card>
@@ -685,6 +711,12 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   const openPositions = getOpenPositionsList();
   const pastPositions = trades.filter(t => t.trade_type === 'sell');
+  
+  // Step 1: Debug header (once per session)
+  if (DEBUG_HISTORY_BLINK && !debugHeaderLogged.current) {
+    console.info('[HistoryBlink] STEP 1 — Mount/Key visibility (Open/Past)');
+    debugHeaderLogged.current = true;
+  }
 
   return (
     <Card className="p-6">
@@ -793,6 +825,32 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         </TabsList>
         
         <TabsContent value="open" className="mt-4">
+          {(() => {
+            // Step 1: Open positions mount counter
+            openMounts.current += 1;
+            if (DEBUG_HISTORY_BLINK) {
+              console.info('[HistoryBlink] <OpenPositions> mount', openMounts.current);
+            }
+            
+            // Step 1: Parent remount detector (rate-limited)
+            openRenders.current++;
+            if (DEBUG_HISTORY_BLINK) {
+              const now = performance.now();
+              if (now - openLastLog.current > 1000) {
+                console.info('[HistoryBlink] <OpenPositions> renders=', openRenders.current);
+                openLastLog.current = now;
+              }
+            }
+            
+            // Step 1: Log actual React key values (once)
+            if (DEBUG_HISTORY_BLINK && !loggedKeysRef.current && openPositions.length > 0) {
+              const sampleKeys = openPositions.slice(0, 10).map(t => t.id);
+              console.info('[HistoryBlink] keys sample (first 10)', sampleKeys);
+              loggedKeysRef.current = true;
+            }
+            
+            return null;
+          })()}
           {openPositions.length > 0 ? (
             <div className="space-y-4">
               {openPositions.map(trade => (
@@ -813,6 +871,25 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         </TabsContent>
         
         <TabsContent value="past" className="mt-4">
+          {(() => {
+            // Step 1: Past positions mount counter  
+            pastMounts.current += 1;
+            if (DEBUG_HISTORY_BLINK) {
+              console.info('[HistoryBlink] <PastPositions> mount', pastMounts.current);
+            }
+            
+            // Step 1: Parent remount detector (rate-limited)
+            pastRenders.current++;
+            if (DEBUG_HISTORY_BLINK) {
+              const now = performance.now();
+              if (now - pastLastLog.current > 1000) {
+                console.info('[HistoryBlink] <PastPositions> renders=', pastRenders.current);
+                pastLastLog.current = now;
+              }
+            }
+            
+            return null;
+          })()}
           {pastPositions.length > 0 ? (
             <div className="space-y-4">
               {pastPositions.map(trade => (
