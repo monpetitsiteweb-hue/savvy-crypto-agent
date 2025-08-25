@@ -188,23 +188,4 @@ function useToast() {
   }
 }
 
-// Step 11: Enhanced toast with notification tracing and muting
-function useToastWithTracing() {
-  const baseToast = useToast();
-  
-  // Import here to avoid circular dependency  
-  try {
-    const { useNotificationTracer } = require('./useNotificationTracer');
-    const { toast: tracedToast } = useNotificationTracer();
-    
-    return {
-      ...baseToast,
-      toast: tracedToast
-    };
-  } catch {
-    // Fallback to regular toast if tracer fails
-    return baseToast;
-  }
-}
-
-export { useToast, useToastWithTracing, toast }
+export { useToast, toast }
