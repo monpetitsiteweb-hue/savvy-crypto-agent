@@ -1,7 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useRenderCounter } from '@/hooks/useRenderCounter';
-import { useRenderCauseTracer } from '@/hooks/useRenderCauseTracer';
-import { useListRebuildDetector } from '@/hooks/useListRebuildDetector';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,17 +12,6 @@ interface OpenListProps {
 }
 
 export const OpenList: React.FC<OpenListProps> = ({ trades, marketData, onCancelOrder }) => {
-  useRenderCounter('OpenList');
-  
-  // Step 13: Add render-cause tracer and list rebuild detector
-  useRenderCauseTracer('OpenList', {
-    marketData,
-    trades,
-    loading: false
-  });
-  
-  useListRebuildDetector(trades, 'OpenList');
-  
   if (trades.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">

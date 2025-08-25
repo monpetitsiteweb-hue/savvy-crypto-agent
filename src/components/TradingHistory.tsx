@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, Target } from 'lucide-react';
+import { ArrowUpRight, ArrowDownLeft, Activity, RefreshCw, TrendingUp, DollarSign, PieChart } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
@@ -17,135 +17,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { AlertTriangle, Lock } from 'lucide-react';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
-import { useFrozenMarketData, useFrozenAuth, useFrozenTestMode } from '@/components/ContextFreezeBarrier';
-import { useRenderCounter } from '@/hooks/useRenderCounter';
-import { useRenderCauseTracer } from '@/hooks/useRenderCauseTracer';
-import { useListRebuildDetector } from '@/hooks/useListRebuildDetector';
 import { OpenList } from '@/components/TradingHistoryOpenList';
 import { PastList } from '@/components/TradingHistoryPastList';
-
-// Master debug gate for Step 1 & 2 instrumentation with prod-safe runtime toggle
-const RUNTIME_DEBUG =
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('debug') === 'history' || u.hash.includes('debug=history') || sessionStorage.getItem('DEBUG_HISTORY_BLINK') === 'true';
-    } catch { return false; }
-  })();
-
-const DEBUG_HISTORY_BLINK =
-  (import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true')) || RUNTIME_DEBUG;
-
-// Step 3: Props fingerprinting helper
-const fp = (v: any): string => {
-  if (v == null) return 'null';
-  if (Array.isArray(v)) return `arr(len=${v.length})`;
-  if (typeof v === 'object') {
-    const keys = Object.keys(v).slice(0, 4).join(',');
-    return `obj(${keys})`;
-  }
-  if (typeof v === 'function') return 'fn';
-  return String(v);
-};
-
-// Step 2B: Runtime isolation toggles
-const DEBUG_NO_REALTIME = 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.has('noRealtime') || sessionStorage.getItem('DEBUG_NO_REALTIME') === 'true';
-    } catch { return false; }
-  })();
-
-const DEBUG_NO_REFETCH = 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.has('noRefetch') || sessionStorage.getItem('DEBUG_NO_REFETCH') === 'true';
-    } catch { return false; }
-  })();
-
-// Fast-track toggles (only active when debug=history present)
-const FREEZE_HISTORY_UPDATES = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('freezeHistoryUpdates') === '1' || sessionStorage.getItem('freezeHistoryUpdates') === '1';
-    } catch { return false; }
-  })();
-
-// Step 6: Price decouple and throttle toggles (only active when debug=history present)
-const DISCONNECT_HISTORY_FROM_PRICES = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('disconnectHistoryFromPrices') === '1';
-    } catch { return false; }
-  })();
-
-// Step 10: Surgical decouple (single flag for stable market snapshot)
-const HISTORY_DECOUPLED = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('historyDecoupled') === '1';
-    } catch { return false; }
-  })();
-
-// Step 8: Hard-freeze switches (diagnosis only)
-const FORCE_FREEZE_HISTORY = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('forceFreezeHistory') === '1';
-    } catch { return false; }
-  })();
-
-const MUTE_HISTORY_LOADING = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('muteHistoryLoading') === '1' || sessionStorage.getItem('muteHistoryLoading') === '1';
-    } catch { return false; }
-  })();
-
-const LOCK_HISTORY_SORT = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('lockHistorySort') === '1' || sessionStorage.getItem('lockHistorySort') === '1';
-    } catch { return false; }
-  })();
-
-// Step 3: noPrice isolator
-const DEBUG_NO_PRICE = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('noPrice') === '1' || sessionStorage.getItem('DEBUG_NO_PRICE') === '1';
-    } catch { return false; }
-  })();
-
-// Missing hold constants
-const HOLD_POSITIONS = false;
-const HOLD_LOADING = false;
-const HOLD_FILTERS = false;
-const HOLD_PRICE = false;
-
-// Missing helper functions
-const logSetPositions = (source: string, count: number) => {
-  if (DEBUG_HISTORY_BLINK) {
-    console.info(`[HistoryBlink] setPositions: ${source} (${count} trades)`);
-  }
-};
-
-const simpleIdsHash = (trades: Trade[]) => {
-  return trades.slice(0,3).map(t => t.id.slice(-4)).join(',');
-};
-
-const simpleFiltersHash = (filters: any) => {
-  return Object.keys(filters).length;
-};
 
 interface Trade {
   id: string;
@@ -161,7 +34,6 @@ interface Trade {
   strategy_trigger?: string;
   is_test_mode?: boolean;
   profit_loss?: number;
-  // PHASE 2: New snapshot fields for SELL trades
   original_purchase_amount?: number;
   original_purchase_price?: number;
   original_purchase_value?: number;
@@ -191,321 +63,17 @@ interface TradingHistoryProps {
   onCreateStrategy?: () => void;
 }
 
-// Step 8: Hard-freeze implementation
-let frozenRenderRef: React.ReactElement | null = null;
-let freezeLoggedRef = false;
-
-function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) {
-  useRenderCounter('TradingHistory');
-  
-  // Step 3: Component mount counter + rate limiting
-  const mountCountRef = useRef(0);
-  const lastLogRef = useRef(0);
-  const noPriceLoggedRef = useRef(false);
-  
-  // Increment mount counter
-  mountCountRef.current += 1;
-  
-  // Step 3: Log mount + props (rate-limited to 1/sec)
-  useEffect(() => {
-    if (DEBUG_HISTORY_BLINK) {
-      const now = performance.now();
-      if (now - lastLogRef.current > 1000) {
-        console.info(`[HistoryBlink] <TradingHistory> mount ${mountCountRef.current} | key=undefined`);
-        console.info(`[HistoryBlink] <TradingHistory> props: { hasActiveStrategy=${fp(hasActiveStrategy)}, onCreateStrategy=${fp(onCreateStrategy)} }`);
-        lastLogRef.current = now;
-      }
-    }
-  });
-
-  // Use frozen contexts only when explicitly enabled, otherwise use regular contexts
-  const frozenAuth = useFrozenAuth();
-  const frozenTestMode = useFrozenTestMode();
-  const regularAuth = useAuth();
-  const regularTestMode = useTestMode();
-  
-  const { user } = frozenAuth || regularAuth;
-  const { testMode } = frozenTestMode || regularTestMode;
-  
-  // Step 12: Use hard toast no-op if enabled
-  const { useHardToastNoOp } = (() => {
-    try {
-      return require('@/hooks/useHardToastNoOp');
-    } catch {
-      return { useHardToastNoOp: () => {} };
-    }
-  })();
-  useHardToastNoOp();
-  
-  // Apply the tracer to TradingHistory component
-  const { toast } = RUNTIME_DEBUG 
-    ? (() => {
-        try {
-          const { useNotificationTracer } = require('@/hooks/useNotificationTracer');
-          return useNotificationTracer();
-        } catch {
-          return useToast();
-        }
-      })()
-    : useToast();
+export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) {
+  const { user } = useAuth();
+  const { testMode } = useTestMode();
+  const { toast } = useToast();
   const { handleCoordinatorResponse } = useCoordinatorToast();
-  
-  // Check if contexts should be frozen
-  const shouldFreezeContexts = useMemo(() => {
-    try {
-      const url = new URL(window.location.href);
-      return url.searchParams.get('debug') === 'history' && url.searchParams.get('freezeContexts') === '1';
-    } catch {
-      return false;
-    }
-  }, []);
-  
-  // Step 1: Debug instrumentation refs
-  const debugHeaderLogged = useRef(false);
-  const loggedKeysRef = useRef(false);
-  const openMounts = useRef(0);
-  const pastMounts = useRef(0);
-  const openRenders = useRef(0);
-  const pastRenders = useRef(0);
-  const openLastLog = useRef(0);
-  const pastLastLog = useRef(0);
-  
-  // Step 3: Additional refs for safe logging
-  const tabsLastLog = useRef(0);
-  
-  // Step 4: Prop fingerprint refs
-  const tradingHistoryLastPropLog = useRef(0);
-  const openListLastPropLog = useRef(0);
-  const pastListLastPropLog = useRef(0);
-  
-  // Step 4: Hold state refs
-  const frozenPositionsRef = useRef<Trade[]>([]);
-  const frozenLoadingRef = useRef<boolean>(false);
-  const frozenFiltersRef = useRef<any>({});
-  const holdLoggedRefs = useRef({
-    positions: false,
-    loading: false,
-    filters: false,
-    price: false
-  });
-  
-  // Fast-track toggle refs
-  const freezeLoggedRef = useRef(false);
-  const muteLoggedRef = useRef(false);
-  const lockLoggedRef = useRef(false);
-  const lastTradesRef = useRef<Trade[]>([]);
-  
-  // RESTORED: useMockWallet provides real portfolio data (not related to blinking issue)
   const { getTotalValue, balances } = useMockWallet();
-  
-  // Step 10: Market snapshot for stable pricing when decoupled
-  const stableSnapshotRef = useRef<Record<string, any> | null>(null);
-  const decoupledLoggedRef = useRef(false);
-  const decoupledTickLogRef = useRef(0);
-  
-  // Step 6: Price disconnect mechanism - capture snapshot and disconnect when toggle is active
-  const realMarketData = HISTORY_DECOUPLED ? { marketData: {}, getCurrentData: () => Promise.resolve({}) } : useRealTimeMarketData();
-  const snapshotMarketDataRef = useRef<Record<string, any>>({});
-  const priceTickLogRef = useRef(0);
-  
-  // Step 10: Initialize stable snapshot once for decoupled mode
-  useEffect(() => {
-    if (HISTORY_DECOUPLED && !stableSnapshotRef.current) {
-      // Capture stable snapshot from any available source
-      const snapshot = {
-        'BTC-EUR': { price: 45000, bid: 44950, ask: 45050, volume: 1000, timestamp: new Date().toISOString(), source: 'snapshot' },
-        'ETH-EUR': { price: 3000, bid: 2995, ask: 3005, volume: 500, timestamp: new Date().toISOString(), source: 'snapshot' },
-        'ADA-EUR': { price: 0.35, bid: 0.349, ask: 0.351, volume: 10000, timestamp: new Date().toISOString(), source: 'snapshot' }
-      };
-      stableSnapshotRef.current = snapshot;
-      
-      if (!decoupledLoggedRef.current) {
-        console.info('[HistoryBlink] historyDecoupled: using stable market snapshot (no live ticks)');
-        decoupledLoggedRef.current = true;
-      }
-    }
-  }, []);
+  const { marketData, getCurrentData } = useRealTimeMarketData();
 
-  // Initialize snapshot on first load (for disconnect mode)
-  useEffect(() => {
-    if (!HISTORY_DECOUPLED && Object.keys(snapshotMarketDataRef.current).length === 0 && Object.keys(realMarketData.marketData).length > 0) {
-      snapshotMarketDataRef.current = { ...realMarketData.marketData };
-    }
-  }, [realMarketData.marketData]);
-  
-  // Step 10 & 6: Apply price disconnection and decoupling
-  // Use frozen market data only when explicitly enabled, otherwise use regular market data  
-  const frozenMarketData = useFrozenMarketData();
-  let marketData: Record<string, any>;
-  let getCurrentData: any;
-  
-  if (HISTORY_DECOUPLED) {
-    // Use stable snapshot - completely decoupled from live market
-    marketData = stableSnapshotRef.current || {};
-    getCurrentData = () => Promise.resolve(stableSnapshotRef.current || {});
-    
-    // Log decoupled state once per second
-    const now = performance.now();
-    if (now - decoupledTickLogRef.current > 1000) {
-      console.info('[HistoryBlink] historyDecoupled: using stable market snapshot (no live ticks)');
-      decoupledTickLogRef.current = now;
-    }
-    
-    // Log suppressed context/price ticks
-    if (now - decoupledTickLogRef.current > 950) {
-      console.info('[HistoryBlink] suppressed: price/context tick ignored (decoupled)');
-    }
-  } else if (DISCONNECT_HISTORY_FROM_PRICES) {
-    // Use snapshot instead of live data
-    marketData = snapshotMarketDataRef.current;
-    getCurrentData = () => Promise.resolve(snapshotMarketDataRef.current);
-    
-    // Log disconnection once
-    if (!noPriceLoggedRef.current) {
-      console.info('[HistoryBlink] price: disconnected for History panel (using snapshot)');
-      noPriceLoggedRef.current = true;
-    }
-    
-    // Log suppressed price ticks (rate-limited)
-    const now = performance.now();
-    if (now - priceTickLogRef.current > 1000) {
-      console.info('[HistoryBlink] price-tick -> would update history (suppressed=true)');
-      priceTickLogRef.current = now;
-    }
-  } else if (frozenMarketData) {
-    // Use frozen market data when freeze flags are active
-    marketData = frozenMarketData.marketData || {};
-    getCurrentData = frozenMarketData.getCurrentData || (() => Promise.resolve({}));
-  } else {
-    // Step 3: noPrice isolator - freeze price context updates for this panel
-    marketData = DEBUG_NO_PRICE ? {} : realMarketData.marketData;
-    getCurrentData = DEBUG_NO_PRICE ? () => null : realMarketData.getCurrentData;
-    
-    // Log active price ticks (rate-limited) 
-    const now = performance.now();
-    if (now - priceTickLogRef.current > 1000 && Object.keys(realMarketData.marketData).length > 0) {
-      console.info('[HistoryBlink] price-tick -> would update history (suppressed=false)');
-      priceTickLogRef.current = now;
-    }
-  }
-  
-  // Log noPrice isolator activation (once)
-  useEffect(() => {
-    if (DEBUG_NO_PRICE && !noPriceLoggedRef.current) {
-      console.info('[HistoryBlink] isolator active: noPrice (history panel ignores price ticks)');
-      noPriceLoggedRef.current = true;
-    }
-  }, []);
-  
   const [feeRate, setFeeRate] = useState<number>(0);
-  
-  console.log('🔍 HISTORY: MarketData from context:', marketData);
-  console.log('🔍 HISTORY: MarketData keys:', Object.keys(marketData || {}));
-  console.log('🔍 HISTORY: Sample prices:', Object.entries(marketData || {}).slice(0,3).map(([k,v]) => `${k}: €${(v as any)?.price || 'N/A'}`));
-  
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // Step 13: Add render-cause tracer and list rebuild detector after all variables are declared
-  useRenderCauseTracer('TradingHistory', {
-    marketData,
-    trades,
-    auth: user,
-    loading,
-    filters: {},
-    strategy: hasActiveStrategy
-  });
-  
-  useListRebuildDetector(trades, 'TradingHistory');
-  
-  // Step 4: Apply holds locally before passing to children
-  let processedTrades = trades;
-  let processedLoading = loading;
-  const filters = {}; // No filters currently implemented, but ready for future
-  
-  // Step 4: Hold positions - freeze first loaded positions array
-  if (HOLD_POSITIONS) {
-    if (frozenPositionsRef.current.length === 0 && trades.length > 0) {
-      frozenPositionsRef.current = [...trades]; // Capture first load
-    }
-    if (frozenPositionsRef.current.length > 0) {
-      processedTrades = frozenPositionsRef.current; // Use frozen data
-    }
-    if (!holdLoggedRefs.current.positions) {
-      console.info('[HistoryBlink] holdPositions: active (positions updates ignored)');
-      holdLoggedRefs.current.positions = true;
-    }
-  }
-  
-  // Step 4: Hold loading - force loading=false
-  if (HOLD_LOADING) {
-    processedLoading = false;
-    if (!holdLoggedRefs.current.loading) {
-      console.info('[HistoryBlink] holdLoading: active');
-      holdLoggedRefs.current.loading = true;
-    }
-  }
-  
-  // Step 4: Hold filters - freeze current filters object
-  if (HOLD_FILTERS) {
-    if (Object.keys(frozenFiltersRef.current).length === 0) {
-      frozenFiltersRef.current = { ...filters }; // Capture first state
-    }
-    if (!holdLoggedRefs.current.filters) {
-      console.info('[HistoryBlink] holdFilters: active');
-      holdLoggedRefs.current.filters = true;
-    }
-  }
-  
-  // Step 4: Hold price - alias for noPrice isolator
-  if (HOLD_PRICE && !holdLoggedRefs.current.price) {
-    console.info('[HistoryBlink] holdPrice: active (alias noPrice)');
-    holdLoggedRefs.current.price = true;
-  }
-  
-  // Fast-track toggle: Shallow-equal checker for freeze updates
-  const isShallowEqual = (newTrades: Trade[], oldTrades: Trade[]) => {
-    if (newTrades.length !== oldTrades.length) return false;
-    return newTrades.every((trade, index) => trade.id === oldTrades[index]?.id);
-  };
-
-  // Fast-track toggle: Wrapped setTrades with freeze logic + Step 10: List stability check
-  const lastTradesHashRef = useRef<string>('');
-  const setTradesWithFreeze = (newTrades: Trade[]) => {
-    if (FREEZE_HISTORY_UPDATES) {
-      if (isShallowEqual(newTrades, lastTradesRef.current)) {
-        if (!freezeLoggedRef.current) {
-          console.info('[HistoryBlink] freeze: suppressed identical update');
-          freezeLoggedRef.current = true;
-        }
-        return; // Suppress update
-      }
-    }
-    
-    // Step 10: Keep the list stable with cheap equality check
-    if (HISTORY_DECOUPLED) {
-      // Cheap equality check: length + first/last ID + executed_at min/max
-      const newHash = newTrades.length > 0 
-        ? `${newTrades.length}-${newTrades[0]?.id}-${newTrades[newTrades.length - 1]?.id}-${newTrades[0]?.executed_at}-${newTrades[newTrades.length - 1]?.executed_at}`
-        : '0';
-      
-      if (newHash === lastTradesHashRef.current) {
-        // Skip state write - no meaningful change
-        return;
-      }
-      lastTradesHashRef.current = newHash;
-    }
-    
-    lastTradesRef.current = newTrades;
-    setTrades(newTrades);
-  };
-
-  // Fast-track toggle: Override loading state for history panel
-  const historyLoading = MUTE_HISTORY_LOADING ? false : loading;
-  const [connections, setConnections] = useState<any[]>([]);
-  const [selectedConnection, setSelectedConnection] = useState<string>('');
-  const [fetching, setFetching] = useState(false);
-  const [portfolioValue, setPortfolioValue] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<'open' | 'past'>('open');
   const [stats, setStats] = useState({
     totalTrades: 0,
@@ -517,26 +85,23 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     totalPL: 0,
     currentlyInvested: 0
   });
-  // Removed direct edge function calls - using MarketDataProvider only
 
-  // Step 5: Open positions calculation using MarketDataProvider only
+  // Calculate trade performance using market data and valuation service
   const calculateTradePerformance = async (trade: Trade): Promise<TradePerformance> => {
-    
     if (trade.trade_type === 'sell') {
-      // Step 5B: Past Positions - Use snapshot fields only, no recomputation
       const pastPosition = processPastPosition({
         original_purchase_amount: trade.original_purchase_amount,
         original_purchase_value: trade.original_purchase_value,
         original_purchase_price: trade.original_purchase_price,
-        price: trade.price, // Exit price
+        price: trade.price,
         exit_value: trade.exit_value,
         realized_pnl: trade.realized_pnl,
         realized_pnl_pct: trade.realized_pnl_pct
       });
       
       return {
-        currentPrice: pastPosition.exitPrice, // Exit price from snapshot
-        currentValue: pastPosition.exitValue, // Exit value from snapshot
+        currentPrice: pastPosition.exitPrice,
+        currentValue: pastPosition.exitValue,
         purchaseValue: pastPosition.purchaseValue,
         purchasePrice: pastPosition.entryPrice,
         gainLoss: pastPosition.realizedPnL,
@@ -545,18 +110,11 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
       };
     }
     
-    // Step 5A: Open Positions - Aggregated calculation with MarketDataProvider only
+    // Open position calculation
     const baseSymbol = toBaseSymbol(trade.cryptocurrency);
     const pairSymbol = toPairSymbol(baseSymbol);
-    
-    console.log('🔄 SYMBOLS: base=', baseSymbol, 'pair=', pairSymbol, 'providerKey=', pairSymbol);
-    
-    // Get current price from MarketDataProvider using pair symbol
     const currentPrice = marketData[pairSymbol]?.price || null;
     
-    console.log('🔍 HISTORY: Current price for', baseSymbol, ':', currentPrice);
-    
-    // Calculate open position performance
     const openPositionInputs = {
       symbol: baseSymbol,
       amount: trade.amount,
@@ -578,7 +136,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     };
   };
 
-  // Helper functions: FIFO per-trade lots and counts
+  // Build FIFO lots for open positions
   const buildFifoLots = (allTrades: Trade[]) => {
     const sorted = [...allTrades].sort((a,b)=> new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
     const lotsBySymbol = new Map<string, { trade: Trade; remaining: number }[]>();
@@ -608,7 +166,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
             ...trade,
             amount: remaining,
             total_value: trade.total_value * ratio,
-            fees: 0, // Zero fees for all transactions
+            fees: 0,
           });
         } else {
           closedCount += 1;
@@ -621,20 +179,10 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   const getOpenPositionsList = () => {
     if (trades.length === 0) return [] as Trade[];
     const { openLots } = buildFifoLots(trades);
-    
-    // Fast-track toggle: Lock sort to stable comparator
-    if (LOCK_HISTORY_SORT) {
-      if (!lockLoggedRef.current) {
-        console.info('[HistoryBlink] lock: sort pinned to stable comparator');
-        lockLoggedRef.current = true;
-      }
-      return openLots.sort((a, b) => a.id.localeCompare(b.id)); // Stable by ID
-    }
-    
     return openLots.sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime());
   };
 
-  // Realized P&L using strict FIFO 
+  // Calculate realized P&L using FIFO
   const computeRealizedPLFIFO = (allTrades: Trade[]) => {
     const sorted = [...allTrades].sort((a,b)=> new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
     const lotsBySymbol = new Map<string, { price: number; remaining: number }[]>();
@@ -659,49 +207,40 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     return realized;
   };
 
-  // Unrealized P&L from open lots - EXCLUDES CORRUPTED
+  // Calculate unrealized P&L from open positions
   const computeUnrealizedPLFromOpenLots = async (openLots: Trade[]) => {
     let unrealizedPL = 0;
     let invested = 0;
     let corruptedCount = 0;
     
     for (const lot of openLots) {
-      // Check position integrity and exclude corrupted positions from KPIs
       const performance = await calculateTradePerformance(lot);
       
       if (performance.isCorrupted) {
         corruptedCount++;
-        // Skip corrupted positions in KPI calculations (logging removed to prevent spam)
         continue;
       }
 
-      // Use ValuationService for consistent calculations
       unrealizedPL += performance.gainLoss || 0;
       invested += performance.purchaseValue || 0;
-    }
-
-    if (corruptedCount > 0) {
-      // Corrupted positions excluded from KPI calculations (logging reduced)
     }
 
     return { unrealizedPL, invested };
   };
 
+  // Sell position function
   const sellPosition = async (trade: Trade) => {
     if (!user) return;
     
     try {
-      // CRITICAL FIX: Apply regression guards and use deterministic pricing
       const { validateTradePrice, validatePurchaseValue, logValidationFailure } = await import('../utils/regressionGuards');
       
-      // Get current price from MarketDataProvider only
       const baseSymbol = toBaseSymbol(trade.cryptocurrency);
       const pairSymbol = toPairSymbol(baseSymbol);
       let currentPrice = marketData[pairSymbol]?.price;
       
       // Try to get deterministic price from snapshots first
       try {
-        const baseSymbol = toBaseSymbol(trade.cryptocurrency);
         const { data: snapshot } = await supabase
           .from('price_snapshots')
           .select('price')
@@ -711,13 +250,12 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
         
         if (snapshot?.[0]?.price) {
           currentPrice = snapshot[0].price;
-          console.log('🎯 HISTORY: Using snapshot price for sell:', currentPrice, 'for', baseSymbol);
         }
       } catch (error) {
-        console.warn('⚠️ HISTORY: Could not fetch price snapshot for sell, using market price');
+        console.warn('Could not fetch price snapshot for sell, using market price');
       }
 
-      // Apply price validation guard - Block €100 exactly
+      // Apply price validation guard
       const priceValidation = validateTradePrice(currentPrice, trade.cryptocurrency);
       if (!priceValidation.isValid) {
         logValidationFailure('sell_price_corruption_guard', priceValidation.errors, { currentPrice, symbol: trade.cryptocurrency });
@@ -729,7 +267,6 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
         return;
       }
 
-      // Calculate sell value and validate consistency
       const sellAmount = trade.amount * currentPrice;
       const valueValidation = validatePurchaseValue(trade.amount, currentPrice, sellAmount);
       if (!valueValidation.isValid) {
@@ -746,7 +283,6 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
         return;
       }
 
-      // Insert the sell trade with proper validation
       const sellTrade = {
         user_id: user.id,
         strategy_id: trade.strategy_id,
@@ -755,7 +291,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
         amount: trade.amount,
         price: currentPrice,
         total_value: sellAmount,
-        fees: 0, // Zero fees for all transactions
+        fees: 0,
         executed_at: new Date().toISOString(),
         is_test_mode: true,
         notes: `Manual sell from History panel`
@@ -781,7 +317,6 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
         variant: "default",
       });
 
-      // Refresh data
       fetchTradingHistory();
     } catch (error) {
       console.error('Error in sellPosition:', error);
@@ -793,13 +328,12 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     }
   };
 
-  // Fetch trading history with proper error handling
+  // Fetch trading history
   const fetchTradingHistory = async () => {
     if (!user) return;
 
     try {
       setLoading(true);
-      console.log('🔍 HISTORY: Fetching trading history for user:', user.id);
 
       const { data, error } = await supabase
         .from('mock_trades')
@@ -809,13 +343,8 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
 
       if (error) throw error;
 
-      console.log('✅ HISTORY: Fetched', data?.length || 0, 'trades');
-      
-      // Step 2B: Source-tagged setter with freeze wrapper
-      logSetPositions('manual-fetch', data?.length || 0);
-      setTradesWithFreeze(data || []);
+      setTrades(data || []);
 
-      // Calculate stats with ValuationService
       if (data && data.length > 0) {
         const openPositions = getOpenPositionsList();
         const realizedPL = computeRealizedPLFIFO(data);
@@ -833,7 +362,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
         });
       }
     } catch (error) {
-      console.error('❌ HISTORY: Error fetching trading history:', error);
+      console.error('Error fetching trading history:', error);
       toast({
         title: "Error",
         description: "Failed to fetch trading history",
@@ -857,89 +386,23 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
 
       if (profile) {
         setFeeRate(0); // Always zero fees
-        console.log('📊 HISTORY: Fees set to 0.00 for all transactions');
       }
     } catch (error) {
-      console.error('❌ HISTORY: Error fetching user profile:', error);
+      console.error('Error fetching user profile:', error);
     }
   };
 
-  // Step 2B: Isolator logging and fixed noRefetch semantics
-  useEffect(() => {
-    if (DEBUG_HISTORY_BLINK) {
-      // Log isolator states
-      if (DEBUG_NO_REALTIME) {
-        console.info('[HistoryBlink] isolator active: noRealtime (history channel disabled)');
-      }
-      if (DEBUG_NO_REFETCH) {
-        console.info('[HistoryBlink] isolator active: noRefetch (initial fetch allowed, repeat disabled)');
-      }
-    }
-  }, []);
-
-  // Load data on component mount and when user changes  
+  // Load data on component mount
   useEffect(() => {
     if (user) {
-      // Step 2B: Allow initial fetch always, only block if explicitly isolated
       fetchTradingHistory();
       fetchUserProfile();
     }
   }, [user, testMode]);
 
-  // Fast-track toggle logging
-  useEffect(() => {
-    if (MUTE_HISTORY_LOADING && !muteLoggedRef.current) {
-      console.info('[HistoryBlink] mute: loading/animations suppressed');
-      muteLoggedRef.current = true;
-    }
-  }, []);
-
-  // Step 2B: Wire manual debug handler
-  useEffect(() => {
-    if (DEBUG_HISTORY_BLINK && typeof window !== 'undefined') {
-      (window as any).__historyDebug?._setHandler?.(fetchTradingHistory);
-    }
-  }, []);
-
-  // Step 2: Print debug header for Step 2
-  useEffect(() => {
-    if (DEBUG_HISTORY_BLINK && !debugHeaderLogged.current) {
-      console.info('[HistoryBlink] STEP 2 — Source-tagged setter logs + runtime isolators');
-      debugHeaderLogged.current = true;
-    }
-  }, []);
-
-  // Step 4: Prop fingerprint logging for TradingHistory (rate-limited)
-  useEffect(() => {
-    if (DEBUG_HISTORY_BLINK) {
-      const now = performance.now();
-      if (now - tradingHistoryLastPropLog.current > 1000) {
-        console.info(`[HistoryBlink] props: {
-  positionsRefChanged: ${processedTrades !== trades},
-  len: ${processedTrades.length},
-  idsHash: ${simpleIdsHash(processedTrades)},
-  loading: ${processedLoading},
-  filtersHash: ${simpleFiltersHash(filters)},
-  priceCtxTick: ${Object.keys(marketData).length}
-}`);
-        tradingHistoryLastPropLog.current = now;
-      }
-    }
-  }, [processedTrades, processedLoading, filters, marketData]);
-
-  // Real-time subscription to mock_trades changes (throttled to prevent blinking)
+  // Real-time subscription
   useEffect(() => {
     if (!user) return;
-    
-    // Step 2: Runtime isolation - skip realtime if disabled
-    if (DEBUG_NO_REALTIME) {
-      if (DEBUG_HISTORY_BLINK) {
-        console.info('[HistoryBlink] realtime disabled by toggle');
-      }
-      return;
-    }
-
-    console.log('🔄 HISTORY: Setting up real-time subscription for user:', user.id);
 
     let refreshTimeout: NodeJS.Timeout;
 
@@ -954,256 +417,34 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          // Step 2B: Source-tagged logging for realtime triggers with correct format
-          if (DEBUG_HISTORY_BLINK) {
-            logSetPositions('supabase-realtime', trades.length);
-          }
-          
-          // Step 2B: Respect noRefetch for repeat fetches (not initial)
-          if (DEBUG_NO_REFETCH) {
-            if (DEBUG_HISTORY_BLINK) {
-              console.info('[HistoryBlink] realtime fetch blocked by noRefetch toggle');
-            }
-            return;
-          }
-          
-          // Throttle updates to prevent constant blinking
           clearTimeout(refreshTimeout);
           refreshTimeout = setTimeout(() => {
-            logSetPositions('supabase-realtime', 0); // Log the triggered fetch
             fetchTradingHistory();
-          }, 1000); // Wait 1 second before refreshing
+          }, 1000);
         }
       )
       .subscribe();
 
     return () => {
-      console.log('🔄 HISTORY: Cleaning up real-time subscription');
       clearTimeout(refreshTimeout);
       supabase.removeChannel(channel);
     };
   }, [user]);
 
-  // Badge component with single strip layout and tooltips
-  const StatusBadges = ({ trade, coordinatorReason }: { trade: Trade; coordinatorReason?: string }) => {
-    const isCorrupted = trade.is_corrupted;
-    const isDeferred = coordinatorReason === 'atomic_section_busy_defer';
-    
-    if (!isCorrupted && !isDeferred) return null;
-
-    return (
-      <TooltipProvider>
-        <div className="flex gap-1 mb-1">
-          {isCorrupted && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge variant="destructive" className="text-xs">
-                  <AlertTriangle className="w-3 h-3 mr-1" />
-                  Corrupted
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-sm">
-                  <strong>Data Integrity Issue:</strong><br />
-                  {trade.integrity_reason || 'Unknown corruption detected'}
-                  <br /><br />
-                  This position has corrupted data and needs manual review.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-          {isDeferred && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge variant="outline" className="text-xs">
-                  <Lock className="w-3 h-3 mr-1" />
-                  Deferred
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-sm">
-                  <strong>Atomic Section Busy:</strong><br />
-                  Concurrent trading activity detected for this symbol.
-                  <br />
-                  Request deferred with retry time.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-      </TooltipProvider>
-    );
-  };
-
-  // TradeCard component for rendering individual trades
-  const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
-    const [performance, setPerformance] = useState<TradePerformance | null>(null);
-    const [cardLoading, setCardLoading] = useState(true);
-    
-    // Step 1: Row mount counter + stable id
-    const mountRef = useRef(false);
-    useEffect(() => {
-      if (DEBUG_HISTORY_BLINK && !mountRef.current) {
-        console.info('[HistoryBlink] row mount', trade.id);
-        mountRef.current = true;
-        return () => { 
-          if (DEBUG_HISTORY_BLINK) console.info('[HistoryBlink] row unmount', trade.id); 
-        };
-      }
-    }, [trade.id]);
-
-    // FIXED: Extract only the specific price values to prevent infinite re-renders
-    const specificTradePrice = marketData[trade.cryptocurrency]?.price;
-    
-    useEffect(() => {
-      const loadPerformance = async () => {
-        try {
-          const perf = await calculateTradePerformance(trade);
-          setPerformance(perf);
-        } catch (error) {
-          console.error('Error calculating trade performance:', error);
-        } finally {
-          setCardLoading(false);
-        }
-      };
-
-      loadPerformance();
-    }, [trade.id, specificTradePrice]); // Only use MarketDataProvider price
-
-    if (cardLoading || !performance) {
-      // Fast-track toggle: Remove animations when muted
-      const pulseClass = MUTE_HISTORY_LOADING ? "" : "animate-pulse";
-      return (
-        <Card className={`p-4 ${pulseClass}`} data-position-row data-trade-id={trade.id}>
-          <div className="h-4 bg-muted rounded w-1/3 mb-2"></div>
-          <div className="h-3 bg-muted rounded w-1/2"></div>
-        </Card>
-      );
-    }
-
-    const isProfit = (performance.gainLoss || 0) > 0;
-    const isLoss = (performance.gainLoss || 0) < 0;
-
-    return (
-      <Card className="p-4 hover:shadow-md transition-shadow" data-position-row data-trade-id={trade.id}>
-        <StatusBadges trade={trade} />
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${
-              trade.trade_type === 'buy' ? 'bg-emerald-500' : 'bg-red-500'
-            }`} />
-            <span className="font-semibold text-lg">{trade.cryptocurrency}</span>
-          </div>
-          <Badge variant={trade.trade_type === 'buy' ? 'default' : 'secondary'}>
-            {trade.trade_type.toUpperCase()}
-          </Badge>
-        </div>
-        
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-muted-foreground">Amount</p>
-            <p className="font-medium">{trade.amount.toFixed(8)}</p>
-          </div>
-          
-          <div>
-            <p className="text-muted-foreground">Purchase Value</p>
-            <p className="font-medium">
-              {trade.trade_type === 'buy' 
-                ? formatEuro(trade.total_value) 
-                : formatEuro(trade.original_purchase_value || 0)
-              }
-            </p>
-          </div>
-          
-          <div>
-            <p className="text-muted-foreground">
-              {trade.trade_type === 'buy' ? 'Purchase Price' : 'Exit Price'}
-            </p>
-            <p className="font-medium">{formatEuro(performance.purchasePrice || performance.currentPrice)}</p>
-          </div>
-          
-          {trade.trade_type === 'buy' && (
-            <>
-              <div>
-                <p className="text-muted-foreground">Current Value</p>
-                <p className="font-medium">
-                  {performance.currentValue !== null ? formatEuro(performance.currentValue) : "—"}
-                </p>
-              </div>
-              
-              <div>
-                <p className="text-muted-foreground">Current Price</p>
-                <p className="font-medium">
-                  {performance.currentPrice !== null ? formatEuro(performance.currentPrice) : "—"}
-                </p>
-              </div>
-            </>
-          )}
-          
-          {trade.trade_type === 'sell' && (
-            <div>
-              <p className="text-muted-foreground">Exit Value</p>
-              <p className="font-medium">{formatEuro(performance.currentValue)}</p>
-            </div>
-          )}
-          
-          {performance.gainLoss !== null && performance.gainLossPercentage !== null && (
-            <>
-              <div>
-                <p className="text-muted-foreground">P&L (EUR)</p>
-                <p className={`font-medium ${isProfit ? 'text-emerald-600' : isLoss ? 'text-red-600' : ''}`}>
-                  {formatEuro(performance.gainLoss)}
-                </p>
-              </div>
-              
-              <div>
-                <p className="text-muted-foreground">P&L (%)</p>
-                <p className={`font-medium ${isProfit ? 'text-emerald-600' : isLoss ? 'text-red-600' : ''}`}>
-                  {formatPercentage(performance.gainLossPercentage || 0)}
-                </p>
-              </div>
-            </>
-          )}
-        </div>
-        
-        <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
-          <p>Executed: {new Date(trade.executed_at).toLocaleString()}</p>
-          {trade.notes && <p className="mt-1">Note: {trade.notes}</p>}
-        </div>
-        
-        {showSellButton && trade.trade_type === 'buy' && !performance.isCorrupted && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => sellPosition(trade)}
-            className="w-full mt-3"
-          >
-            Sell Position
-          </Button>
-        )}
-      </Card>
-    );
-  };
-
-  if (historyLoading) {
-    // Fast-track toggle: Remove animations when muted
-    const spinClass = MUTE_HISTORY_LOADING ? "" : "animate-spin";
-    const pulseClass = MUTE_HISTORY_LOADING ? "" : "animate-pulse";
-    
+  if (loading) {
     return (
       <Card className="p-6">
         <div className="flex items-center gap-2 mb-6">
           <Activity className="w-5 h-5" />
           <h2 className="text-lg font-semibold">Trading History</h2>
-          <RefreshCw className={`w-4 h-4 ml-auto ${spinClass}`} />
+          <RefreshCw className="w-4 h-4 ml-auto animate-spin" />
         </div>
-        <div className={pulseClass}>
+        <div className="animate-pulse">
           <div className="h-4 bg-muted rounded w-1/3 mb-4"></div>
           <div className="space-y-3">
-            {[1, 2, 3].map(i => {
-              if (DEBUG_HISTORY_BLINK) console.warn('[HistoryBlink] skeleton keys: static integers detected');
-              return <div key={i} className="h-16 bg-muted rounded"></div>;
-            })}
+            {[1, 2, 3].map(i => (
+              <div key={i} className="h-16 bg-muted rounded"></div>
+            ))}
           </div>
         </div>
       </Card>
@@ -1216,12 +457,6 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
 
   const openPositions = getOpenPositionsList();
   const pastPositions = trades.filter(t => t.trade_type === 'sell');
-  
-  // Step 1: Debug header (once per session)
-  if (DEBUG_HISTORY_BLINK && !debugHeaderLogged.current) {
-    console.info('[HistoryBlink] STEP 1 — Mount/Key visibility (Open/Past)');
-    debugHeaderLogged.current = true;
-  }
 
   return (
     <Card className="p-6">
@@ -1235,9 +470,9 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
           variant="outline"
           size="sm"
           onClick={fetchTradingHistory}
-          disabled={historyLoading}
+          disabled={loading}
         >
-          <RefreshCw className={`w-4 h-4 mr-2 ${historyLoading && !MUTE_HISTORY_LOADING ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
       </div>
@@ -1318,17 +553,6 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)}>
-        {(() => {
-          // Step 3: Tabs mount logging (rate-limited) - FIXED: no useRef in closure
-          if (DEBUG_HISTORY_BLINK) {
-            const now = performance.now();
-            if (now - tabsLastLog.current > 1000) {
-              console.info(`[HistoryBlink] <Tabs> mount 1 | value=${activeTab}`);
-              tabsLastLog.current = now;
-            }
-          }
-          return null;
-        })()}
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="open" className="flex items-center gap-2">
             <ArrowUpRight className="w-4 h-4" />
@@ -1341,73 +565,14 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
         </TabsList>
         
         <TabsContent value="open" className="mt-4">
-          {(() => {
-            // Step 3: OpenList mount counter
-            openMounts.current += 1;
-            if (DEBUG_HISTORY_BLINK) {
-              const now = performance.now();
-              if (now - openLastLog.current > 1000) {
-                console.info(`[HistoryBlink] <OpenList> mount ${openMounts.current} | len=${openPositions.length} loading=${historyLoading}`);
-                openLastLog.current = now;
-              }
-              
-              // Step 4: OpenList prop fingerprint logging (rate-limited)
-              if (now - openListLastPropLog.current > 1000) {
-                console.info(`[HistoryBlink] <OpenList> props: {
-  len: ${openPositions.length},
-  idsHash: ${simpleIdsHash(openPositions)},
-  loading: ${processedLoading}
-}`);
-                openListLastPropLog.current = now;
-              }
-            }
-            
-            // Step 1: Parent remount detector (rate-limited)
-            openRenders.current++;
-            
-            // Step 1: Log actual React key values (once)
-            if (DEBUG_HISTORY_BLINK && !loggedKeysRef.current && openPositions.length > 0) {
-              const sampleKeys = openPositions.slice(0, 10).map(t => t.id);
-              console.info('[HistoryBlink] keys sample (first 10)', sampleKeys);
-              loggedKeysRef.current = true;
-            }
-            
-            return null;
-          })()}
           <OpenList 
             trades={openPositions}
             marketData={marketData} 
-            onCancelOrder={() => {}} // Placeholder - you can implement this based on existing logic
+            onCancelOrder={() => {}}
           />
         </TabsContent>
         
         <TabsContent value="past" className="mt-4">
-          {(() => {
-            // Step 3: PastList mount counter  
-            pastMounts.current += 1;
-            if (DEBUG_HISTORY_BLINK) {
-              const now = performance.now();
-              if (now - pastLastLog.current > 1000) {
-                console.info(`[HistoryBlink] <PastList> mount ${pastMounts.current} | len=${pastPositions.length} loading=${historyLoading}`);
-                pastLastLog.current = now;
-              }
-              
-              // Step 4: PastList prop fingerprint logging (rate-limited)
-              if (now - pastListLastPropLog.current > 1000) {
-                console.info(`[HistoryBlink] <PastList> props: {
-  len: ${pastPositions.length},
-  idsHash: ${simpleIdsHash(pastPositions)},
-  loading: ${processedLoading}
-}`);
-                pastListLastPropLog.current = now;
-              }
-            }
-            
-            // Step 1: Parent remount detector (rate-limited)
-            pastRenders.current++;
-            
-            return null;
-          })()}
           <PastList 
             trades={pastPositions}
             marketData={marketData}
@@ -1416,20 +581,4 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
       </Tabs>
     </Card>
   );
-}
-
-// Step 8: Export with force freeze wrapper
-export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) {
-  if (FORCE_FREEZE_HISTORY) {
-    if (frozenRenderRef === null) {
-      frozenRenderRef = <TradingHistoryInternal hasActiveStrategy={hasActiveStrategy} onCreateStrategy={onCreateStrategy} />;
-      if (!freezeLoggedRef) {
-        console.info('[HistoryBlink] forceFreezeHistory active (child subtree reused)');
-        freezeLoggedRef = true;
-      }
-    }
-    return frozenRenderRef;
-  }
-  
-  return <TradingHistoryInternal hasActiveStrategy={hasActiveStrategy} onCreateStrategy={onCreateStrategy} />;
 }
