@@ -39,8 +39,10 @@ interface MergedPortfolioDisplayProps {
 }
 
 export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: MergedPortfolioDisplayProps) => {
+  console.log('🔵 MERGED_PORTFOLIO: Component is rendering!', { hasActiveStrategy });
   const { user } = useAuth();
   const { testMode } = useTestMode();
+  console.log('🔵 MERGED_PORTFOLIO: Auth and test mode:', { user: !!user, testMode });
   const { balances: mockBalances, resetPortfolio, isLoading: walletLoading } = useMockWallet();
   const { marketData, getCurrentData } = useRealTimeMarketData();
   const { portfolioData, updatePortfolioData, shouldRefresh } = usePersistentDashboardData();

@@ -44,7 +44,15 @@ const Index = () => {
     loading, 
     testMode,
     roleLoading,
-    role
+    role,
+    activeTab
+  });
+  
+  console.log('🔵 INDEX: PORTFOLIO RENDERING CONDITIONS', {
+    activeTab,
+    isDashboard: activeTab === 'dashboard',
+    hasActiveStrategy,
+    willRenderPortfolio: activeTab === 'dashboard'
   });
 
   if (loading || roleLoading) {
