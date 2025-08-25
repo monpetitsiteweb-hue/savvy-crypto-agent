@@ -125,12 +125,27 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const actualPurchasePrice = trade.price;
   const displayCurrentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency];
     
-    // Use ValuationService for all calculations with corrected purchase price
+    // CRITICAL FIX: Only calculate if we have current price from existing market data
+    // This prevents individual API calls that cause 429 rate limit errors
+    if (!displayCurrentPrice) {
+      return {
+        currentPrice: null,
+        currentValue: null,
+        purchaseValue: trade.amount * actualPurchasePrice,
+        purchasePrice: actualPurchasePrice,
+        gainLoss: null,
+        gainLossPercentage: null,
+        isCorrupted: false,
+        corruptionReasons: ['Current price not available from market data']
+      };
+    }
+
+    // Use ValuationService for all calculations with current price from market data
     const valuation = await calculateValuation({
       symbol: trade.cryptocurrency,
       amount: trade.amount,
-      entry_price: actualPurchasePrice, // Use corrected price
-      purchase_value: trade.amount * actualPurchasePrice // Recalculate if corrupted
+      entry_price: actualPurchasePrice,
+      purchase_value: trade.amount * actualPurchasePrice
     }, displayCurrentPrice);
 
     // Integrity check using ValuationService
