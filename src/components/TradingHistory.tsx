@@ -141,6 +141,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
 
     // Use ValuationService for all calculations with current price from market data
+    // CRITICAL: Always pass a valid current price to avoid API calls in valuationService
     const valuation = await calculateValuation({
       symbol: trade.cryptocurrency,
       amount: trade.amount,

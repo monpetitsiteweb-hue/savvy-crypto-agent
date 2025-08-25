@@ -58,7 +58,11 @@ export async function calculateValuation(
   inputs: ValuationInputs,
   currentPriceOverride?: number
 ): Promise<ValuationOutputs> {
-  const current_price = currentPriceOverride ?? await getCurrentPrice(inputs.symbol);
+  // CRITICAL: Never make API calls - always require current price to be provided
+  if (currentPriceOverride === undefined || currentPriceOverride === null) {
+    throw new Error(`Current price must be provided for ${inputs.symbol} - no API calls allowed`);
+  }
+  const current_price = currentPriceOverride;
   
   // Core valuation calculations (single source of truth)
   const current_value = inputs.amount * current_price;
