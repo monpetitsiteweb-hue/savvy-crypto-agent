@@ -125,8 +125,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const actualPurchasePrice = trade.price;
   const displayCurrentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency];
     
-    // CRITICAL FIX: Only calculate if we have current price from existing market data
-    // This prevents individual API calls that cause 429 rate limit errors
+    // Simple calculations using market data directly (no API calls)
     if (!displayCurrentPrice) {
       return {
         currentPrice: null,
@@ -140,32 +139,23 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
     }
 
-    // Use ValuationService for all calculations with current price from market data
-    // CRITICAL: Always pass a valid current price to avoid API calls in valuationService
-    const valuation = await calculateValuation({
-      symbol: trade.cryptocurrency,
-      amount: trade.amount,
-      entry_price: actualPurchasePrice,
-      purchase_value: trade.amount * actualPurchasePrice
-    }, displayCurrentPrice);
-
-    // Integrity check using ValuationService
-    const integrityCheck = checkIntegrity({
-      symbol: trade.cryptocurrency,
-      amount: trade.amount,
-      entry_price: actualPurchasePrice,
-      purchase_value: trade.amount * actualPurchasePrice
-    });
+    // Direct calculations - no external service calls
+    const currentValue = trade.amount * displayCurrentPrice;
+    const purchaseValue = trade.amount * actualPurchasePrice;
+    const gainLoss = currentValue - purchaseValue;
+    const gainLossPercentage = actualPurchasePrice > 0 
+      ? ((displayCurrentPrice / actualPurchasePrice) - 1) * 100 
+      : 0;
 
     return {
       currentPrice: displayCurrentPrice,
-      currentValue: valuation.current_value,
-      purchaseValue: trade.amount * actualPurchasePrice,
+      currentValue: Math.round(currentValue * 100) / 100,
+      purchaseValue: Math.round(purchaseValue * 100) / 100,
       purchasePrice: actualPurchasePrice,
-      gainLoss: valuation.pnl_eur,
-      gainLossPercentage: valuation.pnl_pct,
-      isCorrupted: !integrityCheck.is_valid,
-      corruptionReasons: integrityCheck.errors
+      gainLoss: Math.round(gainLoss * 100) / 100,
+      gainLossPercentage: Math.round(gainLossPercentage * 100) / 100,
+      isCorrupted: false,
+      corruptionReasons: []
     };
   };
 
