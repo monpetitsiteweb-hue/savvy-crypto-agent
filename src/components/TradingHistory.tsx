@@ -73,6 +73,10 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { getCurrentData, marketData } = useRealTimeMarketData();
   const [feeRate, setFeeRate] = useState<number>(0);
   
+  console.log('🔍 HISTORY: MarketData from context:', marketData);
+  console.log('🔍 HISTORY: MarketData keys:', Object.keys(marketData));
+  console.log('🔍 HISTORY: Sample prices:', Object.entries(marketData).slice(0,3).map(([k,v]) => `${k}: €${v.price}`));
+  
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<any[]>([]);
@@ -91,6 +95,44 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     currentlyInvested: 0
   });
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
+  
+  // Fetch real-time prices directly from edge function (bypassing context issues)
+  useEffect(() => {
+    const fetchCurrentPrices = async () => {
+      try {
+        console.log('🔍 HISTORY: Fetching prices directly from edge function...');
+        const response = await fetch('https://fuieplftlcxdfkxyqzlt.functions.supabase.co/real-time-market-data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbols: ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR'] })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('🔍 HISTORY: Got prices from edge function:', data);
+          
+          const prices: Record<string, number> = {};
+          Object.entries(data).forEach(([symbol, marketData]: [string, any]) => {
+            if (marketData?.price) {
+              prices[symbol] = marketData.price;
+              // Also store without -EUR suffix for compatibility
+              const baseSymbol = symbol.replace('-EUR', '');
+              prices[baseSymbol] = marketData.price;
+            }
+          });
+          
+          console.log('🔍 HISTORY: Setting current prices:', prices);
+          setCurrentPrices(prices);
+        }
+      } catch (error) {
+        console.error('❌ HISTORY: Error fetching prices from edge function:', error);
+      }
+    };
+
+    fetchCurrentPrices();
+    const interval = setInterval(fetchCurrentPrices, 30000); // Every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
 
   // Use ValuationService for all P&L calculations (single source of truth)
   const calculateTradePerformance = async (trade: Trade): Promise<TradePerformance> => {
