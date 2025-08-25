@@ -477,8 +477,8 @@ function IndexComponent() {
                   <ErrorBoundary key={PIN_HISTORY_KEY ? 'history-stable' : undefined}>
                     <ContextFreezeBarrier>
                       <TradingHistory 
-                        hasActiveStrategy={HISTORY_DECOUPLED ? undefined : hasActiveStrategy}
-                        onCreateStrategy={HISTORY_DECOUPLED ? undefined : (() => setActiveTabTraced('strategy'))}
+                        hasActiveStrategy={hasActiveStrategy}
+                        onCreateStrategy={() => setActiveTabTraced('strategy')}
                       />
                     </ContextFreezeBarrier>
                   </ErrorBoundary>

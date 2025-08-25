@@ -35,6 +35,16 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
     }
   }, []);
 
+  // Check if historyDecoupled is active (only freeze price/indicators, not strategy/auth)
+  const historyDecoupled = useMemo(() => {
+    try {
+      const url = new URL(window.location.href);
+      return url.searchParams.get('debug') === 'history' && url.searchParams.get('historyDecoupled') === '1';
+    } catch {
+      return false;
+    }
+  }, []);
+
   // Get current context values only once
   const marketData = useMarketData();
   const auth = useAuth();
@@ -43,21 +53,35 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
   // Freeze the values on first render
   const frozenValues = useRef<FrozenContexts | null>(null);
   
-  if (!frozenValues.current && shouldFreeze) {
+  if (!frozenValues.current && (shouldFreeze || historyDecoupled)) {
     frozenValues.current = {
       marketData: { ...marketData },
       auth: { ...auth },
       testMode: { ...testMode }
     };
-    console.log('[HistoryBlink] ContextFreezeBarrier active for: price, auth, testMode');
+    
+    if (historyDecoupled) {
+      console.log('[HistoryBlink] ContextFreezeBarrier active for: price, indicators (strategy/positions/auth unaffected)');
+    } else {
+      console.log('[HistoryBlink] ContextFreezeBarrier active for: price, auth, testMode');
+    }
   }
 
   // If not freezing, just return children as-is
-  if (!shouldFreeze) {
+  if (!shouldFreeze && !historyDecoupled) {
     return <>{children}</>;
   }
 
-  // Return children wrapped with frozen context providers
+  // For historyDecoupled, only freeze market data (price/indicators)
+  if (historyDecoupled) {
+    return (
+      <FrozenMarketContext.Provider value={frozenValues.current?.marketData}>
+        {children}
+      </FrozenMarketContext.Provider>
+    );
+  }
+
+  // For full freezeContexts, freeze all contexts
   return (
     <FrozenMarketContext.Provider value={frozenValues.current?.marketData}>
       <FrozenAuthContext.Provider value={frozenValues.current?.auth}>
