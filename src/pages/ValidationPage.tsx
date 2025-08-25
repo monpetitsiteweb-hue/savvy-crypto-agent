@@ -120,7 +120,7 @@ const ValidationPage = () => {
 
     validation.interval = interval;
 
-    // Generate test traffic
+    // Generate test traffic - DISABLED for Step 6
     generateTestTraffic(validation);
     
     console.log(`🎯 Started ${mode} validation for 30 minutes`);
@@ -146,25 +146,30 @@ const ValidationPage = () => {
   };
 
   const generateTestTraffic = async (validation: ValidationWindow) => {
-    const symbols = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL'];
-    const sources = ['automated', 'intelligent', 'manual', 'pool'];
+    // STEP 6: SYNTHETIC TRAFFIC GENERATION DISABLED
+    // Real trading activity will be used for validation instead of synthetic traffic
+    console.log(`🚫 SYNTHETIC TRAFFIC DISABLED: ${validation.mode} validation will use only real trading activity`);
     
-    while (validation === currentValidation) {
-      // Generate various intent patterns
-      await Promise.all([
-        sendRandomIntent(symbols, sources, validation),
-        sendRandomIntent(symbols, sources, validation),
-        sendRandomIntent(symbols, sources, validation)
-      ]);
-      
-      // Random delay between bursts
-      await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
-      
-      // Occasionally generate bursts for same symbol (queue testing)
-      if (Math.random() < 0.2) {
-        await generateSymbolBurst(symbols[Math.floor(Math.random() * symbols.length)], validation);
-      }
-    }
+    // Original synthetic traffic generation code commented out for Step 6
+    // const symbols = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL'];
+    // const sources = ['automated', 'intelligent', 'manual', 'pool'];
+    // 
+    // while (validation === currentValidation) {
+    //   // Generate various intent patterns
+    //   await Promise.all([
+    //     sendRandomIntent(symbols, sources, validation),
+    //     sendRandomIntent(symbols, sources, validation),
+    //     sendRandomIntent(symbols, sources, validation)
+    //   ]);
+    //   
+    //   // Random delay between bursts
+    //   await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
+    //   
+    //   // Occasionally generate bursts for same symbol (queue testing)
+    //   if (Math.random() < 0.2) {
+    //     await generateSymbolBurst(symbols[Math.floor(Math.random() * symbols.length)], validation);
+    //   }
+    // }
   };
 
   const sendRandomIntent = async (symbols: string[], sources: string[], validation: ValidationWindow) => {
