@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { checkIntegrity, type ValuationInputs } from '@/utils/valuationService';
+import { checkIntegrity, type OpenPositionInputs } from '@/utils/valuationService';
 import { useToast } from '@/hooks/use-toast';
 
 export const IntegrityGuard = () => {
@@ -29,11 +29,11 @@ export const IntegrityGuard = () => {
       
       for (const trade of trades || []) {
         if (trade.trade_type === 'buy') {
-          const inputs: ValuationInputs = {
+          const inputs: OpenPositionInputs = {
             symbol: trade.cryptocurrency,
             amount: trade.amount,
-            entry_price: trade.price,
-            purchase_value: trade.total_value
+            entryPrice: trade.price,
+            purchaseValue: trade.total_value
           };
           
           const integrityCheck = checkIntegrity(inputs);

@@ -9,7 +9,7 @@ import { useRealTimeMarketData } from "@/hooks/useRealTimeMarketData";
 import { supabase } from '@/integrations/supabase/client';
 import { Wallet, TrendingUp, TrendingDown, RefreshCw, Loader2, TestTube, DollarSign, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { calculateValuation, checkIntegrity, type ValuationInputs } from "@/utils/valuationService";
+import { calculateValuation, checkIntegrity, type ValuationInputs, type OpenPositionInputs } from "@/utils/valuationService";
 import { CorruptionWarning } from "@/components/CorruptionWarning";
 
 interface PortfolioData {
@@ -146,7 +146,13 @@ export const UnifiedPortfolioDisplay = () => {
         
         if (currentPrice > 0) {
           try {
-            const valuation = await calculateValuation(position, currentPrice);
+            const openPositionInputs: OpenPositionInputs = {
+              symbol: position.symbol,
+              amount: position.amount,
+              entryPrice: position.entry_price,
+              purchaseValue: position.purchase_value
+            };
+            const valuation = await calculateValuation(openPositionInputs, currentPrice);
             valuations[position.symbol] = valuation;
             console.log(`✅ PORTFOLIO: Valuation calculated for ${position.symbol}:`, valuation);
           } catch (error) {
@@ -290,8 +296,14 @@ export const UnifiedPortfolioDisplay = () => {
   };
 
   const renderPositionCard = (position: PositionData) => {
-    // Use valuation service for all calculations
-    const integrityCheck = checkIntegrity(position);
+    // Use valuation service for all calculations - map fields correctly
+    const openPositionInputs: OpenPositionInputs = {
+      symbol: position.symbol,
+      amount: position.amount,
+      entryPrice: position.entry_price,
+      purchaseValue: position.purchase_value
+    };
+    const integrityCheck = checkIntegrity(openPositionInputs);
     const currentPrice = realTimePrices[position.symbol] || 0;
     const valuation = positionValuations[position.symbol];
     

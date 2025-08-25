@@ -12,7 +12,7 @@ import { useMockWallet } from '@/hooks/useMockWallet';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
-import { checkIntegrity, calculateValuation } from '@/utils/valuationService';
+import { checkIntegrity, calculateOpenPosition, processPastPosition } from '@/utils/valuationService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertTriangle, Lock } from 'lucide-react';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
@@ -97,81 +97,62 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   });
   // Removed direct edge function calls - using MarketDataProvider only
 
-  // Use ValuationService for all P&L calculations (single source of truth)
+  // Step 5: Open positions calculation using MarketDataProvider only
   const calculateTradePerformance = async (trade: Trade): Promise<TradePerformance> => {
     
     if (trade.trade_type === 'sell') {
-      // Past Positions: Use stored snapshot data when available  
-      if (trade.original_purchase_value && trade.original_purchase_price) {
-        return {
-          currentPrice: trade.price, // Exit price
-          currentValue: trade.total_value, // Exit value  
-          purchaseValue: trade.original_purchase_value,
-          purchasePrice: trade.original_purchase_price,
-          gainLoss: trade.realized_pnl || ((trade.total_value || 0) - (trade.original_purchase_value || 0)),
-          gainLossPercentage: trade.realized_pnl_pct || (trade.original_purchase_price > 0 ? ((trade.price / trade.original_purchase_price) - 1) * 100 : 0),
-          isAutomatedWithoutPnL: false
-        };
-      }
+      // Step 5B: Past Positions - Use snapshot fields only, no recomputation
+      const pastPosition = processPastPosition({
+        original_purchase_amount: trade.original_purchase_amount,
+        original_purchase_value: trade.original_purchase_value,
+        original_purchase_price: trade.original_purchase_price,
+        price: trade.price, // Exit price
+        exit_value: trade.exit_value,
+        realized_pnl: trade.realized_pnl,
+        realized_pnl_pct: trade.realized_pnl_pct
+      });
       
-      // Remove fallback logic - return null for incomplete data
       return {
-        currentPrice: trade.price,
-        currentValue: trade.total_value,
-        purchaseValue: null,
-        purchasePrice: null,  
-        gainLoss: null,
-        gainLossPercentage: null,
-        isAutomatedWithoutPnL: true
+        currentPrice: pastPosition.exitPrice, // Exit price from snapshot
+        currentValue: pastPosition.exitValue, // Exit value from snapshot
+        purchaseValue: pastPosition.purchaseValue,
+        purchasePrice: pastPosition.entryPrice,
+        gainLoss: pastPosition.realizedPnL,
+        gainLossPercentage: pastPosition.realizedPnLPct,
+        isAutomatedWithoutPnL: false
       };
     }
     
-  // For BUY trades (open positions): Use exact trade data without fallbacks
-  const actualPurchasePrice = trade.price;
-  
-  // Use symbol normalization utility - trade.cryptocurrency should be base symbol
-  const baseSymbol = toBaseSymbol(trade.cryptocurrency);
-  const pairSymbol = toPairSymbol(baseSymbol);
-  
-  console.log('🔄 SYMBOLS: base=', baseSymbol, 'pair=', pairSymbol, 'providerKey=', pairSymbol);
-  console.log('🔍 HISTORY: Available market data keys:', Object.keys(marketData));
-  
-  // Get current price from MarketDataProvider using pair symbol
-  let displayCurrentPrice = marketData[pairSymbol]?.price;
-                           
-  console.log('🔍 HISTORY: Found current price:', displayCurrentPrice, 'for', baseSymbol);
+    // Step 5A: Open Positions - Aggregated calculation with MarketDataProvider only
+    const baseSymbol = toBaseSymbol(trade.cryptocurrency);
+    const pairSymbol = toPairSymbol(baseSymbol);
     
-    // No current price available - return nulls for display as "—" 
-    if (!displayCurrentPrice || displayCurrentPrice <= 0) {
-      return {
-        currentPrice: null,
-        currentValue: null,
-        purchaseValue: trade.amount * actualPurchasePrice,
-        purchasePrice: actualPurchasePrice,
-        gainLoss: null,
-        gainLossPercentage: null,
-        isCorrupted: false,
-        corruptionReasons: ['Current price not available from MarketDataProvider']
-      };
-    }
-
-    // Direct calculations - no external service calls
-    const currentValue = trade.amount * displayCurrentPrice;
-    const purchaseValue = trade.amount * actualPurchasePrice;
-    const gainLoss = currentValue - purchaseValue;
-    const gainLossPercentage = actualPurchasePrice > 0 
-      ? ((displayCurrentPrice / actualPurchasePrice) - 1) * 100 
-      : 0;
-
+    console.log('🔄 SYMBOLS: base=', baseSymbol, 'pair=', pairSymbol, 'providerKey=', pairSymbol);
+    
+    // Get current price from MarketDataProvider using pair symbol
+    const currentPrice = marketData[pairSymbol]?.price || null;
+    
+    console.log('🔍 HISTORY: Current price for', baseSymbol, ':', currentPrice);
+    
+    // Calculate open position performance
+    const openPositionInputs = {
+      symbol: baseSymbol,
+      amount: trade.amount,
+      purchaseValue: trade.amount * trade.price,
+      entryPrice: trade.price
+    };
+    
+    const performance = calculateOpenPosition(openPositionInputs, currentPrice);
+    
     return {
-      currentPrice: displayCurrentPrice,
-      currentValue: Math.round(currentValue * 100) / 100,
-      purchaseValue: Math.round(purchaseValue * 100) / 100,
-      purchasePrice: actualPurchasePrice,
-      gainLoss: Math.round(gainLoss * 100) / 100,
-      gainLossPercentage: Math.round(gainLossPercentage * 100) / 100,
+      currentPrice: performance.currentPrice,
+      currentValue: performance.currentValue,
+      purchaseValue: openPositionInputs.purchaseValue,
+      purchasePrice: openPositionInputs.entryPrice,
+      gainLoss: performance.pnlEur,
+      gainLossPercentage: performance.pnlPct,
       isCorrupted: false,
-      corruptionReasons: []
+      corruptionReasons: currentPrice === null ? ['Current price not available from MarketDataProvider'] : []
     };
   };
 
