@@ -18,17 +18,46 @@ import { AlertTriangle, Lock } from 'lucide-react';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 
-// Master debug gate for Step 1 instrumentation with prod-safe runtime toggle
+// Master debug gate for Step 1 & 2 instrumentation with prod-safe runtime toggle
 const RUNTIME_DEBUG =
   (() => {
     try {
-      const url = new URL(window.location.href);
-      return url.searchParams.get('debug') === 'history' || url.hash.includes('debug=history') || sessionStorage.getItem('DEBUG_HISTORY_BLINK') === 'true';
+      const u = new URL(window.location.href);
+      return u.searchParams.get('debug') === 'history' || u.hash.includes('debug=history') || sessionStorage.getItem('DEBUG_HISTORY_BLINK') === 'true';
     } catch { return false; }
   })();
 
 const DEBUG_HISTORY_BLINK =
   (import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true')) || RUNTIME_DEBUG;
+
+// Step 2: Runtime isolation toggles
+const DEBUG_NO_REALTIME = 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.has('noRealtime') || sessionStorage.getItem('DEBUG_NO_REALTIME') === 'true';
+    } catch { return false; }
+  })();
+
+const DEBUG_NO_REFETCH = 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.has('noRefetch') || sessionStorage.getItem('DEBUG_NO_REFETCH') === 'true';
+    } catch { return false; }
+  })();
+
+// Step 2: Source-tagged logging with rate limiting
+const srcLogTimestamps = new Map<string, number>();
+const logSrc = (src: string, count: number) => {
+  if (!DEBUG_HISTORY_BLINK) return;
+  const now = Math.floor(performance.now());
+  const lastLog = srcLogTimestamps.get(src) || 0;
+  if (now - lastLog >= 250) { // Rate limit: one per 250ms per source
+    console.info(`[HistoryBlink] source: ${src}, count: ${count}, ts: ${now}`);
+    srcLogTimestamps.set(src, now);
+  }
+};
 
 interface Trade {
   id: string;
@@ -400,6 +429,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       if (error) throw error;
 
       console.log('✅ HISTORY: Fetched', data?.length || 0, 'trades');
+      
+      // Step 2: Source-tagged setter
+      logSrc('manual-fetch', data?.length || 0);
       setTrades(data || []);
 
       // Calculate stats with ValuationService
@@ -454,14 +486,35 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // Load data on component mount and when user changes
   useEffect(() => {
     if (user) {
-      fetchTradingHistory();
+      // Step 2: Runtime isolation - skip initial fetch if disabled
+      if (!DEBUG_NO_REFETCH) {
+        fetchTradingHistory();
+      } else if (DEBUG_HISTORY_BLINK) {
+        console.info('[HistoryBlink] initial fetch disabled by toggle');
+      }
       fetchUserProfile();
     }
   }, [user, testMode]);
 
+  // Step 2: Print debug header for Step 2
+  useEffect(() => {
+    if (DEBUG_HISTORY_BLINK && !debugHeaderLogged.current) {
+      console.info('[HistoryBlink] STEP 2 — Source-tagged setter logs + runtime isolators');
+      debugHeaderLogged.current = true;
+    }
+  }, []);
+
   // Real-time subscription to mock_trades changes (throttled to prevent blinking)
   useEffect(() => {
     if (!user) return;
+    
+    // Step 2: Runtime isolation - skip realtime if disabled
+    if (DEBUG_NO_REALTIME) {
+      if (DEBUG_HISTORY_BLINK) {
+        console.info('[HistoryBlink] realtime disabled by toggle');
+      }
+      return;
+    }
 
     console.log('🔄 HISTORY: Setting up real-time subscription for user:', user.id);
 
@@ -478,6 +531,11 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
+          // Step 2: Source-tagged logging for realtime triggers
+          if (DEBUG_HISTORY_BLINK) {
+            logSrc('supabase-realtime', trades.length);
+          }
+          
           // Throttle updates to prevent constant blinking
           clearTimeout(refreshTimeout);
           refreshTimeout = setTimeout(() => {
