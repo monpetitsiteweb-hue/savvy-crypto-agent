@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { toPairSymbol, BaseSymbol } from '@/utils/symbols';
 
 interface MarketData {
   symbol: string;
@@ -36,19 +37,18 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const getCurrentData = useCallback(async (symbols: string[]): Promise<Record<string, MarketData>> => {
+  const getCurrentData = useCallback(async (symbols: BaseSymbol[]): Promise<Record<string, MarketData>> => {
     try {
-      // Normalize symbols to Coinbase format (add -EUR if missing)
-      const normalizedSymbols = symbols.map(symbol => {
-        if (symbol.includes('-')) return symbol;
-        return `${symbol}-EUR`;
-      });
+      // Convert base symbols to pairs using the central util
+      const pairSymbols = symbols.map(base => toPairSymbol(base));
+      
+      console.log('🔄 SYMBOLS: base→pair conversion:', symbols.map((base, i) => `${base}→${pairSymbols[i]}`));
 
       // Filter out invalid symbols that cause 404s
-      const validSymbols = normalizedSymbols.filter(symbol => {
+      const validSymbols = pairSymbols.filter(pair => {
         const validCoinbaseSymbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 
                                      'DOT-EUR', 'MATIC-EUR', 'AVAX-EUR', 'LINK-EUR', 'LTC-EUR'];
-        return validCoinbaseSymbols.includes(symbol);
+        return validCoinbaseSymbols.includes(pair);
       });
 
       if (validSymbols.length === 0) {
@@ -136,7 +136,7 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Get initial data on mount and update every 60 seconds (less frequent to avoid rate limiting)
   useEffect(() => {
-    const commonSymbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 'DOT-EUR', 'MATIC-EUR', 'AVAX-EUR', 'LINK-EUR', 'LTC-EUR'];
+    const commonSymbols: BaseSymbol[] = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'LTC'];
     getCurrentData(commonSymbols);
     
     // Update data every 60 seconds to avoid rate limiting (increased from 30s)

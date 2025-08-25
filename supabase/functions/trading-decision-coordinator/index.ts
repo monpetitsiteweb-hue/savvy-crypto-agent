@@ -1,6 +1,16 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Symbol normalization utilities (inlined for Deno)
+type BaseSymbol = string;        // e.g., "BTC"
+type PairSymbol = `${string}-EUR`; // e.g., "BTC-EUR"
+
+const toBaseSymbol = (input: string): BaseSymbol =>
+  input.includes("-") ? input.split("-")[0] : input;
+
+const toPairSymbol = (base: BaseSymbol): PairSymbol =>
+  `${toBaseSymbol(base)}-EUR` as PairSymbol;
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -271,23 +281,32 @@ async function executeTradeDirectly(
   requestId: string
 ): Promise<{ success: boolean; error?: string; qty?: number }> {
   
+// Get real-time prices from Coinbase API
+async function getMarketPrice(symbol: string): Promise<number> {
   try {
-    // Get real market price
-    const coinbaseSymbol = intent.symbol.includes('-EUR') ? intent.symbol : `${intent.symbol}-EUR`;
-    const response = await fetch(`https://api.exchange.coinbase.com/products/${coinbaseSymbol}/ticker`);
+    const baseSymbol = toBaseSymbol(symbol);
+    const pairSymbol = toPairSymbol(baseSymbol);
+    console.log('💱 EXECUTION PRICE LOOKUP: base=', baseSymbol, 'pair=', pairSymbol, 'url=/products/', pairSymbol, '/ticker');
     
-    if (!response.ok) {
-      throw new Error(`Price fetch failed: HTTP ${response.status}`);
-    }
-    
+    const response = await fetch(`https://api.exchange.coinbase.com/products/${pairSymbol}/ticker`);
     const data = await response.json();
-    const realMarketPrice = parseFloat(data.price);
     
-    if (!realMarketPrice || realMarketPrice <= 0) {
-      throw new Error(`Invalid price: ${data.price}`);
+    if (response.ok && data.price) {
+      const price = parseFloat(data.price);
+      console.log('💱 COORDINATOR: Got real price for', pairSymbol, ':', '€' + price);
+      return price;
     }
     
-    console.log(`💱 DIRECT: Got price for ${coinbaseSymbol}: €${realMarketPrice}`);
+    throw new Error(`Invalid price response: ${data.message || 'Unknown error'}`);
+  } catch (error) {
+    console.error('❌  Price fetch error for', symbol, ':', error.message);
+    throw error;
+  }
+}
+  try {
+    // Get real market price using symbol utilities
+    const baseSymbol = toBaseSymbol(intent.symbol); 
+    const realMarketPrice = await getMarketPrice(baseSymbol);
     
     // Calculate quantity
     const tradeAllocation = strategyConfig?.perTradeAllocation || 1000;
@@ -300,16 +319,16 @@ async function executeTradeDirectly(
     }
     
     const totalValue = qty * realMarketPrice;
-    const symbol = intent.symbol.replace('-EUR', '');
     
-    console.log(`💱 DIRECT: ${intent.side} ${qty} ${symbol} at €${realMarketPrice} = €${totalValue}`);
+    console.log(`💱 DIRECT: ${intent.side} ${qty} ${baseSymbol} at €${realMarketPrice} = €${totalValue}`);
     
-    // Insert trade record
+    // Insert trade record - store base symbol only
+    const baseSymbol = toBaseSymbol(intent.symbol);
     const mockTrade = {
       user_id: intent.userId,
       strategy_id: intent.strategyId,
       trade_type: intent.side.toLowerCase(),
-      cryptocurrency: symbol,
+      cryptocurrency: baseSymbol, // Store base symbol only
       amount: qty,
       price: realMarketPrice,
       total_value: totalValue,
@@ -346,12 +365,13 @@ async function logDecisionAsync(
   requestId: string
 ): Promise<void> {
   try {
+    const baseSymbol = toBaseSymbol(intent.symbol);
     await supabaseClient
       .from('trade_decisions_log')
       .insert({
         user_id: intent.userId,
         strategy_id: intent.strategyId,
-        symbol: intent.symbol,
+        symbol: baseSymbol, // Store base symbol only
         intent_side: intent.side,
         intent_source: intent.source,
         confidence: intent.confidence,
@@ -405,13 +425,13 @@ async function detectConflicts(
 ): Promise<{ hasConflict: boolean; reason: string }> {
   
   // Get recent trades for this symbol
-  const symbol = intent.symbol.replace('-EUR', '');
+  const baseSymbol = toBaseSymbol(intent.symbol);
   const { data: recentTrades } = await supabaseClient
     .from('mock_trades')
     .select('trade_type, executed_at, amount, price')
     .eq('user_id', intent.userId)
     .eq('strategy_id', intent.strategyId)
-    .eq('cryptocurrency', symbol)
+    .eq('cryptocurrency', baseSymbol)
     .gte('executed_at', new Date(Date.now() - 600000).toISOString()) // Last 10 minutes
     .order('executed_at', { ascending: false })
     .limit(20);
@@ -561,12 +581,13 @@ function generateLockKey(userId: string, strategyId: string, symbol: string): nu
 
 // Get recent trades (timestamp-based, no locks)
 async function getRecentTrades(supabaseClient: any, userId: string, strategyId: string, symbol: string) {
+  const baseSymbol = toBaseSymbol(symbol);
   const { data: trades } = await supabaseClient
     .from('mock_trades')
     .select('trade_type, executed_at, amount, price')
     .eq('user_id', userId)
     .eq('strategy_id', strategyId)
-    .eq('cryptocurrency', symbol.replace('-EUR', ''))
+    .eq('cryptocurrency', baseSymbol) // Use base symbol for DB lookup
     .gte('executed_at', new Date(Date.now() - 300000).toISOString()) // Last 5 minutes
     .order('executed_at', { ascending: false })
     .limit(10);
@@ -584,23 +605,11 @@ async function executeTradeOrder(
   try {
     console.log(`💱 COORDINATOR: Executing ${intent.side} order for ${intent.symbol}`);
     
-    // Get real market price
-    const symbol = intent.symbol.replace('-EUR', '');
-    const coinbaseSymbol = intent.symbol.includes('-EUR') ? intent.symbol : `${intent.symbol}-EUR`;
+    // Get real market price using symbol utilities
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    const realMarketPrice = await getMarketPrice(baseSymbol);
     
-    const response = await fetch(`https://api.exchange.coinbase.com/products/${coinbaseSymbol}/ticker`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    const realMarketPrice = parseFloat(data.price);
-    
-    if (!realMarketPrice || realMarketPrice <= 0) {
-      throw new Error(`Invalid price received: ${data.price}`);
-    }
-    
-    console.log(`💱 COORDINATOR: Got real price for ${coinbaseSymbol}: €${realMarketPrice}`);
+    console.log(`💱 COORDINATOR: Got real price for ${toPairSymbol(baseSymbol)}: €${realMarketPrice}`);
     
     // Calculate quantity
     let qty: number;
@@ -614,14 +623,14 @@ async function executeTradeOrder(
     
     const totalValue = qty * realMarketPrice;
     
-    console.log(`💱 COORDINATOR: Trade calculation - ${intent.side} ${qty} ${symbol} at €${realMarketPrice} = €${totalValue}`);
+    console.log(`💱 COORDINATOR: Trade calculation - ${intent.side} ${qty} ${baseSymbol} at €${realMarketPrice} = €${totalValue}`);
     
-    // Execute trade
+    // Execute trade - store base symbol only
     const mockTrade = {
       user_id: intent.userId,
       strategy_id: intent.strategyId,
       trade_type: intent.side.toLowerCase(),
-      cryptocurrency: symbol,
+      cryptocurrency: baseSymbol, // Store base symbol only
       amount: qty,
       price: realMarketPrice,
       total_value: totalValue,

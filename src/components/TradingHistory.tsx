@@ -16,6 +16,7 @@ import { checkIntegrity, calculateValuation } from '@/utils/valuationService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertTriangle, Lock } from 'lucide-react';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
+import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 
 interface Trade {
   id: string;
@@ -128,20 +129,17 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // For BUY trades (open positions): Use exact trade data without fallbacks
   const actualPurchasePrice = trade.price;
   
-  // FIXED: Handle symbol format mismatch - trade.cryptocurrency might be "BTC-EUR" or just "BTC"
-  const symbol = trade.cryptocurrency;
-  const baseSymbol = symbol.replace('-EUR', ''); // Get "BTC" from "BTC-EUR"
-  const fullSymbol = symbol.includes('-EUR') ? symbol : `${symbol}-EUR`; // Ensure "-EUR" suffix
+  // Use symbol normalization utility - trade.cryptocurrency should be base symbol
+  const baseSymbol = toBaseSymbol(trade.cryptocurrency);
+  const pairSymbol = toPairSymbol(baseSymbol);
   
-  console.log('🔍 HISTORY: Looking for price for', symbol, 'checking as baseSymbol:', baseSymbol, 'fullSymbol:', fullSymbol);
+  console.log('🔄 SYMBOLS: base=', baseSymbol, 'pair=', pairSymbol, 'providerKey=', pairSymbol);
   console.log('🔍 HISTORY: Available market data keys:', Object.keys(marketData));
   
-  // Get current price from MarketDataProvider only
-  let displayCurrentPrice = marketData[symbol]?.price || 
-                           marketData[fullSymbol]?.price || 
-                           marketData[baseSymbol]?.price;
+  // Get current price from MarketDataProvider using pair symbol
+  let displayCurrentPrice = marketData[pairSymbol]?.price;
                            
-  console.log('🔍 HISTORY: Found current price:', displayCurrentPrice, 'for', symbol);
+  console.log('🔍 HISTORY: Found current price:', displayCurrentPrice, 'for', baseSymbol);
     
     // No current price available - return nulls for display as "—" 
     if (!displayCurrentPrice || displayCurrentPrice <= 0) {
@@ -284,21 +282,23 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       const { validateTradePrice, validatePurchaseValue, logValidationFailure } = await import('../utils/regressionGuards');
       
       // Get current price from MarketDataProvider only
-      let currentPrice = marketData[trade.cryptocurrency]?.price;
+      const baseSymbol = toBaseSymbol(trade.cryptocurrency);
+      const pairSymbol = toPairSymbol(baseSymbol);
+      let currentPrice = marketData[pairSymbol]?.price;
       
       // Try to get deterministic price from snapshots first
       try {
-        const normalizedSymbol = trade.cryptocurrency.replace('-EUR', '');
+        const baseSymbol = toBaseSymbol(trade.cryptocurrency);
         const { data: snapshot } = await supabase
           .from('price_snapshots')
           .select('price')
-          .eq('symbol', normalizedSymbol)
+          .eq('symbol', baseSymbol)
           .order('ts', { ascending: false })
           .limit(1);
         
         if (snapshot?.[0]?.price) {
           currentPrice = snapshot[0].price;
-          console.log('🎯 HISTORY: Using snapshot price for sell:', currentPrice, 'for', normalizedSymbol);
+          console.log('🎯 HISTORY: Using snapshot price for sell:', currentPrice, 'for', baseSymbol);
         }
       } catch (error) {
         console.warn('⚠️ HISTORY: Could not fetch price snapshot for sell, using market price');
