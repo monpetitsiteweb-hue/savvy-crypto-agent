@@ -522,12 +522,7 @@ async function executeWithMinimalLock(
       console.log(`🎯 UD_MODE=ON → DEFER: reason=atomic_section_busy_defer symbol=${intent.symbol} retry=${Math.round(200 + Math.random() * 300)}ms`);
       
       const retryMs = Math.round(200 + Math.random() * 300);
-      return {
-        action: 'DEFER',
-        reason: 'atomic_section_busy_defer',
-        request_id: requestId,
-        retry_in_ms: retryMs
-      };
+      return { action: 'DEFER', reason: 'atomic_section_busy_defer', request_id: requestId, retry_in_ms: retryMs };
     }
 
     lockAcquired = true;
@@ -538,21 +533,10 @@ async function executeWithMinimalLock(
     
     if (executionResult.success) {
       console.log(`🎯 UD_MODE=ON → EXECUTE: action=${intent.side} symbol=${intent.symbol} lock=OK`);
-      return {
-        action: intent.side as DecisionAction,
-        reason: 'no_conflicts_detected',
-        request_id: requestId,
-        retry_in_ms: 0,
-        qty: executionResult.qty
-      };
+      return { action: intent.side as DecisionAction, reason: 'no_conflicts_detected', request_id: requestId, retry_in_ms: 0, qty: executionResult.qty };
     } else {
       console.error(`❌ UD_MODE=ON → EXECUTE FAILED: ${executionResult.error}`);
-      return {
-        action: 'HOLD',
-        reason: 'direct_execution_failed',
-        request_id: requestId,
-        retry_in_ms: 0
-      };
+      return { action: 'HOLD', reason: 'direct_execution_failed', request_id: requestId, retry_in_ms: 0 };
     }
 
   } finally {
