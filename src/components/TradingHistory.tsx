@@ -218,8 +218,14 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     }
   });
 
-  const { user } = useFrozenAuth() || useAuth();
-  const { testMode } = useFrozenTestMode() || useTestMode();
+  // Use frozen contexts only when explicitly enabled, otherwise use regular contexts
+  const frozenAuth = useFrozenAuth();
+  const frozenTestMode = useFrozenTestMode();
+  const regularAuth = useAuth();
+  const regularTestMode = useTestMode();
+  
+  const { user } = frozenAuth || regularAuth;
+  const { testMode } = frozenTestMode || regularTestMode;
   
   // Step 12: Use hard toast no-op if enabled
   const { useHardToastNoOp } = (() => {
@@ -328,6 +334,8 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   }, [realMarketData.marketData]);
   
   // Step 10 & 6: Apply price disconnection and decoupling
+  // Use frozen market data only when explicitly enabled, otherwise use regular market data  
+  const frozenMarketData = useFrozenMarketData();
   let marketData: Record<string, any>;
   let getCurrentData: any;
   
@@ -364,6 +372,10 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
       console.info('[HistoryBlink] price-tick -> would update history (suppressed=true)');
       priceTickLogRef.current = now;
     }
+  } else if (frozenMarketData) {
+    // Use frozen market data when freeze flags are active
+    marketData = frozenMarketData.marketData || {};
+    getCurrentData = frozenMarketData.getCurrentData || (() => Promise.resolve({}));
   } else {
     // Step 3: noPrice isolator - freeze price context updates for this panel
     marketData = DEBUG_NO_PRICE ? {} : realMarketData.marketData;
@@ -388,8 +400,8 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   const [feeRate, setFeeRate] = useState<number>(0);
   
   console.log('🔍 HISTORY: MarketData from context:', marketData);
-  console.log('🔍 HISTORY: MarketData keys:', Object.keys(marketData));
-  console.log('🔍 HISTORY: Sample prices:', Object.entries(marketData).slice(0,3).map(([k,v]) => `${k}: €${v.price}`));
+  console.log('🔍 HISTORY: MarketData keys:', Object.keys(marketData || {}));
+  console.log('🔍 HISTORY: Sample prices:', Object.entries(marketData || {}).slice(0,3).map(([k,v]) => `${k}: €${(v as any)?.price || 'N/A'}`));
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
