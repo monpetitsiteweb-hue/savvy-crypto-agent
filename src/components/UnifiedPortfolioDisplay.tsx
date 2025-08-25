@@ -70,6 +70,7 @@ export const UnifiedPortfolioDisplay = () => {
           }
         });
         
+        console.log('🔍 PORTFOLIO: Real-time prices updated:', prices);
         setRealTimePrices(prices);
       } catch (error) {
         console.error('Error fetching real-time prices:', error);
@@ -130,14 +131,23 @@ export const UnifiedPortfolioDisplay = () => {
         }
         
         const currentPrice = realTimePrices[position.symbol] || 0;
+        console.log(`🔍 PORTFOLIO: Calculating valuation for ${position.symbol}:`, {
+          currentPrice,
+          position,
+          availablePrices: Object.keys(realTimePrices)
+        });
+        
         if (currentPrice > 0) {
           try {
             const valuation = await calculateValuation(position, currentPrice);
             valuations[position.symbol] = valuation;
+            console.log(`✅ PORTFOLIO: Valuation calculated for ${position.symbol}:`, valuation);
           } catch (error) {
-            console.error(`Error calculating valuation for ${position.symbol}:`, error);
+            console.error(`❌ PORTFOLIO: Error calculating valuation for ${position.symbol}:`, error);
             // Don't set valuation if calculation fails
           }
+        } else {
+          console.warn(`⚠️ PORTFOLIO: No current price for ${position.symbol}, available prices:`, Object.keys(realTimePrices));
         }
       }
       
@@ -272,6 +282,12 @@ export const UnifiedPortfolioDisplay = () => {
     const integrityCheck = checkIntegrity(position);
     const currentPrice = realTimePrices[position.symbol] || 0;
     const valuation = positionValuations[position.symbol];
+    
+    console.log(`🔍 PORTFOLIO: Position ${position.symbol}:`, {
+      realTimePrices: Object.keys(realTimePrices),
+      currentPrice,
+      hasValuation: !!valuation
+    });
     
     // Skip calculation if corrupted and no current price
     if ((position.is_corrupted && !currentPrice) || !integrityCheck.is_valid) {
