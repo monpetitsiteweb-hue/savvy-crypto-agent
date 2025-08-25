@@ -68,6 +68,15 @@ const FREEZE_HISTORY_UPDATES = DEBUG_HISTORY_BLINK &&
     } catch { return false; }
   })();
 
+// Step 6: Price decouple and throttle toggles (only active when debug=history present)
+const DISCONNECT_HISTORY_FROM_PRICES = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('disconnectHistoryFromPrices') === '1';
+    } catch { return false; }
+  })();
+
 const MUTE_HISTORY_LOADING = DEBUG_HISTORY_BLINK && 
   (() => {
     try {
@@ -277,10 +286,51 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // RESTORED: useMockWallet provides real portfolio data (not related to blinking issue)
   const { getTotalValue, balances } = useMockWallet();
   
-  // Step 3: noPrice isolator - freeze price context updates for this panel
+  // Step 6: Price disconnect mechanism - capture snapshot and disconnect when toggle is active
   const realMarketData = useRealTimeMarketData();
-  const marketData = DEBUG_NO_PRICE || HOLD_PRICE ? {} : realMarketData.marketData;
-  const getCurrentData = DEBUG_NO_PRICE || HOLD_PRICE ? () => null : realMarketData.getCurrentData;
+  const snapshotMarketDataRef = useRef<Record<string, any>>({});
+  const priceTickLogRef = useRef(0);
+  
+  // Initialize snapshot on first load
+  useEffect(() => {
+    if (Object.keys(snapshotMarketDataRef.current).length === 0 && Object.keys(realMarketData.marketData).length > 0) {
+      snapshotMarketDataRef.current = { ...realMarketData.marketData };
+    }
+  }, [realMarketData.marketData]);
+  
+  // Step 6: Apply price disconnection
+  let marketData: Record<string, any>;
+  let getCurrentData: any;
+  
+  if (DISCONNECT_HISTORY_FROM_PRICES) {
+    // Use snapshot instead of live data
+    marketData = snapshotMarketDataRef.current;
+    getCurrentData = () => Promise.resolve(snapshotMarketDataRef.current);
+    
+    // Log disconnection once
+    if (!noPriceLoggedRef.current) {
+      console.info('[HistoryBlink] price: disconnected for History panel (using snapshot)');
+      noPriceLoggedRef.current = true;
+    }
+    
+    // Log suppressed price ticks (rate-limited)
+    const now = performance.now();
+    if (now - priceTickLogRef.current > 1000) {
+      console.info('[HistoryBlink] price-tick -> would update history (suppressed=true)');
+      priceTickLogRef.current = now;
+    }
+  } else {
+    // Step 3: noPrice isolator - freeze price context updates for this panel
+    marketData = DEBUG_NO_PRICE || HOLD_PRICE ? {} : realMarketData.marketData;
+    getCurrentData = DEBUG_NO_PRICE || HOLD_PRICE ? () => null : realMarketData.getCurrentData;
+    
+    // Log active price ticks (rate-limited) 
+    const now = performance.now();
+    if (now - priceTickLogRef.current > 1000 && Object.keys(realMarketData.marketData).length > 0) {
+      console.info('[HistoryBlink] price-tick -> would update history (suppressed=false)');
+      priceTickLogRef.current = now;
+    }
+  }
   
   // Log noPrice isolator activation (once)
   useEffect(() => {

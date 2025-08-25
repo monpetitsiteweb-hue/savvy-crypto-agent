@@ -139,10 +139,30 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const commonSymbols: BaseSymbol[] = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'LTC'];
     getCurrentData(commonSymbols);
     
-    // Update data every 60 seconds to avoid rate limiting (increased from 30s)
+    // Check for debug price polling override
+    let pollInterval = 60000; // default 60s
+    try {
+      if (new URL(window.location.href).searchParams.get('debug') === 'history') {
+        const pricePollMs = new URL(window.location.href).searchParams.get('pricePollMs');
+        if (pricePollMs !== null) {
+          const overrideMs = parseInt(pricePollMs, 10);
+          if (overrideMs === 0) {
+            console.log('[HistoryBlink] price: polling stopped (pricePollMs=0)');
+            return; // No interval
+          } else if (overrideMs > 0) {
+            pollInterval = overrideMs;
+            console.log(`[HistoryBlink] price: polling interval overridden to ${overrideMs} ms`);
+          }
+        }
+      }
+    } catch (e) {
+      // ignore URL parsing errors
+    }
+    
+    // Update data with potentially overridden interval
     const intervalId = setInterval(() => {
       getCurrentData(commonSymbols);
-    }, 60000);
+    }, pollInterval);
 
     return () => clearInterval(intervalId);
   }, [getCurrentData]);
