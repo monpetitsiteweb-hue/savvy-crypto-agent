@@ -18,8 +18,17 @@ import { AlertTriangle, Lock } from 'lucide-react';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 
-// Master debug gate for Step 1 instrumentation
-const DEBUG_HISTORY_BLINK = import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true');
+// Master debug gate for Step 1 instrumentation with prod-safe runtime toggle
+const RUNTIME_DEBUG =
+  (() => {
+    try {
+      const url = new URL(window.location.href);
+      return url.searchParams.get('debug') === 'history' || url.hash.includes('debug=history') || sessionStorage.getItem('DEBUG_HISTORY_BLINK') === 'true';
+    } catch { return false; }
+  })();
+
+const DEBUG_HISTORY_BLINK =
+  (import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true')) || RUNTIME_DEBUG;
 
 interface Trade {
   id: string;
