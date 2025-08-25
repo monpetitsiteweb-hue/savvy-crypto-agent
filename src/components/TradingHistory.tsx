@@ -30,7 +30,7 @@ const RUNTIME_DEBUG =
 const DEBUG_HISTORY_BLINK =
   (import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true')) || RUNTIME_DEBUG;
 
-// Step 2: Runtime isolation toggles
+// Step 2B: Runtime isolation toggles
 const DEBUG_NO_REALTIME = 
   (() => {
     try {
@@ -44,6 +44,31 @@ const DEBUG_NO_REFETCH =
     try {
       const u = new URL(window.location.href);
       return u.searchParams.has('noRefetch') || sessionStorage.getItem('DEBUG_NO_REFETCH') === 'true';
+    } catch { return false; }
+  })();
+
+// Fast-track toggles (only active when debug=history present)
+const FREEZE_HISTORY_UPDATES = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('freezeHistoryUpdates') === '1' || sessionStorage.getItem('freezeHistoryUpdates') === '1';
+    } catch { return false; }
+  })();
+
+const MUTE_HISTORY_LOADING = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('muteHistoryLoading') === '1' || sessionStorage.getItem('muteHistoryLoading') === '1';
+    } catch { return false; }
+  })();
+
+const LOCK_HISTORY_SORT = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('lockHistorySort') === '1' || sessionStorage.getItem('lockHistorySort') === '1';
     } catch { return false; }
   })();
 
@@ -138,6 +163,12 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const openLastLog = useRef(0);
   const pastLastLog = useRef(0);
   
+  // Fast-track toggle refs
+  const freezeLoggedRef = useRef(false);
+  const muteLoggedRef = useRef(false);
+  const lockLoggedRef = useRef(false);
+  const lastTradesRef = useRef<Trade[]>([]);
+  
   // RESTORED: useMockWallet provides real portfolio data (not related to blinking issue)
   const { getTotalValue, balances } = useMockWallet();
   
@@ -150,6 +181,30 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Fast-track toggle: Shallow-equal checker for freeze updates
+  const isShallowEqual = (newTrades: Trade[], oldTrades: Trade[]) => {
+    if (newTrades.length !== oldTrades.length) return false;
+    return newTrades.every((trade, index) => trade.id === oldTrades[index]?.id);
+  };
+
+  // Fast-track toggle: Wrapped setTrades with freeze logic
+  const setTradesWithFreeze = (newTrades: Trade[]) => {
+    if (FREEZE_HISTORY_UPDATES) {
+      if (isShallowEqual(newTrades, lastTradesRef.current)) {
+        if (!freezeLoggedRef.current) {
+          console.info('[HistoryBlink] freeze: suppressed identical update');
+          freezeLoggedRef.current = true;
+        }
+        return; // Suppress update
+      }
+    }
+    lastTradesRef.current = newTrades;
+    setTrades(newTrades);
+  };
+
+  // Fast-track toggle: Override loading state for history panel
+  const historyLoading = MUTE_HISTORY_LOADING ? false : loading;
   const [connections, setConnections] = useState<any[]>([]);
   const [selectedConnection, setSelectedConnection] = useState<string>('');
   const [fetching, setFetching] = useState(false);
@@ -269,6 +324,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const getOpenPositionsList = () => {
     if (trades.length === 0) return [] as Trade[];
     const { openLots } = buildFifoLots(trades);
+    
+    // Fast-track toggle: Lock sort to stable comparator
+    if (LOCK_HISTORY_SORT) {
+      if (!lockLoggedRef.current) {
+        console.info('[HistoryBlink] lock: sort pinned to stable comparator');
+        lockLoggedRef.current = true;
+      }
+      return openLots.sort((a, b) => a.id.localeCompare(b.id)); // Stable by ID
+    }
+    
     return openLots.sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime());
   };
 
@@ -449,9 +514,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
       console.log('✅ HISTORY: Fetched', data?.length || 0, 'trades');
       
-      // Step 2B: Source-tagged setter with correct format
+      // Step 2B: Source-tagged setter with freeze wrapper
       logSetPositions('manual-fetch', data?.length || 0);
-      setTrades(data || []);
+      setTradesWithFreeze(data || []);
 
       // Calculate stats with ValuationService
       if (data && data.length > 0) {
@@ -523,6 +588,14 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       fetchUserProfile();
     }
   }, [user, testMode]);
+
+  // Fast-track toggle logging
+  useEffect(() => {
+    if (MUTE_HISTORY_LOADING && !muteLoggedRef.current) {
+      console.info('[HistoryBlink] mute: loading/animations suppressed');
+      muteLoggedRef.current = true;
+    }
+  }, []);
 
   // Step 2B: Wire manual debug handler
   useEffect(() => {
@@ -650,7 +723,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // TradeCard component for rendering individual trades
   const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [cardLoading, setCardLoading] = useState(true);
     
     // Step 1: Row mount counter + stable id
     const mountRef = useRef(false);
@@ -675,16 +748,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         } catch (error) {
           console.error('Error calculating trade performance:', error);
         } finally {
-          setLoading(false);
+          setCardLoading(false);
         }
       };
 
       loadPerformance();
     }, [trade.id, specificTradePrice]); // Only use MarketDataProvider price
 
-    if (loading || !performance) {
+    if (cardLoading || !performance) {
+      // Fast-track toggle: Remove animations when muted
+      const pulseClass = MUTE_HISTORY_LOADING ? "" : "animate-pulse";
       return (
-        <Card className="p-4 animate-pulse" data-position-row data-trade-id={trade.id}>
+        <Card className={`p-4 ${pulseClass}`} data-position-row data-trade-id={trade.id}>
           <div className="h-4 bg-muted rounded w-1/3 mb-2"></div>
           <div className="h-3 bg-muted rounded w-1/2"></div>
         </Card>
@@ -795,15 +870,19 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     );
   };
 
-  if (loading) {
+  if (historyLoading) {
+    // Fast-track toggle: Remove animations when muted
+    const spinClass = MUTE_HISTORY_LOADING ? "" : "animate-spin";
+    const pulseClass = MUTE_HISTORY_LOADING ? "" : "animate-pulse";
+    
     return (
       <Card className="p-6">
         <div className="flex items-center gap-2 mb-6">
           <Activity className="w-5 h-5" />
           <h2 className="text-lg font-semibold">Trading History</h2>
-          <RefreshCw className="w-4 h-4 animate-spin ml-auto" />
+          <RefreshCw className={`w-4 h-4 ml-auto ${spinClass}`} />
         </div>
-        <div className="animate-pulse">
+        <div className={pulseClass}>
           <div className="h-4 bg-muted rounded w-1/3 mb-4"></div>
           <div className="space-y-3">
             {[1, 2, 3].map(i => {
@@ -841,9 +920,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           variant="outline"
           size="sm"
           onClick={fetchTradingHistory}
-          disabled={loading}
+          disabled={historyLoading}
         >
-          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 mr-2 ${historyLoading && !MUTE_HISTORY_LOADING ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
       </div>
