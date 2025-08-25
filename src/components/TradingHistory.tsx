@@ -19,6 +19,8 @@ import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import { useFrozenMarketData, useFrozenAuth, useFrozenTestMode } from '@/components/ContextFreezeBarrier';
 import { useRenderCounter } from '@/hooks/useRenderCounter';
+import { useRenderCauseTracer } from '@/hooks/useRenderCauseTracer';
+import { useListRebuildDetector } from '@/hooks/useListRebuildDetector';
 import { OpenList } from '@/components/TradingHistoryOpenList';
 import { PastList } from '@/components/TradingHistoryPastList';
 
@@ -218,6 +220,17 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
 
   const { user } = useFrozenAuth() || useAuth();
   const { testMode } = useFrozenTestMode() || useTestMode();
+  
+  // Step 12: Use hard toast no-op if enabled
+  const { useHardToastNoOp } = (() => {
+    try {
+      return require('@/hooks/useHardToastNoOp');
+    } catch {
+      return { useHardToastNoOp: () => {} };
+    }
+  })();
+  useHardToastNoOp();
+  
   // Apply the tracer to TradingHistory component
   const { toast } = RUNTIME_DEBUG 
     ? (() => {
@@ -380,6 +393,18 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Step 13: Add render-cause tracer and list rebuild detector after all variables are declared
+  useRenderCauseTracer('TradingHistory', {
+    marketData,
+    trades,
+    auth: user,
+    loading,
+    filters: {},
+    strategy: hasActiveStrategy
+  });
+  
+  useListRebuildDetector(trades, 'TradingHistory');
   
   // Step 4: Apply holds locally before passing to children
   let processedTrades = trades;

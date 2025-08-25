@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRenderCounter } from '@/hooks/useRenderCounter';
+import { useRenderCauseTracer } from '@/hooks/useRenderCauseTracer';
+import { useListRebuildDetector } from '@/hooks/useListRebuildDetector';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Clock } from 'lucide-react';
@@ -12,6 +14,15 @@ interface PastListProps {
 
 export const PastList: React.FC<PastListProps> = ({ trades, marketData }) => {
   useRenderCounter('PastList');
+  
+  // Step 13: Add render-cause tracer and list rebuild detector
+  useRenderCauseTracer('PastList', {
+    marketData,
+    trades,
+    loading: false
+  });
+  
+  useListRebuildDetector(trades, 'PastList');
   
   if (trades.length === 0) {
     return (

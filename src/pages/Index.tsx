@@ -20,6 +20,7 @@ import { useUserRole } from '@/hooks/useUserRole';
 import { ContextFreezeBarrier } from '@/components/ContextFreezeBarrier';
 import { useMarketData } from '@/contexts/MarketDataContext';
 import { useTestMode } from '@/hooks/useTestMode';
+import { useRenderCounter } from '@/hooks/useRenderCounter';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
 import { Switch } from '@/components/ui/switch';
@@ -27,7 +28,6 @@ import { Button } from '@/components/ui/button';
 import { Link2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useHardToastNoOp } from '@/hooks/useHardToastNoOp';
-import { useRenderCounter } from '@/hooks/useRenderCounter';
 
 // Step 3 & 5: Parent debug gate and helpers
 const RUNTIME_DEBUG =

@@ -81,22 +81,17 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
       notifs: { ...notifs }
     };
     
-    // Log active freeze flags
-    const activeFlags = Object.entries(freezeFlags)
-      .filter(([key, value]) => value && !['contexts', 'historyDecoupled'].includes(key))
-      .map(([key]) => `${key}=ON`)
-      .join(', ');
+    // Log freeze mapping in the requested format
+    const freezeMap = [
+      `price:${freezeFlags.price || freezeFlags.contexts || freezeFlags.historyDecoupled ? 'ON' : 'OFF'}`,
+      `indicators:${freezeFlags.indicators || freezeFlags.contexts || freezeFlags.historyDecoupled ? 'ON' : 'OFF'}`,
+      `strategy:${freezeFlags.strategy || freezeFlags.contexts ? 'ON' : 'OFF'}`,
+      `auth:${freezeFlags.auth || freezeFlags.contexts ? 'ON' : 'OFF'}`,
+      `flags:${freezeFlags.flags || freezeFlags.contexts ? 'ON' : 'OFF'}`,
+      `notifs:${freezeFlags.notifs || freezeFlags.contexts ? 'ON' : 'OFF'}`
+    ].join(' ');
     
-    if (activeFlags) {
-      console.log(`[HistoryBlink] ContextFreeze: ${activeFlags}`);
-    }
-    
-    // Legacy logging
-    if (freezeFlags.historyDecoupled) {
-      console.log('[HistoryBlink] ContextFreezeBarrier active for: price, indicators (strategy/positions/auth unaffected)');
-    } else if (freezeFlags.contexts) {
-      console.log('[HistoryBlink] ContextFreezeBarrier active for: price, auth, testMode');
-    }
+    console.log(`[HistoryBlink] FreezeMap -> ${freezeMap}`);
   }
 
   // If no freezing is active, just return children as-is
@@ -107,7 +102,8 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
   // Build nested providers based on active freeze flags
   let wrappedChildren = children;
   
-  if (freezeFlags.notifs || freezeFlags.contexts) {
+  // Only freeze specific contexts based on their individual flags
+  if (freezeFlags.notifs) {
     wrappedChildren = (
       <FrozenNotifsContext.Provider value={frozenValues.current?.notifs}>
         {wrappedChildren}
@@ -115,7 +111,7 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
     );
   }
   
-  if (freezeFlags.flags || freezeFlags.contexts) {
+  if (freezeFlags.flags) {
     wrappedChildren = (
       <FrozenFlagsContext.Provider value={frozenValues.current?.flags}>
         {wrappedChildren}
@@ -123,7 +119,7 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
     );
   }
   
-  if (freezeFlags.strategy || freezeFlags.contexts) {
+  if (freezeFlags.strategy) {
     wrappedChildren = (
       <FrozenStrategyContext.Provider value={frozenValues.current?.strategy}>
         {wrappedChildren}
@@ -131,7 +127,7 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
     );
   }
   
-  if (freezeFlags.auth || freezeFlags.contexts) {
+  if (freezeFlags.auth) {
     wrappedChildren = (
       <FrozenAuthContext.Provider value={frozenValues.current?.auth}>
         {wrappedChildren}
@@ -139,6 +135,7 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
     );
   }
   
+  // Only freeze market data when explicitly requested or for legacy modes
   if (freezeFlags.price || freezeFlags.indicators || freezeFlags.contexts || freezeFlags.historyDecoupled) {
     wrappedChildren = (
       <FrozenMarketContext.Provider value={frozenValues.current?.marketData}>
@@ -147,12 +144,21 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
     );
   }
   
-  // Legacy testMode context
+  // Legacy contexts mode - freeze all contexts
   if (freezeFlags.contexts) {
+    // Apply all context freezes for legacy mode
     wrappedChildren = (
-      <FrozenTestModeContext.Provider value={frozenValues.current?.testMode}>
-        {wrappedChildren}
-      </FrozenTestModeContext.Provider>
+      <FrozenNotifsContext.Provider value={frozenValues.current?.notifs}>
+        <FrozenFlagsContext.Provider value={frozenValues.current?.flags}>
+          <FrozenStrategyContext.Provider value={frozenValues.current?.strategy}>
+            <FrozenAuthContext.Provider value={frozenValues.current?.auth}>
+              <FrozenTestModeContext.Provider value={frozenValues.current?.testMode}>
+                {wrappedChildren}
+              </FrozenTestModeContext.Provider>
+            </FrozenAuthContext.Provider>
+          </FrozenStrategyContext.Provider>
+        </FrozenFlagsContext.Provider>
+      </FrozenNotifsContext.Provider>
     );
   }
 
