@@ -204,6 +204,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   const openLastLog = useRef(0);
   const pastLastLog = useRef(0);
   
+  // Step 3: Additional refs for safe logging
+  const tabsLastLog = useRef(0);
+  
   // Fast-track toggle refs
   const freezeLoggedRef = useRef(false);
   const muteLoggedRef = useRef(false);
@@ -1057,10 +1060,9 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)}>
         {(() => {
-          // Step 3: Tabs mount logging (rate-limited)
+          // Step 3: Tabs mount logging (rate-limited) - FIXED: no useRef in closure
           if (DEBUG_HISTORY_BLINK) {
             const now = performance.now();
-            const tabsLastLog = useRef(0);
             if (now - tabsLastLog.current > 1000) {
               console.info(`[HistoryBlink] <Tabs> mount 1 | value=${activeTab}`);
               tabsLastLog.current = now;
