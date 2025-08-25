@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Step 6 Quick Evidence Collection</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .section { border: 1px solid #ccc; margin: 10px 0; padding: 15px; }
+        button { padding: 10px; margin: 5px; }
+        .result { background: #f9f9f9; padding: 10px; margin: 10px 0; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>Step 6 Evidence Collection</h1>
+    
+    <div class="section">
+        <h3>Manual Intent Execution</h3>
+        <p>Open DevTools Console and run these commands:</p>
+        
+        <h4>UD=OFF Test (if strategy is in UD=OFF mode):</h4>
+        <pre>
+const intent = {
+  userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+  strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+  symbol: 'BTC',
+  side: 'BUY',
+  source: 'manual',
+  confidence: 1.0,
+  metadata: { test: 'step6_ud_off' }
+};
+
+fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/trading-decision-coordinator', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ intent })
+}).then(r=>r.json()).then(j=>console.log('UD=OFF Response:', j));
+        </pre>
+        
+        <h4>UD=ON Simultaneous Test (for DEFER):</h4>
+        <pre>
+const intent = {
+  userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+  strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+  symbol: 'ETH',
+  side: 'BUY',
+  source: 'manual',
+  confidence: 1.0,
+  metadata: { test: 'step6_ud_on' }
+};
+
+const send = (n) => fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/trading-decision-coordinator', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ intent: {...intent, metadata: {...intent.metadata, n}} })
+}).then(r=>r.json());
+
+Promise.all([send(1), send(2)]).then(([r1, r2]) => {
+  console.log('UD=ON Response 1:', r1);
+  console.log('UD=ON Response 2:', r2);
+});
+        </pre>
+    </div>
+
+    <div class="section">
+        <h3>Current Evidence Available</h3>
+        <button onclick="showCurrentEvidence()">Show Current Evidence</button>
+        <div id="evidence" class="result"></div>
+    </div>
+
+    <script>
+        function showCurrentEvidence() {
+            const evidence = {
+                timestamp: new Date().toISOString(),
+                status: 'Step 6 Current State',
+                available_evidence: {
+                    ud_on_execute: 'Available from edge logs: UD_MODE=ON → EXECUTE: action=BUY symbol=BTC lock=OK',
+                    ud_on_hold: 'Available from DB: Multiple HOLD decisions with blocked_by_cooldown',
+                    validation_disabled: 'Confirmed: Synthetic traffic generation disabled in ValidationPage.tsx'
+                },
+                missing_evidence: {
+                    ud_off_direct: 'Need: UD_MODE=OFF → DIRECT EXECUTION with reason=unified_decisions_disabled_direct_path',
+                    ud_on_defer: 'Need: UD_MODE=ON → DEFER with reason=atomic_section_busy_defer and retry_in_ms > 0'
+                },
+                next_steps: [
+                    '1. Strategy needs to be set to UD=OFF mode to collect direct execution evidence',
+                    '2. Strategy needs UD=ON with reduced hold periods to collect DEFER evidence',
+                    '3. Manual intent execution via browser console as shown above'
+                ]
+            };
+            
+            document.getElementById('evidence').textContent = JSON.stringify(evidence, null, 2);
+            console.log('🎯 STEP 6 CURRENT EVIDENCE:', evidence);
+        }
+    </script>
+</body>
+</html>
