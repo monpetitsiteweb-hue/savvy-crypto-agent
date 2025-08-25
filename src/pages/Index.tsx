@@ -1,4 +1,5 @@
 
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthPage } from '@/components/auth/AuthPage';
 import { Header } from '@/components/Header';
@@ -16,23 +17,64 @@ import { MarketDashboard } from '@/components/market/MarketDashboard';
 import { TradingViewMarketDashboard } from '@/components/market/TradingViewMarketDashboard';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRole } from '@/hooks/useUserRole';
+
+// Step 3: Parent debug gate and helpers (same as TradingHistory)
+const RUNTIME_DEBUG =
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('debug') === 'history' || u.hash.includes('debug=history') || sessionStorage.getItem('DEBUG_HISTORY_BLINK') === 'true';
+    } catch { return false; }
+  })();
+
+const DEBUG_HISTORY_BLINK =
+  (import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true')) || RUNTIME_DEBUG;
+
+const fp = (v: any): string => {
+  if (v == null) return 'null';
+  if (Array.isArray(v)) return `arr(len=${v.length})`;
+  if (typeof v === 'object') {
+    const keys = Object.keys(v).slice(0, 4).join(',');
+    return `obj(${keys})`;
+  }
+  if (typeof v === 'function') return 'fn';
+  return String(v);
+};
 import { useTestMode } from '@/hooks/useTestMode';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Link2 } from 'lucide-react';
-import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 
-const Index = () => {
+export default function Index() {
+  // Step 3: Parent mount counter + rate limiting
+  const parentMountCountRef = useRef(0);
+  const parentLastLogRef = useRef(0);
+  
+  // Increment mount counter
+  parentMountCountRef.current += 1;
+  
   const { user, loading } = useAuth();
   const { role, loading: roleLoading } = useUserRole();
   const { testMode, setTestMode } = useTestMode();
   const { hasActiveStrategy } = useActiveStrategy();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
+  
+  // Step 3: Log parent mount + props (rate-limited to 1/sec)
+  useEffect(() => {
+    if (DEBUG_HISTORY_BLINK) {
+      const now = performance.now();
+      if (now - parentLastLogRef.current > 1000) {
+        console.info(`[HistoryBlink] <IndexParent> mount ${parentMountCountRef.current} | key=undefined`);
+        console.info(`[HistoryBlink] <IndexParent> props: { activeTab=${fp(activeTab)}, user=${fp(user)}, loading=${fp(loading)}, hasActiveStrategy=${fp(hasActiveStrategy)} }`);
+        parentLastLogRef.current = now;
+      }
+    }
+  });
   
   // ✅ START THE TRADING ENGINE! This was missing - that's why no trades happened
   const { checkStrategiesAndExecute } = useIntelligentTradingEngine();
@@ -237,5 +279,3 @@ const Index = () => {
     </div>
   );
 };
-
-export default Index;

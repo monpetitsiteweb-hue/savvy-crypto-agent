@@ -30,6 +30,18 @@ const RUNTIME_DEBUG =
 const DEBUG_HISTORY_BLINK =
   (import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true')) || RUNTIME_DEBUG;
 
+// Step 3: Props fingerprinting helper
+const fp = (v: any): string => {
+  if (v == null) return 'null';
+  if (Array.isArray(v)) return `arr(len=${v.length})`;
+  if (typeof v === 'object') {
+    const keys = Object.keys(v).slice(0, 4).join(',');
+    return `obj(${keys})`;
+  }
+  if (typeof v === 'function') return 'fn';
+  return String(v);
+};
+
 // Step 2B: Runtime isolation toggles
 const DEBUG_NO_REALTIME = 
   (() => {
@@ -69,6 +81,15 @@ const LOCK_HISTORY_SORT = DEBUG_HISTORY_BLINK &&
     try {
       const u = new URL(window.location.href);
       return u.searchParams.get('lockHistorySort') === '1' || sessionStorage.getItem('lockHistorySort') === '1';
+    } catch { return false; }
+  })();
+
+// Step 3: noPrice isolator
+const DEBUG_NO_PRICE = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('noPrice') === '1' || sessionStorage.getItem('DEBUG_NO_PRICE') === '1';
     } catch { return false; }
   })();
 
@@ -148,6 +169,26 @@ interface TradingHistoryProps {
 }
 
 export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
+  // Step 3: Component mount counter + rate limiting
+  const mountCountRef = useRef(0);
+  const lastLogRef = useRef(0);
+  const noPriceLoggedRef = useRef(false);
+  
+  // Increment mount counter
+  mountCountRef.current += 1;
+  
+  // Step 3: Log mount + props (rate-limited to 1/sec)
+  useEffect(() => {
+    if (DEBUG_HISTORY_BLINK) {
+      const now = performance.now();
+      if (now - lastLogRef.current > 1000) {
+        console.info(`[HistoryBlink] <TradingHistory> mount ${mountCountRef.current} | key=undefined`);
+        console.info(`[HistoryBlink] <TradingHistory> props: { hasActiveStrategy=${fp(hasActiveStrategy)}, onCreateStrategy=${fp(onCreateStrategy)} }`);
+        lastLogRef.current = now;
+      }
+    }
+  });
+
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { toast } = useToast();
@@ -172,7 +213,19 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // RESTORED: useMockWallet provides real portfolio data (not related to blinking issue)
   const { getTotalValue, balances } = useMockWallet();
   
-  const { getCurrentData, marketData } = useRealTimeMarketData();
+  // Step 3: noPrice isolator - freeze price context updates for this panel
+  const realMarketData = useRealTimeMarketData();
+  const marketData = DEBUG_NO_PRICE ? {} : realMarketData.marketData;
+  const getCurrentData = DEBUG_NO_PRICE ? () => null : realMarketData.getCurrentData;
+  
+  // Log noPrice isolator activation (once)
+  useEffect(() => {
+    if (DEBUG_NO_PRICE && !noPriceLoggedRef.current) {
+      console.info('[HistoryBlink] isolator active: noPrice (history panel ignores price ticks)');
+      noPriceLoggedRef.current = true;
+    }
+  }, []);
+  
   const [feeRate, setFeeRate] = useState<number>(0);
   
   console.log('🔍 HISTORY: MarketData from context:', marketData);
@@ -1003,6 +1056,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)}>
+        {(() => {
+          // Step 3: Tabs mount logging (rate-limited)
+          if (DEBUG_HISTORY_BLINK) {
+            const now = performance.now();
+            const tabsLastLog = useRef(0);
+            if (now - tabsLastLog.current > 1000) {
+              console.info(`[HistoryBlink] <Tabs> mount 1 | value=${activeTab}`);
+              tabsLastLog.current = now;
+            }
+          }
+          return null;
+        })()}
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="open" className="flex items-center gap-2">
             <ArrowUpRight className="w-4 h-4" />
@@ -1016,21 +1081,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         
         <TabsContent value="open" className="mt-4">
           {(() => {
-            // Step 1: Open positions mount counter
+            // Step 3: OpenList mount counter
             openMounts.current += 1;
             if (DEBUG_HISTORY_BLINK) {
-              console.info('[HistoryBlink] <OpenPositions> mount', openMounts.current);
+              const now = performance.now();
+              if (now - openLastLog.current > 1000) {
+                console.info(`[HistoryBlink] <OpenList> mount ${openMounts.current} | len=${openPositions.length} loading=${historyLoading}`);
+                openLastLog.current = now;
+              }
             }
             
             // Step 1: Parent remount detector (rate-limited)
             openRenders.current++;
-            if (DEBUG_HISTORY_BLINK) {
-              const now = performance.now();
-              if (now - openLastLog.current > 1000) {
-                console.info('[HistoryBlink] <OpenPositions> renders=', openRenders.current);
-                openLastLog.current = now;
-              }
-            }
             
             // Step 1: Log actual React key values (once)
             if (DEBUG_HISTORY_BLINK && !loggedKeysRef.current && openPositions.length > 0) {
@@ -1062,21 +1124,18 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         
         <TabsContent value="past" className="mt-4">
           {(() => {
-            // Step 1: Past positions mount counter  
+            // Step 3: PastList mount counter  
             pastMounts.current += 1;
             if (DEBUG_HISTORY_BLINK) {
-              console.info('[HistoryBlink] <PastPositions> mount', pastMounts.current);
+              const now = performance.now();
+              if (now - pastLastLog.current > 1000) {
+                console.info(`[HistoryBlink] <PastList> mount ${pastMounts.current} | len=${pastPositions.length} loading=${historyLoading}`);
+                pastLastLog.current = now;
+              }
             }
             
             // Step 1: Parent remount detector (rate-limited)
             pastRenders.current++;
-            if (DEBUG_HISTORY_BLINK) {
-              const now = performance.now();
-              if (now - pastLastLog.current > 1000) {
-                console.info('[HistoryBlink] <PastPositions> renders=', pastRenders.current);
-                pastLastLog.current = now;
-              }
-            }
             
             return null;
           })()}
