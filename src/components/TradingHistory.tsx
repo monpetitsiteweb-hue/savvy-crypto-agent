@@ -213,7 +213,17 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
 
   const { user } = useFrozenAuth() || useAuth();
   const { testMode } = useFrozenTestMode() || useTestMode();
-  const { toast } = useToast();
+  // Apply the tracer to TradingHistory component
+  const { toast } = RUNTIME_DEBUG 
+    ? (() => {
+        try {
+          const { useNotificationTracer } = require('@/hooks/useNotificationTracer');
+          return useNotificationTracer();
+        } catch {
+          return useToast();
+        }
+      })()
+    : useToast();
   const { handleCoordinatorResponse } = useCoordinatorToast();
   
   // Check if contexts should be frozen

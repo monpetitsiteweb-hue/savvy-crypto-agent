@@ -103,3 +103,14 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+/* Step 11: Animation suppression for notifications (debug only) */
+.no-animation * {
+  animation: none !important;
+  transition: none !important;
+}
+
+.no-animation {
+  animation: none !important;
+  transition: none !important;
+}
