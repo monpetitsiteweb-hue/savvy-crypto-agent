@@ -64,8 +64,9 @@ export const UnifiedPortfolioDisplay = () => {
         // Update prices for all common symbols
         commonSymbols.forEach(symbol => {
           const crypto = symbol.split('-')[0];
-          if (data[symbol]?.price) {
+          if (data[symbol]?.price && data[symbol].price > 0) {
             prices[crypto] = data[symbol].price;
+            prices[symbol] = data[symbol].price; // Also store with full symbol for compatibility
           }
         });
         

@@ -182,9 +182,9 @@ const calculateIndicatorsForSymbol = (prices: number[], config: IndicatorConfig)
         }
         
         indicators.MACD = {
-          macd: Number(current.MACD.toFixed(4)),
-          signal: Number(current.signal.toFixed(4)),
-          histogram: Number(current.histogram.toFixed(4)),
+          macd: current.MACD != null ? Number(current.MACD.toFixed(4)) : 0,
+          signal: current.signal != null ? Number(current.signal.toFixed(4)) : 0,
+          histogram: current.histogram != null ? Number(current.histogram.toFixed(4)) : 0,
           crossover
         };
       }
