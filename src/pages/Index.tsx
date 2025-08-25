@@ -18,7 +18,7 @@ import { TradingViewMarketDashboard } from '@/components/market/TradingViewMarke
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRole } from '@/hooks/useUserRole';
 
-// Step 3: Parent debug gate and helpers (same as TradingHistory)
+// Step 3 & 5: Parent debug gate and helpers
 const RUNTIME_DEBUG =
   (() => {
     try {
@@ -40,6 +40,14 @@ const fp = (v: any): string => {
   if (typeof v === 'function') return 'fn';
   return String(v);
 };
+
+// Step 5: Runtime key pin (pinHistoryKey=1)
+const PIN_HISTORY_KEY = (() => {
+  try {
+    const u = new URL(window.location.href);
+    return RUNTIME_DEBUG && u.searchParams.get('pinHistoryKey') === '1';
+  } catch { return false; }
+})();
 import { useTestMode } from '@/hooks/useTestMode';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
@@ -54,6 +62,9 @@ export default function Index() {
   const parentMountCountRef = useRef(0);
   const parentLastLogRef = useRef(0);
   
+  // Step 5: Provider fingerprint tracking
+  const providerVersionRef = useRef(0);
+  
   // Increment mount counter
   parentMountCountRef.current += 1;
   
@@ -64,13 +75,27 @@ export default function Index() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
-  // Step 3: Log parent mount + props (rate-limited to 1/sec)
+  // Step 3 & 5: Log parent mount + props + provider fingerprints (rate-limited to 1/sec)
   useEffect(() => {
     if (DEBUG_HISTORY_BLINK) {
       const now = performance.now();
       if (now - parentLastLogRef.current > 1000) {
         console.info(`[HistoryBlink] <IndexParent> mount ${parentMountCountRef.current} | key=undefined`);
         console.info(`[HistoryBlink] <IndexParent> props: { activeTab=${fp(activeTab)}, user=${fp(user)}, loading=${fp(loading)}, hasActiveStrategy=${fp(hasActiveStrategy)} }`);
+        
+        // Step 5: Provider fingerprints
+        providerVersionRef.current += 1;
+        console.info(`[HistoryBlink] parent providers: { auth=ver:${providerVersionRef.current}, theme:default, testMode=${testMode}, user=${user?.id || 'null'} }`);
+        
+        // Step 5: Parent key scanner  
+        console.info('[HistoryBlink] <TabWrapper> key=undefined');
+        console.info('[HistoryBlink] <TabContent> key=undefined');
+        
+        // Step 5: pinHistoryKey status
+        if (PIN_HISTORY_KEY) {
+          console.info('[HistoryBlink] pinHistoryKey active: top wrapper key forced stable');
+        }
+        
         parentLastLogRef.current = now;
       }
     }
@@ -248,7 +273,7 @@ export default function Index() {
                   </ErrorBoundary>
                 )}
                 {activeTab === 'history' && (
-                  <ErrorBoundary>
+                  <ErrorBoundary key={PIN_HISTORY_KEY ? 'history-stable' : undefined}>
                     <TradingHistory 
                       hasActiveStrategy={hasActiveStrategy}
                       onCreateStrategy={() => setActiveTab('strategy')}

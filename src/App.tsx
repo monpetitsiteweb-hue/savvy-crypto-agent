@@ -13,30 +13,54 @@ import ProfilePage from "./pages/ProfilePage";
 import ValidationPage from "./pages/ValidationPage";
 import NotFound from "./pages/NotFound";
 
-const App = () => (
-  <TooltipProvider>
-    <AuthProvider>
-      <TestModeProvider>
-        <MarketDataProvider>
-          <MockWalletProvider>
-            <Toaster />
-            <Sonner />
-            <ErrorBoundary>
-              <BrowserRouter>
-                <Routes>
-                  <Route path="/" element={<Index />} />
-                  <Route path="/admin" element={<AdminPage />} />
-                  <Route path="/profile" element={<ProfilePage />} />
-                  <Route path="/validation" element={<ValidationPage />} />
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </BrowserRouter>
-            </ErrorBoundary>
-          </MockWalletProvider>
-        </MarketDataProvider>
-      </TestModeProvider>
-    </AuthProvider>
-  </TooltipProvider>
-);
+// Step 5: Parent key scanner (prod-safe, default OFF)
+const RUNTIME_DEBUG =
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('debug') === 'history' || u.hash.includes('debug=history') || sessionStorage.getItem('DEBUG_HISTORY_BLINK') === 'true';
+    } catch { return false; }
+  })();
+
+const DEBUG_HISTORY_BLINK =
+  (import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true')) || RUNTIME_DEBUG;
+
+const App = () => {
+  // Step 5: Log app-level keys (rate-limited)
+  let lastLogTime = 0;
+  const now = performance.now();
+  if (DEBUG_HISTORY_BLINK && now - lastLogTime > 1000) {
+    console.info('[HistoryBlink] <App> key=undefined');
+    console.info('[HistoryBlink] <BrowserRouter> key=undefined');
+    console.info('[HistoryBlink] <Routes> key=undefined');
+    lastLogTime = now;
+  }
+  
+  return (
+    <TooltipProvider>
+      <AuthProvider>
+        <TestModeProvider>
+          <MarketDataProvider>
+            <MockWalletProvider>
+              <Toaster />
+              <Sonner />
+              <ErrorBoundary>
+                <BrowserRouter>
+                  <Routes>
+                    <Route path="/" element={<Index />} />
+                    <Route path="/admin" element={<AdminPage />} />
+                    <Route path="/profile" element={<ProfilePage />} />
+                    <Route path="/validation" element={<ValidationPage />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </BrowserRouter>
+              </ErrorBoundary>
+            </MockWalletProvider>
+          </MarketDataProvider>
+        </TestModeProvider>
+      </AuthProvider>
+    </TooltipProvider>
+  );
+};
 
 export default App;

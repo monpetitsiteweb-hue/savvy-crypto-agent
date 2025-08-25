@@ -3,6 +3,18 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
+// Step 5: Boundary reset tracer (prod-safe, default OFF)
+const RUNTIME_DEBUG =
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('debug') === 'history' || u.hash.includes('debug=history') || sessionStorage.getItem('DEBUG_HISTORY_BLINK') === 'true';
+    } catch { return false; }
+  })();
+
+const DEBUG_HISTORY_BLINK =
+  (import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true')) || RUNTIME_DEBUG;
+
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
@@ -19,11 +31,18 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   public static getDerivedStateFromError(error: Error): State {
+    // Step 5: Boundary reset tracer
+    if (DEBUG_HISTORY_BLINK) {
+      console.info('[HistoryBlink] ErrorBoundary caught -> resetting subtree');
+    }
     return { hasError: true, error };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('🚨 ErrorBoundary caught an error:', error, errorInfo);
+    if (DEBUG_HISTORY_BLINK) {
+      console.info('[HistoryBlink] ErrorBoundary componentDidCatch -> subtree reset');
+    }
   }
 
   private handleRetry = () => {
@@ -31,6 +50,11 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   public render() {
+    // Step 5: Log ErrorBoundary mount
+    if (DEBUG_HISTORY_BLINK) {
+      console.info('[HistoryBlink] ErrorBoundary mounted');
+    }
+    
     if (this.state.hasError) {
       if (this.props.fallback) {
         return this.props.fallback;
