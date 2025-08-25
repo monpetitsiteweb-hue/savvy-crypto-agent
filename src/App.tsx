@@ -25,7 +25,15 @@ const RUNTIME_DEBUG =
 const DEBUG_HISTORY_BLINK =
   (import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true')) || RUNTIME_DEBUG;
 
-const App = () => {
+// Step 8: Hard-freeze switch for layout
+const FORCE_FREEZE_LAYOUT = (() => {
+  try {
+    const u = new URL(window.location.href);
+    return RUNTIME_DEBUG && u.searchParams.get('forceFreezeLayout') === '1';
+  } catch { return false; }
+})();
+
+function AppInternal() {
   // Step 5: Log app-level keys (rate-limited)
   let lastLogTime = 0;
   const now = performance.now();
@@ -61,6 +69,25 @@ const App = () => {
       </AuthProvider>
     </TooltipProvider>
   );
+}
+
+// Step 8: Hard-freeze wrapper for layout
+let frozenLayoutRenderRef: React.ReactElement | null = null;
+let layoutFreezeLoggedRef = false;
+
+const App = () => {
+  if (FORCE_FREEZE_LAYOUT) {
+    if (frozenLayoutRenderRef === null) {
+      frozenLayoutRenderRef = <AppInternal />;
+      if (!layoutFreezeLoggedRef) {
+        console.info('[HistoryBlink] forceFreezeLayout active');
+        layoutFreezeLoggedRef = true;
+      }
+    }
+    return frozenLayoutRenderRef;
+  }
+  
+  return <AppInternal />;
 };
 
 export default App;

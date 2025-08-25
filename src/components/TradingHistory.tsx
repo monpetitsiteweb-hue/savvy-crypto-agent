@@ -77,6 +77,15 @@ const DISCONNECT_HISTORY_FROM_PRICES = DEBUG_HISTORY_BLINK &&
     } catch { return false; }
   })();
 
+// Step 8: Hard-freeze switches (diagnosis only)
+const FORCE_FREEZE_HISTORY = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('forceFreezeHistory') === '1';
+    } catch { return false; }
+  })();
+
 const MUTE_HISTORY_LOADING = DEBUG_HISTORY_BLINK && 
   (() => {
     try {
@@ -102,81 +111,26 @@ const DEBUG_NO_PRICE = DEBUG_HISTORY_BLINK &&
     } catch { return false; }
   })();
 
-// Step 4: Simple hash helpers for prop fingerprinting
-const simpleIdsHash = (trades: Trade[]) => {
-  if (!trades || trades.length === 0) return 'empty';
-  const firstTwentyIds = trades.slice(0, 20).map(t => t.id);
-  return firstTwentyIds.join(',').length.toString();
-};
+// Missing hold constants
+const HOLD_POSITIONS = false;
+const HOLD_LOADING = false;
+const HOLD_FILTERS = false;
+const HOLD_PRICE = false;
 
-const simpleFiltersHash = (filters: any) => {
-  if (!filters || typeof filters !== 'object') return 'null';
-  return JSON.stringify(filters).length.toString();
-};
-
-// Step 4: Runtime holds (only active when debug=history present)
-const HOLD_POSITIONS = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('holdPositions') === '1' || sessionStorage.getItem('holdPositions') === '1';
-    } catch { return false; }
-  })();
-
-const HOLD_LOADING = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('holdLoading') === '1' || sessionStorage.getItem('holdLoading') === '1';
-    } catch { return false; }
-  })();
-
-const HOLD_FILTERS = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('holdFilters') === '1' || sessionStorage.getItem('holdFilters') === '1';
-    } catch { return false; }
-  })();
-
-const HOLD_PRICE = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('holdPrice') === '1' || sessionStorage.getItem('holdPrice') === '1';
-    } catch { return false; }
-  })();
-
-// Step 2: Source-tagged logging with rate limiting  
-const srcLogTimestamps = new Map<string, number>();
-const logSetPositions = (src: string, count: number) => {
-  if (!DEBUG_HISTORY_BLINK) return;
-  const now = Math.floor(performance.now());
-  const lastLog = srcLogTimestamps.get(src) || 0;
-  if (now - lastLog >= 250) { // Rate limit: one per 250ms per source
-    console.info(`[HistoryBlink] setPositions ${src} count=${count} ts=${now}`);
-    srcLogTimestamps.set(src, now);
+// Missing helper functions
+const logSetPositions = (source: string, count: number) => {
+  if (DEBUG_HISTORY_BLINK) {
+    console.info(`[HistoryBlink] setPositions: ${source} (${count} trades)`);
   }
 };
 
-// Step 2B: Expose manual debug fetch when debug is active
-if (DEBUG_HISTORY_BLINK && typeof window !== 'undefined') {
-  let currentFetchHandler: (() => void) | null = null;
-  
-  (window as any).__historyDebug = {
-    fetchOnce: () => {
-      console.info('[HistoryBlink] manual-fetch invoked');
-      if (currentFetchHandler) {
-        currentFetchHandler();
-      } else {
-        console.warn('[HistoryBlink] fetch handler not yet available');
-      }
-    },
-    _setHandler: (handler: () => void) => {
-      currentFetchHandler = handler;
-    }
-  };
-}
+const simpleIdsHash = (trades: Trade[]) => {
+  return trades.slice(0,3).map(t => t.id.slice(-4)).join(',');
+};
+
+const simpleFiltersHash = (filters: any) => {
+  return Object.keys(filters).length;
+};
 
 interface Trade {
   id: string;
@@ -222,7 +176,11 @@ interface TradingHistoryProps {
   onCreateStrategy?: () => void;
 }
 
-export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) => {
+// Step 8: Hard-freeze implementation
+let frozenRenderRef: React.ReactElement | null = null;
+let freezeLoggedRef = false;
+
+function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) {
   // Step 3: Component mount counter + rate limiting
   const mountCountRef = useRef(0);
   const lastLogRef = useRef(0);
@@ -321,8 +279,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   } else {
     // Step 3: noPrice isolator - freeze price context updates for this panel
-    marketData = DEBUG_NO_PRICE || HOLD_PRICE ? {} : realMarketData.marketData;
-    getCurrentData = DEBUG_NO_PRICE || HOLD_PRICE ? () => null : realMarketData.getCurrentData;
+    marketData = DEBUG_NO_PRICE ? {} : realMarketData.marketData;
+    getCurrentData = DEBUG_NO_PRICE ? () => null : realMarketData.getCurrentData;
     
     // Log active price ticks (rate-limited) 
     const now = performance.now();
@@ -1356,4 +1314,20 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       </Tabs>
     </Card>
   );
-};
+}
+
+// Step 8: Export with force freeze wrapper
+export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) {
+  if (FORCE_FREEZE_HISTORY) {
+    if (frozenRenderRef === null) {
+      frozenRenderRef = <TradingHistoryInternal hasActiveStrategy={hasActiveStrategy} onCreateStrategy={onCreateStrategy} />;
+      if (!freezeLoggedRef) {
+        console.info('[HistoryBlink] forceFreezeHistory active (child subtree reused)');
+        freezeLoggedRef = true;
+      }
+    }
+    return frozenRenderRef;
+  }
+  
+  return <TradingHistoryInternal hasActiveStrategy={hasActiveStrategy} onCreateStrategy={onCreateStrategy} />;
+}

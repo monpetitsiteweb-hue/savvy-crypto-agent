@@ -78,6 +78,21 @@ const FREEZE_INDEX_PARENT = (() => {
   } catch { return false; }
 })();
 
+// Step 8: Additional hard-freeze switches
+const FORCE_FREEZE_INDEX_PARENT = (() => {
+  try {
+    const u = new URL(window.location.href);
+    return RUNTIME_DEBUG && u.searchParams.get('forceFreezeIndexParent') === '1';
+  } catch { return false; }
+})();
+
+const TRACE_PARENT_STATE = (() => {
+  try {
+    const u = new URL(window.location.href);
+    return RUNTIME_DEBUG && u.searchParams.get('traceParentState') === '1';
+  } catch { return false; }
+})();
+
 // Step 6: Timer monkey-patching
 if (TRACE_TIMERS && typeof window !== 'undefined') {
   const timerStats = new Map<any, any>();
@@ -165,7 +180,34 @@ import { Link2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 
+// Step 8: setState tracer helper
+const stateCallLog = new Map<string, number>();
+const traceSet = (stateName: string, reasonTag: string) => {
+  if (TRACE_PARENT_STATE) {
+    const now = performance.now();
+    const key = `${stateName}_${reasonTag}`;
+    if (!stateCallLog.has(key) || now - stateCallLog.get(key)! > 1000) {
+      console.info(`[HistoryBlink] parent-set: name=${stateName} reason=${reasonTag} ts=${Math.floor(now)}`);
+      stateCallLog.set(key, now);
+    }
+  }
+};
+
 function IndexComponent() {
+  const { user, loading } = useAuth();
+  
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const setActiveTabTraced = (value: string) => {
+    traceSet('activeTab', 'userClick');
+    setActiveTab(value);
+  };
+  
+  const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
+  const setIsStrategyFullWidthTraced = (value: boolean) => {
+    traceSet('isStrategyFullWidth', 'layoutChange');
+    setIsStrategyFullWidth(value);
+  };
+  
   // Step 3: Parent mount counter + rate limiting
   const parentMountCountRef = useRef(0);
   const parentLastLogRef = useRef(0);
@@ -185,12 +227,9 @@ function IndexComponent() {
   // Increment mount counter
   parentMountCountRef.current += 1;
   
-  const { user, loading } = useAuth();
-  const { role, loading: roleLoading } = useUserRole();
   const { testMode, setTestMode } = useTestMode();
+  const { role, loading: roleLoading } = useUserRole();
   const { hasActiveStrategy } = useActiveStrategy();
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [isStrategyFullWidth, setIsStrategyFullWidth] = useState(false);
   
   // Step 3, 5 & 6: Log parent mount + props + provider fingerprints + context changes (rate-limited to 1/sec)
   useEffect(() => {
@@ -305,7 +344,7 @@ function IndexComponent() {
                       type="button"
                       onClick={(e) => {
                         e.preventDefault();
-                        setActiveTab(tab.id);
+                        setActiveTabTraced(tab.id);
                       }}
                       className={`px-2 py-4 text-sm font-medium transition-colors ${
                         activeTab === tab.id
@@ -333,7 +372,7 @@ function IndexComponent() {
                         type="button"
                         onClick={(e) => {
                           e.preventDefault();
-                          setActiveTab(tab.id);
+                          setActiveTabTraced(tab.id);
                         }}
                         className={`px-6 py-4 text-sm font-medium transition-colors whitespace-nowrap ${
                           activeTab === tab.id
@@ -410,20 +449,20 @@ function IndexComponent() {
                   <ErrorBoundary key={PIN_HISTORY_KEY ? 'history-stable' : undefined}>
                     <TradingHistory 
                       hasActiveStrategy={hasActiveStrategy}
-                      onCreateStrategy={() => setActiveTab('strategy')}
+                        onCreateStrategy={() => setActiveTabTraced('strategy')}
                     />
                   </ErrorBoundary>
                 )}
                 {activeTab === 'strategy' && (
                   <ErrorBoundary>
-                    <StrategyConfig onLayoutChange={setIsStrategyFullWidth} />
+                    <StrategyConfig onLayoutChange={setIsStrategyFullWidthTraced} />
                   </ErrorBoundary>
                 )}
                  {activeTab === 'performance' && (
                    <ErrorBoundary>
                      <PerformanceOverview 
                        hasActiveStrategy={hasActiveStrategy}
-                       onCreateStrategy={() => setActiveTab('strategy')}
+                        onCreateStrategy={() => setActiveTabTraced('strategy')}
                      />
                    </ErrorBoundary>
                  )}
@@ -451,7 +490,22 @@ const MemoizedIndexComponent = memo(IndexComponent, (prevProps, nextProps) => {
   return false; // Always re-render normally
 });
 
+// Step 8: Hard-freeze wrapper for IndexParent
+let frozenIndexRenderRef: React.ReactElement | null = null;
+let indexFreezeLoggedRef = false;
+
 export default function Index() {
+  if (FORCE_FREEZE_INDEX_PARENT) {
+    if (frozenIndexRenderRef === null) {
+      frozenIndexRenderRef = <IndexComponent />;
+      if (!indexFreezeLoggedRef) {
+        console.info('[HistoryBlink] forceFreezeIndexParent active');
+        indexFreezeLoggedRef = true;
+      }
+    }
+    return frozenIndexRenderRef;
+  }
+  
   if (FREEZE_INDEX_PARENT) {
     return <MemoizedIndexComponent />;
   }
