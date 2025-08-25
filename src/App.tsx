@@ -6,6 +6,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { TestModeProvider } from "@/hooks/useTestMode";
 import { MockWalletProvider } from "@/hooks/useMockWallet";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { MarketDataProvider } from "@/contexts/MarketDataContext";
 import Index from "./pages/Index";
 import AdminPage from "./pages/AdminPage";
 import ProfilePage from "./pages/ProfilePage";
@@ -17,19 +18,21 @@ const App = () => (
     <AuthProvider>
       <TestModeProvider>
         <MockWalletProvider>
-          <Toaster />
-          <Sonner />
-          <ErrorBoundary>
-            <BrowserRouter>
-              <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/admin" element={<AdminPage />} />
-                <Route path="/profile" element={<ProfilePage />} />
-                <Route path="/validation" element={<ValidationPage />} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </ErrorBoundary>
+          <MarketDataProvider>
+            <Toaster />
+            <Sonner />
+            <ErrorBoundary>
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/admin" element={<AdminPage />} />
+                  <Route path="/profile" element={<ProfilePage />} />
+                  <Route path="/validation" element={<ValidationPage />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </BrowserRouter>
+            </ErrorBoundary>
+          </MarketDataProvider>
         </MockWalletProvider>
       </TestModeProvider>
     </AuthProvider>
