@@ -47,17 +47,36 @@ const DEBUG_NO_REFETCH =
     } catch { return false; }
   })();
 
-// Step 2: Source-tagged logging with rate limiting
+// Step 2: Source-tagged logging with rate limiting  
 const srcLogTimestamps = new Map<string, number>();
-const logSrc = (src: string, count: number) => {
+const logSetPositions = (src: string, count: number) => {
   if (!DEBUG_HISTORY_BLINK) return;
   const now = Math.floor(performance.now());
   const lastLog = srcLogTimestamps.get(src) || 0;
   if (now - lastLog >= 250) { // Rate limit: one per 250ms per source
-    console.info(`[HistoryBlink] source: ${src}, count: ${count}, ts: ${now}`);
+    console.info(`[HistoryBlink] setPositions ${src} count=${count} ts=${now}`);
     srcLogTimestamps.set(src, now);
   }
 };
+
+// Step 2B: Expose manual debug fetch when debug is active
+if (DEBUG_HISTORY_BLINK && typeof window !== 'undefined') {
+  let currentFetchHandler: (() => void) | null = null;
+  
+  (window as any).__historyDebug = {
+    fetchOnce: () => {
+      console.info('[HistoryBlink] manual-fetch invoked');
+      if (currentFetchHandler) {
+        currentFetchHandler();
+      } else {
+        console.warn('[HistoryBlink] fetch handler not yet available');
+      }
+    },
+    _setHandler: (handler: () => void) => {
+      currentFetchHandler = handler;
+    }
+  };
+}
 
 interface Trade {
   id: string;
@@ -430,8 +449,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
       console.log('✅ HISTORY: Fetched', data?.length || 0, 'trades');
       
-      // Step 2: Source-tagged setter
-      logSrc('manual-fetch', data?.length || 0);
+      // Step 2B: Source-tagged setter with correct format
+      logSetPositions('manual-fetch', data?.length || 0);
       setTrades(data || []);
 
       // Calculate stats with ValuationService
@@ -483,18 +502,34 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   };
 
-  // Load data on component mount and when user changes
+  // Step 2B: Isolator logging and fixed noRefetch semantics
+  useEffect(() => {
+    if (DEBUG_HISTORY_BLINK) {
+      // Log isolator states
+      if (DEBUG_NO_REALTIME) {
+        console.info('[HistoryBlink] isolator active: noRealtime (history channel disabled)');
+      }
+      if (DEBUG_NO_REFETCH) {
+        console.info('[HistoryBlink] isolator active: noRefetch (initial fetch allowed, repeat disabled)');
+      }
+    }
+  }, []);
+
+  // Load data on component mount and when user changes  
   useEffect(() => {
     if (user) {
-      // Step 2: Runtime isolation - skip initial fetch if disabled
-      if (!DEBUG_NO_REFETCH) {
-        fetchTradingHistory();
-      } else if (DEBUG_HISTORY_BLINK) {
-        console.info('[HistoryBlink] initial fetch disabled by toggle');
-      }
+      // Step 2B: Allow initial fetch always, only block if explicitly isolated
+      fetchTradingHistory();
       fetchUserProfile();
     }
   }, [user, testMode]);
+
+  // Step 2B: Wire manual debug handler
+  useEffect(() => {
+    if (DEBUG_HISTORY_BLINK && typeof window !== 'undefined') {
+      (window as any).__historyDebug?._setHandler?.(fetchTradingHistory);
+    }
+  }, []);
 
   // Step 2: Print debug header for Step 2
   useEffect(() => {
@@ -531,14 +566,23 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          // Step 2: Source-tagged logging for realtime triggers
+          // Step 2B: Source-tagged logging for realtime triggers with correct format
           if (DEBUG_HISTORY_BLINK) {
-            logSrc('supabase-realtime', trades.length);
+            logSetPositions('supabase-realtime', trades.length);
+          }
+          
+          // Step 2B: Respect noRefetch for repeat fetches (not initial)
+          if (DEBUG_NO_REFETCH) {
+            if (DEBUG_HISTORY_BLINK) {
+              console.info('[HistoryBlink] realtime fetch blocked by noRefetch toggle');
+            }
+            return;
           }
           
           // Throttle updates to prevent constant blinking
           clearTimeout(refreshTimeout);
           refreshTimeout = setTimeout(() => {
+            logSetPositions('supabase-realtime', 0); // Log the triggered fetch
             fetchTradingHistory();
           }, 1000); // Wait 1 second before refreshing
         }
