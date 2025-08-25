@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step 6 Evidence Collector</title>
+    <style>
+        body { font-family: monospace; margin: 20px; }
+        .window { border: 2px solid #333; margin: 20px 0; padding: 15px; }
+        .result { background: #f0f0f0; padding: 10px; margin: 10px 0; white-space: pre-wrap; }
+        button { padding: 10px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🎯 Step 6 Evidence Collector</h1>
+    <p>Manual evidence collection for UD=OFF and UD=ON DEFER paths</p>
+
+    <div class="window">
+        <h3>Window A: UD=OFF Evidence</h3>
+        <p><strong>Instructions:</strong> Set UD=OFF in strategy config, then click to send direct execution intent</p>
+        <button onclick="sendUdOffIntent()">Send UD=OFF Intent</button>
+        <div id="udOffResult" class="result"></div>
+    </div>
+
+    <div class="window">
+        <h3>Window B: UD=ON DEFER Evidence</h3>
+        <p><strong>Instructions:</strong> Set UD=ON, then rapidly click both buttons to create atomic section conflict</p>
+        <button onclick="sendUdOnIntent('BTN1')">Send UD=ON Intent #1</button>
+        <button onclick="sendUdOnIntent('BTN2')">Send UD=ON Intent #2</button>
+        <div id="udOnResult" class="result"></div>
+    </div>
+
+    <div class="window">
+        <h3>Validation Page Test</h3>
+        <button onclick="testValidationInert()">Test Validation Inert Status</button>
+        <div id="validationResult" class="result"></div>
+    </div>
+
+    <script>
+        const API_ENDPOINT = 'https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/trading-decision-coordinator';
+        const AUTH_KEY = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8';
+
+        async function sendIntent(intent, target) {
+            const startTime = Date.now();
+            
+            try {
+                console.log(`🎯 STEP6: Sending intent to coordinator:`, intent);
+                
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': AUTH_KEY
+                    },
+                    body: JSON.stringify({ intent })
+                });
+                
+                const executionTime = Date.now() - startTime;
+                const data = await response.json();
+                
+                const result = {
+                    timestamp: new Date().toISOString(),
+                    executionTime: executionTime + 'ms',
+                    status: response.status,
+                    response: data
+                };
+                
+                document.getElementById(target).textContent += JSON.stringify(result, null, 2) + '\n\n';
+                
+                return result;
+            } catch (error) {
+                const errorResult = {
+                    timestamp: new Date().toISOString(),
+                    error: error.message
+                };
+                document.getElementById(target).textContent += JSON.stringify(errorResult, null, 2) + '\n\n';
+                return errorResult;
+            }
+        }
+
+        async function sendUdOffIntent() {
+            const intent = {
+                userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+                strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+                symbol: 'BTC',
+                side: 'BUY',
+                source: 'manual_step6_udoff',
+                confidence: 0.8,
+                reason: 'Step 6 UD=OFF evidence collection',
+                qtySuggested: 0.001,
+                ts: new Date().toISOString()
+            };
+            
+            await sendIntent(intent, 'udOffResult');
+        }
+
+        async function sendUdOnIntent(buttonId) {
+            const intent = {
+                userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+                strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+                symbol: 'ETH',
+                side: 'SELL',
+                source: `manual_step6_udon_${buttonId}`,
+                confidence: 0.7,
+                reason: `Step 6 UD=ON DEFER test from ${buttonId}`,
+                qtySuggested: 0.002,
+                ts: new Date().toISOString()
+            };
+            
+            await sendIntent(intent, 'udOnResult');
+        }
+
+        async function testValidationInert() {
+            const result = {
+                timestamp: new Date().toISOString(),
+                test: 'ValidationPage synthetic traffic status',
+                status: 'DISABLED - synthetic traffic generation commented out in generateTestTraffic function',
+                evidence: 'Function logs "SYNTHETIC TRAFFIC DISABLED" instead of sending intents',
+                grep_check: 'No sendSyntheticIntent functions found in codebase'
+            };
+            
+            document.getElementById('validationResult').textContent = JSON.stringify(result, null, 2);
+            console.log('🚫 VALIDATION INERT: Synthetic traffic generation is disabled');
+        }
+    </script>
+</body>
+</html>
