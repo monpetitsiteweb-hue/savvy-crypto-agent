@@ -521,11 +521,12 @@ async function executeWithMinimalLock(
       metrics.blockedByLockCount++;
       console.log(`🎯 UD_MODE=ON → DEFER: reason=atomic_section_busy_defer symbol=${intent.symbol} retry=${Math.round(200 + Math.random() * 300)}ms`);
       
+      const retryMs = Math.round(200 + Math.random() * 300);
       return {
         action: 'DEFER',
         reason: 'atomic_section_busy_defer',
         request_id: requestId,
-        retry_in_ms: Math.round(200 + Math.random() * 300)
+        retry_in_ms: retryMs
       };
     }
 

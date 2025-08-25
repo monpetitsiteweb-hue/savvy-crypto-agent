@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Step 4 Runtime Evidence</title>
+    <style>
+        body { font-family: monospace; margin: 20px; }
+        .test-result { background: #f5f5f5; padding: 10px; margin: 10px 0; border-left: 3px solid #007acc; }
+        .error { border-left-color: #cc0000; }
+        .success { border-left-color: #00cc00; }
+        button { padding: 10px 20px; margin: 5px; }
+        .log { background: #000; color: #0f0; padding: 10px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>Step 4 Runtime Evidence - UD Gating & Locking</h1>
+    
+    <button onclick="testUDOff()">Test UD=OFF (Direct)</button>
+    <button onclick="testUDOnExecute()">Test UD=ON (Execute)</button>
+    <button onclick="testUDOnHold()">Test UD=ON (Hold)</button>
+    <button onclick="testConcurrent()">Test Concurrent (Defer)</button>
+    <button onclick="clearLogs()">Clear Logs</button>
+    
+    <div id="results"></div>
+
+    <script>
+        const API_ENDPOINT = 'https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/trading-decision-coordinator';
+        const AUTH_KEY = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8';
+
+        function log(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong><br>${message}`;
+            results.appendChild(div);
+        }
+
+        function clearLogs() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        async function callCoordinator(intent, testName) {
+            try {
+                log(`🎯 ${testName} - Calling coordinator...`, 'info');
+                
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': AUTH_KEY,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ intent })
+                });
+
+                const result = await response.json();
+                
+                log(`✅ ${testName} Response:<br><pre>${JSON.stringify(result, null, 2)}</pre>`, 'success');
+                
+                return result;
+            } catch (error) {
+                log(`❌ ${testName} Error: ${error.message}`, 'error');
+                return null;
+            }
+        }
+
+        async function testUDOff() {
+            // This will use the existing strategy but the coordinator will force UD=OFF for testing
+            const intent = {
+                userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+                strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+                symbol: 'BTC',
+                side: 'BUY',
+                source: 'manual',
+                confidence: 0.8,
+                reason: 'ud_off_direct_test',
+                ts: Date.now().toString()
+            };
+            
+            await callCoordinator(intent, 'UD=OFF Direct Execution');
+        }
+
+        async function testUDOnExecute() {
+            const intent = {
+                userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+                strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+                symbol: 'ETH',
+                side: 'BUY',
+                source: 'manual',
+                confidence: 0.8,
+                reason: 'ud_on_execute_test',
+                ts: Date.now().toString()
+            };
+            
+            await callCoordinator(intent, 'UD=ON Execute');
+        }
+
+        async function testUDOnHold() {
+            // First make a trade, then immediately try opposite to trigger cooldown
+            const buyIntent = {
+                userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+                strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+                symbol: 'XRP',
+                side: 'BUY',
+                source: 'automated',
+                confidence: 0.6,
+                reason: 'setup_for_cooldown_test',
+                ts: Date.now().toString()
+            };
+            
+            await callCoordinator(buyIntent, 'UD=ON Buy (Setup)');
+            
+            // Wait a moment then try to sell (should hit cooldown)
+            setTimeout(async () => {
+                const sellIntent = {
+                    ...buyIntent,
+                    side: 'SELL',
+                    reason: 'cooldown_test_should_hold',
+                    ts: (Date.now() + 1000).toString()
+                };
+                
+                await callCoordinator(sellIntent, 'UD=ON Hold (Cooldown)');
+            }, 1000);
+        }
+
+        async function testConcurrent() {
+            // Send multiple requests simultaneously to test DEFER
+            const promises = [];
+            
+            for (let i = 0; i < 5; i++) {
+                const intent = {
+                    userId: '25a0c221-1f0e-431d-8d79-db9fb4db9cb3',
+                    strategyId: '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e',
+                    symbol: 'SOL',
+                    side: 'BUY',
+                    source: 'automated',
+                    confidence: 0.7,
+                    reason: `concurrent_test_${i}`,
+                    ts: (Date.now() + i * 10).toString()
+                };
+                
+                promises.push(callCoordinator(intent, `Concurrent Request ${i + 1}`));
+            }
+            
+            log('🔄 Sending 5 concurrent requests...', 'info');
+            await Promise.all(promises);
+        }
+
+        // Auto-run some tests on load
+        window.onload = function() {
+            log('Step 4 Evidence Collection Started', 'info');
+            log('Click buttons above to test different coordinator paths', 'info');
+        }
+    </script>
+</body>
+</html>
