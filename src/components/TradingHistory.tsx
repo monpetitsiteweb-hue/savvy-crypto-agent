@@ -93,6 +93,51 @@ const DEBUG_NO_PRICE = DEBUG_HISTORY_BLINK &&
     } catch { return false; }
   })();
 
+// Step 4: Simple hash helpers for prop fingerprinting
+const simpleIdsHash = (trades: Trade[]) => {
+  if (!trades || trades.length === 0) return 'empty';
+  const firstTwentyIds = trades.slice(0, 20).map(t => t.id);
+  return firstTwentyIds.join(',').length.toString();
+};
+
+const simpleFiltersHash = (filters: any) => {
+  if (!filters || typeof filters !== 'object') return 'null';
+  return JSON.stringify(filters).length.toString();
+};
+
+// Step 4: Runtime holds (only active when debug=history present)
+const HOLD_POSITIONS = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('holdPositions') === '1' || sessionStorage.getItem('holdPositions') === '1';
+    } catch { return false; }
+  })();
+
+const HOLD_LOADING = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('holdLoading') === '1' || sessionStorage.getItem('holdLoading') === '1';
+    } catch { return false; }
+  })();
+
+const HOLD_FILTERS = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('holdFilters') === '1' || sessionStorage.getItem('holdFilters') === '1';
+    } catch { return false; }
+  })();
+
+const HOLD_PRICE = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('holdPrice') === '1' || sessionStorage.getItem('holdPrice') === '1';
+    } catch { return false; }
+  })();
+
 // Step 2: Source-tagged logging with rate limiting  
 const srcLogTimestamps = new Map<string, number>();
 const logSetPositions = (src: string, count: number) => {
@@ -207,6 +252,22 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   // Step 3: Additional refs for safe logging
   const tabsLastLog = useRef(0);
   
+  // Step 4: Prop fingerprint refs
+  const tradingHistoryLastPropLog = useRef(0);
+  const openListLastPropLog = useRef(0);
+  const pastListLastPropLog = useRef(0);
+  
+  // Step 4: Hold state refs
+  const frozenPositionsRef = useRef<Trade[]>([]);
+  const frozenLoadingRef = useRef<boolean>(false);
+  const frozenFiltersRef = useRef<any>({});
+  const holdLoggedRefs = useRef({
+    positions: false,
+    loading: false,
+    filters: false,
+    price: false
+  });
+  
   // Fast-track toggle refs
   const freezeLoggedRef = useRef(false);
   const muteLoggedRef = useRef(false);
@@ -218,8 +279,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   // Step 3: noPrice isolator - freeze price context updates for this panel
   const realMarketData = useRealTimeMarketData();
-  const marketData = DEBUG_NO_PRICE ? {} : realMarketData.marketData;
-  const getCurrentData = DEBUG_NO_PRICE ? () => null : realMarketData.getCurrentData;
+  const marketData = DEBUG_NO_PRICE || HOLD_PRICE ? {} : realMarketData.marketData;
+  const getCurrentData = DEBUG_NO_PRICE || HOLD_PRICE ? () => null : realMarketData.getCurrentData;
   
   // Log noPrice isolator activation (once)
   useEffect(() => {
@@ -237,6 +298,51 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Step 4: Apply holds locally before passing to children
+  let processedTrades = trades;
+  let processedLoading = loading;
+  const filters = {}; // No filters currently implemented, but ready for future
+  
+  // Step 4: Hold positions - freeze first loaded positions array
+  if (HOLD_POSITIONS) {
+    if (frozenPositionsRef.current.length === 0 && trades.length > 0) {
+      frozenPositionsRef.current = [...trades]; // Capture first load
+    }
+    if (frozenPositionsRef.current.length > 0) {
+      processedTrades = frozenPositionsRef.current; // Use frozen data
+    }
+    if (!holdLoggedRefs.current.positions) {
+      console.info('[HistoryBlink] holdPositions: active (positions updates ignored)');
+      holdLoggedRefs.current.positions = true;
+    }
+  }
+  
+  // Step 4: Hold loading - force loading=false
+  if (HOLD_LOADING) {
+    processedLoading = false;
+    if (!holdLoggedRefs.current.loading) {
+      console.info('[HistoryBlink] holdLoading: active');
+      holdLoggedRefs.current.loading = true;
+    }
+  }
+  
+  // Step 4: Hold filters - freeze current filters object
+  if (HOLD_FILTERS) {
+    if (Object.keys(frozenFiltersRef.current).length === 0) {
+      frozenFiltersRef.current = { ...filters }; // Capture first state
+    }
+    if (!holdLoggedRefs.current.filters) {
+      console.info('[HistoryBlink] holdFilters: active');
+      holdLoggedRefs.current.filters = true;
+    }
+  }
+  
+  // Step 4: Hold price - alias for noPrice isolator
+  if (HOLD_PRICE && !holdLoggedRefs.current.price) {
+    console.info('[HistoryBlink] holdPrice: active (alias noPrice)');
+    holdLoggedRefs.current.price = true;
+  }
   
   // Fast-track toggle: Shallow-equal checker for freeze updates
   const isShallowEqual = (newTrades: Trade[], oldTrades: Trade[]) => {
@@ -668,6 +774,24 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   }, []);
 
+  // Step 4: Prop fingerprint logging for TradingHistory (rate-limited)
+  useEffect(() => {
+    if (DEBUG_HISTORY_BLINK) {
+      const now = performance.now();
+      if (now - tradingHistoryLastPropLog.current > 1000) {
+        console.info(`[HistoryBlink] props: {
+  positionsRefChanged: ${processedTrades !== trades},
+  len: ${processedTrades.length},
+  idsHash: ${simpleIdsHash(processedTrades)},
+  loading: ${processedLoading},
+  filtersHash: ${simpleFiltersHash(filters)},
+  priceCtxTick: ${Object.keys(marketData).length}
+}`);
+        tradingHistoryLastPropLog.current = now;
+      }
+    }
+  }, [processedTrades, processedLoading, filters, marketData]);
+
   // Real-time subscription to mock_trades changes (throttled to prevent blinking)
   useEffect(() => {
     if (!user) return;
@@ -1091,6 +1215,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
                 console.info(`[HistoryBlink] <OpenList> mount ${openMounts.current} | len=${openPositions.length} loading=${historyLoading}`);
                 openLastLog.current = now;
               }
+              
+              // Step 4: OpenList prop fingerprint logging (rate-limited)
+              if (now - openListLastPropLog.current > 1000) {
+                console.info(`[HistoryBlink] <OpenList> props: {
+  len: ${openPositions.length},
+  idsHash: ${simpleIdsHash(openPositions)},
+  loading: ${processedLoading}
+}`);
+                openListLastPropLog.current = now;
+              }
             }
             
             // Step 1: Parent remount detector (rate-limited)
@@ -1133,6 +1267,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
               if (now - pastLastLog.current > 1000) {
                 console.info(`[HistoryBlink] <PastList> mount ${pastMounts.current} | len=${pastPositions.length} loading=${historyLoading}`);
                 pastLastLog.current = now;
+              }
+              
+              // Step 4: PastList prop fingerprint logging (rate-limited)
+              if (now - pastListLastPropLog.current > 1000) {
+                console.info(`[HistoryBlink] <PastList> props: {
+  len: ${pastPositions.length},
+  idsHash: ${simpleIdsHash(pastPositions)},
+  loading: ${processedLoading}
+}`);
+                pastListLastPropLog.current = now;
               }
             }
             
