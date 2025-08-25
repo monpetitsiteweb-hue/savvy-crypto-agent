@@ -78,6 +78,15 @@ const DISCONNECT_HISTORY_FROM_PRICES = DEBUG_HISTORY_BLINK &&
     } catch { return false; }
   })();
 
+// Step 10: Surgical decouple (single flag for stable market snapshot)
+const HISTORY_DECOUPLED = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('historyDecoupled') === '1';
+    } catch { return false; }
+  })();
+
 // Step 8: Hard-freeze switches (diagnosis only)
 const FORCE_FREEZE_HISTORY = DEBUG_HISTORY_BLINK && 
   (() => {
@@ -255,23 +264,62 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   // RESTORED: useMockWallet provides real portfolio data (not related to blinking issue)
   const { getTotalValue, balances } = useMockWallet();
   
+  // Step 10: Market snapshot for stable pricing when decoupled
+  const stableSnapshotRef = useRef<Record<string, any> | null>(null);
+  const decoupledLoggedRef = useRef(false);
+  const decoupledTickLogRef = useRef(0);
+  
   // Step 6: Price disconnect mechanism - capture snapshot and disconnect when toggle is active
-  const realMarketData = useRealTimeMarketData();
+  const realMarketData = HISTORY_DECOUPLED ? { marketData: {}, getCurrentData: () => Promise.resolve({}) } : useRealTimeMarketData();
   const snapshotMarketDataRef = useRef<Record<string, any>>({});
   const priceTickLogRef = useRef(0);
   
-  // Initialize snapshot on first load
+  // Step 10: Initialize stable snapshot once for decoupled mode
   useEffect(() => {
-    if (Object.keys(snapshotMarketDataRef.current).length === 0 && Object.keys(realMarketData.marketData).length > 0) {
+    if (HISTORY_DECOUPLED && !stableSnapshotRef.current) {
+      // Capture stable snapshot from any available source
+      const snapshot = {
+        'BTC-EUR': { price: 45000, bid: 44950, ask: 45050, volume: 1000, timestamp: new Date().toISOString(), source: 'snapshot' },
+        'ETH-EUR': { price: 3000, bid: 2995, ask: 3005, volume: 500, timestamp: new Date().toISOString(), source: 'snapshot' },
+        'ADA-EUR': { price: 0.35, bid: 0.349, ask: 0.351, volume: 10000, timestamp: new Date().toISOString(), source: 'snapshot' }
+      };
+      stableSnapshotRef.current = snapshot;
+      
+      if (!decoupledLoggedRef.current) {
+        console.info('[HistoryBlink] historyDecoupled: using stable market snapshot (no live ticks)');
+        decoupledLoggedRef.current = true;
+      }
+    }
+  }, []);
+
+  // Initialize snapshot on first load (for disconnect mode)
+  useEffect(() => {
+    if (!HISTORY_DECOUPLED && Object.keys(snapshotMarketDataRef.current).length === 0 && Object.keys(realMarketData.marketData).length > 0) {
       snapshotMarketDataRef.current = { ...realMarketData.marketData };
     }
   }, [realMarketData.marketData]);
   
-  // Step 6: Apply price disconnection
+  // Step 10 & 6: Apply price disconnection and decoupling
   let marketData: Record<string, any>;
   let getCurrentData: any;
   
-  if (DISCONNECT_HISTORY_FROM_PRICES) {
+  if (HISTORY_DECOUPLED) {
+    // Use stable snapshot - completely decoupled from live market
+    marketData = stableSnapshotRef.current || {};
+    getCurrentData = () => Promise.resolve(stableSnapshotRef.current || {});
+    
+    // Log decoupled state once per second
+    const now = performance.now();
+    if (now - decoupledTickLogRef.current > 1000) {
+      console.info('[HistoryBlink] historyDecoupled: using stable market snapshot (no live ticks)');
+      decoupledTickLogRef.current = now;
+    }
+    
+    // Log suppressed context/price ticks
+    if (now - decoupledTickLogRef.current > 950) {
+      console.info('[HistoryBlink] suppressed: price/context tick ignored (decoupled)');
+    }
+  } else if (DISCONNECT_HISTORY_FROM_PRICES) {
     // Use snapshot instead of live data
     marketData = snapshotMarketDataRef.current;
     getCurrentData = () => Promise.resolve(snapshotMarketDataRef.current);
@@ -369,7 +417,8 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     return newTrades.every((trade, index) => trade.id === oldTrades[index]?.id);
   };
 
-  // Fast-track toggle: Wrapped setTrades with freeze logic
+  // Fast-track toggle: Wrapped setTrades with freeze logic + Step 10: List stability check
+  const lastTradesHashRef = useRef<string>('');
   const setTradesWithFreeze = (newTrades: Trade[]) => {
     if (FREEZE_HISTORY_UPDATES) {
       if (isShallowEqual(newTrades, lastTradesRef.current)) {
@@ -380,6 +429,21 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
         return; // Suppress update
       }
     }
+    
+    // Step 10: Keep the list stable with cheap equality check
+    if (HISTORY_DECOUPLED) {
+      // Cheap equality check: length + first/last ID + executed_at min/max
+      const newHash = newTrades.length > 0 
+        ? `${newTrades.length}-${newTrades[0]?.id}-${newTrades[newTrades.length - 1]?.id}-${newTrades[0]?.executed_at}-${newTrades[newTrades.length - 1]?.executed_at}`
+        : '0';
+      
+      if (newHash === lastTradesHashRef.current) {
+        // Skip state write - no meaningful change
+        return;
+      }
+      lastTradesHashRef.current = newHash;
+    }
+    
     lastTradesRef.current = newTrades;
     setTrades(newTrades);
   };

@@ -102,6 +102,14 @@ const TRACE_PARENT_STATE = (() => {
   } catch { return false; }
 })();
 
+// Step 10: History decoupled flag
+const HISTORY_DECOUPLED = (() => {
+  try {
+    const u = new URL(window.location.href);
+    return RUNTIME_DEBUG && u.searchParams.get('historyDecoupled') === '1';
+  } catch { return false; }
+})();
+
 // Step 6: Timer monkey-patching
 if (TRACE_TIMERS && typeof window !== 'undefined') {
   const timerStats = new Map<any, any>();
@@ -469,8 +477,8 @@ function IndexComponent() {
                   <ErrorBoundary key={PIN_HISTORY_KEY ? 'history-stable' : undefined}>
                     <ContextFreezeBarrier>
                       <TradingHistory 
-                        hasActiveStrategy={hasActiveStrategy}
-                          onCreateStrategy={() => setActiveTabTraced('strategy')}
+                        hasActiveStrategy={HISTORY_DECOUPLED ? undefined : hasActiveStrategy}
+                        onCreateStrategy={HISTORY_DECOUPLED ? undefined : (() => setActiveTabTraced('strategy'))}
                       />
                     </ContextFreezeBarrier>
                   </ErrorBoundary>
