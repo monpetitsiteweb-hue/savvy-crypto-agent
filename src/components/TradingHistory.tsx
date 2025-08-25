@@ -45,8 +45,8 @@ interface Trade {
 }
 
 interface TradePerformance {
-  currentPrice: number;
-  currentValue: number;
+  currentPrice: number | null;
+  currentValue: number | null;
   purchaseValue: number | null;
   purchasePrice: number | null;
   gainLoss: number | null;
@@ -94,45 +94,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     totalPL: 0,
     currentlyInvested: 0
   });
-  const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
-  
-  // Fetch real-time prices directly from edge function (bypassing context issues)
-  useEffect(() => {
-    const fetchCurrentPrices = async () => {
-      try {
-        console.log('🔍 HISTORY: Fetching prices directly from edge function...');
-        const response = await fetch('https://fuieplftlcxdfkxyqzlt.functions.supabase.co/real-time-market-data', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbols: ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR'] })
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          console.log('🔍 HISTORY: Got prices from edge function:', data);
-          
-          const prices: Record<string, number> = {};
-          Object.entries(data).forEach(([symbol, marketData]: [string, any]) => {
-            if (marketData?.price) {
-              prices[symbol] = marketData.price;
-              // Also store without -EUR suffix for compatibility
-              const baseSymbol = symbol.replace('-EUR', '');
-              prices[baseSymbol] = marketData.price;
-            }
-          });
-          
-          console.log('🔍 HISTORY: Setting current prices:', prices);
-          setCurrentPrices(prices);
-        }
-      } catch (error) {
-        console.error('❌ HISTORY: Error fetching prices from edge function:', error);
-      }
-    };
-
-    fetchCurrentPrices();
-    const interval = setInterval(fetchCurrentPrices, 30000); // Every 30 seconds
-    return () => clearInterval(interval);
-  }, []);
+  // Removed direct edge function calls - using MarketDataProvider only
 
   // Use ValuationService for all P&L calculations (single source of truth)
   const calculateTradePerformance = async (trade: Trade): Promise<TradePerformance> => {
@@ -173,20 +135,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   console.log('🔍 HISTORY: Looking for price for', symbol, 'checking as baseSymbol:', baseSymbol, 'fullSymbol:', fullSymbol);
   console.log('🔍 HISTORY: Available market data keys:', Object.keys(marketData));
-  console.log('🔍 HISTORY: Available current prices keys:', Object.keys(currentPrices));
   
-  // Try multiple symbol formats to find the current price
+  // Get current price from MarketDataProvider only
   let displayCurrentPrice = marketData[symbol]?.price || 
                            marketData[fullSymbol]?.price || 
-                           marketData[baseSymbol]?.price ||
-                           currentPrices[symbol] || 
-                           currentPrices[fullSymbol] || 
-                           currentPrices[baseSymbol];
+                           marketData[baseSymbol]?.price;
                            
   console.log('🔍 HISTORY: Found current price:', displayCurrentPrice, 'for', symbol);
     
-    // Simple calculations using market data directly (no API calls)
-    if (!displayCurrentPrice) {
+    // No current price available - return nulls for display as "—" 
+    if (!displayCurrentPrice || displayCurrentPrice <= 0) {
       return {
         currentPrice: null,
         currentValue: null,
@@ -195,7 +153,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
         gainLoss: null,
         gainLossPercentage: null,
         isCorrupted: false,
-        corruptionReasons: ['Current price not available from market data']
+        corruptionReasons: ['Current price not available from MarketDataProvider']
       };
     }
 
@@ -325,8 +283,8 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       // CRITICAL FIX: Apply regression guards and use deterministic pricing
       const { validateTradePrice, validatePurchaseValue, logValidationFailure } = await import('../utils/regressionGuards');
       
-      // Get current price from market data
-      let currentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency];
+      // Get current price from MarketDataProvider only
+      let currentPrice = marketData[trade.cryptocurrency]?.price;
       
       // Try to get deterministic price from snapshots first
       try {
@@ -591,7 +549,6 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
 
     // FIXED: Extract only the specific price values to prevent infinite re-renders
     const specificTradePrice = marketData[trade.cryptocurrency]?.price;
-    const specificCurrentPrice = currentPrices[trade.cryptocurrency];
     
     useEffect(() => {
       const loadPerformance = async () => {
@@ -606,7 +563,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
 
       loadPerformance();
-    }, [trade.id, specificTradePrice, specificCurrentPrice]); // FIXED: Only specific price values, prevents object reference changes
+    }, [trade.id, specificTradePrice]); // Only use MarketDataProvider price
 
     if (loading || !performance) {
       return (
@@ -662,12 +619,16 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             <>
               <div>
                 <p className="text-muted-foreground">Current Value</p>
-                <p className="font-medium">{formatEuro(performance.currentValue)}</p>
+                <p className="font-medium">
+                  {performance.currentValue !== null ? formatEuro(performance.currentValue) : "—"}
+                </p>
               </div>
               
               <div>
                 <p className="text-muted-foreground">Current Price</p>
-                <p className="font-medium">{formatEuro(performance.currentPrice)}</p>
+                <p className="font-medium">
+                  {performance.currentPrice !== null ? formatEuro(performance.currentPrice) : "—"}
+                </p>
               </div>
             </>
           )}
@@ -679,7 +640,7 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
           )}
           
-          {!performance.isAutomatedWithoutPnL && performance.gainLoss !== null && (
+          {performance.gainLoss !== null && performance.gainLossPercentage !== null && (
             <>
               <div>
                 <p className="text-muted-foreground">P&L (EUR)</p>
