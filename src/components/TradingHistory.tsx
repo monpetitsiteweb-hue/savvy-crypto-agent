@@ -123,7 +123,25 @@ export const TradingHistory = ({ hasActiveStrategy, onCreateStrategy }: TradingH
     
   // For BUY trades (open positions): Use exact trade data without fallbacks
   const actualPurchasePrice = trade.price;
-  const displayCurrentPrice = marketData[trade.cryptocurrency]?.price || currentPrices[trade.cryptocurrency];
+  
+  // FIXED: Handle symbol format mismatch - trade.cryptocurrency might be "BTC-EUR" or just "BTC"
+  const symbol = trade.cryptocurrency;
+  const baseSymbol = symbol.replace('-EUR', ''); // Get "BTC" from "BTC-EUR"
+  const fullSymbol = symbol.includes('-EUR') ? symbol : `${symbol}-EUR`; // Ensure "-EUR" suffix
+  
+  console.log('🔍 HISTORY: Looking for price for', symbol, 'checking as baseSymbol:', baseSymbol, 'fullSymbol:', fullSymbol);
+  console.log('🔍 HISTORY: Available market data keys:', Object.keys(marketData));
+  console.log('🔍 HISTORY: Available current prices keys:', Object.keys(currentPrices));
+  
+  // Try multiple symbol formats to find the current price
+  let displayCurrentPrice = marketData[symbol]?.price || 
+                           marketData[fullSymbol]?.price || 
+                           marketData[baseSymbol]?.price ||
+                           currentPrices[symbol] || 
+                           currentPrices[fullSymbol] || 
+                           currentPrices[baseSymbol];
+                           
+  console.log('🔍 HISTORY: Found current price:', displayCurrentPrice, 'for', symbol);
     
     // Simple calculations using market data directly (no API calls)
     if (!displayCurrentPrice) {
