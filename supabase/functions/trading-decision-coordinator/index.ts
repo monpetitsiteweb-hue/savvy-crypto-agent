@@ -518,7 +518,7 @@ async function executeWithMinimalLock(
     if (executionResult.success) {
       console.log(`✅ COORDINATOR: Atomic execution successful: ${intent.side} ${intent.symbol}`);
       return {
-        action: intent.side,
+        action: intent.side as DecisionAction,
         reason: 'no_conflicts_detected',
         request_id: requestId,
         retry_in_ms: 0,
