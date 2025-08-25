@@ -18,49 +18,13 @@ export interface IntegrityCheck {
   errors: string[];
 }
 
-// Current price cache to avoid repeated API calls
-const priceCache = new Map<string, { price: number; timestamp: number }>();
-const CACHE_TTL = 30000; // 30 seconds
-
-async function getCurrentPrice(symbol: string): Promise<number> {
-  const normalizedSymbol = symbol.replace('-EUR', '');
-  const cacheKey = normalizedSymbol;
-  const cached = priceCache.get(cacheKey);
-  
-  // Use cache if recent
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.price;
-  }
-  
-  try {
-    const coinbaseSymbol = `${normalizedSymbol}-EUR`;
-    const response = await fetch(`https://api.exchange.coinbase.com/products/${coinbaseSymbol}/ticker`);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch price for ${coinbaseSymbol}: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    const price = parseFloat(data.price);
-    
-    // Cache the result
-    priceCache.set(cacheKey, { price, timestamp: Date.now() });
-    
-    return price;
-  } catch (error) {
-    console.error(`❌ VALUATION: Failed to get current price for ${symbol}:`, error);
-    // Fallback to entry price if current price unavailable
-    return 0;
-  }
-}
-
 export async function calculateValuation(
   inputs: ValuationInputs,
   currentPriceOverride?: number
 ): Promise<ValuationOutputs> {
   // CRITICAL: Never make API calls - always require current price to be provided
-  if (currentPriceOverride === undefined || currentPriceOverride === null) {
-    throw new Error(`Current price must be provided for ${inputs.symbol} - no API calls allowed`);
+  if (currentPriceOverride === undefined || currentPriceOverride === null || currentPriceOverride <= 0) {
+    throw new Error(`Valid current price must be provided for ${inputs.symbol} - no API calls allowed (got: ${currentPriceOverride})`);
   }
   const current_price = currentPriceOverride;
   

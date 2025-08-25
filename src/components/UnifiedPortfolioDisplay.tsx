@@ -135,6 +135,7 @@ export const UnifiedPortfolioDisplay = () => {
             valuations[position.symbol] = valuation;
           } catch (error) {
             console.error(`Error calculating valuation for ${position.symbol}:`, error);
+            // Don't set valuation if calculation fails
           }
         }
       }
