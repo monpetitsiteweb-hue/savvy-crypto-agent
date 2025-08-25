@@ -65,65 +65,93 @@ DBG_STRICTMODE_OFF_IN_DEV=false    # Disable StrictMode (dev builds only)
 
 ## Test Sequence
 
+### Step 0: Pre-flight Inspection (No Code Changes)
+**Goal**: Document current configuration baseline
+**Files**: Review only - no changes
+**Change**: Document in console (DEV + DEBUG_HISTORY_BLINK only):
+- Canonical immutable key used for rows (trade.id? executed_at? composite?)
+- React Query options: staleTime, refetchInterval, refetchOnWindowFocus
+- Supabase realtime subscription status for positions feeds
+**Test**: Enable DEBUG_HISTORY_BLINK, reload page, check console output
+**Pass/Fail**: Clear documentation of current state baseline
+**Rate Limit**: Single log burst on component mount only
+**Output**: Step 0 result → {config summary}. Awaiting approval.
+
 ### Step 1: Baseline + Mount/Key Visibility
 **Goal**: Detect if rows or whole lists are remounting
 **Files**: `TradingHistory.tsx`, row components  
-**Change**: Add console logs (DEBUG_HISTORY_BLINK gated) for:
+**Change**: Add console logs (import.meta.env.DEV && DEBUG_HISTORY_BLINK gated) for:
 - Tab mount/unmount counts
 - Row mount/unmount counts by stable ID
 - Actual keys used for each row
 **Test**: Enable DEBUG_HISTORY_BLINK, reload page, scroll lists
-**Confirms**: Frequent remounts = parent/key problem; Non-immutable keys = unstable key problem
+**Pass/Fail**: Mount/unmount logs appear only on actual component lifecycle events
+**Rate Limit**: Mount/unmount events only (no render logs)
+**Output**: Step 1 result → {mount pattern summary}. Awaiting approval.
 
 ### Step 2: Duplicate Update Sources Probe  
 **Goal**: Identify overlapping data sources
 **Files**: Data hooks (`useOpenPositions`, `usePastPositions`), realtime subscriptions
-**Change**: Add timestamped logs for each state setter labeled by source + add toggle switches
+**Change**: Add timestamped logs (import.meta.env.DEV && DEBUG_HISTORY_BLINK gated) for each state setter labeled by source + add toggle switches
 **Test A**: Only DEBUG_HISTORY_BLINK ON, observe source firing patterns
 **Test B**: Toggle DBG_DISABLE_REFETCH or DBG_DISABLE_SUPABASE, check if blink stops
-**Confirms**: Overlapping sources = duplication issue
+**Pass/Fail**: Can isolate individual data sources and observe their firing frequency
+**Rate Limit**: ≤1 log/sec per source
+**Output**: Step 2 result → {source overlap findings}. Awaiting approval.
 
 ### Step 3: Array/Object Identity Churn Check
 **Goal**: Detect unnecessary array/object recreation  
 **Files**: Data transformation hooks
-**Change**: Log array identity tokens + optional equality guard behind DBG_EQUALITY_GUARD
+**Change**: Log array identity tokens (import.meta.env.DEV && DEBUG_HISTORY_BLINK gated) + optional equality guard behind DBG_EQUALITY_GUARD
 **Test**: Enable DBG_EQUALITY_GUARD, observe if blink subsides
-**Confirms**: Identity churn = need to stabilize transforms
+**Pass/Fail**: Identity changes correlate with actual data changes
+**Rate Limit**: ≤1 log/sec per hook
+**Output**: Step 3 result → {identity churn detected/stable}. Awaiting approval.
 
 ### Step 4: Sorting Stability Toggle
 **Goal**: Check if sorting causes reorder flicker
 **Files**: Sorting logic locations
-**Change**: Add DBG_FREEZE_SORT to force fixed comparator (by ID/created_at)
+**Change**: Add DBG_FREEZE_SORT (import.meta.env.DEV && DEBUG_HISTORY_BLINK gated) to force fixed comparator (by ID/created_at)
 **Test**: Toggle DBG_FREEZE_SORT, observe if blinking stops
-**Confirms**: Sorting flicker from unstable comparator
+**Pass/Fail**: Sorting behavior changes when flag is toggled
+**Rate Limit**: ≤1 log/sec for sort operations
+**Output**: Step 4 result → {sorting stable/unstable}. Awaiting approval.
 
 ### Step 5: Loading/Animation Flicker
 **Goal**: Isolate visual loading states as cause
 **Files**: Components with isLoading/isFetching/skeleton states
-**Change**: Add DBG_SUPPRESS_LOADING to bypass skeletons/animations (visual only)
+**Change**: Add DBG_SUPPRESS_LOADING (import.meta.env.DEV && DEBUG_HISTORY_BLINK gated) to bypass skeletons/animations (visual only)
 **Test**: Toggle DBG_SUPPRESS_LOADING, check if blink vanishes  
-**Confirms**: Loading/animation layer causing perceived blink
+**Pass/Fail**: Visual behavior changes when loading states are suppressed
+**Rate Limit**: ≤1 log/sec for loading state changes
+**Output**: Step 5 result → {loading states cause/unrelated}. Awaiting approval.
 
 ### Step 6: Row Over-Render Due to Props Churn
 **Goal**: Check if rows re-render too often despite stable data
 **Files**: Row components only
-**Change**: Add DBG_MEMOIZE_ROWS to wrap rows with React.memo + render count logs
+**Change**: Add DBG_MEMOIZE_ROWS (import.meta.env.DEV && DEBUG_HISTORY_BLINK gated) to wrap rows with React.memo + render count logs
 **Test**: Toggle DBG_MEMOIZE_ROWS, observe render count changes
-**Confirms**: Parent/prop churn causing excessive renders
+**Pass/Fail**: Render counts decrease when memoization is enabled
+**Rate Limit**: ≤1 log/sec per row component
+**Output**: Step 6 result → {excessive renders detected/normal}. Awaiting approval.
 
 ### Step 7: Parent Key/Prop Audit
 **Goal**: Ensure tab containers don't have dynamic keys/props
 **Files**: `TradingHistory.tsx` and immediate parents
-**Change**: Log any dynamic keys/props that could trigger remounts
+**Change**: Log any dynamic keys/props (import.meta.env.DEV && DEBUG_HISTORY_BLINK gated) that could trigger remounts
 **Test**: Observe logs during idle periods
-**Confirms**: Parent remount source identified
+**Pass/Fail**: No dynamic key/prop changes logged during idle state
+**Rate Limit**: ≤1 log/sec for prop changes
+**Output**: Step 7 result → {parent stability confirmed/issues found}. Awaiting approval.
 
 ### Step 8: Dev-Only StrictMode Check
 **Goal**: Determine if issue is development-only
 **Files**: Local dev configuration (not committed)
 **Change**: Add local DBG_STRICTMODE_OFF_IN_DEV flag to temporarily disable StrictMode
 **Test**: Run local preview with flag ON
-**Confirms**: StrictMode double-invoke causing dev-only issue
+**Pass/Fail**: Behavior differs between StrictMode on/off
+**Rate Limit**: N/A (configuration change only)
+**Output**: Step 8 result → {StrictMode related/unrelated}. Awaiting approval.
 
 ## Roll-back Strategy
 Each step is a single, reversible diff. All changes are gated behind debug flags that default OFF, ensuring zero impact on production behavior when flags are disabled.
