@@ -17,8 +17,8 @@ const App = () => (
   <TooltipProvider>
     <AuthProvider>
       <TestModeProvider>
-        <MockWalletProvider>
-          <MarketDataProvider>
+        <MarketDataProvider>
+          <MockWalletProvider>
             <Toaster />
             <Sonner />
             <ErrorBoundary>
@@ -32,8 +32,8 @@ const App = () => (
                 </Routes>
               </BrowserRouter>
             </ErrorBoundary>
-          </MarketDataProvider>
-        </MockWalletProvider>
+          </MockWalletProvider>
+        </MarketDataProvider>
       </TestModeProvider>
     </AuthProvider>
   </TooltipProvider>
