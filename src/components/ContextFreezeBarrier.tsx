@@ -34,7 +34,7 @@ interface ContextFreezeBarrierProps {
 }
 
 export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ children }) => {
-  // Parse individual freeze flags
+  // Parse individual freeze flags - INERT BY DEFAULT
   const freezeFlags = useMemo(() => {
     try {
       const url = new URL(window.location.href);
@@ -42,7 +42,7 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
       
       if (!isDebugHistory) return null;
       
-      return {
+      const flags = {
         price: url.searchParams.get('freezePrice') === '1',
         indicators: url.searchParams.get('freezeIndicators') === '1', 
         auth: url.searchParams.get('freezeAuth') === '1',
@@ -53,6 +53,10 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
         contexts: url.searchParams.get('freezeContexts') === '1',
         historyDecoupled: url.searchParams.get('historyDecoupled') === '1'
       };
+      
+      // Return null if no specific freeze flags are active (INERT BY DEFAULT)
+      const anyFreezeActive = Object.values(flags).some(Boolean);
+      return anyFreezeActive ? flags : null;
     } catch {
       return null;
     }
@@ -68,7 +72,7 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
   const flags = {}; // Placeholder for actual flags context  
   const notifs = {}; // Placeholder for actual notifs context
 
-  // Freeze the values on first render
+  // Freeze the values on first render ONLY when specific flags are active
   const frozenValues = useRef<FrozenContexts | null>(null);
   
   if (!frozenValues.current && freezeFlags) {
@@ -93,9 +97,9 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
     
     console.log(`[HistoryBlink] FreezeMap -> ${freezeMap}`);
   }
-
-  // If no freezing is active, just return children as-is
-  if (!freezeFlags || (!Object.values(freezeFlags).some(Boolean))) {
+  
+  // If no freezing is active, just return children as-is (INERT BY DEFAULT)
+  if (!freezeFlags) {
     return <>{children}</>;
   }
 

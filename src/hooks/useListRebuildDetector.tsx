@@ -9,7 +9,8 @@ export const useListRebuildDetector = (trades: any[], componentName: string) => 
   const shouldTrace = (() => {
     try {
       const url = new URL(window.location.href);
-      return url.searchParams.get('debug') === 'history' && url.searchParams.get('traceRenders') === '1';
+      // Enable with just ?debug=history (no traceRenders=1 required)
+      return url.searchParams.get('debug') === 'history';
     } catch {
       return false;
     }
