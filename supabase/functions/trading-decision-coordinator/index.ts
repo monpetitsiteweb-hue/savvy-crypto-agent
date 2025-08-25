@@ -21,13 +21,25 @@ interface TradeIntent {
   idempotencyKey?: string;
 }
 
+// STEP 1: Standardized response types
+type DecisionAction = "BUY" | "SELL" | "HOLD" | "DEFER";
+type Reason =
+  | "unified_decisions_disabled_direct_path"
+  | "no_conflicts_detected"
+  | "min_hold_period_not_met"
+  | "blocked_by_cooldown"
+  | "blocked_by_precedence:POOL_EXIT"
+  | "queue_overload_defer"
+  | "direct_execution_failed"
+  | "internal_error"
+  | "atomic_section_busy_defer";
+
 interface TradeDecision {
-  approved?: boolean;
-  action: 'BUY' | 'SELL' | 'HOLD' | 'DEFER';
-  reason: string;
-  qty?: number;
+  action: DecisionAction;
+  reason: Reason;
   request_id: string;
-  retry_in_ms?: number;
+  retry_in_ms: number;
+  qty?: number;
 }
 
 interface UnifiedConfig {
@@ -79,18 +91,14 @@ serve(async (req) => {
 
     // Validate intent
     if (!intent?.userId || !intent?.strategyId || !intent?.symbol || !intent?.side) {
-      return respondWithDecision({
-        action: 'HOLD',
-        reason: 'Invalid intent: missing required fields',
-        request_id: requestId
-      }, 400);
+      return respond('HOLD', 'internal_error', requestId);
     }
 
     // Check for duplicate/idempotent request
     const cachedDecision = getCachedDecision(idempotencyKey);
     if (cachedDecision) {
       console.log(`🔄 COORDINATOR: Returning cached decision for key: ${idempotencyKey}`);
-      return respondWithDecision(cachedDecision.decision);
+      return respond(cachedDecision.decision.action, cachedDecision.decision.reason, cachedDecision.decision.request_id, cachedDecision.decision.retry_in_ms, cachedDecision.decision.qty ? { qty: cachedDecision.decision.qty } : {});
     }
 
     // Get strategy configuration
@@ -103,11 +111,7 @@ serve(async (req) => {
 
     if (strategyError || !strategy) {
       console.error('❌ COORDINATOR: Strategy not found:', strategyError);
-      return respondWithDecision({
-        action: 'HOLD',
-        reason: 'Strategy not found or access denied',
-        request_id: requestId
-      }, 404);
+      return respond('HOLD', 'internal_error', requestId);
     }
 
     const unifiedConfig: UnifiedConfig = strategy.unified_config || {
@@ -121,29 +125,20 @@ serve(async (req) => {
     if (!unifiedConfig.enableUnifiedDecisions) {
       console.log('🔓 COORDINATOR: UD=OFF - Direct execution path (NO LOCKS)');
       
-      const decision: TradeDecision = {
-        action: intent.side,
-        reason: 'unified_decisions_disabled_direct_path',
-        request_id: requestId,
-        qty: intent.qtySuggested
-      };
-
       // Execute trade directly without any coordinator gating
-      const executionResult = await executeTradeDirectly(supabaseClient, intent, decision, strategy.configuration);
+      const executionResult = await executeTradeDirectly(supabaseClient, intent, strategy.configuration, requestId);
       
       if (executionResult.success) {
-        decision.approved = true;
         console.log(`✅ COORDINATOR: Direct execution successful [NO LOCKS] ${intent.side} ${intent.symbol}`);
+        // Log decision for audit (async, non-blocking)
+        logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId);
+        return respond(intent.side, 'unified_decisions_disabled_direct_path', requestId, 0, { qty: executionResult.qty });
       } else {
-        decision.action = 'HOLD';
-        decision.reason = `direct_execution_failed: ${executionResult.error}`;
         console.error(`❌ COORDINATOR: Direct execution failed: ${executionResult.error}`);
+        // Log decision for audit (async, non-blocking)
+        logDecisionAsync(supabaseClient, intent, 'HOLD', 'direct_execution_failed', unifiedConfig, requestId);
+        return respond('HOLD', 'direct_execution_failed', requestId);
       }
-
-      // Log decision for audit (async, non-blocking)
-      logDecisionAsync(supabaseClient, intent, decision, unifiedConfig);
-      
-      return respondWithDecision(decision);
     }
 
     // Unified Decisions ON - Use conflict detection approach
@@ -160,12 +155,7 @@ serve(async (req) => {
       
       console.log(`⏸️ COORDINATOR: Queue overload (${queueLength} pending) - DEFER with ${retryMs}ms retry`);
       
-      return respondWithDecision({
-        action: 'DEFER',
-        reason: 'queue_overload_defer',
-        request_id: requestId,
-        retry_in_ms: Math.round(retryMs)
-      });
+      return respond('DEFER', 'queue_overload_defer', requestId, Math.round(retryMs));
     }
 
     // Add to queue and process
@@ -176,16 +166,10 @@ serve(async (req) => {
       const conflictResult = await detectConflicts(supabaseClient, intent, unifiedConfig);
       
       if (conflictResult.hasConflict) {
-        const decision: TradeDecision = {
-          action: 'HOLD',
-          reason: conflictResult.reason,
-          request_id: requestId
-        };
+        cacheDecision(idempotencyKey, { action: 'HOLD', reason: conflictResult.reason as Reason, request_id: requestId, retry_in_ms: 0 });
+        logDecisionAsync(supabaseClient, intent, 'HOLD', conflictResult.reason as Reason, unifiedConfig, requestId);
         
-        cacheDecision(idempotencyKey, decision);
-        logDecisionAsync(supabaseClient, intent, decision, unifiedConfig);
-        
-        return respondWithDecision(decision);
+        return respond('HOLD', conflictResult.reason as Reason, requestId);
       }
 
       // No conflicts - proceed with execution using advisory lock ONLY for atomic section
@@ -200,7 +184,7 @@ serve(async (req) => {
         metrics.executionTimes = metrics.executionTimes.slice(-50);
       }
       
-      return respondWithDecision(decision);
+      return respond(decision.action, decision.reason, decision.request_id, decision.retry_in_ms, decision.qty ? { qty: decision.qty } : {});
       
     } finally {
       removeFromQueue(symbolKey, intent);
@@ -208,11 +192,7 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('❌ COORDINATOR: Error:', error);
-    return respondWithDecision({
-      action: 'HOLD',
-      reason: `Internal error: ${error.message}`,
-      request_id: generateRequestId()
-    }, 500);
+    return respond('HOLD', 'internal_error', generateRequestId());
   }
 });
 
@@ -244,16 +224,17 @@ function generateIdempotencyKey(intent: TradeIntent): string {
   return `idem_${Math.abs(hash).toString(16)}`;
 }
 
-// Standardized response format
-function respondWithDecision(decision: TradeDecision, status = 200): Response {
+// STEP 1: Single response helper (enforces one shape always)
+const respond = (action: DecisionAction, reason: Reason, request_id: string, retry_in_ms = 0, extra: Record<string, any> = {}): Response => {
+  const decision = { action, reason, request_id, retry_in_ms, ...extra };
   return new Response(JSON.stringify({
     ok: true,
-    decision: decision
+    decision
   }), {
-    status,
+    status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   });
-}
+};
 
 // Cache management
 function getCachedDecision(key: string): { decision: TradeDecision; timestamp: number } | null {
@@ -286,9 +267,9 @@ function cacheDecision(key: string, decision: TradeDecision): void {
 async function executeTradeDirectly(
   supabaseClient: any,
   intent: TradeIntent,
-  decision: TradeDecision,
-  strategyConfig: any
-): Promise<{ success: boolean; error?: string }> {
+  strategyConfig: any,
+  requestId: string
+): Promise<{ success: boolean; error?: string; qty?: number }> {
   
   try {
     // Get real market price
@@ -312,8 +293,8 @@ async function executeTradeDirectly(
     const tradeAllocation = strategyConfig?.perTradeAllocation || 1000;
     let qty: number;
     
-    if (decision.action === 'SELL') {
-      qty = decision.qty || intent.qtySuggested || 0.001;
+    if (intent.side === 'SELL') {
+      qty = intent.qtySuggested || 0.001;
     } else {
       qty = tradeAllocation / realMarketPrice;
     }
@@ -321,20 +302,20 @@ async function executeTradeDirectly(
     const totalValue = qty * realMarketPrice;
     const symbol = intent.symbol.replace('-EUR', '');
     
-    console.log(`💱 DIRECT: ${decision.action} ${qty} ${symbol} at €${realMarketPrice} = €${totalValue}`);
+    console.log(`💱 DIRECT: ${intent.side} ${qty} ${symbol} at €${realMarketPrice} = €${totalValue}`);
     
     // Insert trade record
     const mockTrade = {
       user_id: intent.userId,
       strategy_id: intent.strategyId,
-      trade_type: decision.action.toLowerCase(),
+      trade_type: intent.side.toLowerCase(),
       cryptocurrency: symbol,
       amount: qty,
       price: realMarketPrice,
       total_value: totalValue,
       executed_at: new Date().toISOString(),
       is_test_mode: true,
-      notes: `Direct path: ${decision.reason}`,
+      notes: `Direct path: UD=OFF`,
       strategy_trigger: `direct_${intent.source}`
     };
 
@@ -346,9 +327,8 @@ async function executeTradeDirectly(
       throw new Error(`DB insert failed: ${error.message}`);
     }
 
-    decision.qty = qty;
     console.log('✅ DIRECT: Trade executed successfully');
-    return { success: true };
+    return { success: true, qty };
 
   } catch (error) {
     console.error('❌ DIRECT: Execution failed:', error.message);
@@ -360,8 +340,10 @@ async function executeTradeDirectly(
 async function logDecisionAsync(
   supabaseClient: any,
   intent: TradeIntent,
-  decision: TradeDecision,
-  unifiedConfig: UnifiedConfig
+  action: DecisionAction,
+  reason: Reason,
+  unifiedConfig: UnifiedConfig,
+  requestId: string
 ): Promise<void> {
   try {
     await supabaseClient
@@ -373,13 +355,13 @@ async function logDecisionAsync(
         intent_side: intent.side,
         intent_source: intent.source,
         confidence: intent.confidence,
-        decision_action: decision.action,
-        decision_reason: decision.reason,
+        decision_action: action,
+        decision_reason: reason,
         metadata: {
           ...intent.metadata,
           qtySuggested: intent.qtySuggested,
           unifiedConfig,
-          request_id: decision.request_id,
+          request_id: requestId,
           idempotencyKey: intent.idempotencyKey
         }
       });
@@ -449,10 +431,10 @@ async function detectConflicts(
     );
     
     if (recentBuy) {
-      return { hasConflict: true, reason: 'blocked_by_precedence:POOL_EXIT_COOLDOWN' };
+      return { hasConflict: true, reason: 'blocked_by_precedence:POOL_EXIT' };
     }
     
-    return { hasConflict: false, reason: 'pool_exit_approved' };
+    return { hasConflict: false, reason: 'no_conflicts_detected' };
   }
 
   // Check minimum hold period for technical sells
@@ -501,13 +483,6 @@ async function executeWithMinimalLock(
   strategyConfig: any,
   requestId: string
 ): Promise<TradeDecision> {
-  
-  const decision: TradeDecision = {
-    action: intent.side,
-    reason: `${intent.source}_approved_after_conflict_check`,
-    request_id: requestId,
-    qty: intent.qtySuggested
-  };
 
   // Short-lived advisory lock ONLY for the atomic execution section
   const lockKey = generateLockKey(intent.userId, intent.strategyId, intent.symbol);
@@ -530,7 +505,7 @@ async function executeWithMinimalLock(
         action: 'DEFER',
         reason: 'atomic_section_busy_defer',
         request_id: requestId,
-        retry_in_ms: 200 + Math.random() * 300
+        retry_in_ms: Math.round(200 + Math.random() * 300)
       };
     }
 
@@ -538,18 +513,26 @@ async function executeWithMinimalLock(
     console.log(`🔓 COORDINATOR: Minimal lock acquired - executing atomic section`);
 
     // ATOMIC SECTION: Get price and execute trade
-    const executionResult = await executeTradeOrder(supabaseClient, intent, decision, strategyConfig);
+    const executionResult = await executeTradeOrder(supabaseClient, intent, strategyConfig);
     
     if (executionResult.success) {
-      decision.approved = true;
       console.log(`✅ COORDINATOR: Atomic execution successful: ${intent.side} ${intent.symbol}`);
+      return {
+        action: intent.side,
+        reason: 'no_conflicts_detected',
+        request_id: requestId,
+        retry_in_ms: 0,
+        qty: executionResult.qty
+      };
     } else {
-      decision.action = 'HOLD';
-      decision.reason = `atomic_execution_failed: ${executionResult.error}`;
       console.error(`❌ COORDINATOR: Atomic execution failed: ${executionResult.error}`);
+      return {
+        action: 'HOLD',
+        reason: 'direct_execution_failed',
+        request_id: requestId,
+        retry_in_ms: 0
+      };
     }
-
-    return decision;
 
   } finally {
     // Always release lock
@@ -595,12 +578,11 @@ async function getRecentTrades(supabaseClient: any, userId: string, strategyId: 
 async function executeTradeOrder(
   supabaseClient: any,
   intent: TradeIntent,
-  decision: TradeDecision,
   strategyConfig: any
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; qty?: number }> {
   
   try {
-    console.log(`💱 COORDINATOR: Executing ${decision.action} order for ${intent.symbol}`);
+    console.log(`💱 COORDINATOR: Executing ${intent.side} order for ${intent.symbol}`);
     
     // Get real market price
     const symbol = intent.symbol.replace('-EUR', '');
@@ -624,28 +606,28 @@ async function executeTradeOrder(
     let qty: number;
     const tradeAllocation = strategyConfig?.perTradeAllocation || 1000;
     
-    if (decision.action === 'SELL') {
-      qty = decision.qty || intent.qtySuggested || 0.001;
+    if (intent.side === 'SELL') {
+      qty = intent.qtySuggested || 0.001;
     } else {
       qty = tradeAllocation / realMarketPrice;
     }
     
     const totalValue = qty * realMarketPrice;
     
-    console.log(`💱 COORDINATOR: Trade calculation - ${decision.action} ${qty} ${symbol} at €${realMarketPrice} = €${totalValue}`);
+    console.log(`💱 COORDINATOR: Trade calculation - ${intent.side} ${qty} ${symbol} at €${realMarketPrice} = €${totalValue}`);
     
     // Execute trade
     const mockTrade = {
       user_id: intent.userId,
       strategy_id: intent.strategyId,
-      trade_type: decision.action.toLowerCase(),
+      trade_type: intent.side.toLowerCase(),
       cryptocurrency: symbol,
       amount: qty,
       price: realMarketPrice,
       total_value: totalValue,
       executed_at: new Date().toISOString(),
       is_test_mode: true,
-      notes: `Coordinator: ${decision.reason}`,
+      notes: `Coordinator: UD=ON`,
       strategy_trigger: `coord_${intent.source}`
     };
 
@@ -658,9 +640,8 @@ async function executeTradeOrder(
       return { success: false, error: error.message };
     }
 
-    decision.qty = qty;
     console.log('✅ COORDINATOR: Trade executed successfully');
-    return { success: true };
+    return { success: true, qty };
 
   } catch (error) {
     console.error('❌ COORDINATOR: Trade execution error:', error);

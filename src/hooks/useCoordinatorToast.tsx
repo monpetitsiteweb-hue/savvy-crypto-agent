@@ -1,12 +1,20 @@
 import { useToast } from '@/hooks/use-toast';
 
+// STEP 1: Standardized response type guard
+function isDecisionPayload(x: any): x is {
+  ok: true;
+  decision: { action: "BUY"|"SELL"|"HOLD"|"DEFER"; reason: string; request_id: string; retry_in_ms: number; }
+} {
+  return !!(x && x.ok === true && x.decision && typeof x.decision.action === "string" && typeof x.decision.retry_in_ms === "number");
+}
+
 export interface CoordinatorResponse {
   ok: boolean;
   decision: {
-    approved: boolean;
-    action: 'BUY' | 'SELL' | 'HOLD';
+    action: 'BUY' | 'SELL' | 'HOLD' | 'DEFER';
     reason: string;
-    request_id?: string;
+    request_id: string;
+    retry_in_ms: number;
   };
 }
 
@@ -14,11 +22,11 @@ export const useCoordinatorToast = () => {
   const { toast } = useToast();
 
   const handleCoordinatorResponse = (response: CoordinatorResponse, intent: { side: string; symbol: string }) => {
-    if (!response?.decision) {
-      // Network or parsing error
+    // STEP 1: Use type guard for safety
+    if (!isDecisionPayload(response)) {
       toast({
         title: "Error",
-        description: "Failed to process trading decision. Please try again.",
+        description: "Invalid coordinator response format",
         variant: "destructive",
       });
       return;
@@ -30,20 +38,11 @@ export const useCoordinatorToast = () => {
     switch (decision.action) {
       case 'BUY':
       case 'SELL':
-        if (decision.approved) {
-          toast({
-            title: "Trade Executed",
-            description: `${decision.action} ${intent.symbol} order processed successfully.${requestId}`,
-            variant: "default",
-          });
-        } else {
-          // Approved=false with BUY/SELL action means execution failed
-          toast({
-            title: "Trade Failed",
-            description: `${decision.action} ${intent.symbol} failed: ${decision.reason}${requestId}`,
-            variant: "destructive",
-          });
-        }
+        toast({
+          title: "Trade Executed",
+          description: `${decision.action} ${intent.symbol} order processed successfully.${requestId}`,
+          variant: "default",
+        });
         break;
 
       case 'HOLD':
@@ -52,26 +51,23 @@ export const useCoordinatorToast = () => {
         const symbol = intent.symbol;
 
         switch (decision.reason) {
-          case 'blocked_by_lock':
-            message = `Trade held – concurrent activity detected for ${symbol}. This prevents race conditions and ensures data integrity.`;
-            break;
           case 'min_hold_period_not_met':
             message = `Trade held – minimum hold period not met for ${symbol}.`;
             break;
           case 'blocked_by_cooldown':
             message = `Trade held – cooldown period active for ${symbol}.`;
             break;
-          case 'confidence_below_threshold':
-            message = `Trade held – confidence below threshold for ${symbol}.`;
-            break;
-          case 'blocked_by_precedence:HARD_RISK':
-            message = `Trade held – risk management override for ${symbol}.`;
-            break;
           case 'blocked_by_precedence:POOL_EXIT':
             message = `Trade held – pool exit in progress for ${symbol}.`;
             break;
+          case 'direct_execution_failed':
+            message = `Trade held – execution failed for ${symbol}.`;
+            break;
+          case 'internal_error':
+            message = `Trade held – system error for ${symbol}.`;
+            break;
           default:
-            message = `Trade held – ${decision.reason} for ${symbol}.`;
+            message = `Trade held – ${decision.reason.replace(/_/g, ' ')} for ${symbol}.`;
         }
 
         toast({
@@ -81,10 +77,20 @@ export const useCoordinatorToast = () => {
         });
         break;
 
-      default:
+      case 'DEFER':
+        const retrySeconds = Math.round(decision.retry_in_ms / 1000);
         toast({
-          title: "Unknown Response",
-          description: `Received unknown coordinator action: ${decision.action}${requestId}`,
+          title: "Trade Deferred",
+          description: `${intent.symbol} trade deferred – retry in ${retrySeconds}s. Reason: ${decision.reason.replace(/_/g, ' ')}.${requestId}`,
+          variant: "default",
+        });
+        break;
+
+      default:
+        // This should never happen with proper coordinator
+        toast({
+          title: "System Error",
+          description: `Coordinator returned unexpected action. Please contact support.${requestId}`,
           variant: "destructive",
         });
     }

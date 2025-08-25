@@ -6,6 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from './use-toast';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
 import { usePoolExitManager } from './usePoolExitManager';
+import { useCoordinatorToast } from './useCoordinatorToast';
 
 // Import and expose pool tests for console access
 import '../utils/poolExitTests';
@@ -33,6 +34,7 @@ export const useIntelligentTradingEngine = () => {
   const { updateBalance, getBalance } = useMockWallet();
   const { toast } = useToast();
   const { marketData, getCurrentData } = useRealTimeMarketData();
+  const coordinatorToast = useCoordinatorToast();
   
   // Initialize pool exit manager
   const { processAllPools } = usePoolExitManager({ 
@@ -952,35 +954,25 @@ export const useIntelligentTradingEngine = () => {
 
       console.log('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
 
-      // Parse decision response properly - coordinator always returns structured response
-      const decisionData = decision?.decision || decision;
-      const requestId = decisionData?.request_id || 'unknown';
-
-      if (decisionData?.action === 'BUY' || decisionData?.action === 'SELL') {
-        // Successful trade execution
-        toast({
-          title: "Trade Executed",
-          description: `${decisionData.action} order placed for ${cryptocurrency}`,
-          className: "border-green-200 bg-green-50 text-green-800",
-        });
-        console.log(`✅ INTELLIGENT: Trade executed: ${decisionData.action} ${cryptocurrency} (${requestId})`);
-      } else if (decisionData?.action === 'HOLD') {
-        // HOLD decision - show standardized reason in yellow toast
-        const reason = decisionData.reason || "unified_decisions_hold";
-        console.log('⏸️ INTELLIGENT: Trade held:', reason, `(${requestId})`);
-        toast({
-          title: "Trade Held",
-          description: `${reason.replace(/_/g, ' ')}`,
-          className: "border-yellow-200 bg-yellow-50 text-yellow-800",
-        });
+      // STEP 1: Use standardized coordinator toast handler
+      if (coordinatorToast) {
+        coordinatorToast.handleCoordinatorResponse(decision, { side: action.toUpperCase(), symbol: cryptocurrency });
       } else {
-        // Unknown decision format - this should never happen with proper coordinator
-        console.error('❌ INTELLIGENT: Unknown decision format:', decisionData);
-        toast({
-          title: "Unknown Decision",
-          description: `Unexpected coordinator response (${requestId})`,
-          variant: "destructive",
-        });
+        // Fallback - should rarely happen
+        const decisionData = decision?.decision;
+        if (decisionData) {
+          toast({
+            title: decisionData.action === 'HOLD' || decisionData.action === 'DEFER' ? "Trade Held" : "Trade Executed",
+            description: `${decisionData.action} ${cryptocurrency}: ${decisionData.reason}`,
+            variant: "default",
+          });
+        } else {
+          toast({
+            title: "System Error",
+            description: `Invalid coordinator response format`,
+            variant: "destructive",
+          });
+        }
       }
 
     } catch (error) {
