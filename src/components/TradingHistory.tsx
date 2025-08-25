@@ -18,6 +18,9 @@ import { AlertTriangle, Lock } from 'lucide-react';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import { useFrozenMarketData, useFrozenAuth, useFrozenTestMode } from '@/components/ContextFreezeBarrier';
+import { useRenderCounter } from '@/hooks/useRenderCounter';
+import { OpenList } from '@/components/TradingHistoryOpenList';
+import { PastList } from '@/components/TradingHistoryPastList';
 
 // Master debug gate for Step 1 & 2 instrumentation with prod-safe runtime toggle
 const RUNTIME_DEBUG =
@@ -191,6 +194,8 @@ let frozenRenderRef: React.ReactElement | null = null;
 let freezeLoggedRef = false;
 
 function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) {
+  useRenderCounter('TradingHistory');
+  
   // Step 3: Component mount counter + rate limiting
   const mountCountRef = useRef(0);
   const lastLogRef = useRef(0);
@@ -1332,23 +1337,11 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
             
             return null;
           })()}
-          {openPositions.length > 0 ? (
-            <div className="space-y-4">
-              {openPositions.map(trade => (
-                <TradeCard
-                  key={trade.id}
-                  trade={trade}
-                  showSellButton={true}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No open positions</p>
-              <p className="text-sm mt-2">Your open positions will appear here when you make trades</p>
-            </div>
-          )}
+          <OpenList 
+            trades={openPositions}
+            marketData={marketData} 
+            onCancelOrder={() => {}} // Placeholder - you can implement this based on existing logic
+          />
         </TabsContent>
         
         <TabsContent value="past" className="mt-4">
@@ -1378,23 +1371,10 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
             
             return null;
           })()}
-          {pastPositions.length > 0 ? (
-            <div className="space-y-4">
-              {pastPositions.map(trade => (
-                <TradeCard
-                  key={trade.id}
-                  trade={trade}
-                  showSellButton={false}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No past positions</p>
-              <p className="text-sm mt-2">Your completed trades will appear here</p>
-            </div>
-          )}
+          <PastList 
+            trades={pastPositions}
+            marketData={marketData}
+          />
         </TabsContent>
       </Tabs>
     </Card>

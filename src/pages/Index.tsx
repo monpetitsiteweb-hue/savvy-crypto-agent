@@ -26,6 +26,8 @@ import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Link2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useHardToastNoOp } from '@/hooks/useHardToastNoOp';
+import { useRenderCounter } from '@/hooks/useRenderCounter';
 
 // Step 3 & 5: Parent debug gate and helpers
 const RUNTIME_DEBUG =
@@ -201,6 +203,9 @@ const traceSet = (stateName: string, reasonTag: string) => {
 };
 
 function IndexComponent() {
+  useRenderCounter('IndexParent');
+  useHardToastNoOp();
+  
   const { user, loading } = useAuth();
   const marketData = useMarketData();
   const testModeContext = useTestMode();
