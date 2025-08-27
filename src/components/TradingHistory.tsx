@@ -17,19 +17,20 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { AlertTriangle, Lock } from 'lucide-react';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
-import { useFrozenMarketData, useFrozenAuth, useFrozenTestMode } from '@/components/ContextFreezeBarrier';
+import { getDebugFlags } from '@/utils/debugFlags';
 
-// Master debug gate for Step 1 & 2 instrumentation with prod-safe runtime toggle
-const RUNTIME_DEBUG =
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('debug') === 'history' || u.hash.includes('debug=history') || sessionStorage.getItem('DEBUG_HISTORY_BLINK') === 'true';
-    } catch { return false; }
-  })();
+// Safe debug flags using utils parser
+const Flags = getDebugFlags(window.location.search);
+// global OFF if safe
+const effective = Flags.safe ? { 
+  ...Flags, 
+  mutePriceLogs: false, 
+  disableRowPriceLookups: false, 
+  limitRows: 0, 
+  debugHistory: false 
+} : Flags;
 
-const DEBUG_HISTORY_BLINK =
-  (import.meta.env.DEV && (import.meta.env.VITE_DEBUG_HISTORY_BLINK === 'true')) || RUNTIME_DEBUG;
+const DEBUG_HISTORY_BLINK = effective.debugHistory;
 
 // Step 3: Props fingerprinting helper
 const fp = (v: any): string => {
@@ -119,30 +120,9 @@ const HOLD_FILTERS = false;
 const HOLD_PRICE = false;
 
 // New prod-safe runtime toggles for reducing churn
-const MUTE_PRICE_LOGS = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('mutePriceLogs') === '1';
-    } catch { return false; }
-  })();
-
-const DISABLE_ROW_PRICE_LOOKUPS = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      return u.searchParams.get('disableRowPriceLookups') === '1';
-    } catch { return false; }
-  })();
-
-const LIMIT_ROWS = DEBUG_HISTORY_BLINK && 
-  (() => {
-    try {
-      const u = new URL(window.location.href);
-      const limitRows = u.searchParams.get('limitRows');
-      return limitRows ? parseInt(limitRows, 10) : null;
-    } catch { return null; }
-  })();
+const MUTE_PRICE_LOGS = DEBUG_HISTORY_BLINK && effective.mutePriceLogs;
+const DISABLE_ROW_PRICE_LOOKUPS = DEBUG_HISTORY_BLINK && effective.disableRowPriceLookups;
+const LIMIT_ROWS = DEBUG_HISTORY_BLINK && effective.limitRows > 0 ? effective.limitRows : null;
 
 // Rate-limited price logging aggregator
 const priceLogAggregator = (() => {
@@ -292,6 +272,19 @@ let frozenRenderRef: React.ReactElement | null = null;
 let freezeLoggedRef = false;
 
 function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) {
+  // Log safe mode activation once
+  useEffect(() => {
+    if (effective.safe && effective.debugHistory) {
+      console.info('[HistoryBlink] SAFE MODE active — debug flags ignored');
+    }
+    if (DISABLE_ROW_PRICE_LOOKUPS) {
+      console.info('[HistoryBlink] prices: row lookups DISABLED (debug)');
+    }
+    if (LIMIT_ROWS && LIMIT_ROWS > 0) {
+      console.info(`[HistoryBlink] rows: limitRows=${LIMIT_ROWS}`);
+    }
+  }, []);
+
   // Step 3: Component mount counter + rate limiting
   const mountCountRef = useRef(0);
   const lastLogRef = useRef(0);
@@ -312,8 +305,8 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     }
   });
 
-  const { user } = useFrozenAuth() || useAuth();
-  const { testMode } = useFrozenTestMode() || useTestMode();
+  const { user } = useAuth();
+  const { testMode } = useTestMode();
   const { toast } = useToast();
   const { handleCoordinatorResponse } = useCoordinatorToast();
   
@@ -421,12 +414,21 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   
   const [feeRate, setFeeRate] = useState<number>(0);
   
-  if (MUTE_PRICE_LOGS) {
-    priceLogAggregator.maybeReport();
-  } else {
-    console.log('🔍 HISTORY: MarketData from context:', marketData);
-    console.log('🔍 HISTORY: MarketData keys:', Object.keys(marketData));
-    console.log('🔍 HISTORY: Sample prices:', Object.entries(marketData).slice(0,3).map(([k,v]) => `${k}: €${v.price}`));
+  // Wrap debug logging in try/catch and use safe flags
+  let dbg: any = { active: false };
+  try {
+    dbg = { active: effective.debugHistory, ...effective };
+    
+    if (MUTE_PRICE_LOGS) {
+      priceLogAggregator.maybeReport();
+    } else if (dbg.active) {
+      console.log('🔍 HISTORY: MarketData from context:', marketData);
+      console.log('🔍 HISTORY: MarketData keys:', Object.keys(marketData));
+      console.log('🔍 HISTORY: Sample prices:', Object.entries(marketData).slice(0,3).map(([k,v]) => `${k}: €${v.price}`));
+    }
+  } catch (e) {
+    console.warn("[HistoryBlink] debug block error:", e);
+    dbg = { active: false, safe: true };
   }
   
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -559,6 +561,9 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     if (DISABLE_ROW_PRICE_LOOKUPS) {
       // Use shared snapshot from market context instead of individual lookups
       currentPrice = marketData[pairSymbol]?.price || null;
+      if (MUTE_PRICE_LOGS) {
+        priceLogAggregator.recordRowLookup(baseSymbol);
+      }
     } else {
       currentPrice = marketData[pairSymbol]?.price || null;
       if (MUTE_PRICE_LOGS) {
@@ -706,10 +711,10 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
       // CRITICAL FIX: Apply regression guards and use deterministic pricing
       const { validateTradePrice, validatePurchaseValue, logValidationFailure } = await import('../utils/regressionGuards');
       
-      // Get current price from MarketDataProvider only
+      // Get current price from MarketDataProvider only - guard with disable flag
       const baseSymbol = toBaseSymbol(trade.cryptocurrency);
       const pairSymbol = toPairSymbol(baseSymbol);
-      let currentPrice = marketData[pairSymbol]?.price;
+      let currentPrice = DISABLE_ROW_PRICE_LOOKUPS ? null : marketData[pairSymbol]?.price;
       
       // Try to get deterministic price from snapshots first
       try {
@@ -1058,7 +1063,8 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     }, [trade.id]);
 
     // FIXED: Extract only the specific price values to prevent infinite re-renders
-    const specificTradePrice = marketData[trade.cryptocurrency]?.price;
+    // Guard with disable flag for safe mode
+    const specificTradePrice = DISABLE_ROW_PRICE_LOOKUPS ? null : marketData[trade.cryptocurrency]?.price;
     
     useEffect(() => {
       const loadPerformance = async () => {
@@ -1215,15 +1221,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     );
   }
 
-  // Log once when debug flags are enabled
-  useEffect(() => {
-    if (DISABLE_ROW_PRICE_LOOKUPS) {
-      console.info('[HistoryBlink] prices: row lookups DISABLED (debug)');
-    }
-    if (LIMIT_ROWS) {
-      console.info(`[HistoryBlink] rows: limitRows=${LIMIT_ROWS}`);
-    }
-  }, []);
+  // Log once when debug flags are enabled - removed duplicate logging
 
   if (!hasActiveStrategy) {
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
@@ -1232,9 +1230,13 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   const openPositions = getOpenPositionsList();
   const pastPositions = trades.filter(t => t.trade_type === 'sell');
   
-  // Apply row limiting when debug flag is present
-  const displayOpenPositions = LIMIT_ROWS ? openPositions.slice(0, LIMIT_ROWS) : openPositions;
-  const displayPastPositions = LIMIT_ROWS ? pastPositions.slice(0, LIMIT_ROWS) : pastPositions;
+  // Apply row limiting when debug flag is present - safe array handling
+  const displayOpenPositions = LIMIT_ROWS && LIMIT_ROWS > 0 ? 
+    (Array.isArray(openPositions) ? openPositions.slice(0, LIMIT_ROWS) : []) : 
+    (Array.isArray(openPositions) ? openPositions : []);
+  const displayPastPositions = LIMIT_ROWS && LIMIT_ROWS > 0 ? 
+    (Array.isArray(pastPositions) ? pastPositions.slice(0, LIMIT_ROWS) : []) : 
+    (Array.isArray(pastPositions) ? pastPositions : []);
   
   // Step 1: Debug header (once per session)
   if (DEBUG_HISTORY_BLINK && !debugHeaderLogged.current) {

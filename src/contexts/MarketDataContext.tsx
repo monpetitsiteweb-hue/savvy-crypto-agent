@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { toPairSymbol, BaseSymbol } from '@/utils/symbols';
+import { getDebugFlags } from '@/utils/debugFlags';
 
 interface MarketData {
   symbol: string;
@@ -39,13 +40,10 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [error, setError] = useState<string | null>(null);
   const [contextVersion, setContextVersion] = useState(0);
 
-// Check for mute price logs debug flag
-const MUTE_PRICE_LOGS = (() => {
-  try {
-    const u = new URL(window.location.href);
-    return u.searchParams.get('debug') === 'history' && u.searchParams.get('mutePriceLogs') === '1';
-  } catch { return false; }
-})();
+// Check for mute price logs debug flag using safe parser
+const Flags = getDebugFlags(window.location.search);
+const effective = Flags.safe ? { ...Flags, mutePriceLogs: false, debugHistory: false } : Flags;
+const MUTE_PRICE_LOGS = effective.debugHistory && effective.mutePriceLogs;
 
 const getCurrentData = useCallback(async (symbols: BaseSymbol[]): Promise<Record<string, MarketData>> => {
     try {
