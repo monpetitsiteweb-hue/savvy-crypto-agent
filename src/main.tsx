@@ -6,8 +6,6 @@ import App from './App.tsx'
 import './index.css'
 import { Toaster } from "@/components/ui/sonner";
 import { checkAndClearLegacyStorage } from './utils/clearLocalSession';
-import { initPriceCache } from './price/PriceCache';
-import { initNotificationSink } from './notifications/NotificationSink';
 
 // Check version but DON'T clear storage if user is already logged in
 const preservedAuth = localStorage.getItem('supabase.auth.token');
@@ -24,12 +22,6 @@ if (!preservedAuth) {
 if (preservedTestMode) {
   localStorage.setItem('global-test-mode', preservedTestMode);
 }
-
-// Initialize shared price cache (forced ON)
-const intervalMs = Number(import.meta.env.VITE_PRICE_INTERVAL_MS || 30000);
-initPriceCache({ intervalMs });
-initNotificationSink();
-console.log(`[HistoryPerf] priceCache=on intervalMs=${intervalMs}`);
 
 const queryClient = new QueryClient({
   defaultOptions: {
