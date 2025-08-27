@@ -18,6 +18,8 @@ import { AlertTriangle, Lock } from 'lucide-react';
 import { useCoordinatorToast } from '@/hooks/useCoordinatorToast';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import { getDebugFlags } from '@/utils/debugFlags';
+import { initPriceCache, setSymbols, getPriceMap, getPrice } from '@/price/PriceCache';
+import { initNotificationSink, NotificationSink } from '@/notifications/NotificationSink';
 
 // Safe debug flags using utils parser
 const Flags = getDebugFlags(window.location.search);
@@ -29,6 +31,22 @@ const effective = Flags.safe ? {
   limitRows: 0, 
   debugHistory: false 
 } : Flags;
+
+// Feature flags for price cache and silent notifications
+const ENABLE_PRICE_CACHE = (() => {
+  try {
+    const envFlag = import.meta.env.VITE_HISTORY_PRICE_CACHE === '1';
+    const urlFlag = new URLSearchParams(window.location.search).get('priceCache') === '1';
+    return envFlag || urlFlag;
+  } catch { return false; }
+})();
+
+const DISABLE_UI_TOASTS = (() => {
+  try {
+    const urlFlag = new URLSearchParams(window.location.search).get('muteToasts') === '1';
+    return ENABLE_PRICE_CACHE && urlFlag; // Only when price cache is enabled
+  } catch { return false; }
+})();
 
 const DEBUG_HISTORY_BLINK = effective.debugHistory;
 
@@ -363,6 +381,10 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   const snapshotMarketDataRef = useRef<Record<string, any>>({});
   const priceTickLogRef = useRef(0);
   
+  // Price cache state (when enabled)
+  const [priceMap, setPriceMap] = useState(getPriceMap());
+  const priceCacheInitRef = useRef(false);
+  
   // Initialize snapshot on first load
   useEffect(() => {
     if (Object.keys(snapshotMarketDataRef.current).length === 0 && Object.keys(realMarketData.marketData).length > 0) {
@@ -433,6 +455,53 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Initialize price cache and notification sink when enabled
+  useEffect(() => {
+    if (ENABLE_PRICE_CACHE && !priceCacheInitRef.current) {
+      initPriceCache();
+      priceCacheInitRef.current = true;
+      const intervalMs = new URLSearchParams(window.location.search).get('priceIntervalMs') || '30000';
+      console.log(`[HistoryPerf] priceCache=on intervalMs=${intervalMs}`);
+    } else {
+      console.log(`[HistoryPerf] priceCache=off`);
+    }
+    
+    if (DISABLE_UI_TOASTS) {
+      initNotificationSink();
+      console.log(`[HistoryPerf] toasts=muted`);
+    } else {
+      console.log(`[HistoryPerf] toasts=ui`);
+    }
+  }, []);
+  
+  // Subscribe to price cache updates when enabled
+  useEffect(() => {
+    if (!ENABLE_PRICE_CACHE) return;
+    
+    const interval = setInterval(() => {
+      const newPriceMap = getPriceMap();
+      setPriceMap(newPriceMap);
+    }, 1000); // Check for updates every second
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  // Update symbols for price cache when trades change
+  useEffect(() => {
+    if (!ENABLE_PRICE_CACHE || !trades.length) return;
+    
+    const pairsNeeded = Array.from(new Set(
+      trades
+        .filter(t => t.trade_type === 'buy') // Only open positions need current prices
+        .map(t => toPairSymbol(toBaseSymbol(t.cryptocurrency)))
+    ));
+    
+    if (pairsNeeded.length > 0) {
+      setSymbols(pairsNeeded);
+      console.log(`[HistoryPerf] symbols=${pairsNeeded.length}`);
+    }
+  }, [trades]);
   
   // Step 4: Apply holds locally before passing to children
   let processedTrades = trades;
@@ -556,15 +625,30 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
       console.log('🔄 SYMBOLS: base=', baseSymbol, 'pair=', pairSymbol, 'providerKey=', pairSymbol);
     }
     
-    // Get current price from MarketDataProvider using pair symbol or use shared snapshot
+    // Get current price from cache (when enabled) or MarketDataProvider
     let currentPrice: number | null;
-    if (DISABLE_ROW_PRICE_LOOKUPS) {
+    
+    if (ENABLE_PRICE_CACHE) {
+      // Use price cache - block any per-row price codepaths
+      const cacheEntry = priceMap[pairSymbol];
+      currentPrice = cacheEntry?.price || null;
+      
+      if (!currentPrice) {
+        console.warn(`[HistoryPerf] PriceCache: no price for ${pairSymbol}`);
+      }
+      
+      // Defensive block against per-row hooks when cache is enabled
+      if (effective.debugHistory) {
+        console.log(`[HistoryPerf] priceCache: blocked per-row lookup for ${baseSymbol}`);
+      }
+    } else if (DISABLE_ROW_PRICE_LOOKUPS) {
       // Use shared snapshot from market context instead of individual lookups
       currentPrice = marketData[pairSymbol]?.price || null;
       if (MUTE_PRICE_LOGS) {
         priceLogAggregator.recordRowLookup(baseSymbol);
       }
     } else {
+      // Original behavior
       currentPrice = marketData[pairSymbol]?.price || null;
       if (MUTE_PRICE_LOGS) {
         priceLogAggregator.recordRequest();
@@ -738,11 +822,15 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
       const priceValidation = validateTradePrice(currentPrice, trade.cryptocurrency);
       if (!priceValidation.isValid) {
         logValidationFailure('sell_price_corruption_guard', priceValidation.errors, { currentPrice, symbol: trade.cryptocurrency });
-        toast({
-          title: "Sell Blocked",
-          description: `Suspicious price detected: €${currentPrice}. Contact support.`,
-          variant: "destructive",
-        });
+        if (DISABLE_UI_TOASTS) {
+          NotificationSink.error("sell_blocked_price", `Suspicious price detected: €${currentPrice}. Contact support.`);
+        } else {
+          toast({
+            title: "Sell Blocked",
+            description: `Suspicious price detected: €${currentPrice}. Contact support.`,
+            variant: "destructive",
+          });
+        }
         return;
       }
 
@@ -755,11 +843,15 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
           price: currentPrice, 
           sellValue: sellAmount 
         });
-        toast({
-          title: "Sell Blocked",
-          description: "Trade value inconsistency detected. Contact support.",
-          variant: "destructive",
-        });
+        if (DISABLE_UI_TOASTS) {
+          NotificationSink.error("sell_blocked_value", "Trade value inconsistency detected. Contact support.");
+        } else {
+          toast({
+            title: "Sell Blocked",
+            description: "Trade value inconsistency detected. Contact support.",
+            variant: "destructive",
+          });
+        }
         return;
       }
 
@@ -784,29 +876,41 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
 
       if (error) {
         console.error('Error selling position:', error);
-        toast({
-          title: "Sell Failed",
-          description: error.message,
-          variant: "destructive",
-        });
+        if (DISABLE_UI_TOASTS) {
+          NotificationSink.error("sell_failed", error.message);
+        } else {
+          toast({
+            title: "Sell Failed",
+            description: error.message,
+            variant: "destructive",
+          });
+        }
         return;
       }
 
-      toast({
-        title: "Trade Executed",
-        description: `Sold ${trade.amount} ${trade.cryptocurrency} at ${formatEuro(currentPrice)}`,
-        variant: "default",
-      });
+      if (DISABLE_UI_TOASTS) {
+        NotificationSink.success("trade_executed", `Sold ${trade.amount} ${trade.cryptocurrency} at ${formatEuro(currentPrice)}`);
+      } else {
+        toast({
+          title: "Trade Executed",
+          description: `Sold ${trade.amount} ${trade.cryptocurrency} at ${formatEuro(currentPrice)}`,
+          variant: "default",
+        });
+      }
 
       // Refresh data
       fetchTradingHistory('strategyEvent');
     } catch (error) {
       console.error('Error in sellPosition:', error);
-      toast({
-        title: "Error",
-        description: "Failed to sell position",
-        variant: "destructive",
-      });
+      if (DISABLE_UI_TOASTS) {
+        NotificationSink.error("sell_position_error", "Failed to sell position");
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to sell position",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -850,11 +954,15 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
       }
     } catch (error) {
       console.error('❌ HISTORY: Error fetching trading history:', error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch trading history",
-        variant: "destructive",
-      });
+      if (DISABLE_UI_TOASTS) {
+        NotificationSink.error("fetch_history_error", "Failed to fetch trading history");
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to fetch trading history",
+          variant: "destructive",
+        });
+      }
     } finally {
       setLoading(false);
     }
