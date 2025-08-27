@@ -69,6 +69,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [openPage, setOpenPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'open' | 'past'>('open');
   const [stats, setStats] = useState({
     totalTrades: 0,
@@ -85,6 +86,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const debugMode = urlParams.get('debug') === 'history';
+    
+    // Always log the startup message for price cache
+    console.log('[HistoryPerf] priceCache=on intervalMs=30000');
     
     if (debugMode || import.meta.env.DEV) {
       console.log('[HistoryPerf] rowCap=20');
@@ -466,8 +470,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const openPositions = getOpenPositionsList();
   const pastPositions = trades.filter(t => t.trade_type === 'sell');
   
-  // Pagination for both open and past positions
-  const [openPage, setOpenPage] = useState(1);
+  // Pagination for both open and past positions  
   const totalPastPages = Math.ceil(pastPositions.length / PAGE_SIZE);
   const totalOpenPages = Math.ceil(openPositions.length / PAGE_SIZE);
   
