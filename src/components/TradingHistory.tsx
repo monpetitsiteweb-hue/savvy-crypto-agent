@@ -119,11 +119,64 @@ const HOLD_FILTERS = false;
 const HOLD_PRICE = false;
 
 // Missing helper functions
-const logSetPositions = (source: string, count: number) => {
-  if (DEBUG_HISTORY_BLINK) {
-    console.info(`[HistoryBlink] setPositions: ${source} (${count} trades)`);
-  }
-};
+// Position update funnel with tagging and blocking (diagnosis only)
+const applyPositionsUpdate = (() => {
+  let lastSignature = '';
+  let lastLogTime = 0;
+  const RATE_LIMIT_MS = 500;
+
+  return (
+    tag: 'initial' | 'supabase' | 'priceTick' | 'strategyEvent' | 'notif' | 'manualRefresh' | 'filters' | 'parentProps' | 'unknown',
+    next: Trade[],
+    setStateCallback: (trades: Trade[]) => void
+  ) => {
+    // Compute cheap signature: len|firstId|lastId|minTs|maxTs
+    let sig = `${next.length}`;
+    if (next.length > 0) {
+      const sorted = [...next].sort((a, b) => new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
+      const firstId = sorted[0]?.id?.slice(-4) || '';
+      const lastId = sorted[sorted.length - 1]?.id?.slice(-4) || '';
+      const minTs = sorted[0]?.executed_at?.slice(-8) || '';
+      const maxTs = sorted[sorted.length - 1]?.executed_at?.slice(-8) || '';
+      sig = `${next.length}|${firstId}|${lastId}|${minTs}|${maxTs}`;
+    }
+
+    // Check for debug blocking (only when ?debug=history is present)
+    if (DEBUG_HISTORY_BLINK) {
+      try {
+        const url = new URL(window.location.href);
+        const blockApply = url.searchParams.get('blockApply');
+        if (blockApply && blockApply.split(',').includes(tag)) {
+          const now = performance.now();
+          if (now - lastLogTime > RATE_LIMIT_MS) {
+            console.info(`[HistoryBlink] applyPositions: BLOCKED tag=${tag} (debug)`);
+            lastLogTime = now;
+          }
+          return; // Block this update
+        }
+      } catch {}
+    }
+
+    // Check if signature is identical to previous
+    if (sig === lastSignature) {
+      const now = performance.now();
+      if (now - lastLogTime > RATE_LIMIT_MS) {
+        console.info(`[HistoryBlink] applyPositions: suppressed identical update (tag=${tag})`);
+        lastLogTime = now;
+      }
+      return; // Skip identical update
+    }
+
+    // Update state and log
+    lastSignature = sig;
+    setStateCallback(next);
+    
+    if (DEBUG_HISTORY_BLINK) {
+      console.info(`[HistoryBlink] applyPositions: tag=${tag} len=${next.length} sig=${sig}`);
+      console.info(`[HistoryBlink] list-replace: by=${tag} len=${next.length} reason=contentChanged`);
+    }
+  };
+})();
 
 const simpleIdsHash = (trades: Trade[]) => {
   return trades.slice(0,3).map(t => t.id.slice(-4)).join(',');
@@ -370,7 +423,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   };
 
   // Fast-track toggle: Wrapped setTrades with freeze logic
-  const setTradesWithFreeze = (newTrades: Trade[]) => {
+  const setTradesWithFreeze = (newTrades: Trade[], tag: 'initial' | 'supabase' | 'priceTick' | 'strategyEvent' | 'notif' | 'manualRefresh' | 'filters' | 'parentProps' | 'unknown' = 'unknown') => {
     if (FREEZE_HISTORY_UPDATES) {
       if (isShallowEqual(newTrades, lastTradesRef.current)) {
         if (!freezeLoggedRef.current) {
@@ -666,7 +719,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
       });
 
       // Refresh data
-      fetchTradingHistory();
+      fetchTradingHistory('strategyEvent');
     } catch (error) {
       console.error('Error in sellPosition:', error);
       toast({
@@ -678,7 +731,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   };
 
   // Fetch trading history with proper error handling
-  const fetchTradingHistory = async () => {
+  const fetchTradingHistory = async (source: 'initial' | 'supabase' | 'manualRefresh' | 'strategyEvent' = 'manualRefresh') => {
     if (!user) return;
 
     try {
@@ -696,8 +749,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
       console.log('✅ HISTORY: Fetched', data?.length || 0, 'trades');
       
       // Step 2B: Source-tagged setter with freeze wrapper
-      logSetPositions('manual-fetch', data?.length || 0);
-      setTradesWithFreeze(data || []);
+      applyPositionsUpdate(source, data || [], setTradesWithFreeze);
 
       // Calculate stats with ValuationService
       if (data && data.length > 0) {
@@ -765,7 +817,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   useEffect(() => {
     if (user) {
       // Step 2B: Allow initial fetch always, only block if explicitly isolated
-      fetchTradingHistory();
+      fetchTradingHistory('initial');
       fetchUserProfile();
     }
   }, [user, testMode]);
@@ -838,11 +890,6 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          // Step 2B: Source-tagged logging for realtime triggers with correct format
-          if (DEBUG_HISTORY_BLINK) {
-            logSetPositions('supabase-realtime', trades.length);
-          }
-          
           // Step 2B: Respect noRefetch for repeat fetches (not initial)
           if (DEBUG_NO_REFETCH) {
             if (DEBUG_HISTORY_BLINK) {
@@ -854,8 +901,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
           // Throttle updates to prevent constant blinking
           clearTimeout(refreshTimeout);
           refreshTimeout = setTimeout(() => {
-            logSetPositions('supabase-realtime', 0); // Log the triggered fetch
-            fetchTradingHistory();
+            fetchTradingHistory('supabase'); // This will use applyPositionsUpdate with 'supabase' tag
           }, 1000); // Wait 1 second before refreshing
         }
       )
@@ -1118,7 +1164,7 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
         <Button
           variant="outline"
           size="sm"
-          onClick={fetchTradingHistory}
+          onClick={() => fetchTradingHistory('manualRefresh')}
           disabled={historyLoading}
         >
           <RefreshCw className={`w-4 h-4 mr-2 ${historyLoading && !MUTE_HISTORY_LOADING ? 'animate-spin' : ''}`} />
