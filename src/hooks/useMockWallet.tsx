@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { useTestMode } from './useTestMode';
 import { useAuth } from './useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { useRealTimeMarketData } from './useRealTimeMarketData';
 
 interface WalletBalance {
   currency: string;
@@ -27,7 +26,6 @@ const MockWalletContext = createContext<MockWalletContextType | undefined>(undef
 export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
   const { testMode } = useTestMode();
   const { user } = useAuth();
-  const { marketData, getCurrentData } = useRealTimeMarketData();
   const [balances, setBalances] = useState<WalletBalance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [realPrices, setRealPrices] = useState<{[key: string]: number}>({
@@ -37,35 +35,41 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     EUR: 1
   });
 
-  // Fetch real market prices on mount and when marketData updates
+  // Fetch real market prices using shared cache (no infinite loops)
   useEffect(() => {
     const updatePrices = async () => {
+      if (!testMode) return;
+      
       try {
-        // Get current market data in EUR directly
-        const data = await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
-        
         const newPrices: {[key: string]: number} = { EUR: 1 };
         
-        if (data['BTC-EUR']?.price) {
-          newPrices.BTC = data['BTC-EUR'].price;
-        }
-        if (data['ETH-EUR']?.price) {
-          newPrices.ETH = data['ETH-EUR'].price;
-        }
-        if (data['XRP-EUR']?.price) {
-          newPrices.XRP = data['XRP-EUR'].price;
+        // Use fetch directly to avoid infinite loops
+        const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
+        for (const symbol of symbols) {
+          try {
+            const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
+            if (response.ok) {
+              const data = await response.json();
+              const baseSymbol = symbol.split('-')[0];
+              newPrices[baseSymbol] = parseFloat(data.price || '0');
+            }
+          } catch (error) {
+            // Silent error - no console spam
+            window.NotificationSink?.log({ message: `Price fetch error for ${symbol}`, error });
+          }
         }
         
         setRealPrices(prev => ({ ...prev, ...newPrices }));
       } catch (error) {
-        console.error('Error fetching real prices:', error);
+        // Silent error handling
+        window.NotificationSink?.log({ message: 'Price update error', error });
       }
     };
 
     if (testMode) {
       updatePrices();
     }
-  }, [testMode]); // FIXED: Removed marketData, getCurrentData dependencies to prevent infinite loop
+  }, [testMode]);
 
   const refreshFromDatabase = async () => {
     if (!testMode || !user) return;
@@ -258,8 +262,7 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
             filter: `user_id=eq.${user.id}`
           },
           (payload) => {
-            console.log('🔔 Mock trades changed, refreshing wallet...', payload);
-            // Add a small delay to ensure database is fully updated
+            // Silent update - no console logs
             setTimeout(() => {
               refreshFromDatabase();
             }, 1000);
@@ -281,7 +284,6 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       // Check if localStorage is empty (indicating a fresh reset)
       const stored = localStorage.getItem(`mock-wallet-${user.id}`);
       if (!stored) {
-        console.log('🔄 No stored wallet data, forcing reset...');
         forceReset();
       }
     }
