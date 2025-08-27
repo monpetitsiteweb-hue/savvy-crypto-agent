@@ -861,7 +861,6 @@ export const useIntelligentTradingEngine = () => {
       return false;
     });
 
-    console.log('🧮 POSITIONS: Final open positions:', finalPositions.length);
     return finalPositions;
   };
 

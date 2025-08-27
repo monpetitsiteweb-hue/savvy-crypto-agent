@@ -49,12 +49,6 @@ const getCurrentData = useCallback(async (symbols: BaseSymbol[]): Promise<Record
     try {
       // Convert base symbols to pairs using the central util
       const pairSymbols = symbols.map(base => toPairSymbol(base));
-      
-      if (MUTE_PRICE_LOGS) {
-        // Suppressed for mute price logs mode
-      } else {
-        console.log('🔄 SYMBOLS: base→pair conversion:', symbols.map((base, i) => `${base}→${pairSymbols[i]}`));
-      }
 
       // Filter out invalid symbols that cause 404s
       const validSymbols = pairSymbols.filter(pair => {

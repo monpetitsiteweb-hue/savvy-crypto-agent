@@ -20,17 +20,23 @@ import { logEvent } from '@/log/NotificationSink';
 // Row capping for performance
 const ROW_CAP = 50;
 
-// Hard-coded types for TypeScript
+// Match actual Supabase schema
 interface Trade {
   id: string;
   user_id: string;
   cryptocurrency: string;
   amount: number;
-  price_eur: number;
-  trade_type: 'buy' | 'sell';
+  price: number;
+  total_value: number;
+  trade_type: string;
   executed_at: string;
-  is_test_mode: boolean;
-  created_at: string;
+  is_test_mode: boolean | null;
+  strategy_id: string;
+  buy_fees?: number | null;
+  exit_value?: number | null;
+  fees?: number | null;
+  integrity_reason?: string | null;
+  is_corrupted?: boolean;
 }
 
 interface Position {
@@ -41,9 +47,14 @@ interface Position {
   oldest_purchase_date: string;
 }
 
-export function TradingHistory() {
+interface TradingHistoryProps {
+  hasActiveStrategy?: boolean;
+  onCreateStrategy?: () => void;
+}
+
+export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps = {}) {
   const { user } = useAuth();
-  const { isTestMode } = useTestMode();
+  const { testMode } = useTestMode();
   const { getTotalValue, balances } = useMockWallet();
   
   // Shared price cache (forced ON)
@@ -97,7 +108,7 @@ export function TradingHistory() {
         .from('mock_trades')
         .select('*')
         .eq('user_id', user.id)
-        .eq('is_test_mode', isTestMode)
+        .eq('is_test_mode', testMode)
         .order('executed_at', { ascending: false });
 
       if (error) {
@@ -133,10 +144,12 @@ export function TradingHistory() {
         user_id: user!.id,
         cryptocurrency: trade.cryptocurrency,
         amount: trade.amount,
-        price_eur: currentPrice,
-        trade_type: 'sell' as const,
+        price: currentPrice,
+        total_value: sellAmount,
+        trade_type: 'sell',
         executed_at: new Date().toISOString(),
-        is_test_mode: isTestMode,
+        is_test_mode: testMode,
+        strategy_id: trade.strategy_id || '',
       };
 
       const { error } = await supabase
@@ -179,7 +192,7 @@ export function TradingHistory() {
         }
         
         const position = positions[symbol];
-        const tradeValue = trade.amount * trade.price_eur;
+        const tradeValue = trade.amount * trade.price;
         const newTotalAmount = position.remaining_amount + trade.amount;
         const newTotalInvested = position.total_invested + tradeValue;
         
@@ -206,10 +219,10 @@ export function TradingHistory() {
 
   useEffect(() => {
     fetchTradingHistory();
-  }, [user, isTestMode]);
+  }, [user, testMode]);
 
   if (!user) {
-    return <NoActiveStrategyState onCreateStrategy={() => {}} />;
+    return <NoActiveStrategyState onCreateStrategy={onCreateStrategy || (() => {})} />;
   }
 
   if (loading) {
@@ -293,7 +306,7 @@ export function TradingHistory() {
                       </span>
                     </div>
                   </div>
-                  <Button
+                    <Button
                     variant="outline"
                     size="sm"
                     onClick={() => sellPosition({
@@ -301,11 +314,12 @@ export function TradingHistory() {
                       user_id: user.id,
                       cryptocurrency: position.symbol,
                       amount: position.remaining_amount,
-                      price_eur: position.average_purchase_price,
+                      price: position.average_purchase_price,
+                      total_value: position.total_invested,
                       trade_type: 'buy',
                       executed_at: position.oldest_purchase_date,
-                      is_test_mode: isTestMode,
-                      created_at: position.oldest_purchase_date
+                      is_test_mode: testMode,
+                      strategy_id: ''
                     })}
                   >
                     <ArrowDownLeft className="h-4 w-4 mr-1" />
@@ -334,11 +348,11 @@ export function TradingHistory() {
                     </div>
                     <div>
                       <p className="text-muted-foreground">Price</p>
-                      <p className="font-medium">{formatEuro(trade.price_eur)}</p>
+                      <p className="font-medium">{formatEuro(trade.price)}</p>
                     </div>
                     <div>
                       <p className="text-muted-foreground">Total Value</p>
-                      <p className="font-medium">{formatEuro(trade.amount * trade.price_eur)}</p>
+                      <p className="font-medium">{formatEuro(trade.total_value)}</p>
                     </div>
                     <div>
                       <p className="text-muted-foreground">Date</p>
