@@ -467,12 +467,9 @@ function IndexComponent() {
                 )}
                 {activeTab === 'history' && (
                   <ErrorBoundary key={PIN_HISTORY_KEY ? 'history-stable' : undefined}>
-                    <ContextFreezeBarrier>
-                      <TradingHistory 
-                        hasActiveStrategy={hasActiveStrategy}
-                          onCreateStrategy={() => setActiveTabTraced('strategy')}
-                      />
-                    </ContextFreezeBarrier>
+                     <ContextFreezeBarrier>
+                       <TradingHistory />
+                     </ContextFreezeBarrier>
                   </ErrorBoundary>
                 )}
                 {activeTab === 'strategy' && (

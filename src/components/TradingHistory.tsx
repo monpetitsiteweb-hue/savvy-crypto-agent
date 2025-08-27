@@ -20,7 +20,7 @@ import { logEvent } from '@/log/NotificationSink';
 // Row capping for performance
 const ROW_CAP = 50;
 
-// Match actual Supabase schema
+// Match actual Supabase schema exactly
 interface Trade {
   id: string;
   user_id: string;
@@ -37,6 +37,16 @@ interface Trade {
   fees?: number | null;
   integrity_reason?: string | null;
   is_corrupted?: boolean;
+  profit_loss?: number | null;
+  realized_pnl?: number | null;
+  realized_pnl_pct?: number | null;
+  sell_fees?: number | null;
+  strategy_trigger?: string | null;
+  notes?: string | null;
+  market_conditions?: any;
+  original_purchase_amount?: number | null;
+  original_purchase_price?: number | null;
+  original_purchase_value?: number | null;
 }
 
 interface Position {
@@ -47,12 +57,7 @@ interface Position {
   oldest_purchase_date: string;
 }
 
-interface TradingHistoryProps {
-  hasActiveStrategy?: boolean;
-  onCreateStrategy?: () => void;
-}
-
-export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps = {}) {
+export function TradingHistory() {
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { getTotalValue, balances } = useMockWallet();
@@ -149,7 +154,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         trade_type: 'sell',
         executed_at: new Date().toISOString(),
         is_test_mode: testMode,
-        strategy_id: trade.strategy_id || '',
+        strategy_id: trade.strategy_id || 'default-strategy-id',
       };
 
       const { error } = await supabase
@@ -222,7 +227,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   }, [user, testMode]);
 
   if (!user) {
-    return <NoActiveStrategyState onCreateStrategy={onCreateStrategy || (() => {})} />;
+    return <NoActiveStrategyState onCreateStrategy={() => {}} />;
   }
 
   if (loading) {
@@ -319,7 +324,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                       trade_type: 'buy',
                       executed_at: position.oldest_purchase_date,
                       is_test_mode: testMode,
-                      strategy_id: ''
+                      strategy_id: 'default-strategy-id'
                     })}
                   >
                     <ArrowDownLeft className="h-4 w-4 mr-1" />
