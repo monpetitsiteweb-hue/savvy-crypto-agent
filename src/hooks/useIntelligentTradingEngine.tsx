@@ -8,8 +8,7 @@ import { useRealTimeMarketData } from './useRealTimeMarketData';
 import { usePoolExitManager } from './usePoolExitManager';
 import { useCoordinatorToast } from './useCoordinatorToast';
 
-// Import and expose pool tests for console access
-import '../utils/poolExitTests';
+import { engineLog } from '@/utils/silentLogger';
 
 interface Position {
   cryptocurrency: string;
@@ -42,23 +41,25 @@ export const useIntelligentTradingEngine = () => {
     testMode 
   });
   
-  console.log('🚨 INTELLIGENT_ENGINE: Hook called with testMode:', testMode, 'user:', !!user, 'loading:', loading, 'user email:', user?.email);
-  console.log('🚨 INTELLIGENT_ENGINE: DETAILED DEBUG', {
-    testMode,
-    testModeType: typeof testMode,
-    user: user ? { id: user.id, email: user.email } : null,
-    userExists: !!user,
-    loading,
-    loadingType: typeof loading,
-    localStorage_testMode: localStorage.getItem('global-test-mode')
+  // Silent log for intelligent engine debug
+  window.NotificationSink?.log({ 
+    message: 'INTELLIGENT_ENGINE: Hook called', 
+    data: { testMode, user: !!user, loading }
   });
 
-  // FIXED: Auto-run trading engine when authentication becomes available - but prevent infinite loops
   useEffect(() => {
-    console.log('🚨 INTELLIGENT_ENGINE: Auth state changed - user:', !!user, 'loading:', loading, 'testMode:', testMode);
+    // Silent log for auth state change
+    window.NotificationSink?.log({ 
+      message: 'INTELLIGENT_ENGINE: Auth state changed', 
+      data: { user: !!user, loading, testMode }
+    });
     
     if (!loading && user && testMode) {
-      console.log('🚨 INTELLIGENT_ENGINE: ✅ AUTH ESTABLISHED - Starting trading engine automatically!');
+      // Silent log for auth conditions met
+      window.NotificationSink?.log({
+        message: 'INTELLIGENT_ENGINE: Auth conditions check - starting engine',
+        data: { user: !!user, loading, testMode }
+      });
       // Small delay to ensure all hooks are initialized
       const timer = setTimeout(() => {
         checkStrategiesAndExecute();
@@ -67,9 +68,13 @@ export const useIntelligentTradingEngine = () => {
       // Cleanup timer on unmount or dependency change
       return () => clearTimeout(timer);
     } else {
-      console.log('🚨 INTELLIGENT_ENGINE: ❌ Waiting for auth - loading:', loading, 'user:', !!user, 'testMode:', testMode);
+      // Silent log for auth waiting
+      window.NotificationSink?.log({ 
+        message: 'INTELLIGENT_ENGINE: Waiting for auth', 
+        data: { loading, user: !!user, testMode }
+      });
     }
-  }, [user, loading, testMode]); // Removed function from deps to prevent circular dependency
+  }, [user, loading, testMode]);
   
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const tradingStateRef = useRef<TradingState>({
@@ -81,21 +86,24 @@ export const useIntelligentTradingEngine = () => {
   });
 
   const checkStrategiesAndExecute = async () => {
-    console.log('🚨 ENGINE: checkStrategiesAndExecute called with testMode:', testMode, 'user:', !!user, 'loading:', loading, 'user email:', user?.email);
-    console.log('🚨🚨🚨 EARLY EXIT CHECK: testMode:', testMode, 'user exists:', !!user, 'loading:', loading);
+    // Silent log for engine state
+    window.NotificationSink?.log({
+      message: 'ENGINE: checkStrategiesAndExecute called',
+      data: { testMode, user: !!user, loading }
+    });
     
     if (!user || loading) {
-      console.log('🚨 ENGINE: Skipping - user:', !!user, 'loading:', loading);
+      engineLog('ENGINE: Skipping - user: ' + !!user + ' loading: ' + loading);
       return;
     }
     
     if (!testMode) {
-      console.log('🚨🚨🚨 TEST MODE IS OFF! You need to enable Test Mode to use the trading engine!');
+      engineLog('TEST MODE IS OFF! You need to enable Test Mode to use the trading engine!');
       return;
     }
 
     try {
-      console.log('🚨 INTELLIGENT_ENGINE: Starting comprehensive strategy check');
+      engineLog('INTELLIGENT_ENGINE: Starting comprehensive strategy check');
       
       // Fetch active strategies
       const { data: strategies, error } = await supabase
@@ -105,7 +113,7 @@ export const useIntelligentTradingEngine = () => {
         .eq('is_active_test', true);
 
       if (error || !strategies?.length) {
-        console.log('🚨 ENGINE: No active strategies found:', error);
+        engineLog('ENGINE: No active strategies found:', error);
         return;
       }
 
@@ -131,14 +139,14 @@ export const useIntelligentTradingEngine = () => {
 
   const processStrategyComprehensively = async (strategy: any, marketData: any) => {
     const config = strategy.configuration;
-    console.log('🎯 ENGINE: Processing strategy with full config:', config);
+    engineLog('ENGINE: Processing strategy with full config:', config);
 
     // Reset daily counters if needed
     resetDailyCountersIfNeeded();
 
     // 1. CHECK DAILY LIMITS FIRST
     if (isDailyLimitReached(config)) {
-      console.log('🛑 ENGINE: Daily limits reached, skipping strategy');
+      engineLog('ENGINE: Daily limits reached, skipping strategy');
       return;
     }
 
@@ -152,7 +160,7 @@ export const useIntelligentTradingEngine = () => {
   const resetDailyCountersIfNeeded = () => {
     const today = new Date().toDateString();
     if (tradingStateRef.current.dailyResetDate !== today) {
-      console.log('🔄 ENGINE: Resetting daily counters for new day');
+      engineLog('ENGINE: Resetting daily counters for new day');
       tradingStateRef.current = {
         ...tradingStateRef.current,
         dailyTrades: 0,
@@ -167,13 +175,13 @@ export const useIntelligentTradingEngine = () => {
     
     // Check daily trade limit
     if (config.maxTradesPerDay && state.dailyTrades >= config.maxTradesPerDay) {
-      console.log('🛑 ENGINE: Daily trade limit reached:', state.dailyTrades, '>=', config.maxTradesPerDay);
+      engineLog('ENGINE: Daily trade limit reached: ' + state.dailyTrades + ' >= ' + config.maxTradesPerDay);
       return true;
     }
 
     // Check daily loss limit
     if (config.dailyLossLimit && state.dailyPnL <= -Math.abs(config.dailyLossLimit)) {
-      console.log('🛑 ENGINE: Daily loss limit reached:', state.dailyPnL, '<=', -config.dailyLossLimit);
+      engineLog('ENGINE: Daily loss limit reached: ' + state.dailyPnL + ' <= ' + (-config.dailyLossLimit));
       return true;
     }
 
@@ -184,16 +192,11 @@ export const useIntelligentTradingEngine = () => {
     const config = strategy.configuration as any;
     const positions = await calculateOpenPositions();
     
-    console.log('📊 ENGINE: Managing', positions.length, 'open positions');
-    console.log('🚨 DEBUG SELL: Full positions data:', JSON.stringify(positions, null, 2));
-    console.log('🚨 DEBUG SELL: Market data available:', Object.keys(marketData));
-    console.log('🚨 DEBUG SELL: Strategy config sell settings:', {
-      stopLossPercentage: config.stopLossPercentage,
-      takeProfitPercentage: config.takeProfitPercentage,
-      trailingStopLossPercentage: config.trailingStopLossPercentage,
-      autoCloseAfterHours: config.autoCloseAfterHours,
-      sellOrderType: config.sellOrderType
-    });
+    engineLog('ENGINE: Managing ' + positions.length + ' open positions');
+    if (positions.length > 0) {
+      engineLog('DEBUG SELL: Full positions data available');
+      engineLog('DEBUG SELL: Market data available for: ' + Object.keys(marketData).join(', '));
+    }
 
     for (const position of positions) {
         // Try to match symbol with market data (handle both "XRP" and "XRP-EUR" formats)
@@ -202,11 +205,10 @@ export const useIntelligentTradingEngine = () => {
         const symbolWithoutEUR = symbol.replace('-EUR', '');
         
         const currentPrice = marketData[symbol]?.price || marketData[symbolWithEUR]?.price || marketData[symbolWithoutEUR]?.price;
-        console.log('🚨 DEBUG SELL: Processing position:', symbol, 'trying symbols:', [symbol, symbolWithEUR, symbolWithoutEUR]);
-        console.log('🚨 DEBUG SELL: Found price:', currentPrice, 'for symbol matching');
+        engineLog('DEBUG SELL: Processing position: ' + symbol);
         
         if (!currentPrice) {
-          console.log('🚨 DEBUG SELL: NO PRICE DATA for any variant of', symbol);
+          engineLog('DEBUG SELL: NO PRICE DATA for: ' + symbol);
           continue;
         }
 
@@ -214,54 +216,33 @@ export const useIntelligentTradingEngine = () => {
       const pnlPercentage = ((currentPrice - purchasePrice) / purchasePrice) * 100;
       const hoursSincePurchase = (Date.now() - new Date(position.oldest_purchase_date).getTime()) / (1000 * 60 * 60);
 
-      console.log('🎯 ENGINE: Position analysis:', {
-        symbol: position.cryptocurrency,
-        pnlPercentage: pnlPercentage.toFixed(2) + '%',
-        hoursSincePurchase: hoursSincePurchase.toFixed(1),
-        amount: position.remaining_amount,
-        purchasePrice,
-        currentPrice
-      });
+      engineLog('ENGINE: Position analysis for ' + position.cryptocurrency + ' P&L: ' + pnlPercentage.toFixed(2) + '%');
 
       // Execute sell based on sell order type and conditions
       const sellDecision = await getSellDecision(config, position, currentPrice, pnlPercentage, hoursSincePurchase);
-      console.log('🚨 DEBUG SELL: Sell decision for', position.cryptocurrency, ':', sellDecision);
-      console.log('🚨 DEBUG SELL: sellDecision JSON:', JSON.stringify(sellDecision));
-      console.log('🚨 DEBUG SELL: sellDecision typeof:', typeof sellDecision);
-      console.log('🚨 DEBUG SELL: sellDecision truthiness:', !!sellDecision, Boolean(sellDecision));
+      engineLog('DEBUG SELL: Sell decision for ' + position.cryptocurrency + ': ' + (sellDecision ? sellDecision.reason : 'none'));
       
       if (sellDecision) {
-        console.log('🚨 DEBUG SELL: EXECUTING SELL ORDER! Decision:', JSON.stringify(sellDecision));
-        console.log('🚨 DEBUG SELL: Position cryptocurrency before executeSellOrder:', position.cryptocurrency);
-        console.log('🚨 DEBUG SELL: Current price used:', currentPrice);
+        engineLog('DEBUG SELL: EXECUTING SELL ORDER - ' + position.cryptocurrency + ' at ' + currentPrice);
         await executeSellOrder(strategy, position, currentPrice, sellDecision);
       } else {
-        console.log('🚨 DEBUG SELL: NO SELL DECISION - position will remain open');
-        console.log('🚨 DEBUG SELL: sellDecision value:', sellDecision);
-        console.log('🚨 DEBUG SELL: sellDecision type:', typeof sellDecision);
+        engineLog('DEBUG SELL: NO SELL DECISION - position remains open: ' + position.cryptocurrency);
       }
     }
   };
 
   const getSellDecision = async (config: any, position: Position, currentPrice: number, pnlPercentage: number, hoursSincePurchase: number): Promise<{reason: string, orderType?: string} | null> => {
-    console.log('🚨 SELL DECISION DEBUG: Checking sell conditions for', position.cryptocurrency);
-    console.log('🚨 SELL DECISION DEBUG: Current price:', currentPrice, 'P&L%:', pnlPercentage, 'Hours held:', hoursSincePurchase);
-    console.log('🚨 SELL DECISION DEBUG: Config:', {
-      autoCloseAfterHours: config.autoCloseAfterHours,
-      stopLossPercentage: config.stopLossPercentage,
-      takeProfitPercentage: config.takeProfitPercentage,
-      trailingStopLossPercentage: config.trailingStopLossPercentage
-    });
+    engineLog('SELL DECISION DEBUG: Checking sell conditions for ' + position.cryptocurrency + ' price: ' + currentPrice + ' P&L: ' + pnlPercentage + '%');
     
     // 1. AUTO CLOSE AFTER HOURS (overrides everything)
     if (config.autoCloseAfterHours && hoursSincePurchase >= config.autoCloseAfterHours) {
-      console.log('🚨 SELL DECISION: AUTO CLOSE TRIGGERED!', hoursSincePurchase, '>=', config.autoCloseAfterHours);
+      engineLog('SELL DECISION: AUTO CLOSE TRIGGERED - ' + hoursSincePurchase + ' >= ' + config.autoCloseAfterHours);
       return { reason: 'AUTO_CLOSE_TIME', orderType: 'market' };
     }
 
     // 2. STOP LOSS CHECK
     if (config.stopLossPercentage && pnlPercentage <= -Math.abs(config.stopLossPercentage)) {
-      console.log('🚨 SELL DECISION: STOP LOSS TRIGGERED!', pnlPercentage, '<=', -Math.abs(config.stopLossPercentage));
+      engineLog('SELL DECISION: STOP LOSS TRIGGERED - ' + pnlPercentage + ' <= ' + (-Math.abs(config.stopLossPercentage)));
       return { 
         reason: 'STOP_LOSS', 
         orderType: config.sellOrderType || 'market' 
@@ -270,17 +251,14 @@ export const useIntelligentTradingEngine = () => {
 
     // 3. TAKE PROFIT CHECK
     if (config.takeProfitPercentage && pnlPercentage >= config.takeProfitPercentage) {
-      console.log('🚨 SELL DECISION: TAKE PROFIT TRIGGERED!', pnlPercentage, '>=', config.takeProfitPercentage);
+      engineLog('SELL DECISION: TAKE PROFIT TRIGGERED - ' + pnlPercentage + ' >= ' + config.takeProfitPercentage);
       return { 
         reason: 'TAKE_PROFIT', 
         orderType: config.sellOrderType || 'market' 
       };
     }
 
-    console.log('🚨 SELL DECISION: NO SELL CONDITIONS MET - keeping position open');
-    console.log('🚨 SELL DECISION: Auto close check:', config.autoCloseAfterHours ? `${hoursSincePurchase} < ${config.autoCloseAfterHours}` : 'disabled');
-    console.log('🚨 SELL DECISION: Stop loss check:', config.stopLossPercentage ? `${pnlPercentage} > ${-Math.abs(config.stopLossPercentage)}` : 'disabled');
-    console.log('🚨 SELL DECISION: Take profit check:', config.takeProfitPercentage ? `${pnlPercentage} < ${config.takeProfitPercentage}` : 'disabled');
+    engineLog('SELL DECISION: NO SELL CONDITIONS MET - keeping position open');
 
     // 4. TRAILING STOP LOSS
     if (config.trailingStopLossPercentage) {
@@ -765,7 +743,7 @@ export const useIntelligentTradingEngine = () => {
   const calculateOpenPositions = async (): Promise<Position[]> => {
     if (!user?.id) return [];
 
-    console.log('🧮 POSITIONS: Starting position calculation for user:', user.id);
+    engineLog('POSITIONS: Starting position calculation for user: ' + user.id);
 
     const { data: buyTrades } = await supabase
       .from('mock_trades')
@@ -782,8 +760,8 @@ export const useIntelligentTradingEngine = () => {
       .eq('trade_type', 'sell')
       .eq('is_test_mode', true);
 
-    console.log('🧮 POSITIONS: Buy trades found:', buyTrades?.length || 0);
-    console.log('🧮 POSITIONS: Sell trades found:', sellTrades?.length || 0);
+    engineLog('POSITIONS: Buy trades found: ' + (buyTrades?.length || 0));
+    engineLog('POSITIONS: Sell trades found: ' + (sellTrades?.length || 0));
     
     if (buyTrades?.length) {
       console.log('🧮 POSITIONS: Sample buy trades:', buyTrades.slice(0, 3).map(t => ({

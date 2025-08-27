@@ -466,11 +466,18 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const openPositions = getOpenPositionsList();
   const pastPositions = trades.filter(t => t.trade_type === 'sell');
   
-  // Pagination for past positions
-  const totalPages = Math.ceil(pastPositions.length / PAGE_SIZE);
+  // Pagination for both open and past positions
+  const [openPage, setOpenPage] = useState(1);
+  const totalPastPages = Math.ceil(pastPositions.length / PAGE_SIZE);
+  const totalOpenPages = Math.ceil(openPositions.length / PAGE_SIZE);
+  
   const startIndex = (currentPage - 1) * PAGE_SIZE;
   const endIndex = startIndex + PAGE_SIZE;
   const paginatedPastPositions = pastPositions.slice(startIndex, endIndex);
+  
+  const openStartIndex = (openPage - 1) * PAGE_SIZE;
+  const openEndIndex = openStartIndex + PAGE_SIZE;
+  const paginatedOpenPositions = openPositions.slice(openStartIndex, openEndIndex);
 
   return (
     <Card className="p-6">
@@ -574,15 +581,46 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         
         <TabsContent value="open" className="mt-4">
           {openPositions.length > 0 ? (
-            <div className="space-y-4">
-              {openPositions.map(trade => (
-                <TradeCard
-                  key={trade.id}
-                  trade={trade}
-                  showSellButton={true}
-                />
-              ))}
-            </div>
+            <>
+              <div className="space-y-4">
+                {paginatedOpenPositions.map(trade => (
+                  <TradeCard
+                    key={trade.id}
+                    trade={trade}
+                    showSellButton={true}
+                  />
+                ))}
+              </div>
+              
+              {/* Pagination for Open Positions */}
+              {totalOpenPages > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-6">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setOpenPage(p => Math.max(1, p - 1))}
+                    disabled={openPage === 1}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Previous
+                  </Button>
+                  
+                  <span className="text-sm text-muted-foreground mx-4">
+                    Page {openPage} of {totalOpenPages}
+                  </span>
+                  
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setOpenPage(p => Math.min(totalOpenPages, p + 1))}
+                    disabled={openPage === totalOpenPages}
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -606,7 +644,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               </div>
               
               {/* Pagination Controls */}
-              {totalPages > 1 && (
+              {totalPastPages > 1 && (
                 <div className="flex items-center justify-center gap-2 mt-6">
                   <Button
                     variant="outline"
@@ -619,14 +657,14 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                   </Button>
                   
                   <span className="text-sm text-muted-foreground mx-4">
-                    Page {currentPage} of {totalPages}
+                    Page {currentPage} of {totalPastPages}
                   </span>
                   
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(p => Math.min(totalPastPages, p + 1))}
+                    disabled={currentPage === totalPastPages}
                   >
                     Next
                     <ChevronRight className="w-4 h-4" />

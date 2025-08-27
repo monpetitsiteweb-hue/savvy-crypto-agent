@@ -298,21 +298,16 @@ function IndexComponent() {
   const { checkStrategiesAndExecute } = useIntelligentTradingEngine();
   
   
-  console.log('🔵 INDEX: AUTH STATE CHECK', { 
-    user: user ? { id: user.id, email: user.email } : null, 
-    userExists: !!user,
-    loading, 
-    testMode,
-    roleLoading,
-    role,
-    activeTab
+  // Silent log for index auth state
+  window.NotificationSink?.log({ 
+    message: 'INDEX: AUTH STATE CHECK', 
+    data: { user: !!user, loading, testMode, roleLoading, role, activeTab }
   });
   
-  console.log('🔵 INDEX: PORTFOLIO RENDERING CONDITIONS', {
-    activeTab,
-    isDashboard: activeTab === 'dashboard',
-    hasActiveStrategy,
-    willRenderPortfolio: activeTab === 'dashboard'
+  // Silent log for portfolio rendering conditions
+  window.NotificationSink?.log({
+    message: 'INDEX: PORTFOLIO RENDERING CONDITIONS',
+    data: { activeTab, isDashboard: activeTab === 'dashboard', hasActiveStrategy }
   });
 
   if (loading || roleLoading) {

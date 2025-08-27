@@ -44,7 +44,8 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Convert base symbols to pairs using the central util
       const pairSymbols = symbols.map(base => toPairSymbol(base));
       
-      console.log('🔄 SYMBOLS: base→pair conversion:', symbols.map((base, i) => `${base}→${pairSymbols[i]}`));
+      // Silent log for symbol conversion
+      window.NotificationSink?.log({ message: 'SYMBOLS: base→pair conversion', data: symbols.map((base, i) => `${base}→${pairSymbols[i]}`) });
 
       // Filter out invalid symbols that cause 404s
       const validSymbols = pairSymbols.filter(pair => {
@@ -58,7 +59,8 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return {};
       }
 
-      console.log('🔍 SINGLETON: Fetching market data for valid symbols:', validSymbols);
+      // Silent log for market data fetch
+      window.NotificationSink?.log({ message: 'SINGLETON: Fetching market data for valid symbols', symbols: validSymbols });
       
       // Add delay between requests to avoid rate limiting
       const promises = validSymbols.map(async (symbol, index) => {
