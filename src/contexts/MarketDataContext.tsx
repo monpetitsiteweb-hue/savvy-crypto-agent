@@ -39,12 +39,24 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [error, setError] = useState<string | null>(null);
   const [contextVersion, setContextVersion] = useState(0);
 
-  const getCurrentData = useCallback(async (symbols: BaseSymbol[]): Promise<Record<string, MarketData>> => {
+// Check for mute price logs debug flag
+const MUTE_PRICE_LOGS = (() => {
+  try {
+    const u = new URL(window.location.href);
+    return u.searchParams.get('debug') === 'history' && u.searchParams.get('mutePriceLogs') === '1';
+  } catch { return false; }
+})();
+
+const getCurrentData = useCallback(async (symbols: BaseSymbol[]): Promise<Record<string, MarketData>> => {
     try {
       // Convert base symbols to pairs using the central util
       const pairSymbols = symbols.map(base => toPairSymbol(base));
       
-      console.log('🔄 SYMBOLS: base→pair conversion:', symbols.map((base, i) => `${base}→${pairSymbols[i]}`));
+      if (MUTE_PRICE_LOGS) {
+        // Suppressed for mute price logs mode
+      } else {
+        console.log('🔄 SYMBOLS: base→pair conversion:', symbols.map((base, i) => `${base}→${pairSymbols[i]}`));
+      }
 
       // Filter out invalid symbols that cause 404s
       const validSymbols = pairSymbols.filter(pair => {
@@ -58,7 +70,11 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return {};
       }
 
-      console.log('🔍 SINGLETON: Fetching market data for valid symbols:', validSymbols);
+      if (MUTE_PRICE_LOGS) {
+        // Suppressed for mute price logs mode
+      } else {
+        console.log('🔍 SINGLETON: Fetching market data for valid symbols:', validSymbols);
+      }
       
       // Add delay between requests to avoid rate limiting
       const promises = validSymbols.map(async (symbol, index) => {

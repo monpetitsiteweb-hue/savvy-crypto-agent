@@ -118,6 +118,63 @@ const HOLD_LOADING = false;
 const HOLD_FILTERS = false;
 const HOLD_PRICE = false;
 
+// New prod-safe runtime toggles for reducing churn
+const MUTE_PRICE_LOGS = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('mutePriceLogs') === '1';
+    } catch { return false; }
+  })();
+
+const DISABLE_ROW_PRICE_LOOKUPS = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('disableRowPriceLookups') === '1';
+    } catch { return false; }
+  })();
+
+const LIMIT_ROWS = DEBUG_HISTORY_BLINK && 
+  (() => {
+    try {
+      const u = new URL(window.location.href);
+      const limitRows = u.searchParams.get('limitRows');
+      return limitRows ? parseInt(limitRows, 10) : null;
+    } catch { return null; }
+  })();
+
+// Rate-limited price logging aggregator
+const priceLogAggregator = (() => {
+  let rowLookups = 0;
+  let symbols = new Set<string>();
+  let requests = 0;
+  let lastReport = 0;
+  const REPORT_INTERVAL = 1000; // 1 second
+
+  return {
+    recordRowLookup: (symbol: string) => {
+      rowLookups++;
+      symbols.add(symbol);
+    },
+    recordRequest: () => {
+      requests++;
+    },
+    maybeReport: () => {
+      const now = performance.now();
+      if (now - lastReport > REPORT_INTERVAL) {
+        if (rowLookups > 0 || requests > 0) {
+          console.info(`[HistoryBlink] prices: rowLookups=${rowLookups}/s symbols=${symbols.size} req=${requests}/s`);
+        }
+        rowLookups = 0;
+        symbols.clear();
+        requests = 0;
+        lastReport = now;
+      }
+    }
+  };
+})();
+
 // Missing helper functions
 // Position update funnel with tagging and blocking (diagnosis only)
 const applyPositionsUpdate = (() => {
@@ -364,9 +421,13 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
   
   const [feeRate, setFeeRate] = useState<number>(0);
   
-  console.log('🔍 HISTORY: MarketData from context:', marketData);
-  console.log('🔍 HISTORY: MarketData keys:', Object.keys(marketData));
-  console.log('🔍 HISTORY: Sample prices:', Object.entries(marketData).slice(0,3).map(([k,v]) => `${k}: €${v.price}`));
+  if (MUTE_PRICE_LOGS) {
+    priceLogAggregator.maybeReport();
+  } else {
+    console.log('🔍 HISTORY: MarketData from context:', marketData);
+    console.log('🔍 HISTORY: MarketData keys:', Object.keys(marketData));
+    console.log('🔍 HISTORY: Sample prices:', Object.entries(marketData).slice(0,3).map(([k,v]) => `${k}: €${v.price}`));
+  }
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -486,12 +547,26 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     const baseSymbol = toBaseSymbol(trade.cryptocurrency);
     const pairSymbol = toPairSymbol(baseSymbol);
     
-    console.log('🔄 SYMBOLS: base=', baseSymbol, 'pair=', pairSymbol, 'providerKey=', pairSymbol);
+    if (MUTE_PRICE_LOGS) {
+      priceLogAggregator.recordRowLookup(baseSymbol);
+      priceLogAggregator.maybeReport();
+    } else {
+      console.log('🔄 SYMBOLS: base=', baseSymbol, 'pair=', pairSymbol, 'providerKey=', pairSymbol);
+    }
     
-    // Get current price from MarketDataProvider using pair symbol
-    const currentPrice = marketData[pairSymbol]?.price || null;
-    
-    console.log('🔍 HISTORY: Current price for', baseSymbol, ':', currentPrice);
+    // Get current price from MarketDataProvider using pair symbol or use shared snapshot
+    let currentPrice: number | null;
+    if (DISABLE_ROW_PRICE_LOOKUPS) {
+      // Use shared snapshot from market context instead of individual lookups
+      currentPrice = marketData[pairSymbol]?.price || null;
+    } else {
+      currentPrice = marketData[pairSymbol]?.price || null;
+      if (MUTE_PRICE_LOGS) {
+        priceLogAggregator.recordRequest();
+      } else {
+        console.log('🔍 HISTORY: Current price for', baseSymbol, ':', currentPrice);
+      }
+    }
     
     // Calculate open position performance
     const openPositionInputs = {
@@ -1140,12 +1215,26 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
     );
   }
 
+  // Log once when debug flags are enabled
+  useEffect(() => {
+    if (DISABLE_ROW_PRICE_LOOKUPS) {
+      console.info('[HistoryBlink] prices: row lookups DISABLED (debug)');
+    }
+    if (LIMIT_ROWS) {
+      console.info(`[HistoryBlink] rows: limitRows=${LIMIT_ROWS}`);
+    }
+  }, []);
+
   if (!hasActiveStrategy) {
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
   const openPositions = getOpenPositionsList();
   const pastPositions = trades.filter(t => t.trade_type === 'sell');
+  
+  // Apply row limiting when debug flag is present
+  const displayOpenPositions = LIMIT_ROWS ? openPositions.slice(0, LIMIT_ROWS) : openPositions;
+  const displayPastPositions = LIMIT_ROWS ? pastPositions.slice(0, LIMIT_ROWS) : pastPositions;
   
   // Step 1: Debug header (once per session)
   if (DEBUG_HISTORY_BLINK && !debugHeaderLogged.current) {
@@ -1262,11 +1351,11 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="open" className="flex items-center gap-2">
             <ArrowUpRight className="w-4 h-4" />
-            Open Positions ({openPositions.length})
+            Open Positions ({displayOpenPositions.length})
           </TabsTrigger>
           <TabsTrigger value="past" className="flex items-center gap-2">
             <ArrowDownLeft className="w-4 h-4" />
-            Past Positions ({pastPositions.length})
+            Past Positions ({displayPastPositions.length})
           </TabsTrigger>
         </TabsList>
         
@@ -1277,15 +1366,15 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
             if (DEBUG_HISTORY_BLINK) {
               const now = performance.now();
               if (now - openLastLog.current > 1000) {
-                console.info(`[HistoryBlink] <OpenList> mount ${openMounts.current} | len=${openPositions.length} loading=${historyLoading}`);
+                console.info(`[HistoryBlink] <OpenList> mount ${openMounts.current} | len=${displayOpenPositions.length} loading=${historyLoading}`);
                 openLastLog.current = now;
               }
               
               // Step 4: OpenList prop fingerprint logging (rate-limited)
               if (now - openListLastPropLog.current > 1000) {
                 console.info(`[HistoryBlink] <OpenList> props: {
-  len: ${openPositions.length},
-  idsHash: ${simpleIdsHash(openPositions)},
+  len: ${displayOpenPositions.length},
+  idsHash: ${simpleIdsHash(displayOpenPositions)},
   loading: ${processedLoading}
 }`);
                 openListLastPropLog.current = now;
@@ -1296,17 +1385,17 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
             openRenders.current++;
             
             // Step 1: Log actual React key values (once)
-            if (DEBUG_HISTORY_BLINK && !loggedKeysRef.current && openPositions.length > 0) {
-              const sampleKeys = openPositions.slice(0, 10).map(t => t.id);
+            if (DEBUG_HISTORY_BLINK && !loggedKeysRef.current && displayOpenPositions.length > 0) {
+              const sampleKeys = displayOpenPositions.slice(0, 10).map(t => t.id);
               console.info('[HistoryBlink] keys sample (first 10)', sampleKeys);
               loggedKeysRef.current = true;
             }
             
             return null;
           })()}
-          {openPositions.length > 0 ? (
+          {displayOpenPositions.length > 0 ? (
             <div className="space-y-4">
-              {openPositions.map(trade => (
+              {displayOpenPositions.map(trade => (
                 <TradeCard
                   key={trade.id}
                   trade={trade}
@@ -1330,15 +1419,15 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
             if (DEBUG_HISTORY_BLINK) {
               const now = performance.now();
               if (now - pastLastLog.current > 1000) {
-                console.info(`[HistoryBlink] <PastList> mount ${pastMounts.current} | len=${pastPositions.length} loading=${historyLoading}`);
+                console.info(`[HistoryBlink] <PastList> mount ${pastMounts.current} | len=${displayPastPositions.length} loading=${historyLoading}`);
                 pastLastLog.current = now;
               }
               
               // Step 4: PastList prop fingerprint logging (rate-limited)
               if (now - pastListLastPropLog.current > 1000) {
                 console.info(`[HistoryBlink] <PastList> props: {
-  len: ${pastPositions.length},
-  idsHash: ${simpleIdsHash(pastPositions)},
+  len: ${displayPastPositions.length},
+  idsHash: ${simpleIdsHash(displayPastPositions)},
   loading: ${processedLoading}
 }`);
                 pastListLastPropLog.current = now;
@@ -1350,9 +1439,9 @@ function TradingHistoryInternal({ hasActiveStrategy, onCreateStrategy }: Trading
             
             return null;
           })()}
-          {pastPositions.length > 0 ? (
+          {displayPastPositions.length > 0 ? (
             <div className="space-y-4">
-              {pastPositions.map(trade => (
+              {displayPastPositions.map(trade => (
                 <TradeCard
                   key={trade.id}
                   trade={trade}
