@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, Target } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
@@ -17,8 +16,8 @@ import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import { setSymbols, getPriceMap } from '@/price/PriceCache';
 import { logEvent } from '@/log/NotificationSink';
 
-// Row capping for performance
-const ROW_CAP = 50;
+// Pagination for performance
+const TRADES_PER_PAGE = 20;
 
 // Match actual Supabase schema exactly
 interface Trade {
@@ -57,6 +56,19 @@ interface Position {
   oldest_purchase_date: string;
 }
 
+interface PastPosition {
+  id: string;
+  symbol: string;
+  amount: number;
+  purchase_price: number;
+  exit_price: number;
+  total_invested: number;
+  exit_value: number;
+  profit_loss: number;
+  profit_loss_percentage: number;
+  executed_at: string;
+}
+
 export function TradingHistory() {
   const { user } = useAuth();
   const { testMode } = useTestMode();
@@ -66,7 +78,8 @@ export function TradingHistory() {
   const [priceMap, setPriceMap] = useState(getPriceMap());
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
-  const [feeRate, setFeeRate] = useState<number>(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [showRegrouped, setShowRegrouped] = useState(false);
   const rowCapLoggedRef = useRef(false);
 
   // Compute symbols and update price cache
@@ -95,10 +108,10 @@ export function TradingHistory() {
   // Market data from shared price cache only
   const marketData = priceMap;
   
-  // Log row cap once
+  // Log pagination once
   useEffect(() => {
     if (!rowCapLoggedRef.current) {
-      console.log(`[HistoryPerf] rowCap=${ROW_CAP}`);
+      console.log(`[HistoryPerf] rowCap=${TRADES_PER_PAGE}`);
       rowCapLoggedRef.current = true;
     }
   }, []);
@@ -123,7 +136,6 @@ export function TradingHistory() {
 
       setTrades(data || []);
     } catch (error) {
-      console.error('❌ HISTORY: Error fetching trading history:', error);
       logEvent({ level: 'error', code: 'fetch_history_error', message: 'Failed to fetch trading history' });
     } finally {
       setLoading(false);
@@ -174,7 +186,6 @@ export function TradingHistory() {
 
       fetchTradingHistory('strategyEvent');
     } catch (error) {
-      console.error('Error in sellPosition:', error);
       logEvent({ level: 'error', code: 'sell_position_error', message: 'Failed to sell position' });
     }
   };
@@ -222,6 +233,45 @@ export function TradingHistory() {
     return Object.values(positions).filter(p => p.remaining_amount > 0.000001);
   };
 
+  const calculatePastPositions = (trades: Trade[]): PastPosition[] => {
+    const pastPositions: PastPosition[] = [];
+    
+    const sellTrades = trades.filter(t => t.trade_type === 'sell');
+    
+    sellTrades.forEach(sellTrade => {
+      const buyTrades = trades.filter(t => 
+        t.trade_type === 'buy' && 
+        t.cryptocurrency === sellTrade.cryptocurrency &&
+        t.executed_at < sellTrade.executed_at
+      );
+      
+      if (buyTrades.length > 0) {
+        const avgPurchasePrice = buyTrades.reduce((sum, trade) => sum + (trade.price * trade.amount), 0) / 
+                                 buyTrades.reduce((sum, trade) => sum + trade.amount, 0);
+        
+        const totalInvested = sellTrade.amount * avgPurchasePrice;
+        const exitValue = sellTrade.total_value;
+        const profitLoss = exitValue - totalInvested;
+        const profitLossPercentage = totalInvested > 0 ? (profitLoss / totalInvested) * 100 : 0;
+        
+        pastPositions.push({
+          id: sellTrade.id,
+          symbol: sellTrade.cryptocurrency,
+          amount: sellTrade.amount,
+          purchase_price: avgPurchasePrice,
+          exit_price: sellTrade.price,
+          total_invested: totalInvested,
+          exit_value: exitValue,
+          profit_loss: profitLoss,
+          profit_loss_percentage: profitLossPercentage,
+          executed_at: sellTrade.executed_at
+        });
+      }
+    });
+    
+    return pastPositions.sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime());
+  };
+
   useEffect(() => {
     fetchTradingHistory();
   }, [user, testMode]);
@@ -234,39 +284,48 @@ export function TradingHistory() {
     return <div>Loading...</div>;
   }
 
-  const openPositions = calculatePositions(trades).slice(0, ROW_CAP);
-  const pastTrades = trades.filter(t => t.trade_type === 'sell').slice(0, ROW_CAP);
+  const openPositions = calculatePositions(trades);
+  const pastPositions = calculatePastPositions(trades);
+  
+  // Pagination for past positions
+  const totalPages = Math.ceil(pastPositions.length / TRADES_PER_PAGE);
+  const startIndex = (currentPage - 1) * TRADES_PER_PAGE;
+  const paginatedPastPositions = pastPositions.slice(startIndex, startIndex + TRADES_PER_PAGE);
 
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="open">Open Positions ({openPositions.length})</TabsTrigger>
-          <TabsTrigger value="past">Past Trades ({pastTrades.length})</TabsTrigger>
-        </TabsList>
+      {/* Portfolio Summary */}
+      <Card className="p-6">
+        <h3 className="text-lg font-semibold mb-4">Portfolio Summary</h3>
+        <div className="grid gap-4 md:grid-cols-3">
+          <div>
+            <p className="text-sm text-muted-foreground">Total Value</p>
+            <p className="text-2xl font-bold">{formatEuro(getTotalValue())}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Open Positions</p>
+            <p className="text-2xl font-bold">{openPositions.length}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Total Trades</p>
+            <p className="text-2xl font-bold">{trades.length}</p>
+          </div>
+        </div>
+      </Card>
 
-        <TabsContent value="overview" className="space-y-4">
-          <Card className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Portfolio Summary</h3>
-            <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Value</p>
-                <p className="text-2xl font-bold">{formatEuro(getTotalValue())}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Open Positions</p>
-                <p className="text-2xl font-bold">{openPositions.length}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Trades</p>
-                <p className="text-2xl font-bold">{trades.length}</p>
-              </div>
-            </div>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="open" className="space-y-4">
+      {/* Open Positions */}
+      <Card className="p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold">Open Positions ({openPositions.length})</h3>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowRegrouped(!showRegrouped)}
+          >
+            {showRegrouped ? 'Show All' : 'Group by Crypto'}
+          </Button>
+        </div>
+        <div className="space-y-4">
           {openPositions.map((position, index) => {
             const p = priceMap[`${position.symbol}-EUR`];
             const currentPrice = p?.price ?? 0;
@@ -286,7 +345,7 @@ export function TradingHistory() {
                     </div>
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
-                        <p className="text-muted-foreground">Avg Price</p>
+                        <p className="text-muted-foreground">Purchase Price</p>
                         <p className="font-medium">{formatEuro(position.average_purchase_price)}</p>
                       </div>
                       <div>
@@ -311,7 +370,7 @@ export function TradingHistory() {
                       </span>
                     </div>
                   </div>
-                    <Button
+                  <Button
                     variant="outline"
                     size="sm"
                     onClick={() => sellPosition({
@@ -334,42 +393,79 @@ export function TradingHistory() {
               </Card>
             );
           })}
-        </TabsContent>
+        </div>
+      </Card>
 
-        <TabsContent value="past" className="space-y-4">
-          {pastTrades.map((trade, index) => (
-            <Card key={`${trade.id}-${index}`} className="p-4">
+      {/* Past Positions */}
+      <Card className="p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold">Past Positions ({pastPositions.length})</h3>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+        <div className="space-y-4">
+          {paginatedPastPositions.map((position, index) => (
+            <Card key={`${position.id}-${index}`} className="p-4">
               <div className="flex justify-between items-start">
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">{trade.cryptocurrency}</Badge>
+                    <Badge variant="outline">{position.symbol}</Badge>
                     <ArrowDownLeft className="h-4 w-4 text-red-500" />
-                    <span className="text-sm font-medium">SELL</span>
+                    <span className="text-sm font-medium">SOLD</span>
                   </div>
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <p className="text-muted-foreground">Amount</p>
-                      <p className="font-medium">{trade.amount.toFixed(8)}</p>
+                      <p className="font-medium">{position.amount.toFixed(8)}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">Price</p>
-                      <p className="font-medium">{formatEuro(trade.price)}</p>
+                      <p className="text-muted-foreground">Purchase Price</p>
+                      <p className="font-medium">{formatEuro(position.purchase_price)}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">Total Value</p>
-                      <p className="font-medium">{formatEuro(trade.total_value)}</p>
+                      <p className="text-muted-foreground">Exit Price</p>
+                      <p className="font-medium">{formatEuro(position.exit_price)}</p>
                     </div>
                     <div>
                       <p className="text-muted-foreground">Date</p>
-                      <p className="font-medium">{new Date(trade.executed_at).toLocaleDateString()}</p>
+                      <p className="font-medium">{new Date(position.executed_at).toLocaleDateString()}</p>
                     </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={position.profit_loss >= 0 ? "default" : "destructive"}>
+                      {position.profit_loss >= 0 ? "+" : ""}{formatEuro(position.profit_loss)}
+                    </Badge>
+                    <span className={`text-sm ${position.profit_loss >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      ({formatPercentage(position.profit_loss_percentage)})
+                    </span>
                   </div>
                 </div>
               </div>
             </Card>
           ))}
-        </TabsContent>
-      </Tabs>
+        </div>
+      </Card>
     </div>
   );
 }

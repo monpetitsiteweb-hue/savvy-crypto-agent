@@ -7,6 +7,7 @@ import { useToast } from './use-toast';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
 import { usePoolExitManager } from './usePoolExitManager';
 import { useCoordinatorToast } from './useCoordinatorToast';
+import { logEvent } from '@/log/NotificationSink';
 
 // Import and expose pool tests for console access
 import '../utils/poolExitTests';
@@ -184,7 +185,7 @@ export const useIntelligentTradingEngine = () => {
     const config = strategy.configuration as any;
     const positions = await calculateOpenPositions();
     
-    console.log('📊 ENGINE: Managing', positions.length, 'open positions');
+    logEvent({ level: 'info', code: 'position_management', message: `Managing ${positions.length} open positions` });
     console.log('🚨 DEBUG SELL: Full positions data:', JSON.stringify(positions, null, 2));
     console.log('🚨 DEBUG SELL: Market data available:', Object.keys(marketData));
     console.log('🚨 DEBUG SELL: Strategy config sell settings:', {
@@ -367,7 +368,7 @@ export const useIntelligentTradingEngine = () => {
         // Check for strong bearish signals from REAL data
         const bearishSignals = liveSignals.filter(s => s.signal_strength < -0.4);
         if (bearishSignals.length >= 2) {
-          console.log('📊 ENGINE: Multiple REAL bearish technical signals:', bearishSignals.length);
+          logEvent({ level: 'info', code: 'technical_bearish_signals', message: `Multiple bearish technical signals: ${bearishSignals.length}` });
           return true;
         }
 
@@ -381,7 +382,7 @@ export const useIntelligentTradingEngine = () => {
           );
           
           if (rsiSignals.length > 0) {
-            console.log('📊 ENGINE: REAL RSI sell signal from live data');
+            logEvent({ level: 'info', code: 'rsi_sell_signal', message: 'RSI sell signal from live data' });
             return true;
           }
         }
@@ -471,7 +472,7 @@ export const useIntelligentTradingEngine = () => {
         .order('timestamp', { ascending: false })
         .limit(10);
 
-      console.log('🐋 ENGINE: Checking REAL whale signals for', cryptoSymbol, '- found:', whaleSignals?.length || 0);
+      logEvent({ level: 'info', code: 'whale_signals_check', message: `Checking whale signals for ${cryptoSymbol} - found: ${whaleSignals?.length || 0}` });
 
       if (whaleSignals?.length) {
         // Check for significant whale activity (large amounts)
@@ -480,7 +481,7 @@ export const useIntelligentTradingEngine = () => {
         );
 
         if (largeTransactions.length > 0) {
-          console.log('🐋 ENGINE: REAL large whale transactions detected for', symbol, '- count:', largeTransactions.length);
+          logEvent({ level: 'info', code: 'whale_transactions', message: `Large whale transactions detected for ${symbol} - count: ${largeTransactions.length}` });
           return true;
         }
       }
@@ -498,7 +499,7 @@ export const useIntelligentTradingEngine = () => {
       if (liveWhaleSignals?.length) {
         const strongWhaleSignals = liveWhaleSignals.filter(s => s.signal_strength > 0.6);
         if (strongWhaleSignals.length > 0) {
-          console.log('🐋 ENGINE: REAL live whale signals detected for', symbol, '- count:', strongWhaleSignals.length);
+          logEvent({ level: 'info', code: 'whale_live_signals', message: `Live whale signals detected for ${symbol} - count: ${strongWhaleSignals.length}` });
           return true;
         }
       }
@@ -621,14 +622,14 @@ export const useIntelligentTradingEngine = () => {
         .order('timestamp', { ascending: false })
         .limit(20);
 
-      console.log('🔍 ENGINE: Analyzing REAL technical signals for', symbol);
-      console.log('📊 ENGINE: Live technical signals count:', liveSignals?.length || 0);
+      logEvent({ level: 'info', code: 'technical_analysis', message: `Analyzing technical signals for ${symbol}` });
+      logEvent({ level: 'info', code: 'technical_signals_count', message: `Live technical signals count: ${liveSignals?.length || 0}` });
 
       if (liveSignals?.length) {
         // Check for multiple bullish signals from REAL data
         const bullishSignals = liveSignals.filter(s => s.signal_strength > 0.3);
         if (bullishSignals.length >= 2) {
-          console.log('📊 ENGINE: Multiple REAL bullish technical signals:', bullishSignals.length);
+          logEvent({ level: 'info', code: 'technical_bullish_signals', message: `Multiple bullish technical signals: ${bullishSignals.length}` });
           signals++;
           totalIndicators++;
         }
@@ -636,7 +637,7 @@ export const useIntelligentTradingEngine = () => {
         // Check for very strong individual signals
         const strongBullishSignals = liveSignals.filter(s => s.signal_strength > 0.6);
         if (strongBullishSignals.length >= 1) {
-          console.log('📊 ENGINE: Strong REAL bullish signal detected:', strongBullishSignals[0].signal_strength);
+          logEvent({ level: 'info', code: 'strong_bullish_signal', message: `Strong bullish signal detected: ${strongBullishSignals[0].signal_strength}` });
           signals++;
           totalIndicators++;
         }
@@ -652,7 +653,7 @@ export const useIntelligentTradingEngine = () => {
           );
           
           if (rsiSignals.length > 0) {
-            console.log('📊 ENGINE: REAL RSI buy signal from live data');
+            logEvent({ level: 'info', code: 'rsi_buy_signal', message: 'RSI buy signal from live data' });
             signals++;
           }
         }
@@ -668,7 +669,7 @@ export const useIntelligentTradingEngine = () => {
           );
           
           if (macdSignals.length > 0) {
-            console.log('📊 ENGINE: REAL MACD bullish buy signal from live data');
+            logEvent({ level: 'info', code: 'macd_bullish_signal', message: 'MACD bullish buy signal from live data' });
             signals++;
           }
         }
@@ -682,7 +683,7 @@ export const useIntelligentTradingEngine = () => {
       if (recentSignals.length >= 3) {
         const avgRecentStrength = recentSignals.reduce((sum, s) => sum + s.signal_strength, 0) / recentSignals.length;
         if (avgRecentStrength > 0.4) {
-          console.log('📊 ENGINE: REAL technical momentum detected - avg strength:', avgRecentStrength);
+          logEvent({ level: 'info', code: 'technical_momentum', message: `Technical momentum detected - avg strength: ${avgRecentStrength}` });
           signals++;
           totalIndicators++;
         }
@@ -691,7 +692,7 @@ export const useIntelligentTradingEngine = () => {
       const signalStrength = totalIndicators > 0 ? (signals / totalIndicators) : 0;
       const threshold = 0.5; // Lowered threshold for better signal detection
 
-      console.log('📊 ENGINE: REAL technical signal strength:', signalStrength, 'threshold:', threshold);
+      logEvent({ level: 'info', code: 'technical_signal_strength', message: `Technical signal strength: ${signalStrength} threshold: ${threshold}` });
       return signalStrength >= threshold;
 
     } catch (error) {
@@ -745,11 +746,11 @@ export const useIntelligentTradingEngine = () => {
       const confidenceThreshold = aiConfig.aiConfidenceThreshold || 60;
 
       if (aiConfidence >= confidenceThreshold) {
-        console.log('🤖 ENGINE: REAL AI comprehensive buy signal for', symbol, '- confidence:', aiConfidence + '%');
+        logEvent({ level: 'info', code: 'ai_buy_signal', message: `AI comprehensive buy signal for ${symbol} - confidence: ${aiConfidence}%` });
         return true;
       }
 
-      console.log('🤖 ENGINE: AI signal below threshold for', symbol, '- confidence:', aiConfidence + '%');
+      logEvent({ level: 'info', code: 'ai_signal_below_threshold', message: `AI signal below threshold for ${symbol} - confidence: ${aiConfidence}%` });
     } catch (error) {
       console.error('❌ ENGINE: Error in REAL AI buy signal analysis:', error);
     }
@@ -765,7 +766,7 @@ export const useIntelligentTradingEngine = () => {
   const calculateOpenPositions = async (): Promise<Position[]> => {
     if (!user?.id) return [];
 
-    console.log('🧮 POSITIONS: Starting position calculation for user:', user.id);
+    logEvent({ level: 'info', code: 'position_calculation', message: `Starting position calculation for user: ${user.id}` });
 
     const { data: buyTrades } = await supabase
       .from('mock_trades')
@@ -782,23 +783,15 @@ export const useIntelligentTradingEngine = () => {
       .eq('trade_type', 'sell')
       .eq('is_test_mode', true);
 
-    console.log('🧮 POSITIONS: Buy trades found:', buyTrades?.length || 0);
-    console.log('🧮 POSITIONS: Sell trades found:', sellTrades?.length || 0);
+    logEvent({ level: 'info', code: 'trades_found', message: `Buy trades found: ${buyTrades?.length || 0}` });
+    logEvent({ level: 'info', code: 'trades_found', message: `Sell trades found: ${sellTrades?.length || 0}` });
     
     if (buyTrades?.length) {
-      console.log('🧮 POSITIONS: Sample buy trades:', buyTrades.slice(0, 3).map(t => ({
-        symbol: t.cryptocurrency,
-        amount: t.amount,
-        executed_at: t.executed_at
-      })));
+      logEvent({ level: 'info', code: 'sample_buy_trades', message: `Sample buy trades: ${JSON.stringify(buyTrades.slice(0, 3).map(t => ({ symbol: t.cryptocurrency, amount: t.amount, executed_at: t.executed_at })))}` });
     }
     
     if (sellTrades?.length) {
-      console.log('🧮 POSITIONS: Sample sell trades:', sellTrades.slice(0, 3).map(t => ({
-        symbol: t.cryptocurrency,
-        amount: t.amount,
-        executed_at: t.executed_at
-      })));
+      logEvent({ level: 'info', code: 'sample_sell_trades', message: `Sample sell trades: ${JSON.stringify(sellTrades.slice(0, 3).map(t => ({ symbol: t.cryptocurrency, amount: t.amount, executed_at: t.executed_at })))}` });
     }
 
     if (!buyTrades) return [];
@@ -828,26 +821,26 @@ export const useIntelligentTradingEngine = () => {
       }
     });
 
-    console.log('🧮 POSITIONS: Positions after buy trades:', Object.keys(positions).length);
+    logEvent({ level: 'info', code: 'positions_after_buy', message: `Positions after buy trades: ${Object.keys(positions).length}` });
 
     // Subtract sell trades with normalized symbols
     if (sellTrades) {
       sellTrades.forEach(trade => {
         // Normalize symbol - remove -EUR suffix if present
         const symbol = trade.cryptocurrency.replace('-EUR', '');
-        console.log('🧮 POSITIONS: Processing sell trade for', symbol, 'amount:', trade.amount);
+        logEvent({ level: 'info', code: 'processing_sell_trade', message: `Processing sell trade for ${symbol} amount: ${trade.amount}` });
         if (positions[symbol]) {
           const beforeAmount = positions[symbol].remaining_amount;
           positions[symbol].remaining_amount -= trade.amount;
-          console.log('🧮 POSITIONS: Updated', symbol, 'from', beforeAmount, 'to', positions[symbol].remaining_amount);
+          logEvent({ level: 'info', code: 'position_updated', message: `Updated ${symbol} from ${beforeAmount} to ${positions[symbol].remaining_amount}` });
           
           // Remove position if completely sold
           if (positions[symbol].remaining_amount <= 0.000001) {
-            console.log('🧮 POSITIONS: Removing position', symbol, 'due to zero balance');
+            logEvent({ level: 'info', code: 'position_removed', message: `Removing position ${symbol} due to zero balance` });
             delete positions[symbol];
           }
         } else {
-          console.log('🧮 POSITIONS: Warning - sell trade for', symbol, 'but no position found!');
+          logEvent({ level: 'warn', code: 'sell_without_position', message: `Sell trade for ${symbol} but no position found!` });
         }
       });
     }
