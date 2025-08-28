@@ -49,7 +49,7 @@ export const ContextFreezeBarrier: React.FC<ContextFreezeBarrierProps> = ({ chil
       auth: { ...auth },
       testMode: { ...testMode }
     };
-    console.log('[HistoryBlink] ContextFreezeBarrier active for: price, auth, testMode');
+    // Silent mode - no console spam
   }
 
   // If not freezing, just return children as-is

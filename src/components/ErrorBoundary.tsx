@@ -31,18 +31,13 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   public static getDerivedStateFromError(error: Error): State {
-    // Step 5: Boundary reset tracer
-    if (DEBUG_HISTORY_BLINK) {
-      console.info('[HistoryBlink] ErrorBoundary caught -> resetting subtree');
-    }
+    // Silent error handling
     return { hasError: true, error };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('🚨 ErrorBoundary caught an error:', error, errorInfo);
-    if (DEBUG_HISTORY_BLINK) {
-      console.info('[HistoryBlink] ErrorBoundary componentDidCatch -> subtree reset');
-    }
+    // Silent mode - no debug logs
   }
 
   private handleRetry = () => {
@@ -50,10 +45,7 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   public render() {
-    // Step 5: Log ErrorBoundary mount
-    if (DEBUG_HISTORY_BLINK) {
-      console.info('[HistoryBlink] ErrorBoundary mounted');
-    }
+    // Silent mode - no debug logging
     
     if (this.state.hasError) {
       if (this.props.fallback) {

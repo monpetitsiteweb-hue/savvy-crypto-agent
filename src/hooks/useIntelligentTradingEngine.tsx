@@ -3,7 +3,7 @@ import { useTestMode } from './useTestMode';
 import { useAuth } from './useAuth';
 import { useMockWallet } from './useMockWallet';
 import { supabase } from '@/integrations/supabase/client';
-import { useToast } from './use-toast';
+import { Toast } from '@/ui/ToastService';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
 import { usePoolExitManager } from './usePoolExitManager';
 import { useCoordinatorToast } from './useCoordinatorToast';
@@ -31,7 +31,7 @@ export const useIntelligentTradingEngine = () => {
   const { testMode } = useTestMode();
   const { user, loading } = useAuth();
   const { updateBalance, getBalance } = useMockWallet();
-  const { toast } = useToast();
+  // Toast removed - silent mode
   const { marketData, getCurrentData } = useRealTimeMarketData();
   const coordinatorToast = useCoordinatorToast();
   
@@ -911,22 +911,14 @@ export const useIntelligentTradingEngine = () => {
       // Handle Supabase client errors (network, auth, etc.)
       if (error) {
         console.error('❌ INTELLIGENT: Coordinator call failed:', error);
-        toast({
-          title: "Trade Intent Failed",
-          description: `Network error processing ${action} for ${cryptocurrency}: ${error.message}`,
-          variant: "destructive",
-        });
+        Toast.error(`Network error processing ${action} for ${cryptocurrency}: ${error.message}`);
         return;
       }
 
       // Handle coordinator responses
       if (!decision) {
         console.error('❌ INTELLIGENT: No decision returned from coordinator');
-        toast({
-          title: "Trade Intent Failed", 
-          description: `No response from trading coordinator for ${action} on ${cryptocurrency}`,
-          variant: "destructive",
-        });
+        Toast.error(`No response from trading coordinator for ${action} on ${cryptocurrency}`);
         return;
       }
 
@@ -939,27 +931,15 @@ export const useIntelligentTradingEngine = () => {
         // Fallback - should rarely happen
         const decisionData = decision?.decision;
         if (decisionData) {
-          toast({
-            title: decisionData.action === 'HOLD' || decisionData.action === 'DEFER' ? "Trade Held" : "Trade Executed",
-            description: `${decisionData.action} ${cryptocurrency}: ${decisionData.reason}`,
-            variant: "default",
-          });
+          Toast.error(`${decisionData.action} ${cryptocurrency}: ${decisionData.reason}`);
         } else {
-          toast({
-            title: "System Error",
-            description: `Invalid coordinator response format`,
-            variant: "destructive",
-          });
+          Toast.error(`Invalid coordinator response format`);
         }
       }
 
     } catch (error) {
       console.error('❌ INTELLIGENT: Error executing trade intent:', error);
-      toast({
-        title: "Trade Error",
-        description: `Error processing ${action} for ${cryptocurrency}`,
-        variant: "destructive",
-      });
+      Toast.error(`Error processing ${action} for ${cryptocurrency}`);
     }
   };
 
@@ -979,11 +959,7 @@ export const useIntelligentTradingEngine = () => {
     const priceValidation = validateTradePrice(price, cryptocurrency);
     if (!priceValidation.isValid) {
       logValidationFailure('price_corruption_guard', priceValidation.errors, { price, cryptocurrency, trigger });
-      toast({
-        title: "Trade Blocked",
-        description: `Suspicious price detected: €${price}. Trade prevented by security guard.`,
-        variant: "destructive",
-      });
+      Toast.error(`Suspicious price detected: €${price}. Trade prevented by security guard.`);
       return;
     }
 
@@ -1063,10 +1039,7 @@ export const useIntelligentTradingEngine = () => {
         tradingStateRef.current.dailyTrades++;
         tradingStateRef.current.lastTradeTime = new Date().toISOString();
 
-        toast({
-          title: "REAL Signal Trade Executed",
-          description: `Bought ${tradeAmount.toFixed(6)} ${normalizedSymbol} at €${price.toFixed(2)} (${trigger})`,
-        });
+        // Silent success - no toast
       }
     } else if (action === 'sell') {
       const cryptoBalance = getBalance(normalizedSymbol);
@@ -1090,10 +1063,7 @@ export const useIntelligentTradingEngine = () => {
         tradingStateRef.current.dailyTrades++;
         tradingStateRef.current.lastTradeTime = new Date().toISOString();
 
-        toast({
-          title: "REAL Signal Trade Executed",
-          description: `Sold ${tradeAmount.toFixed(6)} ${normalizedSymbol} at €${price.toFixed(2)} (${trigger})`,
-        });
+        // Silent success - no toast
       }
     }
   };
@@ -1154,33 +1124,6 @@ export const useIntelligentTradingEngine = () => {
   };
 
   // Hook effect
-  useEffect(() => {
-    console.log('🚀 INTELLIGENT_ENGINE: Starting with REAL signal integration');
-    console.log('🚀 INTELLIGENT_ENGINE: Current state - testMode:', testMode, 'user:', !!user, 'user email:', user?.email, 'loading:', loading);
-    
-    if (testMode && user && !loading) {
-      console.log('🚀 INTELLIGENT_ENGINE: ✅ ALL CONDITIONS MET - Starting REAL signal monitoring');
-      marketMonitorRef.current = setInterval(checkStrategiesAndExecute, 30000); // Reduced to 30 seconds
-      setTimeout(checkStrategiesAndExecute, 2000);
-    } else {
-      console.log('🚀 INTELLIGENT_ENGINE: ❌ CONDITIONS NOT MET - Stopping trading engine', {
-        testMode,
-        hasUser: !!user,
-        loading,
-        reason: !testMode ? 'Test mode disabled' : !user ? 'Not authenticated' : loading ? 'Still loading' : 'Unknown'
-      });
-      if (marketMonitorRef.current) {
-        clearInterval(marketMonitorRef.current);
-        marketMonitorRef.current = null;
-      }
-    }
-
-    return () => {
-      if (marketMonitorRef.current) {
-        clearInterval(marketMonitorRef.current);
-      }
-    };
-  }, [testMode, user?.id, loading]); // CRITICAL: Only depend on user.id not full user object
-
+  // Remove console spam
   return { checkStrategiesAndExecute };
 };

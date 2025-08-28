@@ -34,15 +34,7 @@ const FORCE_FREEZE_LAYOUT = (() => {
 })();
 
 function AppInternal() {
-  // Step 5: Log app-level keys (rate-limited)
-  let lastLogTime = 0;
-  const now = performance.now();
-  if (DEBUG_HISTORY_BLINK && now - lastLogTime > 1000) {
-    console.info('[HistoryBlink] <App> key=undefined');
-    console.info('[HistoryBlink] <BrowserRouter> key=undefined');
-    console.info('[HistoryBlink] <Routes> key=undefined');
-    lastLogTime = now;
-  }
+  // Silent mode - no debug logging
   
   return (
     <TooltipProvider>

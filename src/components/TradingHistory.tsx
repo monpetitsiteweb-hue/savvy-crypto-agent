@@ -88,11 +88,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     const debugMode = urlParams.get('debug') === 'history';
     
     // Always log the startup message for price cache
-    console.log('[HistoryPerf] priceCache=on intervalMs=30000');
-    
-    if (debugMode || import.meta.env.DEV) {
-      console.log('[HistoryPerf] rowCap=20');
-    }
+    if (debugMode) console.log('[HistoryPerf] priceCache=on intervalMs=30000');
     
     return () => {
       sharedPriceCache.cleanup();

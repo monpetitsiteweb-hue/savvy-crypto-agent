@@ -184,7 +184,6 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
 
   const forceReset = () => {
     if (!user) return;
-    console.log('🔄 Force resetting wallet to €30,000...');
     // Clear localStorage
     localStorage.removeItem(`mock-wallet-${user.id}`);
     // Reset balances to starting state with €30,000
@@ -202,8 +201,6 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     
     setIsLoading(true);
     try {
-      console.log('🔄 Resetting entire test portfolio and deleting all trades...');
-      
       // Call the database function to delete all trades and reset portfolio
       const { error } = await supabase.rpc('reset_user_test_portfolio', {
         target_balance: 30000
@@ -213,8 +210,6 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
         console.error('Error resetting portfolio:', error);
         throw error;
       }
-
-      console.log('✅ Portfolio reset successful');
       
       // Clear localStorage
       localStorage.removeItem(`mock-wallet-${user.id}`);
