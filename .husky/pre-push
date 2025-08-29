@@ -1,0 +1,19 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Silence Gate - prevent pushing code with console noise or toast violations
+echo "🔍 Running Silence Gate..."
+
+# Check for console violations
+if rg -n "console\.(log|info|debug|trace)\(" src supabase/functions --iglob '!src/utils/logger.ts' --iglob '!supabase/functions/_shared/logger.ts' | head -1; then
+  echo "❌ Console violations found. Run: npm run silence:sweep"
+  exit 1
+fi
+
+# Check for toast violations  
+if rg -n "\btoast\(|\buseToast\(|<Toaster|\bshowToast\(" src supabase/functions | head -1; then
+  echo "❌ Toast violations found. Run: npm run silence:sweep"
+  exit 1
+fi
+
+echo "✅ Silence Gate passed"

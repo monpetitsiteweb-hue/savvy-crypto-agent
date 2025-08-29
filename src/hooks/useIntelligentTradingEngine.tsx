@@ -7,6 +7,7 @@ import { Toast } from '@/ui/ToastService';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
 import { usePoolExitManager } from './usePoolExitManager';
 import { engineLog } from '@/utils/silentLogger';
+import { logger } from '@/utils/logger';
 
 interface Position {
   cryptocurrency: string;
@@ -279,17 +280,10 @@ export const useIntelligentTradingEngine = () => {
   };
 
   const executeSellOrder = async (strategy: any, position: Position, marketPrice: number, sellDecision: {reason: string, orderType?: string}) => {
-    console.log('💸 ENGINE: executeSellOrder called!');
-    console.log('💸 ENGINE: Position:', position.cryptocurrency, 'Amount:', position.remaining_amount);
-    console.log('💸 ENGINE: Market price:', marketPrice, 'Reason:', sellDecision.reason);
-    console.log('💸 ENGINE: Strategy:', strategy?.id);
-    
     try {
-      console.log('💸 ENGINE: About to call executeTrade...');
       await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason);
-      console.log('💸 ENGINE: executeTrade completed successfully!');
     } catch (error) {
-      console.error('💸 ENGINE: Error in executeTrade:', error);
+      logger.error('ENGINE: Error in executeTrade:', error);
     }
   };
 
@@ -299,22 +293,18 @@ export const useIntelligentTradingEngine = () => {
     // FIXED: Trailing stop should ONLY activate when position is actually profitable
     // Don't trigger trailing stop unless we're in profit
     if (!trailingPercentage || pnlPercentage <= 0) {
-      console.log('🚫 TRAILING_STOP: Not in profit (', pnlPercentage.toFixed(2), '%) - trailing stop disabled');
       return false;
     }
 
     // Only activate trailing stop if we've reached a minimum profit threshold
     const minProfitForTrailing = config.trailingStopMinProfitThreshold || 1.0;
     if (pnlPercentage < minProfitForTrailing) {
-      console.log('🚫 TRAILING_STOP: Below minimum profit threshold (', pnlPercentage.toFixed(2), '% <', minProfitForTrailing, '%) - trailing stop disabled');
       return false;
     }
 
     // For now, we need to track the actual peak price over time
     // Since we don't have peak tracking yet, let's disable trailing stop completely
     // until we implement proper peak tracking
-    console.log('🚫 TRAILING_STOP: Peak tracking not implemented yet - trailing stop disabled');
-    console.log('💡 TRAILING_STOP: Use regular take-profit (', config.takeProfitPercentage, '%) instead');
     
     return false;
   };
@@ -335,13 +325,10 @@ export const useIntelligentTradingEngine = () => {
         .order('timestamp', { ascending: false })
         .limit(20);
 
-      console.log('🔍 ENGINE: REAL sell signals for', symbol, '- found:', liveSignals?.length || 0, 'technical signals');
-
       if (liveSignals?.length) {
         // Check for strong bearish signals from REAL data
         const bearishSignals = liveSignals.filter(s => s.signal_strength < -0.4);
         if (bearishSignals.length >= 2) {
-          console.log('📊 ENGINE: Multiple REAL bearish technical signals:', bearishSignals.length);
           return true;
         }
 
@@ -355,14 +342,13 @@ export const useIntelligentTradingEngine = () => {
           );
           
           if (rsiSignals.length > 0) {
-            console.log('📊 ENGINE: REAL RSI sell signal from live data');
             return true;
           }
         }
       }
 
     } catch (error) {
-      console.error('❌ ENGINE: Error fetching REAL technical indicators:', error);
+      logger.error('ENGINE: Error fetching REAL technical indicators:', error);
     }
 
     return false;
@@ -374,7 +360,6 @@ export const useIntelligentTradingEngine = () => {
     
     // Check position limits
     if (config.maxOpenPositions && positions.length >= config.maxOpenPositions) {
-      console.log('🛑 ENGINE: Max open positions reached:', positions.length, '>=', config.maxOpenPositions);
       return;
     }
 
@@ -389,7 +374,6 @@ export const useIntelligentTradingEngine = () => {
       // Skip if already have position in this coin (unless DCA enabled)
       const hasPosition = positions.some(p => p.cryptocurrency === symbol);
       if (hasPosition && !config.enableDCA) {
-        console.log('📝 ENGINE: Already have position in', symbol, '(DCA disabled)');
         continue;
       }
 
