@@ -452,10 +452,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       if (error) throw error;
     } catch (error: any) {
       logger.error('Error updating strategy:', error);
-        title: "Update Failed",
-        description: error.message,
-        variant: "destructive",
-      });
     }
   };
 
