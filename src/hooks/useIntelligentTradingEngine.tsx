@@ -29,7 +29,6 @@ export const useIntelligentTradingEngine = () => {
   const { testMode } = useTestMode();
   const { user, loading } = useAuth();
   const { updateBalance, getBalance } = useMockWallet();
-  const { checkStrategiesAndExecute } = useIntelligentTradingEngine();
   const { marketData, getCurrentData } = useRealTimeMarketData();
   
   // Initialize pool exit manager
