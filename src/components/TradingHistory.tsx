@@ -517,6 +517,10 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                 <span className="text-lg font-bold">{stats.openPositions}</span>
               </div>
               <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground">Past Positions</span>
+                <span className="text-sm">{pastPositions.length}</span>
+              </div>
+              <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Total Trades</span>
                 <span className="text-sm">{stats.totalTrades}</span>
               </div>
