@@ -1134,11 +1134,11 @@ If it's just a question, return: {"isCommand": false}`;
       const data = await response.json();
       const result = JSON.parse(data.choices[0].message.content);
       
-      console.log(`🧠 OPENAI_PARSED_INTENT: ${JSON.stringify(result, null, 2)}`);
+      
       return result;
       
     } catch (error) {
-      console.log(`❌ OPENAI_PARSE_ERROR: ${error.message}`);
+      
       return this.fallbackParse(message);
     }
   }

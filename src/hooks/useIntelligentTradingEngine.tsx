@@ -483,7 +483,7 @@ export const useIntelligentTradingEngine = () => {
         .order('timestamp', { ascending: false })
         .limit(20);
 
-      console.log('📰 ENGINE: Checking REAL news/sentiment signals for', cryptoSymbol, '- found:', newsSignals?.length || 0);
+      
 
       if (newsSignals?.length) {
         // Calculate average sentiment from REAL signals
@@ -494,10 +494,10 @@ export const useIntelligentTradingEngine = () => {
         const positiveSignals = newsSignals.filter(signal => signal.signal_strength > 0.3);
         const sentimentThreshold = 0.3 + (newsWeight / 200);
         
-        console.log('📰 ENGINE: REAL news analysis for', symbol, '- avg sentiment:', avgSentiment.toFixed(3), 'positive signals:', positiveSignals.length);
+        
 
         if (avgSentiment > sentimentThreshold && positiveSignals.length >= 2) {
-          console.log('📰 ENGINE: REAL positive news sentiment signal for', symbol);
+          
           return true;
         }
       }
@@ -515,7 +515,7 @@ export const useIntelligentTradingEngine = () => {
       if (externalNews?.length) {
         const avgExternalSentiment = externalNews.reduce((sum, data) => sum + (data.data_value || 0), 0) / externalNews.length;
         if (avgExternalSentiment > 0.6) {
-          console.log('📰 ENGINE: REAL external news sentiment signal for', symbol, '- score:', avgExternalSentiment);
+          
           return true;
         }
       }

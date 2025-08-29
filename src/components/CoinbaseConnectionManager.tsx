@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
-import { useToast } from '@/hooks/use-toast';
+import { logger } from '@/utils/logger';
 import { CheckCircle, AlertTriangle, Key, Link2, Calendar, Shield, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -23,7 +23,7 @@ interface CoinbaseConnection {
 
 export const CoinbaseConnectionManager = () => {
   const { user } = useAuth();
-  const { toast } = useToast();
+  
   const [connections, setConnections] = useState<CoinbaseConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeConnectionId, setActiveConnectionId] = useState<string>('');
@@ -54,12 +54,7 @@ export const CoinbaseConnectionManager = () => {
         setActiveConnectionId(activeConnection.id);
       }
     } catch (error) {
-      console.error('Error fetching connections:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load connections",
-        variant: "destructive"
-      });
+      logger.error('Error fetching connections:', error);
     } finally {
       setLoading(false);
     }
@@ -92,21 +87,8 @@ export const CoinbaseConnectionManager = () => {
       // Refresh connections to get updated state
       await fetchConnections();
 
-      // Get connection type for success message
-      const selectedConnection = connections.find(c => c.id === connectionId);
-      const connectionType = selectedConnection?.api_private_key_encrypted ? 'API Key' : 'OAuth';
-
-      toast({
-        title: "Connection Activated",
-        description: `${connectionType} connection is now active for trading`,
-      });
     } catch (error) {
-      console.error('Error updating connection:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update connection",
-        variant: "destructive"
-      });
+      logger.error('Error updating connection:', error);
     } finally {
       setUpdating(false);
     }
@@ -114,11 +96,7 @@ export const CoinbaseConnectionManager = () => {
 
   const handleOAuthConnect = async (refreshConnectionId?: string) => {
     if (!user) {
-      toast({
-        title: "Authentication required",
-        description: "You must be signed in to connect your Coinbase account",
-        variant: "destructive"
-      });
+      logger.warn('OAuth connect attempted without authenticated user');
       return;
     }
 
@@ -146,12 +124,7 @@ export const CoinbaseConnectionManager = () => {
         }
       }
     } catch (error) {
-      console.error('OAuth error:', error);
-      toast({
-        title: "Connection failed",
-        description: "Failed to start OAuth flow",
-        variant: "destructive"
-      });
+      logger.error('OAuth error:', error);
       setUpdating(false);
     }
   };
@@ -176,20 +149,10 @@ export const CoinbaseConnectionManager = () => {
 
       if (error) throw error;
 
-      toast({
-        title: "Connection Deleted",
-        description: "Connection has been removed successfully",
-      });
-      
       // Refresh connections
       await fetchConnections();
     } catch (error) {
-      console.error('Error deleting connection:', error);
-      toast({
-        title: "Error",
-        description: "Failed to delete connection",
-        variant: "destructive"
-      });
+      logger.error('Error deleting connection:', error);
     } finally {
       setUpdating(false);
     }
