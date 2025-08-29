@@ -246,7 +246,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         }
 
         setStats({
-          totalTrades: data.length,
+          totalTrades: openPositions.length + sellTrades.length,
           totalVolume: data.reduce((sum, t) => sum + t.total_value, 0),
           netProfitLoss: realizedPL + unrealizedPL,
           openPositions: openPositions.length,
