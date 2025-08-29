@@ -39,14 +39,12 @@ interface MergedPortfolioDisplayProps {
 }
 
 export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: MergedPortfolioDisplayProps) => {
-  console.log('🔵 MERGED_PORTFOLIO: Component is rendering!', { hasActiveStrategy });
   const { user } = useAuth();
   const { testMode } = useTestMode();
-  console.log('🔵 MERGED_PORTFOLIO: Auth and test mode:', { user: !!user, testMode });
   const { balances: mockBalances, resetPortfolio, isLoading: walletLoading } = useMockWallet();
   const { marketData, getCurrentData } = useRealTimeMarketData();
   const { portfolioData, updatePortfolioData, shouldRefresh } = usePersistentDashboardData();
-  const { toast } = useToast();
+  
   
   const [loading, setLoading] = useState(false);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -62,7 +60,6 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
 
   // In test mode, use mock wallet data - prevent infinite loops
   useEffect(() => {
-    console.log('🧪 MergedPortfolioDisplay: Test mode:', testMode, 'Mock balances:', mockBalances);
     if (testMode && mockBalances && mockBalances.length > 0) {
       const mockPortfolio: PortfolioData = {
         accounts: mockBalances.map((balance) => ({
@@ -75,7 +72,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
           }
         }))
       };
-      console.log('📊 MergedPortfolioDisplay: Updating portfolio data with:', mockPortfolio);
+      
       updatePortfolioData(mockPortfolio);
     }
   }, [testMode, mockBalances]); // Removed updatePortfolioData to prevent infinite loop
@@ -84,9 +81,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
   useEffect(() => {
     const fetchPrices = async () => {
       try {
-        console.log('🔄 MergedPortfolioDisplay: Fetching prices...');
         const response = await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
-        console.log('📊 MergedPortfolioDisplay: Got response:', response);
         const prices: Record<string, number> = {};
         
         Object.entries(response).forEach(([symbol, data]) => {
@@ -94,10 +89,9 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
           prices[currency] = data.price;
         });
         
-        console.log('💰 MergedPortfolioDisplay: Setting prices:', prices);
         setRealTimePrices(prices);
       } catch (error) {
-        console.error('❌ MergedPortfolioDisplay: Error fetching real-time prices:', error);
+        // Silently fail price updates
       }
     };
 
@@ -123,7 +117,7 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
         setSelectedConnectionId(data[0].id);
       }
     } catch (error) {
-      console.error('Error fetching connections:', error);
+      // Silently fail connection fetch
     }
   };
 
@@ -135,35 +129,25 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     
     setLoading(true);
     try {
-      console.log('🔄 MergedPortfolio: Fetching portfolio with connection:', selectedConnectionId);
-      
       const { data, error } = await supabase.functions.invoke('coinbase-portfolio', {
         body: { connectionId: selectedConnectionId }
       });
 
-      console.log('📊 MergedPortfolio: Portfolio response:', { data, error });
-
       if (error) {
-        console.error('❌ MergedPortfolio: Supabase function error:', error);
         throw error;
       }
 
       if (data?.error) {
-        console.error('❌ MergedPortfolio: API error:', data.error);
         throw new Error(data.error);
       }
 
       if (data?.needsReconnection) {
-        console.warn('🔑 MergedPortfolio: Authentication expired, user needs to reconnect');
-        // Could trigger a toast or modal here to inform user
         return;
       }
 
       updatePortfolioData(data);
-      console.log('✅ MergedPortfolio: Portfolio data updated successfully');
     } catch (error) {
-      console.error('❌ MergedPortfolio: Error fetching portfolio:', error);
-      // Don't throw the error to prevent white screen
+      // Silently fail portfolio fetch
     } finally {
       setLoading(false);
     }
@@ -240,22 +224,10 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
   };
 
   const handleResetPortfolio = async () => {
-    console.log('🚨 RESET CLICKED: Starting portfolio reset...');
     try {
-      console.log('🚨 RESET: Calling resetPortfolio function...');
       await resetPortfolio();
-      console.log('🚨 RESET: Success! Showing success toast...');
-      toast({
-        title: "Portfolio Reset",
-        description: "All trades deleted and portfolio reset to €30,000",
-      });
     } catch (error) {
-      console.error('🚨 RESET ERROR:', error);
-      toast({
-        title: "Reset Failed",
-        description: "Failed to reset portfolio. Please try again.",
-        variant: "destructive",
-      });
+      // Silently handle reset errors
     }
   };
 

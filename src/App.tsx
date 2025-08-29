@@ -1,5 +1,4 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
+import { logger } from "@/utils/logger";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
@@ -42,8 +41,6 @@ function AppInternal() {
         <TestModeProvider>
           <MarketDataProvider>
             <MockWalletProvider>
-              <Toaster />
-              <Sonner />
               <ErrorBoundary>
                 <BrowserRouter>
                   <Routes>
@@ -72,7 +69,7 @@ const App = () => {
     if (frozenLayoutRenderRef === null) {
       frozenLayoutRenderRef = <AppInternal />;
       if (!layoutFreezeLoggedRef) {
-        console.info('[HistoryBlink] forceFreezeLayout active');
+        logger.info('[HistoryBlink] forceFreezeLayout active');
         layoutFreezeLoggedRef = true;
       }
     }

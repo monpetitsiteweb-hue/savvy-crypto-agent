@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -37,7 +38,6 @@ interface PortfolioData {
 
 export const DashboardPanel = () => {
   const { user } = useAuth();
-  const { toast } = useToast();
   const { testMode } = useTestMode();
   const { balances } = useMockWallet();
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -107,12 +107,7 @@ export const DashboardPanel = () => {
         localStorage.setItem(`selectedConnection_${user.id}`, firstConnectionId);
       }
     } catch (error) {
-      console.error('Error fetching connections:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load connections",
-        variant: "destructive",
-      });
+      logger.error('Error fetching connections:', error);
     } finally {
       setLoading(false);
     }
@@ -180,11 +175,6 @@ export const DashboardPanel = () => {
   const fetchPortfolio = async (connectionId?: string) => {
     const targetConnectionId = connectionId || selectedConnectionId;
     if (!targetConnectionId && !testMode) {
-      toast({
-        title: "No Connection Selected",
-        description: "Please select a connection to fetch portfolio data",
-        variant: "destructive",
-      });
       return;
     }
 
@@ -213,11 +203,6 @@ export const DashboardPanel = () => {
         if (user) {
           localStorage.setItem(`testPortfolio_${user.id}`, JSON.stringify(mockData));
         }
-        
-        toast({
-          title: "Portfolio Refreshed",
-          description: "Portfolio updated with latest trading data",
-        });
       } else {
         // Real Coinbase API call
         const session = await supabase.auth.getSession();
@@ -231,14 +216,9 @@ export const DashboardPanel = () => {
         });
         
         const data = await response.json();
-        console.log('Portfolio response:', data);
         
         if (data.error) {
-          toast({
-            title: "Portfolio Fetch Failed",
-            description: data.error,
-            variant: "destructive",
-          });
+          logger.error("Portfolio fetch failed:", data.error);
         } else {
           setPortfolioData(data);
           // Save portfolio data to localStorage
@@ -248,12 +228,7 @@ export const DashboardPanel = () => {
         }
       }
     } catch (error) {
-      console.error('Portfolio fetch error:', error);
-      toast({
-        title: "Portfolio Fetch Failed",
-        description: error instanceof Error ? error.message : 'Unknown error',
-        variant: "destructive",
-      });
+      logger.error('Portfolio fetch error:', error);
     } finally {
       setFetchingPortfolio(false);
     }
@@ -279,17 +254,8 @@ export const DashboardPanel = () => {
           localStorage.removeItem(`selectedConnection_${user.id}`);
         }
       }
-      
-      toast({
-        title: "Connection Removed",
-        description: "Connection has been deactivated",
-      });
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to remove connection",
-        variant: "destructive",
-      });
+      logger.error("Failed to remove connection:", error);
     }
   };
 
@@ -313,19 +279,10 @@ export const DashboardPanel = () => {
 
       if (error) throw error;
 
-      toast({
-        title: "Connection Updated",
-        description: "Connection name updated successfully",
-      });
       
       fetchConnections(); // Refresh the list
     } catch (error) {
-      console.error('Error updating connection:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update connection name",
-        variant: "destructive",
-      });
+      logger.error('Error updating connection:', error);
     }
   };
 

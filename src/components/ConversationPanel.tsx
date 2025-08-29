@@ -1,3 +1,4 @@
+import { logger } from '@/utils/logger';
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -31,7 +32,6 @@ interface StrategyData {
 }
 
 export const ConversationPanel = () => {
-  console.log('ConversationPanel component loaded');
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { activeStrategy, hasActiveStrategy, loading: strategyLoading } = useActiveStrategy();
@@ -58,7 +58,7 @@ export const ConversationPanel = () => {
           return;
         }
       } catch (error) {
-        console.error('Failed to parse saved conversation:', error);
+        logger.error('Failed to parse saved conversation:', error);
       }
     }
     
@@ -93,7 +93,7 @@ export const ConversationPanel = () => {
           }]);
         }
       } catch (error) {
-        console.error('Failed to initialize AI conversation:', error);
+        logger.error('Failed to initialize AI conversation:', error);
         // Fallback message
         setMessages([{
           id: '1',
@@ -132,25 +132,20 @@ export const ConversationPanel = () => {
   // Load user strategies
   useEffect(() => {
     const loadStrategies = async () => {
-      console.log('Loading strategies, user:', user);
       if (!user) {
-        console.log('No user found, returning');
         return;
       }
       
-      console.log('Fetching strategies for user ID:', user.id);
       const { data, error } = await supabase
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      console.log('Strategies response:', { data, error });
       if (data && !error) {
         setUserStrategies(data);
-        console.log('Set user strategies:', data);
       } else {
-        console.error('Error loading strategies:', error);
+        logger.error('Error loading strategies:', error);
       }
     };
 
@@ -252,13 +247,13 @@ export const ConversationPanel = () => {
         });
 
       if (error) {
-        console.error('Test trade recording error:', error);
+        logger.error('Test trade recording error:', error);
         return `❌ **Test Trade Failed**\n\nError recording the trade: ${error.message}`;
       }
 
       return `✅ **${tradeRequest.action.toUpperCase()} Order Executed Successfully** 🧪\n\n**Details:**\n• Amount: ${cryptoAmount.toFixed(6)} ${cryptoSymbol}\n• Value: €${tradeRequest.action === 'buy' ? tradeRequest.amount.toLocaleString() : (tradeRequest.amount * currentPrice).toLocaleString()}\n• Price: €${currentPrice.toLocaleString()} per ${cryptoSymbol}\n• Environment: 🧪 Test Mode (Simulated)\n\n**Note:** This was a simulated trade for testing purposes. Check your Dashboard to see the updated mock portfolio!`;
     } catch (error) {
-      console.error('Test trade execution error:', error);
+      logger.error('Test trade execution error:', error);
       return `❌ **Test Trade Failed**\n\nError: ${error.message}`;
     }
   };
@@ -336,9 +331,8 @@ export const ConversationPanel = () => {
 
     try {
       // =============================================
-      // FULLY LLM-FIRST ROUTING - NO REGEX LOGIC
+      // FULLY LLM-FIRST ROUTING - NO REGEX LOGIC  
       // =============================================
-      console.log('🤖 MASTER AI ROUTING: All messages go through LLM first');
       
       // Get target strategy for context
       let targetStrategy = activeStrategy;
@@ -424,7 +418,7 @@ export const ConversationPanel = () => {
         }
       };
       
-      console.log('🚀 Sending comprehensive payload to AI assistant:', payload);
+      
       
       const { data, error } = await supabase.functions.invoke('ai-trading-assistant', {
         body: payload
@@ -433,7 +427,7 @@ export const ConversationPanel = () => {
       let aiMessage = '';
       
       if (error) {
-        console.error('AI assistant error:', error);
+        logger.error('AI assistant error:', error);
         aiMessage = `❌ **AI Assistant Error**\n\nError: ${error.message || 'Unknown error occurred'}\n\nPlease try again or check the system logs for more details.`;
       } else if (data && (data.response || data.message || data.success !== undefined)) {
         // Handle new AI assistant response format
@@ -482,7 +476,7 @@ export const ConversationPanel = () => {
             }
           });
           
-          console.log('📝 Applying validated config:', updatedConfig);
+          
           
           try {
             const { data: updateResult, error: updateError } = await supabase
@@ -495,13 +489,13 @@ export const ConversationPanel = () => {
               .eq('user_id', user.id)
               .select();
 
-            console.log('📊 Config update result:', { updateResult, updateError });
+            
 
             if (updateError) {
               console.error('❌ CONFIG UPDATE FAILED:', updateError);
               aiMessage = `❌ Failed to update strategy. Please try again or contact support.`;
             } else if (updateResult && updateResult.length > 0) {
-              console.log('✅ CONFIG UPDATE SUCCESS:', updateResult[0]);
+              
               
               // Refresh strategies to reflect changes
               const { data: updatedStrategies, error: refreshError } = await supabase
@@ -510,11 +504,11 @@ export const ConversationPanel = () => {
                 .eq('user_id', user.id)
                 .order('created_at', { ascending: false });
               
-              console.log('🔄 Strategy refresh result:', { updatedStrategies, refreshError });
+              
               
               if (updatedStrategies && !refreshError) {
                 setUserStrategies(updatedStrategies);
-                console.log('✅ Strategies refreshed in state');
+                
                 
                 // If technicalIndicators were updated, sync with the hook
                 if (data.configUpdates.technicalIndicators) {
@@ -542,7 +536,7 @@ export const ConversationPanel = () => {
                   }
                   // 🚨 DEBUG: Log the actual field being updated to catch the issue
                   if (key === 'ai_override_enabled') {
-                    console.log('🚨 FRONTEND BUG: ai_override_enabled field found in config updates!', value);
+                    
                     return `AI decision override: ${value ? 'enabled' : 'disabled'}`;
                   }
                   if (typeof value === 'object' && value !== null) {
