@@ -2,11 +2,10 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { checkIntegrity, type OpenPositionInputs } from '@/utils/valuationService';
-import { useToast } from '@/hooks/use-toast';
+import { logger } from '@/utils/logger';
 
 export const IntegrityGuard = () => {
   const { user } = useAuth();
-  const { toast } = useToast();
   const [checking, setChecking] = useState(false);
 
   const runIntegrityChecks = async () => {
@@ -14,7 +13,6 @@ export const IntegrityGuard = () => {
     
     setChecking(true);
     try {
-      console.log('🔍 INTEGRITY: Running integrity checks...');
       
       // Get all mock trades that aren't already marked as corrupted
       const { data: trades, error } = await supabase
@@ -39,7 +37,7 @@ export const IntegrityGuard = () => {
           const integrityCheck = checkIntegrity(inputs);
           
           if (!integrityCheck.is_valid) {
-            console.warn(`🚨 INTEGRITY: Trade ${trade.id} failed checks:`, integrityCheck.errors);
+            logger.warn(`INTEGRITY: Trade ${trade.id} failed checks:`, integrityCheck.errors);
             
             // Mark as corrupted
             await supabase
@@ -56,17 +54,11 @@ export const IntegrityGuard = () => {
       }
       
       if (corruptedCount > 0) {
-        toast({
-          title: "Data Integrity Issues Found",
-          description: `${corruptedCount} trades marked as corrupted and need review.`,
-          variant: "destructive",
-        });
+        logger.warn(`INTEGRITY: Check complete. Found ${corruptedCount} corrupted trades.`);
       }
       
-      console.log(`✅ INTEGRITY: Check complete. Found ${corruptedCount} corrupted trades.`);
-      
     } catch (error) {
-      console.error('❌ INTEGRITY: Check failed:', error);
+      logger.error('INTEGRITY: Check failed:', error);
     } finally {
       setChecking(false);
     }

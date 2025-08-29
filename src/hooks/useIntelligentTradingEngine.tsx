@@ -6,8 +6,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { Toast } from '@/ui/ToastService';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
 import { usePoolExitManager } from './usePoolExitManager';
-import { useCoordinatorToast } from './useCoordinatorToast';
-
 import { engineLog } from '@/utils/silentLogger';
 
 interface Position {
@@ -31,9 +29,8 @@ export const useIntelligentTradingEngine = () => {
   const { testMode } = useTestMode();
   const { user, loading } = useAuth();
   const { updateBalance, getBalance } = useMockWallet();
-  // Toast removed - silent mode
+  const { checkStrategiesAndExecute } = useIntelligentTradingEngine();
   const { marketData, getCurrentData } = useRealTimeMarketData();
-  const coordinatorToast = useCoordinatorToast();
   
   // Initialize pool exit manager
   const { processAllPools } = usePoolExitManager({ 
@@ -925,17 +922,7 @@ export const useIntelligentTradingEngine = () => {
       console.log('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
 
       // STEP 1: Use standardized coordinator toast handler
-      if (coordinatorToast) {
-        coordinatorToast.handleCoordinatorResponse(decision, { side: action.toUpperCase(), symbol: cryptocurrency });
-      } else {
-        // Fallback - should rarely happen
-        const decisionData = decision?.decision;
-        if (decisionData) {
-          Toast.error(`${decisionData.action} ${cryptocurrency}: ${decisionData.reason}`);
-        } else {
-          Toast.error(`Invalid coordinator response format`);
-        }
-      }
+      // Toast handling removed - silent mode
 
     } catch (error) {
       console.error('❌ INTELLIGENT: Error executing trade intent:', error);

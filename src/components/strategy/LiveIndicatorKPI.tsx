@@ -7,13 +7,9 @@ import { TrendingUp, TrendingDown, Minus, Clock, Zap, RefreshCw } from 'lucide-r
 import { useEffect, useState } from 'react';
 
 export const LiveIndicatorKPI = () => {
-  const renderStart = performance.now();
-  console.log('🚀 LiveIndicatorKPI component is rendering at:', renderStart, 'ms');
-  
   const { activeStrategy } = useActiveStrategy();
-  console.log('📋 Active strategy:', activeStrategy);
   
-  const hookCallStart = performance.now();
+  
   const { 
     indicators, 
     indicatorConfig, 
@@ -23,30 +19,12 @@ export const LiveIndicatorKPI = () => {
     error,
     refresh
   } = useOptimizedTechnicalIndicators(activeStrategy?.configuration);
-  const hookCallEnd = performance.now();
-  console.log(`⚡ useOptimizedTechnicalIndicators hook call took: ${hookCallEnd - hookCallStart}ms`);
   
-  console.log('📊 Technical indicators state:', {
-    indicators: Object.keys(indicators),
-    indicatorsCount: Object.keys(indicators).length,
-    isLoadingHistoricalData,
-    priceHistorySymbols: Object.keys(priceHistory),
-    priceHistoryCount: Object.keys(priceHistory).length,
-    indicatorConfig,
-    lastUpdated: lastUpdated?.toISOString(),
-    error: error?.message
-  });
-
+  
   const hasEnabledIndicators = Object.values(indicatorConfig).some(config => config.enabled);
   const hasIndicatorData = Object.keys(indicators).length > 0;
-
-  console.log('🔍 Component state - activeStrategy:', !!activeStrategy, 'hasEnabledIndicators:', hasEnabledIndicators, 'hasIndicatorData:', hasIndicatorData);
-  
-  const renderEnd = performance.now();
-  console.log(`⏱️ LiveIndicatorKPI render cycle took: ${renderEnd - renderStart}ms`);
   
   if (!activeStrategy) {
-    console.log('⚠️ No active strategy, showing placeholder');
     return (
       <Card>
         <CardHeader>
@@ -63,7 +41,6 @@ export const LiveIndicatorKPI = () => {
   }
 
   if (!hasEnabledIndicators) {
-    console.log('⚠️ No indicators enabled, showing placeholder');
     return (
       <Card>
         <CardHeader>

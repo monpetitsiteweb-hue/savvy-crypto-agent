@@ -150,7 +150,6 @@ export function WhaleSignalPanel() {
           .on('postgres_changes', 
             { event: 'INSERT', schema: 'public', table: 'whale_signal_events', filter: `source_id=eq.${sourceId}` },
             async (payload) => {
-              console.log('Webhook event received:', payload);
               
               // Update source with success timestamp
               await supabase

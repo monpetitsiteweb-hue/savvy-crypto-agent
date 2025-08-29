@@ -10,11 +10,10 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Bot, Save, TestTube, Settings, MessageSquare, Zap } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { logger } from '@/utils/logger';
 import { supabase } from '@/integrations/supabase/client';
 
 export const LLMConfigPanel = () => {
-  const { toast } = useToast();
   const [config, setConfig] = useState({
     enabled: true, // LLM is actually working since AI agent responds
     provider: 'openai',
@@ -45,7 +44,7 @@ export const LLMConfigPanel = () => {
           .single();
 
         if (error) {
-          console.log('No LLM config found, using defaults');
+          logger.info('No LLM config found, using defaults');
           return;
         }
 
@@ -62,7 +61,7 @@ export const LLMConfigPanel = () => {
           setOriginalConfig(loadedConfig);
         }
       } catch (error) {
-        console.error('Error loading LLM config:', error);
+        logger.error('Error loading LLM config:', error);
       }
     };
 
@@ -86,16 +85,8 @@ export const LLMConfigPanel = () => {
       if (error) throw error;
 
       setOriginalConfig(config);
-      toast({
-        title: "Configuration Saved",
-        description: "LLM settings have been updated successfully",
-      });
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to save configuration",
-        variant: "destructive",
-      });
+      logger.error('Failed to save configuration:', error);
     }
   };
 
@@ -112,16 +103,8 @@ export const LLMConfigPanel = () => {
       
       if (error) throw error;
       
-      toast({
-        title: "Connection Successful",
-        description: "LLM service is responding correctly - AI agent is working!",
-      });
     } catch (error) {
-      toast({
-        title: "Connection Failed",
-        description: `Unable to connect to LLM service: ${error.message}`,
-        variant: "destructive",
-      });
+      logger.error('Connection failed:', error);
     } finally {
       setTesting(false);
     }

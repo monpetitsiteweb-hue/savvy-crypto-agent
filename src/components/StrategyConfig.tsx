@@ -7,7 +7,7 @@ import { Plus, Settings, Activity, TrendingUp, Play, Pause, Edit, Copy, AlertTri
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
+import { logger } from '@/utils/logger';
 import { ComprehensiveStrategyConfig } from './strategy/ComprehensiveStrategyConfig';
 import { formatEuro, formatPercentage, formatDuration } from '@/utils/currencyFormatter';
 
@@ -37,7 +37,6 @@ interface StrategyPerformance {
 export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
-  const { toast } = useToast();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [currentView, setCurrentView] = useState<'list' | 'create' | 'edit' | 'comprehensive'>('list');
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
@@ -67,7 +66,6 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          console.log('Strategy list updated via real-time:', payload);
           // Refresh the strategy list when any strategy for this user is updated
           fetchStrategies();
         }
@@ -90,9 +88,6 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
   const fetchStrategies = async () => {
     if (!user) return;
     
-    console.log('🔍 StrategyConfig: fetchStrategies called with testMode:', testMode);
-    console.log('🔍 StrategyConfig: user.id:', user.id);
-    
     try {
       const { data, error } = await supabase
         .from('trading_strategies')
@@ -102,27 +97,17 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
 
       if (error) throw error;
       
-      console.log('🔍 StrategyConfig: Raw data from DB:', data);
-      
       // Filter strategies based on current view mode
       const filteredStrategies = (data || []).filter(strategy => {
         const shouldShow = testMode ? strategy.test_mode === true : strategy.test_mode === false;
-        console.log(`🔍 StrategyConfig: Strategy "${strategy.strategy_name}" - test_mode: ${strategy.test_mode}, testMode: ${testMode}, shouldShow: ${shouldShow}`);
         return shouldShow;
       });
-      
-      console.log('🔍 StrategyConfig: Filtered strategies:', filteredStrategies);
       setStrategies(filteredStrategies);
       
       // Fetch performance data for each strategy
       await fetchPerformanceData(filteredStrategies);
     } catch (error) {
-      console.error('Error fetching strategies:', error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch strategies",
-        variant: "destructive",
-      });
+      logger.error('Error fetching strategies:', error);
     } finally {
       setLoading(false);
     }
@@ -142,7 +127,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
           .eq('strategy_id', strategy.id);
 
         if (error) {
-          console.error(`Error fetching trades for strategy ${strategy.id}:`, error);
+          logger.error(`Error fetching trades for strategy ${strategy.id}:`, error);
           continue;
         }
 
@@ -174,7 +159,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
 
       setStrategyPerformance(performanceMap);
     } catch (error) {
-      console.error('Error fetching performance data:', error);
+      logger.error('Error fetching performance data:', error);
     }
   };
 
@@ -228,18 +213,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       if (error) throw error;
 
       await fetchStrategies();
-      
-      toast({
-        title: currentValue ? "Strategy Deactivated" : "Strategy Activated",
-        description: `${strategy.strategy_name} ${currentValue ? 'stopped' : 'started'} in ${isTest ? 'test' : 'live'} mode`,
-      });
     } catch (error) {
-      console.error('Error toggling strategy:', error);
-      toast({
-        title: "Error",
-        description: "Failed to toggle strategy",
-        variant: "destructive",
-      });
+      logger.error('Error toggling strategy:', error);
     }
   };
 
@@ -256,17 +231,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       if (error) throw error;
 
       await fetchStrategies();
-      toast({
-        title: "Strategy Deleted",
-        description: "Strategy has been removed successfully",
-      });
     } catch (error) {
-      console.error('Error deleting strategy:', error);
-      toast({
-        title: "Error",
-        description: "Failed to delete strategy",
-        variant: "destructive",
-      });
+      logger.error('Error deleting strategy:', error);
     }
   };
 
@@ -300,17 +266,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       if (error) throw error;
 
       await fetchStrategies();
-      toast({
-        title: "Strategy Pushed to Production",
-        description: `${strategy.strategy_name} has been copied to Production. Switch to Live View to activate it.`,
-      });
     } catch (error) {
-      console.error('Error pushing strategy to production:', error);
-      toast({
-        title: "Error",
-        description: "Failed to push strategy to production",
-        variant: "destructive",
-      });
+      logger.error('Error pushing strategy to production:', error);
     }
   };
 
@@ -334,17 +291,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       if (error) throw error;
 
       await fetchStrategies();
-      toast({
-        title: "Strategy Cloned",
-        description: `${strategy.strategy_name} has been cloned successfully`,
-      });
     } catch (error) {
-      console.error('Error cloning strategy:', error);
-      toast({
-        title: "Error",
-        description: "Failed to clone strategy",
-        variant: "destructive",
-      });
+      logger.error('Error cloning strategy:', error);
     }
   };
 

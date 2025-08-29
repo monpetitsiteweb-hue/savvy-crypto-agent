@@ -47,6 +47,7 @@
     "cmdk": "^1.0.0",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.3.0",
+    "glob": "^11.0.3",
     "input-otp": "^1.2.4",
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
@@ -63,6 +64,7 @@
     "tailwind-scrollbar": "^4.0.2",
     "tailwindcss-animate": "^1.0.7",
     "technicalindicators": "^3.1.0",
+    "tsx": "^4.20.5",
     "vaul": "^0.9.3",
     "zod": "^3.23.8"
   },

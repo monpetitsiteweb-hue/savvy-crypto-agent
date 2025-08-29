@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRealTimeMarketData } from "@/hooks/useRealTimeMarketData";
 import { supabase } from '@/integrations/supabase/client';
 import { Wallet, TrendingUp, TrendingDown, RefreshCw, Loader2, TestTube, DollarSign, RotateCcw } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { logger } from '@/utils/logger';
 import { calculateValuation, checkIntegrity, type ValuationInputs, type OpenPositionInputs } from "@/utils/valuationService";
 import { CorruptionWarning } from "@/components/CorruptionWarning";
 
@@ -38,14 +38,11 @@ interface PositionData {
 }
 
 export const UnifiedPortfolioDisplay = () => {
-  console.log('🔍 PORTFOLIO: Component rendered');
   const { testMode } = useTestMode();
   const { user } = useAuth();
-  console.log('🔍 PORTFOLIO: testMode =', testMode, 'user =', !!user);
   
   const { balances, getTotalValue, refreshFromDatabase, resetPortfolio, isLoading } = useMockWallet();
   const { getCurrentData } = useRealTimeMarketData();
-  const { toast } = useToast();
   
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
@@ -73,10 +70,10 @@ export const UnifiedPortfolioDisplay = () => {
           }
         });
         
-        console.log('🔍 PORTFOLIO: Real-time prices updated:', prices);
+        
         setRealTimePrices(prices);
       } catch (error) {
-        console.error('Error fetching real-time prices:', error);
+        logger.error('Error fetching real-time prices:', error);
       }
     };
 
@@ -95,12 +92,10 @@ export const UnifiedPortfolioDisplay = () => {
 
   // Fetch positions for valuation service
   useEffect(() => {
-    console.log('🔍 PORTFOLIO: fetchPositionsData useEffect called, testMode =', testMode, 'user =', !!user);
     if (testMode && user) {
-      console.log('🔍 PORTFOLIO: About to fetch positions data');
       fetchPositionsData();
     } else {
-      console.log('🔍 PORTFOLIO: NOT fetching positions - testMode:', testMode, 'user:', !!user);
+      logger.info('NOT fetching positions - testMode:', testMode, 'user:', !!user);
     }
   }, [testMode, user]);
 
@@ -133,16 +128,10 @@ export const UnifiedPortfolioDisplay = () => {
       for (const position of positions) {
         // Skip corrupted positions from KPI calculations
         if (position.is_corrupted) {
-          console.log(`⚠️ Skipping corrupted position ${position.symbol} from valuations`);
           continue;
         }
         
         const currentPrice = realTimePrices[position.symbol] || 0;
-        console.log(`🔍 PORTFOLIO: Calculating valuation for ${position.symbol}:`, {
-          currentPrice,
-          position,
-          availablePrices: Object.keys(realTimePrices)
-        });
         
         if (currentPrice > 0) {
           try {
@@ -154,13 +143,12 @@ export const UnifiedPortfolioDisplay = () => {
             };
             const valuation = await calculateValuation(openPositionInputs, currentPrice);
             valuations[position.symbol] = valuation;
-            console.log(`✅ PORTFOLIO: Valuation calculated for ${position.symbol}:`, valuation);
           } catch (error) {
-            console.error(`❌ PORTFOLIO: Error calculating valuation for ${position.symbol}:`, error);
+            logger.error(`Error calculating valuation for ${position.symbol}:`, error);
             // Don't set valuation if calculation fails
           }
         } else {
-          console.warn(`⚠️ PORTFOLIO: No current price for ${position.symbol}, available prices:`, Object.keys(realTimePrices));
+          logger.warn(`No current price for ${position.symbol}, available prices:`, Object.keys(realTimePrices));
         }
       }
       
@@ -175,8 +163,6 @@ export const UnifiedPortfolioDisplay = () => {
   const fetchPositionsData = async () => {
     if (!user) return;
     
-    console.log('🔍 PORTFOLIO: fetchPositionsData called for user', user.id);
-    
     try {
       // Get open positions from buy trades that haven't been fully sold
       const { data: trades, error } = await supabase
@@ -187,8 +173,6 @@ export const UnifiedPortfolioDisplay = () => {
         .order('executed_at', { ascending: true });
 
       if (error) throw error;
-      
-      console.log('🔍 PORTFOLIO: Found', trades?.length || 0, 'buy trades');
 
       // Calculate net positions per symbol (simplified for demo)
       const positionMap = new Map<string, PositionData>();
@@ -217,9 +201,8 @@ export const UnifiedPortfolioDisplay = () => {
       }
       
       setPositions(Array.from(positionMap.values()));
-      console.log('🔍 PORTFOLIO: Calculated', positionMap.size, 'positions:', Array.from(positionMap.keys()));
     } catch (error) {
-      console.error('❌ PORTFOLIO: Error fetching positions:', error);
+      logger.error('Error fetching positions:', error);
     }
   };
 
@@ -247,7 +230,7 @@ export const UnifiedPortfolioDisplay = () => {
         localStorage.setItem(`selectedConnection_${user.id}`, firstConnectionId);
       }
     } catch (error) {
-      console.error('Error fetching connections:', error);
+      logger.error('Error fetching connections:', error);
     }
   };
 
@@ -271,7 +254,7 @@ export const UnifiedPortfolioDisplay = () => {
         setPortfolioData(data);
       }
     } catch (error) {
-      console.error('Production portfolio fetch error:', error);
+      logger.error('Production portfolio fetch error:', error);
     } finally {
       setFetchingPortfolio(false);
     }
@@ -306,12 +289,6 @@ export const UnifiedPortfolioDisplay = () => {
     const integrityCheck = checkIntegrity(openPositionInputs);
     const currentPrice = realTimePrices[position.symbol] || 0;
     const valuation = positionValuations[position.symbol];
-    
-    console.log(`🔍 PORTFOLIO: Position ${position.symbol}:`, {
-      realTimePrices: Object.keys(realTimePrices),
-      currentPrice,
-      hasValuation: !!valuation
-    });
     
     // Skip calculation if corrupted and no current price
     if ((position.is_corrupted && !currentPrice) || !integrityCheck.is_valid) {
@@ -469,16 +446,8 @@ export const UnifiedPortfolioDisplay = () => {
   const handleResetPortfolio = async () => {
     try {
       await resetPortfolio();
-      toast({
-        title: "Portfolio Reset",
-        description: "All trades deleted and portfolio reset to €30,000",
-      });
     } catch (error) {
-      toast({
-        title: "Reset Failed",
-        description: "Failed to reset portfolio. Please try again.",
-        variant: "destructive",
-      });
+      logger.error('Failed to reset portfolio:', error);
     }
   };
 

@@ -4,7 +4,6 @@ import { Plus } from 'lucide-react';
 export const TestStrategyConfig = () => {
   const handleClick = () => {
     alert('BUTTON WORKS!');
-    console.log('Button clicked successfully!');
   };
 
   return (

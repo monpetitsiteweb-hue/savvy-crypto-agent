@@ -447,17 +447,6 @@ export const ConversationPanel = () => {
         
         // Handle config updates returned by the upgraded AI system (legacy format)
         if (data.hasConfigUpdates && data.configUpdates && targetStrategy) {
-          console.log('🔄 VALIDATED CONFIG UPDATE from AI:', {
-            configUpdates: data.configUpdates,
-            strategyId: targetStrategy.id,
-            userId: user.id
-          });
-          
-          console.log('🔄 VALIDATED CONFIG UPDATE from AI:', {
-            configUpdates: data.configUpdates,
-            strategyId: targetStrategy.id,
-            userId: user.id
-          });
           
           // The AI system has already validated these updates - MERGE PROPERLY
           const updatedConfig = { ...targetStrategy.configuration };
@@ -470,7 +459,7 @@ export const ConversationPanel = () => {
                 ...updatedConfig.aiIntelligenceConfig,
                 ...data.configUpdates[key]
               };
-              console.log('🔧 MERGED aiIntelligenceConfig:', updatedConfig.aiIntelligenceConfig);
+              
             } else {
               updatedConfig[key] = data.configUpdates[key];
             }

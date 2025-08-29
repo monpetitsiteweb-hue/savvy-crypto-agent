@@ -8,6 +8,7 @@ import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { supabase } from '@/integrations/supabase/client';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDown } from 'lucide-react';
+import { logger } from '@/utils/logger';
 
 interface DebugInfo {
   timestamp: string;
@@ -96,7 +97,7 @@ export const DebugPanel = () => {
       setDebugInfo(info);
       setLastUpdate(new Date());
     } catch (error) {
-      console.error('Debug info refresh error:', error);
+      logger.error('Debug info refresh error:', error);
     }
   };
 
@@ -118,12 +119,12 @@ export const DebugPanel = () => {
         }
       });
 
-      console.log('🧪 AI Test Command Result:', { command, data, error });
+      
       
       // Update debug info with the result
       await refreshDebugInfo();
     } catch (error) {
-      console.error('🧪 AI Test Command Error:', error);
+      logger.error('🧪 AI Test Command Error:', error);
     }
   };
 
