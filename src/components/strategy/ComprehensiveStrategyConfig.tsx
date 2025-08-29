@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { logger } from '@/utils/logger';
 import { UnifiedDecisionsConfig } from './UnifiedDecisionsConfig';
 import { CoinsAmountsPanel } from './CoinsAmountsPanel';
 import { PerformancePanel } from './PerformancePanel';
@@ -262,7 +263,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 }) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
-  const { toast } = useToast();
   const [activeSection, setActiveSection] = useState('basic-settings');
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [showLiveConfirmation, setShowLiveConfirmation] = useState(false);
@@ -450,14 +450,8 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         .eq('strategy_name', 'High Risk Momentum Trader');
 
       if (error) throw error;
-      
-      toast({
-        title: "Strategy Updated",
-        description: "High Risk Momentum Trader updated to 1% take profit with daily sell target.",
-      });
     } catch (error: any) {
-      console.error('Error updating strategy:', error);
-      toast({
+      logger.error('Error updating strategy:', error);
         title: "Update Failed",
         description: error.message,
         variant: "destructive",
@@ -471,19 +465,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
     // Validation
     if (!formData.strategyName?.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Strategy name is required",
-        variant: "destructive",
-      });
       return;
     }
 
     try {
-      // Debug: Log what we're about to save
-      console.log('🚨 STRATEGY_SAVE_DEBUG: About to save strategy with formData:', formData);
-      console.log('🚨 STRATEGY_SAVE_DEBUG: AI Intelligence Config being saved:', formData.aiIntelligenceConfig);
-      console.log('🚨 STRATEGY_SAVE_DEBUG: Confidence threshold value:', formData.aiIntelligenceConfig.aiConfidenceThreshold);
       
       // Use aiIntelligenceConfig.enableAIOverride as single source of truth - no sync needed
       const syncedFormData = {
@@ -503,10 +488,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         updated_at: new Date().toISOString()
       };
 
-      console.log('🚨 STRATEGY_SAVE_DEBUG: Full strategyData being sent to database:', strategyData);
-
       if (isEditing && existingStrategy) {
-        console.log('🚨 STRATEGY_SAVE_DEBUG: Updating existing strategy with ID:', existingStrategy.id);
         const { error } = await supabase
           .from('trading_strategies')
           .update(strategyData)
@@ -514,11 +496,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
           .eq('user_id', user.id);
 
         if (error) throw error;
-        
-        toast({
-          title: "Strategy updated",
-          description: `Your strategy "${formData.strategyName}" has been updated successfully.`,
-        });
         
         onBack();
       } else {
@@ -533,22 +510,12 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
         if (error) throw error;
 
-        toast({
-          title: "Strategy created",
-          description: `Your strategy "${formData.strategyName}" has been created.`,
-        });
-
         // Store the created strategy ID and show activation modal
         setCreatedStrategyId(data.id);
         setShowActivateTestModal(true);
       }
     } catch (error) {
-      console.error('Error saving strategy:', error);
-      toast({
-        title: "Error",
-        description: "Failed to save strategy. Please try again.",
-        variant: "destructive",
-      });
+      logger.error('Error saving strategy:', error);
     }
   };
 
@@ -570,20 +537,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         .eq('id', createdStrategyId)
         .eq('user_id', user.id);
 
-      toast({
-        title: "Strategy activated",
-        description: `${formData.strategyName} is now active in Test Mode`,
-      });
-
       setShowActivateTestModal(false);
       onBack();
     } catch (error) {
-      console.error('Error activating strategy:', error);
-      toast({
-        title: "Error",
-        description: "Failed to activate strategy in Test Mode",
-        variant: "destructive",
-      });
+      logger.error('Error activating strategy:', error);
     }
   };
 
@@ -604,19 +561,9 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
       if (error) throw error;
 
-      toast({
-        title: "Strategy deleted",
-        description: "Your strategy has been deleted successfully.",
-      });
-      
       onBack();
     } catch (error) {
-      console.error('Error deleting strategy:', error);
-      toast({
-        title: "Error",
-        description: "Failed to delete strategy. Please try again.",
-        variant: "destructive",
-      });
+      logger.error('Error deleting strategy:', error);
     }
   };
 
@@ -643,11 +590,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     } else {
       // Prevent disabling test mode if live mode is also disabled
       if (!formData.enableLiveTrading) {
-        toast({
-          title: "Invalid Configuration",
-          description: "Strategy must have either Test Mode or Live Mode enabled",
-          variant: "destructive",
-        });
         return;
       }
       updateFormData('enableTestTrading', false);
@@ -915,10 +857,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                              parsedStrategy.risk_level?.toLowerCase() === 'high' ? 'high' : 'medium'
                 }));
                 setCreateMode(CREATE_MODES.MANUAL);
-                toast({
-                  title: "Strategy Generated!",
-                  description: "AI has created your strategy. Review and adjust the settings as needed.",
-                });
               }}
               onCancel={() => {
                 setShowModeSelection(true);

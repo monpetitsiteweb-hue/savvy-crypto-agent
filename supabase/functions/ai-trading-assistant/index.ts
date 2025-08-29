@@ -1068,7 +1068,6 @@ class IntentProcessor {
   }> {
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openaiApiKey) {
-      console.log('❌ OPENAI_API_KEY not found, falling back to basic parsing');
       return this.fallbackParse(message);
     }
 

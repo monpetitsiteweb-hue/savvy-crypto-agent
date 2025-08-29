@@ -429,7 +429,7 @@ export const useIntelligentTradingEngine = () => {
         .order('timestamp', { ascending: false })
         .limit(10);
 
-      console.log('🐋 ENGINE: Checking REAL whale signals for', cryptoSymbol, '- found:', whaleSignals?.length || 0);
+      // Check whale signals for symbol
 
       if (whaleSignals?.length) {
         // Check for significant whale activity (large amounts)
@@ -438,7 +438,6 @@ export const useIntelligentTradingEngine = () => {
         );
 
         if (largeTransactions.length > 0) {
-          console.log('🐋 ENGINE: REAL large whale transactions detected for', symbol, '- count:', largeTransactions.length);
           return true;
         }
       }
@@ -456,7 +455,6 @@ export const useIntelligentTradingEngine = () => {
       if (liveWhaleSignals?.length) {
         const strongWhaleSignals = liveWhaleSignals.filter(s => s.signal_strength > 0.6);
         if (strongWhaleSignals.length > 0) {
-          console.log('🐋 ENGINE: REAL live whale signals detected for', symbol, '- count:', strongWhaleSignals.length);
           return true;
         }
       }
