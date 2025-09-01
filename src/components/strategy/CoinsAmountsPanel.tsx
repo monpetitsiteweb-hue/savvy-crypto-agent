@@ -194,6 +194,27 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
               </div>
             </div>
 
+            <div className="space-y-2">
+              <TooltipField description="Maximum total number of individual trade records (both buy and sell) allowed for this strategy." examples={["Limit to 100 total trades", "Cap at 500 trade records", "Set max 200 trades total"]}>
+                <Label>Max Total Trades</Label>
+              </TooltipField>
+              <div className="space-y-2">
+                <Slider
+                  min={10}
+                  max={1000}
+                  step={10}
+                  value={[formData.maxTotalTrades]}
+                  onValueChange={(value) => updateFormData('maxTotalTrades', value[0])}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>10</span>
+                  <span className="font-medium">{formData.maxTotalTrades} trades</span>
+                  <span>1000</span>
+                </div>
+              </div>
+            </div>
+
             <div className="flex items-center justify-between p-4 border rounded-lg">
               <TooltipField description="Let the AI automatically choose which coins to trade based on market conditions." examples={["Auto-select best performing coins", "Let AI pick cryptos for me", "Enable automatic coin selection"]}>
                 <Label>Auto Coin Selection</Label>

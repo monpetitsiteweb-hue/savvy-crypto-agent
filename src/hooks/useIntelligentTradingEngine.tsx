@@ -359,7 +359,7 @@ export const useIntelligentTradingEngine = () => {
     const positions = await calculateOpenPositions();
     
     // Check position limits
-    if (config.maxOpenPositions && positions.length >= config.maxOpenPositions) {
+    if (config.maxActiveCoins && positions.length >= config.maxActiveCoins) {
       return;
     }
 

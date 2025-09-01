@@ -248,14 +248,14 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     phrases: ['auto close after hours', 'close after hours', 'auto close'],
     description: 'Auto close positions after hours'
   },
-  maxOpenPositions: {
-    key: 'maxOpenPositions',
+  maxTotalTrades: {
+    key: 'maxTotalTrades',
     type: 'number',
-    range: [1, 20],
-    dbPath: 'configuration.maxOpenPositions',
+    range: [10, 1000],
+    dbPath: 'configuration.maxTotalTrades',
     aiCanExecute: true,
-    phrases: ['max open positions', 'maximum positions', 'position limit'],
-    description: 'Maximum open positions'
+    phrases: ['max total trades', 'maximum total trades', 'total trade limit', 'trade count limit'],
+    description: 'Maximum total number of individual trade records allowed'
   },
   tradeCooldownMinutes: {
     key: 'tradeCooldownMinutes',
@@ -321,15 +321,6 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     aiCanExecute: true,
     phrases: ['max trades per day', 'maximum daily trades', 'trade limit'],
     description: 'Maximum number of trades per day'
-  },
-  maxOpenPositions: {
-    key: 'maxOpenPositions',
-    type: 'number',
-    range: [1, 50],
-    dbPath: 'configuration.maxOpenPositions',
-    aiCanExecute: true,
-    phrases: ['max open positions', 'maximum positions', 'position limit'],
-    description: 'Maximum number of open positions'
   },
   tradeCooldownMinutes: {
     key: 'tradeCooldownMinutes',

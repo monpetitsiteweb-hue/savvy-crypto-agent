@@ -1269,17 +1269,17 @@ async function checkRiskLimits(supabaseClient: any, userId: string, strategy: an
       blockingReasons.push(`Daily loss limit reached (€${riskLimits.maxDailyLoss})`);
     }
 
-    // Check max open positions limit - COUNT TOTAL PORTFOLIO POSITIONS (NOT PER STRATEGY)
-    const maxOpenPositions = strategy.configuration?.maxOpenPositions || 5;
+    // Check max active coins limit - COUNT TOTAL PORTFOLIO POSITIONS (NOT PER STRATEGY)
+    const maxActiveCoins = strategy.configuration?.maxActiveCoins || 5;
     
     // Get ALL user trades to calculate TOTAL open positions across ALL strategies
     const totalOpenPositionsCount = Array.from(cryptoHoldings.values())
       .filter(amount => amount > 0.000001).length;
       
-    console.log(`📊 [TOTAL POSITION CHECK] Total open positions: ${totalOpenPositionsCount}/${maxOpenPositions}`);
+    console.log(`📊 [TOTAL POSITION CHECK] Total open positions: ${totalOpenPositionsCount}/${maxActiveCoins}`);
     
-    if (totalOpenPositionsCount >= maxOpenPositions) {
-      blockingReasons.push(`Max open positions limit reached (${maxOpenPositions})`);
+    if (totalOpenPositionsCount >= maxActiveCoins) {
+      blockingReasons.push(`Max active coins limit reached (${maxActiveCoins})`);
     }
 
     // CRITICAL: Check if user has sufficient EUR balance for the proposed trade

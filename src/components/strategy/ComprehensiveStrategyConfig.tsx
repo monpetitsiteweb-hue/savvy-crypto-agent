@@ -83,7 +83,7 @@ interface StrategyFormData {
   trailingStopLossPercentage: number;
   trailingStopMinProfitThreshold: number;
   autoCloseAfterHours: number;
-  maxOpenPositions: number;
+  maxTotalTrades: number;
   dailyProfitTarget: number;
   dailyLossLimit: number;
   maxTradesPerDay: number;
@@ -151,21 +151,21 @@ const RISK_PRESETS = {
   low: {
     stopLossPercentage: 2,
     takeProfitPercentage: 1.5,
-    maxOpenPositions: 3,
+    maxTotalTrades: 100,
     maxWalletExposure: 20,
     dcaIntervalHours: 24
   },
   medium: {
     stopLossPercentage: 3,
     takeProfitPercentage: 2.5,
-    maxOpenPositions: 5,
+    maxTotalTrades: 200,
     maxWalletExposure: 50,
     dcaIntervalHours: 12
   },
   high: {
     stopLossPercentage: 5,
     takeProfitPercentage: 4,
-    maxOpenPositions: 8,
+    maxTotalTrades: 500,
     maxWalletExposure: 80,
     dcaIntervalHours: 6
   }
@@ -297,7 +297,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     trailingStopLossPercentage: 2,
     trailingStopMinProfitThreshold: 1,
     autoCloseAfterHours: 24,
-    maxOpenPositions: 5,
+    maxTotalTrades: 200,
     dailyProfitTarget: 0,
     dailyLossLimit: 0,
     maxTradesPerDay: 50,
@@ -402,7 +402,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         ...prev,
         stopLossPercentage: preset.stopLossPercentage,
         takeProfitPercentage: preset.takeProfitPercentage,
-        maxOpenPositions: preset.maxOpenPositions,
+        maxTotalTrades: preset.maxTotalTrades,
         maxWalletExposure: preset.maxWalletExposure,
         dcaIntervalHours: preset.dcaIntervalHours
       }));
@@ -672,7 +672,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
             <div className="bg-background border border-border rounded-lg p-4 shadow-sm">
               <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Max Positions</Label>
               <div className="mt-2">
-                <span className="text-lg font-bold text-foreground">{formData.maxOpenPositions}</span>
+                <span className="text-lg font-bold text-foreground">{formData.maxActiveCoins}</span>
               </div>
             </div>
             
@@ -840,7 +840,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                   sellOrderType: config.sellOrderType || prev.sellOrderType,
                   takeProfitPercentage: config.takeProfitPercentage || prev.takeProfitPercentage,
                   stopLossPercentage: config.stopLossPercentage || prev.stopLossPercentage,
-                  maxOpenPositions: config.maxOpenPositions || prev.maxOpenPositions,
+                  maxTotalTrades: config.maxTotalTrades || prev.maxTotalTrades,
                   perTradeAllocation: config.perTradeAllocation || prev.perTradeAllocation,
                   allocationUnit: config.allocationUnit || prev.allocationUnit,
                   maxWalletExposure: config.maxWalletExposure || prev.maxWalletExposure,
@@ -1081,21 +1081,21 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                         <>
                                           <div>Stop Loss: 2%</div>
                                           <div>Take Profit: 1.5%</div>
-                                          <div>Max Positions: 3</div>
+                                          <div>Max Total Trades: 100</div>
                                         </>
                                       )}
                                       {risk === 'medium' && (
                                         <>
                                           <div>Stop Loss: 3%</div>
                                           <div>Take Profit: 2.5%</div>
-                                          <div>Max Positions: 5</div>
+                                          <div>Max Total Trades: 200</div>
                                         </>
                                       )}
                                       {risk === 'high' && (
                                         <>
                                           <div>Stop Loss: 5%</div>
                                           <div>Take Profit: 4%</div>
-                                          <div>Max Positions: 8</div>
+                                          <div>Max Total Trades: 500</div>
                                         </>
                                       )}
                                       {risk === 'custom' && (

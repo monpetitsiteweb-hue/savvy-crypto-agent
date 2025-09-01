@@ -252,29 +252,6 @@ export const SellSettingsPanel = ({ formData, updateFormData }: SellSettingsPane
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <TooltipField 
-                description="Maximum number of open positions at the same time."
-                examples={["Hold max 5 positions", "Limit to 3 open trades"]}
-              >
-                <Label>Max Open Positions: {formData.maxOpenPositions}</Label>
-              </TooltipField>
-              <div className="space-y-2">
-                <Slider
-                  min={1}
-                  max={20}
-                  step={1}
-                  value={[formData.maxOpenPositions]}
-                  onValueChange={(value) => updateFormData('maxOpenPositions', value[0])}
-                  className="w-full"
-                />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>1</span>
-                  <span>20</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <TooltipField 
                 description="Cooldown period between trades to avoid overtrading."
                 examples={["Wait 30 minutes between trades", "Cool down for 1 hour"]}
               >
