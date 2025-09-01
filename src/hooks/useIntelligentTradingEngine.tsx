@@ -289,27 +289,34 @@ export const useIntelligentTradingEngine = () => {
     }
   };
 
-  // NEW: Signal Fusion and Context Gates (ScalpSmart_0p5 only)
+  // Unified AI Signal Fusion and Context Gates
   const evaluateSignalFusion = async (strategy: any, symbol: string, side: 'BUY' | 'SELL'): Promise<{
     sTotalScore: number;
     bucketScores: { trend: number; volatility: number; momentum: number; whale: number; sentiment: number };
     decision: 'ENTER' | 'EXIT' | 'HOLD' | 'DEFER';
     reason: string;
     gateBlocks: string[];
+    effectiveConfig: any;
+    valueSources: Record<string, any>;
   }> => {
-    const config = strategy.configuration;
-    const fusionConfig = config.signalFusion;
-    const gatesConfig = config.contextGates;
-    const isScalpSmart = fusionConfig?.enabled === true;
+    const { computeEffectiveConfig, isAIFusionEnabled, getFusionConfig, getContextGatesConfig } = await import('@/utils/aiConfigHelpers');
     
-    // Default to legacy behavior if not ScalpSmart preset
-    if (!isScalpSmart) {
+    const config = strategy.configuration;
+    const effectiveConfigWithSources = computeEffectiveConfig(config);
+    const fusionConfig = getFusionConfig(config);
+    const gatesConfig = getContextGatesConfig(config);
+    const isAIEnabled = isAIFusionEnabled(config);
+    
+    // Default to legacy behavior if AI fusion not enabled
+    if (!isAIEnabled) {
       return {
         sTotalScore: 0.5,
         bucketScores: { trend: 0, volatility: 0, momentum: 0, whale: 0, sentiment: 0 },
         decision: 'ENTER',
         reason: 'legacy_evaluation',
-        gateBlocks: []
+        gateBlocks: [],
+        effectiveConfig: effectiveConfigWithSources,
+        valueSources: effectiveConfigWithSources.value_sources
       };
     }
     
@@ -318,22 +325,22 @@ export const useIntelligentTradingEngine = () => {
     const gateBlocks: string[] = [];
     
     try {
-      // Context Gates - Check blocking conditions first
+      // Context Gates - Check blocking conditions first using effective config
       if (gatesConfig) {
         // Gate 1: Spread check
-        const spread = await checkSpreadGate(symbol, gatesConfig.maxSpreadBps);
+        const spread = await checkSpreadGate(symbol, effectiveConfigWithSources.spreadThresholdBps);
         if (spread.blocked) {
           gateBlocks.push('blocked_by_spread');
         }
         
         // Gate 2: Liquidity/Depth check
-        const liquidity = await checkLiquidityGate(symbol, gatesConfig.minDepthRatio);
+        const liquidity = await checkLiquidityGate(symbol, effectiveConfigWithSources.minDepthRatio);
         if (liquidity.blocked) {
           gateBlocks.push('blocked_by_liquidity');
         }
         
         // Gate 3: Whale conflict check
-        const whaleConflict = await checkWhaleConflictGate(symbol, side, gatesConfig.whaleConflictWindowMs);
+        const whaleConflict = await checkWhaleConflictGate(symbol, side, effectiveConfigWithSources.whaleConflictWindowMs);
         if (whaleConflict.blocked) {
           gateBlocks.push('blocked_by_whale_conflict');
         }
@@ -345,7 +352,9 @@ export const useIntelligentTradingEngine = () => {
             bucketScores,
             decision: 'DEFER',
             reason: gateBlocks[0], // Use first blocking reason
-            gateBlocks
+            gateBlocks,
+            effectiveConfig: effectiveConfigWithSources,
+            valueSources: effectiveConfigWithSources.value_sources
           };
         }
       }
@@ -707,7 +716,7 @@ export const useIntelligentTradingEngine = () => {
     return conflict * conflictPenalty;
   };
   
-  // Enhanced Decision Snapshot Logging
+  // Enhanced Decision Snapshot Logging with Value Sources
   const logDecisionSnapshot = async (
     strategy: any,
     symbol: string,
@@ -719,8 +728,9 @@ export const useIntelligentTradingEngine = () => {
     additionalData?: any
   ) => {
     try {
+      const { isAIFusionEnabled } = await import('@/utils/aiConfigHelpers');
       const config = strategy.configuration;
-      const isScalpSmart = config?.signalFusion?.enabled === true;
+      const isAIEnabled = isAIFusionEnabled(config);
       
       const snapshot = {
         user_id: user!.id,
@@ -730,21 +740,25 @@ export const useIntelligentTradingEngine = () => {
         decision_action: finalDecision,
         decision_reason: finalReason,
         confidence: fusionResult.sTotalScore || 0.5,
-        intent_source: isScalpSmart ? 'scalpsmart_engine' : 'standard_engine',
+        intent_source: isAIEnabled ? 'ai_fusion_engine' : 'standard_engine',
         metadata: {
-          // Core ScalpSmart fields
+          // Core AI fusion fields
           s_total: fusionResult.sTotalScore,
           bucket_scores: fusionResult.bucketScores,
           thresholds: {
-            enter: config?.signalFusion?.enterThreshold || 0.65,
-            exit: config?.signalFusion?.exitThreshold || 0.35
+            enter: fusionResult.effectiveConfig?.enterThreshold || 0.65,
+            exit: fusionResult.effectiveConfig?.exitThreshold || 0.35
           },
           spread_bps: additionalData?.spreadBps || 0,
           depth_ratio: additionalData?.depthRatio || 0,
           atr_entry: additionalData?.atr || 0,
           brackets: brackets,
           gate_blocks: fusionResult.gateBlocks || [],
-          fusion_enabled: isScalpSmart,
+          fusion_enabled: isAIEnabled,
+          
+          // NEW: Value sources tracking
+          value_sources: fusionResult.valueSources || {},
+          effective_config_snapshot: fusionResult.effectiveConfig || {},
           
           // Allocation tracking
           allocation_unit: additionalData?.allocationUnit || config?.allocationUnit || 'euro',
@@ -1335,12 +1349,13 @@ export const useIntelligentTradingEngine = () => {
   ) => {
     console.log('🔧 ENGINE: executeTrade called with action:', action, 'symbol:', cryptocurrency);
     
+    const { isAIFusionEnabled } = await import('@/utils/aiConfigHelpers');
     const config = strategy.configuration;
-    const isScalpSmart = config.signalFusion?.enabled === true;
+    const isAIEnabled = isAIFusionEnabled(config);
     
-    // NEW: ScalpSmart signal fusion evaluation
-    if (isScalpSmart) {
-      console.log('🧠 SCALPSMART: Evaluating signal fusion for', action, cryptocurrency);
+    // NEW: AI signal fusion evaluation
+    if (isAIEnabled) {
+      console.log('🧠 AI-FUSION: Evaluating signal fusion for', action, cryptocurrency);
       
       const fusionResult = await evaluateSignalFusion(strategy, cryptocurrency, action.toUpperCase() as 'BUY' | 'SELL');
       
