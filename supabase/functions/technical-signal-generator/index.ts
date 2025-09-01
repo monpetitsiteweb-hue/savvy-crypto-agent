@@ -323,38 +323,42 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
 
     console.log(`📊 ${symbol} - Price: ${currentPrice}, Short MA: ${shortMA.toFixed(2)}, Long MA: ${longMA.toFixed(2)}`);
 
-    // Golden Cross (bullish) or Death Cross (bearish)
-    if (shortMA > longMA && currentPrice > shortMA) {
+    // Golden Cross (bullish) or Death Cross (bearish) - with meaningful thresholds
+    const maDivergence = Math.abs(shortMA - longMA) / longMA * 100;
+    
+    if (shortMA > longMA && currentPrice > shortMA && maDivergence > 0.5) {
       signals.push({
         source_id: sourceId,
         user_id: userId,
         timestamp: new Date().toISOString(),
         symbol: symbol.split('-')[0],
         signal_type: 'ma_cross_bullish',
-        signal_strength: Math.min(100, ((shortMA - longMA) / longMA) * 500),
+        signal_strength: Math.min(100, maDivergence * 20), // Less sensitive multiplier
         source: 'technical_analysis',
         data: {
           short_ma: shortMA,
           long_ma: longMA,
           current_price: currentPrice,
+          ma_divergence_pct: maDivergence,
           cross_type: 'golden_cross',
           indicator: 'moving_average'
         },
         processed: false
       });
-    } else if (shortMA < longMA && currentPrice < shortMA) {
+    } else if (shortMA < longMA && currentPrice < shortMA && maDivergence > 0.5) {
       signals.push({
         source_id: sourceId,
         user_id: userId,
         timestamp: new Date().toISOString(),
         symbol: symbol.split('-')[0],
         signal_type: 'ma_cross_bearish',
-        signal_strength: Math.min(100, ((longMA - shortMA) / longMA) * 500),
+        signal_strength: Math.min(100, maDivergence * 20), // Less sensitive multiplier
         source: 'technical_analysis',
         data: {
           short_ma: shortMA,
           long_ma: longMA,
           current_price: currentPrice,
+          ma_divergence_pct: maDivergence,
           cross_type: 'death_cross',
           indicator: 'moving_average'
         },
