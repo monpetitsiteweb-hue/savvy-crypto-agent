@@ -13,8 +13,10 @@ export const TestModeProvider = ({ children }: { children: ReactNode }) => {
     try {
       const saved = localStorage.getItem('global-test-mode');
       const initialMode = saved ? JSON.parse(saved) : false;
+      console.log('🧪 TESTMODE_PROVIDER_HYDRATED', { testMode: initialMode });
       return initialMode;
     } catch (error) {
+      console.log('🧪 TESTMODE_PROVIDER_HYDRATED', { testMode: false, error: true });
       return false;
     }
   });

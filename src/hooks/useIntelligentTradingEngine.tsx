@@ -51,30 +51,25 @@ export const useIntelligentTradingEngine = () => {
 
   useEffect(() => {
     console.log('🔄 EFFECT TRIGGERED: Auth state changed', { user: !!user, loading, testMode });
+    console.log('✅ ALWAYS CREATING: Trading engine intervals (gated inside tick)');
     
-    if (!loading && user && testMode) {
-      console.log('✅ CONDITIONS MET: Starting trading engine intervals');
-      
-      // Initial call with small delay
-      const initialTimer = setTimeout(() => {
-        checkStrategiesAndExecute();
-      }, 1000);
-      
-      // Recurring interval every 30 seconds
-      const interval = setInterval(() => {
-        checkStrategiesAndExecute();
-      }, 30000);
-      
-      // Cleanup timers on unmount or dependency change
-      return () => {
-        console.log('🧹 CLEANUP: Clearing trading engine timers');
-        clearTimeout(initialTimer);
-        clearInterval(interval);
-      };
-    } else {
-      console.log('⏳ WAITING: Auth conditions not met', { loading, user: !!user, testMode });
-    }
-  }, [user, loading, testMode]);
+    // Always create interval - gate execution inside the tick function
+    const initialTimer = setTimeout(() => {
+      checkStrategiesAndExecute();
+    }, 1000);
+    
+    // Set up recurring checks every 30 seconds
+    const interval = setInterval(() => {
+      checkStrategiesAndExecute();
+    }, 30000);
+    
+    // Cleanup timers on unmount
+    return () => {
+      console.log('🧹 CLEANUP: Clearing trading engine timers');
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, []); // Empty deps - create once on mount
   
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const isRunningRef = useRef(false);
@@ -87,6 +82,8 @@ export const useIntelligentTradingEngine = () => {
   });
 
   const checkStrategiesAndExecute = async () => {
+    console.log('💓 ENGINE_HEARTBEAT', { user: !!user, testMode, loading, ts: new Date().toISOString() });
+    
     if (isRunningRef.current) {
       console.log('⚠️ ENGINE: Skipping - already running');
       return;
@@ -95,8 +92,6 @@ export const useIntelligentTradingEngine = () => {
     isRunningRef.current = true;
     
     try {
-      console.log('🔄 ENGINE: checkStrategiesAndExecute called', new Date().toISOString());
-      
       if (!user || loading) {
         console.log('ENGINE: Skipping - user:', !!user, 'loading:', loading);
         return;
