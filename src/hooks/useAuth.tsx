@@ -41,11 +41,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           return;
         }
         
-        // FIXED: Force refresh session to ensure we get current state
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (mounted) {
-          // FIXED: Properly extract user from session
           const extractedUser = session?.user || null;
           
           setSession(session);

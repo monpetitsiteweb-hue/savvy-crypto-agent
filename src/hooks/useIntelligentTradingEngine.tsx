@@ -1543,7 +1543,7 @@ export const useIntelligentTradingEngine = () => {
         ts: new Date().toISOString()
       };
 
-      console.log('🎯 INTELLIGENT: Emitting intent to coordinator:', JSON.stringify(intent, null, 2));
+      console.log('🎯 COORD_INTENT_SENT', { symbol: intent.symbol, side: intent.side });
 
       console.log('🌐 INTELLIGENT: About to call trading-decision-coordinator edge function...');
       const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
@@ -1565,12 +1565,58 @@ export const useIntelligentTradingEngine = () => {
         return;
       }
 
-      console.log('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
+      console.log('📋 COORD_DECISION', { action: decision?.decision?.action, reason: decision?.decision?.reason, qtyApproved: decision?.decision?.qtyApproved, price: decision?.decision?.price });
       
-      // Check if coordinator approved the trade
-      if (decision?.decision?.action === 'BUY' || decision?.decision?.action === 'SELL') {
-        console.log('✅ INTELLIGENT: Coordinator approved trade - but no execution logic implemented yet!');
-        console.log('🚨 INTELLIGENT: This is where the pipeline stops - coordinator approves but no trade is inserted!');
+      // Handle coordinator-approved BUYs and SELLs
+      if (decision?.decision?.action === 'BUY') {
+        // Prefer coordinator-provided values if present
+        const approvedPrice = decision.decision.price ?? price;
+        const approvedQty = decision.decision.qtyApproved ?? intent.qtySuggested;
+        
+        console.log('🔄 TRADE_INSERT_ATTEMPT', { symbol: cryptocurrency, qty: approvedQty, price: approvedPrice });
+        
+        try {
+          await recordTrade({
+            strategy_id: strategy.id,
+            user_id: user!.id,
+            trade_type: 'buy',
+            cryptocurrency: cryptocurrency.replace('-EUR',''),
+            amount: approvedQty,
+            price: approvedPrice,
+            total_value: approvedQty * approvedPrice,
+            strategy_trigger: decision.decision.reason || 'COORDINATOR_BUY'
+          });
+          
+          console.log('✅ TRADE_INSERT_OK', { symbol: cryptocurrency, qty: approvedQty, price: approvedPrice });
+          console.log('✅ PIPELINE: BUY approved → mock_trades INSERTED', { symbol: cryptocurrency, qty: approvedQty, price: approvedPrice });
+        } catch (insertError) {
+          console.log('❌ TRADE_INSERT_ERR', { code: insertError?.code, message: insertError?.message, symbol: cryptocurrency });
+        }
+        
+      } else if (decision?.decision?.action === 'SELL') {
+        // Handle coordinator-approved SELLs
+        const approvedPrice = decision.decision.price ?? price;
+        const approvedQty = decision.decision.qtyApproved ?? intent.qtySuggested;
+        
+        console.log('🔄 TRADE_INSERT_ATTEMPT', { type: 'SELL', symbol: cryptocurrency, qty: approvedQty, price: approvedPrice });
+        
+        try {
+          await recordTrade({
+            strategy_id: strategy.id,
+            user_id: user!.id,
+            trade_type: 'sell',
+            cryptocurrency: cryptocurrency.replace('-EUR',''),
+            amount: approvedQty,
+            price: approvedPrice,
+            total_value: approvedQty * approvedPrice,
+            strategy_trigger: decision.decision.reason || 'COORDINATOR_SELL'
+          });
+          
+          console.log('✅ TRADE_INSERT_OK', { type: 'SELL', symbol: cryptocurrency, qty: approvedQty, price: approvedPrice });
+        } catch (insertError) {
+          console.log('❌ TRADE_INSERT_ERR', { code: insertError?.code, message: insertError?.message, symbol: cryptocurrency, type: 'SELL' });
+        }
+        
       } else {
         console.log('🚫 INTELLIGENT: Coordinator rejected/deferred trade:', decision?.decision?.reason);
       }
