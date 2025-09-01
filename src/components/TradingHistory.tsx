@@ -310,6 +310,47 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   }, [user]);
 
+  // Handle selling a position
+  const handleSellPosition = async (trade: Trade) => {
+    if (!user) return;
+    
+    try {
+      const baseSymbol = toBaseSymbol(trade.cryptocurrency);
+      const currentPrice = sharedPriceCache.getPrice(toPairSymbol(baseSymbol));
+      
+      if (!currentPrice) {
+        console.error('Cannot sell position: Current price not available');
+        return;
+      }
+
+      // Create sell trade record
+      const sellTrade = {
+        user_id: user.id,
+        trade_type: 'sell',
+        cryptocurrency: trade.cryptocurrency,
+        amount: trade.amount,
+        price: currentPrice,
+        total_value: trade.amount * currentPrice,
+        strategy_id: trade.strategy_id,
+        is_test_mode: testMode,
+        notes: 'Manual sell from Trading History'
+      };
+
+      const { error } = await supabase
+        .from('mock_trades')
+        .insert([sellTrade]);
+
+      if (error) throw error;
+
+      // Refresh trading history to show updated positions
+      fetchTradingHistory();
+      
+    } catch (error) {
+      console.error('Error selling position:', error);
+      window.NotificationSink?.log({ message: 'Error selling position', error });
+    }
+  };
+
   // TradeCard component for rendering individual trades
   const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
@@ -443,8 +484,22 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         </div>
         
         <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
-          <p>Executed: {new Date(trade.executed_at).toLocaleString()}</p>
-          {trade.notes && <p className="mt-1">Note: {trade.notes}</p>}
+          <div className="flex items-center justify-between">
+            <div>
+              <p>Executed: {new Date(trade.executed_at).toLocaleString()}</p>
+              {trade.notes && <p className="mt-1">Note: {trade.notes}</p>}
+            </div>
+            {showSellButton && trade.trade_type === 'buy' && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-red-600 hover:text-red-700 hover:border-red-300"
+                onClick={() => handleSellPosition(trade)}
+              >
+                Sell Position
+              </Button>
+            )}
+          </div>
         </div>
       </Card>
     );
