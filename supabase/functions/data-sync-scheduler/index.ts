@@ -52,6 +52,11 @@ serve(async (req) => {
           case 'bigquery':
             syncResult = await syncBigQueryData(supabaseClient, source, schedule_type);
             break;
+          case 'whale_alert_api':
+          case 'quicknode_webhooks':
+          case 'whale_alert':
+            syncResult = await syncWhaleAlertData(supabaseClient, source, schedule_type);
+            break;
           default:
             console.log(`Skipping unsupported source: ${source.source_name}`);
             continue;
@@ -212,6 +217,37 @@ async function syncBigQueryData(supabaseClient: any, source: any, scheduleType: 
   });
   
   return response.data;
+}
+
+async function syncWhaleAlertData(supabaseClient: any, source: any, scheduleType: string) {
+  console.log(`🐋 Syncing Whale Alert data for schedule: ${scheduleType}`);
+  
+  // Sync whale signals on intraday and realtime schedules
+  if (!['intraday', 'realtime'].includes(scheduleType)) {
+    return { skipped: true, reason: 'Not a whale alert sync schedule' };
+  }
+  
+  try {
+    // Use the external data collector to sync this specific whale source
+    const response = await supabaseClient.functions.invoke('external-data-collector', {
+      body: {
+        action: 'sync_source',
+        sourceId: source.id
+      }
+    });
+    
+    if (response.error) {
+      console.error(`❌ Error syncing whale source ${source.source_name}:`, response.error);
+      return { success: false, error: response.error.message };
+    }
+    
+    console.log(`✅ Successfully synced whale source: ${source.source_name}`);
+    return { success: true, source_name: source.source_name, schedule_type: scheduleType };
+    
+  } catch (error) {
+    console.error(`❌ Failed to sync whale source ${source.source_name}:`, error);
+    return { success: false, error: error.message };
+  }
 }
 
 async function triggerAILearning(supabaseClient: any) {
