@@ -1,58 +1,61 @@
+'use client';
+
 import { useEffect } from 'react';
 import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
+import { supabase } from '@/integrations/supabase/client';
+import { useMockWallet } from '@/hooks/useMockWallet';
 
-// Extend window interface for debug APIs
 declare global {
   interface Window {
     Engine?: {
       tick: () => Promise<void>;
       sanity: () => Promise<void>;
       debugBuy: (sym: string, eur: number) => Promise<void>;
+      topUpEUR: (amount?: number) => void;
+      panicTrade: (sym?: string) => Promise<void>;
     };
   }
 }
 
 export default function EngineBoot() {
   const { checkStrategiesAndExecute } = useIntelligentTradingEngine();
+  const { updateBalance, getBalance } = useMockWallet();
 
   useEffect(() => {
-    // Visible boot banner (console + NotificationSink)
-    console.warn('🚚 ENGINE_BOOT_MOUNTED', { ts: Date.now() });
-    (window as any).NotificationSink?.log({ message: 'ENGINE_BOOT_MOUNTED', data: { ts: Date.now() } });
+    // Unmissable banner in the DOM (so we know the component mounted)
+    const banner = document.createElement('div');
+    banner.id = 'engine-boot-banner';
+    banner.style.cssText = `
+      position:fixed;left:8px;bottom:8px;z-index:999999;
+      background:#111;color:#0f0;padding:6px 10px;border-radius:8px;
+      font:12px/1.2 monospace;opacity:.9
+    `;
+    banner.textContent = `ENGINE BOOTED @ ${new Date().toLocaleTimeString()}`;
+    document.body.appendChild(banner);
 
-    // Minimal debug API to trigger/triage quickly
+    console.error('🚚 ENGINE_BOOT_MOUNTED (client)', { ts: Date.now() }); // error-level = always visible
+
+    // Debug API (can't rely on logs alone)
     window.Engine = {
       tick: async () => {
-        console.warn('⏩ ENGINE_DEBUG_TICK');
+        console.error('⏩ ENGINE_DEBUG_TICK');
         await checkStrategiesAndExecute();
       },
       sanity: async () => {
-        console.warn('🩺 ENGINE_SANITY_START');
-        // Very light, safe read probe (no writes)
-        try {
-          const { supabase } = await import('@/integrations/supabase/client');
-          const { data, error } = await supabase
-            .from('trading_strategies')
-            .select('id')
-            .limit(1);
-          console.warn('🩺 ENGINE_SANITY_DB', { ok: !error, rows: data?.length ?? 0, error });
-        } catch (e) {
-          console.error('🩺 ENGINE_SANITY_ERR', e);
-        }
+        console.error('🩺 ENGINE_SANITY_START');
+        const { data, error } = await supabase.from('trading_strategies').select('id').limit(1);
+        console.error('🩺 ENGINE_SANITY_DB', { ok: !error, rows: data?.length ?? 0, error });
       },
       debugBuy: async (sym: string, eur: number) => {
-        console.warn('🧪 ENGINE_DEBUG_BUY', { sym, eur });
-        const { supabase } = await import('@/integrations/supabase/client');
-
-        // quick test insert (test mode only; base symbol)
+        console.error('🧪 ENGINE_DEBUG_BUY', { sym, eur });
+        const uid = (await supabase.auth.getUser()).data.user?.id;
         const base = sym.replace('-EUR', '').toUpperCase();
-        const price = 10; // small sentinel value for sanity
+        const price = 10;
         const qty = eur / price;
 
-        // don't mutate balances, just try DB insert to prove pipeline
         const { data, error } = await supabase.from('mock_trades').insert({
           strategy_id: 'debug',
-          user_id: (await supabase.auth.getUser()).data.user?.id,
+          user_id: uid,
           trade_type: 'buy',
           cryptocurrency: base,
           amount: qty,
@@ -66,10 +69,47 @@ export default function EngineBoot() {
           executed_at: new Date().toISOString(),
         }).select();
 
-        console.warn('🧪 ENGINE_DEBUG_BUY_RESULT', { ok: !error, id: data?.[0]?.id, error });
+        console.error('🧪 ENGINE_DEBUG_BUY_RESULT', { ok: !error, id: data?.[0]?.id, error });
+      },
+      topUpEUR: (amount = 1000) => {
+        const before = getBalance('EUR');
+        updateBalance('EUR', amount);
+        const after = getBalance('EUR');
+        console.error('💶 TOP_UP_EUR', { before, add: amount, after });
+      },
+      panicTrade: async (sym = 'BTC') => {
+        // absolute worst-case write probe (1 EUR @ 1 EUR)
+        const uid = (await supabase.auth.getUser()).data.user?.id;
+        const { data, error } = await supabase.from('mock_trades').insert({
+          strategy_id: 'panic',
+          user_id: uid,
+          trade_type: 'buy',
+          cryptocurrency: sym.toUpperCase(),
+          amount: 1,
+          price: 1,
+          total_value: 1,
+          fees: 0,
+          strategy_trigger: 'PANIC_WRITE',
+          notes: 'panic probe',
+          is_test_mode: true,
+          profit_loss: 0,
+          executed_at: new Date().toISOString(),
+        }).select();
+        console.error('🆘 PANIC_TRADE_RESULT', { ok: !error, id: data?.[0]?.id, error });
       }
     };
-  }, [checkStrategiesAndExecute]);
+
+    // Loud heartbeat every 5s so you *see* activity even if the engine no-ops
+    const hb = setInterval(() => console.error('💓 ENGINE_HEARTBEAT (boot beacon)', Date.now()), 5000);
+
+    // Kick it once after mount
+    setTimeout(() => window.Engine?.tick?.(), 500);
+
+    return () => {
+      clearInterval(hb);
+      banner.remove();
+    };
+  }, [checkStrategiesAndExecute, getBalance, updateBalance]);
 
   return null;
 }
