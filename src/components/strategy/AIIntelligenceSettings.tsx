@@ -267,6 +267,43 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
     updateConfig(updatedConfig);
   };
 
+  // Epsilon comparison for floating point values
+  const eq = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps;
+
+  const getCurrentPreset = (): string => {
+    const { fusion, contextGates, bracketPolicy } = config.features;
+    
+    // Check Micro-Scalp preset
+    if (fusion.enabled && 
+        eq(fusion.enterThreshold, 0.65) && 
+        eq(fusion.exitThreshold, 0.35) &&
+        contextGates.spreadThresholdBps === 12 &&
+        eq(contextGates.minDepthRatio, 3.0) &&
+        eq(bracketPolicy.stopLossPctWhenNotAtr, 0.40) &&
+        eq(bracketPolicy.trailBufferPct, 0.40) &&
+        eq(bracketPolicy.minTpSlRatio, 1.2)) {
+      return 'microScalp';
+    }
+    
+    // Check Aggressive preset
+    if (fusion.enabled && 
+        eq(fusion.enterThreshold, 0.55) && 
+        eq(fusion.exitThreshold, 0.25) &&
+        contextGates.spreadThresholdBps === 18 &&
+        eq(contextGates.minDepthRatio, 2.5)) {
+      return 'aggressive';
+    }
+    
+    // Check Conservative preset
+    if (!fusion.enabled &&
+        contextGates.spreadThresholdBps === 8 &&
+        eq(contextGates.minDepthRatio, 4.0)) {
+      return 'conservative';
+    }
+    
+    return ''; // No preset matches
+  };
+
   const getDecisionModeDescription = (mode: string) => {
     switch (mode) {
       case 'conservative': return "Prioritizes capital preservation, requires multiple confirmations";
@@ -327,23 +364,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                   description="Select a predefined AI configuration preset or customize your own settings below."
                   examples={["Use conservative settings", "Apply micro-scalp preset", "Set to aggressive mode"]}
                 >
-                  <Label>AI Preset</Label>
+                   <Label>AI Preset</Label>
                 </TooltipField>
                 <Select 
-                  value={
-                    // Determine current preset based on configuration
-                    config.features.fusion.enabled && 
-                    config.features.fusion.enterThreshold === 0.65 && 
-                    config.features.fusion.exitThreshold === 0.35 &&
-                    config.features.contextGates.spreadThresholdBps === 12
-                      ? 'microScalp' 
-                      : config.features.fusion.enabled && 
-                        config.features.fusion.enterThreshold === 0.55
-                        ? 'aggressive'
-                        : !config.features.fusion.enabled
-                          ? 'conservative'
-                          : ''
-                  }
+                  value={getCurrentPreset()}
                   onValueChange={(value) => applyPreset(value as keyof typeof presets)}
                 >
                   <SelectTrigger>
