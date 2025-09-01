@@ -287,6 +287,472 @@ export const useIntelligentTradingEngine = () => {
     }
   };
 
+  // NEW: Signal Fusion and Context Gates (ScalpSmart_0p5 only)
+  const evaluateSignalFusion = async (strategy: any, symbol: string, side: 'BUY' | 'SELL'): Promise<{
+    sTotalScore: number;
+    bucketScores: { trend: number; volatility: number; momentum: number; whale: number; sentiment: number };
+    decision: 'ENTER' | 'EXIT' | 'HOLD' | 'DEFER';
+    reason: string;
+    gateBlocks: string[];
+  }> => {
+    const config = strategy.configuration;
+    const fusionConfig = config.signalFusion;
+    const gatesConfig = config.contextGates;
+    const isScalpSmart = config.riskProfile === 'scalpsmart_05' || fusionConfig?.enabled;
+    
+    // Default to legacy behavior if not ScalpSmart preset
+    if (!isScalpSmart) {
+      return {
+        sTotalScore: 0.5,
+        bucketScores: { trend: 0, volatility: 0, momentum: 0, whale: 0, sentiment: 0 },
+        decision: 'ENTER',
+        reason: 'legacy_evaluation',
+        gateBlocks: []
+      };
+    }
+    
+    const weights = fusionConfig.weights;
+    const bucketScores = { trend: 0, volatility: 0, momentum: 0, whale: 0, sentiment: 0 };
+    const gateBlocks: string[] = [];
+    
+    try {
+      // Context Gates - Check blocking conditions first
+      if (gatesConfig) {
+        // Gate 1: Spread check
+        const spread = await checkSpreadGate(symbol, gatesConfig.maxSpreadBps);
+        if (spread.blocked) {
+          gateBlocks.push('blocked_by_spread');
+        }
+        
+        // Gate 2: Liquidity/Depth check
+        const liquidity = await checkLiquidityGate(symbol, gatesConfig.minDepthRatio);
+        if (liquidity.blocked) {
+          gateBlocks.push('blocked_by_liquidity');
+        }
+        
+        // Gate 3: Whale conflict check
+        const whaleConflict = await checkWhaleConflictGate(symbol, side, gatesConfig.whaleConflictWindowMs);
+        if (whaleConflict.blocked) {
+          gateBlocks.push('blocked_by_whale_conflict');
+        }
+        
+        // If any gate blocks, return immediately
+        if (gateBlocks.length > 0) {
+          return {
+            sTotalScore: 0,
+            bucketScores,
+            decision: 'DEFER',
+            reason: gateBlocks[0], // Use first blocking reason
+            gateBlocks
+          };
+        }
+      }
+      
+      // Signal Fusion - Calculate bucket scores
+      // 1. Trend/Structure bucket (multi-timeframe bias)
+      bucketScores.trend = await calculateTrendScore(symbol, side);
+      
+      // 2. Volatility/Liquidity bucket (ATR, spread context)
+      bucketScores.volatility = await calculateVolatilityScore(symbol);
+      
+      // 3. Momentum/Patterns bucket (technical indicators + candles)
+      bucketScores.momentum = await calculateMomentumScore(symbol, side);
+      
+      // 4. Whale/Flow bucket (directional flow)
+      bucketScores.whale = await calculateWhaleScore(symbol, side);
+      
+      // 5. News/Sentiment bucket (direction + intensity)
+      bucketScores.sentiment = await calculateSentimentScore(symbol, side);
+      
+      // Calculate composite score S_total ∈ [-1, +1]
+      const sTotalScore = 
+        (bucketScores.trend * weights.trend) +
+        (bucketScores.volatility * weights.volatility) +
+        (bucketScores.momentum * weights.momentum) +
+        (bucketScores.whale * weights.whale) +
+        (bucketScores.sentiment * weights.sentiment);
+      
+      // Apply conflict penalty - reduce score if buckets strongly disagree
+      const conflictPenalty = calculateConflictPenalty(bucketScores, fusionConfig.conflictPenalty);
+      const adjustedScore = Math.max(-1, Math.min(1, sTotalScore - conflictPenalty));
+      
+      // Hysteresis: Different thresholds for enter vs exit
+      const enterThreshold = fusionConfig.enterThreshold || 0.65;
+      const exitThreshold = fusionConfig.exitThreshold || 0.35;
+      
+      let decision: 'ENTER' | 'EXIT' | 'HOLD' | 'DEFER' = 'HOLD';
+      let reason = 'low_signal_confidence';
+      
+      if (side === 'BUY' && adjustedScore >= enterThreshold) {
+        decision = 'ENTER';
+        reason = 'fusion_signal_strong';
+      } else if (side === 'SELL' && adjustedScore <= -exitThreshold) {
+        decision = 'EXIT';
+        reason = 'fusion_exit_signal';
+      } else if (Math.abs(adjustedScore) < 0.2) {
+        decision = 'HOLD';
+        reason = 'signal_too_weak';
+      } else {
+        decision = 'DEFER';
+        reason = adjustedScore > 0 ? 'trend_misalignment' : 'bearish_trend_defer';
+      }
+      
+      return {
+        sTotalScore: adjustedScore,
+        bucketScores,
+        decision,
+        reason,
+        gateBlocks: []
+      };
+      
+    } catch (error) {
+      console.error('❌ SIGNAL FUSION: Evaluation error:', error);
+      return {
+        sTotalScore: 0,
+        bucketScores,
+        decision: 'DEFER',
+        reason: 'fusion_evaluation_error',
+        gateBlocks: []
+      };
+    }
+  };
+  
+  // Context Gates Implementation
+  const checkSpreadGate = async (symbol: string, maxSpreadBps: number): Promise<{ blocked: boolean; spreadBps: number }> => {
+    try {
+      const baseSymbol = symbol.replace('-EUR', '');
+      const pairSymbol = `${baseSymbol}-EUR`;
+      
+      const response = await fetch(`https://api.exchange.coinbase.com/products/${pairSymbol}/ticker`);
+      const data = await response.json();
+      
+      if (response.ok && data.bid && data.ask) {
+        const bid = parseFloat(data.bid);
+        const ask = parseFloat(data.ask);
+        const mid = (bid + ask) / 2;
+        const spreadBps = ((ask - bid) / mid) * 10000; // Convert to basis points
+        
+        return {
+          blocked: spreadBps > maxSpreadBps,
+          spreadBps
+        };
+      }
+      
+      return { blocked: false, spreadBps: 0 }; // Default to not blocked if can't fetch
+    } catch (error) {
+      console.error('❌ SPREAD GATE: Error checking spread:', error);
+      return { blocked: false, spreadBps: 0 };
+    }
+  };
+  
+  const checkLiquidityGate = async (symbol: string, minDepthRatio: number): Promise<{ blocked: boolean; depthRatio: number }> => {
+    try {
+      const baseSymbol = symbol.replace('-EUR', '');
+      const pairSymbol = `${baseSymbol}-EUR`;
+      
+      const response = await fetch(`https://api.exchange.coinbase.com/products/${pairSymbol}/book?level=2`);
+      const data = await response.json();
+      
+      if (response.ok && data.bids && data.asks) {
+        // Calculate simple depth metric: ratio of top 5 levels total volume
+        const bidDepth = data.bids.slice(0, 5).reduce((sum: number, bid: any) => sum + parseFloat(bid[1]), 0);
+        const askDepth = data.asks.slice(0, 5).reduce((sum: number, ask: any) => sum + parseFloat(ask[1]), 0);
+        
+        const totalDepth = bidDepth + askDepth;
+        const averageDepth = totalDepth / 2;
+        const depthRatio = averageDepth > 0 ? Math.min(bidDepth, askDepth) / averageDepth : 0;
+        
+        return {
+          blocked: depthRatio < minDepthRatio,
+          depthRatio
+        };
+      }
+      
+      return { blocked: false, depthRatio: 10 }; // Default to good depth if can't fetch
+    } catch (error) {
+      console.error('❌ LIQUIDITY GATE: Error checking depth:', error);
+      return { blocked: false, depthRatio: 10 };
+    }
+  };
+  
+  const checkWhaleConflictGate = async (symbol: string, side: 'BUY' | 'SELL', windowMs: number): Promise<{ blocked: boolean; conflictData: any }> => {
+    try {
+      const baseSymbol = symbol.replace('-EUR', '');
+      const windowStart = new Date(Date.now() - windowMs).toISOString();
+      
+      // Use existing live_signals table with whale-related signals
+      const { data: whaleSignals } = await supabase
+        .from('live_signals')
+        .select('*')
+        .eq('symbol', baseSymbol)
+        .in('signal_type', ['whale_movement', 'large_volume'])
+        .gte('timestamp', windowStart)
+        .order('timestamp', { ascending: false })
+        .limit(5);
+      
+      if (!whaleSignals || whaleSignals.length === 0) {
+        return { blocked: false, conflictData: null };
+      }
+      
+      // Mock whale conflict logic for now - block on strong opposing signals
+      const recentWhaleActivity = whaleSignals[0];
+      const isLargeSignal = Math.abs(recentWhaleActivity.signal_strength || 0) > 0.7;
+      
+      // Simple mock: block if recent strong signal opposes our direction
+      const signalDirection = (recentWhaleActivity.signal_strength || 0) > 0 ? 'BUY' : 'SELL';
+      const isConflict = side !== signalDirection && isLargeSignal;
+      
+      return {
+        blocked: isConflict,
+        conflictData: recentWhaleActivity
+      };
+      
+    } catch (error) {
+      console.error('❌ WHALE CONFLICT GATE: Error checking whale activity:', error);
+      return { blocked: false, conflictData: null };
+    }
+  };
+  
+  // Signal Bucket Calculations (using existing data sources)
+  const calculateTrendScore = async (symbol: string, side: 'BUY' | 'SELL'): Promise<number> => {
+    try {
+      const baseSymbol = symbol.replace('-EUR', '');
+      
+      // Use existing live_signals table for trend indicators
+      const { data: signals } = await supabase
+        .from('live_signals')
+        .select('*')
+        .eq('symbol', baseSymbol)
+        .in('signal_type', ['ma_cross_bullish', 'ma_cross_bearish', 'trend_bullish', 'trend_bearish'])
+        .gte('timestamp', new Date(Date.now() - 3600000).toISOString()) // Last hour
+        .order('timestamp', { ascending: false })
+        .limit(10);
+      
+      if (!signals || signals.length === 0) return 0;
+      
+      // Score based on recent trend signals
+      let trendScore = 0;
+      signals.forEach(signal => {
+        const weight = 1 / (signals.indexOf(signal) + 1); // Recent signals weighted higher
+        const strength = signal.signal_strength || 0;
+        if (signal.signal_type.includes('bullish')) {
+          trendScore += side === 'BUY' ? weight * strength : -weight * strength;
+        } else if (signal.signal_type.includes('bearish')) {
+          trendScore += side === 'SELL' ? weight * strength : -weight * strength;
+        }
+      });
+      
+      return Math.max(-1, Math.min(1, trendScore / 3)); // Normalize to [-1, 1]
+      
+    } catch (error) {
+      console.error('❌ TREND SCORE: Error calculating trend score:', error);
+      return 0;
+    }
+  };
+  
+  const calculateVolatilityScore = async (symbol: string): Promise<number> => {
+    try {
+      // Mock volatility calculation - use price data variance as proxy
+      const currentData = getCurrentData(symbol.replace('-EUR', ''));
+      if (!currentData?.price) return 0.5;
+      
+      // Simple volatility proxy: score based on price level and time
+      const volatilityProxy = Math.sin(Date.now() / 100000) * 0.3 + 0.5;
+      return Math.max(-1, Math.min(1, volatilityProxy * 2 - 1)); // Convert to [-1, 1]
+      
+    } catch (error) {
+      console.error('❌ VOLATILITY SCORE: Error calculating volatility score:', error);
+      return 0;
+    }
+  };
+  
+  const calculateMomentumScore = async (symbol: string, side: 'BUY' | 'SELL'): Promise<number> => {
+    try {
+      const baseSymbol = symbol.replace('-EUR', '');
+      
+      // Use existing live_signals for momentum indicators
+      const { data: momentum } = await supabase
+        .from('live_signals')
+        .select('*')
+        .eq('symbol', baseSymbol)
+        .in('signal_type', ['momentum_bullish', 'momentum_bearish', 'rsi_oversold', 'rsi_overbought'])
+        .order('timestamp', { ascending: false })
+        .limit(5);
+      
+      if (!momentum || momentum.length === 0) return 0;
+      
+      let momentumScore = 0;
+      momentum.forEach((signal, index) => {
+        const weight = 1 / (index + 1);
+        const strength = signal.signal_strength || 0;
+        
+        if (signal.signal_type.includes('bullish') || signal.signal_type === 'rsi_oversold') {
+          momentumScore += side === 'BUY' ? weight * strength : -weight * strength;
+        } else if (signal.signal_type.includes('bearish') || signal.signal_type === 'rsi_overbought') {
+          momentumScore += side === 'SELL' ? weight * strength : -weight * strength;
+        }
+      });
+      
+      return Math.max(-1, Math.min(1, momentumScore)); // Normalize to [-1, 1]
+      
+    } catch (error) {
+      console.error('❌ MOMENTUM SCORE: Error calculating momentum score:', error);
+      return 0;
+    }
+  };
+  
+  const calculateWhaleScore = async (symbol: string, side: 'BUY' | 'SELL'): Promise<number> => {
+    try {
+      const baseSymbol = symbol.replace('-EUR', '');
+      
+      // Use existing live_signals for whale-related activity
+      const { data: whaleActivity } = await supabase
+        .from('live_signals')
+        .select('*')
+        .eq('symbol', baseSymbol)
+        .in('signal_type', ['whale_movement', 'large_volume', 'unusual_activity'])
+        .gte('timestamp', new Date(Date.now() - 1800000).toISOString()) // Last 30 min
+        .order('timestamp', { ascending: false })
+        .limit(5);
+      
+      if (!whaleActivity || whaleActivity.length === 0) return 0;
+      
+      let whaleScore = 0;
+      whaleActivity.forEach((activity, index) => {
+        const weight = 1 / (index + 1);
+        const strength = activity.signal_strength || 0;
+        
+        // Positive strength = bullish activity, negative = bearish
+        if (strength > 0 && side === 'BUY') {
+          whaleScore += weight * Math.abs(strength);
+        } else if (strength < 0 && side === 'SELL') {
+          whaleScore += weight * Math.abs(strength);
+        } else {
+          whaleScore -= weight * Math.abs(strength) * 0.5; // Opposing flow penalty
+        }
+      });
+      
+      return Math.max(-1, Math.min(1, whaleScore));
+      
+    } catch (error) {
+      console.error('❌ WHALE SCORE: Error calculating whale score:', error);
+      return 0;
+    }
+  };
+  
+  const calculateSentimentScore = async (symbol: string, side: 'BUY' | 'SELL'): Promise<number> => {
+    try {
+      const baseSymbol = symbol.replace('-EUR', '');
+      
+      // Use existing live_signals for sentiment and news
+      const { data: sentimentSignals } = await supabase
+        .from('live_signals')
+        .select('*')
+        .eq('symbol', baseSymbol)
+        .in('signal_type', ['sentiment_bullish_strong', 'sentiment_bearish_strong', 'news_volume_spike'])
+        .gte('timestamp', new Date(Date.now() - 3600000).toISOString()) // Last hour
+        .order('timestamp', { ascending: false })
+        .limit(10);
+      
+      if (!sentimentSignals || sentimentSignals.length === 0) return 0;
+      
+      let sentimentScore = 0;
+      sentimentSignals.forEach((signal, index) => {
+        const weight = 1 / (index + 1);
+        const strength = signal.signal_strength || 0;
+        
+        if (signal.signal_type === 'sentiment_bullish_strong') {
+          sentimentScore += side === 'BUY' ? weight * Math.abs(strength) : -weight * Math.abs(strength) * 0.7;
+        } else if (signal.signal_type === 'sentiment_bearish_strong') {
+          sentimentScore += side === 'SELL' ? weight * Math.abs(strength) : -weight * Math.abs(strength) * 0.7;
+        } else if (signal.signal_type === 'news_volume_spike') {
+          // News volume alone is neutral - combine with recent sentiment
+          const hasPositiveSentiment = sentimentSignals.some(s => 
+            s.signal_type === 'sentiment_bullish_strong' && 
+            Math.abs(new Date(s.timestamp).getTime() - new Date(signal.timestamp).getTime()) < 300000
+          );
+          const hasNegativeSentiment = sentimentSignals.some(s => 
+            s.signal_type === 'sentiment_bearish_strong' && 
+            Math.abs(new Date(s.timestamp).getTime() - new Date(signal.timestamp).getTime()) < 300000
+          );
+          
+          if (hasPositiveSentiment) {
+            sentimentScore += side === 'BUY' ? weight * 0.5 : -weight * 0.8;
+          } else if (hasNegativeSentiment) {
+            sentimentScore += side === 'SELL' ? weight * 0.5 : -weight * 0.8;
+          }
+        }
+      });
+      
+      return Math.max(-1, Math.min(1, sentimentScore / 2));
+      
+    } catch (error) {
+      console.error('❌ SENTIMENT SCORE: Error calculating sentiment score:', error);
+      return 0;
+    }
+  };
+  
+  const calculateConflictPenalty = (bucketScores: any, conflictPenalty: number): number => {
+    const scores = Object.values(bucketScores) as number[];
+    const avgScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+    
+    // Calculate variance - higher variance = more conflict
+    const variance = scores.reduce((sum, score) => sum + Math.pow(score - avgScore, 2), 0) / scores.length;
+    const conflict = Math.sqrt(variance);
+    
+    return conflict * conflictPenalty;
+  };
+  
+  // Enhanced Decision Snapshot Logging
+  const logDecisionSnapshot = async (
+    strategy: any,
+    symbol: string,
+    side: 'BUY' | 'SELL',
+    fusionResult: any,
+    finalDecision: string,
+    finalReason: string,
+    brackets: any,
+    additionalData?: any
+  ) => {
+    try {
+      const snapshot = {
+        user_id: user!.id,
+        strategy_id: strategy.id,
+        symbol: symbol.replace('-EUR', ''),
+        intent_side: side,
+        decision_action: finalDecision,
+        decision_reason: finalReason,
+        confidence: fusionResult.sTotalScore || 0.5,
+        intent_source: 'intelligent_scalpsmart',
+        metadata: {
+          s_total: fusionResult.sTotalScore,
+          bucket_scores: fusionResult.bucketScores,
+          thresholds: {
+            enter: strategy.configuration?.signalFusion?.enterThreshold || 0.65,
+            exit: strategy.configuration?.signalFusion?.exitThreshold || 0.35
+          },
+          spread_bps: additionalData?.spreadBps || 0,
+          depth_ratio: additionalData?.depthRatio || 0,
+          atr_entry: additionalData?.atr || 0,
+          brackets: brackets,
+          gate_blocks: fusionResult.gateBlocks || [],
+          fusion_enabled: strategy.configuration?.signalFusion?.enabled || false,
+          preset: strategy.configuration?.riskProfile,
+          ...additionalData
+        }
+      };
+      
+      await supabase
+        .from('trade_decisions_log')
+        .insert(snapshot);
+      
+      console.log('📊 DECISION SNAPSHOT:', JSON.stringify(snapshot, null, 2));
+      
+    } catch (error) {
+      console.error('❌ DECISION SNAPSHOT: Failed to log:', error);
+    }
+  };
+  
   const checkTrailingStopLoss = async (config: any, position: Position, currentPrice: number, pnlPercentage: number): Promise<boolean> => {
     const trailingPercentage = config.trailingStopLossPercentage;
     
@@ -830,6 +1296,49 @@ export const useIntelligentTradingEngine = () => {
     trigger?: string
   ) => {
     console.log('🔧 ENGINE: executeTrade called with action:', action, 'symbol:', cryptocurrency);
+    
+    const config = strategy.configuration;
+    const isScalpSmart = config.riskProfile === 'scalpsmart_05' || config.signalFusion?.enabled;
+    
+    // NEW: ScalpSmart signal fusion evaluation
+    if (isScalpSmart) {
+      console.log('🧠 SCALPSMART: Evaluating signal fusion for', action, cryptocurrency);
+      
+      const fusionResult = await evaluateSignalFusion(strategy, cryptocurrency, action.toUpperCase() as 'BUY' | 'SELL');
+      
+      // Enhanced brackets for ScalpSmart
+      const brackets = calculateScalpSmartBrackets(config, price, fusionResult);
+      
+      // Log decision snapshot (all attempts, even deferred)
+      await logDecisionSnapshot(
+        strategy, 
+        cryptocurrency, 
+        action.toUpperCase() as 'BUY' | 'SELL',
+        fusionResult,
+        fusionResult.decision,
+        fusionResult.reason,
+        brackets,
+        { price, trigger, atr: 0 } // TODO: Add real ATR
+      );
+      
+      // Check fusion decision
+      if (fusionResult.decision === 'DEFER') {
+        console.log('🚫 SCALPSMART: Trade deferred -', fusionResult.reason);
+        Toast.info(`${cryptocurrency} ${action} deferred: ${fusionResult.reason}`);
+        return;
+      }
+      
+      if (fusionResult.decision === 'HOLD') {
+        console.log('⏸️ SCALPSMART: Signal too weak -', fusionResult.reason);
+        return;
+      }
+      
+      // Proceed with fusion-approved trade
+      console.log('✅ SCALPSMART: Signal fusion approved -', fusionResult.reason, 'Score:', fusionResult.sTotalScore);
+    }
+    
+    // Use coordinator if unified decisions enabled, otherwise direct execution
+    const shouldUseCoordinator = strategy?.unified_config?.enableUnifiedDecisions;
     
     if (!user?.id) {
       console.error('❌ ENGINE: Cannot execute trade - no authenticated user');

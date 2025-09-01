@@ -168,6 +168,39 @@ const RISK_PRESETS = {
     maxTotalTrades: 500,
     maxWalletExposure: 80,
     dcaIntervalHours: 6
+  },
+  'scalpsmart_05': {
+    stopLossPercentage: 0.40,
+    takeProfitPercentage: 0.65,
+    maxTotalTrades: 300,
+    maxWalletExposure: 25,
+    dcaIntervalHours: 1,
+    signalFusion: {
+      enabled: true,
+      enterThreshold: 0.65,
+      exitThreshold: 0.35,
+      conflictPenalty: 0.3,
+      weights: {
+        trend: 0.30,
+        volatility: 0.15,
+        momentum: 0.25,
+        whale: 0.15,
+        sentiment: 0.15
+      }
+    },
+    contextGates: {
+      maxSpreadBps: 12,
+      minDepthRatio: 3.0,
+      whaleConflictWindowMs: 300000
+    },
+    brackets: {
+      stopLossPctWhenNotAtr: 0.40,
+      trailBufferPct: 0.4,
+      enforceRiskReward: true,
+      minTpSlRatio: 1.2,
+      atrScaled: false,
+      atrMultipliers: { tp: 2.6, sl: 2.0 }
+    }
   }
 };
 

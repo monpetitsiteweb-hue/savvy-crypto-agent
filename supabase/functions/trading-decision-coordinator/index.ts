@@ -42,7 +42,10 @@ type Reason =
   | "queue_overload_defer"
   | "direct_execution_failed"
   | "internal_error"
-  | "atomic_section_busy_defer";
+  | "atomic_section_busy_defer"
+  | "blocked_by_spread"
+  | "blocked_by_liquidity"
+  | "blocked_by_whale_conflict";
 
 interface TradeDecision {
   action: DecisionAction;
