@@ -460,6 +460,13 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         enabled: false,
         period: 20,
       },
+      maCrossover: {
+        enabled: true,
+        shortPeriod: 5,
+        longPeriod: 10,
+        minDivergenceThreshold: 0.5,
+        strengthMultiplier: 20,
+      },
       bollinger: {
         enabled: false,
         period: 20,

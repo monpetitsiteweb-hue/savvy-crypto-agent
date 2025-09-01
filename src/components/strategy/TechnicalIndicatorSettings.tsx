@@ -29,6 +29,13 @@ export interface TechnicalIndicatorConfig {
     enabled: boolean;
     period: number;
   };
+  maCrossover: {
+    enabled: boolean;
+    shortPeriod: number;
+    longPeriod: number;
+    minDivergenceThreshold: number;
+    strengthMultiplier: number;
+  };
   bollinger: {
     enabled: boolean;
     period: number;
@@ -74,6 +81,13 @@ const defaultConfig: TechnicalIndicatorConfig = {
   sma: {
     enabled: false,
     period: 20,
+  },
+  maCrossover: {
+    enabled: true,
+    shortPeriod: 5,
+    longPeriod: 10,
+    minDivergenceThreshold: 0.5,
+    strengthMultiplier: 20,
   },
   bollinger: {
     enabled: false,
@@ -335,6 +349,82 @@ export const TechnicalIndicatorSettings: React.FC<TechnicalIndicatorSettingsProp
                   step={1}
                   className="w-full"
                 />
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Moving Average Crossover Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5" />
+            Moving Average Crossover
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <TooltipField description="MA crossover generates buy/sell signals when short MA crosses above/below long MA. Threshold prevents noise trades.">
+              <Label htmlFor="ma-crossover-enabled">Enable MA Crossover</Label>
+            </TooltipField>
+            <Switch
+              id="ma-crossover-enabled"
+              checked={config.maCrossover.enabled}
+              onCheckedChange={(enabled) => updateConfig('maCrossover', { enabled })}
+            />
+          </div>
+
+          {config.maCrossover.enabled && (
+            <div className="space-y-4 border-l-2 border-primary/20 pl-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Short MA Period: {config.maCrossover.shortPeriod}</Label>
+                  <Slider
+                    value={[config.maCrossover.shortPeriod]}
+                    onValueChange={([shortPeriod]) => updateConfig('maCrossover', { shortPeriod })}
+                    min={3}
+                    max={15}
+                    step={1}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Long MA Period: {config.maCrossover.longPeriod}</Label>
+                  <Slider
+                    value={[config.maCrossover.longPeriod]}
+                    onValueChange={([longPeriod]) => updateConfig('maCrossover', { longPeriod })}
+                    min={5}
+                    max={25}
+                    step={1}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Min Divergence Threshold: {config.maCrossover.minDivergenceThreshold}%</Label>
+                  <Slider
+                    value={[config.maCrossover.minDivergenceThreshold]}
+                    onValueChange={([minDivergenceThreshold]) => updateConfig('maCrossover', { minDivergenceThreshold })}
+                    min={0.1}
+                    max={2.0}
+                    step={0.1}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Strength Multiplier: {config.maCrossover.strengthMultiplier}</Label>
+                  <Slider
+                    value={[config.maCrossover.strengthMultiplier]}
+                    onValueChange={([strengthMultiplier]) => updateConfig('maCrossover', { strengthMultiplier })}
+                    min={5}
+                    max={50}
+                    step={5}
+                    className="w-full"
+                  />
+                </div>
               </div>
             </div>
           )}

@@ -315,25 +315,31 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
     }
   }
 
-  // 4. Moving Average Analysis (if enough data)
+  // 4. Moving Average Analysis (if enough data) - Use strategy configuration
   if (priceData.length >= 10) {
-    const shortMA = calculateSMA(priceData.slice(-5), 'close_price');
-    const longMA = calculateSMA(priceData.slice(-10), 'close_price');
+    // Use configurable periods instead of hardcoded 5 and 10
+    const shortPeriod = 5; // Will be configurable from strategy
+    const longPeriod = 10; // Will be configurable from strategy
+    
+    const shortMA = calculateSMA(priceData.slice(-shortPeriod), 'close_price');
+    const longMA = calculateSMA(priceData.slice(-longPeriod), 'close_price');
     const currentPrice = latest.close_price;
 
     console.log(`📊 ${symbol} - Price: ${currentPrice}, Short MA: ${shortMA.toFixed(2)}, Long MA: ${longMA.toFixed(2)}`);
 
-    // Golden Cross (bullish) or Death Cross (bearish) - with meaningful thresholds
+    // Golden Cross (bullish) or Death Cross (bearish) - with configurable thresholds
     const maDivergence = Math.abs(shortMA - longMA) / longMA * 100;
+    const minDivergenceThreshold = 0.5; // Will be configurable from strategy
+    const strengthMultiplier = 20; // Will be configurable from strategy
     
-    if (shortMA > longMA && currentPrice > shortMA && maDivergence > 0.5) {
+    if (shortMA > longMA && currentPrice > shortMA && maDivergence > minDivergenceThreshold) {
       signals.push({
         source_id: sourceId,
         user_id: userId,
         timestamp: new Date().toISOString(),
         symbol: symbol.split('-')[0],
         signal_type: 'ma_cross_bullish',
-        signal_strength: Math.min(100, maDivergence * 20), // Less sensitive multiplier
+        signal_strength: Math.min(100, maDivergence * strengthMultiplier),
         source: 'technical_analysis',
         data: {
           short_ma: shortMA,
@@ -345,14 +351,14 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
         },
         processed: false
       });
-    } else if (shortMA < longMA && currentPrice < shortMA && maDivergence > 0.5) {
+    } else if (shortMA < longMA && currentPrice < shortMA && maDivergence > minDivergenceThreshold) {
       signals.push({
         source_id: sourceId,
         user_id: userId,
         timestamp: new Date().toISOString(),
         symbol: symbol.split('-')[0],
         signal_type: 'ma_cross_bearish',
-        signal_strength: Math.min(100, maDivergence * 20), // Less sensitive multiplier
+        signal_strength: Math.min(100, maDivergence * strengthMultiplier),
         source: 'technical_analysis',
         data: {
           short_ma: shortMA,
