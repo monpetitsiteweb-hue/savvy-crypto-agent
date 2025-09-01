@@ -229,7 +229,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
       ...config,
       enableAIOverride: true, // Enable AI when applying preset
       features: {
-        ...config.features,
+        ...config.features, // Preserve existing features (including overridesPolicy)
         fusion: {
           ...config.features.fusion,
           ...preset.fusion
@@ -240,8 +240,12 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
         },
         // Apply bracket policy from preset if it exists (for micro-scalp)
         ...(presetKey === 'microScalp' && {
-          bracketPolicy: DEFAULT_VALUES.BRACKET_POLICY
+          bracketPolicy: {
+            ...config.features.bracketPolicy, // Preserve existing bracketPolicy
+            ...DEFAULT_VALUES.BRACKET_POLICY
+          }
         })
+        // Note: overridesPolicy is preserved via spread operator above
       }
     };
     

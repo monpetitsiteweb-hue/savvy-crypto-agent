@@ -16,8 +16,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Preset detection for decision provenance (inlined to avoid imports in Deno)
-function equalsWithin(a: number, b: number, eps = 1e-6): boolean {
+// Preset detection for decision provenance (inlined to avoid imports in Deno) - locked epsilon
+const EPSILON = 1e-6;
+function equalsWithin(a: number, b: number, eps = EPSILON): boolean {
   return Math.abs(a - b) < eps;
 }
 

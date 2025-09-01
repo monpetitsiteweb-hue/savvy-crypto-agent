@@ -150,8 +150,9 @@ export function isAIFusionEnabled(strategyConfig: any): boolean {
   return fusionConfig?.enabled === true;
 }
 
-// Epsilon comparison for floating point values
-export function equalsWithin(a: number, b: number, eps = 1e-6): boolean {
+// Epsilon comparison for floating point values - locked constant to prevent drift
+const EPSILON = 1e-6;
+export function equalsWithin(a: number, b: number, eps = EPSILON): boolean {
   return Math.abs(a - b) < eps;
 }
 
