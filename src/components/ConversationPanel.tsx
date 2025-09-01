@@ -515,8 +515,8 @@ export const ConversationPanel = () => {
                   const value = data.configUpdates[key];
                   if (key === 'aiIntelligenceConfig') {
                     // Check what specific AI config was updated
-                    if (value?.aiAutonomyLevel !== undefined) {
-                      return `AI autonomy level: ${value.aiAutonomyLevel}%`;
+                    if (value?.autonomy?.level !== undefined) {
+                      return `AI autonomy level: ${value.autonomy.level}%`;
                     } else if (value?.enableAIOverride !== undefined) {
                       return `AI decision override: ${value.enableAIOverride ? 'enabled' : 'disabled'}`;
                     } else {

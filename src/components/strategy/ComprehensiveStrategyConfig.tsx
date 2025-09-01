@@ -47,7 +47,7 @@ import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import NaturalLanguageStrategy from './NaturalLanguageStrategy';
-import AIIntelligenceSettings, { AIIntelligenceConfig } from './AIIntelligenceSettings';
+import { AIIntelligenceSettings, AIIntelligenceConfig } from './AIIntelligenceSettings';
 import { TechnicalIndicatorSettings, TechnicalIndicatorConfig } from './TechnicalIndicatorSettings';
 import { PoolExitManagementPanel } from './PoolExitManagementPanel';
 
@@ -372,27 +372,60 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     tags: ['automated', 'scalping'],
     aiIntelligenceConfig: {
       enableAIOverride: false,
-      aiAutonomyLevel: 30,
+      autonomy: { level: 25 },
+      features: {
+        fusion: {
+          enabled: false,
+          weights: {
+            trend: 0.25,
+            volatility: 0.20,
+            momentum: 0.25,
+            whale: 0.15,
+            sentiment: 0.15
+          },
+          enterThreshold: 0.65,
+          exitThreshold: 0.35,
+          conflictPenalty: 0.30
+        },
+        contextGates: {
+          spreadThresholdBps: 20,
+          minDepthRatio: 2.0,
+          whaleConflictWindowMs: 600000
+        },
+        bracketPolicy: {
+          atrScaled: false,
+          stopLossPctWhenNotAtr: 0.40,
+          trailBufferPct: 0.40,
+          enforceRiskReward: true,
+          minTpSlRatio: 1.2,
+          atrMultipliers: { tp: 2.6, sl: 2.0 }
+        },
+        overridesPolicy: {
+          allowedKeys: ["tpPct", "slPct", "enterThreshold", "exitThreshold"],
+          bounds: { slPct: [0.15, 1.00], tpOverSlMin: 1.2 },
+          ttlMs: 900000
+        }
+      },
       aiConfidenceThreshold: 70,
       enablePatternRecognition: true,
-      patternLookbackHours: 168,
-      crossAssetCorrelation: true,
-      marketStructureAnalysis: true,
+      patternLookbackHours: 24,
+      crossAssetCorrelation: false,
+      marketStructureAnalysis: false,
       enableExternalSignals: true,
-      whaleActivityWeight: 25,
-      sentimentWeight: 20,
-      newsImpactWeight: 30,
-      socialSignalsWeight: 15,
-      decisionMode: 'balanced' as const,
+      whaleActivityWeight: 0.3,
+      sentimentWeight: 0.2,
+      newsImpactWeight: 0.25,
+      socialSignalsWeight: 0.15,
+      decisionMode: 'balanced',
       escalationThreshold: 80,
       riskOverrideAllowed: false,
-      enableLearning: true,
+      enableLearning: false,
       adaptToPerformance: true,
-      learningRate: 50,
+      learningRate: 0.1,
       explainDecisions: true,
       alertOnAnomalies: true,
       alertOnOverrides: true,
-      customInstructions: ''
+      customInstructions: ""
     },
     poolExitConfig: {
       pool_enabled: false,

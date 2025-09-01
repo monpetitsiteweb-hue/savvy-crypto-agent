@@ -413,7 +413,9 @@ export const useIntelligentTradingEngine = () => {
         bucketScores,
         decision,
         reason,
-        gateBlocks: []
+        gateBlocks: [],
+        effectiveConfig: effectiveConfigWithSources,
+        valueSources: effectiveConfigWithSources.value_sources
       };
       
     } catch (error) {
@@ -423,7 +425,9 @@ export const useIntelligentTradingEngine = () => {
         bucketScores,
         decision: 'DEFER',
         reason: 'fusion_evaluation_error',
-        gateBlocks: []
+        gateBlocks: [],
+        effectiveConfig: effectiveConfigWithSources,
+        valueSources: effectiveConfigWithSources.value_sources
       };
     }
   };
