@@ -31,6 +31,22 @@ export const DEFAULT_VALUES = {
     sentiment: 0.15
   },
   
+  // Preset Definitions
+  PRESETS: {
+    AGGRESSIVE: {
+      FUSION_WEIGHTS: { trend: 0.30, volatility: 0.15, momentum: 0.30, whale: 0.10, sentiment: 0.15 },
+      ENTER_THRESHOLD: 0.55,
+      EXIT_THRESHOLD: 0.25,
+      SPREAD_THRESHOLD_BPS: 18,
+      MIN_DEPTH_RATIO: 2.5,
+      WHALE_CONFLICT_WINDOW_MS: 180000
+    },
+    CONSERVATIVE: {
+      SPREAD_THRESHOLD_BPS: 8,
+      MIN_DEPTH_RATIO: 4.0
+    }
+  },
+  
   // Bracket Policy
   BRACKET_POLICY: {
     atrScaled: false,

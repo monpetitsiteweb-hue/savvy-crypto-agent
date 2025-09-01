@@ -53,34 +53,29 @@ import { PoolExitManagementPanel } from './PoolExitManagementPanel';
 
 import { getAllSymbols } from '@/data/coinbaseCoins';
 import { getUnsupportedSymbols } from '@/utils/marketAvailability';
+import { DEFAULT_VALUES } from '@/utils/configDefaults';
 
 // ScalpSmart Strategy Configuration
 const SCALPSMART_PRESET = {
   signalFusion: {
     enabled: true,
-    enterThreshold: 0.65,
-    exitThreshold: 0.35,
+    enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
+    exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
     conflictPenalty: 0.3,
-    weights: {
-      trend: 0.30,
-      volatility: 0.15,
-      momentum: 0.25,
-      whale: 0.15,
-      sentiment: 0.15
-    }
+    weights: DEFAULT_VALUES.PRESETS.AGGRESSIVE.FUSION_WEIGHTS
   },
   contextGates: {
-    spread: { enabled: true, maxBps: 12 },
-    liquidity: { enabled: true, minDepthRatio: 3.0 },
+    spread: { enabled: true, maxBps: DEFAULT_VALUES.SPREAD_THRESHOLD_BPS },
+    liquidity: { enabled: true, minDepthRatio: DEFAULT_VALUES.MIN_DEPTH_RATIO },
     whaleConflict: { enabled: true, windowMinutes: 5 }
   },
   brackets: {
-    stopLossPctWhenNotAtr: 0.40,
-    trailBufferPct: 0.4,
+    stopLossPctWhenNotAtr: DEFAULT_VALUES.BRACKET_POLICY.stopLossPctWhenNotAtr,
+    trailBufferPct: DEFAULT_VALUES.BRACKET_POLICY.trailBufferPct,
     enforceRiskReward: true,
-    minTpSlRatio: 1.2,
+    minTpSlRatio: DEFAULT_VALUES.BRACKET_POLICY.minTpSlRatio,
     atrScaled: false,
-    atrMultipliers: { tp: 2.6, sl: 2.0 }
+    atrMultipliers: DEFAULT_VALUES.BRACKET_POLICY.atrMultipliers
   }
 };
 

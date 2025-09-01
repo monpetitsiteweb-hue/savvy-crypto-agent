@@ -159,37 +159,40 @@ export function equalsWithin(a: number, b: number, eps = 1e-6): boolean {
 const PRESET_DEFINITIONS = {
   conservative: {
     fusion: { enabled: false },
-    contextGates: { spreadThresholdBps: 8, minDepthRatio: 4.0 }
+    contextGates: { 
+      spreadThresholdBps: DEFAULT_VALUES.PRESETS.CONSERVATIVE.SPREAD_THRESHOLD_BPS, 
+      minDepthRatio: DEFAULT_VALUES.PRESETS.CONSERVATIVE.MIN_DEPTH_RATIO 
+    }
   },
   microScalp: {
     fusion: { 
       enabled: true, 
-      enterThreshold: 0.65, 
-      exitThreshold: 0.35,
-      weights: { trend: 0.25, volatility: 0.20, momentum: 0.25, whale: 0.15, sentiment: 0.15 }
+      enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD, 
+      exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
+      weights: DEFAULT_VALUES.FUSION_WEIGHTS
     },
     contextGates: { 
-      spreadThresholdBps: 12, 
-      minDepthRatio: 3.0, 
-      whaleConflictWindowMs: 300000 
+      spreadThresholdBps: DEFAULT_VALUES.SPREAD_THRESHOLD_BPS, 
+      minDepthRatio: DEFAULT_VALUES.MIN_DEPTH_RATIO, 
+      whaleConflictWindowMs: DEFAULT_VALUES.WHALE_CONFLICT_WINDOW_MS 
     },
     bracketPolicy: {
-      stopLossPctWhenNotAtr: 0.40,
-      trailBufferPct: 0.40,
-      minTpSlRatio: 1.2
+      stopLossPctWhenNotAtr: DEFAULT_VALUES.BRACKET_POLICY.stopLossPctWhenNotAtr,
+      trailBufferPct: DEFAULT_VALUES.BRACKET_POLICY.trailBufferPct,
+      minTpSlRatio: DEFAULT_VALUES.BRACKET_POLICY.minTpSlRatio
     }
   },
   aggressive: {
     fusion: { 
       enabled: true, 
-      enterThreshold: 0.55, 
-      exitThreshold: 0.25,
-      weights: { trend: 0.30, volatility: 0.15, momentum: 0.30, whale: 0.10, sentiment: 0.15 }
+      enterThreshold: DEFAULT_VALUES.PRESETS.AGGRESSIVE.ENTER_THRESHOLD, 
+      exitThreshold: DEFAULT_VALUES.PRESETS.AGGRESSIVE.EXIT_THRESHOLD,
+      weights: DEFAULT_VALUES.PRESETS.AGGRESSIVE.FUSION_WEIGHTS
     },
     contextGates: { 
-      spreadThresholdBps: 18, 
-      minDepthRatio: 2.5, 
-      whaleConflictWindowMs: 180000 
+      spreadThresholdBps: DEFAULT_VALUES.PRESETS.AGGRESSIVE.SPREAD_THRESHOLD_BPS, 
+      minDepthRatio: DEFAULT_VALUES.PRESETS.AGGRESSIVE.MIN_DEPTH_RATIO, 
+      whaleConflictWindowMs: DEFAULT_VALUES.PRESETS.AGGRESSIVE.WHALE_CONFLICT_WINDOW_MS 
     }
   }
 } as const;

@@ -183,7 +183,11 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
     conservative: {
       name: "Conservative",
       fusion: { ...defaultConfig.features.fusion, enabled: false },
-      contextGates: { ...defaultConfig.features.contextGates, spreadThresholdBps: 8, minDepthRatio: 4.0 }
+      contextGates: { 
+        ...defaultConfig.features.contextGates, 
+        spreadThresholdBps: DEFAULT_VALUES.PRESETS.CONSERVATIVE.SPREAD_THRESHOLD_BPS, 
+        minDepthRatio: DEFAULT_VALUES.PRESETS.CONSERVATIVE.MIN_DEPTH_RATIO 
+      }
     },
     microScalp: {
       name: "Micro-Scalp 0.5%", // Formerly ScalpSmart
@@ -204,12 +208,16 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
       name: "Aggressive Growth",
       fusion: {
         enabled: true,
-        weights: { trend: 0.30, volatility: 0.15, momentum: 0.30, whale: 0.10, sentiment: 0.15 },
-        enterThreshold: 0.55,
-        exitThreshold: 0.25,
+        weights: DEFAULT_VALUES.PRESETS.AGGRESSIVE.FUSION_WEIGHTS,
+        enterThreshold: DEFAULT_VALUES.PRESETS.AGGRESSIVE.ENTER_THRESHOLD,
+        exitThreshold: DEFAULT_VALUES.PRESETS.AGGRESSIVE.EXIT_THRESHOLD,
         conflictPenalty: 0.20
       },
-      contextGates: { spreadThresholdBps: 18, minDepthRatio: 2.5, whaleConflictWindowMs: 180000 }
+      contextGates: { 
+        spreadThresholdBps: DEFAULT_VALUES.PRESETS.AGGRESSIVE.SPREAD_THRESHOLD_BPS, 
+        minDepthRatio: DEFAULT_VALUES.PRESETS.AGGRESSIVE.MIN_DEPTH_RATIO, 
+        whaleConflictWindowMs: DEFAULT_VALUES.PRESETS.AGGRESSIVE.WHALE_CONFLICT_WINDOW_MS 
+      }
     }
   };
 
