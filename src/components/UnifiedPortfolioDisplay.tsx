@@ -1,3 +1,4 @@
+import { getAllTradingPairs } from '@/data/coinbaseCoins';
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +57,7 @@ export const UnifiedPortfolioDisplay = () => {
   useEffect(() => {
     const updateRealTimePrices = async () => {
       try {
-        const commonSymbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 'DOT-EUR', 'MATIC-EUR', 'AVAX-EUR', 'LINK-EUR', 'LTC-EUR'];
+        const commonSymbols = getAllTradingPairs();
         const data = await getCurrentData(commonSymbols);
         
         const prices: {[key: string]: number} = { EUR: 1 };

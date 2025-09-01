@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { toPairSymbol, BaseSymbol } from '@/utils/symbols';
+import { getAllSymbols, getAllTradingPairs } from '@/data/coinbaseCoins';
 
 interface MarketData {
   symbol: string;
@@ -49,9 +50,7 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // Filter out invalid symbols that cause 404s
       const validSymbols = pairSymbols.filter(pair => {
-        const validCoinbaseSymbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 
-                                     'DOT-EUR', 'MATIC-EUR', 'AVAX-EUR', 'LINK-EUR', 'LTC-EUR'];
-        return validCoinbaseSymbols.includes(pair);
+        return getAllTradingPairs().includes(pair);
       });
 
       if (validSymbols.length === 0) {
@@ -144,7 +143,7 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Get initial data on mount and update every 60 seconds (less frequent to avoid rate limiting)
   useEffect(() => {
-    const commonSymbols: BaseSymbol[] = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'LTC'];
+    const commonSymbols: BaseSymbol[] = getAllSymbols() as BaseSymbol[];
     getCurrentData(commonSymbols);
     
     // Check for debug price polling override

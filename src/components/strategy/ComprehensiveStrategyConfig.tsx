@@ -470,7 +470,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
             ...formData,
             takeProfitPercentage: 1,
             dailyProfitTarget: 1,
-            selectedCoins: ["BTC","ETH","ADA","DOGE","XRP","LTC","BCH","LINK","DOT","UNI","SOL","MATIC","AVAX","ICP","XLM","VET","ALGO","ATOM","FIL","TRX","ETC","THETA","XMR","XTZ","COMP","AAVE","MKR","SNX","CRV","YFI"]
+            selectedCoins: getAllSymbols()
           } as any,
           updated_at: new Date().toISOString()
         })

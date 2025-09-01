@@ -1,6 +1,8 @@
 // Shared price cache - single source of truth for market data
 // Updates every 30s, provides stable data to prevent UI blinking
 
+import { getAllTradingPairs } from '@/data/coinbaseCoins';
+
 interface PriceData {
   symbol: string;
   price: number;
@@ -57,9 +59,7 @@ class SharedPriceCache {
     try {
       // Filter to valid Coinbase symbols
       const validSymbols = this.config.symbols.filter(symbol => {
-        const validCoinbaseSymbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 
-                                     'DOT-EUR', 'MATIC-EUR', 'AVAX-EUR', 'LINK-EUR', 'LTC-EUR'];
-        return validCoinbaseSymbols.includes(symbol);
+        return getAllTradingPairs().includes(symbol);
       });
 
       // Stagger requests to avoid rate limiting
