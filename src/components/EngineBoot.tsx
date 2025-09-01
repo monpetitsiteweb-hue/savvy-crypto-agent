@@ -49,12 +49,28 @@ export default function EngineBoot() {
       debugBuy: async (sym: string, eur: number) => {
         console.error('🧪 ENGINE_DEBUG_BUY', { sym, eur });
         const uid = (await supabase.auth.getUser()).data.user?.id;
+        if (!uid) return console.error('🧪 DEBUG_BUY_NO_USER');
+
+        // grab an existing strategy for this user (active test preferred)
+        const { data: strategies, error: sErr } = await supabase
+          .from('trading_strategies')
+          .select('id,is_active_test')
+          .eq('user_id', uid)
+          .order('is_active_test', { ascending: false })
+          .limit(1);
+
+        if (sErr || !strategies?.[0]?.id) {
+          return console.error('🧪 DEBUG_BUY_NO_STRATEGY', { sErr, strategies });
+        }
+
+        const strategyId = strategies[0].id;
+
         const base = sym.replace('-EUR', '').toUpperCase();
-        const price = 10;
+        const price = 10; // sentinel
         const qty = eur / price;
 
         const { data, error } = await supabase.from('mock_trades').insert({
-          strategy_id: 'debug',
+          strategy_id: strategyId,
           user_id: uid,
           trade_type: 'buy',
           cryptocurrency: base,
@@ -80,8 +96,19 @@ export default function EngineBoot() {
       panicTrade: async (sym = 'BTC') => {
         // absolute worst-case write probe (1 EUR @ 1 EUR)
         const uid = (await supabase.auth.getUser()).data.user?.id;
+        if (!uid) return console.error('🆘 PANIC_NO_USER');
+
+        // use same strategy lookup as debugBuy
+        const { data: strategies, error: sErr } = await supabase
+          .from('trading_strategies')
+          .select('id')
+          .eq('user_id', uid)
+          .limit(1);
+
+        const strategyId = strategies?.[0]?.id || 'panic-fallback';
+
         const { data, error } = await supabase.from('mock_trades').insert({
-          strategy_id: 'panic',
+          strategy_id: strategyId,
           user_id: uid,
           trade_type: 'buy',
           cryptocurrency: sym.toUpperCase(),
@@ -95,7 +122,7 @@ export default function EngineBoot() {
           profit_loss: 0,
           executed_at: new Date().toISOString(),
         }).select();
-        console.error('🆘 PANIC_TRADE_RESULT', { ok: !error, id: data?.[0]?.id, error });
+        console.error('🆘 PANIC_TRADE_RESULT', { ok: !error, id: data?.[0]?.id, error, strategyId });
       }
     };
 
