@@ -150,6 +150,89 @@ export function isAIFusionEnabled(strategyConfig: any): boolean {
   return fusionConfig?.enabled === true;
 }
 
+// Epsilon comparison for floating point values
+export function equalsWithin(a: number, b: number, eps = 1e-6): boolean {
+  return Math.abs(a - b) < eps;
+}
+
+// Preset definitions for centralized detection
+const PRESET_DEFINITIONS = {
+  conservative: {
+    fusion: { enabled: false },
+    contextGates: { spreadThresholdBps: 8, minDepthRatio: 4.0 }
+  },
+  microScalp: {
+    fusion: { 
+      enabled: true, 
+      enterThreshold: 0.65, 
+      exitThreshold: 0.35,
+      weights: { trend: 0.25, volatility: 0.20, momentum: 0.25, whale: 0.15, sentiment: 0.15 }
+    },
+    contextGates: { 
+      spreadThresholdBps: 12, 
+      minDepthRatio: 3.0, 
+      whaleConflictWindowMs: 300000 
+    },
+    bracketPolicy: {
+      stopLossPctWhenNotAtr: 0.40,
+      trailBufferPct: 0.40,
+      minTpSlRatio: 1.2
+    }
+  },
+  aggressive: {
+    fusion: { 
+      enabled: true, 
+      enterThreshold: 0.55, 
+      exitThreshold: 0.25,
+      weights: { trend: 0.30, volatility: 0.15, momentum: 0.30, whale: 0.10, sentiment: 0.15 }
+    },
+    contextGates: { 
+      spreadThresholdBps: 18, 
+      minDepthRatio: 2.5, 
+      whaleConflictWindowMs: 180000 
+    }
+  }
+} as const;
+
+// Centralized preset detection
+export function detectPreset(config: any): 'conservative' | 'microScalp' | 'aggressive' | 'custom' {
+  if (!config?.features) return 'custom';
+  
+  const { fusion, contextGates, bracketPolicy } = config.features;
+  
+  // Check Conservative preset
+  if (!fusion?.enabled &&
+      contextGates?.spreadThresholdBps === PRESET_DEFINITIONS.conservative.contextGates.spreadThresholdBps &&
+      equalsWithin(contextGates?.minDepthRatio || 0, PRESET_DEFINITIONS.conservative.contextGates.minDepthRatio)) {
+    return 'conservative';
+  }
+  
+  // Check Micro-Scalp preset
+  if (fusion?.enabled && 
+      equalsWithin(fusion.enterThreshold || 0, PRESET_DEFINITIONS.microScalp.fusion.enterThreshold) && 
+      equalsWithin(fusion.exitThreshold || 0, PRESET_DEFINITIONS.microScalp.fusion.exitThreshold) &&
+      contextGates?.spreadThresholdBps === PRESET_DEFINITIONS.microScalp.contextGates.spreadThresholdBps &&
+      equalsWithin(contextGates?.minDepthRatio || 0, PRESET_DEFINITIONS.microScalp.contextGates.minDepthRatio) &&
+      contextGates?.whaleConflictWindowMs === PRESET_DEFINITIONS.microScalp.contextGates.whaleConflictWindowMs &&
+      equalsWithin(bracketPolicy?.stopLossPctWhenNotAtr || 0, PRESET_DEFINITIONS.microScalp.bracketPolicy.stopLossPctWhenNotAtr) &&
+      equalsWithin(bracketPolicy?.trailBufferPct || 0, PRESET_DEFINITIONS.microScalp.bracketPolicy.trailBufferPct) &&
+      equalsWithin(bracketPolicy?.minTpSlRatio || 0, PRESET_DEFINITIONS.microScalp.bracketPolicy.minTpSlRatio)) {
+    return 'microScalp';
+  }
+  
+  // Check Aggressive preset
+  if (fusion?.enabled && 
+      equalsWithin(fusion.enterThreshold || 0, PRESET_DEFINITIONS.aggressive.fusion.enterThreshold) && 
+      equalsWithin(fusion.exitThreshold || 0, PRESET_DEFINITIONS.aggressive.fusion.exitThreshold) &&
+      contextGates?.spreadThresholdBps === PRESET_DEFINITIONS.aggressive.contextGates.spreadThresholdBps &&
+      equalsWithin(contextGates?.minDepthRatio || 0, PRESET_DEFINITIONS.aggressive.contextGates.minDepthRatio) &&
+      contextGates?.whaleConflictWindowMs === PRESET_DEFINITIONS.aggressive.contextGates.whaleConflictWindowMs) {
+    return 'aggressive';
+  }
+  
+  return 'custom';
+}
+
 // Migration utility - moves old config to new structure
 export function migrateToUnifiedConfig(oldConfig: any) {
   const newConfig = { ...oldConfig };

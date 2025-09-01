@@ -16,6 +16,92 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Preset detection for decision provenance (inlined to avoid imports in Deno)
+function equalsWithin(a: number, b: number, eps = 1e-6): boolean {
+  return Math.abs(a - b) < eps;
+}
+
+function detectPreset(config: any): 'conservative' | 'microScalp' | 'aggressive' | 'custom' {
+  if (!config?.features) return 'custom';
+  
+  const { fusion, contextGates, bracketPolicy } = config.features;
+  
+  // Conservative preset
+  if (!fusion?.enabled &&
+      contextGates?.spreadThresholdBps === 8 &&
+      equalsWithin(contextGates?.minDepthRatio || 0, 4.0)) {
+    return 'conservative';
+  }
+  
+  // Micro-Scalp preset
+  if (fusion?.enabled && 
+      equalsWithin(fusion.enterThreshold || 0, 0.65) && 
+      equalsWithin(fusion.exitThreshold || 0, 0.35) &&
+      contextGates?.spreadThresholdBps === 12 &&
+      equalsWithin(contextGates?.minDepthRatio || 0, 3.0) &&
+      contextGates?.whaleConflictWindowMs === 300000 &&
+      equalsWithin(bracketPolicy?.stopLossPctWhenNotAtr || 0, 0.40) &&
+      equalsWithin(bracketPolicy?.trailBufferPct || 0, 0.40) &&
+      equalsWithin(bracketPolicy?.minTpSlRatio || 0, 1.2)) {
+    return 'microScalp';
+  }
+  
+  // Aggressive preset
+  if (fusion?.enabled && 
+      equalsWithin(fusion.enterThreshold || 0, 0.55) && 
+      equalsWithin(fusion.exitThreshold || 0, 0.25) &&
+      contextGates?.spreadThresholdBps === 18 &&
+      equalsWithin(contextGates?.minDepthRatio || 0, 2.5) &&
+      contextGates?.whaleConflictWindowMs === 180000) {
+    return 'aggressive';
+  }
+  
+  return 'custom';
+}
+
+// Cache for strategy configurations to avoid repeated DB queries
+const strategyConfigCache = new Map<string, { config: any; timestamp: number }>();
+
+async function detectPresetFromStrategy(userId: string, strategyId: string): Promise<string> {
+  try {
+    const cacheKey = `${userId}-${strategyId}`;
+    const cached = strategyConfigCache.get(cacheKey);
+    
+    // Use cached config if less than 5 minutes old
+    if (cached && Date.now() - cached.timestamp < 300000) {
+      return detectPreset(cached.config.aiIntelligenceConfig);
+    }
+    
+    // Fetch strategy configuration
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+    
+    const { data: strategy } = await supabaseClient
+      .from('trading_strategies')
+      .select('configuration')
+      .eq('user_id', userId)
+      .eq('id', strategyId)
+      .single();
+      
+    if (strategy?.configuration?.aiIntelligenceConfig) {
+      // Cache the result
+      strategyConfigCache.set(cacheKey, {
+        config: strategy.configuration,
+        timestamp: Date.now()
+      });
+      
+      return detectPreset(strategy.configuration.aiIntelligenceConfig);
+    }
+    
+    return 'custom';
+  } catch (error) {
+    console.error('❌ COORDINATOR: Failed to detect preset:', error);
+    return 'custom';
+  }
+}
+
 // Enhanced types for the unified trading system
 interface TradeIntent {
   userId: string;
@@ -485,7 +571,9 @@ async function logDecisionAsync(
           qtySuggested: intent.qtySuggested,
           unifiedConfig,
           request_id: requestId,
-          idempotencyKey: intent.idempotencyKey
+          idempotencyKey: intent.idempotencyKey,
+          // Add preset provenance
+          preset_applied: detectPresetFromStrategy(intent.userId, intent.strategyId)
         }
       });
   } catch (error) {
@@ -521,7 +609,9 @@ async function logEnhancedDecision(
           request_id: requestId,
           idempotencyKey: intent.idempotencyKey,
           // Enhanced context from unified decision
-          ...decision.metadata
+          ...decision.metadata,
+          // Add preset provenance
+          preset_applied: detectPresetFromStrategy(intent.userId, intent.strategyId)
         }
       });
   } catch (error) {
