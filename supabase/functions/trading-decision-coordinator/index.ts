@@ -782,9 +782,19 @@ async function evaluateUnifiedSellDecision(
       if (slTriggered || tpTriggered || ['STOP_LOSS', 'TAKE_PROFIT', 'AUTO_CLOSE_TIME', 'TRAILING_STOP'].includes(reason)) {
         console.log(`🎯 BRACKET PRECEDENCE: ${reason} fires immediately - bypassing all other evaluation`);
         
+        // Use legacy UI-compatible reason codes
+        let bracketReason = 'stop_loss_triggered';
+        if (tpTriggered || reason === 'TAKE_PROFIT') {
+          bracketReason = 'take_profit_triggered';
+        } else if (reason === 'AUTO_CLOSE_TIME') {
+          bracketReason = 'auto_close_time';
+        } else if (reason === 'TRAILING_STOP') {
+          bracketReason = 'trailing_stop_triggered';
+        }
+        
         return {
           action: 'SELL',
-          reason: 'bracket_policy_precedence',
+          reason: bracketReason,
           metadata: {
             bracket_context: {
               sl_triggered: slTriggered,
@@ -802,8 +812,11 @@ async function evaluateUnifiedSellDecision(
       }
     }
     
-    // STEP 2: AI FUSION EVALUATION (only if brackets not triggered)
+    // STEP 2: MIN-HOLD GUARD (derived from existing cooldown config)
     if (intent.side === 'SELL') {
+      const minHoldMs = Math.max(5000, Math.floor((config.cooldownBetweenOppositeActionsMs ?? 15000) / 2));
+      const positionAgeMs = Date.now() - new Date(metadata.oldest_purchase_date || Date.now()).getTime();
+      const positionAgeSec = Math.floor(positionAgeMs / 1000);
       
       // Apply AI Fusion evaluation with position guard (or neutral if disabled)
       let holdConfidence = 0.5; // neutral default for fusion disabled
@@ -821,8 +834,40 @@ async function evaluateUnifiedSellDecision(
           
           // Strong bearish override check (before penalty) 
           const overrideHoldThreshold = toHoldConfidence({ signed: override_threshold });
+          const strongBearishOverride = holdConfidenceBefore <= overrideHoldThreshold;
           
-          if (holdConfidenceBefore <= overrideHoldThreshold) {
+          // Min-hold guard check (unless SL/TP already triggered or strong bearish override)
+          const underMinHold = positionAgeMs < minHoldMs;
+          const slTriggered = metadata.gain_percentage !== undefined && metadata.gain_percentage <= -Math.abs(strategyConfig?.stopLossPercentage || 0.5);
+          const tpTriggered = strategyConfig?.takeProfitPercentage && metadata.gain_percentage !== undefined && metadata.gain_percentage >= strategyConfig.takeProfitPercentage;
+          
+          if (underMinHold && !slTriggered && !tpTriggered && !strongBearishOverride) {
+            console.log(`🛡️ MIN-HOLD GUARD: Position age ${positionAgeMs}ms < min ${minHoldMs}ms - blocking exit`);
+            return {
+              action: 'HOLD',
+              reason: 'low_signal_confidence',
+              metadata: {
+                min_hold_guard: {
+                  applied: true,
+                  min_hold_ms: minHoldMs,
+                  position_age_ms: positionAgeMs
+                },
+                pnl_guard: {
+                  applied: penalty > 0,
+                  hold_conf_before: holdConfidenceBefore,
+                  guard_penalty: penalty,
+                  hold_conf_after: holdConfidenceAfter
+                },
+                fusion_context: {
+                  s_total: holdConfidenceBefore,
+                  exit_threshold,
+                  enter_threshold
+                }
+              }
+            };
+          }
+          
+          if (strongBearishOverride) {
             console.log(`🎯 STRONG BEARISH OVERRIDE: holdConfidence ${holdConfidenceBefore.toFixed(3)} <= override ${overrideHoldThreshold.toFixed(3)}`);
             return {
               action: 'SELL',
@@ -830,6 +875,11 @@ async function evaluateUnifiedSellDecision(
               metadata: {
                 override: "strong_bearish",
                 override_threshold: overrideHoldThreshold,
+                min_hold_guard: {
+                  applied: false,
+                  min_hold_ms: minHoldMs,
+                  position_age_ms: positionAgeMs
+                },
                 pnl_guard: {
                   applied: penalty > 0,
                   hold_conf_before: holdConfidenceBefore,
@@ -850,6 +900,11 @@ async function evaluateUnifiedSellDecision(
           holdConfidence = holdConfidenceAfter; // Use corrected confidence
           
           fusionMetadata = {
+            min_hold_guard: {
+              applied: false,
+              min_hold_ms: minHoldMs,
+              position_age_ms: positionAgeMs
+            },
             pnl_guard: {
               applied: penalty > 0,
               hold_conf_before: holdConfidenceBefore,
@@ -865,6 +920,38 @@ async function evaluateUnifiedSellDecision(
             }
           };
         }
+      } else {
+        // Fusion disabled: still apply min-hold guard
+        const underMinHold = positionAgeMs < minHoldMs;
+        const slTriggered = metadata.gain_percentage !== undefined && metadata.gain_percentage <= -Math.abs(strategyConfig?.stopLossPercentage || 0.5);
+        const tpTriggered = strategyConfig?.takeProfitPercentage && metadata.gain_percentage !== undefined && metadata.gain_percentage >= strategyConfig.takeProfitPercentage;
+        
+        if (underMinHold && !slTriggered && !tpTriggered) {
+          console.log(`🛡️ MIN-HOLD GUARD (FUSION DISABLED): Position age ${positionAgeMs}ms < min ${minHoldMs}ms - blocking exit`);
+          return {
+            action: 'HOLD',
+            reason: 'low_signal_confidence',
+            metadata: {
+              fusion_enabled: false,
+              path: "gates_and_guard_applied",
+              min_hold_guard: {
+                applied: true,
+                min_hold_ms: minHoldMs,
+                position_age_ms: positionAgeMs
+              }
+            }
+          };
+        }
+        
+        fusionMetadata = {
+          fusion_enabled: false,
+          path: "gates_and_guard_applied",
+          min_hold_guard: {
+            applied: false,
+            min_hold_ms: minHoldMs,
+            position_age_ms: positionAgeMs
+          }
+        };
       }
       
       // Decision based on normalized hold confidence [0..1]
