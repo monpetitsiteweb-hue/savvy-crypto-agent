@@ -93,6 +93,14 @@ export const useIntelligentTradingEngine = () => {
     };
     console.log('💓 ENGINE_HEARTBEAT', heartbeat);
     
+    // Health probe at start
+    try {
+      const { data, error } = await supabase.from('trading_strategies').select('id').limit(1);
+      if (error) console.warn('🩺 DB_HEALTH_FAIL', error);
+    } catch (e) {
+      console.warn('🩺 DB_HEALTH_THROW', e);
+    }
+    
     if (isRunningRef.current) {
       console.log('⚠️ ENGINE: Skipping - already running');
       return;
@@ -1345,7 +1353,7 @@ export const useIntelligentTradingEngine = () => {
 
     engineLog('POSITIONS: Starting position calculation for user: ' + user.id);
 
-    const { data: buyTrades } = await supabase
+    const { data: buyTrades, error: buyError } = await supabase
       .from('mock_trades')
       .select('*')
       .eq('user_id', user.id)
@@ -1353,12 +1361,24 @@ export const useIntelligentTradingEngine = () => {
       .eq('is_test_mode', true)
       .order('executed_at', { ascending: true });
 
-    const { data: sellTrades } = await supabase
+    if (buyError) {
+      console.error('🧩 POSTGREST_500_BUY_TRADES', {
+        code: buyError.code, message: buyError.message, details: buyError.details, hint: buyError.hint
+      });
+    }
+
+    const { data: sellTrades, error: sellError } = await supabase
       .from('mock_trades')
       .select('*')
       .eq('user_id', user.id)
       .eq('trade_type', 'sell')
       .eq('is_test_mode', true);
+
+    if (sellError) {
+      console.error('🧩 POSTGREST_500_SELL_TRADES', {
+        code: sellError.code, message: sellError.message, details: sellError.details, hint: sellError.hint
+      });
+    }
 
     engineLog('POSITIONS: Buy trades found: ' + (buyTrades?.length || 0));
     engineLog('POSITIONS: Sell trades found: ' + (sellTrades?.length || 0));
@@ -1552,17 +1572,30 @@ export const useIntelligentTradingEngine = () => {
         body: { intent }
       });
 
-      // Handle Supabase client errors (network, auth, etc.)
+      // New: raw error surfacing
       if (error) {
-        console.error('❌ COORD_ERR', error);
+        console.error('❌ COORD_ERR_RAW', {
+          name: error.name,
+          status: (error as any).status ?? 'unknown',
+          message: error.message,
+          context: (error as any).context,
+        });
+        // Fallback in test mode so pipeline still inserts
+        if (strategy?.configuration?.testMode ?? true) {
+          console.warn('🛟 COORD_FALLBACK_DIRECT_EXECUTION');
+          return await executeTradeDirectly(strategy, action, cryptocurrency, price, customAmount, `${trigger || ''}|COORD_500_FALLBACK`);
+        }
         return;
       }
 
       console.log('✅ EDGE_FN_RESPONSE_OK');
 
-      // Handle coordinator responses
       if (!decision) {
-        console.error('❌ INTELLIGENT: No decision returned from coordinator');
+        console.error('❌ COORD_NO_DECISION');
+        if (strategy?.configuration?.testMode ?? true) {
+          console.warn('🛟 COORD_FALLBACK_DIRECT_EXECUTION_NO_DECISION');
+          return await executeTradeDirectly(strategy, action, cryptocurrency, price, customAmount, `${trigger || ''}|COORD_EMPTY_FALLBACK`);
+        }
         return;
       }
 

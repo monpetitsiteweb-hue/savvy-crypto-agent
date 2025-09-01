@@ -173,7 +173,12 @@ export const UnifiedPortfolioDisplay = () => {
         .eq('trade_type', 'buy')
         .order('executed_at', { ascending: true });
 
-      if (error) throw error;
+      if (error) {
+        console.error('🧩 POSTGREST_500_PORTFOLIO_TRADES', {
+          code: error.code, message: error.message, details: error.details, hint: error.hint
+        });
+        throw error;
+      }
 
       // Calculate net positions per symbol (simplified for demo)
       const positionMap = new Map<string, PositionData>();

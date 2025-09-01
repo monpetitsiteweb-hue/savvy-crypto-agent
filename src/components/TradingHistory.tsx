@@ -223,7 +223,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         .eq('user_id', user.id)
         .order('executed_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('🧩 POSTGREST_500_RECENT_TRADES', {
+          code: error.code, message: error.message, details: error.details, hint: error.hint
+        });
+        throw error;
+      }
 
       setTrades(data || []);
 

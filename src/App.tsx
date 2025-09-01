@@ -6,6 +6,7 @@ import { TestModeProvider } from "@/hooks/useTestMode";
 import { MockWalletProvider } from "@/hooks/useMockWallet";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MarketDataProvider } from "@/contexts/MarketDataContext";
+import EngineBoot from "@/components/EngineBoot";
 import Index from "./pages/Index";
 import AdminPage from "./pages/AdminPage";
 import ProfilePage from "./pages/ProfilePage";
@@ -42,6 +43,7 @@ function AppInternal() {
           <MarketDataProvider>
             <MockWalletProvider>
               <ErrorBoundary>
+                <EngineBoot />
                 <BrowserRouter>
                   <Routes>
                     <Route path="/" element={<Index />} />
