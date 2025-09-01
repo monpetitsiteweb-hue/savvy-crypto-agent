@@ -35,6 +35,8 @@ export const useIntelligentTradingEngine = () => {
   const { updateBalance, getBalance } = useMockWallet();
   const { marketData, getCurrentData } = useRealTimeMarketData();
   
+  console.log('🚀 HOOK CALLED: useIntelligentTradingEngine', { testMode, user: !!user, loading });
+  
   // Initialize pool exit manager
   const { processAllPools } = usePoolExitManager({ 
     isEnabled: true, 
@@ -48,18 +50,10 @@ export const useIntelligentTradingEngine = () => {
   });
 
   useEffect(() => {
-    // Silent log for auth state change
-    window.NotificationSink?.log({ 
-      message: 'INTELLIGENT_ENGINE: Auth state changed', 
-      data: { user: !!user, loading, testMode }
-    });
+    console.log('🔄 EFFECT TRIGGERED: Auth state changed', { user: !!user, loading, testMode });
     
     if (!loading && user && testMode) {
-      // Silent log for auth conditions met
-      window.NotificationSink?.log({
-        message: 'INTELLIGENT_ENGINE: Auth conditions check - starting engine',
-        data: { user: !!user, loading, testMode }
-      });
+      console.log('✅ CONDITIONS MET: Starting trading engine intervals');
       
       // Initial call with small delay
       const initialTimer = setTimeout(() => {
@@ -73,19 +67,17 @@ export const useIntelligentTradingEngine = () => {
       
       // Cleanup timers on unmount or dependency change
       return () => {
+        console.log('🧹 CLEANUP: Clearing trading engine timers');
         clearTimeout(initialTimer);
         clearInterval(interval);
       };
     } else {
-      // Silent log for auth waiting
-      window.NotificationSink?.log({ 
-        message: 'INTELLIGENT_ENGINE: Waiting for auth', 
-        data: { loading, user: !!user, testMode }
-      });
+      console.log('⏳ WAITING: Auth conditions not met', { loading, user: !!user, testMode });
     }
   }, [user, loading, testMode]);
   
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
+  const isRunningRef = useRef(false);
   const tradingStateRef = useRef<TradingState>({
     dailyTrades: 0,
     dailyPnL: 0,
@@ -95,24 +87,27 @@ export const useIntelligentTradingEngine = () => {
   });
 
   const checkStrategiesAndExecute = async () => {
-    // Silent log for engine state
-    window.NotificationSink?.log({
-      message: 'ENGINE: checkStrategiesAndExecute called',
-      data: { testMode, user: !!user, loading }
-    });
-    
-    if (!user || loading) {
-      engineLog('ENGINE: Skipping - user: ' + !!user + ' loading: ' + loading);
+    if (isRunningRef.current) {
+      console.log('⚠️ ENGINE: Skipping - already running');
       return;
     }
     
-    if (!testMode) {
-      engineLog('TEST MODE IS OFF! You need to enable Test Mode to use the trading engine!');
-      return;
-    }
-
+    isRunningRef.current = true;
+    
     try {
-      engineLog('INTELLIGENT_ENGINE: Starting comprehensive strategy check');
+      console.log('🔄 ENGINE: checkStrategiesAndExecute called', new Date().toISOString());
+      
+      if (!user || loading) {
+        console.log('ENGINE: Skipping - user:', !!user, 'loading:', loading);
+        return;
+      }
+    
+      if (!testMode) {
+        console.log('TEST MODE IS OFF! You need to enable Test Mode to use the trading engine!');
+        return;
+      }
+
+      console.log('INTELLIGENT_ENGINE: Starting comprehensive strategy check');
       
       // Fetch active strategies
       const { data: strategies, error } = await supabase
@@ -143,6 +138,8 @@ export const useIntelligentTradingEngine = () => {
       }
     } catch (error) {
       console.error('❌ ENGINE: Error in comprehensive strategy check:', error);
+    } finally {
+      isRunningRef.current = false;
     }
   };
 
@@ -1488,15 +1485,12 @@ export const useIntelligentTradingEngine = () => {
       console.log('✅ SCALPSMART: Signal fusion approved -', fusionResult.reason, 'Score:', fusionResult.sTotalScore);
     }
     
-    // Use coordinator if unified decisions enabled, otherwise direct execution
-    const shouldUseCoordinator = strategy?.unified_config?.enableUnifiedDecisions;
-    
     if (!user?.id) {
       console.error('❌ ENGINE: Cannot execute trade - no authenticated user');
       return;
     }
 
-    // Check if strategy has unified decisions enabled
+    // Check if strategy has unified decisions enabled - use consistent path
     const unifiedConfig = strategy?.configuration?.unifiedConfig || { enableUnifiedDecisions: false };
     
     if (unifiedConfig.enableUnifiedDecisions) {
