@@ -245,8 +245,8 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
   }
 
   // 2. RSI Calculation (simplified)
-  if (priceData.length >= 14) {
-    const rsi = calculateRSI(priceData.slice(-14));
+  if (priceData.length >= 15) {
+    const rsi = calculateRSI(priceData.slice(-15)); // Need period + 1 points
     console.log(`📈 ${symbol} RSI: ${rsi.toFixed(2)}`);
 
     if (rsi <= 30) {
@@ -417,8 +417,8 @@ async function cacheIndicators(symbol: string, priceData: any[], supabaseClient:
     const indicators: any = {};
     
     // RSI
-    if (priceData.length >= 14) {
-      const rsi = calculateRSI(priceData.slice(-14));
+    if (priceData.length >= 15) {
+      const rsi = calculateRSI(priceData.slice(-15)); // Need period + 1 points
       let signal = 'neutral';
       if (rsi < 30) signal = 'oversold';
       else if (rsi > 70) signal = 'overbought';
