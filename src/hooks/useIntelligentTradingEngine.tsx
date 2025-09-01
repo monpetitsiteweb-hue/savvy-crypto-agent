@@ -302,6 +302,24 @@ export const useIntelligentTradingEngine = () => {
     return null;
   };
 
+  // Utility: normalize fusion output to [0..1] hold confidence for decision consistency
+  const toHoldConfidence = (fusionOutput: any): number => {
+    if (typeof fusionOutput?.score === 'number') {
+      // Already [0..1]
+      return Math.max(0, Math.min(1, fusionOutput.score));
+    }
+    if (typeof fusionOutput?.signed === 'number') {
+      // signed ∈ [-1..+1] → holdConfidence ∈ [0..1]
+      // +1 = very bullish (hold), -1 = very bearish (exit)
+      return (fusionOutput.signed + 1) / 2;
+    }
+    if (fusionOutput?.direction) {
+      // If only direction is known, treat neutral
+      return 0.5;
+    }
+    return 0.5; // neutral default
+  };
+
   const executeSellOrder = async (strategy: any, position: Position, marketPrice: number, sellDecision: {reason: string, orderType?: string}) => {
     try {
       // UNIFIED PATH: Route ALL sell executions through trading-decision-coordinator
@@ -313,7 +331,7 @@ export const useIntelligentTradingEngine = () => {
         symbol: position.cryptocurrency.replace('-EUR', ''), // Use base symbol
         side: 'SELL' as const,
         source: 'automated' as const,
-        confidence: 0.95, // High confidence for position management
+        // Let coordinator compute confidence
         reason: sellDecision.reason,
         qtySuggested: position.remaining_amount,
         metadata: {

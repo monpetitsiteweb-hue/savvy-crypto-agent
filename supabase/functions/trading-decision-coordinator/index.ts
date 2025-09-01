@@ -168,23 +168,45 @@ serve(async (req) => {
       confidenceOverrideThreshold: 0.70
     };
 
-    // 🚨 HARD GATE: If unified decisions disabled, bypass ALL coordinator logic
+    // 🚨 FUSION DISABLED: Still run gates and guard, just skip fusion aggregation
     if (!unifiedConfig.enableUnifiedDecisions) {
-      console.log('🎯 UD_MODE=OFF → DIRECT EXECUTION: bypassing all locks and conflict detection');
+      console.log('🎯 UD_MODE=OFF → FUSION_DISABLED_WITH_GATES: still applying gates and guard');
       
-      // Execute trade directly without any coordinator gating
-      const executionResult = await executeTradeDirectly(supabaseClient, intent, strategy.configuration, requestId);
+      // Use minimal lock to ensure gates + guard consistency
+      const lockKey = generateLockKey(intent.userId, intent.strategyId, intent.symbol);
       
-      if (executionResult.success) {
-        console.log(`🎯 UD_MODE=OFF → DIRECT EXECUTION: action=${intent.side} symbol=${intent.symbol} lock=NONE`);
-        // Log decision for audit (async, non-blocking)
-        logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId);
-        return respond(intent.side, 'unified_decisions_disabled_direct_path', requestId, 0, { qty: executionResult.qty });
-      } else {
-        console.error(`❌ UD_MODE=OFF → DIRECT EXECUTION FAILED: ${executionResult.error}`);
-        // Log decision for audit (async, non-blocking)
-        logDecisionAsync(supabaseClient, intent, 'HOLD', 'direct_execution_failed', unifiedConfig, requestId);
-        return respond('HOLD', 'direct_execution_failed', requestId);
+      const { data: lockResult } = await supabaseClient.rpc('pg_try_advisory_lock', {
+        key: lockKey
+      });
+
+      if (!lockResult) {
+        const retryMs = Math.round(200 + Math.random() * 300);
+        console.log(`🎯 UD_MODE=OFF → DEFER: reason=atomic_section_busy_defer symbol=${intent.symbol} retry=${retryMs}ms`);
+        return respond('DEFER', 'atomic_section_busy_defer', requestId, retryMs);
+      }
+
+      try {
+        // Apply gates and guard with neutral fusion (0.5 hold confidence)
+        const unifiedDecision = await evaluateUnifiedSellDecision(supabaseClient, intent, unifiedConfig, strategy.configuration, requestId, true);
+        
+        if (unifiedDecision.action === 'SELL') {
+          const executionResult = await executeTradeOrder(supabaseClient, intent, strategy.configuration);
+          
+          if (executionResult.success) {
+            console.log(`🎯 UD_MODE=OFF → EXECUTE: action=${intent.side} symbol=${intent.symbol} with_gates=true`);
+            await logEnhancedDecision(supabaseClient, intent, unifiedDecision, unifiedConfig, requestId);
+            return respond(intent.side, 'fusion_disabled_with_gates_and_guard', requestId, 0, { qty: executionResult.qty });
+          } else {
+            console.error(`❌ UD_MODE=OFF → EXECUTE FAILED: ${executionResult.error}`);
+            return respond('HOLD', 'direct_execution_failed', requestId);
+          }
+        } else {
+          console.log(`🎯 UD_MODE=OFF → ${unifiedDecision.action}: reason=${unifiedDecision.reason}`);
+          await logEnhancedDecision(supabaseClient, intent, unifiedDecision, unifiedConfig, requestId);
+          return respond(unifiedDecision.action, unifiedDecision.reason, requestId, unifiedDecision.retry_in_ms || 0);
+        }
+      } finally {
+        await supabaseClient.rpc('pg_advisory_unlock', { key: lockKey });
       }
     }
 
@@ -721,13 +743,26 @@ async function checkPositionAwareExitGuard(
   }
 }
 
+// Utility: normalize fusion output to [0..1] hold confidence
+function toHoldConfidence(fusionOutput: any): number {
+  if (typeof fusionOutput?.score === 'number') {
+    return Math.max(0, Math.min(1, fusionOutput.score));
+  }
+  if (typeof fusionOutput?.signed === 'number') {
+    // signed ∈ [-1..+1] → holdConfidence ∈ [0..1]
+    return (fusionOutput.signed + 1) / 2;
+  }
+  return 0.5; // neutral default
+}
+
 // UNIFIED SELL DECISION EVALUATION - Bracket precedence + Fusion + Position guard
 async function evaluateUnifiedSellDecision(
   supabaseClient: any,
   intent: TradeIntent,
   config: UnifiedConfig,
   strategyConfig: any,
-  requestId: string
+  requestId: string,
+  fusionDisabled: boolean = false
 ): Promise<UnifiedDecisionResult> {
   
   try {
@@ -769,81 +804,84 @@ async function evaluateUnifiedSellDecision(
     
     // STEP 2: AI FUSION EVALUATION (only if brackets not triggered)
     if (intent.side === 'SELL') {
-      const fusionResult = await evaluateAIFusionForSell(supabaseClient, intent, strategyConfig);
       
-      if (fusionResult) {
-        const { s_total_before, s_total_after, enter_threshold, exit_threshold, override_threshold, penalty, position_context } = fusionResult;
+      // Apply AI Fusion evaluation with position guard (or neutral if disabled)
+      let holdConfidence = 0.5; // neutral default for fusion disabled
+      let fusionMetadata = {};
+      
+      if (!fusionDisabled) {
+        const fusionResult = await evaluateAIFusionForSell(supabaseClient, intent, strategyConfig);
         
-        // Check strong bearish override first
-        if (s_total_before <= override_threshold) {
-          console.log(`🎯 STRONG BEARISH OVERRIDE: S_total ${s_total_before.toFixed(3)} <= override ${override_threshold.toFixed(3)}`);
-          return {
-            action: 'SELL',
-            reason: 'strong_bearish_override',
-            metadata: {
-              pnl_guard: {
-                applied: penalty > 0,
-                penalty,
-                s_total_before,
-                s_total_after
-              },
-              position_context,
-              fusion_context: {
-                s_total: s_total_before,
-                enter_threshold,
-                exit_threshold,
-                override_threshold
+        if (fusionResult) {
+          const { s_total_before, s_total_after, enter_threshold, exit_threshold, override_threshold, penalty, position_context } = fusionResult;
+          
+          // Normalize s_total to hold confidence [0..1]
+          holdConfidence = toHoldConfidence({ signed: s_total_after });
+          
+          // Strong bearish override check (before penalty) 
+          const holdConfidenceBefore = toHoldConfidence({ signed: s_total_before });
+          const overrideHoldThreshold = toHoldConfidence({ signed: override_threshold });
+          
+          if (holdConfidenceBefore <= overrideHoldThreshold) {
+            console.log(`🎯 STRONG BEARISH OVERRIDE: holdConfidence ${holdConfidenceBefore.toFixed(3)} <= override ${overrideHoldThreshold.toFixed(3)}`);
+            return {
+              action: 'SELL',
+              reason: 'strong_bearish_override',
+              metadata: {
+                pnl_guard: {
+                  applied: penalty > 0,
+                  penalty,
+                  s_total_before: holdConfidenceBefore,
+                  s_total_after: holdConfidence
+                },
+                position_context,
+                fusion_context: {
+                  s_total: holdConfidenceBefore,
+                  override_threshold: overrideHoldThreshold,
+                  enter_threshold,
+                  exit_threshold
+                }
               }
-            }
-          };
-        }
-        
-        // Check if exit signal after penalty
-        if (s_total_after <= -exit_threshold) {
-          console.log(`🎯 FUSION EXIT: S_total_after ${s_total_after.toFixed(3)} <= exit_threshold ${-exit_threshold.toFixed(3)}`);
-          return {
-            action: 'SELL',
-            reason: 'no_conflicts_detected',
-            metadata: {
-              pnl_guard: {
-                applied: penalty > 0,
-                penalty,
-                s_total_before,
-                s_total_after
-              },
-              position_context,
-              fusion_context: {
-                s_total: s_total_after,
-                enter_threshold,
-                exit_threshold,
-                override_threshold
-              }
-            }
-          };
-        }
-        
-        // Position guard blocked the exit
-        console.log(`🛡️ POSITION GUARD BLOCKED: S_total_after ${s_total_after.toFixed(3)} > exit_threshold ${-exit_threshold.toFixed(3)}`);
-        return {
-          action: 'HOLD',
-          reason: 'blocked_by_pnl_guard',
-          metadata: {
+            };
+          }
+          
+          fusionMetadata = {
             pnl_guard: {
-              applied: true,
+              applied: penalty > 0,
               penalty,
-              s_total_before,
-              s_total_after
+              s_total_before: holdConfidenceBefore,
+              s_total_after: holdConfidence
             },
             position_context,
             fusion_context: {
-              s_total: s_total_after,
+              s_total: holdConfidence,
               enter_threshold,
               exit_threshold,
-              override_threshold
+              override_threshold: overrideHoldThreshold
             }
-          }
+          };
+        }
+      }
+      
+      // Decision based on normalized hold confidence [0..1]
+      const exitThreshold = fusionDisabled ? 0.35 : (strategyConfig?.aiIntelligenceConfig?.features?.fusion?.exitThreshold || 0.35);
+      
+      if (holdConfidence <= exitThreshold) {
+        console.log(`🎯 FUSION EXIT: holdConfidence ${holdConfidence.toFixed(3)} <= exitThreshold ${exitThreshold.toFixed(3)}`);
+        return {
+          action: 'SELL',
+          reason: fusionDisabled ? 'fusion_disabled_with_gates_and_guard' : 'no_conflicts_detected',
+          metadata: fusionMetadata
         };
       }
+      
+      // Position guard blocked the exit or fusion disabled neutral hold
+      console.log(`🛡️ ${fusionDisabled ? 'FUSION DISABLED' : 'POSITION GUARD BLOCKED'}: holdConfidence ${holdConfidence.toFixed(3)} > exitThreshold ${exitThreshold.toFixed(3)}`);
+      return {
+        action: 'HOLD',
+        reason: fusionDisabled ? 'fusion_disabled_with_gates_and_guard' : 'blocked_by_pnl_guard',
+        metadata: fusionMetadata
+      };
     }
     
     // STEP 3: DEFAULT - No special logic for BUY or non-fusion SELL
@@ -926,7 +964,7 @@ async function evaluateAIFusionForSell(
     
     const s_total_after = s_total_before + penalty; // Apply penalty (makes exit less likely)
     
-    console.log(`🔬 FUSION EVAL: S_before=${s_total_before.toFixed(3)}, penalty=${penalty.toFixed(3)}, S_after=${s_total_after.toFixed(3)}, exit_thresh=${-exit_threshold.toFixed(3)}`);
+    console.log(`🔬 FUSION EVAL: S_before=${s_total_before.toFixed(3)}, penalty=${penalty.toFixed(3)}, S_after=${s_total_after.toFixed(3)}, exit_thresh=${exit_threshold.toFixed(3)}`);
     
     return {
       s_total_before,
