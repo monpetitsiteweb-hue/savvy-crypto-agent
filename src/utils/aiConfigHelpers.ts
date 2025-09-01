@@ -1,3 +1,5 @@
+import { DEFAULT_VALUES, ALLOWED_OVERRIDE_KEYS } from './configDefaults';
+
 // AI Configuration Helpers - Unified precedence and value source tracking
 
 interface ValueSource {
@@ -28,17 +30,17 @@ export function computeEffectiveConfig(
 ): EffectiveConfigWithSources {
   const now = Date.now();
   
-  // Layer 1: User strategy config (baseline)
+  // Layer 1: User strategy config (baseline) - NO HARDCODED VALUES
   const userConfig = {
-    tpPct: strategyConfig.takeProfitPercentage || 0.65,
-    slPct: strategyConfig.stopLossPercentage || 0.40,
-    enterThreshold: 0.65, // Default if no AI features
-    exitThreshold: 0.35,
-    spreadThresholdBps: 20, // Default conservative
-    minDepthRatio: 2.0,
-    whaleConflictWindowMs: 600000,
-    perTradeAllocation: strategyConfig.perTradeAllocation || 50,
-    allocationUnit: strategyConfig.allocationUnit || 'euro'
+    tpPct: strategyConfig.takeProfitPercentage || DEFAULT_VALUES.TAKE_PROFIT_PCT,
+    slPct: strategyConfig.stopLossPercentage || DEFAULT_VALUES.STOP_LOSS_PCT,
+    enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
+    exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
+    spreadThresholdBps: DEFAULT_VALUES.SPREAD_THRESHOLD_BPS,
+    minDepthRatio: DEFAULT_VALUES.MIN_DEPTH_RATIO,
+    whaleConflictWindowMs: DEFAULT_VALUES.WHALE_CONFLICT_WINDOW_MS,
+    perTradeAllocation: strategyConfig.perTradeAllocation || DEFAULT_VALUES.PER_TRADE_ALLOCATION,
+    allocationUnit: strategyConfig.allocationUnit || DEFAULT_VALUES.ALLOCATION_UNIT
   };
 
   // Layer 2: AI features (if enabled)
@@ -98,15 +100,16 @@ export function computeEffectiveConfig(
       ) {
         const value = override.value;
         
-        // Apply bounds checking
-        if (key === 'slPct' && bounds.slPct) {
-          const [min, max] = bounds.slPct;
+        // Apply bounds checking using centralized defaults
+        const boundsConfig = DEFAULT_VALUES.OVERRIDE_BOUNDS;
+        if (key === 'slPct') {
+          const [min, max] = boundsConfig.slPct;
           if (value >= min && value <= max) {
             effectiveConfig.slPct = value;
             valueSources.slPct = { source: 'ai_override', timestamp: override.timestamp };
           }
-        } else if (key === 'tpPct' && bounds.tpOverSlMin) {
-          const minTp = effectiveConfig.slPct * bounds.tpOverSlMin;
+        } else if (key === 'tpPct') {
+          const minTp = effectiveConfig.slPct * boundsConfig.tpOverSlMin;
           if (value >= minTp) {
             effectiveConfig.tpPct = value;
             valueSources.tpPct = { source: 'ai_override', timestamp: override.timestamp };
@@ -157,28 +160,21 @@ export function migrateToUnifiedConfig(oldConfig: any) {
     newConfig.aiIntelligenceConfig.features = {
       fusion: oldConfig.signalFusion || {
         enabled: false,
-        weights: { trend: 0.25, volatility: 0.20, momentum: 0.25, whale: 0.15, sentiment: 0.15 },
-        enterThreshold: 0.65,
-        exitThreshold: 0.35,
+        weights: DEFAULT_VALUES.FUSION_WEIGHTS,
+        enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
+        exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
         conflictPenalty: 0.30
       },
       contextGates: oldConfig.contextGates || {
-        spreadThresholdBps: 20,
-        minDepthRatio: 2.0,
-        whaleConflictWindowMs: 600000
+        spreadThresholdBps: DEFAULT_VALUES.SPREAD_THRESHOLD_BPS,
+        minDepthRatio: DEFAULT_VALUES.MIN_DEPTH_RATIO,
+        whaleConflictWindowMs: DEFAULT_VALUES.WHALE_CONFLICT_WINDOW_MS
       },
-      bracketPolicy: oldConfig.brackets || {
-        atrScaled: false,
-        stopLossPctWhenNotAtr: 0.40,
-        trailBufferPct: 0.40,
-        enforceRiskReward: true,
-        minTpSlRatio: 1.2,
-        atrMultipliers: { tp: 2.6, sl: 2.0 }
-      },
+      bracketPolicy: oldConfig.brackets || DEFAULT_VALUES.BRACKET_POLICY,
       overridesPolicy: {
-        allowedKeys: ["tpPct", "slPct", "enterThreshold", "exitThreshold"],
-        bounds: { slPct: [0.15, 1.00], tpOverSlMin: 1.2 },
-        ttlMs: 900000
+        allowedKeys: [...ALLOWED_OVERRIDE_KEYS],
+        bounds: DEFAULT_VALUES.OVERRIDE_BOUNDS,
+        ttlMs: DEFAULT_VALUES.OVERRIDE_TTL_MS
       }
     };
   }
