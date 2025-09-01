@@ -195,7 +195,7 @@ serve(async (req) => {
           if (executionResult.success) {
             console.log(`🎯 UD_MODE=OFF → EXECUTE: action=${intent.side} symbol=${intent.symbol} with_gates=true`);
             await logEnhancedDecision(supabaseClient, intent, unifiedDecision, unifiedConfig, requestId);
-            return respond(intent.side, 'fusion_disabled_with_gates_and_guard', requestId, 0, { qty: executionResult.qty });
+            return respond(intent.side, 'low_signal_confidence', requestId, 0, { qty: executionResult.qty });
           } else {
             console.error(`❌ UD_MODE=OFF → EXECUTE FAILED: ${executionResult.error}`);
             return respond('HOLD', 'direct_execution_failed', requestId);
@@ -816,23 +816,25 @@ async function evaluateUnifiedSellDecision(
           const { s_total_before, s_total_after, enter_threshold, exit_threshold, override_threshold, penalty, position_context } = fusionResult;
           
           // Normalize s_total to hold confidence [0..1]
-          holdConfidence = toHoldConfidence({ signed: s_total_after });
+          const holdConfidenceBefore = toHoldConfidence({ signed: s_total_before });
+          const holdConfidenceAfter = Math.min(1, holdConfidenceBefore + penalty); // Fixed: add penalty directly, no over-scaling
           
           // Strong bearish override check (before penalty) 
-          const holdConfidenceBefore = toHoldConfidence({ signed: s_total_before });
           const overrideHoldThreshold = toHoldConfidence({ signed: override_threshold });
           
           if (holdConfidenceBefore <= overrideHoldThreshold) {
             console.log(`🎯 STRONG BEARISH OVERRIDE: holdConfidence ${holdConfidenceBefore.toFixed(3)} <= override ${overrideHoldThreshold.toFixed(3)}`);
             return {
               action: 'SELL',
-              reason: 'strong_bearish_override',
+              reason: 'low_signal_confidence', // Keep existing enum
               metadata: {
+                override: "strong_bearish",
+                override_threshold: overrideHoldThreshold,
                 pnl_guard: {
                   applied: penalty > 0,
-                  penalty,
-                  s_total_before: holdConfidenceBefore,
-                  s_total_after: holdConfidence
+                  hold_conf_before: holdConfidenceBefore,
+                  guard_penalty: penalty,
+                  hold_conf_after: holdConfidenceAfter
                 },
                 position_context,
                 fusion_context: {
@@ -845,16 +847,18 @@ async function evaluateUnifiedSellDecision(
             };
           }
           
+          holdConfidence = holdConfidenceAfter; // Use corrected confidence
+          
           fusionMetadata = {
             pnl_guard: {
               applied: penalty > 0,
-              penalty,
-              s_total_before: holdConfidenceBefore,
-              s_total_after: holdConfidence
+              hold_conf_before: holdConfidenceBefore,
+              guard_penalty: penalty,
+              hold_conf_after: holdConfidenceAfter
             },
             position_context,
             fusion_context: {
-              s_total: holdConfidence,
+              s_total: holdConfidenceAfter,
               enter_threshold,
               exit_threshold,
               override_threshold: overrideHoldThreshold
@@ -870,8 +874,11 @@ async function evaluateUnifiedSellDecision(
         console.log(`🎯 FUSION EXIT: holdConfidence ${holdConfidence.toFixed(3)} <= exitThreshold ${exitThreshold.toFixed(3)}`);
         return {
           action: 'SELL',
-          reason: fusionDisabled ? 'fusion_disabled_with_gates_and_guard' : 'no_conflicts_detected',
-          metadata: fusionMetadata
+          reason: fusionDisabled ? 'low_signal_confidence' : 'low_signal_confidence', // Keep existing enum
+          metadata: {
+            ...fusionMetadata,
+            ...(fusionDisabled ? { fusion_enabled: false, path: "gates_and_guard_applied" } : {})
+          }
         };
       }
       
@@ -879,8 +886,11 @@ async function evaluateUnifiedSellDecision(
       console.log(`🛡️ ${fusionDisabled ? 'FUSION DISABLED' : 'POSITION GUARD BLOCKED'}: holdConfidence ${holdConfidence.toFixed(3)} > exitThreshold ${exitThreshold.toFixed(3)}`);
       return {
         action: 'HOLD',
-        reason: fusionDisabled ? 'fusion_disabled_with_gates_and_guard' : 'blocked_by_pnl_guard',
-        metadata: fusionMetadata
+        reason: 'low_signal_confidence', // Keep existing enum
+        metadata: {
+          ...fusionMetadata,
+          ...(fusionDisabled ? { fusion_enabled: false, path: "gates_and_guard_applied" } : {})
+        }
       };
     }
     
