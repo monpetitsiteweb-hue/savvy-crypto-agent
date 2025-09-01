@@ -9,6 +9,7 @@ import { usePoolExitManager } from './usePoolExitManager';
 import { engineLog } from '@/utils/silentLogger';
 import { logger } from '@/utils/logger';
 import { getAllSymbols } from '@/data/coinbaseCoins';
+import { checkMarketAvailability } from '@/utils/marketAvailability';
 
 interface Position {
   cryptocurrency: string;
@@ -718,6 +719,9 @@ export const useIntelligentTradingEngine = () => {
     additionalData?: any
   ) => {
     try {
+      const config = strategy.configuration;
+      const isScalpSmart = config?.signalFusion?.enabled === true;
+      
       const snapshot = {
         user_id: user!.id,
         strategy_id: strategy.id,
@@ -726,21 +730,30 @@ export const useIntelligentTradingEngine = () => {
         decision_action: finalDecision,
         decision_reason: finalReason,
         confidence: fusionResult.sTotalScore || 0.5,
-        intent_source: 'intelligent_scalpsmart',
+        intent_source: isScalpSmart ? 'scalpsmart_engine' : 'standard_engine',
         metadata: {
+          // Core ScalpSmart fields
           s_total: fusionResult.sTotalScore,
           bucket_scores: fusionResult.bucketScores,
           thresholds: {
-            enter: strategy.configuration?.signalFusion?.enterThreshold || 0.65,
-            exit: strategy.configuration?.signalFusion?.exitThreshold || 0.35
+            enter: config?.signalFusion?.enterThreshold || 0.65,
+            exit: config?.signalFusion?.exitThreshold || 0.35
           },
           spread_bps: additionalData?.spreadBps || 0,
           depth_ratio: additionalData?.depthRatio || 0,
           atr_entry: additionalData?.atr || 0,
           brackets: brackets,
           gate_blocks: fusionResult.gateBlocks || [],
-          fusion_enabled: strategy.configuration?.signalFusion?.enabled || false,
-          preset: strategy.configuration?.riskProfile,
+          fusion_enabled: isScalpSmart,
+          
+          // Allocation tracking
+          allocation_unit: additionalData?.allocationUnit || config?.allocationUnit || 'euro',
+          per_trade_allocation: additionalData?.perTradeAllocation || config?.perTradeAllocation || 50,
+          notional: additionalData?.notional || 0,
+          
+          // Preset info
+          preset: config?.riskProfile || 'unknown',
+          ts: new Date().toISOString(),
           ...additionalData
         }
       };
@@ -832,11 +845,33 @@ export const useIntelligentTradingEngine = () => {
       return;
     }
 
-    // Get coins to analyze
-    const coinsToAnalyze = config.selectedCoins || getAllSymbols().slice(0, 3); // Use central list as fallback
+    // Get coins to analyze - SOURCE OF TRUTH: strategy.configuration.selectedCoins
+    const coinsToAnalyze = config.selectedCoins || getAllSymbols().slice(0, 3);
     
     for (const coin of coinsToAnalyze) {
       const symbol = `${coin}-EUR`;
+      
+      // MARKET AVAILABILITY PREFLIGHT CHECK - Prevent API errors
+      const availability = checkMarketAvailability(symbol);
+      if (!availability.isSupported) {
+        // Log skip reason and continue to next symbol
+        await logDecisionSnapshot(
+          strategy,
+          symbol,
+          'BUY',
+          { sTotalScore: 0, bucketScores: { trend: 0, volatility: 0, momentum: 0, whale: 0, sentiment: 0 }, gateBlocks: [] },
+          'DEFER',
+          availability.reason || 'market_unavailable',
+          {},
+          { 
+            allocationUnit: config.allocationUnit || 'euro',
+            perTradeAllocation: config.perTradeAllocation || 50,
+            notional: 0
+          }
+        );
+        continue;
+      }
+      
       const currentData = marketData[symbol];
       if (!currentData) continue;
 

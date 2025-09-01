@@ -15,10 +15,12 @@ import {
   Search, 
   Info,
   TrendingUp,
-  DollarSign 
+  DollarSign,
+  AlertTriangle
 } from 'lucide-react';
 
 import { getAllSymbols } from '@/data/coinbaseCoins';
+import { getUnsupportedSymbols } from '@/utils/marketAvailability';
 
 interface CoinsAmountsPanelProps {
   formData: any;
@@ -75,6 +77,9 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
     !selectedCoins.includes(coin) &&
     coin.toLowerCase().includes(coinSearch.toLowerCase())
   );
+
+  // Check for unsupported EUR pairs in selected coins
+  const unsupportedCoins = getUnsupportedSymbols(selectedCoins);
 
   const addCoin = (coin: string) => {
     const newSelectedCoins = [...selectedCoins, coin];
@@ -138,6 +143,30 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
               <TooltipField description="These are the cryptocurrencies your strategy will trade." examples={["Trade Bitcoin and Ethereum", "Add Solana to my portfolio", "Include XRP in the strategy"]}>
                 <Label>Selected Coins ({selectedCoins.length})</Label>
               </TooltipField>
+              
+              {/* Market Availability Warnings */}
+              {unsupportedCoins.length > 0 && (
+                <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-destructive">
+                        Market Availability Warning
+                      </p>
+                      <p className="text-xs text-destructive/80">
+                        These coins don't have active EUR trading pairs and will be skipped:
+                      </p>
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {unsupportedCoins.map((check) => (
+                          <Badge key={check.symbol} variant="destructive" className="text-xs">
+                            {check.symbol.replace('-EUR', '')}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               
               <div className="border rounded-lg p-4 max-h-64 overflow-y-auto">
                 {selectedCoins.length === 0 ? (

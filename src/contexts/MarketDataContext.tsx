@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { toPairSymbol, BaseSymbol } from '@/utils/symbols';
 import { getAllSymbols, getAllTradingPairs } from '@/data/coinbaseCoins';
+import { filterSupportedSymbols } from '@/utils/marketAvailability';
 
 interface MarketData {
   symbol: string;
@@ -48,10 +49,8 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Silent log for symbol conversion
       window.NotificationSink?.log({ message: 'SYMBOLS: base→pair conversion', data: symbols.map((base, i) => `${base}→${pairSymbols[i]}`) });
 
-      // Filter out invalid symbols that cause 404s
-      const validSymbols = pairSymbols.filter(pair => {
-        return getAllTradingPairs().includes(pair);
-      });
+      // Use market availability registry to filter out unsupported EUR pairs
+      const validSymbols = filterSupportedSymbols(pairSymbols);
 
       if (validSymbols.length === 0) {
         console.warn('No valid symbols to fetch');

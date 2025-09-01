@@ -52,6 +52,7 @@ import { TechnicalIndicatorSettings, TechnicalIndicatorConfig } from './Technica
 import { PoolExitManagementPanel } from './PoolExitManagementPanel';
 
 import { getAllSymbols } from '@/data/coinbaseCoins';
+import { getUnsupportedSymbols } from '@/utils/marketAvailability';
 
 // ScalpSmart Strategy Configuration
 const SCALPSMART_PRESET = {
