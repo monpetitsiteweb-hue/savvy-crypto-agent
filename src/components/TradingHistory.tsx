@@ -79,7 +79,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     totalInvested: 0,
     currentPL: 0,
     totalPL: 0,
-    currentlyInvested: 0
+    currentlyInvested: 0,
+    pastInvestments: 0
   });
 
   // Initialize shared price cache on mount
@@ -225,16 +226,20 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
 
       setTrades(data || []);
 
-      // Calculate stats
+        // Calculate stats
       if (data && data.length > 0) {
         const openPositions = getOpenPositionsList();
         let realizedPL = 0;
         let unrealizedPL = 0;
         let invested = 0;
+        let pastInvestments = 0;
 
         // Calculate realized P&L from sell trades
         const sellTrades = data.filter(t => t.trade_type === 'sell');
         realizedPL = sellTrades.reduce((sum, t) => sum + (t.realized_pnl || 0), 0);
+
+        // Calculate past investments (purchase values of sold positions)
+        pastInvestments = sellTrades.reduce((sum, t) => sum + (t.original_purchase_value || 0), 0);
 
         // Calculate unrealized P&L from open positions
         for (const trade of openPositions) {
@@ -245,15 +250,19 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           }
         }
 
+        // Total Volume = purchase values only (current + past investments)
+        const totalInvestmentVolume = invested + pastInvestments;
+
         setStats({
           totalTrades: openPositions.length + sellTrades.length,
-          totalVolume: data.reduce((sum, t) => sum + t.total_value, 0),
+          totalVolume: totalInvestmentVolume,
           netProfitLoss: realizedPL + unrealizedPL,
           openPositions: openPositions.length,
           totalInvested: invested,
           currentPL: unrealizedPL,
           totalPL: realizedPL + unrealizedPL,
-          currentlyInvested: invested
+          currentlyInvested: invested,
+          pastInvestments: pastInvestments
         });
       }
     } catch (error) {
@@ -539,8 +548,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                 <span className="text-lg font-bold">{formatEuro(stats.currentlyInvested)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Total Volume</span>
-                <span className="text-sm">{formatEuro(stats.totalVolume)}</span>
+                <span className="text-xs text-muted-foreground">Past Investments</span>
+                <span className="text-sm">{formatEuro(stats.pastInvestments)}</span>
+              </div>
+              <div className="flex justify-between items-center border-t pt-2">
+                <span className="text-xs text-muted-foreground font-medium">Total</span>
+                <span className="text-sm font-semibold">{formatEuro(stats.totalVolume)}</span>
               </div>
             </div>
           </Card>
