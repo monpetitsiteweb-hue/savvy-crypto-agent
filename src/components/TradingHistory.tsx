@@ -80,7 +80,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     currentPL: 0,
     totalPL: 0,
     currentlyInvested: 0,
-    pastInvestments: 0
+    pastInvestments: 0,
+    realizedPL: 0
   });
 
   // Initialize shared price cache on mount
@@ -262,7 +263,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           currentPL: unrealizedPL,
           totalPL: realizedPL + unrealizedPL,
           currentlyInvested: invested,
-          pastInvestments: pastInvestments
+          pastInvestments: pastInvestments,
+          realizedPL: realizedPL
         });
       }
     } catch (error) {
@@ -572,8 +574,14 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                 </span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Total P&L</span>
-                <span className={`text-sm ${stats.totalPL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                <span className="text-xs text-muted-foreground">Realized P&L</span>
+                <span className={`text-sm ${stats.realizedPL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {formatEuro(stats.realizedPL)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center border-t pt-2">
+                <span className="text-xs text-muted-foreground font-medium">Total P&L</span>
+                <span className={`text-sm font-semibold ${stats.totalPL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                   {formatEuro(stats.totalPL)}
                 </span>
               </div>
