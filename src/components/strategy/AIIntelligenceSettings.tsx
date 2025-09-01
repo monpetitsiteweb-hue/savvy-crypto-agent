@@ -228,13 +228,43 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
 
   const applyPreset = (presetKey: keyof typeof presets) => {
     const preset = presets[presetKey];
-    updateConfig({
+    
+    // Apply the complete preset configuration to aiIntelligenceConfig
+    const updatedConfig: AIIntelligenceConfig = {
+      ...config,
+      enableAIOverride: true, // Enable AI when applying preset
       features: {
         ...config.features,
-        fusion: preset.fusion,
-        contextGates: preset.contextGates
+        fusion: {
+          ...config.features.fusion,
+          ...preset.fusion
+        },
+        contextGates: {
+          ...config.features.contextGates,
+          ...preset.contextGates
+        },
+        // Apply bracket policy from preset if it exists (for micro-scalp)
+        ...(presetKey === 'microScalp' && {
+          bracketPolicy: {
+            ...config.features.bracketPolicy,
+            atrScaled: false,
+            stopLossPctWhenNotAtr: 0.40,
+            trailBufferPct: 0.40,
+            enforceRiskReward: true,
+            minTpSlRatio: 1.2,
+            atrMultipliers: { tp: 2.6, sl: 2.0 }
+          }
+        })
       }
+    };
+    
+    // Debug logging
+    console.log(`[AIPreset] Applying preset "${presetKey}":`, {
+      preset,
+      updatedConfig: updatedConfig.features
     });
+    
+    updateConfig(updatedConfig);
   };
 
   const getDecisionModeDescription = (mode: string) => {
@@ -299,7 +329,23 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 >
                   <Label>AI Preset</Label>
                 </TooltipField>
-                <Select onValueChange={(value) => applyPreset(value as keyof typeof presets)}>
+                <Select 
+                  value={
+                    // Determine current preset based on configuration
+                    config.features.fusion.enabled && 
+                    config.features.fusion.enterThreshold === 0.65 && 
+                    config.features.fusion.exitThreshold === 0.35 &&
+                    config.features.contextGates.spreadThresholdBps === 12
+                      ? 'microScalp' 
+                      : config.features.fusion.enabled && 
+                        config.features.fusion.enterThreshold === 0.55
+                        ? 'aggressive'
+                        : !config.features.fusion.enabled
+                          ? 'conservative'
+                          : ''
+                  }
+                  onValueChange={(value) => applyPreset(value as keyof typeof presets)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Choose preset..." />
                   </SelectTrigger>

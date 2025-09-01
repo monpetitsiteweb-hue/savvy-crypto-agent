@@ -506,13 +506,37 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   useEffect(() => {
     if (existingStrategy?.configuration) {
       const config = existingStrategy.configuration;
+      
+      // Debug logging for loading
+      console.log('[StrategyConfig] Loading existing strategy configuration:', {
+        existingAiConfig: config.aiIntelligenceConfig,
+        enabledFeatures: config.aiIntelligenceConfig?.features
+      });
+      
       setFormData(prev => ({ 
         ...prev, 
         ...config,
-        // Properly merge the nested aiIntelligenceConfig with existing enableAIOverride
+        // Properly merge the nested aiIntelligenceConfig with deep merge
         aiIntelligenceConfig: {
           ...prev.aiIntelligenceConfig,
-          ...config.aiIntelligenceConfig
+          ...config.aiIntelligenceConfig,
+          features: {
+            ...prev.aiIntelligenceConfig.features,
+            ...config.aiIntelligenceConfig?.features,
+            // Ensure deep merge of nested objects
+            fusion: {
+              ...prev.aiIntelligenceConfig.features.fusion,
+              ...config.aiIntelligenceConfig?.features?.fusion
+            },
+            contextGates: {
+              ...prev.aiIntelligenceConfig.features.contextGates,
+              ...config.aiIntelligenceConfig?.features?.contextGates
+            },
+            bracketPolicy: {
+              ...prev.aiIntelligenceConfig.features.bracketPolicy,
+              ...config.aiIntelligenceConfig?.features?.bracketPolicy
+            }
+          }
         },
         // Properly merge technical indicator config
         technicalIndicatorConfig: {
@@ -564,6 +588,16 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         ...formData
         // aiIntelligenceConfig already contains enableAIOverride directly
       };
+
+      // Debug logging to verify aiIntelligenceConfig is included
+      console.log('[StrategyConfig] Saving configuration.aiIntelligenceConfig:', {
+        aiIntelligenceConfig: syncedFormData.aiIntelligenceConfig,
+        enabledFeatures: {
+          fusion: syncedFormData.aiIntelligenceConfig?.features?.fusion?.enabled,
+          contextGates: syncedFormData.aiIntelligenceConfig?.features?.contextGates,
+          enableAIOverride: syncedFormData.aiIntelligenceConfig?.enableAIOverride
+        }
+      });
 
       const strategyData = {
         user_id: user.id,
