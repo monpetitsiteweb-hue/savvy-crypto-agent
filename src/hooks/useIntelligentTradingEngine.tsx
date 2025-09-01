@@ -8,6 +8,7 @@ import { useRealTimeMarketData } from './useRealTimeMarketData';
 import { usePoolExitManager } from './usePoolExitManager';
 import { engineLog } from '@/utils/silentLogger';
 import { logger } from '@/utils/logger';
+import { getAllSymbols } from '@/data/coinbaseCoins';
 
 interface Position {
   cryptocurrency: string;
@@ -118,7 +119,7 @@ export const useIntelligentTradingEngine = () => {
       const allCoins = new Set<string>();
       strategies.forEach(strategy => {
         const config = strategy.configuration as any;
-        const selectedCoins = config?.selectedCoins || ['BTC', 'ETH', 'XRP'];
+        const selectedCoins = config?.selectedCoins || getAllSymbols().slice(0, 3); // Use central list as fallback
         selectedCoins.forEach((coin: string) => allCoins.add(`${coin}-EUR`));
       });
       
@@ -298,7 +299,7 @@ export const useIntelligentTradingEngine = () => {
     const config = strategy.configuration;
     const fusionConfig = config.signalFusion;
     const gatesConfig = config.contextGates;
-    const isScalpSmart = config.riskProfile === 'scalpsmart_05' || fusionConfig?.enabled;
+    const isScalpSmart = fusionConfig?.enabled === true;
     
     // Default to legacy behavior if not ScalpSmart preset
     if (!isScalpSmart) {
@@ -553,8 +554,9 @@ export const useIntelligentTradingEngine = () => {
   const calculateVolatilityScore = async (symbol: string): Promise<number> => {
     try {
       // Mock volatility calculation - use price data variance as proxy
-      const currentData = await getCurrentData([symbol.replace('-EUR', '')]);
-      const priceData = currentData[symbol.replace('-EUR', '')];
+      const baseSymbol = symbol.replace('-EUR', '');
+      const currentData = await getCurrentData([baseSymbol]);
+      const priceData = currentData[baseSymbol];
       if (!priceData?.price) return 0.5;
       
       // Simple volatility proxy: score based on price level and time
@@ -831,7 +833,7 @@ export const useIntelligentTradingEngine = () => {
     }
 
     // Get coins to analyze
-    const coinsToAnalyze = config.selectedCoins || ['BTC', 'ETH', 'XRP'];
+    const coinsToAnalyze = config.selectedCoins || getAllSymbols().slice(0, 3); // Use central list as fallback
     
     for (const coin of coinsToAnalyze) {
       const symbol = `${coin}-EUR`;
@@ -1299,7 +1301,7 @@ export const useIntelligentTradingEngine = () => {
     console.log('🔧 ENGINE: executeTrade called with action:', action, 'symbol:', cryptocurrency);
     
     const config = strategy.configuration;
-    const isScalpSmart = config.riskProfile === 'scalpsmart_05' || config.signalFusion?.enabled;
+    const isScalpSmart = config.signalFusion?.enabled === true;
     
     // NEW: ScalpSmart signal fusion evaluation
     if (isScalpSmart) {
@@ -1471,8 +1473,8 @@ export const useIntelligentTradingEngine = () => {
         console.warn('⚠️ ENGINE: Could not fetch price snapshot, using market price:', price);
       }
 
-      // Calculate buy amount with safe defaults (no more €100 hardcode)
-      const defaultAllocation = 50; // Reduced from €100 to €50 minimum
+      // Calculate buy amount with safe defaults (no more hardcoded values)
+      const defaultAllocation = 50; // Reduced from hardcoded €100 to €50 minimum
       if (config.allocationUnit === 'percentage') {
         const totalBalance = getBalance('EUR');
         const allocationAmount = Math.max(defaultAllocation, totalBalance * (config.perTradeAllocation || 5) / 100);

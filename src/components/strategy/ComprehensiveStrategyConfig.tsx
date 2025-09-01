@@ -53,6 +53,36 @@ import { PoolExitManagementPanel } from './PoolExitManagementPanel';
 
 import { getAllSymbols } from '@/data/coinbaseCoins';
 
+// ScalpSmart Strategy Configuration
+const SCALPSMART_PRESET = {
+  signalFusion: {
+    enabled: true,
+    enterThreshold: 0.65,
+    exitThreshold: 0.35,
+    conflictPenalty: 0.3,
+    weights: {
+      trend: 0.30,
+      volatility: 0.15,
+      momentum: 0.25,
+      whale: 0.15,
+      sentiment: 0.15
+    }
+  },
+  contextGates: {
+    spread: { enabled: true, maxBps: 12 },
+    liquidity: { enabled: true, minDepthRatio: 3.0 },
+    whaleConflict: { enabled: true, windowMinutes: 5 }
+  },
+  brackets: {
+    stopLossPctWhenNotAtr: 0.40,
+    trailBufferPct: 0.4,
+    enforceRiskReward: true,
+    minTpSlRatio: 1.2,
+    atrScaled: false,
+    atrMultipliers: { tp: 2.6, sl: 2.0 }
+  }
+};
+
 interface StrategyFormData {
   strategyName: string;
   riskProfile: 'low' | 'medium' | 'high' | 'custom';
@@ -106,6 +136,33 @@ interface StrategyFormData {
   aiIntelligenceConfig: AIIntelligenceConfig;
   // Technical Indicators settings
   technicalIndicatorConfig: TechnicalIndicatorConfig;
+  // ScalpSmart settings
+  signalFusion?: {
+    enabled: boolean;
+    enterThreshold?: number;
+    exitThreshold?: number;
+    conflictPenalty?: number;
+    weights?: {
+      trend: number;
+      volatility: number;
+      momentum: number;
+      whale: number;
+      sentiment: number;
+    };
+  };
+  contextGates?: {
+    spread?: { enabled: boolean; maxBps: number };
+    liquidity?: { enabled: boolean; minDepthRatio: number };
+    whaleConflict?: { enabled: boolean; windowMinutes: number };
+  };
+  brackets?: {
+    stopLossPctWhenNotAtr?: number;
+    trailBufferPct?: number;
+    enforceRiskReward?: boolean;
+    minTpSlRatio?: number;
+    atrScaled?: boolean;
+    atrMultipliers?: { tp: number; sl: number };
+  };
   // Pool Exit Management settings (Agent-aware)
   poolExitConfig: {
     pool_enabled: boolean;
@@ -163,39 +220,6 @@ const RISK_PRESETS = {
     maxTotalTrades: 500,
     maxWalletExposure: 80,
     dcaIntervalHours: 6
-  },
-  'scalpsmart_05': {
-    stopLossPercentage: 0.40,
-    takeProfitPercentage: 0.65,
-    maxTotalTrades: 300,
-    maxWalletExposure: 25,
-    dcaIntervalHours: 1,
-    signalFusion: {
-      enabled: true,
-      enterThreshold: 0.65,
-      exitThreshold: 0.35,
-      conflictPenalty: 0.3,
-      weights: {
-        trend: 0.30,
-        volatility: 0.15,
-        momentum: 0.25,
-        whale: 0.15,
-        sentiment: 0.15
-      }
-    },
-    contextGates: {
-      maxSpreadBps: 12,
-      minDepthRatio: 3.0,
-      whaleConflictWindowMs: 300000
-    },
-    brackets: {
-      stopLossPctWhenNotAtr: 0.40,
-      trailBufferPct: 0.4,
-      enforceRiskReward: true,
-      minTpSlRatio: 1.2,
-      atrScaled: false,
-      atrMultipliers: { tp: 2.6, sl: 2.0 }
-    }
   }
 };
 
@@ -470,7 +494,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
             ...formData,
             takeProfitPercentage: 1,
             dailyProfitTarget: 1,
-            selectedCoins: getAllSymbols()
+            selectedCoins: formData.selectedCoins || getAllSymbols().slice(0, 5) // Use strategy's selected coins or sensible default
           } as any,
           updated_at: new Date().toISOString()
         })
@@ -1648,9 +1672,50 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                   <div className="text-sm text-muted-foreground">
                                     Current: {formData.shortingMinProfitPercentage}%
                                   </div>
-                                </div>
+                            </div>
 
-                                <div className="flex items-center justify-between">
+                            {/* ScalpSmart Strategy Toggle */}
+                            <div className="p-4 border rounded-lg space-y-4">
+                              <div className="flex items-center justify-between">
+                                <div className="space-y-1">
+                                  <TooltipField 
+                                    description="Enable ScalpSmart strategy with advanced signal fusion, context gates, and enhanced risk management. Uses multi-signal analysis with trend, volatility, momentum, whale, and sentiment scoring."
+                                    examples={["Enable ScalpSmart trading", "Use advanced signal fusion", "Activate intelligent trading engine"]}
+                                  >
+                                    <Label>ScalpSmart Strategy</Label>
+                                  </TooltipField>
+                                  <p className="text-sm text-muted-foreground">Advanced signal fusion and intelligent risk management</p>
+                                </div>
+                                <Switch
+                                  checked={formData.signalFusion?.enabled || false}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      updateFormData('signalFusion', SCALPSMART_PRESET.signalFusion);
+                                      updateFormData('contextGates', SCALPSMART_PRESET.contextGates);
+                                      updateFormData('brackets', SCALPSMART_PRESET.brackets);
+                                    } else {
+                                      updateFormData('signalFusion', { enabled: false });
+                                    }
+                                  }}
+                                />
+                              </div>
+
+                              {formData.signalFusion?.enabled && (
+                                <div className="space-y-4 pl-4 border-l-2 border-primary/20">
+                                  <div className="text-sm text-muted-foreground bg-secondary/50 p-3 rounded">
+                                    <strong>ScalpSmart Active:</strong>
+                                    <div className="mt-1 space-y-1">
+                                      <div>• Signal Fusion: 5-bucket analysis (trend, volatility, momentum, whale, sentiment)</div>
+                                      <div>• Context Gates: Spread ≤12bps, Liquidity depth ≥3.0x, Whale conflict detection</div>
+                                      <div>• Risk Management: TP≥1.2×SL enforcement, 0.4% stop loss, 0.65% take profit</div>
+                                      <div>• Hysteresis: Enter≥65%, Exit≤35% to prevent flip-flopping</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex items-center justify-between">
                                   <div className="space-y-1">
                                     <TooltipField 
                                       description="Automatically close short positions when conditions are met."
