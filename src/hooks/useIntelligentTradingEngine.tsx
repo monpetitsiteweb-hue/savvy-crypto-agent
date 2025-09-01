@@ -992,7 +992,9 @@ export const useIntelligentTradingEngine = () => {
       if (!currentData) continue;
 
       // Skip if already have position in this coin (unless DCA enabled)
-      const hasPosition = positions.some(p => p.cryptocurrency === symbol);
+      // Normalize both sides for comparison (positions stored without -EUR)
+      const base = symbol.replace('-EUR','');
+      const hasPosition = positions.some(p => p.cryptocurrency.replace('-EUR','') === base);
       if (hasPosition && !config.enableDCA) {
         continue;
       }
@@ -1572,7 +1574,7 @@ export const useIntelligentTradingEngine = () => {
       const approvedPrice = Number(dec?.price ?? price);
       const approvedQty = Number(dec?.qtyApproved ?? intent.qtySuggested);
 
-      if (!Number.isFinite(approvedPrice) || !Number.isFinite(approvedQty) || approvedQty <= 0) {
+      if (approvedPrice <= 0 || approvedQty <= 0 || !Number.isFinite(approvedPrice) || !Number.isFinite(approvedQty)) {
         console.log('🚧 COORD_DECISION_INVALID', { rawAction, approvedPrice, approvedQty, intent });
         return;
       }
@@ -1602,7 +1604,7 @@ export const useIntelligentTradingEngine = () => {
           });
         }
       } else {
-        console.log('🚫 INTELLIGENT: Coordinator rejected/deferred trade:', decision?.decision?.reason);
+        console.log('🚫 COORD_REJECTED_OR_DEFERRED', { action: rawAction, reason: dec?.reason });
       }
 
       // STEP 1: Use standardized coordinator toast handler
