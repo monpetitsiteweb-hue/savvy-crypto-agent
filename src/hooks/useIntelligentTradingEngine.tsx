@@ -60,13 +60,22 @@ export const useIntelligentTradingEngine = () => {
         message: 'INTELLIGENT_ENGINE: Auth conditions check - starting engine',
         data: { user: !!user, loading, testMode }
       });
-      // Small delay to ensure all hooks are initialized
-      const timer = setTimeout(() => {
+      
+      // Initial call with small delay
+      const initialTimer = setTimeout(() => {
         checkStrategiesAndExecute();
       }, 1000);
       
-      // Cleanup timer on unmount or dependency change
-      return () => clearTimeout(timer);
+      // Recurring interval every 30 seconds
+      const interval = setInterval(() => {
+        checkStrategiesAndExecute();
+      }, 30000);
+      
+      // Cleanup timers on unmount or dependency change
+      return () => {
+        clearTimeout(initialTimer);
+        clearInterval(interval);
+      };
     } else {
       // Silent log for auth waiting
       window.NotificationSink?.log({ 
