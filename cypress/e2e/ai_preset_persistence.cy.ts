@@ -16,10 +16,10 @@ describe('AI Preset Persistence', () => {
 
     // Verify preset values are applied
     cy.get('[data-testid="fusion-enabled-switch"]').should('be.checked');
-    cy.get('[data-testid="enter-threshold-slider"]').should('contain', '0.65');
-    cy.get('[data-testid="exit-threshold-slider"]').should('contain', '0.35');
-    cy.get('[data-testid="spread-threshold-slider"]').should('contain', '12');
-    cy.get('[data-testid="min-depth-ratio-slider"]').should('contain', '3');
+    cy.get('[data-testid="enter-threshold-label"]').should('contain', '0.65');
+    cy.get('[data-testid="exit-threshold-label"]').should('contain', '0.35'); 
+    cy.get('[data-testid="spread-threshold-label"]').should('contain', '12');
+    cy.get('[data-testid="min-depth-ratio-label"]').should('contain', '3');
 
     // Save the configuration
     cy.get('[data-testid="save-strategy-button"]').click();
@@ -37,10 +37,10 @@ describe('AI Preset Persistence', () => {
 
     // Verify values are still correct
     cy.get('[data-testid="fusion-enabled-switch"]').should('be.checked');
-    cy.get('[data-testid="enter-threshold-slider"]').should('contain', '0.65');
-    cy.get('[data-testid="exit-threshold-slider"]').should('contain', '0.35');
-    cy.get('[data-testid="spread-threshold-slider"]').should('contain', '12');
-    cy.get('[data-testid="min-depth-ratio-slider"]').should('contain', '3');
+    cy.get('[data-testid="enter-threshold-label"]').should('contain', '0.65');
+    cy.get('[data-testid="exit-threshold-label"]').should('contain', '0.35');
+    cy.get('[data-testid="spread-threshold-label"]').should('contain', '12');
+    cy.get('[data-testid="min-depth-ratio-label"]').should('contain', '3');
   });
 
   it('should show Custom when preset values are modified', () => {
@@ -54,7 +54,7 @@ describe('AI Preset Persistence', () => {
 
     // Modify enter threshold beyond epsilon
     cy.get('[data-testid="enter-threshold-slider"]').as('enterSlider');
-    cy.get('@enterSlider').click('right'); // Move slider to change value significantly
+    cy.get('@enterSlider').trigger('keydown', { keyCode: 39 }); // Arrow right to increase value
 
     // Verify preset selector shows Custom
     cy.get('[data-testid="ai-preset-select"]').should('contain', 'Custom');
@@ -67,7 +67,7 @@ describe('AI Preset Persistence', () => {
     // Apply Micro-Scalp preset
     cy.get('[data-testid="ai-preset-select"]').click();
     cy.get('[data-value="microScalp"]').click();
-    cy.get('[data-testid="enter-threshold-slider"]').should('contain', '0.65');
+    cy.get('[data-testid="enter-threshold-label"]').should('contain', '0.65');
 
     // Save and verify
     cy.get('[data-testid="save-strategy-button"]').click();
@@ -76,7 +76,7 @@ describe('AI Preset Persistence', () => {
     // Switch to Aggressive preset
     cy.get('[data-testid="ai-preset-select"]').click();
     cy.get('[data-value="aggressive"]').click();
-    cy.get('[data-testid="enter-threshold-slider"]').should('contain', '0.55');
+    cy.get('[data-testid="enter-threshold-label"]').should('contain', '0.55');
 
     // Save and verify
     cy.get('[data-testid="save-strategy-button"]').click();
@@ -90,7 +90,7 @@ describe('AI Preset Persistence', () => {
     // Switch back to Micro-Scalp
     cy.get('[data-testid="ai-preset-select"]').click();
     cy.get('[data-value="microScalp"]').click();
-    cy.get('[data-testid="enter-threshold-slider"]').should('contain', '0.65');
+    cy.get('[data-testid="enter-threshold-label"]').should('contain', '0.65');
 
     // Save and reload to verify persistence
     cy.get('[data-testid="save-strategy-button"]').click();

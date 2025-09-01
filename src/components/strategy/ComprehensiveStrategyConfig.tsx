@@ -368,20 +368,14 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     aiIntelligenceConfig: {
       enableAIOverride: false,
       autonomy: { level: 25 },
-      features: {
-        fusion: {
-          enabled: false,
-          weights: {
-            trend: 0.25,
-            volatility: 0.20,
-            momentum: 0.25,
-            whale: 0.15,
-            sentiment: 0.15
+        features: {
+          fusion: {
+            enabled: false,
+            weights: DEFAULT_VALUES.FUSION_WEIGHTS,
+            enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
+            exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
+            conflictPenalty: DEFAULT_VALUES.CONFLICT_PENALTY
           },
-          enterThreshold: 0.65,
-          exitThreshold: 0.35,
-          conflictPenalty: 0.30
-        },
         contextGates: {
           spreadThresholdBps: 20,
           minDepthRatio: 2.0,
@@ -1776,9 +1770,9 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                     <strong>ScalpSmart Active:</strong>
                                     <div className="mt-1 space-y-1">
                                       <div>• Signal Fusion: 5-bucket analysis (trend, volatility, momentum, whale, sentiment)</div>
-                                      <div>• Context Gates: Spread ≤12bps, Liquidity depth ≥3.0x, Whale conflict detection</div>
-                                      <div>• Risk Management: TP≥1.2×SL enforcement, 0.4% stop loss, 0.65% take profit</div>
-                                      <div>• Hysteresis: Enter≥65%, Exit≤35% to prevent flip-flopping</div>
+                                      <div>• Context Gates: Spread ≤{DEFAULT_VALUES.SPREAD_THRESHOLD_BPS}bps, Liquidity depth ≥{DEFAULT_VALUES.MIN_DEPTH_RATIO}x, Whale conflict detection</div>
+                                      <div>• Risk Management: TP≥{DEFAULT_VALUES.BRACKET_POLICY.minTpSlRatio}×SL enforcement, {(DEFAULT_VALUES.STOP_LOSS_PCT*100).toFixed(1)}% stop loss, {(DEFAULT_VALUES.TAKE_PROFIT_PCT*100).toFixed(1)}% take profit</div>
+                                      <div>• Hysteresis: Enter≥{(DEFAULT_VALUES.ENTER_THRESHOLD*100).toFixed(0)}%, Exit≤{(DEFAULT_VALUES.EXIT_THRESHOLD*100).toFixed(0)}% to prevent flip-flopping</div>
                                     </div>
                                   </div>
                                 </div>

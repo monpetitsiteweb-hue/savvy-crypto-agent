@@ -249,7 +249,7 @@ export function migrateToUnifiedConfig(oldConfig: any) {
         weights: DEFAULT_VALUES.FUSION_WEIGHTS,
         enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
         exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
-        conflictPenalty: 0.30
+        conflictPenalty: DEFAULT_VALUES.CONFLICT_PENALTY
       },
       contextGates: oldConfig.contextGates || {
         spreadThresholdBps: DEFAULT_VALUES.SPREAD_THRESHOLD_BPS,

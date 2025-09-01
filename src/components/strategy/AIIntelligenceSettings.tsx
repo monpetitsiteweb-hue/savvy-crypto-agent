@@ -400,9 +400,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               {/* Thresholds */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Enter Threshold: {config.features.fusion.enterThreshold}</Label>
+                  <Label data-testid="enter-threshold-label">Enter Threshold: {config.features.fusion.enterThreshold}</Label>
                   <Slider
                     data-testid="enter-threshold-slider"
+                    data-value={config.features.fusion.enterThreshold}
                     value={[config.features.fusion.enterThreshold]}
                     onValueChange={([value]) => updateConfig({
                       features: {
@@ -417,9 +418,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Exit Threshold: {config.features.fusion.exitThreshold}</Label>
+                  <Label data-testid="exit-threshold-label">Exit Threshold: {config.features.fusion.exitThreshold}</Label>
                   <Slider
                     data-testid="exit-threshold-slider"
+                    data-value={config.features.fusion.exitThreshold}
                     value={[config.features.fusion.exitThreshold]}
                     onValueChange={([value]) => updateConfig({
                       features: {
@@ -440,9 +442,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 <Label className="text-base font-medium">Context Gates (Market Filters)</Label>
                 
                 <div className="space-y-2">
-                  <Label>Max Spread (BPS): {config.features.contextGates.spreadThresholdBps}</Label>
+                  <Label data-testid="spread-threshold-label">Max Spread (BPS): {config.features.contextGates.spreadThresholdBps}</Label>
                   <Slider
                     data-testid="spread-threshold-slider"
+                    data-value={config.features.contextGates.spreadThresholdBps}
                     value={[config.features.contextGates.spreadThresholdBps]}
                     onValueChange={([value]) => updateConfig({
                       features: {
@@ -458,9 +461,10 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Min Depth Ratio: {config.features.contextGates.minDepthRatio}</Label>
+                  <Label data-testid="min-depth-ratio-label">Min Depth Ratio: {config.features.contextGates.minDepthRatio}</Label>
                   <Slider
                     data-testid="min-depth-ratio-slider"
+                    data-value={config.features.contextGates.minDepthRatio}
                     value={[config.features.contextGates.minDepthRatio]}
                     onValueChange={([value]) => updateConfig({
                       features: {

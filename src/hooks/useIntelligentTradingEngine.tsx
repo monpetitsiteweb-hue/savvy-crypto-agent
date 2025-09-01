@@ -464,8 +464,8 @@ export const useIntelligentTradingEngine = () => {
       const adjustedScore = Math.max(-1, Math.min(1, sTotalScore - conflictPenalty));
       
       // Hysteresis: Different thresholds for enter vs exit
-      const enterThreshold = fusionConfig.enterThreshold || 0.65;
-      const exitThreshold = fusionConfig.exitThreshold || 0.35;
+      const enterThreshold = fusionConfig.enterThreshold || DEFAULT_VALUES.ENTER_THRESHOLD;
+      const exitThreshold = fusionConfig.exitThreshold || DEFAULT_VALUES.EXIT_THRESHOLD;
       
       let decision: 'ENTER' | 'EXIT' | 'HOLD' | 'DEFER' = 'HOLD';
       let reason = 'low_signal_confidence';
@@ -1759,9 +1759,9 @@ export const useIntelligentTradingEngine = () => {
       };
     } else {
       // Fixed percentage with risk/reward enforcement
-      const stopLossPct = brackets.stopLossPctWhenNotAtr || 0.40;
-      const takeProfitPct = brackets.takeProfitPct || 0.65;
-      const minTpSlRatio = brackets.minTpSlRatio || 1.2;
+      const stopLossPct = brackets.stopLossPctWhenNotAtr || DEFAULT_VALUES.STOP_LOSS_PCT;
+      const takeProfitPct = brackets.takeProfitPct || DEFAULT_VALUES.TAKE_PROFIT_PCT;
+      const minTpSlRatio = brackets.minTpSlRatio || DEFAULT_VALUES.BRACKET_POLICY.minTpSlRatio;
       
       // Enforce minimum TP/SL ratio
       const enforcedTP = Math.max(takeProfitPct, stopLossPct * minTpSlRatio);
