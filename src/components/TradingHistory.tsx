@@ -328,10 +328,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       const tradeIntent = {
         userId: user!.id,
         strategyId: trade.strategy_id,
-        symbol: trade.cryptocurrency,
+        symbol: toBaseSymbol(trade.cryptocurrency),
         side: 'SELL' as const,
         source: 'manual' as const,
-        confidence: 0.95,
         reason: 'manual_sell_from_history',
         qtySuggested: trade.amount,
         metadata: {
