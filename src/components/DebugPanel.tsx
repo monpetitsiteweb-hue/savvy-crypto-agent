@@ -7,7 +7,7 @@ import { useTestMode } from '@/hooks/useTestMode';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { supabase } from '@/integrations/supabase/client';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Eye, Zap } from 'lucide-react';
 import { logger } from '@/utils/logger';
 
 interface DebugInfo {
@@ -18,6 +18,17 @@ interface DebugInfo {
   allStrategies: any[];
   lastAIResponse: any;
   systemStatus: any;
+}
+
+interface DecisionSnapshot {
+  id: string;
+  symbol: string;
+  intent_side: string;
+  decision_action: string;
+  decision_reason: string;
+  confidence: number;
+  metadata: any; // Changed from specific type to any to handle Supabase Json type
+  created_at: string;
 }
 
 interface StrategyDebugInfo {
@@ -35,6 +46,27 @@ export const DebugPanel = () => {
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [decisionSnapshots, setDecisionSnapshots] = useState<DecisionSnapshot[]>([]);
+  const [showSnapshots, setShowSnapshots] = useState(false);
+
+  const fetchDecisionSnapshots = async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('trade_decisions_log')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (data) {
+        // Type assertion to handle Supabase Json type
+        setDecisionSnapshots(data as DecisionSnapshot[]);
+      }
+    } catch (error) {
+      console.error('Error fetching decision snapshots:', error);
+    }
+  };
 
   const refreshDebugInfo = async () => {
     if (!user) return;
@@ -103,6 +135,7 @@ export const DebugPanel = () => {
 
   useEffect(() => {
     refreshDebugInfo();
+    fetchDecisionSnapshots();
   }, [user, testMode, activeStrategy]);
 
   const testAICommand = async (command: string) => {
@@ -161,14 +194,21 @@ export const DebugPanel = () => {
           <CardContent className="space-y-4">
             <div className="flex gap-2 flex-wrap">
               <Button onClick={refreshDebugInfo} size="sm">Refresh Debug Info</Button>
+              <Button onClick={fetchDecisionSnapshots} size="sm" variant="outline">
+                <Eye className="w-3 h-3 mr-1" />
+                Refresh Decisions
+              </Button>
+              <Button 
+                onClick={() => setShowSnapshots(!showSnapshots)} 
+                size="sm" 
+                variant="outline"
+                className={showSnapshots ? "bg-primary text-primary-foreground" : ""}
+              >
+                <Zap className="w-3 h-3 mr-1" />
+                {showSnapshots ? 'Hide' : 'Show'} ScalpSmart Decisions ({decisionSnapshots.length})
+              </Button>
               <Button onClick={() => testAICommand("is ai enabled?")} size="sm" variant="outline">
                 Test: Is AI Enabled?
-              </Button>
-              <Button onClick={() => testAICommand("enable ai")} size="sm" variant="outline">
-                Test: Enable AI
-              </Button>
-              <Button onClick={() => testAICommand("disable ai")} size="sm" variant="outline">
-                Test: Disable AI
               </Button>
             </div>
 
@@ -238,6 +278,62 @@ export const DebugPanel = () => {
 {JSON.stringify(debugInfo.activeStrategy?.configuration || {}, null, 2)}
                   </pre>
                 </div>
+
+                {showSnapshots && (
+                  <div>
+                    <h4 className="font-semibold text-indigo-600">ScalpSmart Decision Snapshots (Latest {decisionSnapshots.length})</h4>
+                    <div className="space-y-2 max-h-80 overflow-auto">
+                      {decisionSnapshots.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No decision snapshots found. Generate some trades to see data.</p>
+                      ) : (
+                        decisionSnapshots.map((snapshot, i) => (
+                          <div key={i} className="bg-slate-50 border-l-4 border-indigo-400 p-3 rounded text-xs">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <p><strong>Symbol:</strong> {snapshot.symbol}</p>
+                                <p><strong>Side:</strong> {snapshot.intent_side}</p>
+                                <p><strong>Action:</strong> <Badge variant={snapshot.decision_action === 'ENTER' ? 'default' : snapshot.decision_action === 'DEFER' ? 'secondary' : 'destructive'}>{snapshot.decision_action}</Badge></p>
+                                <p><strong>Reason:</strong> {snapshot.decision_reason}</p>
+                                <p><strong>S_Total:</strong> {snapshot.metadata?.s_total?.toFixed(3) || 'N/A'}</p>
+                              </div>
+                              <div>
+                                <p><strong>Spread (bps):</strong> {snapshot.metadata?.spread_bps?.toFixed(1) || 'N/A'}</p>
+                                <p><strong>Depth Ratio:</strong> {snapshot.metadata?.depth_ratio?.toFixed(3) || 'N/A'}</p>
+                                <p><strong>ATR Entry:</strong> {snapshot.metadata?.atr_entry?.toFixed(4) || 'N/A'}</p>
+                                <p><strong>Fusion Enabled:</strong> {snapshot.metadata?.fusion_enabled ? '✅' : '❌'}</p>
+                                <p><strong>Time:</strong> {new Date(snapshot.created_at).toLocaleTimeString()}</p>
+                              </div>
+                            </div>
+                            
+                            {snapshot.metadata?.brackets && (
+                              <div className="mt-2 pt-2 border-t">
+                                <p><strong>Brackets:</strong> TP: {snapshot.metadata.brackets.takeProfitPct?.toFixed(2)}%, SL: {snapshot.metadata.brackets.stopLossPct?.toFixed(2)}%, Trail: {snapshot.metadata.brackets.trailBufferPct?.toFixed(2)}%</p>
+                              </div>
+                            )}
+                            
+                            {snapshot.metadata?.gate_blocks && snapshot.metadata.gate_blocks.length > 0 && (
+                              <div className="mt-1">
+                                <p><strong>Gate Blocks:</strong> {snapshot.metadata.gate_blocks.join(', ')}</p>
+                              </div>
+                            )}
+
+                            {snapshot.metadata?.bucket_scores && (
+                              <div className="mt-1">
+                                <p><strong>Bucket Scores:</strong> T:{snapshot.metadata.bucket_scores.trend?.toFixed(2)} V:{snapshot.metadata.bucket_scores.volatility?.toFixed(2)} M:{snapshot.metadata.bucket_scores.momentum?.toFixed(2)} W:{snapshot.metadata.bucket_scores.whale?.toFixed(2)} S:{snapshot.metadata.bucket_scores.sentiment?.toFixed(2)}</p>
+                              </div>
+                            )}
+
+                            {(snapshot.metadata?.allocationUnit || snapshot.metadata?.perTradeAllocation) && (
+                              <div className="mt-1">
+                                <p><strong>Allocation:</strong> {snapshot.metadata.perTradeAllocation} {snapshot.metadata.allocationUnit}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
