@@ -6,6 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Toast } from '@/ui/ToastService';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
 import { usePoolExitManager } from './usePoolExitManager';
+import { DEFAULT_VALUES } from '@/utils/configDefaults';
 import { engineLog } from '@/utils/silentLogger';
 import { logger } from '@/utils/logger';
 import { getAllSymbols } from '@/data/coinbaseCoins';
@@ -750,8 +751,8 @@ export const useIntelligentTradingEngine = () => {
           s_total: fusionResult.sTotalScore,
           bucket_scores: fusionResult.bucketScores,
           thresholds: {
-            enter: fusionResult.effectiveConfig?.enterThreshold || 0.65,
-            exit: fusionResult.effectiveConfig?.exitThreshold || 0.35
+            enter: fusionResult.effectiveConfig?.enterThreshold || DEFAULT_VALUES.ENTER_THRESHOLD,
+            exit: fusionResult.effectiveConfig?.exitThreshold || DEFAULT_VALUES.EXIT_THRESHOLD
           },
           spread_bps: additionalData?.spreadBps || 0,
           depth_ratio: additionalData?.depthRatio || 0,
@@ -765,8 +766,8 @@ export const useIntelligentTradingEngine = () => {
           effective_config_snapshot: fusionResult.effectiveConfig || {},
           
           // Allocation tracking
-          allocation_unit: additionalData?.allocationUnit || config?.allocationUnit || 'euro',
-          per_trade_allocation: additionalData?.perTradeAllocation || config?.perTradeAllocation || 50,
+          allocation_unit: additionalData?.allocationUnit || config?.allocationUnit || DEFAULT_VALUES.ALLOCATION_UNIT,
+          per_trade_allocation: additionalData?.perTradeAllocation || config?.perTradeAllocation || DEFAULT_VALUES.PER_TRADE_ALLOCATION,
           notional: additionalData?.notional || 0,
           
           // Preset info
