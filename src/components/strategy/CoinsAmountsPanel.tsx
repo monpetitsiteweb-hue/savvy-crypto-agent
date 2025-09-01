@@ -18,11 +18,7 @@ import {
   DollarSign 
 } from 'lucide-react';
 
-const COINBASE_COINS = [
-  'BTC', 'ETH', 'ADA', 'DOGE', 'XRP', 'LTC', 'BCH', 'LINK', 'DOT', 'UNI',
-  'SOL', 'MATIC', 'AVAX', 'ICP', 'XLM', 'VET', 'ALGO', 'ATOM', 'FIL', 'TRX',
-  'ETC', 'THETA', 'XMR', 'XTZ', 'COMP', 'AAVE', 'MKR', 'SNX', 'CRV', 'YFI'
-];
+import { getAllSymbols } from '@/data/coinbaseCoins';
 
 interface CoinsAmountsPanelProps {
   formData: any;
@@ -75,7 +71,7 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
       ? [formData.selectedCoins]
       : [];
   
-  const availableCoins = COINBASE_COINS.filter(coin => 
+  const availableCoins = getAllSymbols().filter(coin => 
     !selectedCoins.includes(coin) &&
     coin.toLowerCase().includes(coinSearch.toLowerCase())
   );

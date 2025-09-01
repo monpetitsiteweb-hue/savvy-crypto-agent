@@ -553,8 +553,9 @@ export const useIntelligentTradingEngine = () => {
   const calculateVolatilityScore = async (symbol: string): Promise<number> => {
     try {
       // Mock volatility calculation - use price data variance as proxy
-      const currentData = getCurrentData(symbol.replace('-EUR', ''));
-      if (!currentData?.price) return 0.5;
+      const currentData = await getCurrentData([symbol.replace('-EUR', '')]);
+      const priceData = currentData[symbol.replace('-EUR', '')];
+      if (!priceData?.price) return 0.5;
       
       // Simple volatility proxy: score based on price level and time
       const volatilityProxy = Math.sin(Date.now() / 100000) * 0.3 + 0.5;
@@ -1307,7 +1308,7 @@ export const useIntelligentTradingEngine = () => {
       const fusionResult = await evaluateSignalFusion(strategy, cryptocurrency, action.toUpperCase() as 'BUY' | 'SELL');
       
       // Enhanced brackets for ScalpSmart
-      const brackets = calculateScalpSmartBrackets(config, price, fusionResult);
+      const brackets = calculateScalpSmartBrackets(config, price);
       
       // Log decision snapshot (all attempts, even deferred)
       await logDecisionSnapshot(
@@ -1597,6 +1598,38 @@ export const useIntelligentTradingEngine = () => {
         stack: error?.stack
       });
       throw error;
+    }
+  };
+
+  // ScalpSmart bracket calculation (enforces risk/reward)
+  const calculateScalpSmartBrackets = (config: any, currentPrice: number) => {
+    const brackets = config.brackets || {};
+    const isATRScaled = brackets.atrScaled || false;
+    
+    if (isATRScaled) {
+      // ATR-based brackets with safety fallback
+      const atrMultipliers = brackets.atrMultipliers || { tp: 2.6, sl: 2.0 };
+      const atr = 0.02; // Mock ATR value - in real implementation would calculate from price data
+      
+      return {
+        stopLossPct: atr * atrMultipliers.sl,
+        takeProfitPct: atr * atrMultipliers.tp,
+        trailBufferPct: brackets.trailBufferPct || 0.4
+      };
+    } else {
+      // Fixed percentage with risk/reward enforcement
+      const stopLossPct = brackets.stopLossPctWhenNotAtr || 0.40;
+      const takeProfitPct = brackets.takeProfitPct || 0.65;
+      const minTpSlRatio = brackets.minTpSlRatio || 1.2;
+      
+      // Enforce minimum TP/SL ratio
+      const enforcedTP = Math.max(takeProfitPct, stopLossPct * minTpSlRatio);
+      
+      return {
+        stopLossPct,
+        takeProfitPct: enforcedTP,
+        trailBufferPct: brackets.trailBufferPct || 0.4
+      };
     }
   };
 

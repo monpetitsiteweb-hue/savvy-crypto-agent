@@ -51,12 +51,7 @@ import AIIntelligenceSettings, { AIIntelligenceConfig } from './AIIntelligenceSe
 import { TechnicalIndicatorSettings, TechnicalIndicatorConfig } from './TechnicalIndicatorSettings';
 import { PoolExitManagementPanel } from './PoolExitManagementPanel';
 
-// Coinbase-compatible coins list
-const COINBASE_COINS = [
-  'BTC', 'ETH', 'ADA', 'DOGE', 'XRP', 'LTC', 'BCH', 'LINK', 'DOT', 'UNI',
-  'SOL', 'MATIC', 'AVAX', 'ICP', 'XLM', 'VET', 'ALGO', 'ATOM', 'FIL', 'TRX',
-  'ETC', 'THETA', 'XMR', 'XTZ', 'COMP', 'AAVE', 'MKR', 'SNX', 'CRV', 'YFI'
-];
+import { getAllSymbols } from '@/data/coinbaseCoins';
 
 interface StrategyFormData {
   strategyName: string;
