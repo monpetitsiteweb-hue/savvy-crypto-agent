@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TrendingUp, TrendingDown, Minus, Clock, Zap, RefreshCw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { TechnicalIndicatorRefresh } from './TechnicalIndicatorRefresh';
 
 export const LiveIndicatorKPI = () => {
   const { activeStrategy } = useActiveStrategy();
@@ -103,6 +104,7 @@ export const LiveIndicatorKPI = () => {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <TechnicalIndicatorRefresh />
             <Button
               variant="ghost" 
               size="sm"

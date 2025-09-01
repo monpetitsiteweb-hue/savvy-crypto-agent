@@ -142,7 +142,7 @@ const calculateIndicatorsForSymbol = (prices: number[], config: IndicatorConfig)
 
   try {
     // RSI
-    if (config.rsi.enabled && prices.length >= config.rsi.period) {
+    if (config.rsi.enabled && prices.length >= config.rsi.period + 1) {
       const rsiValues = RSI.calculate({
         values: prices,
         period: config.rsi.period
