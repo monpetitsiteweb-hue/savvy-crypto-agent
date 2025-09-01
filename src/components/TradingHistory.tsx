@@ -324,23 +324,31 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       }
 
       // Create sell trade record
-      const sellTrade = {
-        user_id: user.id,
-        trade_type: 'sell',
-        cryptocurrency: trade.cryptocurrency,
-        amount: trade.amount,
-        price: currentPrice,
-        total_value: trade.amount * currentPrice,
-        strategy_id: trade.strategy_id,
-        is_test_mode: testMode,
-        notes: 'Manual sell from Trading History'
+      // UNIFIED PATH: Route manual sell through coordinator
+      const tradeIntent = {
+        userId: user!.id,
+        strategyId: trade.strategy_id,
+        symbol: trade.cryptocurrency,
+        side: 'SELL' as const,
+        source: 'manual' as const,
+        confidence: 0.95,
+        reason: 'manual_sell_from_history',
+        qtySuggested: trade.amount,
+        metadata: {
+          manual_sell: true,
+          entry_price: trade.price,
+          current_price: currentPrice,
+          position_management: true
+        }
       };
 
-      const { error } = await supabase
-        .from('mock_trades')
-        .insert([sellTrade]);
+      const response = await supabase.functions.invoke('trading-decision-coordinator', {
+        body: { intent: tradeIntent }
+      });
 
-      if (error) throw error;
+      if (response.error) {
+        throw new Error(`Coordinator error: ${response.error.message}`);
+      }
 
       // Refresh trading history to show updated positions
       fetchTradingHistory();

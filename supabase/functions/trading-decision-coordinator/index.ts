@@ -36,8 +36,11 @@ type DecisionAction = "BUY" | "SELL" | "HOLD" | "DEFER";
 type Reason =
   | "unified_decisions_disabled_direct_path"
   | "no_conflicts_detected"
+  | "bracket_policy_precedence"
   | "min_hold_period_not_met"
   | "blocked_by_cooldown"
+  | "blocked_by_pnl_guard"
+  | "strong_bearish_override"
   | "blocked_by_precedence:POOL_EXIT"
   | "queue_overload_defer"
   | "direct_execution_failed"
@@ -53,6 +56,37 @@ interface TradeDecision {
   request_id: string;
   retry_in_ms: number;
   qty?: number;
+}
+
+interface UnifiedDecisionResult {
+  action: DecisionAction;
+  reason: Reason;
+  retry_in_ms?: number;
+  metadata?: {
+    pnl_guard?: {
+      applied: boolean;
+      penalty: number;
+      s_total_before: number;
+      s_total_after: number;
+    };
+    position_context?: {
+      unrealized_pnl_pct: number;
+      position_age_sec: number;
+      distance_to_sl_pct: number;
+    };
+    bracket_context?: {
+      sl_triggered: boolean;
+      tp_triggered: boolean;
+      sl_pct: number;
+      tp_pct?: number;
+    };
+    fusion_context?: {
+      s_total: number;
+      enter_threshold: number;
+      exit_threshold: number;
+      override_threshold: number;
+    };
+  };
 }
 
 interface UnifiedConfig {
@@ -437,6 +471,42 @@ async function logDecisionAsync(
   }
 }
 
+// Enhanced decision logging with position context
+async function logEnhancedDecision(
+  supabaseClient: any,
+  intent: TradeIntent,
+  decision: UnifiedDecisionResult,
+  config: UnifiedConfig,
+  requestId: string
+): Promise<void> {
+  try {
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    await supabaseClient
+      .from('trade_decisions_log')
+      .insert({
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        symbol: baseSymbol,
+        intent_side: intent.side,
+        intent_source: intent.source,
+        confidence: intent.confidence,
+        decision_action: decision.action,
+        decision_reason: decision.reason,
+        metadata: {
+          ...intent.metadata,
+          qtySuggested: intent.qtySuggested,
+          unifiedConfig: config,
+          request_id: requestId,
+          idempotencyKey: intent.idempotencyKey,
+          // Enhanced context from unified decision
+          ...decision.metadata
+        }
+      });
+  } catch (error) {
+    console.error('❌ COORDINATOR: Failed to log enhanced decision:', error.message);
+  }
+}
+
 // Micro-queue management
 function getQueueLength(symbolKey: string): number {
   const queue = symbolQueues.get(symbolKey);
@@ -513,7 +583,7 @@ async function detectConflicts(
     // Pool exits get high precedence but check cooldown
     const recentBuy = trades.find(t => 
       t.trade_type === 'buy' && 
-      (Date.now() - new Date(t.executed_at).getTime()) < config.cooldownBetweenOppositeActionsMs
+      (Date.now() - new Date(t.executed_at).getTime()) > config.minHoldPeriodMs
     );
     
     if (recentBuy) {
@@ -651,6 +721,233 @@ async function checkPositionAwareExitGuard(
   }
 }
 
+// UNIFIED SELL DECISION EVALUATION - Bracket precedence + Fusion + Position guard
+async function evaluateUnifiedSellDecision(
+  supabaseClient: any,
+  intent: TradeIntent,
+  config: UnifiedConfig,
+  strategyConfig: any,
+  requestId: string
+): Promise<UnifiedDecisionResult> {
+  
+  try {
+    const metadata = intent.metadata || {};
+    
+    // STEP 1: BRACKET PRECEDENCE - Check TP/SL first (highest precedence)
+    if (intent.side === 'SELL' && intent.metadata?.position_management) {
+      const reason = intent.reason || '';
+      const stopLossPercentage = strategyConfig?.stopLossPercentage || 0.5;
+      const takeProfitPercentage = strategyConfig?.takeProfitPercentage;
+      const gainPct = metadata.gain_percentage;
+      
+      // Check if SL or TP triggered
+      const slTriggered = gainPct !== undefined && gainPct <= -Math.abs(stopLossPercentage);
+      const tpTriggered = takeProfitPercentage && gainPct !== undefined && gainPct >= takeProfitPercentage;
+      
+      if (slTriggered || tpTriggered || ['STOP_LOSS', 'TAKE_PROFIT', 'AUTO_CLOSE_TIME', 'TRAILING_STOP'].includes(reason)) {
+        console.log(`🎯 BRACKET PRECEDENCE: ${reason} fires immediately - bypassing all other evaluation`);
+        
+        return {
+          action: 'SELL',
+          reason: 'bracket_policy_precedence',
+          metadata: {
+            bracket_context: {
+              sl_triggered: slTriggered,
+              tp_triggered: tpTriggered,
+              sl_pct: stopLossPercentage,
+              tp_pct: takeProfitPercentage
+            },
+            position_context: {
+              unrealized_pnl_pct: gainPct || 0,
+              position_age_sec: Math.floor((Date.now() - new Date(metadata.oldest_purchase_date || Date.now()).getTime()) / 1000),
+              distance_to_sl_pct: Math.max(0, stopLossPercentage - Math.abs(gainPct || 0))
+            }
+          }
+        };
+      }
+    }
+    
+    // STEP 2: AI FUSION EVALUATION (only if brackets not triggered)
+    if (intent.side === 'SELL') {
+      const fusionResult = await evaluateAIFusionForSell(supabaseClient, intent, strategyConfig);
+      
+      if (fusionResult) {
+        const { s_total_before, s_total_after, enter_threshold, exit_threshold, override_threshold, penalty, position_context } = fusionResult;
+        
+        // Check strong bearish override first
+        if (s_total_before <= override_threshold) {
+          console.log(`🎯 STRONG BEARISH OVERRIDE: S_total ${s_total_before.toFixed(3)} <= override ${override_threshold.toFixed(3)}`);
+          return {
+            action: 'SELL',
+            reason: 'strong_bearish_override',
+            metadata: {
+              pnl_guard: {
+                applied: penalty > 0,
+                penalty,
+                s_total_before,
+                s_total_after
+              },
+              position_context,
+              fusion_context: {
+                s_total: s_total_before,
+                enter_threshold,
+                exit_threshold,
+                override_threshold
+              }
+            }
+          };
+        }
+        
+        // Check if exit signal after penalty
+        if (s_total_after <= -exit_threshold) {
+          console.log(`🎯 FUSION EXIT: S_total_after ${s_total_after.toFixed(3)} <= exit_threshold ${-exit_threshold.toFixed(3)}`);
+          return {
+            action: 'SELL',
+            reason: 'no_conflicts_detected',
+            metadata: {
+              pnl_guard: {
+                applied: penalty > 0,
+                penalty,
+                s_total_before,
+                s_total_after
+              },
+              position_context,
+              fusion_context: {
+                s_total: s_total_after,
+                enter_threshold,
+                exit_threshold,
+                override_threshold
+              }
+            }
+          };
+        }
+        
+        // Position guard blocked the exit
+        console.log(`🛡️ POSITION GUARD BLOCKED: S_total_after ${s_total_after.toFixed(3)} > exit_threshold ${-exit_threshold.toFixed(3)}`);
+        return {
+          action: 'HOLD',
+          reason: 'blocked_by_pnl_guard',
+          metadata: {
+            pnl_guard: {
+              applied: true,
+              penalty,
+              s_total_before,
+              s_total_after
+            },
+            position_context,
+            fusion_context: {
+              s_total: s_total_after,
+              enter_threshold,
+              exit_threshold,
+              override_threshold
+            }
+          }
+        };
+      }
+    }
+    
+    // STEP 3: DEFAULT - No special logic for BUY or non-fusion SELL
+    return {
+      action: intent.side,
+      reason: 'no_conflicts_detected',
+      metadata: {}
+    };
+    
+  } catch (error) {
+    console.error('❌ UNIFIED DECISION: Error evaluating decision:', error);
+    return {
+      action: 'HOLD',
+      reason: 'internal_error',
+      metadata: {}
+    };
+  }
+}
+
+// AI Fusion evaluation for SELL decisions with position-aware penalties
+async function evaluateAIFusionForSell(
+  supabaseClient: any,
+  intent: TradeIntent,
+  strategyConfig: any
+): Promise<{
+  s_total_before: number;
+  s_total_after: number;
+  enter_threshold: number;
+  exit_threshold: number;
+  override_threshold: number;
+  penalty: number;
+  position_context: {
+    unrealized_pnl_pct: number;
+    position_age_sec: number;
+    distance_to_sl_pct: number;
+  };
+} | null> {
+  
+  try {
+    const metadata = intent.metadata || {};
+    
+    // Check if AI fusion is enabled
+    const aiConfig = strategyConfig?.aiIntelligenceConfig?.features?.fusion;
+    const legacyFusion = strategyConfig?.signalFusion;
+    const fusionConfig = aiConfig || legacyFusion;
+    
+    if (!fusionConfig?.enabled) {
+      return null; // No fusion evaluation
+    }
+    
+    // Get thresholds from config (existing keys only)
+    const enter_threshold = fusionConfig.enterThreshold || 0.65;
+    const exit_threshold = fusionConfig.exitThreshold || 0.35;
+    const gap = enter_threshold - exit_threshold;
+    const override_threshold = exit_threshold - 0.5 * gap;
+    
+    // Calculate mock S_total for SELL (simplified for this implementation)
+    // In real implementation, this would be the actual fusion score
+    const confidence_normalized = (intent.confidence - 0.5) * 2; // Convert [0,1] to [-1,1]
+    const s_total_before = -Math.abs(confidence_normalized); // Negative for SELL signals
+    
+    // Get position context
+    const gainPct = metadata.gain_percentage || 0;
+    const positionAgeMs = Date.now() - new Date(metadata.oldest_purchase_date || Date.now()).getTime();
+    const positionAgeSec = Math.floor(positionAgeMs / 1000);
+    
+    // Get stop-loss from bracket policy or legacy config
+    const bracketPolicy = strategyConfig?.aiIntelligenceConfig?.features?.bracketPolicy;
+    const sl = bracketPolicy?.stopLossPctWhenNotAtr || strategyConfig?.stopLossPercentage || 0.5;
+    
+    const dd = Math.abs(gainPct); // Drawdown magnitude (positive value)
+    const insideSL = dd < sl;
+    const distance_to_sl_pct = Math.max(0, sl - dd);
+    
+    // Apply position-aware penalty formula (derived from existing config)
+    let penalty = 0;
+    if (gainPct < 0 && insideSL) {
+      penalty = gap * (1 - dd / sl); // More protection near entry, less near SL
+    }
+    
+    const s_total_after = s_total_before + penalty; // Apply penalty (makes exit less likely)
+    
+    console.log(`🔬 FUSION EVAL: S_before=${s_total_before.toFixed(3)}, penalty=${penalty.toFixed(3)}, S_after=${s_total_after.toFixed(3)}, exit_thresh=${-exit_threshold.toFixed(3)}`);
+    
+    return {
+      s_total_before,
+      s_total_after,
+      enter_threshold,
+      exit_threshold,
+      override_threshold,
+      penalty,
+      position_context: {
+        unrealized_pnl_pct: gainPct,
+        position_age_sec: positionAgeSec,
+        distance_to_sl_pct
+      }
+    };
+    
+  } catch (error) {
+    console.error('❌ AI FUSION: Error in fusion evaluation:', error);
+    return null;
+  }
+}
+
 // Execute with minimal advisory lock (atomic section only)
 async function executeWithMinimalLock(
   supabaseClient: any,
@@ -684,15 +981,32 @@ async function executeWithMinimalLock(
     lockAcquired = true;
     console.log(`🔒 COORDINATOR: Minimal lock acquired - executing atomic section`);
 
-    // ATOMIC SECTION: Get price and execute trade
-    const executionResult = await executeTradeOrder(supabaseClient, intent, strategyConfig);
+    // UNIFIED DECISION PATH: Apply bracket precedence, fusion evaluation, and position guard
+    const unifiedDecision = await evaluateUnifiedSellDecision(supabaseClient, intent, config, strategyConfig, requestId);
     
-    if (executionResult.success) {
-      console.log(`🎯 UD_MODE=ON → EXECUTE: action=${intent.side} symbol=${intent.symbol} lock=OK`);
-      return { action: intent.side as DecisionAction, reason: 'no_conflicts_detected', request_id: requestId, retry_in_ms: 0, qty: executionResult.qty };
+    if (unifiedDecision.action === 'SELL') {
+      // Execute the trade
+      const executionResult = await executeTradeOrder(supabaseClient, intent, strategyConfig);
+      
+      if (executionResult.success) {
+        console.log(`🎯 UD_MODE=ON → EXECUTE: action=${intent.side} symbol=${intent.symbol} lock=OK`);
+        
+        // Enhanced logging with position context
+        await logEnhancedDecision(supabaseClient, intent, unifiedDecision, config, requestId);
+        
+        return { action: intent.side as DecisionAction, reason: unifiedDecision.reason, request_id: requestId, retry_in_ms: 0, qty: executionResult.qty };
+      } else {
+        console.error(`❌ UD_MODE=ON → EXECUTE FAILED: ${executionResult.error}`);
+        return { action: 'HOLD', reason: 'direct_execution_failed', request_id: requestId, retry_in_ms: 0 };
+      }
     } else {
-      console.error(`❌ UD_MODE=ON → EXECUTE FAILED: ${executionResult.error}`);
-      return { action: 'HOLD', reason: 'direct_execution_failed', request_id: requestId, retry_in_ms: 0 };
+      // Decision was HOLD/DEFER due to guard or other logic
+      console.log(`🎯 UD_MODE=ON → ${unifiedDecision.action}: reason=${unifiedDecision.reason} symbol=${intent.symbol}`);
+      
+      // Enhanced logging with position context
+      await logEnhancedDecision(supabaseClient, intent, unifiedDecision, config, requestId);
+      
+      return { action: unifiedDecision.action, reason: unifiedDecision.reason, request_id: requestId, retry_in_ms: unifiedDecision.retry_in_ms || 0 };
     }
 
   } finally {
