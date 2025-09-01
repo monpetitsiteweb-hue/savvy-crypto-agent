@@ -286,14 +286,51 @@ async function executeTradeDirectly(
     const baseSymbol = toBaseSymbol(intent.symbol); 
     const realMarketPrice = await getMarketPrice(baseSymbol);
     
-    // Calculate quantity
+    // CRITICAL FIX: Check available EUR balance BEFORE executing BUY trades
     const tradeAllocation = strategyConfig?.perTradeAllocation || 1000;
     let qty: number;
     
-    if (intent.side === 'SELL') {
-      qty = intent.qtySuggested || 0.001;
+    if (intent.side === 'BUY') {
+      // Calculate current EUR balance from all trades
+      const { data: allTrades } = await supabaseClient
+        .from('mock_trades')
+        .select('trade_type, total_value')
+        .eq('user_id', intent.userId)
+        .eq('is_test_mode', true);
+      
+      let availableEur = 30000; // Starting balance
+      
+      if (allTrades) {
+        allTrades.forEach((trade: any) => {
+          const value = parseFloat(trade.total_value);
+          if (trade.trade_type === 'buy') {
+            availableEur -= value;
+          } else if (trade.trade_type === 'sell') {
+            availableEur += value;
+          }
+        });
+      }
+      
+      console.log(`💰 DIRECT: Available EUR balance: €${availableEur.toFixed(2)}`);
+      
+      // Check if we have sufficient balance
+      if (availableEur < tradeAllocation) {
+        const adjustedAllocation = Math.max(0, availableEur);
+        if (adjustedAllocation < 10) { // Minimum €10 trade
+          console.log(`🚫 DIRECT: Insufficient balance - €${availableEur.toFixed(2)} available, €${tradeAllocation} requested`);
+          return { 
+            success: false, 
+            error: `Insufficient EUR balance: €${availableEur.toFixed(2)} available, €${tradeAllocation} requested` 
+          };
+        }
+        console.log(`⚠️ DIRECT: Adjusting trade from €${tradeAllocation} to €${adjustedAllocation.toFixed(2)} (available balance)`);
+        qty = adjustedAllocation / realMarketPrice;
+      } else {
+        qty = tradeAllocation / realMarketPrice;
+      }
     } else {
-      qty = tradeAllocation / realMarketPrice;
+      // For SELL orders, use the suggested quantity
+      qty = intent.qtySuggested || 0.001;
     }
     
     const totalValue = qty * realMarketPrice;
@@ -596,14 +633,51 @@ async function executeTradeOrder(
     
     console.log(`💱 COORDINATOR: Got real price for ${toPairSymbol(baseSymbol)}: €${realMarketPrice}`);
     
-    // Calculate quantity
+    // CRITICAL FIX: Check available EUR balance BEFORE executing BUY trades
     let qty: number;
     const tradeAllocation = strategyConfig?.perTradeAllocation || 1000;
     
-    if (intent.side === 'SELL') {
-      qty = intent.qtySuggested || 0.001;
+    if (intent.side === 'BUY') {
+      // Calculate current EUR balance from all trades
+      const { data: allTrades } = await supabaseClient
+        .from('mock_trades')
+        .select('trade_type, total_value')
+        .eq('user_id', intent.userId)
+        .eq('is_test_mode', true);
+      
+      let availableEur = 30000; // Starting balance
+      
+      if (allTrades) {
+        allTrades.forEach((trade: any) => {
+          const value = parseFloat(trade.total_value);
+          if (trade.trade_type === 'buy') {
+            availableEur -= value;
+          } else if (trade.trade_type === 'sell') {
+            availableEur += value;
+          }
+        });
+      }
+      
+      console.log(`💰 COORDINATOR: Available EUR balance: €${availableEur.toFixed(2)}`);
+      
+      // Check if we have sufficient balance
+      if (availableEur < tradeAllocation) {
+        const adjustedAllocation = Math.max(0, availableEur);
+        if (adjustedAllocation < 10) { // Minimum €10 trade
+          console.log(`🚫 COORDINATOR: Insufficient balance - €${availableEur.toFixed(2)} available, €${tradeAllocation} requested`);
+          return { 
+            success: false, 
+            error: `Insufficient EUR balance: €${availableEur.toFixed(2)} available, €${tradeAllocation} requested` 
+          };
+        }
+        console.log(`⚠️ COORDINATOR: Adjusting trade from €${tradeAllocation} to €${adjustedAllocation.toFixed(2)} (available balance)`);
+        qty = adjustedAllocation / realMarketPrice;
+      } else {
+        qty = tradeAllocation / realMarketPrice;
+      }
     } else {
-      qty = tradeAllocation / realMarketPrice;
+      // For SELL orders, use the suggested quantity
+      qty = intent.qtySuggested || 0.001;
     }
     
     const totalValue = qty * realMarketPrice;
