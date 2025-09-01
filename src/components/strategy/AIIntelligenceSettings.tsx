@@ -95,7 +95,7 @@ const defaultConfig: AIIntelligenceConfig = {
       weights: DEFAULT_VALUES.FUSION_WEIGHTS,
       enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
       exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
-      conflictPenalty: 0.30
+      conflictPenalty: DEFAULT_VALUES.CONFLICT_PENALTY
     },
     contextGates: {
       spreadThresholdBps: DEFAULT_VALUES.SPREAD_THRESHOLD_BPS,
@@ -196,7 +196,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
         weights: DEFAULT_VALUES.FUSION_WEIGHTS,
         enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
         exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
-        conflictPenalty: 0.30
+        conflictPenalty: DEFAULT_VALUES.CONFLICT_PENALTY
       },
       contextGates: { 
         spreadThresholdBps: DEFAULT_VALUES.SPREAD_THRESHOLD_BPS, 
@@ -211,7 +211,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
         weights: DEFAULT_VALUES.PRESETS.AGGRESSIVE.FUSION_WEIGHTS,
         enterThreshold: DEFAULT_VALUES.PRESETS.AGGRESSIVE.ENTER_THRESHOLD,
         exitThreshold: DEFAULT_VALUES.PRESETS.AGGRESSIVE.EXIT_THRESHOLD,
-        conflictPenalty: 0.20
+        conflictPenalty: DEFAULT_VALUES.PRESETS.AGGRESSIVE.CONFLICT_PENALTY
       },
       contextGates: { 
         spreadThresholdBps: DEFAULT_VALUES.PRESETS.AGGRESSIVE.SPREAD_THRESHOLD_BPS, 
@@ -323,7 +323,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 </TooltipField>
                 <Select 
                   value={getCurrentPreset()}
-                  onValueChange={(value) => applyPreset(value as keyof typeof presets)}
+                  onValueChange={(value) => value !== 'custom' && applyPreset(value as keyof typeof presets)}
                   data-testid="ai-preset-select"
                 >
                   <SelectTrigger>
@@ -333,6 +333,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                     {Object.entries(presets).map(([key, preset]) => (
                       <SelectItem key={key} value={key} data-value={key}>{preset.name}</SelectItem>
                     ))}
+                    <SelectItem value="custom" disabled>Custom (modified)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
