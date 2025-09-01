@@ -51,7 +51,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           setSession(session);
           setUser(extractedUser);
           setLoading(false);
-          console.log('🔓 AUTH_PROVIDER_HYDRATED', { user: !!extractedUser, loading: false });
         }
       } catch (err) {
         logger.error('AUTHPROVIDER: ERROR in initializeAuth:', err);
@@ -69,7 +68,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         setSession(session);
         setUser(extractedUser);
         setLoading(false);
-        console.log('🔓 AUTH_STATE_CHANGE_HYDRATED', { user: !!extractedUser, loading: false });
       }
     });
 

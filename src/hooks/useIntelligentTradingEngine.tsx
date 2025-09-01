@@ -50,26 +50,27 @@ export const useIntelligentTradingEngine = () => {
   });
 
   useEffect(() => {
-    console.log('🔄 EFFECT TRIGGERED: Auth state changed', { user: !!user, loading, testMode });
-    console.log('✅ ALWAYS CREATING: Trading engine intervals (gated inside tick)');
+    console.log('🚀 ENGINE_MOUNT_ATTEMPT', { user: !!user, loading, testMode, timestamp: Date.now() });
     
-    // Always create interval - gate execution inside the tick function
+    // Always create interval immediately - no conditions
+    console.log('📅 ENGINE_INTERVAL_CREATED');
+    
     const initialTimer = setTimeout(() => {
+      console.log('⏰ ENGINE_INITIAL_TICK');
       checkStrategiesAndExecute();
     }, 1000);
     
-    // Set up recurring checks every 30 seconds
     const interval = setInterval(() => {
+      console.log('⏰ ENGINE_RECURRING_TICK');
       checkStrategiesAndExecute();
     }, 30000);
     
-    // Cleanup timers on unmount
     return () => {
-      console.log('🧹 CLEANUP: Clearing trading engine timers');
+      console.log('🧹 ENGINE_CLEANUP');
       clearTimeout(initialTimer);
       clearInterval(interval);
     };
-  }, []); // Empty deps - create once on mount
+  }, [])
   
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
   const isRunningRef = useRef(false);
@@ -82,7 +83,15 @@ export const useIntelligentTradingEngine = () => {
   });
 
   const checkStrategiesAndExecute = async () => {
-    console.log('💓 ENGINE_HEARTBEAT', { user: !!user, testMode, loading, ts: new Date().toISOString() });
+    const heartbeat = { 
+      user: !!user, 
+      testMode, 
+      loading, 
+      auth_session: !!(await supabase.auth.getSession()).data.session,
+      localStorage_testMode: localStorage.getItem('global-test-mode'),
+      timestamp: Date.now() 
+    };
+    console.log('💓 ENGINE_HEARTBEAT', heartbeat);
     
     if (isRunningRef.current) {
       console.log('⚠️ ENGINE: Skipping - already running');
@@ -90,17 +99,20 @@ export const useIntelligentTradingEngine = () => {
     }
     
     isRunningRef.current = true;
+    console.log('🔒 ENGINE_LOCK_ACQUIRED');
     
     try {
       if (!user || loading) {
-        console.log('ENGINE: Skipping - user:', !!user, 'loading:', loading);
+        console.log('❌ ENGINE_EARLY_EXIT', { user: !!user, loading, reason: 'auth_not_ready' });
         return;
       }
     
       if (!testMode) {
-        console.log('TEST MODE IS OFF! You need to enable Test Mode to use the trading engine!');
+        console.log('❌ ENGINE_EARLY_EXIT', { testMode, reason: 'not_in_test_mode' });
         return;
       }
+      
+      console.log('✅ ENGINE_CONDITIONS_MET - proceeding with strategy execution');
 
       console.log('INTELLIGENT_ENGINE: Starting comprehensive strategy check');
       
@@ -1490,11 +1502,13 @@ export const useIntelligentTradingEngine = () => {
     
     if (unifiedConfig.enableUnifiedDecisions) {
       // NEW: Emit intent to coordinator
-      console.log('🎯 INTELLIGENT: Using unified decision system');
+      console.log('🎯 INTELLIGENT: Using unified decision system - calling coordinator');
+      console.log('🎯 INTELLIGENT: emitTradeIntentToCoordinator params:', { action, cryptocurrency, price, customAmount, trigger });
       return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger);
     } else {
       // Legacy direct execution (backward compatibility)
       console.log('🔄 INTELLIGENT: Unified decisions disabled, executing trade directly');
+      console.log('🔄 INTELLIGENT: executeTradeDirectly params:', { action, cryptocurrency, price, customAmount, trigger });
       return await executeTradeDirectly(strategy, action, cryptocurrency, price, customAmount, trigger);
     }
   };
@@ -1531,9 +1545,11 @@ export const useIntelligentTradingEngine = () => {
 
       console.log('🎯 INTELLIGENT: Emitting intent to coordinator:', JSON.stringify(intent, null, 2));
 
+      console.log('🌐 INTELLIGENT: About to call trading-decision-coordinator edge function...');
       const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
         body: { intent }
       });
+      console.log('🌐 INTELLIGENT: Edge function response received - data:', decision, 'error:', error);
 
       // Handle Supabase client errors (network, auth, etc.)
       if (error) {
@@ -1550,6 +1566,14 @@ export const useIntelligentTradingEngine = () => {
       }
 
       console.log('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
+      
+      // Check if coordinator approved the trade
+      if (decision?.decision?.action === 'BUY' || decision?.decision?.action === 'SELL') {
+        console.log('✅ INTELLIGENT: Coordinator approved trade - but no execution logic implemented yet!');
+        console.log('🚨 INTELLIGENT: This is where the pipeline stops - coordinator approves but no trade is inserted!');
+      } else {
+        console.log('🚫 INTELLIGENT: Coordinator rejected/deferred trade:', decision?.decision?.reason);
+      }
 
       // STEP 1: Use standardized coordinator toast handler
       // Toast handling removed - silent mode
