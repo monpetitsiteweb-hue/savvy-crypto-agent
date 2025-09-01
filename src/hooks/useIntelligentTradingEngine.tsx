@@ -232,35 +232,36 @@ export const useIntelligentTradingEngine = () => {
   };
 
   const getSellDecision = async (config: any, position: Position, currentPrice: number, pnlPercentage: number, hoursSincePurchase: number): Promise<{reason: string, orderType?: string} | null> => {
-    engineLog('SELL DECISION DEBUG: Checking sell conditions for ' + position.cryptocurrency + ' price: ' + currentPrice + ' P&L: ' + pnlPercentage + '%');
+    engineLog('SELL DECISION DEBUG: Routing through unified coordinator for ' + position.cryptocurrency + ' price: ' + currentPrice + ' P&L: ' + pnlPercentage + '%');
     
-    // 1. AUTO CLOSE AFTER HOURS (overrides everything)
+    // UNIFIED PATH: Route ALL sell decisions through the trading-decision-coordinator
+    // This eliminates direct SELL execution and ensures position-aware exit guards
+    
+    // 1. AUTO CLOSE AFTER HOURS (highest precedence - still route through coordinator)
     if (config.autoCloseAfterHours && hoursSincePurchase >= config.autoCloseAfterHours) {
-      engineLog('SELL DECISION: AUTO CLOSE TRIGGERED - ' + hoursSincePurchase + ' >= ' + config.autoCloseAfterHours);
+      engineLog('SELL DECISION: AUTO CLOSE TRIGGERED - routing through coordinator');
       return { reason: 'AUTO_CLOSE_TIME', orderType: 'market' };
     }
 
-    // 2. STOP LOSS CHECK
+    // 2. STOP LOSS CHECK (bracket precedence - route through coordinator)
     if (config.stopLossPercentage && pnlPercentage <= -Math.abs(config.stopLossPercentage)) {
-      engineLog('SELL DECISION: STOP LOSS TRIGGERED - ' + pnlPercentage + ' <= ' + (-Math.abs(config.stopLossPercentage)));
+      engineLog('SELL DECISION: STOP LOSS TRIGGERED - routing through coordinator');
       return { 
         reason: 'STOP_LOSS', 
         orderType: config.sellOrderType || 'market' 
       };
     }
 
-    // 3. TAKE PROFIT CHECK
+    // 3. TAKE PROFIT CHECK (bracket precedence - route through coordinator)
     if (config.takeProfitPercentage && pnlPercentage >= config.takeProfitPercentage) {
-      engineLog('SELL DECISION: TAKE PROFIT TRIGGERED - ' + pnlPercentage + ' >= ' + config.takeProfitPercentage);
+      engineLog('SELL DECISION: TAKE PROFIT TRIGGERED - routing through coordinator');
       return { 
         reason: 'TAKE_PROFIT', 
         orderType: config.sellOrderType || 'market' 
       };
     }
 
-    engineLog('SELL DECISION: NO SELL CONDITIONS MET - keeping position open');
-
-    // 4. TRAILING STOP LOSS
+    // 4. TRAILING STOP LOSS (route through coordinator)
     if (config.trailingStopLossPercentage) {
       const trailingStopTriggered = await checkTrailingStopLoss(config, position, currentPrice, pnlPercentage);
       if (trailingStopTriggered) {
@@ -271,7 +272,26 @@ export const useIntelligentTradingEngine = () => {
       }
     }
 
-    // 5. TECHNICAL INDICATOR SELL SIGNALS
+    // 5. AI FUSION EXIT EVALUATION (route through coordinator)
+    const { isAIFusionEnabled } = await import('@/utils/aiConfigHelpers');
+    if (isAIFusionEnabled(config)) {
+      const fusionResult = await evaluateSignalFusion(
+        { id: 'current-strategy', configuration: config },
+        position.cryptocurrency,
+        'SELL'
+      );
+      
+      // Only route fusion exits through coordinator (no direct execution)
+      if (fusionResult.decision === 'EXIT') {
+        engineLog('SELL DECISION: AI FUSION EXIT - routing through coordinator');
+        return {
+          reason: 'AI_FUSION_EXIT',
+          orderType: config.sellOrderType || 'market'
+        };
+      }
+    }
+
+    // 6. LEGACY TECHNICAL SIGNALS (route through coordinator, no direct execution)
     if (await checkTechnicalSellSignals(config, position.cryptocurrency, currentPrice)) {
       return { 
         reason: 'TECHNICAL_SIGNAL', 
@@ -284,9 +304,46 @@ export const useIntelligentTradingEngine = () => {
 
   const executeSellOrder = async (strategy: any, position: Position, marketPrice: number, sellDecision: {reason: string, orderType?: string}) => {
     try {
-      await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason);
+      // UNIFIED PATH: Route ALL sell executions through trading-decision-coordinator
+      engineLog('UNIFIED SELL: Routing through coordinator - ' + position.cryptocurrency + ' reason: ' + sellDecision.reason);
+      
+      const tradeIntent = {
+        userId: user!.id,
+        strategyId: strategy.id,
+        symbol: position.cryptocurrency.replace('-EUR', ''), // Use base symbol
+        side: 'SELL' as const,
+        source: 'automated' as const,
+        confidence: 0.95, // High confidence for position management
+        reason: sellDecision.reason,
+        qtySuggested: position.remaining_amount,
+        metadata: {
+          position_management: true,
+          entry_price: position.average_price,
+          current_price: marketPrice,
+          gain_percentage: ((marketPrice - position.average_price) / position.average_price) * 100,
+          position_id: `${user!.id}_${position.cryptocurrency}_${position.oldest_purchase_date}`
+        },
+        ts: new Date().toISOString()
+      };
+
+      const response = await supabase.functions.invoke('trading-decision-coordinator', {
+        body: { intent: tradeIntent }
+      });
+
+      if (response.error) {
+        throw new Error(`Coordinator error: ${response.error.message}`);
+      }
+
+      const decision = response.data?.decision;
+      engineLog('UNIFIED SELL: Coordinator decision - ' + decision?.action + ' reason: ' + decision?.reason);
+      
+      if (decision?.action === 'SELL') {
+        engineLog('✅ UNIFIED SELL: Position exit executed via coordinator');
+      } else {
+        engineLog('⚠️ UNIFIED SELL: Position exit blocked by coordinator - ' + decision?.reason);
+      }
     } catch (error) {
-      logger.error('ENGINE: Error in executeTrade:', error);
+      logger.error('ENGINE: Error routing sell through coordinator:', error);
     }
   };
 
@@ -588,25 +645,34 @@ export const useIntelligentTradingEngine = () => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
       
-      // Use existing live_signals for momentum indicators
+      // UNIFIED PATH: Include MA momentum signals (routed from technical generator)
       const { data: momentum } = await supabase
         .from('live_signals')
         .select('*')
         .eq('symbol', baseSymbol)
-        .in('signal_type', ['momentum_bullish', 'momentum_bearish', 'rsi_oversold', 'rsi_overbought'])
+        .in('signal_type', [
+          'ma_momentum_bullish', 'ma_momentum_bearish', 'ma_momentum_neutral', // UNIFIED: MA routes through momentum bucket
+          'momentum_bullish', 'momentum_bearish', 
+          'rsi_oversold', 'rsi_overbought',
+          'price_breakout_bullish', 'price_breakout_bearish'
+        ])
+        .gte('timestamp', new Date(Date.now() - 900000).toISOString()) // Last 15 min
         .order('timestamp', { ascending: false })
-        .limit(5);
+        .limit(10);
       
       if (!momentum || momentum.length === 0) return 0;
       
       let momentumScore = 0;
       momentum.forEach((signal, index) => {
         const weight = 1 / (index + 1);
-        const strength = signal.signal_strength || 0;
+        const strength = (signal.signal_strength || 0) / 100; // Normalize to [0,1]
         
+        // MA momentum and other bullish signals
         if (signal.signal_type.includes('bullish') || signal.signal_type === 'rsi_oversold') {
           momentumScore += side === 'BUY' ? weight * strength : -weight * strength;
-        } else if (signal.signal_type.includes('bearish') || signal.signal_type === 'rsi_overbought') {
+        } 
+        // MA momentum and other bearish signals  
+        else if (signal.signal_type.includes('bearish') || signal.signal_type === 'rsi_overbought') {
           momentumScore += side === 'SELL' ? weight * strength : -weight * strength;
         }
       });

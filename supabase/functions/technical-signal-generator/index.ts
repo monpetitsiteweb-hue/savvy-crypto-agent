@@ -315,7 +315,7 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
     }
   }
 
-  // 4. Moving Average Analysis (if enough data) - Use strategy configuration
+  // 4. Moving Average Analysis - UNIFIED PATH: Route through fusion buckets only
   if (priceData.length >= 10) {
     // Use configurable periods instead of hardcoded 5 and 10
     const shortPeriod = 5; // Will be configurable from strategy
@@ -327,18 +327,29 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
 
     console.log(`📊 ${symbol} - Price: ${currentPrice}, Short MA: ${shortMA.toFixed(2)}, Long MA: ${longMA.toFixed(2)}`);
 
-    // Golden Cross (bullish) or Death Cross (bearish) - with configurable thresholds
+    // Golden Cross (bullish) or Death Cross (bearish) - Route through MOMENTUM bucket only
     const maDivergence = Math.abs(shortMA - longMA) / longMA * 100;
     const minDivergenceThreshold = 0.5; // Will be configurable from strategy
     const strengthMultiplier = 20; // Will be configurable from strategy
     
-    if (shortMA > longMA && currentPrice > shortMA && maDivergence > minDivergenceThreshold) {
+    // UNIFIED CHANGE: Generate signals for fusion buckets instead of direct execution
+    if (maDivergence > minDivergenceThreshold) {
+      let signalType = 'ma_momentum_neutral';
+      let fusionBucketTarget = 'momentum';
+      
+      if (shortMA > longMA && currentPrice > shortMA) {
+        signalType = 'ma_momentum_bullish';
+      } else if (shortMA < longMA && currentPrice < shortMA) {
+        signalType = 'ma_momentum_bearish';
+      }
+      
+      // Route MA signals through fusion momentum bucket (no direct execution)
       signals.push({
         source_id: sourceId,
         user_id: userId,
         timestamp: new Date().toISOString(),
         symbol: symbol.split('-')[0],
-        signal_type: 'ma_cross_bullish',
+        signal_type: signalType, // Changed from direct cross to momentum signal
         signal_strength: Math.min(100, maDivergence * strengthMultiplier),
         source: 'technical_analysis',
         data: {
@@ -346,30 +357,13 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
           long_ma: longMA,
           current_price: currentPrice,
           ma_divergence_pct: maDivergence,
-          cross_type: 'golden_cross',
-          indicator: 'moving_average'
+          fusion_bucket_target: fusionBucketTarget,
+          indicator: 'moving_average_momentum' // Changed from direct cross
         },
         processed: false
       });
-    } else if (shortMA < longMA && currentPrice < shortMA && maDivergence > minDivergenceThreshold) {
-      signals.push({
-        source_id: sourceId,
-        user_id: userId,
-        timestamp: new Date().toISOString(),
-        symbol: symbol.split('-')[0],
-        signal_type: 'ma_cross_bearish',
-        signal_strength: Math.min(100, maDivergence * strengthMultiplier),
-        source: 'technical_analysis',
-        data: {
-          short_ma: shortMA,
-          long_ma: longMA,
-          current_price: currentPrice,
-          ma_divergence_pct: maDivergence,
-          cross_type: 'death_cross',
-          indicator: 'moving_average'
-        },
-        processed: false
-      });
+      
+      console.log(`🔄 UNIFIED MA: Routing ${signalType} through ${fusionBucketTarget} bucket (strength: ${Math.min(100, maDivergence * strengthMultiplier)})`);
     }
   }
 

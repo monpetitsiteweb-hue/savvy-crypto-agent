@@ -490,6 +490,25 @@ async function detectConflicts(
     return { hasConflict: false, reason: 'manual_override_precedence' };
   }
 
+  // BRACKET PRECEDENCE: TP/SL always fire before fusion evaluation
+  if (intent.side === 'SELL' && intent.metadata?.position_management) {
+    const reason = intent.reason || '';
+    if (['STOP_LOSS', 'TAKE_PROFIT', 'AUTO_CLOSE_TIME', 'TRAILING_STOP'].includes(reason)) {
+      console.log(`🎯 BRACKET PRECEDENCE: ${reason} fires immediately - bypassing gates`);
+      return { hasConflict: false, reason: 'bracket_policy_precedence' };
+    }
+  }
+
+  // POSITION-AWARE EXIT GUARD: Prevent noise-driven exits at small negative P&L
+  if (intent.side === 'SELL' && intent.metadata?.position_management) {
+    const positionAwareResult = await checkPositionAwareExitGuard(
+      supabaseClient, intent, trades, config
+    );
+    if (positionAwareResult.blocked) {
+      return { hasConflict: true, reason: positionAwareResult.reason };
+    }
+  }
+
   if (intent.source === 'pool' && intent.side === 'SELL') {
     // Pool exits get high precedence but check cooldown
     const recentBuy = trades.find(t => 
@@ -540,6 +559,96 @@ async function detectConflicts(
   }
 
   return { hasConflict: false, reason: 'no_conflicts_detected' };
+}
+
+// Position-Aware Exit Guard - prevents noise-driven SELLs at small negative P&L
+async function checkPositionAwareExitGuard(
+  supabaseClient: any,
+  intent: TradeIntent,
+  trades: any[],
+  config: UnifiedConfig
+): Promise<{ blocked: boolean; reason: string; metadata?: any }> {
+  
+  try {
+    const metadata = intent.metadata || {};
+    const currentPrice = metadata.current_price;
+    const entryPrice = metadata.entry_price;
+    const gainPct = metadata.gain_percentage;
+    
+    // Skip guard if essential data missing
+    if (!currentPrice || !entryPrice || gainPct === undefined) {
+      return { blocked: false, reason: 'insufficient_position_data' };
+    }
+    
+    // Get strategy config for stop-loss percentage (use existing config)
+    const { data: strategy } = await supabaseClient
+      .from('trading_strategies')
+      .select('configuration')
+      .eq('id', intent.strategyId)
+      .single();
+    
+    const stopLossPercentage = strategy?.configuration?.stopLossPercentage || 0.5; // Default 0.5%
+    const positionAgeMs = Date.now() - new Date(metadata.oldest_purchase_date || Date.now()).getTime();
+    const positionAgeSec = Math.floor(positionAgeMs / 1000);
+    
+    // Calculate distance to stop-loss
+    const distanceToStopLoss = Math.abs(gainPct) - stopLossPercentage;
+    
+    console.log(`🛡️ POSITION GUARD: P&L ${gainPct.toFixed(2)}%, SL ${stopLossPercentage}%, Distance ${distanceToStopLoss.toFixed(2)}%`);
+    
+    // GUARD LOGIC: Block exits at small negative P&L that are still inside SL boundary
+    if (gainPct < 0 && distanceToStopLoss < 0) {
+      // Position is at a loss but still inside stop-loss boundary
+      
+      // Calculate penalty based on how close we are to SL
+      const slProximityFactor = Math.abs(distanceToStopLoss) / stopLossPercentage; // 0 = at SL, 1 = at breakeven
+      const penalty = 0.3 * slProximityFactor; // Higher penalty when further from SL
+      
+      // Apply penalty to confidence - reduce likelihood of exit
+      const adjustedConfidence = intent.confidence - penalty;
+      
+      console.log(`🛡️ POSITION GUARD: Applying penalty ${penalty.toFixed(2)} -> confidence ${adjustedConfidence.toFixed(2)}`);
+      
+      // Block if adjusted confidence falls below threshold (use existing config)
+      const exitThreshold = 0.7; // From existing config defaults
+      if (adjustedConfidence < exitThreshold) {
+        return {
+          blocked: true,
+          reason: 'blocked_by_pnl_guard',
+          metadata: {
+            unrealized_pnl: gainPct,
+            position_age_sec: positionAgeSec,
+            distance_to_sl: distanceToStopLoss,
+            pnl_guard_applied: true,
+            penalty_applied: penalty,
+            original_confidence: intent.confidence,
+            adjusted_confidence: adjustedConfidence
+          }
+        };
+      }
+    }
+    
+    // Allow strong bearish signals to override (very low confidence means strong bearish)
+    if (intent.confidence <= 0.2) {
+      console.log(`🛡️ POSITION GUARD: Strong bearish override - confidence ${intent.confidence}`);
+      return {
+        blocked: false,
+        reason: 'strong_bearish_override',
+        metadata: {
+          unrealized_pnl: gainPct,
+          position_age_sec: positionAgeSec,
+          distance_to_sl: distanceToStopLoss,
+          strong_bearish_override: true
+        }
+      };
+    }
+    
+    return { blocked: false, reason: 'position_guard_passed' };
+    
+  } catch (error) {
+    console.error('❌ POSITION GUARD: Error in exit guard:', error);
+    return { blocked: false, reason: 'guard_error' };
+  }
 }
 
 // Execute with minimal advisory lock (atomic section only)
