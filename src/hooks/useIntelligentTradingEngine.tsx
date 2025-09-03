@@ -12,6 +12,12 @@ import { logger } from '@/utils/logger';
 import { getAllSymbols } from '@/data/coinbaseCoins';
 import { checkMarketAvailability } from '@/utils/marketAvailability';
 
+declare global {
+  interface Window {
+    __engineLastTelemetry?: any;
+  }
+}
+
 interface Position {
   cryptocurrency: string;
   total_amount: number;

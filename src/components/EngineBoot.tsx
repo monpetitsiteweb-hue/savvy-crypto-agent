@@ -44,9 +44,36 @@ export default function EngineBoot() {
         const { data, error } = await supabase.from('trading_strategies').select('id').limit(1);
         console.error('🩺 ENGINE_SANITY_DB', { ok: !error, rows: data?.length ?? 0, error });
       },
+      
+      session: async () => {
+        const s = await supabase.auth.getSession();
+        const out = {
+          present: !!s.data.session,
+          user_id: s.data.session?.user?.id ?? null,
+          expires_at: s.data.session?.expires_at ?? null,
+        };
+        console.error('[EngineSession]', out);
+        return out;
+      },
+
+      user: async () => {
+        const u = await supabase.auth.getUser();
+        const out = { user_id: u.data.user?.id ?? null };
+        console.error('[EngineUser]', out);
+        return out;
+      },
+
       tick: async () => {
         console.error('⏩ ENGINE_DEBUG_TICK');
-        await checkStrategiesAndExecute();
+        const out = await checkStrategiesAndExecute();
+        return out;
+      },
+
+      priceDataProbe: async () => {
+        const { data, error } = await supabase.from('price_data').select('symbol').limit(1);
+        const out = { ok: !error, data, error };
+        console.error('[PriceDataProbe]', out);
+        return out;
       },
       debugBuy: async (sym: string, eur: number) => {
         console.error('🧪 ENGINE_DEBUG_BUY', { sym, eur });
