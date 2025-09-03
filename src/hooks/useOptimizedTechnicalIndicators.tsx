@@ -43,13 +43,22 @@ const fetchCachedIndicators = async (): Promise<Record<string, IndicatorValues>>
 
   try {
     // Try to get cached indicators first (should be instant)
-    const { data: cachedData } = await supabase
+    const { data: cachedData, error: cacheError } = await supabase
       .from('price_data')
       .select('symbol, metadata, timestamp')
       .in('symbol', SYMBOLS)
-      .not('metadata->indicators', 'is', null)
+      .not('metadata->>indicators', 'is', null)
       .order('timestamp', { ascending: false })
       .limit(SYMBOLS.length);
+
+    if (cacheError) {
+      console.error('[PostgREST price_data error]', { 
+        code: cacheError.code, 
+        message: cacheError.message, 
+        details: cacheError.details, 
+        hint: cacheError.hint 
+      });
+    }
 
     const cacheTime = performance.now();
     console.log(`⚡ Cache query took: ${cacheTime - startTime}ms, found ${cachedData?.length || 0} cached indicators`);

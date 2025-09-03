@@ -10,7 +10,7 @@ declare global {
   interface Window {
     Engine?: {
       tick: () => Promise<any>;
-      sanity: () => Promise<void>;
+      sanity: () => Promise<any>;
       session: () => Promise<any>;
       user: () => Promise<any>;
       priceDataProbe: () => Promise<any>;
@@ -46,58 +46,104 @@ export default function EngineBoot() {
     // Debug API (can't rely on logs alone)
     window.Engine = {
       sanity: async () => {
-        console.info('[EngineCanary] sanity', Date.now());
-        const { data, error } = await supabase.from('trading_strategies').select('id').limit(1);
-        console.error('🩺 ENGINE_SANITY_DB', { ok: !error, rows: data?.length ?? 0, error });
+        console.error('[EngineAPI] sanity called');
+        try {
+          const { data, error } = await supabase.from('trading_strategies').select('id').limit(1);
+          const result = { ok: !error, rows: data?.length ?? 0, error };
+          console.error('🩺 ENGINE_SANITY_DB', result);
+          return result;
+        } catch (err) {
+          console.error('[EngineAPI] sanity error', err);
+          throw err;
+        }
       },
       
       session: async () => {
-        const s = await supabase.auth.getSession();
-        const out = {
-          present: !!s.data.session,
-          user_id: s.data.session?.user?.id ?? null,
-          expires_at: s.data.session?.expires_at ?? null,
-        };
-        console.error('[EngineSession]', out);
-        return out;
+        console.error('[EngineAPI] session called');
+        try {
+          const s = await supabase.auth.getSession();
+          const out = {
+            present: !!s.data.session,
+            user_id: s.data.session?.user?.id ?? null,
+            expires_at: s.data.session?.expires_at ?? null,
+          };
+          console.error('[EngineSession]', out);
+          return out;
+        } catch (err) {
+          console.error('[EngineAPI] session error', err);
+          throw err;
+        }
       },
 
       user: async () => {
-        const u = await supabase.auth.getUser();
-        const out = { user_id: u.data.user?.id ?? null };
-        console.error('[EngineUser]', out);
-        return out;
+        console.error('[EngineAPI] user called');
+        try {
+          const u = await supabase.auth.getUser();
+          const out = { user_id: u.data.user?.id ?? null };
+          console.error('[EngineUser]', out);
+          return out;
+        } catch (err) {
+          console.error('[EngineAPI] user error', err);
+          throw err;
+        }
       },
 
       tick: async () => {
-        console.error('⏩ ENGINE_DEBUG_TICK');
-        const out = await checkStrategiesAndExecute();
-        return out;
+        console.error('[EngineAPI] tick called');
+        try {
+          console.error('⏩ ENGINE_DEBUG_TICK');
+          const out = await checkStrategiesAndExecute();
+          console.error('[EngineAPI] tick completed', out);
+          return out;
+        } catch (err) {
+          console.error('[EngineAPI] tick error', err);
+          throw err;
+        }
       },
 
       priceDataProbe: async () => {
-        const { data, error } = await supabase.from('price_data').select('symbol').limit(1);
-        const out = { ok: !error, data, error };
-        console.error('[PriceDataProbe]', out);
-        return out;
+        console.error('[EngineAPI] priceDataProbe called');
+        try {
+          const { data, error } = await supabase.from('price_data').select('symbol').limit(1);
+          const out = { ok: !error, data, error };
+          console.error('[PriceDataProbe]', out);
+          return out;
+        } catch (err) {
+          console.error('[EngineAPI] priceDataProbe error', err);
+          throw err;
+        }
       },
 
       priceCache: () => {
-        const info = getDebugInfo();
-        console.error('[PriceCache]', info);
-        return info;
+        console.error('[EngineAPI] priceCache called');
+        try {
+          const info = getDebugInfo();
+          console.error('[PriceCache]', info);
+          return info;
+        } catch (err) {
+          console.error('[EngineAPI] priceCache error', err);
+          throw err;
+        }
       },
 
       refreshPrices: async (symbols?: string[]) => {
-        console.error('[RefreshPrices] Fetching:', symbols);
-        const results = await getPrices(symbols || ['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
-        console.error('[RefreshPrices] Results:', results);
-        return results;
+        console.error('[EngineAPI] refreshPrices called');
+        try {
+          console.error('[RefreshPrices] Fetching:', symbols);
+          const results = await getPrices(symbols || ['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
+          console.error('[RefreshPrices] Results:', results);
+          return results;
+        } catch (err) {
+          console.error('[EngineAPI] refreshPrices error', err);
+          throw err;
+        }
       },
       debugBuy: async (sym: string, eur: number) => {
-        console.error('🧪 ENGINE_DEBUG_BUY', { sym, eur });
-        const uid = (await supabase.auth.getUser()).data.user?.id;
-        if (!uid) return console.error('🧪 DEBUG_BUY_NO_USER');
+        console.error('[EngineAPI] debugBuy called');
+        try {
+          console.error('🧪 ENGINE_DEBUG_BUY', { sym, eur });
+          const uid = (await supabase.auth.getUser()).data.user?.id;
+          if (!uid) return console.error('🧪 DEBUG_BUY_NO_USER');
 
         // grab an existing strategy for this user (active test preferred)
         const { data: strategies, error: sErr } = await supabase
@@ -133,18 +179,30 @@ export default function EngineBoot() {
           executed_at: new Date().toISOString(),
         }).select();
 
-        console.error('🧪 ENGINE_DEBUG_BUY_RESULT', { ok: !error, id: data?.[0]?.id, error });
+          console.error('🧪 [DebugBuy OK]', { ok: !error, id: data?.[0]?.id, error });
+        } catch (err) {
+          console.error('[EngineAPI] debugBuy error', err);
+          throw err;
+        }
       },
       topUpEUR: (amount = 1000) => {
-        const before = getBalance('EUR');
-        updateBalance('EUR', amount);
-        const after = getBalance('EUR');
-        console.error('💶 TOP_UP_EUR', { before, add: amount, after });
+        console.error('[EngineAPI] topUpEUR called');
+        try {
+          const before = getBalance('EUR');
+          updateBalance('EUR', amount);
+          const after = getBalance('EUR');
+          console.error('💶 TOP_UP_EUR', { before, add: amount, after });
+        } catch (err) {
+          console.error('[EngineAPI] topUpEUR error', err);
+          throw err;
+        }
       },
       panicTrade: async (sym = 'BTC') => {
-        // absolute worst-case write probe (1 EUR @ 1 EUR)
-        const uid = (await supabase.auth.getUser()).data.user?.id;
-        if (!uid) return console.error('🆘 PANIC_NO_USER');
+        console.error('[EngineAPI] panicTrade called');
+        try {
+          // absolute worst-case write probe (1 EUR @ 1 EUR)
+          const uid = (await supabase.auth.getUser()).data.user?.id;
+          if (!uid) return console.error('🆘 PANIC_NO_USER');
 
         // use same strategy lookup as debugBuy
         const { data: strategies, error: sErr } = await supabase
@@ -170,15 +228,24 @@ export default function EngineBoot() {
           profit_loss: 0,
           executed_at: new Date().toISOString(),
         }).select();
-        console.error('🆘 PANIC_TRADE_RESULT', { ok: !error, id: data?.[0]?.id, error, strategyId });
+          console.error('🆘 PANIC_TRADE_RESULT', { ok: !error, id: data?.[0]?.id, error, strategyId });
+        } catch (err) {
+          console.error('[EngineAPI] panicTrade error', err);
+          throw err;
+        }
       }
     };
 
     // Loud heartbeat every 5s so you *see* activity even if the engine no-ops
     const hb = setInterval(() => console.error('💓 ENGINE_HEARTBEAT (boot beacon)', Date.now()), 5000);
 
+    console.error('[EngineBoot] API ready', Object.keys(window.Engine || {}));
+    
     // Kick it once after mount
-    setTimeout(() => window.Engine?.tick?.(), 500);
+    setTimeout(() => {
+      console.error('[EngineBoot] first tick scheduled');
+      window.Engine?.tick?.();
+    }, 500);
 
     return () => {
       clearInterval(hb);

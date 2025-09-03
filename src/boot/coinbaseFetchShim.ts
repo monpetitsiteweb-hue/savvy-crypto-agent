@@ -1,7 +1,15 @@
 import { getPrices } from '@/services/CoinbasePriceBus';
 
+// Track if shim is already installed to prevent double-patching
+let shimInstalled = false;
+
 // Intercept any remaining direct Coinbase API calls and route them through the bus
 export const installCoinbaseFetchShim = () => {
+  if (shimInstalled) {
+    console.error('[CoinbaseShim] already installed');
+    return;
+  }
+  
   const originalFetch = window.fetch;
   
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -11,7 +19,7 @@ export const installCoinbaseFetchShim = () => {
     const coinbaseTickerMatch = url.match(/https:\/\/api\.exchange\.coinbase\.com\/products\/([^\/]+)\/ticker/);
     if (coinbaseTickerMatch) {
       const symbol = coinbaseTickerMatch[1];
-      console.log(`🔄 Fetch shim intercepted Coinbase ticker request for ${symbol}, routing to bus`);
+      console.error(`[CoinbaseShim] Intercepted ticker request for ${symbol}, routing to bus`);
       
       try {
         const busResults = await getPrices([symbol]);
@@ -35,7 +43,7 @@ export const installCoinbaseFetchShim = () => {
           });
         }
       } catch (error) {
-        console.warn(`Fetch shim failed for ${symbol}, falling back to direct call:`, error);
+        console.error(`[CoinbaseShim] Failed for ${symbol}, falling back:`, error);
       }
     }
     
@@ -43,7 +51,7 @@ export const installCoinbaseFetchShim = () => {
     const coinbaseBookMatch = url.match(/https:\/\/api\.exchange\.coinbase\.com\/products\/([^\/]+)\/book/);
     if (coinbaseBookMatch) {
       const symbol = coinbaseBookMatch[1];
-      console.log(`🔄 Fetch shim intercepted Coinbase book request for ${symbol}, routing to bus`);
+      console.error(`[CoinbaseShim] Intercepted book request for ${symbol}, routing to bus`);
       
       try {
         const busResults = await getPrices([symbol]);
@@ -67,7 +75,7 @@ export const installCoinbaseFetchShim = () => {
           });
         }
       } catch (error) {
-        console.warn(`Fetch shim failed for ${symbol}, falling back to direct call:`, error);
+        console.error(`[CoinbaseShim] Book failed for ${symbol}, falling back:`, error);
       }
     }
     
@@ -75,7 +83,8 @@ export const installCoinbaseFetchShim = () => {
     return originalFetch(input, init);
   };
   
-  console.log('🔧 Coinbase fetch shim installed');
+  shimInstalled = true;
+  console.error('[CoinbaseShim] installed and active');
 };
 
 export const uninstallCoinbaseFetchShim = () => {

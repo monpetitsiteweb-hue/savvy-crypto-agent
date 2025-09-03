@@ -58,13 +58,22 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         const cacheQueryStart = performance.now();
         
         // Check for cached indicators first for instant loading
-        const { data: existingIndicators } = await supabase
+        const { data: existingIndicators, error: cacheError } = await supabase
           .from('price_data')
           .select('symbol, metadata, timestamp')
           .in('symbol', symbols)
-          .not('metadata->indicators', 'is', null)
+          .not('metadata->>indicators', 'is', null)
           .order('timestamp', { ascending: false })
           .limit(symbols.length);
+        
+        if (cacheError) {
+          console.error('[PostgREST price_data error]', { 
+            code: cacheError.code, 
+            message: cacheError.message, 
+            details: cacheError.details, 
+            hint: cacheError.hint 
+          });
+        }
         
         const cacheQueryEnd = performance.now();
         console.log(`⏱️ Cache query took: ${cacheQueryEnd - cacheQueryStart}ms`);

@@ -37,7 +37,7 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
     }
   }, []);
 
-  const { marketData, isConnected, error, getCurrentData } = useMarketData();
+  const { marketData, isConnected, error, getCurrentData: contextGetCurrentData } = useMarketData();
   
   // Capture stable snapshot on first call for bypass mode
   const bypassSnapshot = useRef<UseRealTimeMarketDataReturn | null>(null);
@@ -55,8 +55,19 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
   
   const subscribe = useCallback((symbols: string[]) => {
     if (shouldBypass) return;
-    console.log('⚠️ Subscribe functionality disabled, using context provider');
+    console.error('[RTM] subscribe called but disabled - using context provider', { symbols });
   }, [shouldBypass]);
+
+  const getCurrentData = useCallback(async (symbols?: string[]): Promise<Record<string, MarketData>> => {
+    if (shouldBypass && bypassSnapshot.current) {
+      console.error('[RTM] getCurrentData bypassed', { symbols });
+      return bypassSnapshot.current.marketData;
+    }
+    
+    const result = await contextGetCurrentData(symbols);
+    console.error('[RTM] getCurrentData', { symbols, resultKeys: Object.keys(result) });
+    return result;
+  }, [shouldBypass, contextGetCurrentData]);
 
   // Return snapshot if bypassing, otherwise return live data
   if (shouldBypass && bypassSnapshot.current) {
