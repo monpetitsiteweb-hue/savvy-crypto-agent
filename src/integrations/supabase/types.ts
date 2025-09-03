@@ -1337,6 +1337,26 @@ export type Database = {
       }
     }
     Views: {
+      mock_coverage: {
+        Row: {
+          available: number | null
+          is_test_mode: boolean | null
+          strategy_id: string | null
+          symbol: string | null
+          total_bought: number | null
+          total_sold: number | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mock_trades_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       past_positions_view: {
         Row: {
           amount: number | null
