@@ -1396,6 +1396,60 @@ export type Database = {
           },
         ]
       }
+      price_data_with_indicators: {
+        Row: {
+          close_price: number | null
+          created_at: string | null
+          has_indicators: boolean | null
+          high_price: number | null
+          id: string | null
+          interval_type: string | null
+          low_price: number | null
+          metadata: Json | null
+          open_price: number | null
+          source: string | null
+          source_id: string | null
+          symbol: string | null
+          timestamp: string | null
+          user_id: string | null
+          volume: number | null
+        }
+        Insert: {
+          close_price?: number | null
+          created_at?: string | null
+          has_indicators?: never
+          high_price?: number | null
+          id?: string | null
+          interval_type?: string | null
+          low_price?: number | null
+          metadata?: Json | null
+          open_price?: number | null
+          source?: string | null
+          source_id?: string | null
+          symbol?: string | null
+          timestamp?: string | null
+          user_id?: string | null
+          volume?: number | null
+        }
+        Update: {
+          close_price?: number | null
+          created_at?: string | null
+          has_indicators?: never
+          high_price?: number | null
+          id?: string | null
+          interval_type?: string | null
+          low_price?: number | null
+          metadata?: Json | null
+          open_price?: number | null
+          source?: string | null
+          source_id?: string | null
+          symbol?: string | null
+          timestamp?: string | null
+          user_id?: string | null
+          volume?: number | null
+        }
+        Relationships: []
+      }
       user_connections_safe: {
         Row: {
           coinbase_user_id: string | null
