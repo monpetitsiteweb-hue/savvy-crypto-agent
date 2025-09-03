@@ -62,7 +62,7 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
           .from('price_data')
           .select('symbol, metadata')
           .in('symbol', symbols)
-          .not('metadata->indicators', 'is', null)
+          .not('metadata->indicators', 'is', 'null')
           .order('timestamp', { ascending: false })
           .limit(symbols.length);
         

@@ -8,8 +8,11 @@ import { useMockWallet } from '@/hooks/useMockWallet';
 declare global {
   interface Window {
     Engine?: {
-      tick: () => Promise<void>;
+      tick: () => Promise<any>;
       sanity: () => Promise<void>;
+      session: () => Promise<any>;
+      user: () => Promise<any>;
+      priceDataProbe: () => Promise<any>;
       debugBuy: (sym: string, eur: number) => Promise<void>;
       topUpEUR: (amount?: number) => void;
       panicTrade: (sym?: string) => Promise<void>;

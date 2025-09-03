@@ -97,6 +97,8 @@ export const useIntelligentTradingEngine = () => {
     isRunningRef.current = true;
     console.log('🔒 ENGINE_LOCK_ACQUIRED');
     
+    let telemetry: any = {}; // Declare outside try block for catch access
+    
     try {
       // Consolidated telemetry - single object per tick
       const session = await supabase.auth.getSession();

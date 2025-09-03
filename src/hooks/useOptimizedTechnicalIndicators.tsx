@@ -47,7 +47,7 @@ const fetchCachedIndicators = async (): Promise<Record<string, IndicatorValues>>
       .from('price_data')
       .select('symbol, metadata')
       .in('symbol', SYMBOLS)
-      .not('metadata->indicators', 'is', null)
+      .not('metadata->indicators', 'is', 'null')
       .order('timestamp', { ascending: false })
       .limit(SYMBOLS.length);
 
