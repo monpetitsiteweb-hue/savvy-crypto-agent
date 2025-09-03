@@ -18,6 +18,8 @@ declare global {
 }
 
 export default function EngineBoot() {
+  console.info('[EngineCanary] mounted', Date.now());
+  
   const { checkStrategiesAndExecute } = useIntelligentTradingEngine();
   const { updateBalance, getBalance } = useMockWallet();
 
@@ -37,14 +39,14 @@ export default function EngineBoot() {
 
     // Debug API (can't rely on logs alone)
     window.Engine = {
+      sanity: async () => {
+        console.info('[EngineCanary] sanity', Date.now());
+        const { data, error } = await supabase.from('trading_strategies').select('id').limit(1);
+        console.error('🩺 ENGINE_SANITY_DB', { ok: !error, rows: data?.length ?? 0, error });
+      },
       tick: async () => {
         console.error('⏩ ENGINE_DEBUG_TICK');
         await checkStrategiesAndExecute();
-      },
-      sanity: async () => {
-        console.error('🩺 ENGINE_SANITY_START');
-        const { data, error } = await supabase.from('trading_strategies').select('id').limit(1);
-        console.error('🩺 ENGINE_SANITY_DB', { ok: !error, rows: data?.length ?? 0, error });
       },
       debugBuy: async (sym: string, eur: number) => {
         console.error('🧪 ENGINE_DEBUG_BUY', { sym, eur });
