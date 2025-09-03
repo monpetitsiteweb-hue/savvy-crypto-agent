@@ -181,20 +181,26 @@ export const useIntelligentTradingEngine = () => {
       
       console.log('🔍 ENGINE_TICK_TELEMETRY', telemetry);
       
+      // Stash telemetry globally for debug access
+      window.__engineLastTelemetry = telemetry;
+      
       // Early exits with reasons already captured in telemetry
       if (!user || loading) {
         console.log('❌ ENGINE_EARLY_EXIT', { reason: 'auth_not_ready' });
-        return;
+        window.__engineLastTelemetry = telemetry;
+        return telemetry;
       }
     
       if (!testMode) {
         console.log('❌ ENGINE_EARLY_EXIT', { reason: 'not_in_test_mode' });
-        return;
+        window.__engineLastTelemetry = telemetry;
+        return telemetry;
       }
       
       if (!strategies?.length) {
         console.log('❌ ENGINE_EARLY_EXIT', { reason: 'no_active_strategies' });
-        return;
+        window.__engineLastTelemetry = telemetry;
+        return telemetry;
       }
       
       console.log('✅ ENGINE_CONDITIONS_MET - proceeding with strategy execution');
@@ -214,8 +220,14 @@ export const useIntelligentTradingEngine = () => {
       for (const strategy of strategies) {
         await processStrategyComprehensively(strategy, currentMarketData);
       }
+      
+      // Success path - return telemetry
+      window.__engineLastTelemetry = telemetry;
+      return telemetry;
     } catch (error) {
       console.error('❌ ENGINE: Error in comprehensive strategy check:', error);
+      window.__engineLastTelemetry = telemetry;
+      return telemetry;
     } finally {
       isRunningRef.current = false;
     }
