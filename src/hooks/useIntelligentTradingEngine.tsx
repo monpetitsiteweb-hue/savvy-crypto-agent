@@ -83,24 +83,6 @@ export const useIntelligentTradingEngine = () => {
   });
 
   const checkStrategiesAndExecute = async () => {
-    const heartbeat = { 
-      user: !!user, 
-      testMode, 
-      loading, 
-      auth_session: !!(await supabase.auth.getSession()).data.session,
-      localStorage_testMode: localStorage.getItem('global-test-mode'),
-      timestamp: Date.now() 
-    };
-    console.log('💓 ENGINE_HEARTBEAT', heartbeat);
-    
-    // Health probe at start
-    try {
-      const { data, error } = await supabase.from('trading_strategies').select('id').limit(1);
-      if (error) console.warn('🩺 DB_HEALTH_FAIL', error);
-    } catch (e) {
-      console.warn('🩺 DB_HEALTH_THROW', e);
-    }
-    
     if (isRunningRef.current) {
       console.log('⚠️ ENGINE: Skipping - already running');
       return;
@@ -110,31 +92,104 @@ export const useIntelligentTradingEngine = () => {
     console.log('🔒 ENGINE_LOCK_ACQUIRED');
     
     try {
+      // Consolidated telemetry - single object per tick
+      const session = await supabase.auth.getSession();
+      const sessionData = session.data.session;
+      
+      // Determine auth state
+      let auth_state = 'UNINITIALIZED';
+      if (loading) {
+        auth_state = 'RESOLVING';
+      } else if (user && sessionData) {
+        const expiresAt = new Date(sessionData.expires_at! * 1000);
+        const timeUntilExpiry = expiresAt.getTime() - Date.now();
+        if (timeUntilExpiry < 0) {
+          auth_state = 'EXPIRED';
+        } else {
+          auth_state = 'READY';
+        }
+      } else {
+        auth_state = 'UNINITIALIZED';
+      }
+      
+      // Determine strategy state and count (before early exits to show why we exit)
+      let strategy_state = 'UNLOADED';
+      let strategy_count = 0;
+      let strategies = null;
+      
+      if (auth_state === 'READY') {
+        try {
+          const { data, error } = await supabase
+            .from('trading_strategies')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('is_active_test', true);
+          
+          if (error) {
+            strategy_state = 'LOADING';
+          } else {
+            strategy_count = data?.length || 0;
+            strategies = data;
+            if (strategy_count === 0) {
+              strategy_state = 'NONE_ACTIVE';
+            } else {
+              strategy_state = 'READY';
+            }
+          }
+        } catch (e) {
+          strategy_state = 'LOADING';
+        }
+      }
+      
+      // Calculate market data age
+      const latestDataTime = Math.max(...Object.values(marketData).map((data: any) => 
+        new Date(data?.timestamp || 0).getTime()
+      ));
+      const market_data_age_ms = latestDataTime > 0 ? Date.now() - latestDataTime : -1;
+      
+      // Collect reasons for early exit
+      const reasons = [];
+      if (!user) reasons.push('no_user');
+      if (loading) reasons.push('auth_loading');
+      if (!testMode) reasons.push('not_test_mode');
+      if (!sessionData) reasons.push('no_session');
+      if (auth_state === 'EXPIRED') reasons.push('session_expired');
+      if (strategy_count === 0) reasons.push('no_active_strategies');
+      
+      // CONSOLIDATED TELEMETRY - single log per tick
+      const telemetry = {
+        auth_state,
+        auth_session: {
+          present: !!sessionData,
+          user_id: sessionData?.user?.id || null,
+          expires_at: sessionData ? new Date(sessionData.expires_at! * 1000).toISOString() : null
+        },
+        strategy_state,
+        strategy_count,
+        testMode,
+        market_data_age_ms,
+        reasons
+      };
+      
+      console.log('🔍 ENGINE_TICK_TELEMETRY', telemetry);
+      
+      // Early exits with reasons already captured in telemetry
       if (!user || loading) {
-        console.log('❌ ENGINE_EARLY_EXIT', { user: !!user, loading, reason: 'auth_not_ready' });
+        console.log('❌ ENGINE_EARLY_EXIT', { reason: 'auth_not_ready' });
         return;
       }
     
       if (!testMode) {
-        console.log('❌ ENGINE_EARLY_EXIT', { testMode, reason: 'not_in_test_mode' });
+        console.log('❌ ENGINE_EARLY_EXIT', { reason: 'not_in_test_mode' });
+        return;
+      }
+      
+      if (!strategies?.length) {
+        console.log('❌ ENGINE_EARLY_EXIT', { reason: 'no_active_strategies' });
         return;
       }
       
       console.log('✅ ENGINE_CONDITIONS_MET - proceeding with strategy execution');
-
-      console.log('INTELLIGENT_ENGINE: Starting comprehensive strategy check');
-      
-      // Fetch active strategies
-      const { data: strategies, error } = await supabase
-        .from('trading_strategies')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('is_active_test', true);
-
-      if (error || !strategies?.length) {
-        engineLog('ENGINE: No active strategies found:', error);
-        return;
-      }
 
       // Get market data for all coins
       const allCoins = new Set<string>();
