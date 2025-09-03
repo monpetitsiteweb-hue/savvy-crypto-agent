@@ -58,13 +58,47 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         const cacheQueryStart = performance.now();
         
         // Check for cached indicators first for instant loading
-        const { data: existingIndicators, error: cacheError } = await supabase
-          .from('price_data')
-          .select('symbol, metadata, timestamp')
-          .in('symbol', symbols)
-          .not('metadata->>indicators', 'is', null)
-          .order('timestamp', { ascending: false })
-          .limit(symbols.length);
+        let existingIndicators;
+        let cacheError;
+        
+        try {
+          const { data, error } = await supabase
+            .from('price_data')
+            .select('symbol, metadata, timestamp')
+            .in('symbol', symbols)
+            .not('metadata->>indicators', 'is', null)
+            .order('timestamp', { ascending: false })
+            .limit(symbols.length);
+          
+          existingIndicators = data;
+          cacheError = error;
+        } catch (error) {
+          console.error('[PostgREST price_data error - strict query failed, using fallback]', error);
+          
+          // Fallback: query without the metadata filter and filter client-side
+          try {
+            const { data: fallbackData, error: fallbackError } = await supabase
+              .from('price_data')
+              .select('symbol, metadata, timestamp')
+              .in('symbol', symbols)
+              .order('timestamp', { ascending: false })
+              .limit(symbols.length * 3); // Get more rows for client-side filtering
+            
+            if (fallbackData) {
+              existingIndicators = fallbackData.filter(row => 
+                row.metadata && 
+                typeof row.metadata === 'object' && 
+                'indicators' in row.metadata && 
+                row.metadata.indicators != null
+              ).slice(0, symbols.length);
+            }
+            cacheError = fallbackError;
+          } catch (fallbackError) {
+            console.error('[PostgREST price_data error - fallback also failed]', fallbackError);
+            existingIndicators = [];
+            cacheError = fallbackError;
+          }
+        }
         
         if (cacheError) {
           console.error('[PostgREST price_data error]', { 

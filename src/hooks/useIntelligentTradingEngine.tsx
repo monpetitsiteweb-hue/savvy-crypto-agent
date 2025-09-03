@@ -207,15 +207,26 @@ export const useIntelligentTradingEngine = () => {
       
       console.log('✅ ENGINE_CONDITIONS_MET - proceeding with strategy execution');
 
-      // Get market data for all coins
+      // Get market data ONLY for strategy coins (scoped, max 3 symbols)
       const allCoins = new Set<string>();
       strategies.forEach(strategy => {
         const config = strategy.configuration as any;
-        const selectedCoins = config?.selectedCoins || getAllSymbols().slice(0, 3); // Use central list as fallback
-        selectedCoins.forEach((coin: string) => allCoins.add(`${coin}-EUR`));
+        const selectedCoins = config?.selectedCoins || [];
+        if (selectedCoins.length === 0) {
+          console.error('[Engine] No selectedCoins in strategy, skipping');
+          return;
+        }
+        // Cap at 3 symbols maximum per strategy
+        selectedCoins.slice(0, 3).forEach((coin: string) => allCoins.add(`${coin}-EUR`));
       });
       
-      const symbolsToFetch = Array.from(allCoins);
+      if (allCoins.size === 0) {
+        console.error('[Engine] No coins selected in any strategy, early exit');
+        window.__engineLastTelemetry = { ...telemetry, reasons: [...telemetry.reasons, 'no_selected_coins'] };
+        return telemetry;
+      }
+      
+      const symbolsToFetch = Array.from(allCoins).slice(0, 3); // Global cap at 3 symbols
       const currentMarketData = Object.keys(marketData).length > 0 ? marketData : await getCurrentData(symbolsToFetch);
       
       // Process each strategy with comprehensive logic
@@ -453,6 +464,8 @@ export const useIntelligentTradingEngine = () => {
       const decision = response.data?.decision;
       engineLog('UNIFIED SELL: Coordinator decision - ' + decision?.action + ' reason: ' + decision?.reason);
       
+      console.error('[COORD_DECISION]', response.data);
+      
       if (decision?.action === 'SELL') {
         console.error('[SELL EXECUTED]', { 
           symbol: position.cryptocurrency, 
@@ -470,6 +483,48 @@ export const useIntelligentTradingEngine = () => {
       }
     } catch (error) {
       logger.error('ENGINE: Error routing sell through coordinator:', error);
+      try {
+        // Fallback: Execute direct mock trade if coordinator fails in test mode
+        if (testMode) {
+          console.error('[COORD_FALLBACK_DIRECT_EXECUTION]', { symbol: position.cryptocurrency, error: error.message });
+          engineLog('⚠️ SELL COORDINATOR FAILED: Executing direct fallback trade');
+          
+          // Direct fallback execution
+          try {
+            const { data, error: insertError } = await supabase.from('mock_trades').insert({
+              strategy_id: strategy.id,
+              user_id: user!.id,
+              trade_type: 'sell',
+              cryptocurrency: position.cryptocurrency.replace('-EUR', ''),
+              amount: position.remaining_amount,
+              price: marketPrice,
+              total_value: position.remaining_amount * marketPrice,
+              fees: 0,
+              strategy_trigger: 'COORDINATOR_FALLBACK',
+              notes: sellDecision.reason,
+              is_test_mode: true,
+              profit_loss: ((marketPrice - position.average_price) / position.average_price) * 100,
+              executed_at: new Date().toISOString(),
+            }).select();
+
+            if (!insertError && data?.[0]) {
+              console.error('[SELL EXECUTED]', { 
+                symbol: position.cryptocurrency, 
+                qty: position.remaining_amount, 
+                price: marketPrice,
+                reason: 'fallback_direct'
+              });
+              engineLog('✅ FALLBACK SELL: Direct execution completed');
+            }
+          } catch (directError) {
+            engineLog('❌ FALLBACK SELL: Direct execution failed - ' + directError.message);
+          }
+        } else {
+          throw error; // Don't fallback in production
+        }
+      } catch (fallbackError) {
+        logger.error('ENGINE: Fallback sell execution also failed:', fallbackError);
+      }
     }
   };
 

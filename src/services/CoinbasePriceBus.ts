@@ -19,8 +19,8 @@ class CoinbasePriceBus {
   private pendingRequests = new Map<string, PendingRequest[]>();
   private lastRequestTime = new Map<string, number>();
   private concurrentRequests = 0;
-  private readonly MAX_CONCURRENT = 2;
-  private readonly MIN_INTERVAL = 1200; // 1.2s between requests for same symbol
+  private readonly MAX_CONCURRENT = 1;
+  private readonly MIN_INTERVAL = 1500; // 1.5s between requests for same symbol
   private readonly CACHE_DURATION = 10000; // 10s cache
   private readonly MAX_RETRY_DELAY = 10000; // 10s max backoff
 
@@ -81,6 +81,10 @@ class CoinbasePriceBus {
       
       // Rate limiting: ensure minimum interval between requests for same symbol
       await this.waitForSymbolInterval(symbol);
+
+      // Add small jitter to de-sync bursts
+      const jitter = 150 + Math.random() * 250;
+      await new Promise(resolve => setTimeout(resolve, jitter));
 
       this.concurrentRequests++;
       const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);

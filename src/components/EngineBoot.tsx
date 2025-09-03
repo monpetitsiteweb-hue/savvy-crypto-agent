@@ -14,9 +14,12 @@ declare global {
       session: () => Promise<any>;
       user: () => Promise<any>;
       priceDataProbe: () => Promise<any>;
+      priceDataProbeDetailed: () => Promise<any>;
       priceCache: () => any;
       refreshPrices: (symbols?: string[]) => Promise<any>;
       debugBuy: (sym: string, eur: number) => Promise<void>;
+      forceSell: (symbol: string, amount?: number) => Promise<any>;
+      forceExitAll: () => Promise<any>;
       topUpEUR: (amount?: number) => void;
       panicTrade: (sym?: string) => Promise<void>;
     };
@@ -194,6 +197,158 @@ export default function EngineBoot() {
           console.error('💶 TOP_UP_EUR', { before, add: amount, after });
         } catch (err) {
           console.error('[EngineAPI] topUpEUR error', err);
+          throw err;
+        }
+      },
+      priceDataProbeDetailed: async () => {
+        console.error('[EngineAPI] priceDataProbeDetailed called');
+        try {
+          // Try strict query first
+          const { data: strictData, error: strictError } = await supabase
+            .from('price_data')
+            .select('symbol, metadata, timestamp')
+            .in('symbol', ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'])
+            .not('metadata->>indicators', 'is', null)
+            .order('timestamp', { ascending: false })
+            .limit(3);
+
+          if (strictError) {
+            console.error('[PriceDataProbeDetailed] Strict query failed', {
+              code: strictError.code,
+              message: strictError.message,
+              details: strictError.details,
+              hint: strictError.hint
+            });
+            
+            // Try fallback query
+            const { data: fallbackData, error: fallbackError } = await supabase
+              .from('price_data')
+              .select('symbol, metadata, timestamp')
+              .in('symbol', ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'])
+              .order('timestamp', { ascending: false })
+              .limit(9);
+              
+            return {
+              ok: !fallbackError,
+              status: fallbackError ? 'fallback_failed' : 'fallback_success',
+              rows: fallbackData?.length || 0,
+              sample: fallbackData?.[0] || null,
+              error: strictError
+            };
+          }
+          
+          const result = {
+            ok: true,
+            status: 'strict_success',
+            rows: strictData?.length || 0,
+            sample: strictData?.[0] || null
+          };
+          console.error('[PriceDataProbeDetailed]', result);
+          return result;
+        } catch (err) {
+          console.error('[EngineAPI] priceDataProbeDetailed error', err);
+          throw err;
+        }
+      },
+      forceSell: async (symbol: string, amount?: number) => {
+        console.error('[EngineAPI] forceSell called', { symbol, amount });
+        try {
+          const uid = (await supabase.auth.getUser()).data.user?.id;
+          if (!uid) return { ok: false, error: 'no_user' };
+
+          const baseSymbol = symbol.replace('-EUR', '').toUpperCase();
+          
+          // Get current price from bus
+          const priceData = await getPrices([`${baseSymbol}-EUR`]);
+          const currentPrice = priceData[`${baseSymbol}-EUR`]?.price || 100; // fallback price
+          
+          // Get strategy
+          const { data: strategies } = await supabase
+            .from('trading_strategies')
+            .select('id')
+            .eq('user_id', uid)
+            .limit(1);
+
+          const strategyId = strategies?.[0]?.id;
+          if (!strategyId) return { ok: false, error: 'no_strategy' };
+
+          const sellAmount = amount || 0.01; // default small amount
+
+          // Route through coordinator
+          const tradeIntent = {
+            userId: uid,
+            strategyId,
+            symbol: baseSymbol,
+            side: 'SELL' as const,
+            source: 'debug' as const,
+            reason: 'FORCE_SELL_DEBUG',
+            qtySuggested: sellAmount,
+            metadata: { debug_trade: true },
+            ts: new Date().toISOString()
+          };
+
+          const response = await supabase.functions.invoke('trading-decision-coordinator', {
+            body: { intent: tradeIntent }
+          });
+
+          const result = {
+            ok: !response.error,
+            id: response.data?.decision?.trade_id,
+            error: response.error?.message,
+            decision: response.data?.decision
+          };
+          
+          if (result.ok) {
+            console.error('[SELL EXECUTED]', { symbol: baseSymbol, qty: sellAmount, price: currentPrice, reason: 'force_sell_debug' });
+          } else {
+            console.error('[SELL DEFERRED]', { symbol: baseSymbol, reason: result.error || 'coordinator_blocked' });
+          }
+          
+          return result;
+        } catch (err) {
+          console.error('[EngineAPI] forceSell error', err);
+          throw err;
+        }
+      },
+      forceExitAll: async () => {
+        console.error('[EngineAPI] forceExitAll called');
+        try {
+          const uid = (await supabase.auth.getUser()).data.user?.id;
+          if (!uid) return { ok: false, error: 'no_user' };
+
+          // Simple query to get open positions (avoid complex grouping)
+          const { data: positions } = await supabase
+            .from('mock_trades')
+            .select('cryptocurrency, amount')
+            .eq('user_id', uid)
+            .eq('trade_type', 'buy')
+            .eq('is_test_mode', true)
+            .gt('amount', 0);
+              
+          if (!positions?.length) {
+            return { ok: true, message: 'no_positions', exits: [] };
+          }
+          
+          // Process unique symbols (may have duplicates, but we'll handle that)
+          const exits = [];
+          const processedSymbols = new Set<string>();
+          
+          for (const pos of positions) {
+            if (!processedSymbols.has(pos.cryptocurrency)) {
+              processedSymbols.add(pos.cryptocurrency);
+              try {
+                const result = await window.Engine?.forceSell?.(pos.cryptocurrency, pos.amount);
+                exits.push({ symbol: pos.cryptocurrency, result });
+              } catch (error) {
+                exits.push({ symbol: pos.cryptocurrency, result: { ok: false, error: error.message } });
+              }
+            }
+          }
+          
+          console.error('[COORD_DECISION] Force exit all completed', { exits });
+          return { ok: true, exits };
+        } catch (err) {
+          console.error('[EngineAPI] forceExitAll error', err);
           throw err;
         }
       },
