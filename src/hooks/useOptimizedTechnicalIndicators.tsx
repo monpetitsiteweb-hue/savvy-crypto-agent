@@ -45,7 +45,7 @@ const fetchCachedIndicators = async (): Promise<Record<string, IndicatorValues>>
     // Try to get cached indicators first (should be instant)
     const { data: cachedData } = await supabase
       .from('price_data')
-      .select('symbol, metadata')
+      .select('symbol, metadata, timestamp')
       .in('symbol', SYMBOLS)
       .not('metadata->indicators', 'is', null)
       .order('timestamp', { ascending: false })

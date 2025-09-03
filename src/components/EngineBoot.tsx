@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
 import { supabase } from '@/integrations/supabase/client';
 import { useMockWallet } from '@/hooks/useMockWallet';
+import { getDebugInfo, getPrices } from '@/services/CoinbasePriceBus';
 
 declare global {
   interface Window {
@@ -13,6 +14,8 @@ declare global {
       session: () => Promise<any>;
       user: () => Promise<any>;
       priceDataProbe: () => Promise<any>;
+      priceCache: () => any;
+      refreshPrices: (symbols?: string[]) => Promise<any>;
       debugBuy: (sym: string, eur: number) => Promise<void>;
       topUpEUR: (amount?: number) => void;
       panicTrade: (sym?: string) => Promise<void>;
@@ -77,6 +80,19 @@ export default function EngineBoot() {
         const out = { ok: !error, data, error };
         console.error('[PriceDataProbe]', out);
         return out;
+      },
+
+      priceCache: () => {
+        const info = getDebugInfo();
+        console.error('[PriceCache]', info);
+        return info;
+      },
+
+      refreshPrices: async (symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR']) => {
+        console.error('[RefreshPrices] Fetching:', symbols);
+        const results = await getPrices(symbols);
+        console.error('[RefreshPrices] Results:', results);
+        return results;
       },
       debugBuy: async (sym: string, eur: number) => {
         console.error('🧪 ENGINE_DEBUG_BUY', { sym, eur });

@@ -60,7 +60,7 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         // Check for cached indicators first for instant loading
         const { data: existingIndicators } = await supabase
           .from('price_data')
-          .select('symbol, metadata')
+          .select('symbol, metadata, timestamp')
           .in('symbol', symbols)
           .not('metadata->indicators', 'is', null)
           .order('timestamp', { ascending: false })
