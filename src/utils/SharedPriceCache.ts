@@ -62,33 +62,29 @@ class SharedPriceCache {
         return getAllTradingPairs().includes(symbol);
       });
 
-      // Stagger requests to avoid rate limiting
-      const promises = validSymbols.map(async (symbol, index) => {
-        try {
-          if (index > 0) {
-            await new Promise(resolve => setTimeout(resolve, 200 * index));
-          }
-          
-          const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
-          if (response.ok) {
-            const data = await response.json();
-            const priceData: PriceData = {
+      // Use CoinbasePriceBus instead of direct fetching
+      try {
+        const { getPrices } = await import('@/services/CoinbasePriceBus');
+        const busResults = await getPrices(validSymbols);
+        
+        validSymbols.forEach((symbol) => {
+          const priceData = busResults[symbol];
+          if (priceData && priceData.price > 0) {
+            const cacheData: PriceData = {
               symbol,
-              price: parseFloat(data.price || '0'),
-              timestamp: new Date().toISOString()
+              price: priceData.price,
+              timestamp: priceData.ts
             };
             
-            this.cache.set(symbol, priceData);
+            this.cache.set(symbol, cacheData);
             fetchedCount++;
-            return true;
           }
-          return false;
-        } catch (err) {
-          return false;
-        }
-      });
+        });
 
-      await Promise.all(promises);
+      } catch (busError) {
+        // Silent error handling - log to background only
+        this.logToBackground('CoinbasePriceBus fetch error', busError);
+      }
 
       // Log performance (rate limited)
       const duration = Math.round(performance.now() - startTime);

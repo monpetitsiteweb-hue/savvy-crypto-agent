@@ -88,9 +88,9 @@ export default function EngineBoot() {
         return info;
       },
 
-      refreshPrices: async (symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR']) => {
+      refreshPrices: async (symbols?: string[]) => {
         console.error('[RefreshPrices] Fetching:', symbols);
-        const results = await getPrices(symbols);
+        const results = await getPrices(symbols || ['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
         console.error('[RefreshPrices] Results:', results);
         return results;
       },

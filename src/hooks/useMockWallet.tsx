@@ -43,20 +43,22 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       try {
         const newPrices: {[key: string]: number} = { EUR: 1 };
         
-        // Use fetch directly to avoid infinite loops
+        // Use CoinbasePriceBus to avoid direct Coinbase calls
+        const { getPrices } = await import('@/services/CoinbasePriceBus');
         const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
-        for (const symbol of symbols) {
-          try {
-            const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
-            if (response.ok) {
-              const data = await response.json();
+        
+        try {
+          const busResults = await getPrices(symbols);
+          symbols.forEach(symbol => {
+            const priceData = busResults[symbol];
+            if (priceData && priceData.price > 0) {
               const baseSymbol = symbol.split('-')[0];
-              newPrices[baseSymbol] = parseFloat(data.price || '0');
+              newPrices[baseSymbol] = priceData.price;
             }
-          } catch (error) {
-            // Silent error - no console spam
-            window.NotificationSink?.log({ message: `Price fetch error for ${symbol}`, error });
-          }
+          });
+        } catch (error) {
+          // Silent error - no console spam
+          window.NotificationSink?.log({ message: `Price fetch error via bus`, error });
         }
         
         setRealPrices(prev => ({ ...prev, ...newPrices }));

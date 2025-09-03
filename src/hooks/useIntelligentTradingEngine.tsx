@@ -11,6 +11,7 @@ import { engineLog } from '@/utils/silentLogger';
 import { logger } from '@/utils/logger';
 import { getAllSymbols } from '@/data/coinbaseCoins';
 import { checkMarketAvailability } from '@/utils/marketAvailability';
+import { BaseSymbol } from '@/utils/symbols';
 
 declare global {
   interface Window {
