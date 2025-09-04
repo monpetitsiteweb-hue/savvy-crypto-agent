@@ -445,10 +445,7 @@ function IndexComponent() {
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6">
                     <ErrorBoundary>
-                      <MergedPortfolioDisplay 
-                        hasActiveStrategy={hasActiveStrategy}
-                        onCreateStrategy={() => setActiveTab('strategy')}
-                      />
+                       <MergedPortfolioDisplay />
                     </ErrorBoundary>
                     <ErrorBoundary>
                       <LiveIndicatorKPI />

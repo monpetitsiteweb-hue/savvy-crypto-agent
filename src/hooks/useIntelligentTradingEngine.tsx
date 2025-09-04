@@ -457,8 +457,10 @@ export const useIntelligentTradingEngine = () => {
         body: { intent: tradeIntent }
       });
 
-      if (response.error) {
-        throw new Error(`Coordinator error: ${response.error.message}`);
+      // Handle new error response format
+      if (response.error || !response.data?.ok) {
+        const errorData = response.data || { stage: 'network', reason: 'request_failed' };
+        throw new Error(`Coordinator ${errorData.stage} error: ${errorData.error || errorData.reason}`);
       }
 
       const decision = response.data?.decision;

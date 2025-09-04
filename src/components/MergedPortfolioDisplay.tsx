@@ -1,354 +1,453 @@
-import { useState, useEffect } from 'react';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { RefreshCw, TestTube, TrendingUp, TrendingDown, RotateCcw } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
-import { useTestMode } from '@/hooks/useTestMode';
-import { useMockWallet } from '@/hooks/useMockWallet';
-import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
-import { usePersistentDashboardData } from '@/hooks/usePersistentDashboardData';
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
+import { useTestMode } from "@/hooks/useTestMode";
+import { useRealTimeMarketData } from "@/hooks/useRealTimeMarketData";
 import { supabase } from '@/integrations/supabase/client';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { NoActiveStrategyState } from './NoActiveStrategyState';
-import { formatEuro } from '@/utils/currencyFormatter';
+import { Wallet, TrendingUp, TrendingDown, RefreshCw, TestTube, RotateCcw } from "lucide-react";
+import { logger } from '@/utils/logger';
+import { getAllTradingPairs } from '@/data/coinbaseCoins';
 
-interface PortfolioData {
-  accounts: Array<{
-    uuid: string;
-    name: string;
-    currency: string;
-    available_balance: {
-      value: string;
-      currency: string;
-    };
-  }>;
+interface OpenPosition {
+  symbol: string;
+  amount: number;
+  avg_purchase_price: number;
+  purchase_value: number;
+  current_value: number;
+  unrealized_pnl: number;
+  unrealized_pnl_pct: number;
 }
 
-interface Connection {
-  id: string;
-  api_name_encrypted: string;
-  connected_at: string;
+interface PastPosition {
+  sell_trade_id: string;
+  symbol: string;
+  amount: number;
+  purchase_price: number;
+  purchase_value: number;
+  exit_price: number;
+  exit_value: number;
+  buy_fees: number;
+  sell_fees: number;
+  realized_pnl: number;
+  realized_pnl_pct: number;
+  exit_at: string;
 }
 
-interface MergedPortfolioDisplayProps {
-  hasActiveStrategy: boolean;
-  onCreateStrategy?: () => void;
-}
-
-export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: MergedPortfolioDisplayProps) => {
+export const MergedPortfolioDisplay = () => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
-  const { balances: mockBalances, resetPortfolio, isLoading: walletLoading } = useMockWallet();
-  const { marketData, getCurrentData } = useRealTimeMarketData();
-  const { portfolioData, updatePortfolioData, shouldRefresh } = usePersistentDashboardData();
+  const { getCurrentData } = useRealTimeMarketData();
   
-  
+  const [openPositions, setOpenPositions] = useState<OpenPosition[]>([]);
+  const [pastPositions, setPastPositions] = useState<PastPosition[]>([]);
   const [loading, setLoading] = useState(false);
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
-  const [realTimePrices, setRealTimePrices] = useState<Record<string, number>>({});
+  const [realTimePrices, setRealTimePrices] = useState<{[key: string]: number}>({});
+  const [selectedStrategyId, setSelectedStrategyId] = useState<string>('');
+  const [strategies, setStrategies] = useState<any[]>([]);
 
-  // Fetch connections for production mode
+  // Fetch strategies
   useEffect(() => {
-    if (!testMode && user) {
-      fetchConnections();
+    if (user) {
+      fetchStrategies();
     }
-  }, [testMode, user]);
+  }, [user]);
 
-  // In test mode, use mock wallet data - prevent infinite loops
+  // Fetch portfolio data when strategy changes
   useEffect(() => {
-    if (testMode && mockBalances && mockBalances.length > 0) {
-      const mockPortfolio: PortfolioData = {
-        accounts: mockBalances.map((balance) => ({
-          uuid: `mock-${balance.currency}`,
-          name: `${balance.currency} Wallet`,
-          currency: balance.currency,
-          available_balance: {
-            value: balance.amount.toString(),
-            currency: balance.currency
-          }
-        }))
-      };
-      
-      updatePortfolioData(mockPortfolio);
+    if (user && selectedStrategyId) {
+      fetchPortfolioData();
     }
-  }, [testMode, mockBalances]); // Removed updatePortfolioData to prevent infinite loop
+  }, [user, selectedStrategyId, testMode]);
 
-  // Fetch real-time prices every 60 seconds (less frequent to avoid rate limiting)
+  // Update real-time prices
   useEffect(() => {
-    const fetchPrices = async () => {
+    const updatePrices = async () => {
       try {
-        const response = await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
-        const prices: Record<string, number> = {};
+        const commonSymbols = getAllTradingPairs();
+        const data = await getCurrentData(commonSymbols);
         
-        Object.entries(response).forEach(([symbol, data]) => {
-          const currency = symbol.split('-')[0];
-          prices[currency] = data.price;
+        const prices: {[key: string]: number} = {};
+        
+        commonSymbols.forEach(symbol => {
+          const crypto = symbol.split('-')[0];
+          if (data[symbol]?.price && data[symbol].price > 0) {
+            prices[crypto] = data[symbol].price;
+          }
         });
         
         setRealTimePrices(prices);
       } catch (error) {
-        // Silently fail price updates
+        logger.error('Error fetching real-time prices:', error);
       }
     };
 
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 60000); // 60 seconds to avoid rate limiting
+    updatePrices();
+    const interval = setInterval(updatePrices, 30000);
+    
     return () => clearInterval(interval);
-  }, []); // Removed getCurrentData to prevent infinite loop
+  }, [getCurrentData]);
 
-  const fetchConnections = async () => {
+  const fetchStrategies = async () => {
+    if (!user) return;
+    
     try {
       const { data, error } = await supabase
-        .from('user_coinbase_connections')
-        .select('id, api_name_encrypted, connected_at')
-        .eq('user_id', user?.id)
-        .eq('is_active', true);
+        .from('trading_strategies')
+        .select('id, strategy_name, is_active_test')
+        .eq('user_id', user.id)
+        .eq('is_active_test', true)
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
-
-      setConnections(data || []);
       
-      // Auto-select first connection if none selected
-      if (data && data.length > 0 && !selectedConnectionId) {
-        setSelectedConnectionId(data[0].id);
+      setStrategies(data || []);
+      
+      // Auto-select first strategy if none selected
+      if (data && data.length > 0 && !selectedStrategyId) {
+        setSelectedStrategyId(data[0].id);
       }
     } catch (error) {
-      // Silently fail connection fetch
+      logger.error('Error fetching strategies:', error);
     }
   };
 
-  const fetchProductionPortfolio = async (force = false) => {
-    if (!selectedConnectionId) return;
-    
-    // Don't fetch if we have recent data unless forced
-    if (!force && !shouldRefresh()) return;
+  const fetchPortfolioData = async () => {
+    if (!user || !selectedStrategyId) return;
     
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('coinbase-portfolio', {
-        body: { connectionId: selectedConnectionId }
+      // Fetch open positions from coverage view
+      const { data: coverage, error: coverageError } = await supabase
+        .from('mock_coverage')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('strategy_id', selectedStrategyId)
+        .eq('is_test_mode', testMode)
+        .gt('available', 0.000000001); // Use same tolerance as trigger
+
+      if (coverageError) throw coverageError;
+
+      // Transform coverage to open positions
+      const openPositions = (coverage || []).map(pos => {
+        const currentPrice = realTimePrices[pos.symbol] || 0;
+        // For mock_coverage, we need to calculate average price differently
+        // since we don't have total_bought_value in the view
+        const avgPrice = pos.available > 0 ? pos.total_bought / pos.available : 0;
+        const purchaseValue = pos.available * avgPrice;
+        const currentValue = pos.available * currentPrice;
+        const unrealizedPnl = currentValue - purchaseValue;
+        const unrealizedPnlPct = purchaseValue > 0 ? (unrealizedPnl / purchaseValue) * 100 : 0;
+
+        return {
+          symbol: pos.symbol,
+          amount: pos.available,
+          avg_purchase_price: avgPrice,
+          purchase_value: purchaseValue,
+          current_value: currentValue,
+          unrealized_pnl: unrealizedPnl,
+          unrealized_pnl_pct: unrealizedPnlPct
+        };
       });
 
-      if (error) {
-        throw error;
-      }
+      setOpenPositions(openPositions);
 
-      if (data?.error) {
-        throw new Error(data.error);
-      }
+      // Fetch past positions from sell trades
+      const { data: sells, error: sellsError } = await supabase
+        .from('mock_trades')
+        .select(`
+          id,
+          cryptocurrency,
+          original_purchase_amount,
+          original_purchase_price,
+          original_purchase_value,
+          price,
+          exit_value,
+          buy_fees,
+          sell_fees,
+          realized_pnl,
+          realized_pnl_pct,
+          executed_at
+        `)
+        .eq('user_id', user.id)
+        .eq('strategy_id', selectedStrategyId)
+        .eq('trade_type', 'sell')
+        .eq('is_test_mode', testMode)
+        .not('original_purchase_value', 'is', null)
+        .order('executed_at', { ascending: false })
+        .limit(50);
 
-      if (data?.needsReconnection) {
-        return;
-      }
+      if (sellsError) throw sellsError;
 
-      updatePortfolioData(data);
+      const pastPositions = (sells || []).map(sell => ({
+        sell_trade_id: sell.id,
+        symbol: sell.cryptocurrency,
+        amount: sell.original_purchase_amount || 0,
+        purchase_price: sell.original_purchase_price || 0,
+        purchase_value: sell.original_purchase_value || 0,
+        exit_price: sell.price,
+        exit_value: sell.exit_value || sell.price * (sell.original_purchase_amount || 0),
+        buy_fees: sell.buy_fees || 0,
+        sell_fees: sell.sell_fees || 0,
+        realized_pnl: sell.realized_pnl || 0,
+        realized_pnl_pct: sell.realized_pnl_pct || 0,
+        exit_at: sell.executed_at
+      }));
+
+      setPastPositions(pastPositions);
+
     } catch (error) {
-      // Silently fail portfolio fetch
+      logger.error('Error fetching portfolio data:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  // Auto-fetch on mount or when connection changes if we need fresh data
-  useEffect(() => {
-    if (!testMode && selectedConnectionId && shouldRefresh()) {
-      fetchProductionPortfolio();
-    }
-  }, [selectedConnectionId, testMode]); // Removed shouldRefresh to prevent infinite loop
-
-  const getTotalPortfolioValue = () => {
-    if (!portfolioData) return 0;
+  const handleResetPortfolio = async () => {
+    if (!user) return;
     
-    return portfolioData.accounts.reduce((total, account) => {
-      const balance = parseFloat(account.available_balance?.value || '0');
-      // Handle currency as either string or object
-      const currency = typeof account.currency === 'string' ? account.currency : (account.currency as any)?.code || (account.currency as any)?.name || 'Unknown';
+    try {
+      const { error } = await supabase.rpc('reset_user_test_portfolio', { 
+        target_balance: 30000 
+      });
       
-      if (currency === 'EUR') {
-        return total + balance;
-      }
+      if (error) throw error;
       
-      // Convert crypto to EUR using real-time prices
-      const price = realTimePrices[currency] || 0;
-      return total + (balance * price);
-    }, 0);
+      // Refresh portfolio data
+      await fetchPortfolioData();
+    } catch (error) {
+      logger.error('Failed to reset portfolio:', error);
+    }
   };
 
-  const renderCoinCard = (account: any) => {
-    const balance = parseFloat(account.available_balance?.value || '0');
-    // Handle currency as either string or object
-    const currency = typeof account.currency === 'string' ? account.currency : (account.currency as any)?.code || (account.currency as any)?.name || 'Unknown';
-    const price = realTimePrices[currency] || 0;
-    const eurValue = currency === 'EUR' ? balance : balance * price;
+  // Calculate totals
+  const currentlyInvested = openPositions.reduce((sum, pos) => sum + pos.purchase_value, 0);
+  const realizedPnL = pastPositions.reduce((sum, pos) => sum + pos.realized_pnl, 0);
+  const unrealizedPnL = openPositions.reduce((sum, pos) => sum + pos.unrealized_pnl, 0);
+  const totalPnL = realizedPnL + unrealizedPnL;
 
-    return (
-      <Card key={account.uuid} className="p-4 bg-slate-700/30 border-slate-600">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <h4 className="font-medium text-white">{currency}</h4>
-            {currency !== 'EUR' && (
-              <div className="flex items-center gap-1">
-                {marketData[`${currency}-EUR`] && (
-                  <>
-                    <span className="text-xs text-slate-400">
-                      {formatEuro(price)}
-                    </span>
-                    <TrendingUp className="h-3 w-3 text-green-400" />
-                  </>
-                )}
-              </div>
-            )}
+  const renderOpenPosition = (position: OpenPosition) => (
+    <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600">
+      <div className="space-y-3">
+        <div className="flex justify-between items-center">
+          <span className="text-sm font-medium text-slate-300">{position.symbol}</span>
+          <div className="text-right">
+            <div className="text-lg font-bold text-white">
+              €{position.current_value.toLocaleString()}
+            </div>
+            <div className="text-xs text-slate-400">
+              {position.amount.toLocaleString(undefined, {
+                maximumFractionDigits: position.symbol === 'XRP' ? 0 : 6
+              })} {position.symbol}
+            </div>
           </div>
         </div>
         
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <span className="text-slate-400 text-sm">Balance:</span>
-            <span className="text-white font-medium">
-              {currency === 'EUR' ? balance.toFixed(2) : balance.toFixed(4)} {currency}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-400 text-sm">EUR Value:</span>
-            <span className="text-green-400 font-medium">
-              {formatEuro(eurValue)}
-            </span>
+        <div className="flex justify-between items-center pt-2 border-t border-slate-600/50">
+          <span className="text-xs text-slate-400">Unrealized P&L:</span>
+          <div className="text-right">
+            <div className={`text-sm font-medium ${
+              position.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400'
+            }`}>
+              €{position.unrealized_pnl.toLocaleString()} ({position.unrealized_pnl_pct.toFixed(2)}%)
+            </div>
           </div>
         </div>
-      </Card>
-    );
-  };
+        
+        <div className="flex justify-between items-center text-xs text-slate-500">
+          <span>Avg Entry: €{position.avg_purchase_price.toFixed(2)}</span>
+          <span>Current: €{realTimePrices[position.symbol]?.toFixed(2) || 'N/A'}</span>
+        </div>
+      </div>
+    </Card>
+  );
 
-  const handleResetPortfolio = async () => {
-    try {
-      await resetPortfolio();
-    } catch (error) {
-      // Silently handle reset errors
-    }
-  };
-
-  // Portfolio is always visible regardless of strategy status
+  const renderPastPosition = (position: PastPosition) => (
+    <Card key={position.sell_trade_id} className="p-4 bg-slate-700/50 border-slate-600">
+      <div className="space-y-3">
+        <div className="flex justify-between items-center">
+          <span className="text-sm font-medium text-slate-300">{position.symbol}</span>
+          <div className="text-right">
+            <div className="text-lg font-bold text-white">
+              €{position.exit_value.toLocaleString()}
+            </div>
+            <div className="text-xs text-slate-400">
+              {position.amount.toLocaleString(undefined, {
+                maximumFractionDigits: position.symbol === 'XRP' ? 0 : 6
+              })} {position.symbol}
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex justify-between items-center pt-2 border-t border-slate-600/50">
+          <span className="text-xs text-slate-400">Realized P&L:</span>
+          <div className="text-right">
+            <div className={`text-sm font-medium ${
+              position.realized_pnl >= 0 ? 'text-green-400' : 'text-red-400'
+            }`}>
+              €{position.realized_pnl.toLocaleString()} ({position.realized_pnl_pct.toFixed(2)}%)
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex justify-between items-center text-xs text-slate-500">
+          <span>Entry: €{position.purchase_price.toFixed(2)}</span>
+          <span>Exit: €{position.exit_price.toFixed(2)}</span>
+        </div>
+        
+        <div className="text-xs text-slate-500">
+          {new Date(position.exit_at).toLocaleDateString()}
+        </div>
+      </div>
+    </Card>
+  );
 
   return (
-    <Card className={`p-6 bg-slate-800/50 border-slate-600 ${testMode ? "border-orange-500/20" : ""}`}>
-      {/* Mobile: Stack vertically */}
-      <div className="flex flex-col gap-4 mb-6 md:flex-row md:items-center md:justify-between">
-        {/* Title and badge */}
-        <div className="flex items-center gap-3">
-          <h3 className="text-lg font-semibold text-white">Portfolio</h3>
-          {testMode && (
-            <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
-              <TestTube className="h-3 w-3 mr-1" />
-              Test Mode
-            </Badge>
-          )}
-          {testMode && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={walletLoading}
-                  className="text-red-400 border-red-400/50 hover:bg-red-400/10"
-                >
-                  <RotateCcw className="h-4 w-4 mr-1" />
-                  Reset Portfolio
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Reset Test Portfolio</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently delete all your test trades and reset your portfolio balance to €30,000. 
-                    This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleResetPortfolio}
-                    className="bg-red-600 hover:bg-red-700"
-                  >
-                    Reset Portfolio
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-        </div>
-        
-        {/* Controls */}
-        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          {!testMode && connections.length > 0 && (
-            <Select 
-              value={selectedConnectionId} 
-              onValueChange={setSelectedConnectionId}
-            >
-              <SelectTrigger className="w-full md:w-[200px]">
-                <SelectValue placeholder="Select connection" />
-              </SelectTrigger>
-              <SelectContent>
-                {connections.map((connection) => (
-                  <SelectItem key={connection.id} value={connection.id}>
-                    {connection.api_name_encrypted || 'Coinbase Account'}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          
-          {!testMode && (
-            <Button 
-              onClick={() => fetchProductionPortfolio(true)}
-              disabled={!selectedConnectionId || loading}
+    <Card className={`${testMode ? 'border-orange-500/20' : 'border-blue-500/20'} bg-slate-800/50 border-slate-600`}>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {testMode ? (
+              <TestTube className="h-5 w-5 text-orange-400" />
+            ) : (
+              <Wallet className="h-5 w-5 text-blue-400" />
+            )}
+            <span className="text-white">
+              {testMode ? 'Test Portfolio' : 'Live Portfolio'}
+            </span>
+            {testMode && (
+              <Badge variant="outline" className="text-orange-400 border-orange-400/50">
+                Test Mode
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
               size="sm"
-              className="w-full md:w-auto bg-blue-500 hover:bg-blue-600"
+              onClick={fetchPortfolioData}
+              disabled={loading}
+              className="text-slate-300 border-slate-600 hover:bg-slate-700"
             >
-              {loading ? (
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 mr-2" />
-              )}
-              Refresh
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
+            {testMode && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleResetPortfolio}
+                className="text-orange-400 border-orange-400/50 hover:bg-orange-400/10"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Reset
+              </Button>
+            )}
+          </div>
+        </CardTitle>
+      </CardHeader>
+      
+      <CardContent className="space-y-6">
+        {/* Strategy Selection */}
+        <div className="space-y-2">
+          <label className="text-sm text-slate-300">Strategy:</label>
+          <select
+            value={selectedStrategyId}
+            onChange={(e) => setSelectedStrategyId(e.target.value)}
+            className="w-full p-2 bg-slate-700 border border-slate-600 rounded text-white"
+          >
+            <option value="">Select a strategy...</option>
+            {strategies.map(strategy => (
+              <option key={strategy.id} value={strategy.id}>
+                {strategy.strategy_name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card className="bg-slate-700/50 border-slate-600 p-3">
+            <div className="text-center">
+              <div className="text-lg font-bold text-blue-400">
+                €{currentlyInvested.toLocaleString()}
+              </div>
+              <div className="text-xs text-slate-400">Currently Invested</div>
+            </div>
+          </Card>
+          
+          <Card className="bg-slate-700/50 border-slate-600 p-3">
+            <div className="text-center">
+              <div className={`text-lg font-bold ${realizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                €{realizedPnL.toLocaleString()}
+              </div>
+              <div className="text-xs text-slate-400">Realized P&L</div>
+            </div>
+          </Card>
+          
+          <Card className="bg-slate-700/50 border-slate-600 p-3">
+            <div className="text-center">
+              <div className={`text-lg font-bold ${unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                €{unrealizedPnL.toLocaleString()}
+              </div>
+              <div className="text-xs text-slate-400">Unrealized P&L</div>
+            </div>
+          </Card>
+          
+          <Card className="bg-slate-700/50 border-slate-600 p-3">
+            <div className="text-center">
+              <div className={`text-lg font-bold ${totalPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                €{totalPnL.toLocaleString()}
+              </div>
+              <div className="text-xs text-slate-400">Total P&L</div>
+            </div>
+          </Card>
+        </div>
+
+        {/* Open Positions */}
+        <div className="space-y-3">
+          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-green-400" />
+            Open Positions ({openPositions.length})
+          </h3>
+          
+          {openPositions.length === 0 ? (
+            <Card className="p-8 bg-slate-700/50 border-slate-600">
+              <div className="text-center text-slate-400">
+                <Wallet className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No open positions</p>
+                <p className="text-xs mt-1">Start trading to see your positions here</p>
+              </div>
+            </Card>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {openPositions.map(renderOpenPosition)}
+            </div>
           )}
         </div>
-      </div>
 
-      {/* Total Portfolio Value */}
-      <div className="mb-6 p-4 bg-slate-700/30 rounded-lg border border-slate-600">
-        <div className="text-center">
-          <p className="text-slate-400 text-sm mb-1">Total Portfolio Value</p>
-          <p className="text-3xl font-bold text-white">
-            {formatEuro(getTotalPortfolioValue())}
-          </p>
+        {/* Past Positions */}
+        <div className="space-y-3">
+          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+            <TrendingDown className="h-5 w-5 text-slate-400" />
+            Past Positions ({pastPositions.length})
+          </h3>
+          
+          {pastPositions.length === 0 ? (
+            <Card className="p-8 bg-slate-700/50 border-slate-600">
+              <div className="text-center text-slate-400">
+                <TrendingDown className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No past positions</p>
+                <p className="text-xs mt-1">Closed positions will appear here</p>
+              </div>
+            </Card>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {pastPositions.slice(0, 12).map(renderPastPosition)}
+            </div>
+          )}
         </div>
-      </div>
-
-      {/* Portfolio Holdings */}
-      {loading ? (
-        <div className="text-center py-8">
-          <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-slate-400" />
-          <p className="text-slate-400">Loading portfolio data...</p>
-        </div>
-      ) : portfolioData && portfolioData.accounts.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {portfolioData.accounts.map(renderCoinCard)}
-        </div>
-      ) : (
-        <div className="text-center py-8">
-          <p className="text-slate-400">
-            {testMode 
-              ? 'No test portfolio data available. Execute some trades to see your portfolio.'
-              : 'No portfolio data available. Please select a connection and refresh.'
-            }
-          </p>
-        </div>
-      )}
+      </CardContent>
     </Card>
   );
 };

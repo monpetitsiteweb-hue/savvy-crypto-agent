@@ -225,7 +225,15 @@ serve(async (req) => {
 
     // Validate intent
     if (!intent?.userId || !intent?.strategyId || !intent?.symbol || !intent?.side) {
-      return respond('HOLD', 'internal_error', requestId);
+      return new Response(JSON.stringify({
+        ok: false,
+        stage: 'input',
+        reason: 'missing_required_fields',
+        error: 'Missing required fields: userId, strategyId, symbol, or side'
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Coord-Version': 'v2' }
+      });
     }
 
     // Check for duplicate/idempotent request
@@ -245,7 +253,15 @@ serve(async (req) => {
 
     if (strategyError || !strategy) {
       console.error('❌ COORDINATOR: Strategy not found:', strategyError);
-      return respond('HOLD', 'internal_error', requestId);
+      return new Response(JSON.stringify({
+        ok: false,
+        stage: 'strategy',
+        reason: 'strategy_not_found',
+        error: strategyError?.message || 'Strategy not found'
+      }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Coord-Version': 'v2' }
+      });
     }
 
     const unifiedConfig: UnifiedConfig = strategy.unified_config || {
@@ -285,7 +301,15 @@ serve(async (req) => {
             return respond(intent.side, 'low_signal_confidence', requestId, 0, { qty: executionResult.qty });
           } else {
             console.error(`❌ UD_MODE=OFF → EXECUTE FAILED: ${executionResult.error}`);
-            return respond('HOLD', 'direct_execution_failed', requestId);
+            return new Response(JSON.stringify({
+              ok: false,
+              stage: 'execution',
+              reason: 'trade_execution_failed',
+              error: executionResult.error
+            }), {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Coord-Version': 'v2' }
+            });
           }
         } else {
           console.log(`🎯 UD_MODE=OFF → ${unifiedDecision.action}: reason=${unifiedDecision.reason}`);
@@ -349,7 +373,15 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('❌ COORDINATOR: Error:', error);
-    return respond('HOLD', 'internal_error', generateRequestId());
+    return new Response(JSON.stringify({
+      ok: false,
+      stage: 'coordinator',
+      reason: 'internal_error',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Coord-Version': 'v2' }
+    });
   }
 });
 
@@ -389,7 +421,7 @@ const respond = (action: DecisionAction, reason: Reason, request_id: string, ret
     decision
   }), {
     status: 200,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Coord-Version': 'v2' }
   });
 };
 
@@ -428,8 +460,9 @@ async function executeTradeDirectly(
   requestId: string
 ): Promise<{ success: boolean; error?: string; qty?: number }> {
   try {
-    // Get real market price using symbol utilities
-    const baseSymbol = toBaseSymbol(intent.symbol); 
+    // Normalize symbol to base before processing
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    intent.symbol = baseSymbol; // Normalize in place
     const realMarketPrice = await getMarketPrice(baseSymbol);
     
     // CRITICAL FIX: Check available EUR balance BEFORE executing BUY trades
@@ -514,7 +547,13 @@ async function executeTradeDirectly(
     }
 
     console.log('✅ DIRECT: Trade executed successfully');
-    return { success: true, qty };
+      return new Response(JSON.stringify({
+        ok: true,
+        trade_id: insertResult.data?.[0]?.id
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Coord-Version': 'v2' }
+      });
 
   } catch (error) {
     console.error('❌ DIRECT: Execution failed:', error.message);
