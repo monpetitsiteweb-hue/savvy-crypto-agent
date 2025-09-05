@@ -68,58 +68,65 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const body = await req.json();
-    const { strategy_id, symbol, side, amount, price, reasonOverride, mode } = body;
-    
+    // --- parse + normalize input (support old and new payloads) ---
+    const raw = await req.json().catch(() => ({} as any));
+
+    // Back-compat: allow both shapes
+    const sideInput = (raw.side ?? raw.action ?? '').toString().toLowerCase();
+    const baseInput = (raw.symbol ?? raw.base ?? '').toString();
+
+    // Validate side
+    if (!['buy', 'sell'].includes(sideInput)) {
+      return new Response(JSON.stringify({
+        ok: false, stage: 'input', reason: 'bad_side', error: 'side/action must be buy or sell'
+      }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Coord-Version': 'v2' }});
+    }
+
+    // Normalize to BASE ticker, uppercase
+    const baseSymbol = baseInput ? baseInput.toUpperCase().split('-')[0] : '';
+    const qty  = Number(raw.amount);
+    const px   = Number(raw.price);
+    const strategyId = raw.strategy_id;
+
+    // Derive test mode (no "always true")
+    const isTestMode = (raw.testMode === true) || (['mock','test'].includes(String(raw.mode).toLowerCase()));
+
     // Validate required fields
-    if (!strategy_id || !symbol || !side || amount === undefined || price === undefined) {
+    if (!strategyId || !baseSymbol || !qty || !px) {
       return new Response(JSON.stringify({
         ok: false,
         stage: 'input',
         reason: 'bad_amount_or_price',
-        error: 'Missing required fields: strategy_id, symbol, side, amount, or price'
+        error: 'Missing or invalid: strategy_id, symbol/base, amount, or price'
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Coord-Version': 'v2' }
       });
     }
 
-    if (amount <= 0 || price <= 0) {
-      return new Response(JSON.stringify({
-        ok: false,
-        stage: 'input',
-        reason: 'bad_amount_or_price',
-        error: 'Amount and price must be greater than 0'
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Coord-Version': 'v2' }
-      });
-    }
-
-    // Build normalized trade payload
-    const baseSymbol = toBaseSymbol(symbol);
-    const tradePayload = {
+    // Build normalized payload
+    const payload = {
       user_id: userId,
-      strategy_id: strategy_id,
-      trade_type: side.toLowerCase(), // 'buy' or 'sell'
-      cryptocurrency: baseSymbol, // Normalized symbol (e.g. BTC)
-      amount: parseFloat(amount),
-      price: parseFloat(price),
-      total_value: parseFloat(amount) * parseFloat(price),
+      strategy_id: strategyId,
+      trade_type: sideInput,               // 'buy' | 'sell' (lowercase)
+      cryptocurrency: baseSymbol,          // 'BTC'
+      amount: qty,
+      price: px,
+      total_value: qty * px,
       fees: 0,
-      buy_fees: side.toLowerCase() === 'buy' ? 0 : null,
-      sell_fees: side.toLowerCase() === 'sell' ? 0 : null,
-      is_test_mode: mode === 'mock' || mode === 'test' || true, // Default to test mode
+      buy_fees: sideInput === 'buy'  ? 0 : 0,   // keep numbers for both
+      sell_fees: sideInput === 'sell' ? 0 : 0,  // keep numbers for both
+      is_test_mode: isTestMode,
       executed_at: new Date().toISOString(),
-      notes: reasonOverride || 'coordinator'
+      notes: raw.reasonOverride || 'coordinator'
     };
 
-    console.log('🎯 COORDINATOR: Inserting trade:', JSON.stringify(tradePayload, null, 2));
+    console.log('🎯 COORDINATOR: Inserting trade:', JSON.stringify(payload, null, 2));
 
     // Insert the trade directly into mock_trades
     const { data: insertedTrade, error: insertError } = await supabaseClient
       .from('mock_trades')
-      .insert(tradePayload)
+      .insert(payload)
       .select('id')
       .single();
 
