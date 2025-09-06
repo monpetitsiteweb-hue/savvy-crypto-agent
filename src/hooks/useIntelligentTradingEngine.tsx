@@ -76,15 +76,15 @@ export const useIntelligentTradingEngine = () => {
     
     const waitForAuthReady = async (timeoutMs = 6000) => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) return;
+      if (session) return session;
       
-      await new Promise((resolve, reject) => {
+      return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('auth timeout')), timeoutMs);
         const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
           if (session) {
             clearTimeout(timeout);
             sub.subscription.unsubscribe();
-            resolve(null);
+            resolve(session);
           }
         });
       });
@@ -93,8 +93,8 @@ export const useIntelligentTradingEngine = () => {
     const startEngine = async () => {
       try {
         console.log('📅 ENGINE_AUTH_WAIT_START - checking auth readiness');
-        await waitForAuthReady();
-        console.log('📅 ENGINE_AUTH_READY - starting ticks');
+        const session = await waitForAuthReady();
+        console.log('📅 ENGINE_AUTH_READY - starting ticks with session:', !!session);
         
         initialTimer = setTimeout(() => {
           console.log('⏰ ENGINE_INITIAL_TICK - starting first tick');
@@ -230,21 +230,21 @@ export const useIntelligentTradingEngine = () => {
       // Stash telemetry globally for debug access
       window.__engineLastTelemetry = telemetry;
       
-      // Early exits with reasons already captured in telemetry
+      // Early exits - only exit if truly cannot proceed
       if (!user || loading) {
-        console.log('❌ ENGINE_EARLY_EXIT', { reason: 'auth_not_ready' });
-        window.__engineLastTelemetry = telemetry;
-        return telemetry;
-      }
-    
-      if (!testMode) {
-        console.log('❌ ENGINE_EARLY_EXIT', { reason: 'not_in_test_mode' });
+        console.log('❌ ENGINE_EARLY_EXIT', { reason: 'auth_not_ready', user: !!user, loading });
         window.__engineLastTelemetry = telemetry;
         return telemetry;
       }
       
+      // Remove test mode check - allow execution in both test and prod mode
+      // if (!testMode) {
+      //   console.log('❌ ENGINE_EARLY_EXIT', { reason: 'not_in_test_mode' });
+      //   return telemetry;
+      // }
+      
       if (!strategies?.length) {
-        console.log('❌ ENGINE_EARLY_EXIT', { reason: 'no_active_strategies' });
+        console.log('❌ ENGINE_EARLY_EXIT', { reason: 'no_active_strategies', count: strategies?.length || 0 });
         window.__engineLastTelemetry = telemetry;
         return telemetry;
       }
@@ -510,7 +510,7 @@ export const useIntelligentTradingEngine = () => {
       
       console.log('🎯 COORDINATOR: Sending SELL request', coordinatorPayload);
       
-      // Get auth token for coordinator
+      // Get auth token for coordinator - wait for auth to be ready
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       
@@ -530,7 +530,7 @@ export const useIntelligentTradingEngine = () => {
       });
       
       const result = await response.json();
-      console.log('🎯 COORDINATOR: Response', result);
+      console.log('🎯 COORDINATOR: Response', { status: response.status, result });
       
       // Handle new error response format
       if (!response.ok || !result?.ok) {
