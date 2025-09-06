@@ -63,10 +63,10 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         
         try {
           const { data, error } = await supabase
-            .from('price_data')
+            .from('price_data_with_indicators')
             .select('symbol, metadata, timestamp')
             .in('symbol', symbols)
-            .not('metadata->>indicators', 'is', null)
+            .eq('has_indicators', true)
             .order('timestamp', { ascending: false })
             .limit(symbols.length);
           
@@ -75,10 +75,10 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         } catch (error) {
           console.error('[PostgREST price_data error - strict query failed, using fallback]', error);
           
-          // Fallback: query without the metadata filter and filter client-side
+          // Fallback: query without the has_indicators filter and filter client-side
           try {
             const { data: fallbackData, error: fallbackError } = await supabase
-              .from('price_data')
+              .from('price_data_with_indicators')
               .select('symbol, metadata, timestamp')
               .in('symbol', symbols)
               .order('timestamp', { ascending: false })

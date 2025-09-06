@@ -24,11 +24,14 @@ const toBaseSymbol = (input: string): BaseSymbol =>
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
 };
 
 serve(async (req) => {
+  // ✅ Preflight must return 200 with CORS headers
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', { status: 200, headers: corsHeaders });
   }
 
   try {
@@ -102,6 +105,28 @@ serve(async (req) => {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Coord-Version': 'v2' }
       });
+    }
+
+    // Optional prod SELL guard (keep off by default for now)
+    if (false && !isTestMode && sideInput === 'sell') {
+      const { data: cov, error: covErr } = await supabaseClient
+        .from('mock_coverage')
+        .select('available')
+        .eq('user_id', userId)
+        .eq('strategy_id', strategyId)
+        .eq('symbol', baseSymbol)
+        .eq('is_test_mode', false)
+        .single();
+
+      if (covErr || !cov || (cov.available ?? 0) <= 0) {
+        return new Response(JSON.stringify({
+          ok: false, stage: 'coverage', reason: 'insufficient_coverage',
+          error: 'No available base to sell for this strategy',
+        }), {
+          status: 409,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json', 'X-Coord-Version': 'v2' },
+        });
+      }
     }
 
     // Build normalized payload

@@ -13,6 +13,7 @@ import { getAllSymbols } from '@/data/coinbaseCoins';
 import { checkMarketAvailability } from '@/utils/marketAvailability';
 import { BaseSymbol } from '@/utils/symbols';
 import { getPrices } from '@/services/CoinbasePriceBus';
+import { devTopUpCoverage } from '@/engine/engineDevTools';
 
 declare global {
   interface Window {
@@ -1025,11 +1026,15 @@ export const useIntelligentTradingEngine = () => {
         }
       };
       
-      await supabase
-        .from('trade_decisions_log')
-        .insert(snapshot);
-      
-      console.log('📊 DECISION SNAPSHOT:', JSON.stringify(snapshot, null, 2));
+      try {
+        await supabase
+          .from('trade_decisions_log')
+          .insert(snapshot);
+        
+        console.log('📊 DECISION SNAPSHOT:', JSON.stringify(snapshot, null, 2));
+      } catch (logError) {
+        console.warn('[trade_decisions_log soft-fail]', logError);
+      }
       
     } catch (error) {
       console.error('❌ DECISION SNAPSHOT: Failed to log:', error);
@@ -2003,6 +2008,15 @@ export const useIntelligentTradingEngine = () => {
       };
     }
   };
+
+  // Wire dev helper to window for quick console use (dev only)
+  useEffect(() => {
+    if (import.meta.env.DEV && typeof window !== 'undefined') {
+      (window as any).__devTopUpCoverage = devTopUpCoverage;
+      // usage in console:
+      // await __devTopUpCoverage({ strategyId:'5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e', base:'BTC', amount:0.06, price:30000 })
+    }
+  }, []);
 
   // Hook effect
   // Remove console spam
