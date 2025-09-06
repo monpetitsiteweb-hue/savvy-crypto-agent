@@ -58,21 +58,49 @@ export const useIntelligentTradingEngine = () => {
     data: { testMode, user: !!user, loading }
   });
 
+  // Auth readiness gate and debounced engine initialization
   useEffect(() => {
     console.log('🚀 ENGINE_MOUNT_ATTEMPT', { user: !!user, loading, testMode, timestamp: Date.now() });
     
-    // Always create interval immediately - no conditions
-    console.log('📅 ENGINE_INTERVAL_CREATED');
+    let initialTimer: NodeJS.Timeout;
+    let interval: NodeJS.Timeout;
     
-    const initialTimer = setTimeout(() => {
-      console.log('⏰ ENGINE_INITIAL_TICK');
-      checkStrategiesAndExecute();
-    }, 1000);
-    
-    const interval = setInterval(() => {
-      console.log('⏰ ENGINE_RECURRING_TICK');
-      checkStrategiesAndExecute();
-    }, 30000);
+    const waitForAuthReady = async (timeoutMs = 6000) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) return;
+      
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('auth timeout')), timeoutMs);
+        const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+          if (session) {
+            clearTimeout(timeout);
+            sub.subscription.unsubscribe();
+            resolve(null);
+          }
+        });
+      });
+    };
+
+    const startEngine = async () => {
+      try {
+        await waitForAuthReady();
+        console.log('📅 ENGINE_AUTH_READY - starting ticks');
+        
+        initialTimer = setTimeout(() => {
+          console.log('⏰ ENGINE_INITIAL_TICK');
+          checkStrategiesAndExecute();
+        }, 1000);
+        
+        interval = setInterval(() => {
+          console.log('⏰ ENGINE_RECURRING_TICK');
+          checkStrategiesAndExecute();
+        }, 30000);
+      } catch (error) {
+        console.log('⚠️ ENGINE_AUTH_TIMEOUT', error);
+      }
+    };
+
+    startEngine();
     
     return () => {
       console.log('🧹 ENGINE_CLEANUP');
@@ -91,13 +119,18 @@ export const useIntelligentTradingEngine = () => {
     dailyResetDate: new Date().toDateString()
   });
 
+  // Debounce tick execution
+  const lastTickRef = useRef(0);
+  
   const checkStrategiesAndExecute = async () => {
-    if (isRunningRef.current) {
-      console.log('⚠️ ENGINE: Skipping - already running');
+    const now = Date.now();
+    if (isRunningRef.current || now - lastTickRef.current < 750) {
+      console.log('⚠️ ENGINE: Skipping - already running or debounced');
       return;
     }
     
     isRunningRef.current = true;
+    lastTickRef.current = now;
     console.log('🔒 ENGINE_LOCK_ACQUIRED');
     
     let telemetry: any = {}; // Declare outside try block for catch access
@@ -454,8 +487,19 @@ export const useIntelligentTradingEngine = () => {
         ts: new Date().toISOString()
       };
 
+      // Use new standardized coordinator format
+      const coordinatorPayload = {
+        side: 'sell',
+        symbol: position.cryptocurrency.replace('-EUR', '').toUpperCase(),
+        amount: position.remaining_amount,
+        price: marketPrice,
+        strategy_id: strategy.id,
+        mode: testMode ? 'test' : 'prod',
+        reasonOverride: sellDecision.reason
+      };
+      
       const response = await supabase.functions.invoke('trading-decision-coordinator', {
-        body: { intent: tradeIntent }
+        body: coordinatorPayload
       });
 
       // Handle new error response format
