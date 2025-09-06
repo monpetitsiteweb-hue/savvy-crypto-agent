@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { toPairSymbol, BaseSymbol } from '@/utils/symbols';
 import { getAllSymbols, getAllTradingPairs } from '@/data/coinbaseCoins';
 import { filterSupportedSymbols } from '@/utils/marketAvailability';
-import { getPrices, getCached } from '@/services/CoinbasePriceBus';
 
 interface MarketData {
   symbol: string;
@@ -61,55 +60,52 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Silent log for market data fetch
       window.NotificationSink?.log({ message: 'SINGLETON: Fetching market data for valid symbols', symbols: validSymbols });
       
-      // Check cache first - if fresh enough, don't hit network
-      const cachedData: Record<string, MarketData> = {};
-      const symbolsToFetch: string[] = [];
-      
-      validSymbols.forEach(symbol => {
-        const cached = getCached(symbol);
-        if (cached) {
-          cachedData[symbol] = {
-            symbol,
-            price: cached.price,
-            bid: cached.price, // Use price as bid/ask for now
-            ask: cached.price,
-            volume: 0,
-            change_24h: '0',
-            change_percentage_24h: '0',
-            high_24h: cached.price.toString(),
-            low_24h: cached.price.toString(),
-            timestamp: cached.ts,
-            source: 'coinbase_bus_cached'
-          };
-        } else {
-          symbolsToFetch.push(symbol);
+      // Add delay between requests to avoid rate limiting
+      const promises = validSymbols.map(async (symbol, index) => {
+        try {
+          // Stagger requests to avoid overwhelming the API
+          if (index > 0) {
+            await new Promise(resolve => setTimeout(resolve, 300 * index));
+          }
+          
+          const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
+          if (response.ok) {
+            const data = await response.json();
+            return {
+              [symbol]: {
+                symbol,
+                price: parseFloat(data.price || '0'),
+                bid: parseFloat(data.bid || '0'),
+                ask: parseFloat(data.ask || '0'),
+                volume: parseFloat(data.volume || '0'),
+                change_24h: '0',
+                change_percentage_24h: '0',
+                high_24h: data.high_24h || '0',
+                low_24h: data.low_24h || '0',
+                timestamp: new Date().toISOString(),
+                source: 'coinbase_singleton'
+              }
+            };
+          } else if (response.status === 429) {
+            console.warn(`⚠️  Rate limited for ${symbol}, using cached data`);
+            return { [symbol]: null };
+          }
+          console.warn(`API error for ${symbol}: ${response.status}`);
+          return { [symbol]: null };
+        } catch (err) {
+          console.warn(`Network error for ${symbol}:`, err);
+          return { [symbol]: null };
         }
       });
 
-      // Fetch missing symbols via CoinbasePriceBus
-      let freshData: Record<string, MarketData> = {};
-      if (symbolsToFetch.length > 0) {
-        const busResults = await getPrices(symbolsToFetch);
-        
-        freshData = Object.entries(busResults).reduce((acc, [symbol, data]) => {
-          acc[symbol] = {
-            symbol,
-            price: data.price,
-            bid: data.price, // Use price as bid/ask for now
-            ask: data.price,
-            volume: 0,
-            change_24h: '0',
-            change_percentage_24h: '0',
-            high_24h: data.price.toString(),
-            low_24h: data.price.toString(),
-            timestamp: data.ts,
-            source: 'coinbase_bus_fresh'
-          };
-          return acc;
-        }, {} as Record<string, MarketData>);
-      }
-
-      const marketDataMap = { ...cachedData, ...freshData };
+      const results = await Promise.all(promises);
+      const marketDataMap = results.reduce((acc, result) => {
+        const [symbol, data] = Object.entries(result)[0];
+        if (data) {
+          acc[symbol] = data;
+        }
+        return acc;
+      }, {} as Record<string, MarketData>);
 
       // Only update state if we have new data to prevent unnecessary re-renders
       if (Object.keys(marketDataMap).length > 0) {

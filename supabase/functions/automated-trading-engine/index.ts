@@ -456,40 +456,9 @@ async function emitTradeIntentToCoordinator(
 
     console.log(`🎯 AUTOMATED: Emitting intent to coordinator:`, JSON.stringify(intent, null, 2));
 
-    // Call the trading decision coordinator with correct payload format
-    const perTradeAllocation = Math.min(
-      strategyConfig.maxAllocationPerTrade || 200,
-      strategyConfig.maxPositionSize || 500
-    );
-    
-    // Get real market price for coordinator
-    const coinbaseSymbol = signal.symbol.includes('-EUR') ? signal.symbol : `${signal.symbol}-EUR`;
-    let realPrice;
-    try {
-      const response = await fetch(`https://api.exchange.coinbase.com/products/${coinbaseSymbol}/ticker`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      realPrice = parseFloat(data.price);
-    } catch (error) {
-      console.error(`❌ Failed to get price for ${coinbaseSymbol}:`, error);
-      realPrice = 50000; // fallback price
-    }
-    
-    const coordinatorPayload = {
-      user_id: strategy.user_id,  // Add user_id for service calls
-      side: evaluation.action?.toLowerCase() || 'buy',
-      symbol: signal.symbol.replace('-EUR', ''),
-      amount: await calculateTradeQuantity(strategy.configuration, signal),
-      price: realPrice,
-      strategy_id: strategy.id,
-      mode: mode === 'live' ? 'prod' : 'test',
-      reasonOverride: `Signal: ${signal.signal_type} - ${evaluation.reasoning}`
-    };
-
-    console.log(`🎯 AUTOMATED: Sending coordinator payload:`, JSON.stringify(coordinatorPayload, null, 2));
-
+    // Call the trading decision coordinator
     const coordinatorResponse = await supabaseClient.functions.invoke('trading-decision-coordinator', {
-      body: coordinatorPayload
+      body: { intent }
     });
 
     if (coordinatorResponse.error) {
@@ -657,35 +626,8 @@ async function evaluateExistingPositionsAndEmitIntents(supabaseClient: any, stra
 
         console.log(`🎯 POSITION_MGMT: Emitting SELL intent:`, JSON.stringify(sellIntent, null, 2));
 
-        // Get current market price for SELL order
-        const coinbaseSymbol = symbol.includes('-EUR') ? symbol : `${symbol}-EUR`;
-        let marketPrice = currentPrice;
-        try {
-          const response = await fetch(`https://api.exchange.coinbase.com/products/${coinbaseSymbol}/ticker`);
-          if (response.ok) {
-            const data = await response.json();
-            marketPrice = parseFloat(data.price) || currentPrice;
-          }
-        } catch (error) {
-          console.warn(`Using cached price for ${symbol}:`, currentPrice);
-        }
-
-        // Call coordinator with correct payload format
-        const coordinatorPayload = {
-          user_id: strategy.user_id,  // Add user_id for service calls
-          side: 'sell',
-          symbol: symbol.replace('-EUR', ''),
-          amount: position.amount,
-          price: marketPrice,
-          strategy_id: strategy.id,
-          mode: mode === 'live' ? 'prod' : 'test',
-          reasonOverride: sellReason
-        };
-
-        console.log(`🎯 POSITION_MGMT: Sending coordinator payload:`, JSON.stringify(coordinatorPayload, null, 2));
-
         const coordinatorResponse = await supabaseClient.functions.invoke('trading-decision-coordinator', {
-          body: coordinatorPayload
+          body: { intent: sellIntent }
         });
 
         if (coordinatorResponse.error) {

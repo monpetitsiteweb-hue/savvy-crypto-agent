@@ -182,28 +182,26 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
     orderType: 'secure' | 'runner'
   ): Promise<boolean> => {
     try {
-      // UNIFIED PATH: Route pool exit through coordinator  
-      const tradeIntent = {
-        userId: user!.id,
-        strategyId: strategyId,
-        symbol: symbol,
-        side: 'SELL' as const,
-        source: 'pool' as const,
-        confidence: 0.95,
-        reason: `pool_${orderType}_exit`,
-        qtySuggested: qty,
-        metadata: {
-          pool_exit: true,
-          order_type: orderType
-        }
+      const sellTrade = {
+        user_id: user.id,
+        strategy_id: strategyId,
+        trade_type: 'sell',
+        cryptocurrency: symbol,
+        amount: qty,
+        price: price,
+        total_value: qty * price,
+        executed_at: new Date().toISOString(),
+        is_test_mode: true,
+        notes: `Pool ${orderType} exit`,
+        strategy_trigger: `pool_${orderType}_exit`
       };
 
-      const response = await supabase.functions.invoke('trading-decision-coordinator', {
-        body: { intent: tradeIntent }
-      });
+      const { error } = await supabase
+        .from('mock_trades')
+        .insert([sellTrade]);
 
-      if (response.error) {
-        console.error(`❌ POOL_MANAGER: Coordinator error:`, response.error);
+      if (error) {
+        console.error(`❌ POOL_MANAGER: Error executing ${orderType} sell:`, error);
         return false;
       }
 

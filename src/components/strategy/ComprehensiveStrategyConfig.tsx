@@ -53,29 +53,34 @@ import { PoolExitManagementPanel } from './PoolExitManagementPanel';
 
 import { getAllSymbols } from '@/data/coinbaseCoins';
 import { getUnsupportedSymbols } from '@/utils/marketAvailability';
-import { DEFAULT_VALUES } from '@/utils/configDefaults';
 
 // ScalpSmart Strategy Configuration
 const SCALPSMART_PRESET = {
   signalFusion: {
     enabled: true,
-    enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
-    exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
+    enterThreshold: 0.65,
+    exitThreshold: 0.35,
     conflictPenalty: 0.3,
-    weights: DEFAULT_VALUES.PRESETS.AGGRESSIVE.FUSION_WEIGHTS
+    weights: {
+      trend: 0.30,
+      volatility: 0.15,
+      momentum: 0.25,
+      whale: 0.15,
+      sentiment: 0.15
+    }
   },
   contextGates: {
-    spread: { enabled: true, maxBps: DEFAULT_VALUES.SPREAD_THRESHOLD_BPS },
-    liquidity: { enabled: true, minDepthRatio: DEFAULT_VALUES.MIN_DEPTH_RATIO },
+    spread: { enabled: true, maxBps: 12 },
+    liquidity: { enabled: true, minDepthRatio: 3.0 },
     whaleConflict: { enabled: true, windowMinutes: 5 }
   },
   brackets: {
-    stopLossPctWhenNotAtr: DEFAULT_VALUES.BRACKET_POLICY.stopLossPctWhenNotAtr,
-    trailBufferPct: DEFAULT_VALUES.BRACKET_POLICY.trailBufferPct,
+    stopLossPctWhenNotAtr: 0.40,
+    trailBufferPct: 0.4,
     enforceRiskReward: true,
-    minTpSlRatio: DEFAULT_VALUES.BRACKET_POLICY.minTpSlRatio,
+    minTpSlRatio: 1.2,
     atrScaled: false,
-    atrMultipliers: DEFAULT_VALUES.BRACKET_POLICY.atrMultipliers
+    atrMultipliers: { tp: 2.6, sl: 2.0 }
   }
 };
 
@@ -368,14 +373,20 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     aiIntelligenceConfig: {
       enableAIOverride: false,
       autonomy: { level: 25 },
-        features: {
-          fusion: {
-            enabled: false,
-            weights: DEFAULT_VALUES.FUSION_WEIGHTS,
-            enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
-            exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
-            conflictPenalty: DEFAULT_VALUES.CONFLICT_PENALTY
+      features: {
+        fusion: {
+          enabled: false,
+          weights: {
+            trend: 0.25,
+            volatility: 0.20,
+            momentum: 0.25,
+            whale: 0.15,
+            sentiment: 0.15
           },
+          enterThreshold: 0.65,
+          exitThreshold: 0.35,
+          conflictPenalty: 0.30
+        },
         contextGates: {
           spreadThresholdBps: 20,
           minDepthRatio: 2.0,
@@ -449,13 +460,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         enabled: false,
         period: 20,
       },
-      maCrossover: {
-        enabled: true,
-        shortPeriod: 5,
-        longPeriod: 10,
-        minDivergenceThreshold: 0.5,
-        strengthMultiplier: 20,
-      },
       bollinger: {
         enabled: false,
         period: 20,
@@ -495,37 +499,13 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   useEffect(() => {
     if (existingStrategy?.configuration) {
       const config = existingStrategy.configuration;
-      
-      // Debug logging for loading
-      console.log('[StrategyConfig] Loading existing strategy configuration:', {
-        existingAiConfig: config.aiIntelligenceConfig,
-        enabledFeatures: config.aiIntelligenceConfig?.features
-      });
-      
       setFormData(prev => ({ 
         ...prev, 
         ...config,
-        // Properly merge the nested aiIntelligenceConfig with deep merge
+        // Properly merge the nested aiIntelligenceConfig with existing enableAIOverride
         aiIntelligenceConfig: {
           ...prev.aiIntelligenceConfig,
-          ...config.aiIntelligenceConfig,
-          features: {
-            ...prev.aiIntelligenceConfig.features,
-            ...config.aiIntelligenceConfig?.features,
-            // Ensure deep merge of nested objects
-            fusion: {
-              ...prev.aiIntelligenceConfig.features.fusion,
-              ...config.aiIntelligenceConfig?.features?.fusion
-            },
-            contextGates: {
-              ...prev.aiIntelligenceConfig.features.contextGates,
-              ...config.aiIntelligenceConfig?.features?.contextGates
-            },
-            bracketPolicy: {
-              ...prev.aiIntelligenceConfig.features.bracketPolicy,
-              ...config.aiIntelligenceConfig?.features?.bracketPolicy
-            }
-          }
+          ...config.aiIntelligenceConfig
         },
         // Properly merge technical indicator config
         technicalIndicatorConfig: {
@@ -577,16 +557,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         ...formData
         // aiIntelligenceConfig already contains enableAIOverride directly
       };
-
-      // Debug logging to verify aiIntelligenceConfig is included
-      console.log('[StrategyConfig] Saving configuration.aiIntelligenceConfig:', {
-        aiIntelligenceConfig: syncedFormData.aiIntelligenceConfig,
-        enabledFeatures: {
-          fusion: syncedFormData.aiIntelligenceConfig?.features?.fusion?.enabled,
-          contextGates: syncedFormData.aiIntelligenceConfig?.features?.contextGates,
-          enableAIOverride: syncedFormData.aiIntelligenceConfig?.enableAIOverride
-        }
-      });
 
       const strategyData = {
         user_id: user.id,
@@ -1770,9 +1740,9 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                     <strong>ScalpSmart Active:</strong>
                                     <div className="mt-1 space-y-1">
                                       <div>• Signal Fusion: 5-bucket analysis (trend, volatility, momentum, whale, sentiment)</div>
-                                      <div>• Context Gates: Spread ≤{DEFAULT_VALUES.SPREAD_THRESHOLD_BPS}bps, Liquidity depth ≥{DEFAULT_VALUES.MIN_DEPTH_RATIO}x, Whale conflict detection</div>
-                                      <div>• Risk Management: TP≥{DEFAULT_VALUES.BRACKET_POLICY.minTpSlRatio}×SL enforcement, {(DEFAULT_VALUES.STOP_LOSS_PCT*100).toFixed(1)}% stop loss, {(DEFAULT_VALUES.TAKE_PROFIT_PCT*100).toFixed(1)}% take profit</div>
-                                      <div>• Hysteresis: Enter≥{(DEFAULT_VALUES.ENTER_THRESHOLD*100).toFixed(0)}%, Exit≤{(DEFAULT_VALUES.EXIT_THRESHOLD*100).toFixed(0)}% to prevent flip-flopping</div>
+                                      <div>• Context Gates: Spread ≤12bps, Liquidity depth ≥3.0x, Whale conflict detection</div>
+                                      <div>• Risk Management: TP≥1.2×SL enforcement, 0.4% stop loss, 0.65% take profit</div>
+                                      <div>• Hysteresis: Enter≥65%, Exit≤35% to prevent flip-flopping</div>
                                     </div>
                                   </div>
                                 </div>

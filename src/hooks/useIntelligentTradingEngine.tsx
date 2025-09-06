@@ -11,22 +11,6 @@ import { engineLog } from '@/utils/silentLogger';
 import { logger } from '@/utils/logger';
 import { getAllSymbols } from '@/data/coinbaseCoins';
 import { checkMarketAvailability } from '@/utils/marketAvailability';
-import { BaseSymbol } from '@/utils/symbols';
-import { getPrices } from '@/services/CoinbasePriceBus';
-import { devTopUpCoverage } from '@/engine/engineDevTools';
-
-// Wire dev helper to window for quick console use
-if (typeof window !== 'undefined') {
-  (window as any).__devTopUpCoverage = devTopUpCoverage;
-  // usage in console:
-  // await __devTopUpCoverage({ strategyId:'5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e', base:'BTC', amount:0.06, price:30000 })
-}
-
-declare global {
-  interface Window {
-    __engineLastTelemetry?: any;
-  }
-}
 
 interface Position {
   cryptocurrency: string;
@@ -46,14 +30,10 @@ interface TradingState {
 }
 
 export const useIntelligentTradingEngine = () => {
-  console.log('🚀 ENGINE HOOK INITIALIZATION - START');
-  
   const { testMode } = useTestMode();
   const { user, loading } = useAuth();
   const { updateBalance, getBalance } = useMockWallet();
   const { marketData, getCurrentData } = useRealTimeMarketData();
-  
-  console.log('🚀 HOOK CALLED: useIntelligentTradingEngine', { testMode, user: !!user, loading });
   
   // Initialize pool exit manager
   const { processAllPools } = usePoolExitManager({ 
@@ -67,60 +47,36 @@ export const useIntelligentTradingEngine = () => {
     data: { testMode, user: !!user, loading }
   });
 
-  // Auth readiness gate and debounced engine initialization
   useEffect(() => {
-    console.log('🚀 ENGINE_MOUNT_ATTEMPT', { user: !!user, loading, testMode, timestamp: Date.now() });
+    // Silent log for auth state change
+    window.NotificationSink?.log({ 
+      message: 'INTELLIGENT_ENGINE: Auth state changed', 
+      data: { user: !!user, loading, testMode }
+    });
     
-    let initialTimer: NodeJS.Timeout;
-    let interval: NodeJS.Timeout;
-    
-    const waitForAuthReady = async (timeoutMs = 6000) => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) return session;
-      
-      return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('auth timeout')), timeoutMs);
-        const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-          if (session) {
-            clearTimeout(timeout);
-            sub.subscription.unsubscribe();
-            resolve(session);
-          }
-        });
+    if (!loading && user && testMode) {
+      // Silent log for auth conditions met
+      window.NotificationSink?.log({
+        message: 'INTELLIGENT_ENGINE: Auth conditions check - starting engine',
+        data: { user: !!user, loading, testMode }
       });
-    };
-
-    const startEngine = async () => {
-      try {
-        console.log('📅 ENGINE_AUTH_WAIT_START - checking auth readiness');
-        const session = await waitForAuthReady();
-        console.log('📅 ENGINE_AUTH_READY - starting ticks with session:', !!session);
-        
-        initialTimer = setTimeout(() => {
-          console.log('⏰ ENGINE_INITIAL_TICK - starting first tick');
-          checkStrategiesAndExecute();
-        }, 1000);
-        
-        interval = setInterval(() => {
-          console.log('⏰ ENGINE_RECURRING_TICK - running scheduled tick');
-          checkStrategiesAndExecute();
-        }, 30000);
-      } catch (error) {
-        console.log('⚠️ ENGINE_AUTH_TIMEOUT - failed to get auth ready:', error);
-      }
-    };
-
-    startEngine();
-    
-    return () => {
-      console.log('🧹 ENGINE_CLEANUP');
-      clearTimeout(initialTimer);
-      clearInterval(interval);
-    };
-  }, [])
+      // Small delay to ensure all hooks are initialized
+      const timer = setTimeout(() => {
+        checkStrategiesAndExecute();
+      }, 1000);
+      
+      // Cleanup timer on unmount or dependency change
+      return () => clearTimeout(timer);
+    } else {
+      // Silent log for auth waiting
+      window.NotificationSink?.log({ 
+        message: 'INTELLIGENT_ENGINE: Waiting for auth', 
+        data: { loading, user: !!user, testMode }
+      });
+    }
+  }, [user, loading, testMode]);
   
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
-  const isRunningRef = useRef(false);
   const tradingStateRef = useRef<TradingState>({
     dailyTrades: 0,
     dailyPnL: 0,
@@ -129,164 +85,55 @@ export const useIntelligentTradingEngine = () => {
     dailyResetDate: new Date().toDateString()
   });
 
-  // Debounce tick execution
-  const lastTickRef = useRef(0);
-  
   const checkStrategiesAndExecute = async () => {
-    const now = Date.now();
-    if (isRunningRef.current || now - lastTickRef.current < 750) {
-      console.log('⚠️ ENGINE: Skipping - already running or debounced');
+    // Silent log for engine state
+    window.NotificationSink?.log({
+      message: 'ENGINE: checkStrategiesAndExecute called',
+      data: { testMode, user: !!user, loading }
+    });
+    
+    if (!user || loading) {
+      engineLog('ENGINE: Skipping - user: ' + !!user + ' loading: ' + loading);
       return;
     }
     
-    isRunningRef.current = true;
-    lastTickRef.current = now;
-    console.log('🔒 ENGINE_LOCK_ACQUIRED');
-    
-    let telemetry: any = {}; // Declare outside try block for catch access
-    
-    try {
-      // Consolidated telemetry - single object per tick
-      const session = await supabase.auth.getSession();
-      const sessionData = session.data.session;
-      
-      // Determine auth state
-      let auth_state = 'UNINITIALIZED';
-      if (loading) {
-        auth_state = 'RESOLVING';
-      } else if (user && sessionData) {
-        const expiresAt = new Date(sessionData.expires_at! * 1000);
-        const timeUntilExpiry = expiresAt.getTime() - Date.now();
-        if (timeUntilExpiry < 0) {
-          auth_state = 'EXPIRED';
-        } else {
-          auth_state = 'READY';
-        }
-      } else {
-        auth_state = 'UNINITIALIZED';
-      }
-      
-      // Determine strategy state and count (before early exits to show why we exit)
-      let strategy_state = 'UNLOADED';
-      let strategy_count = 0;
-      let strategies = null;
-      
-      if (auth_state === 'READY') {
-        try {
-          const { data, error } = await supabase
-            .from('trading_strategies')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('is_active_test', true);
-          
-          if (error) {
-            strategy_state = 'LOADING';
-          } else {
-            strategy_count = data?.length || 0;
-            strategies = data;
-            if (strategy_count === 0) {
-              strategy_state = 'NONE_ACTIVE';
-            } else {
-              strategy_state = 'READY';
-            }
-          }
-        } catch (e) {
-          strategy_state = 'LOADING';
-        }
-      }
-      
-      // Calculate market data age
-      const latestDataTime = Math.max(...Object.values(marketData).map((data: any) => 
-        new Date(data?.timestamp || 0).getTime()
-      ));
-      const market_data_age_ms = latestDataTime > 0 ? Date.now() - latestDataTime : -1;
-      
-      // Collect reasons for early exit
-      const reasons = [];
-      if (!user) reasons.push('no_user');
-      if (loading) reasons.push('auth_loading');
-      if (!testMode) reasons.push('not_test_mode');
-      if (!sessionData) reasons.push('no_session');
-      if (auth_state === 'EXPIRED') reasons.push('session_expired');
-      if (strategy_count === 0) reasons.push('no_active_strategies');
-      
-      // CONSOLIDATED TELEMETRY - single log per tick
-      const telemetry = {
-        auth_state,
-        auth_session: {
-          present: !!sessionData,
-          user_id: sessionData?.user?.id || null,
-          expires_at: sessionData ? new Date(sessionData.expires_at! * 1000).toISOString() : null
-        },
-        strategy_state,
-        strategy_count,
-        testMode,
-        market_data_age_ms,
-        reasons
-      };
-      
-      console.log('🔍 ENGINE_TICK_TELEMETRY', telemetry);
-      
-      // Stash telemetry globally for debug access
-      window.__engineLastTelemetry = telemetry;
-      
-      // Early exits - only exit if truly cannot proceed
-      if (!user || loading) {
-        console.log('❌ ENGINE_EARLY_EXIT', { reason: 'auth_not_ready', user: !!user, loading });
-        window.__engineLastTelemetry = telemetry;
-        return telemetry;
-      }
-      
-      // Remove test mode check - allow execution in both test and prod mode
-      // if (!testMode) {
-      //   console.log('❌ ENGINE_EARLY_EXIT', { reason: 'not_in_test_mode' });
-      //   return telemetry;
-      // }
-      
-      if (!strategies?.length) {
-        console.log('❌ ENGINE_EARLY_EXIT', { reason: 'no_active_strategies', count: strategies?.length || 0 });
-        window.__engineLastTelemetry = telemetry;
-        return telemetry;
-      }
-      
-      console.log('✅ ENGINE_CONDITIONS_MET - proceeding with strategy execution');
+    if (!testMode) {
+      engineLog('TEST MODE IS OFF! You need to enable Test Mode to use the trading engine!');
+      return;
+    }
 
-      // Get market data ONLY for strategy coins (scoped, max 3 symbols)
+    try {
+      engineLog('INTELLIGENT_ENGINE: Starting comprehensive strategy check');
+      
+      // Fetch active strategies
+      const { data: strategies, error } = await supabase
+        .from('trading_strategies')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('is_active_test', true);
+
+      if (error || !strategies?.length) {
+        engineLog('ENGINE: No active strategies found:', error);
+        return;
+      }
+
+      // Get market data for all coins
       const allCoins = new Set<string>();
       strategies.forEach(strategy => {
         const config = strategy.configuration as any;
-        const selectedCoins = config?.selectedCoins || [];
-        if (selectedCoins.length === 0) {
-          console.error('[Engine] No selectedCoins in strategy, skipping');
-          return;
-        }
-        // Cap at 3 symbols maximum per strategy
-        selectedCoins.slice(0, 3).forEach((coin: string) => allCoins.add(`${coin}-EUR`));
+        const selectedCoins = config?.selectedCoins || getAllSymbols().slice(0, 3); // Use central list as fallback
+        selectedCoins.forEach((coin: string) => allCoins.add(`${coin}-EUR`));
       });
       
-      if (allCoins.size === 0) {
-        console.error('[Engine] No coins selected in any strategy, early exit');
-        window.__engineLastTelemetry = { ...telemetry, reasons: [...telemetry.reasons, 'no_selected_coins'] };
-        return telemetry;
-      }
-      
-      const symbolsToFetch = Array.from(allCoins).slice(0, 3); // Global cap at 3 symbols
+      const symbolsToFetch = Array.from(allCoins);
       const currentMarketData = Object.keys(marketData).length > 0 ? marketData : await getCurrentData(symbolsToFetch);
       
       // Process each strategy with comprehensive logic
       for (const strategy of strategies) {
         await processStrategyComprehensively(strategy, currentMarketData);
       }
-      
-      // Success path - return telemetry
-      window.__engineLastTelemetry = telemetry;
-      return telemetry;
     } catch (error) {
       console.error('❌ ENGINE: Error in comprehensive strategy check:', error);
-      window.__engineLastTelemetry = telemetry;
-      return telemetry;
-    } finally {
-      isRunningRef.current = false;
     }
   };
 
@@ -385,36 +232,35 @@ export const useIntelligentTradingEngine = () => {
   };
 
   const getSellDecision = async (config: any, position: Position, currentPrice: number, pnlPercentage: number, hoursSincePurchase: number): Promise<{reason: string, orderType?: string} | null> => {
-    engineLog('SELL DECISION DEBUG: Routing through unified coordinator for ' + position.cryptocurrency + ' price: ' + currentPrice + ' P&L: ' + pnlPercentage + '%');
+    engineLog('SELL DECISION DEBUG: Checking sell conditions for ' + position.cryptocurrency + ' price: ' + currentPrice + ' P&L: ' + pnlPercentage + '%');
     
-    // UNIFIED PATH: Route ALL sell decisions through the trading-decision-coordinator
-    // This eliminates direct SELL execution and ensures position-aware exit guards
-    
-    // 1. AUTO CLOSE AFTER HOURS (highest precedence - still route through coordinator)
+    // 1. AUTO CLOSE AFTER HOURS (overrides everything)
     if (config.autoCloseAfterHours && hoursSincePurchase >= config.autoCloseAfterHours) {
-      engineLog('SELL DECISION: AUTO CLOSE TRIGGERED - routing through coordinator');
+      engineLog('SELL DECISION: AUTO CLOSE TRIGGERED - ' + hoursSincePurchase + ' >= ' + config.autoCloseAfterHours);
       return { reason: 'AUTO_CLOSE_TIME', orderType: 'market' };
     }
 
-    // 2. STOP LOSS CHECK (bracket precedence - route through coordinator)
+    // 2. STOP LOSS CHECK
     if (config.stopLossPercentage && pnlPercentage <= -Math.abs(config.stopLossPercentage)) {
-      engineLog('SELL DECISION: STOP LOSS TRIGGERED - routing through coordinator');
+      engineLog('SELL DECISION: STOP LOSS TRIGGERED - ' + pnlPercentage + ' <= ' + (-Math.abs(config.stopLossPercentage)));
       return { 
         reason: 'STOP_LOSS', 
         orderType: config.sellOrderType || 'market' 
       };
     }
 
-    // 3. TAKE PROFIT CHECK (bracket precedence - route through coordinator)
+    // 3. TAKE PROFIT CHECK
     if (config.takeProfitPercentage && pnlPercentage >= config.takeProfitPercentage) {
-      engineLog('SELL DECISION: TAKE PROFIT TRIGGERED - routing through coordinator');
+      engineLog('SELL DECISION: TAKE PROFIT TRIGGERED - ' + pnlPercentage + ' >= ' + config.takeProfitPercentage);
       return { 
         reason: 'TAKE_PROFIT', 
         orderType: config.sellOrderType || 'market' 
       };
     }
 
-    // 4. TRAILING STOP LOSS (route through coordinator)
+    engineLog('SELL DECISION: NO SELL CONDITIONS MET - keeping position open');
+
+    // 4. TRAILING STOP LOSS
     if (config.trailingStopLossPercentage) {
       const trailingStopTriggered = await checkTrailingStopLoss(config, position, currentPrice, pnlPercentage);
       if (trailingStopTriggered) {
@@ -425,26 +271,7 @@ export const useIntelligentTradingEngine = () => {
       }
     }
 
-    // 5. AI FUSION EXIT EVALUATION (route through coordinator)
-    const { isAIFusionEnabled } = await import('@/utils/aiConfigHelpers');
-    if (isAIFusionEnabled(config)) {
-      const fusionResult = await evaluateSignalFusion(
-        { id: 'current-strategy', configuration: config },
-        position.cryptocurrency,
-        'SELL'
-      );
-      
-      // Only route fusion exits through coordinator (no direct execution)
-      if (fusionResult.decision === 'EXIT') {
-        engineLog('SELL DECISION: AI FUSION EXIT - routing through coordinator');
-        return {
-          reason: 'AI_FUSION_EXIT',
-          orderType: config.sellOrderType || 'market'
-        };
-      }
-    }
-
-    // 6. LEGACY TECHNICAL SIGNALS (route through coordinator, no direct execution)
+    // 5. TECHNICAL INDICATOR SELL SIGNALS
     if (await checkTechnicalSellSignals(config, position.cryptocurrency, currentPrice)) {
       return { 
         reason: 'TECHNICAL_SIGNAL', 
@@ -455,153 +282,11 @@ export const useIntelligentTradingEngine = () => {
     return null;
   };
 
-  // Utility: normalize fusion output to [0..1] hold confidence for decision consistency
-  const toHoldConfidence = (fusionOutput: any): number => {
-    if (typeof fusionOutput?.score === 'number') {
-      // Already [0..1]
-      return Math.max(0, Math.min(1, fusionOutput.score));
-    }
-    if (typeof fusionOutput?.signed === 'number') {
-      // signed ∈ [-1..+1] → holdConfidence ∈ [0..1]
-      // +1 = very bullish (hold), -1 = very bearish (exit)
-      return (fusionOutput.signed + 1) / 2;
-    }
-    if (fusionOutput?.direction) {
-      // If only direction is known, treat neutral
-      return 0.5;
-    }
-    return 0.5; // neutral default
-  };
-
   const executeSellOrder = async (strategy: any, position: Position, marketPrice: number, sellDecision: {reason: string, orderType?: string}) => {
     try {
-      // UNIFIED PATH: Route ALL sell executions through trading-decision-coordinator
-      engineLog('UNIFIED SELL: Routing through coordinator - ' + position.cryptocurrency + ' reason: ' + sellDecision.reason);
-      
-      const tradeIntent = {
-        userId: user!.id,
-        strategyId: strategy.id,
-        symbol: position.cryptocurrency.replace('-EUR', ''), // Use base symbol
-        side: 'SELL' as const,
-        source: 'automated' as const,
-        // Let coordinator compute confidence
-        reason: sellDecision.reason,
-        qtySuggested: position.remaining_amount,
-        metadata: {
-          position_management: true,
-          entry_price: position.average_price,
-          current_price: marketPrice,
-          gain_percentage: ((marketPrice - position.average_price) / position.average_price) * 100,
-          position_id: `${user!.id}_${position.cryptocurrency}_${position.oldest_purchase_date}`
-        },
-        ts: new Date().toISOString()
-      };
-
-      // Use new standardized coordinator format with direct fetch
-      const coordinatorPayload = {
-        side: 'sell',
-        symbol: position.cryptocurrency.replace('-EUR', '').toUpperCase(),
-        amount: position.remaining_amount,
-        price: marketPrice,
-        strategy_id: strategy.id,
-        mode: testMode ? 'test' : 'prod',
-        reasonOverride: sellDecision.reason
-      };
-      
-      console.log('🎯 COORDINATOR: Sending SELL request', coordinatorPayload);
-      
-      // Get auth token for coordinator - wait for auth to be ready
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      
-      if (!token) {
-        throw new Error('No auth token available for coordinator request');
-      }
-      
-      const coordUrl = 'https://fuieplftlcxdfkxyqzlt.functions.supabase.co/trading-decision-coordinator';
-      
-      const response = await fetch(coordUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(coordinatorPayload)
-      });
-      
-      const result = await response.json();
-      console.log('🎯 COORDINATOR: Response', { status: response.status, result });
-      
-      // Handle new error response format
-      if (!response.ok || !result?.ok) {
-        const errorData = result || { stage: 'network', reason: 'request_failed' };
-        throw new Error(`Coordinator ${errorData.stage} error: ${errorData.error || errorData.reason}`);
-      }
-
-      const decision = result?.decision;
-      engineLog('UNIFIED SELL: Coordinator decision - ' + decision?.action + ' reason: ' + decision?.reason);
-      
-      console.error('[COORD_DECISION]', result);
-      
-      if (decision?.action === 'SELL') {
-        console.error('[SELL EXECUTED]', { 
-          symbol: position.cryptocurrency, 
-          qty: position.remaining_amount, 
-          price: marketPrice,
-          reason: decision?.reason || 'coordinator_decision'
-        });
-        engineLog('✅ UNIFIED SELL: Position exit executed via coordinator');
-      } else {
-        console.error('[SELL DEFERRED]', { 
-          symbol: position.cryptocurrency, 
-          reason: decision?.reason || 'coordinator_blocked'
-        });
-        engineLog('⚠️ UNIFIED SELL: Position exit blocked by coordinator - ' + decision?.reason);
-      }
+      await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason);
     } catch (error) {
-      logger.error('ENGINE: Error routing sell through coordinator:', error);
-      try {
-        // Fallback: Execute direct mock trade if coordinator fails in test mode
-        if (testMode) {
-          console.error('[COORD_FALLBACK_DIRECT_EXECUTION]', { symbol: position.cryptocurrency, error: error.message });
-          engineLog('⚠️ SELL COORDINATOR FAILED: Executing direct fallback trade');
-          
-          // Direct fallback execution
-          try {
-            const { data, error: insertError } = await supabase.from('mock_trades').insert({
-              strategy_id: strategy.id,
-              user_id: user!.id,
-              trade_type: 'sell',
-              cryptocurrency: position.cryptocurrency.replace('-EUR', ''),
-              amount: position.remaining_amount,
-              price: marketPrice,
-              total_value: position.remaining_amount * marketPrice,
-              fees: 0,
-              strategy_trigger: 'COORDINATOR_FALLBACK',
-              notes: sellDecision.reason,
-              is_test_mode: true,
-              profit_loss: ((marketPrice - position.average_price) / position.average_price) * 100,
-              executed_at: new Date().toISOString(),
-            }).select();
-
-            if (!insertError && data?.[0]) {
-              console.error('[SELL EXECUTED]', { 
-                symbol: position.cryptocurrency, 
-                qty: position.remaining_amount, 
-                price: marketPrice,
-                reason: 'fallback_direct'
-              });
-              engineLog('✅ FALLBACK SELL: Direct execution completed');
-            }
-          } catch (directError) {
-            engineLog('❌ FALLBACK SELL: Direct execution failed - ' + directError.message);
-          }
-        } else {
-          throw error; // Don't fallback in production
-        }
-      } catch (fallbackError) {
-        logger.error('ENGINE: Fallback sell execution also failed:', fallbackError);
-      }
+      logger.error('ENGINE: Error in executeTrade:', error);
     }
   };
 
@@ -704,8 +389,8 @@ export const useIntelligentTradingEngine = () => {
       const adjustedScore = Math.max(-1, Math.min(1, sTotalScore - conflictPenalty));
       
       // Hysteresis: Different thresholds for enter vs exit
-      const enterThreshold = fusionConfig.enterThreshold || DEFAULT_VALUES.ENTER_THRESHOLD;
-      const exitThreshold = fusionConfig.exitThreshold || DEFAULT_VALUES.EXIT_THRESHOLD;
+      const enterThreshold = fusionConfig.enterThreshold || 0.65;
+      const exitThreshold = fusionConfig.exitThreshold || 0.35;
       
       let decision: 'ENTER' | 'EXIT' | 'HOLD' | 'DEFER' = 'HOLD';
       let reason = 'low_signal_confidence';
@@ -748,22 +433,20 @@ export const useIntelligentTradingEngine = () => {
     }
   };
   
-  // Context Gates Implementation - use bus instead of direct calls
+  // Context Gates Implementation
   const checkSpreadGate = async (symbol: string, maxSpreadBps: number): Promise<{ blocked: boolean; spreadBps: number }> => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
       const pairSymbol = `${baseSymbol}-EUR`;
       
-      // Use the bus instead of direct fetch
-      const priceResults = await getPrices([pairSymbol]);
-      const priceData = priceResults[pairSymbol];
+      const response = await fetch(`https://api.exchange.coinbase.com/products/${pairSymbol}/ticker`);
+      const data = await response.json();
       
-      if (priceData && priceData.price) {
-        // Mock spread calculation - in real scenario we'd need bid/ask from the bus
-        // For now, assume a small spread around the mid price
-        const mid = priceData.price;
-        const spread = mid * 0.001; // 0.1% spread assumption
-        const spreadBps = (spread / mid) * 10000;
+      if (response.ok && data.bid && data.ask) {
+        const bid = parseFloat(data.bid);
+        const ask = parseFloat(data.ask);
+        const mid = (bid + ask) / 2;
+        const spreadBps = ((ask - bid) / mid) * 10000; // Convert to basis points
         
         return {
           blocked: spreadBps > maxSpreadBps,
@@ -783,14 +466,17 @@ export const useIntelligentTradingEngine = () => {
       const baseSymbol = symbol.replace('-EUR', '');
       const pairSymbol = `${baseSymbol}-EUR`;
       
-      // Use the bus instead of direct book fetch - simplified depth check
-      const priceResults = await getPrices([pairSymbol]);
-      const priceData = priceResults[pairSymbol];
+      const response = await fetch(`https://api.exchange.coinbase.com/products/${pairSymbol}/book?level=2`);
+      const data = await response.json();
       
-      if (priceData && priceData.price) {
-        // Simplified depth check - assume good liquidity if price available
-        // In real scenario we'd need actual orderbook depth from API
-        const depthRatio = 0.8; // Mock good depth ratio
+      if (response.ok && data.bids && data.asks) {
+        // Calculate simple depth metric: ratio of top 5 levels total volume
+        const bidDepth = data.bids.slice(0, 5).reduce((sum: number, bid: any) => sum + parseFloat(bid[1]), 0);
+        const askDepth = data.asks.slice(0, 5).reduce((sum: number, ask: any) => sum + parseFloat(ask[1]), 0);
+        
+        const totalDepth = bidDepth + askDepth;
+        const averageDepth = totalDepth / 2;
+        const depthRatio = averageDepth > 0 ? Math.min(bidDepth, askDepth) / averageDepth : 0;
         
         return {
           blocked: depthRatio < minDepthRatio,
@@ -902,34 +588,25 @@ export const useIntelligentTradingEngine = () => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
       
-      // UNIFIED PATH: Include MA momentum signals (routed from technical generator)
+      // Use existing live_signals for momentum indicators
       const { data: momentum } = await supabase
         .from('live_signals')
         .select('*')
         .eq('symbol', baseSymbol)
-        .in('signal_type', [
-          'ma_momentum_bullish', 'ma_momentum_bearish', 'ma_momentum_neutral', // UNIFIED: MA routes through momentum bucket
-          'momentum_bullish', 'momentum_bearish', 
-          'rsi_oversold', 'rsi_overbought',
-          'price_breakout_bullish', 'price_breakout_bearish'
-        ])
-        .gte('timestamp', new Date(Date.now() - 900000).toISOString()) // Last 15 min
+        .in('signal_type', ['momentum_bullish', 'momentum_bearish', 'rsi_oversold', 'rsi_overbought'])
         .order('timestamp', { ascending: false })
-        .limit(10);
+        .limit(5);
       
       if (!momentum || momentum.length === 0) return 0;
       
       let momentumScore = 0;
       momentum.forEach((signal, index) => {
         const weight = 1 / (index + 1);
-        const strength = (signal.signal_strength || 0) / 100; // Normalize to [0,1]
+        const strength = signal.signal_strength || 0;
         
-        // MA momentum and other bullish signals
         if (signal.signal_type.includes('bullish') || signal.signal_type === 'rsi_oversold') {
           momentumScore += side === 'BUY' ? weight * strength : -weight * strength;
-        } 
-        // MA momentum and other bearish signals  
-        else if (signal.signal_type.includes('bearish') || signal.signal_type === 'rsi_overbought') {
+        } else if (signal.signal_type.includes('bearish') || signal.signal_type === 'rsi_overbought') {
           momentumScore += side === 'SELL' ? weight * strength : -weight * strength;
         }
       });
@@ -1100,15 +777,11 @@ export const useIntelligentTradingEngine = () => {
         }
       };
       
-      try {
-        await supabase
-          .from('trade_decisions_log')
-          .insert(snapshot);
-        
-        console.log('📊 DECISION SNAPSHOT:', JSON.stringify(snapshot, null, 2));
-      } catch (logError) {
-        console.warn('[trade_decisions_log soft-fail]', logError);
-      }
+      await supabase
+        .from('trade_decisions_log')
+        .insert(snapshot);
+      
+      console.log('📊 DECISION SNAPSHOT:', JSON.stringify(snapshot, null, 2));
       
     } catch (error) {
       console.error('❌ DECISION SNAPSHOT: Failed to log:', error);
@@ -1222,9 +895,7 @@ export const useIntelligentTradingEngine = () => {
       if (!currentData) continue;
 
       // Skip if already have position in this coin (unless DCA enabled)
-      // Normalize both sides for comparison (positions stored without -EUR)
-      const base = symbol.replace('-EUR','');
-      const hasPosition = positions.some(p => p.cryptocurrency.replace('-EUR','') === base);
+      const hasPosition = positions.some(p => p.cryptocurrency === symbol);
       if (hasPosition && !config.enableDCA) {
         continue;
       }
@@ -1575,7 +1246,7 @@ export const useIntelligentTradingEngine = () => {
 
     engineLog('POSITIONS: Starting position calculation for user: ' + user.id);
 
-    const { data: buyTrades, error: buyError } = await supabase
+    const { data: buyTrades } = await supabase
       .from('mock_trades')
       .select('*')
       .eq('user_id', user.id)
@@ -1583,24 +1254,12 @@ export const useIntelligentTradingEngine = () => {
       .eq('is_test_mode', true)
       .order('executed_at', { ascending: true });
 
-    if (buyError) {
-      console.error('🧩 POSTGREST_500_BUY_TRADES', {
-        code: buyError.code, message: buyError.message, details: buyError.details, hint: buyError.hint
-      });
-    }
-
-    const { data: sellTrades, error: sellError } = await supabase
+    const { data: sellTrades } = await supabase
       .from('mock_trades')
       .select('*')
       .eq('user_id', user.id)
       .eq('trade_type', 'sell')
       .eq('is_test_mode', true);
-
-    if (sellError) {
-      console.error('🧩 POSTGREST_500_SELL_TRADES', {
-        code: sellError.code, message: sellError.message, details: sellError.details, hint: sellError.hint
-      });
-    }
 
     engineLog('POSITIONS: Buy trades found: ' + (buyTrades?.length || 0));
     engineLog('POSITIONS: Sell trades found: ' + (sellTrades?.length || 0));
@@ -1736,23 +1395,24 @@ export const useIntelligentTradingEngine = () => {
       console.log('✅ SCALPSMART: Signal fusion approved -', fusionResult.reason, 'Score:', fusionResult.sTotalScore);
     }
     
+    // Use coordinator if unified decisions enabled, otherwise direct execution
+    const shouldUseCoordinator = strategy?.unified_config?.enableUnifiedDecisions;
+    
     if (!user?.id) {
       console.error('❌ ENGINE: Cannot execute trade - no authenticated user');
       return;
     }
 
-    // Check if strategy has unified decisions enabled - use consistent path
+    // Check if strategy has unified decisions enabled
     const unifiedConfig = strategy?.configuration?.unifiedConfig || { enableUnifiedDecisions: false };
     
     if (unifiedConfig.enableUnifiedDecisions) {
       // NEW: Emit intent to coordinator
-      console.log('🎯 INTELLIGENT: Using unified decision system - calling coordinator');
-      console.log('🎯 INTELLIGENT: emitTradeIntentToCoordinator params:', { action, cryptocurrency, price, customAmount, trigger });
+      console.log('🎯 INTELLIGENT: Using unified decision system');
       return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger);
     } else {
       // Legacy direct execution (backward compatibility)
       console.log('🔄 INTELLIGENT: Unified decisions disabled, executing trade directly');
-      console.log('🔄 INTELLIGENT: executeTradeDirectly params:', { action, cryptocurrency, price, customAmount, trigger });
       return await executeTradeDirectly(strategy, action, cryptocurrency, price, customAmount, trigger);
     }
   };
@@ -1787,80 +1447,27 @@ export const useIntelligentTradingEngine = () => {
         ts: new Date().toISOString()
       };
 
-      console.log('🎯 COORD_INTENT_SENT', { symbol: intent.symbol, side: intent.side });
+      console.log('🎯 INTELLIGENT: Emitting intent to coordinator:', JSON.stringify(intent, null, 2));
 
-      console.log('🌐 INTELLIGENT: About to call trading-decision-coordinator edge function...');
       const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
         body: { intent }
       });
 
-      // New: raw error surfacing
+      // Handle Supabase client errors (network, auth, etc.)
       if (error) {
-        console.error('❌ COORD_ERR_RAW', {
-          name: error.name,
-          status: (error as any).status ?? 'unknown',
-          message: error.message,
-          context: (error as any).context,
-        });
-        // Fallback in test mode so pipeline still inserts
-        if (strategy?.configuration?.testMode ?? true) {
-          console.warn('🛟 COORD_FALLBACK_DIRECT_EXECUTION');
-          return await executeTradeDirectly(strategy, action, cryptocurrency, price, customAmount, `${trigger || ''}|COORD_500_FALLBACK`);
-        }
+        console.error('❌ INTELLIGENT: Coordinator call failed:', error);
+        Toast.error(`Network error processing ${action} for ${cryptocurrency}: ${error.message}`);
         return;
       }
 
-      console.log('✅ EDGE_FN_RESPONSE_OK');
-
+      // Handle coordinator responses
       if (!decision) {
-        console.error('❌ COORD_NO_DECISION');
-        if (strategy?.configuration?.testMode ?? true) {
-          console.warn('🛟 COORD_FALLBACK_DIRECT_EXECUTION_NO_DECISION');
-          return await executeTradeDirectly(strategy, action, cryptocurrency, price, customAmount, `${trigger || ''}|COORD_EMPTY_FALLBACK`);
-        }
+        console.error('❌ INTELLIGENT: No decision returned from coordinator');
+        Toast.error(`No response from trading coordinator for ${action} on ${cryptocurrency}`);
         return;
       }
 
-      // Normalize decision payload - accept both { decision: {...} } or {...}
-      const dec = (decision?.decision ?? decision) as any;
-      const rawAction = dec?.action;
-      const normalizedAction = rawAction === 'ENTER' ? 'BUY' : rawAction === 'EXIT' ? 'SELL' : rawAction;
-
-      const approvedPrice = Number(dec?.price ?? price);
-      const approvedQty = Number(dec?.qtyApproved ?? intent.qtySuggested);
-
-      if (approvedPrice <= 0 || approvedQty <= 0 || !Number.isFinite(approvedPrice) || !Number.isFinite(approvedQty)) {
-        console.log('🚧 COORD_DECISION_INVALID', { rawAction, approvedPrice, approvedQty, intent });
-        return;
-      }
-
-      console.log('📋 COORD_DECISION', { action: normalizedAction, reason: dec?.reason, qtyApproved: approvedQty, price: approvedPrice });
-
-      if (normalizedAction === 'BUY' || normalizedAction === 'SELL') {
-        const normalized = cryptocurrency.replace('-EUR','');
-        const trade = {
-          strategy_id: strategy.id,
-          user_id: user!.id,
-          trade_type: normalizedAction.toLowerCase(), // 'buy' | 'sell'
-          cryptocurrency: normalized,
-          amount: approvedQty,
-          price: approvedPrice,
-          total_value: approvedQty * approvedPrice,
-          strategy_trigger: dec?.reason || `COORDINATOR_${normalizedAction}`
-        };
-
-        console.log('🔄 TRADE_INSERT_ATTEMPT', trade);
-        try {
-          await recordTrade(trade);
-          console.log('✅ TRADE_INSERT_OK', { symbol: normalized, qty: approvedQty, price: approvedPrice, action: normalizedAction });
-        } catch (e: any) {
-          console.log('❌ TRADE_INSERT_ERR', {
-            code: e?.code, message: e?.message, details: e?.details, hint: e?.hint
-          });
-        }
-      } else {
-        console.log('🚫 COORD_REJECTED_OR_DEFERRED', { action: rawAction, reason: dec?.reason });
-      }
+      console.log('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
 
       // STEP 1: Use standardized coordinator toast handler
       // Toast handling removed - silent mode
@@ -2068,9 +1675,9 @@ export const useIntelligentTradingEngine = () => {
       };
     } else {
       // Fixed percentage with risk/reward enforcement
-      const stopLossPct = brackets.stopLossPctWhenNotAtr || DEFAULT_VALUES.STOP_LOSS_PCT;
-      const takeProfitPct = brackets.takeProfitPct || DEFAULT_VALUES.TAKE_PROFIT_PCT;
-      const minTpSlRatio = brackets.minTpSlRatio || DEFAULT_VALUES.BRACKET_POLICY.minTpSlRatio;
+      const stopLossPct = brackets.stopLossPctWhenNotAtr || 0.40;
+      const takeProfitPct = brackets.takeProfitPct || 0.65;
+      const minTpSlRatio = brackets.minTpSlRatio || 1.2;
       
       // Enforce minimum TP/SL ratio
       const enforcedTP = Math.max(takeProfitPct, stopLossPct * minTpSlRatio);
@@ -2082,15 +1689,6 @@ export const useIntelligentTradingEngine = () => {
       };
     }
   };
-
-  // Wire dev helper to window for quick console use (dev only)
-  useEffect(() => {
-    if (import.meta.env.DEV && typeof window !== 'undefined') {
-      (window as any).__devTopUpCoverage = devTopUpCoverage;
-      // usage in console:
-      // await __devTopUpCoverage({ strategyId:'5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e', base:'BTC', amount:0.06, price:30000 })
-    }
-  }, []);
 
   // Hook effect
   // Remove console spam

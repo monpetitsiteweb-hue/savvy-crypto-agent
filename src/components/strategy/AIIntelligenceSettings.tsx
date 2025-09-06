@@ -8,8 +8,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { Brain, Info, AlertTriangle, TrendingUp, Eye, Zap } from 'lucide-react';
-import { DEFAULT_VALUES } from '@/utils/configDefaults';
-import { detectPreset } from '@/utils/aiConfigHelpers';
 
 export interface AIIntelligenceConfig {
   // Core AI Settings
@@ -87,31 +85,50 @@ interface AIIntelligenceSettingsProps {
 
 const defaultConfig: AIIntelligenceConfig = {
   enableAIOverride: false,
-  autonomy: { level: DEFAULT_VALUES.AUTONOMY_LEVEL },
+  autonomy: { level: 25 },
   
   features: {
     fusion: {
       enabled: false,
-      weights: DEFAULT_VALUES.FUSION_WEIGHTS,
-      enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
-      exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
-      conflictPenalty: DEFAULT_VALUES.CONFLICT_PENALTY
+      weights: {
+        trend: 0.25,
+        volatility: 0.20,
+        momentum: 0.25,
+        whale: 0.15,
+        sentiment: 0.15
+      },
+      enterThreshold: 0.65,
+      exitThreshold: 0.35,
+      conflictPenalty: 0.30
     },
     contextGates: {
-      spreadThresholdBps: DEFAULT_VALUES.SPREAD_THRESHOLD_BPS,
-      minDepthRatio: DEFAULT_VALUES.MIN_DEPTH_RATIO,
-      whaleConflictWindowMs: DEFAULT_VALUES.WHALE_CONFLICT_WINDOW_MS
+      spreadThresholdBps: 12,
+      minDepthRatio: 3.0,
+      whaleConflictWindowMs: 300000
     },
-    bracketPolicy: DEFAULT_VALUES.BRACKET_POLICY,
+    bracketPolicy: {
+      atrScaled: false,
+      stopLossPctWhenNotAtr: 0.40,
+      trailBufferPct: 0.40,
+      enforceRiskReward: true,
+      minTpSlRatio: 1.2,
+      atrMultipliers: {
+        tp: 2.6,
+        sl: 2.0
+      }
+    },
     overridesPolicy: {
       allowedKeys: ["tpPct", "slPct", "enterThreshold", "exitThreshold"],
-      bounds: DEFAULT_VALUES.OVERRIDE_BOUNDS,
-      ttlMs: DEFAULT_VALUES.OVERRIDE_TTL_MS
+      bounds: {
+        slPct: [0.15, 1.00],
+        tpOverSlMin: 1.2
+      },
+      ttlMs: 900000
     }
   },
   
   // Legacy defaults
-  aiConfidenceThreshold: DEFAULT_VALUES.CONFIDENCE_THRESHOLD,
+  aiConfidenceThreshold: 70,
   enablePatternRecognition: true,
   patternLookbackHours: 24,
   crossAssetCorrelation: false,
@@ -183,83 +200,41 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
     conservative: {
       name: "Conservative",
       fusion: { ...defaultConfig.features.fusion, enabled: false },
-      contextGates: { 
-        ...defaultConfig.features.contextGates, 
-        spreadThresholdBps: DEFAULT_VALUES.PRESETS.CONSERVATIVE.SPREAD_THRESHOLD_BPS, 
-        minDepthRatio: DEFAULT_VALUES.PRESETS.CONSERVATIVE.MIN_DEPTH_RATIO 
-      }
+      contextGates: { ...defaultConfig.features.contextGates, spreadThresholdBps: 8, minDepthRatio: 4.0 }
     },
     microScalp: {
       name: "Micro-Scalp 0.5%", // Formerly ScalpSmart
       fusion: { 
         enabled: true,
-        weights: DEFAULT_VALUES.FUSION_WEIGHTS,
-        enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
-        exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
-        conflictPenalty: DEFAULT_VALUES.CONFLICT_PENALTY
+        weights: { trend: 0.25, volatility: 0.20, momentum: 0.25, whale: 0.15, sentiment: 0.15 },
+        enterThreshold: 0.65,
+        exitThreshold: 0.35,
+        conflictPenalty: 0.30
       },
-      contextGates: { 
-        spreadThresholdBps: DEFAULT_VALUES.SPREAD_THRESHOLD_BPS, 
-        minDepthRatio: DEFAULT_VALUES.MIN_DEPTH_RATIO, 
-        whaleConflictWindowMs: DEFAULT_VALUES.WHALE_CONFLICT_WINDOW_MS 
-      }
+      contextGates: { spreadThresholdBps: 12, minDepthRatio: 3.0, whaleConflictWindowMs: 300000 }
     },
     aggressive: {
       name: "Aggressive Growth",
       fusion: {
         enabled: true,
-        weights: DEFAULT_VALUES.PRESETS.AGGRESSIVE.FUSION_WEIGHTS,
-        enterThreshold: DEFAULT_VALUES.PRESETS.AGGRESSIVE.ENTER_THRESHOLD,
-        exitThreshold: DEFAULT_VALUES.PRESETS.AGGRESSIVE.EXIT_THRESHOLD,
-        conflictPenalty: DEFAULT_VALUES.PRESETS.AGGRESSIVE.CONFLICT_PENALTY
+        weights: { trend: 0.30, volatility: 0.15, momentum: 0.30, whale: 0.10, sentiment: 0.15 },
+        enterThreshold: 0.55,
+        exitThreshold: 0.25,
+        conflictPenalty: 0.20
       },
-      contextGates: { 
-        spreadThresholdBps: DEFAULT_VALUES.PRESETS.AGGRESSIVE.SPREAD_THRESHOLD_BPS, 
-        minDepthRatio: DEFAULT_VALUES.PRESETS.AGGRESSIVE.MIN_DEPTH_RATIO, 
-        whaleConflictWindowMs: DEFAULT_VALUES.PRESETS.AGGRESSIVE.WHALE_CONFLICT_WINDOW_MS 
-      }
+      contextGates: { spreadThresholdBps: 18, minDepthRatio: 2.5, whaleConflictWindowMs: 180000 }
     }
   };
 
   const applyPreset = (presetKey: keyof typeof presets) => {
     const preset = presets[presetKey];
-    
-    // Apply the complete preset configuration to aiIntelligenceConfig
-    const updatedConfig: AIIntelligenceConfig = {
-      ...config,
-      enableAIOverride: true, // Enable AI when applying preset
+    updateConfig({
       features: {
-        ...config.features, // Preserve existing features (including overridesPolicy)
-        fusion: {
-          ...config.features.fusion,
-          ...preset.fusion
-        },
-        contextGates: {
-          ...config.features.contextGates,
-          ...preset.contextGates
-        },
-        // Apply bracket policy from preset if it exists (for micro-scalp)
-        ...(presetKey === 'microScalp' && {
-          bracketPolicy: {
-            ...config.features.bracketPolicy, // Preserve existing bracketPolicy
-            ...DEFAULT_VALUES.BRACKET_POLICY
-          }
-        })
-        // Note: overridesPolicy is preserved via spread operator above
+        ...config.features,
+        fusion: preset.fusion,
+        contextGates: preset.contextGates
       }
-    };
-    
-    // Debug logging
-    console.log(`[AIPreset] Applying preset "${presetKey}":`, {
-      preset,
-      updatedConfig: updatedConfig.features
     });
-    
-    updateConfig(updatedConfig);
-  };
-
-  const getCurrentPreset = (): string => {
-    return detectPreset(config);
   };
 
   const getDecisionModeDescription = (mode: string) => {
@@ -274,7 +249,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
   return (
     <div className="space-y-6">
       {/* AI Core Settings */}
-      <Card data-testid="ai-intelligence-section">
+      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Brain className="h-5 w-5" />
@@ -291,7 +266,6 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
             </TooltipField>
             <Switch
               id="ai-override"
-              data-testid="ai-override-switch"
               checked={config.enableAIOverride}
               onCheckedChange={(value) => updateConfig({ enableAIOverride: value })}
             />
@@ -323,21 +297,16 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                   description="Select a predefined AI configuration preset or customize your own settings below."
                   examples={["Use conservative settings", "Apply micro-scalp preset", "Set to aggressive mode"]}
                 >
-                   <Label>AI Preset</Label>
+                  <Label>AI Preset</Label>
                 </TooltipField>
-                <Select 
-                  value={getCurrentPreset()}
-                  onValueChange={(value) => value !== 'custom' && applyPreset(value as keyof typeof presets)}
-                  data-testid="ai-preset-select"
-                >
+                <Select onValueChange={(value) => applyPreset(value as keyof typeof presets)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose preset..." />
                   </SelectTrigger>
                   <SelectContent>
                     {Object.entries(presets).map(([key, preset]) => (
-                      <SelectItem key={key} value={key} data-value={key}>{preset.name}</SelectItem>
+                      <SelectItem key={key} value={key}>{preset.name}</SelectItem>
                     ))}
-                    <SelectItem value="custom" disabled>Custom (modified)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -365,7 +334,6 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
             </TooltipField>
             <Switch
               id="fusion-enabled"
-              data-testid="fusion-enabled-switch"
               checked={config.features.fusion.enabled}
               onCheckedChange={(value) => updateConfig({ 
                 features: { ...config.features, fusion: { ...config.features.fusion, enabled: value } }
@@ -404,10 +372,8 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               {/* Thresholds */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label data-testid="enter-threshold-label">Enter Threshold: {config.features.fusion.enterThreshold}</Label>
+                  <Label>Enter Threshold: {config.features.fusion.enterThreshold}</Label>
                   <Slider
-                    data-testid="enter-threshold-slider"
-                    data-value={config.features.fusion.enterThreshold}
                     value={[config.features.fusion.enterThreshold]}
                     onValueChange={([value]) => updateConfig({
                       features: {
@@ -422,10 +388,8 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label data-testid="exit-threshold-label">Exit Threshold: {config.features.fusion.exitThreshold}</Label>
+                  <Label>Exit Threshold: {config.features.fusion.exitThreshold}</Label>
                   <Slider
-                    data-testid="exit-threshold-slider"
-                    data-value={config.features.fusion.exitThreshold}
                     value={[config.features.fusion.exitThreshold]}
                     onValueChange={([value]) => updateConfig({
                       features: {
@@ -446,10 +410,8 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 <Label className="text-base font-medium">Context Gates (Market Filters)</Label>
                 
                 <div className="space-y-2">
-                  <Label data-testid="spread-threshold-label">Max Spread (BPS): {config.features.contextGates.spreadThresholdBps}</Label>
+                  <Label>Max Spread (BPS): {config.features.contextGates.spreadThresholdBps}</Label>
                   <Slider
-                    data-testid="spread-threshold-slider"
-                    data-value={config.features.contextGates.spreadThresholdBps}
                     value={[config.features.contextGates.spreadThresholdBps]}
                     onValueChange={([value]) => updateConfig({
                       features: {
@@ -465,10 +427,8 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 </div>
 
                 <div className="space-y-2">
-                  <Label data-testid="min-depth-ratio-label">Min Depth Ratio: {config.features.contextGates.minDepthRatio}</Label>
+                  <Label>Min Depth Ratio: {config.features.contextGates.minDepthRatio}</Label>
                   <Slider
-                    data-testid="min-depth-ratio-slider"
-                    data-value={config.features.contextGates.minDepthRatio}
                     value={[config.features.contextGates.minDepthRatio]}
                     onValueChange={([value]) => updateConfig({
                       features: {

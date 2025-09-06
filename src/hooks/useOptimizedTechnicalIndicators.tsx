@@ -43,55 +43,13 @@ const fetchCachedIndicators = async (): Promise<Record<string, IndicatorValues>>
 
   try {
     // Try to get cached indicators first (should be instant)
-    let cachedData;
-    let cacheError;
-    
-    try {
-      const { data, error } = await supabase
-        .from('price_data_with_indicators')
-        .select('symbol, metadata, timestamp')
-        .in('symbol', SYMBOLS)
-        .order('timestamp', { ascending: false })
-        .limit(SYMBOLS.length);
-      
-      cachedData = data;
-      cacheError = error;
-    } catch (error) {
-      console.error('[PostgREST price_data error - strict query failed, using fallback]', error);
-      
-      // Fallback: query without the has_indicators filter and filter client-side
-      try {
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from('price_data_with_indicators')
-          .select('symbol, metadata, timestamp')
-          .in('symbol', SYMBOLS)
-          .order('timestamp', { ascending: false })
-          .limit(SYMBOLS.length * 3); // Get more rows for client-side filtering
-        
-        if (fallbackData) {
-          cachedData = fallbackData.filter(row => 
-            row.metadata && 
-            typeof row.metadata === 'object' && 
-            'indicators' in row.metadata && 
-            row.metadata.indicators != null
-          ).slice(0, SYMBOLS.length);
-        }
-        cacheError = fallbackError;
-      } catch (fallbackError) {
-        console.error('[PostgREST price_data error - fallback also failed]', fallbackError);
-        cachedData = [];
-        cacheError = fallbackError;
-      }
-    }
-
-    if (cacheError) {
-      console.error('[PostgREST price_data error]', { 
-        code: cacheError.code, 
-        message: cacheError.message, 
-        details: cacheError.details, 
-        hint: cacheError.hint 
-      });
-    }
+    const { data: cachedData } = await supabase
+      .from('price_data')
+      .select('symbol, metadata')
+      .in('symbol', SYMBOLS)
+      .not('metadata->indicators', 'is', null)
+      .order('timestamp', { ascending: false })
+      .limit(SYMBOLS.length);
 
     const cacheTime = performance.now();
     console.log(`⚡ Cache query took: ${cacheTime - startTime}ms, found ${cachedData?.length || 0} cached indicators`);
@@ -140,7 +98,7 @@ const calculateFreshIndicators = async (existingCache: Record<string, IndicatorV
     const pricePromises = missingSymbols.map(async (symbol) => {
       const queryStart = performance.now();
       const { data } = await supabase
-        .from('price_data_with_indicators')
+        .from('price_data')
         .select('symbol, close_price, timestamp')
         .eq('symbol', symbol)
         .order('timestamp', { ascending: false })

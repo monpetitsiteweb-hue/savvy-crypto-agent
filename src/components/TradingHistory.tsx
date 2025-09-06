@@ -223,12 +223,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         .eq('user_id', user.id)
         .order('executed_at', { ascending: false });
 
-      if (error) {
-        console.error('🧩 POSTGREST_500_RECENT_TRADES', {
-          code: error.code, message: error.message, details: error.details, hint: error.hint
-        });
-        throw error;
-      }
+      if (error) throw error;
 
       setTrades(data || []);
 
@@ -329,30 +324,23 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       }
 
       // Create sell trade record
-      // UNIFIED PATH: Route manual sell through coordinator
-      const tradeIntent = {
-        userId: user!.id,
-        strategyId: trade.strategy_id,
-        symbol: toBaseSymbol(trade.cryptocurrency),
-        side: 'SELL' as const,
-        source: 'manual' as const,
-        reason: 'manual_sell_from_history',
-        qtySuggested: trade.amount,
-        metadata: {
-          manual_sell: true,
-          entry_price: trade.price,
-          current_price: currentPrice,
-          position_management: true
-        }
+      const sellTrade = {
+        user_id: user.id,
+        trade_type: 'sell',
+        cryptocurrency: trade.cryptocurrency,
+        amount: trade.amount,
+        price: currentPrice,
+        total_value: trade.amount * currentPrice,
+        strategy_id: trade.strategy_id,
+        is_test_mode: testMode,
+        notes: 'Manual sell from Trading History'
       };
 
-      const response = await supabase.functions.invoke('trading-decision-coordinator', {
-        body: { intent: tradeIntent }
-      });
+      const { error } = await supabase
+        .from('mock_trades')
+        .insert([sellTrade]);
 
-      if (response.error) {
-        throw new Error(`Coordinator error: ${response.error.message}`);
-      }
+      if (error) throw error;
 
       // Refresh trading history to show updated positions
       fetchTradingHistory();

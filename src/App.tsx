@@ -6,17 +6,11 @@ import { TestModeProvider } from "@/hooks/useTestMode";
 import { MockWalletProvider } from "@/hooks/useMockWallet";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MarketDataProvider } from "@/contexts/MarketDataContext";
-import { installCoinbaseFetchShim } from "@/boot/coinbaseFetchShim";
-import "@/boot/errorTap";
-import EngineBoot from "@/components/EngineBoot";
 import Index from "./pages/Index";
 import AdminPage from "./pages/AdminPage";
 import ProfilePage from "./pages/ProfilePage";
 import ValidationPage from "./pages/ValidationPage";
 import NotFound from "./pages/NotFound";
-
-// Install fetch shim to intercept any remaining direct Coinbase calls
-installCoinbaseFetchShim();
 
 // Step 5: Parent key scanner (prod-safe, default OFF)
 const RUNTIME_DEBUG =
@@ -48,7 +42,6 @@ function AppInternal() {
           <MarketDataProvider>
             <MockWalletProvider>
               <ErrorBoundary>
-                <EngineBoot />
                 <BrowserRouter>
                   <Routes>
                     <Route path="/" element={<Index />} />
