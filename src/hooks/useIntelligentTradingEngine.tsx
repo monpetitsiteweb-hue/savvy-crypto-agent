@@ -15,6 +15,13 @@ import { BaseSymbol } from '@/utils/symbols';
 import { getPrices } from '@/services/CoinbasePriceBus';
 import { devTopUpCoverage } from '@/engine/engineDevTools';
 
+// Wire dev helper to window for quick console use
+if (typeof window !== 'undefined') {
+  (window as any).__devTopUpCoverage = devTopUpCoverage;
+  // usage in console:
+  // await __devTopUpCoverage({ strategyId:'5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e', base:'BTC', amount:0.06, price:30000 })
+}
+
 declare global {
   interface Window {
     __engineLastTelemetry?: any;
