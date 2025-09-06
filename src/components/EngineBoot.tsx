@@ -107,7 +107,7 @@ export default function EngineBoot() {
       priceDataProbe: async () => {
         console.error('[EngineAPI] priceDataProbe called');
         try {
-          const { data, error } = await supabase.from('price_data').select('symbol').limit(1);
+          const { data, error } = await supabase.from('price_data_with_indicators').select('symbol').limit(1);
           const out = { ok: !error, data, error };
           console.error('[PriceDataProbe]', out);
           return out;
@@ -205,10 +205,9 @@ export default function EngineBoot() {
         try {
           // Try strict query first
           const { data: strictData, error: strictError } = await supabase
-            .from('price_data')
+            .from('price_data_with_indicators')
             .select('symbol, metadata, timestamp')
             .in('symbol', ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'])
-            .not('metadata->>indicators', 'is', null)
             .order('timestamp', { ascending: false })
             .limit(3);
 
@@ -222,7 +221,7 @@ export default function EngineBoot() {
             
             // Try fallback query
             const { data: fallbackData, error: fallbackError } = await supabase
-              .from('price_data')
+              .from('price_data_with_indicators')
               .select('symbol, metadata, timestamp')
               .in('symbol', ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'])
               .order('timestamp', { ascending: false })

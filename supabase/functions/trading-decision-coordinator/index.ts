@@ -50,9 +50,9 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    const payload = decodeJWT(token);
+    const jwtPayload = decodeJWT(token);
     
-    if (!payload?.sub) {
+    if (!jwtPayload?.sub) {
       return new Response(JSON.stringify({
         ok: false,
         stage: 'auth',
@@ -64,7 +64,7 @@ serve(async (req) => {
       });
     }
 
-    const userId = payload.sub;
+    const userId = jwtPayload.sub;
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',

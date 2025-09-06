@@ -139,7 +139,7 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
         const pricePromises = symbols.map(async (symbol) => {
           const queryStart = performance.now();
           const { data } = await supabase
-            .from('price_data')
+            .from('price_data_with_indicators')
             .select('symbol, close_price, timestamp')
             .eq('symbol', symbol)
             .order('timestamp', { ascending: false })
