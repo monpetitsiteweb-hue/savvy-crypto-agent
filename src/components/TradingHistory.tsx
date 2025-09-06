@@ -127,13 +127,25 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         realized_pnl_pct: trade.realized_pnl_pct
       });
       
+      // Calculate P&L if missing from database
+      let gainLoss = pastPosition.realizedPnL;
+      let gainLossPercentage = pastPosition.realizedPnLPct;
+      
+      if (gainLoss === null && pastPosition.exitValue !== null && pastPosition.purchaseValue !== null) {
+        gainLoss = pastPosition.exitValue - pastPosition.purchaseValue;
+      }
+      
+      if (gainLossPercentage === null && gainLoss !== null && pastPosition.purchaseValue !== null && pastPosition.purchaseValue > 0) {
+        gainLossPercentage = (gainLoss / pastPosition.purchaseValue) * 100;
+      }
+      
       return {
         currentPrice: pastPosition.exitPrice,
         currentValue: pastPosition.exitValue,
         purchaseValue: pastPosition.purchaseValue,
         purchasePrice: pastPosition.entryPrice,
-        gainLoss: pastPosition.realizedPnL,
-        gainLossPercentage: pastPosition.realizedPnLPct,
+        gainLoss: gainLoss,
+        gainLossPercentage: gainLossPercentage,
         isAutomatedWithoutPnL: false
       };
     }
