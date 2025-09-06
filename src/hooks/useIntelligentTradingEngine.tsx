@@ -46,6 +46,8 @@ interface TradingState {
 }
 
 export const useIntelligentTradingEngine = () => {
+  console.log('🚀 ENGINE HOOK INITIALIZATION - START');
+  
   const { testMode } = useTestMode();
   const { user, loading } = useAuth();
   const { updateBalance, getBalance } = useMockWallet();
@@ -90,20 +92,21 @@ export const useIntelligentTradingEngine = () => {
 
     const startEngine = async () => {
       try {
+        console.log('📅 ENGINE_AUTH_WAIT_START - checking auth readiness');
         await waitForAuthReady();
         console.log('📅 ENGINE_AUTH_READY - starting ticks');
         
         initialTimer = setTimeout(() => {
-          console.log('⏰ ENGINE_INITIAL_TICK');
+          console.log('⏰ ENGINE_INITIAL_TICK - starting first tick');
           checkStrategiesAndExecute();
         }, 1000);
         
         interval = setInterval(() => {
-          console.log('⏰ ENGINE_RECURRING_TICK');
+          console.log('⏰ ENGINE_RECURRING_TICK - running scheduled tick');
           checkStrategiesAndExecute();
         }, 30000);
       } catch (error) {
-        console.log('⚠️ ENGINE_AUTH_TIMEOUT', error);
+        console.log('⚠️ ENGINE_AUTH_TIMEOUT - failed to get auth ready:', error);
       }
     };
 
@@ -494,7 +497,7 @@ export const useIntelligentTradingEngine = () => {
         ts: new Date().toISOString()
       };
 
-      // Use new standardized coordinator format
+      // Use new standardized coordinator format with direct fetch
       const coordinatorPayload = {
         side: 'sell',
         symbol: position.cryptocurrency.replace('-EUR', '').toUpperCase(),
@@ -505,20 +508,40 @@ export const useIntelligentTradingEngine = () => {
         reasonOverride: sellDecision.reason
       };
       
-      const response = await supabase.functions.invoke('trading-decision-coordinator', {
-        body: coordinatorPayload
+      console.log('🎯 COORDINATOR: Sending SELL request', coordinatorPayload);
+      
+      // Get auth token for coordinator
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      if (!token) {
+        throw new Error('No auth token available for coordinator request');
+      }
+      
+      const coordUrl = 'https://fuieplftlcxdfkxyqzlt.functions.supabase.co/trading-decision-coordinator';
+      
+      const response = await fetch(coordUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(coordinatorPayload)
       });
-
+      
+      const result = await response.json();
+      console.log('🎯 COORDINATOR: Response', result);
+      
       // Handle new error response format
-      if (response.error || !response.data?.ok) {
-        const errorData = response.data || { stage: 'network', reason: 'request_failed' };
+      if (!response.ok || !result?.ok) {
+        const errorData = result || { stage: 'network', reason: 'request_failed' };
         throw new Error(`Coordinator ${errorData.stage} error: ${errorData.error || errorData.reason}`);
       }
 
-      const decision = response.data?.decision;
+      const decision = result?.decision;
       engineLog('UNIFIED SELL: Coordinator decision - ' + decision?.action + ' reason: ' + decision?.reason);
       
-      console.error('[COORD_DECISION]', response.data);
+      console.error('[COORD_DECISION]', result);
       
       if (decision?.action === 'SELL') {
         console.error('[SELL EXECUTED]', { 
