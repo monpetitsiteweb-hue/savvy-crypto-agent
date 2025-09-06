@@ -419,14 +419,19 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <p className="text-muted-foreground">Amount</p>
-            <p className="font-medium">{trade.amount.toFixed(8)}</p>
+            <p className="font-medium">
+              {trade.trade_type === 'sell' 
+                ? (trade.original_purchase_amount || trade.amount).toFixed(8)
+                : trade.amount.toFixed(8)
+              }
+            </p>
           </div>
           
           <div>
-            <p className="text-muted-foreground">
-              {trade.trade_type === 'buy' ? 'Purchase Price' : 'Average Purchase Price'}
+            <p className="text-muted-foreground">Purchase Price</p>
+            <p className="font-medium">
+              {formatEuro(performance.purchasePrice || trade.price)}
             </p>
-            <p className="font-medium">{formatEuro(performance.purchasePrice || performance.currentPrice)}</p>
           </div>
           
           <div>
@@ -458,10 +463,19 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           )}
           
           {trade.trade_type === 'sell' && (
-            <div>
-              <p className="text-muted-foreground">Exit Value</p>
-              <p className="font-medium">{formatEuro(performance.currentValue)}</p>
-            </div>
+            <>
+              <div>
+                <p className="text-muted-foreground">Exit Price</p>
+                <p className="font-medium">{formatEuro(performance.currentPrice || trade.price)}</p>
+              </div>
+              
+              <div>
+                <p className="text-muted-foreground">Exit Value</p>
+                <p className="font-medium">
+                  {formatEuro(performance.currentValue || trade.exit_value || (trade.amount * trade.price))}
+                </p>
+              </div>
+            </>
           )}
           
           {performance.gainLoss !== null && performance.gainLossPercentage !== null && (
