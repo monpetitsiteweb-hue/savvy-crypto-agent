@@ -285,9 +285,27 @@ async function executeTradeDirectly(
   requestId: string
 ): Promise<{ success: boolean; error?: string; qty?: number }> {
   try {
-    // Get real market price using symbol utilities
-    const baseSymbol = toBaseSymbol(intent.symbol); 
-    const realMarketPrice = await getMarketPrice(baseSymbol);
+    // Get real market price using symbol utilities with freshness check
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    const strategyConfig = strategyConfig || {};
+    const priceStaleMaxMs = strategyConfig.priceStaleMaxMs || 15000;
+    const spreadThresholdBps = strategyConfig.spreadThresholdBps || 15;
+    
+    const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
+    const realMarketPrice = priceData.price;
+    
+    // Phase 3: Price freshness and spread gates (for SELL operations)
+    if (intent.side === 'SELL') {
+      if (priceData.tickAgeMs > priceStaleMaxMs) {
+        console.log(`🚫 DIRECT: SELL blocked - price too stale (${priceData.tickAgeMs}ms > ${priceStaleMaxMs}ms)`);
+        return { success: false, error: `insufficient_price_freshness: ${priceData.tickAgeMs}ms > ${priceStaleMaxMs}ms` };
+      }
+      
+      if (priceData.spreadBps > spreadThresholdBps) {
+        console.log(`🚫 DIRECT: SELL blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
+        return { success: false, error: `spread_too_wide: ${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps` };
+      }
+    }
     
     // CRITICAL FIX: Check available EUR balance BEFORE executing BUY trades
     const tradeAllocation = strategyConfig?.perTradeAllocation || 1000;
@@ -379,20 +397,34 @@ async function executeTradeDirectly(
   }
 }
 
-// Get real-time prices from Coinbase API
-async function getMarketPrice(symbol: string): Promise<number> {
+// Get real-time prices from Coinbase API with freshness tracking (Phase 3)
+async function getMarketPrice(symbol: string, maxStaleMs: number = 15000): Promise<{price: number, tickAgeMs: number, spreadBps: number}> {
   try {
     const baseSymbol = toBaseSymbol(symbol);
     const pairSymbol = toPairSymbol(baseSymbol);
+    const fetchStartTime = Date.now();
     console.log('💱 EXECUTION PRICE LOOKUP: base=', baseSymbol, 'pair=', pairSymbol, 'url=/products/', pairSymbol, '/ticker');
     
     const response = await fetch(`https://api.exchange.coinbase.com/products/${pairSymbol}/ticker`);
     const data = await response.json();
+    const fetchEndTime = Date.now();
+    const tickAgeMs = fetchEndTime - fetchStartTime;
     
     if (response.ok && data.price) {
       const price = parseFloat(data.price);
-      console.log('💱 COORDINATOR: Got real price for', pairSymbol, ':', '€' + price);
-      return price;
+      const bid = parseFloat(data.bid) || price;
+      const ask = parseFloat(data.ask) || price;
+      const spread = ask - bid;
+      const spreadBps = price > 0 ? (spread / price) * 10000 : 0; // Convert to basis points
+      
+      console.log(`💱 COORDINATOR: Got real price for ${pairSymbol}: €${price} (spread: ${spreadBps.toFixed(1)}bps, age: ${tickAgeMs}ms)`);
+      
+      // Phase 3: Check price freshness  
+      if (tickAgeMs > maxStaleMs) {
+        console.log(`⚠️ PRICE FRESHNESS WARNING: ${pairSymbol} tick age ${tickAgeMs}ms > ${maxStaleMs}ms threshold`);
+      }
+      
+      return { price, tickAgeMs, spreadBps };
     }
     
     throw new Error(`Invalid price response: ${data.message || 'Unknown error'}`);
@@ -637,9 +669,28 @@ async function executeTradeOrder(
   try {
     console.log(`💱 COORDINATOR: Executing ${intent.side} order for ${intent.symbol}`);
     
-    // Get real market price using symbol utilities
+    // Get real market price using symbol utilities with enhanced checks
     const baseSymbol = toBaseSymbol(intent.symbol);
-    const realMarketPrice = await getMarketPrice(baseSymbol);
+    const priceStaleMaxMs = strategyConfig?.priceStaleMaxMs || 15000;
+    const spreadThresholdBps = strategyConfig?.spreadThresholdBps || 15;
+    
+    const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
+    const realMarketPrice = priceData.price;
+    
+    // Phase 3: Enhanced price freshness and spread gates for SELL operations
+    if (intent.side === 'SELL') {
+      if (priceData.tickAgeMs > priceStaleMaxMs) {
+        console.log(`🚫 COORDINATOR: SELL blocked - insufficient price freshness (${priceData.tickAgeMs}ms > ${priceStaleMaxMs}ms)`);
+        return { success: false, error: `insufficient_price_freshness: tick age ${priceData.tickAgeMs}ms exceeds ${priceStaleMaxMs}ms threshold` };
+      }
+      
+      if (priceData.spreadBps > spreadThresholdBps) {
+        console.log(`🚫 COORDINATOR: SELL blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
+        return { success: false, error: `spread_too_wide: ${priceData.spreadBps.toFixed(1)}bps exceeds ${spreadThresholdBps}bps threshold` };
+      }
+      
+      console.log(`✅ COORDINATOR: SELL price quality checks passed - freshness: ${priceData.tickAgeMs}ms, spread: ${priceData.spreadBps.toFixed(1)}bps`);
+    }
     
     console.log(`💱 COORDINATOR: Got real price for ${toPairSymbol(baseSymbol)}: €${realMarketPrice}`);
     

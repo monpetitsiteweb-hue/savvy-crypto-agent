@@ -231,34 +231,89 @@ export const useIntelligentTradingEngine = () => {
     }
   };
 
-  const getSellDecision = async (config: any, position: Position, currentPrice: number, pnlPercentage: number, hoursSincePurchase: number): Promise<{reason: string, orderType?: string} | null> => {
-    engineLog('SELL DECISION DEBUG: Checking sell conditions for ' + position.cryptocurrency + ' price: ' + currentPrice + ' P&L: ' + pnlPercentage + '%');
+  const getSellDecision = async (config: any, position: Position, currentPrice: number, pnlPercentage: number, hoursSincePurchase: number): Promise<{reason: string, orderType?: string, decisionData?: any} | null> => {
+    const positionAgeMs = Date.now() - new Date(position.oldest_purchase_date).getTime();
+    const timeSinceLastActionMs = Date.now() - new Date(position.oldest_purchase_date).getTime(); // Simplified for now
     
+    // Read strategy config with safe defaults (Phase 2)
+    const minHoldPeriodMs = config.minHoldPeriodMs || DEFAULT_VALUES.OVERRIDE_TTL_MS / 3; // 5 min default
+    const cooldownBetweenOppositeActionsMs = config.cooldownBetweenOppositeActionsMs || 180000; // 3 min default
+    const spreadThresholdBps = config.spreadThresholdBps || 15; // 0.15% default
+    const priceStaleMaxMs = config.priceStaleMaxMs || 15000; // 15s default
+    const epsilonPnLBufferPct = config.epsilonPnLBufferPct || 0.03; // 0.03% buffer
+    
+    // Phase 1: Structured logging with canonical decision tracking
+    const logContext = {
+      symbol: position.cryptocurrency,
+      positionAgeMs,
+      timeSinceLastActionMs,
+      pnlPct: pnlPercentage,
+      currentPrice,
+      entryPrice: position.average_price,
+      spreadBps: 0, // Will be calculated
+      lastTickAgeMs: 0, // Fresh price for now
+      reasonChosen: 'evaluating'
+    };
+    
+    engineLog('SELL DECISION DEBUG: Enhanced evaluation', logContext);
+    
+    // Phase 4: Hold period check (hard block)
+    if (positionAgeMs < minHoldPeriodMs) {
+      logContext.reasonChosen = 'hold_min_period_not_met';
+      engineLog('SELL DECISION: BLOCKED - Hold period not met', { 
+        required: minHoldPeriodMs, 
+        actual: positionAgeMs,
+        ...logContext 
+      });
+      
+      // Log to trade_decisions_log
+      try {
+        await supabase.from('trade_decisions_log').insert({
+          user_id: user?.id,
+          strategy_id: config.strategyId,
+          symbol: position.cryptocurrency,
+          decision_type: 'sell_blocked',
+          decision_reason: 'hold_min_period_not_met',
+          metadata: logContext
+        });
+      } catch (e) { /* Silent fail on logging */ }
+      
+      return null;
+    }
+
     // 1. AUTO CLOSE AFTER HOURS (overrides everything)
     if (config.autoCloseAfterHours && hoursSincePurchase >= config.autoCloseAfterHours) {
-      engineLog('SELL DECISION: AUTO CLOSE TRIGGERED - ' + hoursSincePurchase + ' >= ' + config.autoCloseAfterHours);
-      return { reason: 'AUTO_CLOSE_TIME', orderType: 'market' };
+      logContext.reasonChosen = 'auto_close_time_hit';
+      engineLog('SELL DECISION: AUTO CLOSE TRIGGERED - ' + hoursSincePurchase + ' >= ' + config.autoCloseAfterHours, logContext);
+      return { reason: 'AUTO_CLOSE_TIME', orderType: 'market', decisionData: logContext };
     }
 
-    // 2. STOP LOSS CHECK
-    if (config.stopLossPercentage && pnlPercentage <= -Math.abs(config.stopLossPercentage)) {
-      engineLog('SELL DECISION: STOP LOSS TRIGGERED - ' + pnlPercentage + ' <= ' + (-Math.abs(config.stopLossPercentage)));
+    // 2. STOP LOSS CHECK with epsilon buffer (Phase 5)
+    const adjustedStopLoss = Math.abs(config.stopLossPercentage || 0) + epsilonPnLBufferPct;
+    if (config.stopLossPercentage && pnlPercentage <= -adjustedStopLoss) {
+      logContext.reasonChosen = 'sl_hit';
+      engineLog('SELL DECISION: STOP LOSS TRIGGERED with buffer - ' + pnlPercentage + ' <= ' + (-adjustedStopLoss), logContext);
       return { 
         reason: 'STOP_LOSS', 
-        orderType: config.sellOrderType || 'market' 
+        orderType: config.sellOrderType || 'market',
+        decisionData: logContext
       };
     }
 
-    // 3. TAKE PROFIT CHECK
-    if (config.takeProfitPercentage && pnlPercentage >= config.takeProfitPercentage) {
-      engineLog('SELL DECISION: TAKE PROFIT TRIGGERED - ' + pnlPercentage + ' >= ' + config.takeProfitPercentage);
+    // 3. TAKE PROFIT CHECK with epsilon buffer (Phase 5)
+    const adjustedTakeProfit = (config.takeProfitPercentage || 0) + epsilonPnLBufferPct;
+    if (config.takeProfitPercentage && pnlPercentage >= adjustedTakeProfit) {
+      logContext.reasonChosen = 'tp_hit';
+      engineLog('SELL DECISION: TAKE PROFIT TRIGGERED with buffer - ' + pnlPercentage + ' >= ' + adjustedTakeProfit, logContext);
       return { 
         reason: 'TAKE_PROFIT', 
-        orderType: config.sellOrderType || 'market' 
+        orderType: config.sellOrderType || 'market',
+        decisionData: logContext
       };
     }
 
-    engineLog('SELL DECISION: NO SELL CONDITIONS MET - keeping position open');
+    logContext.reasonChosen = 'no_exit_conditions_met';
+    engineLog('SELL DECISION: NO SELL CONDITIONS MET - keeping position open', logContext);
 
     // 4. TRAILING STOP LOSS
     if (config.trailingStopLossPercentage) {
