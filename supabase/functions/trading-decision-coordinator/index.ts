@@ -424,7 +424,7 @@ async function executeTradeDirectly(
       executed_at: new Date().toISOString(),
       is_test_mode: true,
       notes: `Direct path: UD=OFF`,
-      strategy_trigger: `direct_${intent.source}`
+      strategy_trigger: `direct_${intent.source}|req:${requestId}`
     };
 
     const { error } = await supabaseClient
@@ -680,7 +680,7 @@ async function executeWithMinimalLock(
     console.log(`🔒 COORDINATOR: Minimal lock acquired - executing atomic section`);
 
     // ATOMIC SECTION: Execute trade with real price data
-    const executionResult = await executeTradeOrder(supabaseClient, intent, strategyConfig, priceData);
+    const executionResult = await executeTradeOrder(supabaseClient, intent, strategyConfig, requestId, priceData);
     
     if (executionResult.success) {
       console.log(`🎯 UD_MODE=ON → EXECUTE: action=${intent.side} symbol=${intent.symbol} lock=OK`);
@@ -740,6 +740,7 @@ async function executeTradeOrder(
   supabaseClient: any,
   intent: TradeIntent,
   strategyConfig: any,
+  requestId: string,
   priceData?: { price: number; tickAgeMs: number; spreadBps: number }
 ): Promise<{ success: boolean; error?: string; qty?: number }> {
   
@@ -828,7 +829,7 @@ async function executeTradeOrder(
       executed_at: new Date().toISOString(),
       is_test_mode: true,
       notes: `Coordinator: UD=ON`,
-      strategy_trigger: `coord_${intent.source}`
+      strategy_trigger: `coord_${intent.source}|req:${requestId}`
     };
 
     const { error } = await supabaseClient
