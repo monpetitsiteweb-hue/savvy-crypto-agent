@@ -396,7 +396,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     const isLoss = (performance.gainLoss || 0) < 0;
 
     return (
-      <Card className="p-4 hover:shadow-md transition-shadow">
+      <Card className="p-4 hover:shadow-md transition-shadow" data-testid="past-position-card">
         {trade.is_corrupted && (
           <TooltipProvider>
             <Tooltip>
@@ -441,9 +441,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           
           <div>
             <p className="text-muted-foreground">Purchase Price</p>
-            <p className="font-medium">
+            <p className="font-medium" data-testid="purchase-price">
               {trade.trade_type === 'sell' 
-                ? formatEuro(trade.original_purchase_price || trade.price)
+                ? formatEuro(performance.purchasePrice || 0)
                 : formatEuro(trade.price)
               }
             </p>
@@ -481,7 +481,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             <>
               <div>
                 <p className="text-muted-foreground">Exit Price</p>
-                <p className="font-medium">{formatEuro(trade.price)}</p>
+                <p className="font-medium" data-testid="exit-price">{formatEuro(performance.currentPrice || trade.price)}</p>
               </div>
               
               <div>
@@ -494,13 +494,13 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           )}
           
           {trade.trade_type === 'sell' ? (
-            <div>
-              <p className="text-muted-foreground">P&L (€)</p>
-              <p className={`font-medium ${
-                (trade.realized_pnl || 0) > 0 ? 'text-emerald-600' : 
-                (trade.realized_pnl || 0) < -0.01 ? 'text-red-600' : ''
-              }`}>
-                {formatEuro(trade.realized_pnl || 0)}
+              <div>
+                <p className="text-muted-foreground">P&L (€)</p>
+                <p className={`font-medium ${
+                  (performance.gainLoss || 0) > 0 ? 'text-emerald-600' : 
+                (performance.gainLoss || 0) < -0.01 ? 'text-red-600' : ''
+              }`} data-testid="realized-pnl">
+                {formatEuro(performance.gainLoss || 0)}
               </p>
             </div>
           ) : performance.gainLoss !== null && performance.gainLossPercentage !== null && (
@@ -691,7 +691,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             <ArrowUpRight className="w-4 h-4" />
             Open Positions ({openPositions.length})
           </TabsTrigger>
-          <TabsTrigger value="past" className="flex items-center gap-2">
+          <TabsTrigger value="past" className="flex items-center gap-2" data-testid="past-positions-tab">
             <ArrowDownLeft className="w-4 h-4" />
             Past Positions ({pastPositions.length})
           </TabsTrigger>
@@ -751,7 +751,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         <TabsContent value="past" className="mt-4">
           {pastPositions.length > 0 ? (
             <>
-              <div className="space-y-4">
+              <div className="space-y-4" data-testid="past-positions-list">
                 {paginatedPastPositions.map(trade => (
                   <TradeCard
                     key={trade.id}
