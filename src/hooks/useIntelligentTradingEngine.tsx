@@ -1508,7 +1508,8 @@ export const useIntelligentTradingEngine = () => {
           symbol_normalized: cryptocurrency.replace('-EUR', ''),
           trigger: trigger
         },
-        ts: new Date().toISOString()
+        ts: new Date().toISOString(),
+        idempotencyKey: `idem_${Math.floor(Date.now() / 1000)}_${Math.random().toString(36).substr(2, 9)}`
       };
 
       console.log('🎯 INTELLIGENT: Emitting intent to coordinator:', JSON.stringify(intent, null, 2));

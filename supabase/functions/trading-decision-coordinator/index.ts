@@ -296,6 +296,42 @@ async function executeTradeDirectly(
     const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
     const realMarketPrice = priceData.price;
     
+    // Phase 2: Hold period enforcement for ALL SELLs
+    if (intent.side === 'SELL') {
+      // Fetch the most recent BUY for the same user/strategy/symbol
+      const { data: recentBuys } = await supabaseClient
+        .from('mock_trades')
+        .select('executed_at')
+        .eq('user_id', intent.userId)
+        .eq('strategy_id', intent.strategyId)
+        .eq('cryptocurrency', baseSymbol)
+        .eq('trade_type', 'buy')
+        .order('executed_at', { ascending: false })
+        .limit(1);
+
+      if (recentBuys && recentBuys.length > 0) {
+        const lastBuyTime = new Date(recentBuys[0].executed_at).getTime();
+        const timeSinceBuy = Date.now() - lastBuyTime;
+        const minHoldPeriodMs = sc.minHoldPeriodMs || 300000; // 5 min default
+        
+        if (timeSinceBuy < minHoldPeriodMs) {
+          console.log(`🚫 DIRECT: SELL blocked - hold period not met (${timeSinceBuy}ms < ${minHoldPeriodMs}ms)`);
+          
+          // Log decision for consistency
+          const pseudoUnifiedConfig = {
+            enableUnifiedDecisions: false,
+            minHoldPeriodMs: sc.minHoldPeriodMs || 300000,
+            cooldownBetweenOppositeActionsMs: sc.cooldownBetweenOppositeActionsMs || 180000,
+            confidenceOverrideThreshold: 0.70
+          };
+          
+          await logDecisionAsync(supabaseClient, intent, 'DEFER', 'hold_min_period_not_met', pseudoUnifiedConfig, requestId);
+          
+          return { success: false, error: 'hold_min_period_not_met' };
+        }
+      }
+    }
+    
     // Phase 3: Price freshness and spread gates (for SELL operations)
     if (intent.side === 'SELL') {
       if (priceData.tickAgeMs > priceStaleMaxMs) {
@@ -639,6 +675,10 @@ async function executeWithMinimalLock(
     
     if (executionResult.success) {
       console.log(`🎯 UD_MODE=ON → EXECUTE: action=${intent.side} symbol=${intent.symbol} lock=OK`);
+      
+      // Log ENTER/EXIT on successful execution
+      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId);
+      
       return { action: intent.side as DecisionAction, reason: 'no_conflicts_detected', request_id: requestId, retry_in_ms: 0, qty: executionResult.qty };
     } else {
       console.error(`❌ UD_MODE=ON → EXECUTE FAILED: ${executionResult.error}`);
