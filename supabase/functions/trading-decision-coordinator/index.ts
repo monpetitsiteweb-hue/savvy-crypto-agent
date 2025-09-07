@@ -221,15 +221,24 @@ function generateRequestId(): string {
 
 // Generate idempotency key based on intent contents
 function generateIdempotencyKey(intent: TradeIntent): string {
+  // 1) If client provided one (FE buckets to seconds), use it.
+  if (intent.idempotencyKey) return intent.idempotencyKey;
+
+  // 2) Otherwise, bucket ts to seconds to avoid millisecond churn.
+  const tsSec =
+    intent.ts
+      ? Math.floor(new Date(intent.ts).getTime() / 1000).toString()
+      : Math.floor(Date.now() / 1000).toString();
+
   const normalized = {
     userId: intent.userId,
     strategyId: intent.strategyId,
     symbol: intent.symbol,
     side: intent.side,
     source: intent.source,
-    clientTs: intent.ts || Date.now().toString()
+    clientTs: tsSec
   };
-  
+
   const keyString = JSON.stringify(normalized);
   let hash = 0;
   for (let i = 0; i < keyString.length; i++) {
