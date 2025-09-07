@@ -36,13 +36,15 @@ type DecisionAction = "BUY" | "SELL" | "HOLD" | "DEFER";
 type Reason =
   | "unified_decisions_disabled_direct_path"
   | "no_conflicts_detected"
-  | "min_hold_period_not_met"
+  | "hold_min_period_not_met"
   | "blocked_by_cooldown"
   | "blocked_by_precedence:POOL_EXIT"
   | "queue_overload_defer"
   | "direct_execution_failed"
   | "internal_error"
   | "atomic_section_busy_defer"
+  | "insufficient_price_freshness"
+  | "spread_too_wide"
   | "blocked_by_spread"
   | "blocked_by_liquidity"
   | "blocked_by_whale_conflict";
@@ -149,8 +151,8 @@ serve(async (req) => {
       } else {
         console.error(`❌ UD_MODE=OFF → DIRECT EXECUTION FAILED: ${executionResult.error}`);
         // Log decision for audit (async, non-blocking)
-        logDecisionAsync(supabaseClient, intent, 'HOLD', 'direct_execution_failed', unifiedConfig, requestId);
-        return respond('HOLD', 'direct_execution_failed', requestId);
+        logDecisionAsync(supabaseClient, intent, 'DEFER', 'direct_execution_failed', unifiedConfig, requestId);
+        return respond('DEFER', 'direct_execution_failed', requestId);
       }
     }
 
@@ -179,11 +181,11 @@ serve(async (req) => {
       const conflictResult = await detectConflicts(supabaseClient, intent, unifiedConfig);
       
       if (conflictResult.hasConflict) {
-        console.log(`🎯 UD_MODE=ON → HOLD: reason=${conflictResult.reason} symbol=${intent.symbol}`);
-        cacheDecision(idempotencyKey, { action: 'HOLD', reason: conflictResult.reason as Reason, request_id: requestId, retry_in_ms: 0 });
-        logDecisionAsync(supabaseClient, intent, 'HOLD', conflictResult.reason as Reason, unifiedConfig, requestId);
+        console.log(`🎯 UD_MODE=ON → DEFER: reason=${conflictResult.reason} symbol=${intent.symbol}`);
+        cacheDecision(idempotencyKey, { action: 'DEFER', reason: conflictResult.reason as Reason, request_id: requestId, retry_in_ms: 0 });
+        logDecisionAsync(supabaseClient, intent, 'DEFER', conflictResult.reason as Reason, unifiedConfig, requestId);
         
-        return respond('HOLD', conflictResult.reason as Reason, requestId);
+        return respond('DEFER', conflictResult.reason as Reason, requestId);
       }
 
       // No conflicts - proceed with execution using advisory lock ONLY for atomic section
@@ -536,29 +538,26 @@ async function detectConflicts(
     return { hasConflict: false, reason: 'no_conflicts_detected' };
   }
 
-  // Check minimum hold period for technical sells
-  if (intent.source === 'automated' && intent.side === 'SELL' && intent.reason?.includes('technical')) {
+  // UNIVERSAL HOLD PERIOD CHECK - All SELL intents (first in order)
+  if (intent.side === 'SELL') {
     const lastBuy = trades.find(t => t.trade_type === 'buy');
     if (lastBuy) {
       const timeSinceBuy = Date.now() - new Date(lastBuy.executed_at).getTime();
-      if (timeSinceBuy < config.minHoldPeriodMs) {
-        return { hasConflict: true, reason: 'min_hold_period_not_met' };
+      const minHoldPeriodMs = config.minHoldPeriodMs || 300000; // 5 minutes default
+      
+      if (timeSinceBuy < minHoldPeriodMs) {
+        return { hasConflict: true, reason: 'hold_min_period_not_met' };
       }
     }
   }
 
-  // Check cooldown for opposite actions
+  // Check cooldown for opposite actions (no double penalty for automated BUYs)
   const oppositeAction = intent.side === 'BUY' ? 'sell' : 'buy';
   const recentOpposite = trades.find(t => t.trade_type === oppositeAction);
   
   if (recentOpposite) {
     const timeSinceOpposite = Date.now() - new Date(recentOpposite.executed_at).getTime();
-    let cooldownRequired = config.cooldownBetweenOppositeActionsMs;
-    
-    // Scheduler gets double cooldown
-    if (intent.source === 'automated' && intent.side === 'BUY') {
-      cooldownRequired *= 2;
-    }
+    const cooldownRequired = config.cooldownBetweenOppositeActionsMs;
     
     if (timeSinceOpposite < cooldownRequired) {
       // Check confidence override for high-confidence sources
@@ -588,6 +587,27 @@ async function executeWithMinimalLock(
   let lockAcquired = false;
   
   try {
+    // PRICE FRESHNESS AND SPREAD GATES (before acquiring lock)
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    const priceStaleMaxMs = strategyConfig?.priceStaleMaxMs || 15000; // DEFAULT_VALUES.PRICE_STALE_MAX_MS
+    const spreadThresholdBps = strategyConfig?.spreadThresholdBps || 15; // DEFAULT_VALUES.SPREAD_THRESHOLD_BPS
+    
+    const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
+    
+    // Price freshness gate
+    if (priceData.tickAgeMs > priceStaleMaxMs) {
+      console.log(`🚫 COORDINATOR: Trade blocked - insufficient price freshness (${priceData.tickAgeMs}ms > ${priceStaleMaxMs}ms)`);
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'insufficient_price_freshness', config, requestId);
+      return { action: 'DEFER', reason: 'insufficient_price_freshness', request_id: requestId, retry_in_ms: 0 };
+    }
+    
+    // Spread gate
+    if (priceData.spreadBps > spreadThresholdBps) {
+      console.log(`🚫 COORDINATOR: Trade blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'spread_too_wide', config, requestId);
+      return { action: 'DEFER', reason: 'spread_too_wide', request_id: requestId, retry_in_ms: 0 };
+    }
+    
     // Try to acquire lock with 300ms timeout
     console.log(`🔒 COORDINATOR: Acquiring minimal lock for atomic section: ${lockKey}`);
     
@@ -607,15 +627,15 @@ async function executeWithMinimalLock(
     lockAcquired = true;
     console.log(`🔒 COORDINATOR: Minimal lock acquired - executing atomic section`);
 
-    // ATOMIC SECTION: Get price and execute trade
-    const executionResult = await executeTradeOrder(supabaseClient, intent, strategyConfig);
+    // ATOMIC SECTION: Execute trade with real price data
+    const executionResult = await executeTradeOrder(supabaseClient, intent, strategyConfig, priceData);
     
     if (executionResult.success) {
       console.log(`🎯 UD_MODE=ON → EXECUTE: action=${intent.side} symbol=${intent.symbol} lock=OK`);
       return { action: intent.side as DecisionAction, reason: 'no_conflicts_detected', request_id: requestId, retry_in_ms: 0, qty: executionResult.qty };
     } else {
       console.error(`❌ UD_MODE=ON → EXECUTE FAILED: ${executionResult.error}`);
-      return { action: 'HOLD', reason: 'direct_execution_failed', request_id: requestId, retry_in_ms: 0 };
+      return { action: 'DEFER', reason: 'direct_execution_failed', request_id: requestId, retry_in_ms: 0 };
     }
 
   } finally {
@@ -663,36 +683,24 @@ async function getRecentTrades(supabaseClient: any, userId: string, strategyId: 
 async function executeTradeOrder(
   supabaseClient: any,
   intent: TradeIntent,
-  strategyConfig: any
+  strategyConfig: any,
+  priceData?: { price: number; tickAgeMs: number; spreadBps: number }
 ): Promise<{ success: boolean; error?: string; qty?: number }> {
   
   try {
     console.log(`💱 COORDINATOR: Executing ${intent.side} order for ${intent.symbol}`);
     
-    // Get real market price using symbol utilities with enhanced checks
-    const baseSymbol = toBaseSymbol(intent.symbol);
-    const priceStaleMaxMs = strategyConfig?.priceStaleMaxMs || 15000;
-    const spreadThresholdBps = strategyConfig?.spreadThresholdBps || 15;
-    
-    const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
-    const realMarketPrice = priceData.price;
-    
-    // Phase 3: Enhanced price freshness and spread gates for SELL operations
-    if (intent.side === 'SELL') {
-      if (priceData.tickAgeMs > priceStaleMaxMs) {
-        console.log(`🚫 COORDINATOR: SELL blocked - insufficient price freshness (${priceData.tickAgeMs}ms > ${priceStaleMaxMs}ms)`);
-        return { success: false, error: `insufficient_price_freshness: tick age ${priceData.tickAgeMs}ms exceeds ${priceStaleMaxMs}ms threshold` };
-      }
-      
-      if (priceData.spreadBps > spreadThresholdBps) {
-        console.log(`🚫 COORDINATOR: SELL blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
-        return { success: false, error: `spread_too_wide: ${priceData.spreadBps.toFixed(1)}bps exceeds ${spreadThresholdBps}bps threshold` };
-      }
-      
-      console.log(`✅ COORDINATOR: SELL price quality checks passed - freshness: ${priceData.tickAgeMs}ms, spread: ${priceData.spreadBps.toFixed(1)}bps`);
+    // Use provided price data or fetch new price
+    let realMarketPrice: number;
+    if (priceData) {
+      realMarketPrice = priceData.price;
+    } else {
+      const baseSymbol = toBaseSymbol(intent.symbol);
+      const marketPrice = await getMarketPrice(baseSymbol);
+      realMarketPrice = marketPrice.price;
     }
     
-    console.log(`💱 COORDINATOR: Got real price for ${toPairSymbol(baseSymbol)}: €${realMarketPrice}`);
+    console.log(`💱 COORDINATOR: Got real price for ${toPairSymbol(toBaseSymbol(intent.symbol))}: €${realMarketPrice}`);
     
     // CRITICAL FIX: Check available EUR balance BEFORE executing BUY trades
     let qty: number;

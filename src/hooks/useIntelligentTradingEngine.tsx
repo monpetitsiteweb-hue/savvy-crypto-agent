@@ -10,7 +10,7 @@ import { DEFAULT_VALUES } from '@/utils/configDefaults';
 import { engineLog } from '@/utils/silentLogger';
 import { logger } from '@/utils/logger';
 import { getAllSymbols } from '@/data/coinbaseCoins';
-import { checkMarketAvailability } from '@/utils/marketAvailability';
+import { checkMarketAvailability, filterSupportedSymbols } from '@/utils/marketAvailability';
 
 interface Position {
   cryptocurrency: string;
@@ -121,8 +121,11 @@ export const useIntelligentTradingEngine = () => {
       const allCoins = new Set<string>();
       strategies.forEach(strategy => {
         const config = strategy.configuration as any;
-        const selectedCoins = config?.selectedCoins || getAllSymbols().slice(0, 3); // Use central list as fallback
-        selectedCoins.forEach((coin: string) => allCoins.add(`${coin}-EUR`));
+        const selectedCoins = config?.selectedCoins || [];
+        const coinsToUse = selectedCoins.length > 0 
+          ? selectedCoins 
+          : filterSupportedSymbols(getAllSymbols()).slice(0, 3); // Use filtered fallback
+        coinsToUse.forEach((coin: string) => allCoins.add(`${coin}-EUR`));
       });
       
       const symbolsToFetch = Array.from(allCoins);
@@ -923,7 +926,10 @@ export const useIntelligentTradingEngine = () => {
     }
 
     // Get coins to analyze - SOURCE OF TRUTH: strategy.configuration.selectedCoins
-    const coinsToAnalyze = config.selectedCoins || getAllSymbols().slice(0, 3);
+    const selectedCoins = config.selectedCoins || [];
+    const coinsToAnalyze = selectedCoins.length > 0 
+      ? selectedCoins 
+      : filterSupportedSymbols(getAllSymbols()).slice(0, 3);
     
     for (const coin of coinsToAnalyze) {
       const symbol = `${coin}-EUR`;
