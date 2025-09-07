@@ -1337,6 +1337,26 @@ export type Database = {
       }
     }
     Views: {
+      mock_coverage: {
+        Row: {
+          available: number | null
+          is_test_mode: boolean | null
+          strategy_id: string | null
+          symbol: string | null
+          total_bought: number | null
+          total_sold: number | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mock_trades_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       past_positions_view: {
         Row: {
           amount: number | null
@@ -1395,6 +1415,60 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      price_data_with_indicators: {
+        Row: {
+          close_price: number | null
+          created_at: string | null
+          has_indicators: boolean | null
+          high_price: number | null
+          id: string | null
+          interval_type: string | null
+          low_price: number | null
+          metadata: Json | null
+          open_price: number | null
+          source: string | null
+          source_id: string | null
+          symbol: string | null
+          timestamp: string | null
+          user_id: string | null
+          volume: number | null
+        }
+        Insert: {
+          close_price?: number | null
+          created_at?: string | null
+          has_indicators?: never
+          high_price?: number | null
+          id?: string | null
+          interval_type?: string | null
+          low_price?: number | null
+          metadata?: Json | null
+          open_price?: number | null
+          source?: string | null
+          source_id?: string | null
+          symbol?: string | null
+          timestamp?: string | null
+          user_id?: string | null
+          volume?: number | null
+        }
+        Update: {
+          close_price?: number | null
+          created_at?: string | null
+          has_indicators?: never
+          high_price?: number | null
+          id?: string | null
+          interval_type?: string | null
+          low_price?: number | null
+          metadata?: Json | null
+          open_price?: number | null
+          source?: string | null
+          source_id?: string | null
+          symbol?: string | null
+          timestamp?: string | null
+          user_id?: string | null
+          volume?: number | null
+        }
+        Relationships: []
       }
       user_connections_safe: {
         Row: {
@@ -1474,6 +1548,20 @@ export type Database = {
         }
         Relationships: []
       }
+      vw_trade_decision_linkage_60m: {
+        Row: {
+          cryptocurrency: string | null
+          decision_time: string | null
+          executed_at: string | null
+          intent_side: string | null
+          request_id: string | null
+          seconds_apart: number | null
+          strategy_trigger: string | null
+          trade_type: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       admin_get_connection_name: {
@@ -1530,6 +1618,17 @@ export type Database = {
       dearmor: {
         Args: { "": string }
         Returns: string
+      }
+      debug_decision_logs: {
+        Args: { minutes_back?: number; my_user: string }
+        Returns: {
+          confidence: number
+          created_at: string
+          decision_action: string
+          decision_reason: string
+          intent_side: string
+          symbol: string
+        }[]
       }
       fetch_coinbase_connection_name: {
         Args: { connection_id: string }
