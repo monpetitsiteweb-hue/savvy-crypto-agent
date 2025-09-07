@@ -289,9 +289,9 @@ async function executeTradeDirectly(
   try {
     // Get real market price using symbol utilities with freshness check
     const baseSymbol = toBaseSymbol(intent.symbol);
-    const strategyConfig = strategyConfig || {};
-    const priceStaleMaxMs = strategyConfig.priceStaleMaxMs || 15000;
-    const spreadThresholdBps = strategyConfig.spreadThresholdBps || 15;
+    const sc = strategyConfig || {};
+    const priceStaleMaxMs = sc.priceStaleMaxMs || 15000;
+    const spreadThresholdBps = sc.spreadThresholdBps || 15;
     
     const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
     const realMarketPrice = priceData.price;
@@ -310,7 +310,7 @@ async function executeTradeDirectly(
     }
     
     // CRITICAL FIX: Check available EUR balance BEFORE executing BUY trades
-    const tradeAllocation = strategyConfig?.perTradeAllocation || 1000;
+    const tradeAllocation = sc?.perTradeAllocation || 50; // match app defaults
     let qty: number;
     
     if (intent.side === 'BUY') {
@@ -447,6 +447,13 @@ async function logDecisionAsync(
 ): Promise<void> {
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
+    
+    // Map executed decisions to semantic actions
+    const actionToLog = 
+      action === 'BUY' ? 'ENTER' :
+      action === 'SELL' ? 'EXIT' :
+      action;
+    
     await supabaseClient
       .from('trade_decisions_log')
       .insert({
@@ -456,7 +463,7 @@ async function logDecisionAsync(
         intent_side: intent.side,
         intent_source: intent.source,
         confidence: intent.confidence,
-        decision_action: action,
+        decision_action: actionToLog,
         decision_reason: reason,
         metadata: {
           ...intent.metadata,
@@ -688,6 +695,7 @@ async function executeTradeOrder(
 ): Promise<{ success: boolean; error?: string; qty?: number }> {
   
   try {
+    const baseSymbol = toBaseSymbol(intent.symbol); // Define at top to avoid scope issues
     console.log(`💱 COORDINATOR: Executing ${intent.side} order for ${intent.symbol}`);
     
     // Use provided price data or fetch new price
@@ -695,16 +703,15 @@ async function executeTradeOrder(
     if (priceData) {
       realMarketPrice = priceData.price;
     } else {
-      const baseSymbol = toBaseSymbol(intent.symbol);
       const marketPrice = await getMarketPrice(baseSymbol);
       realMarketPrice = marketPrice.price;
     }
     
-    console.log(`💱 COORDINATOR: Got real price for ${toPairSymbol(toBaseSymbol(intent.symbol))}: €${realMarketPrice}`);
+    console.log(`💱 COORDINATOR: Got real price for ${toPairSymbol(baseSymbol)}: €${realMarketPrice}`);
     
     // CRITICAL FIX: Check available EUR balance BEFORE executing BUY trades
     let qty: number;
-    const tradeAllocation = strategyConfig?.perTradeAllocation || 1000;
+    const tradeAllocation = strategyConfig?.perTradeAllocation || 50; // match app defaults
     
     if (intent.side === 'BUY') {
       // Calculate current EUR balance from all trades
