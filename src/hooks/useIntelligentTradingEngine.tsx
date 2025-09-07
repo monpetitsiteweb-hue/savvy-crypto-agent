@@ -236,7 +236,7 @@ export const useIntelligentTradingEngine = () => {
     const timeSinceLastActionMs = Date.now() - new Date(position.oldest_purchase_date).getTime(); // Simplified for now
     
     // Read strategy config with safe defaults (Phase 2)
-    const minHoldPeriodMs = config.minHoldPeriodMs || DEFAULT_VALUES.OVERRIDE_TTL_MS / 3; // 5 min default
+    const minHoldPeriodMs = config.minHoldPeriodMs || 300000; // 5 min default
     const cooldownBetweenOppositeActionsMs = config.cooldownBetweenOppositeActionsMs || 180000; // 3 min default
     const spreadThresholdBps = config.spreadThresholdBps || 15; // 0.15% default
     const priceStaleMaxMs = config.priceStaleMaxMs || 15000; // 15s default
@@ -266,14 +266,17 @@ export const useIntelligentTradingEngine = () => {
         ...logContext 
       });
       
-      // Log to trade_decisions_log
+      // Log to trade_decisions_log with correct schema
       try {
         await supabase.from('trade_decisions_log').insert({
-          user_id: user?.id,
-          strategy_id: config.strategyId,
-          symbol: position.cryptocurrency,
-          decision_type: 'sell_blocked',
+          user_id: user!.id,
+          strategy_id: config?.strategyId,
+          symbol: position.cryptocurrency.replace('-EUR', ''),
+          intent_side: 'SELL',
+          intent_source: 'intelligent_engine', 
+          decision_action: 'DEFER',
           decision_reason: 'hold_min_period_not_met',
+          confidence: 0,
           metadata: logContext
         });
       } catch (e) { /* Silent fail on logging */ }
