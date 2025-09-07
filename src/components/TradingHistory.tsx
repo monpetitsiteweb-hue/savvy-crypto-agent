@@ -442,7 +442,10 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           <div>
             <p className="text-muted-foreground">Purchase Price</p>
             <p className="font-medium">
-              {formatEuro(performance.purchasePrice || trade.price)}
+              {trade.trade_type === 'sell' 
+                ? formatEuro(trade.original_purchase_price || trade.price)
+                : formatEuro(trade.price)
+              }
             </p>
           </div>
           
@@ -478,19 +481,29 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             <>
               <div>
                 <p className="text-muted-foreground">Exit Price</p>
-                <p className="font-medium">{formatEuro(performance.currentPrice || trade.price)}</p>
+                <p className="font-medium">{formatEuro(trade.price)}</p>
               </div>
               
               <div>
                 <p className="text-muted-foreground">Exit Value</p>
                 <p className="font-medium">
-                  {formatEuro(performance.currentValue || trade.exit_value || (trade.amount * trade.price))}
+                  {formatEuro(trade.exit_value || trade.total_value)}
                 </p>
               </div>
             </>
           )}
           
-          {performance.gainLoss !== null && performance.gainLossPercentage !== null && (
+          {trade.trade_type === 'sell' ? (
+            <div>
+              <p className="text-muted-foreground">P&L (€)</p>
+              <p className={`font-medium ${
+                (trade.realized_pnl || 0) > 0 ? 'text-emerald-600' : 
+                (trade.realized_pnl || 0) < -0.01 ? 'text-red-600' : ''
+              }`}>
+                {formatEuro(trade.realized_pnl || 0)}
+              </p>
+            </div>
+          ) : performance.gainLoss !== null && performance.gainLossPercentage !== null && (
             <>
               <div>
                 <p className="text-muted-foreground">P&L (€)</p>

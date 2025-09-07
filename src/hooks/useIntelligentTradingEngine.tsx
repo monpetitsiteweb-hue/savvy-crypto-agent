@@ -332,7 +332,52 @@ export const useIntelligentTradingEngine = () => {
       }
     }
 
-    // 5. TECHNICAL INDICATOR SELL SIGNALS
+    // 5. SAFETY GUARD: Weak exit protection (temporary stopgap)
+    const realizedPnlEur = (currentPrice - position.average_price) * position.remaining_amount;
+    
+    // Check if this is a weak bearish signal with negative P&L
+    if (realizedPnlEur < -0.05) {
+      // This is a preliminary check - we need to check the actual signal confidence
+      // when the SELL intent is generated. For now, we'll check technical signals.
+      const technicalSellSignal = await checkTechnicalSellSignals(config, position.cryptocurrency, currentPrice);
+      
+      if (technicalSellSignal) {
+        // If technical sell signal exists, allow it even with negative P&L
+        logContext.reasonChosen = 'technical_signal_override';
+        return { 
+          reason: 'TECHNICAL_SIGNAL', 
+          orderType: config.sellOrderType || 'market',
+          decisionData: logContext
+        };
+      } else {
+        // Block weak exit with negative P&L
+        logContext.reasonChosen = 'preblocked_negative_pnl';
+        engineLog('SELL DECISION: BLOCKED - Weak exit with negative P&L', { 
+          realizedPnlEur,
+          pnlPercentage,
+          ...logContext 
+        });
+        
+        // Log to trade_decisions_log
+        try {
+          await supabase.from('trade_decisions_log').insert({
+            user_id: user!.id,
+            strategy_id: config?.strategyId,
+            symbol: position.cryptocurrency.replace('-EUR', ''),
+            intent_side: 'SELL',
+            intent_source: 'intelligent_engine', 
+            decision_action: 'DEFER',
+            decision_reason: 'preblocked_negative_pnl',
+            confidence: 0,
+            metadata: { ...logContext, realizedPnlEur }
+          });
+        } catch (e) { /* Silent fail on logging */ }
+        
+        return null;
+      }
+    }
+
+    // 6. TECHNICAL INDICATOR SELL SIGNALS
     if (await checkTechnicalSellSignals(config, position.cryptocurrency, currentPrice)) {
       return { 
         reason: 'TECHNICAL_SIGNAL', 
