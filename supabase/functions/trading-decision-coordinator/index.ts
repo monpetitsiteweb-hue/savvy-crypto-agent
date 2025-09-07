@@ -337,7 +337,7 @@ async function executeTradeDirectly(
       console.log(`💰 DIRECT: Available EUR balance: €${availableEur.toFixed(2)}`);
       
       // TEST MODE: Bypass balance check for test mode trades  
-      const isTestMode = intent.metadata?.mode === 'mock' || strategyConfig?.is_test_mode;
+    const isTestMode = intent.metadata?.mode === 'mock' || sc?.is_test_mode;
       if (isTestMode) {
         console.log(`🧪 TEST MODE: Bypassing balance check - using virtual paper trading`);
         qty = intent.qtySuggested || (tradeAllocation / realMarketPrice);
