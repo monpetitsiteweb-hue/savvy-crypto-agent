@@ -1018,6 +1018,43 @@ async function executeTradeOrder(
       
       // For SELL orders, use the suggested quantity
       qty = intent.qtySuggested || 0.001;
+    }
+    
+    const totalValue = qty * realMarketPrice;
+    
+    console.log(`💱 COORDINATOR: Trade calculation - ${intent.side} ${qty} ${baseSymbol} at €${realMarketPrice} = €${totalValue}`);
+    
+    // Execute trade - store base symbol only
+    const mockTrade = {
+      user_id: intent.userId,
+      strategy_id: intent.strategyId,
+      trade_type: intent.side.toLowerCase(),
+      cryptocurrency: baseSymbol, // Store base symbol only
+      amount: qty,
+      price: realMarketPrice,
+      total_value: totalValue,
+      executed_at: new Date().toISOString(),
+      is_test_mode: true,
+      notes: `Coordinator: UD=ON`,
+      strategy_trigger: intent.source === 'coordinator_tp' ? `coord_tp|req:${requestId}` : `coord_${intent.source}|req:${requestId}`
+    };
+
+    const { error } = await supabaseClient
+      .from('mock_trades')
+      .insert(mockTrade);
+
+    if (error) {
+      console.error('❌ COORDINATOR: Trade execution failed:', error);
+      return { success: false, error: error.message };
+    }
+
+    console.log('✅ COORDINATOR: Trade executed successfully');
+    return { success: true, qty };
+
+  } catch (error) {
+    console.error('❌ COORDINATOR: Trade execution error:', error.message);
+    return { success: false, error: error.message };
+  }
 }
 
 // ============= PROFIT-AWARE COORDINATOR (Milestone 1) =============
@@ -1191,10 +1228,6 @@ async function evaluateProfitGate(
   }
 }
 
-    };
-  }
-}
-
 // Execute TP-triggered SELL
 async function executeTPSell(
   supabaseClient: any,
@@ -1344,43 +1377,6 @@ async function executeTPSellWithLock(
 // ============= END PHASE 1: TP DETECTION =============
 
 // ============= END PROFIT-AWARE COORDINATOR =============
-    
-    const totalValue = qty * realMarketPrice;
-    
-    console.log(`💱 COORDINATOR: Trade calculation - ${intent.side} ${qty} ${baseSymbol} at €${realMarketPrice} = €${totalValue}`);
-    
-    // Execute trade - store base symbol only
-    const mockTrade = {
-      user_id: intent.userId,
-      strategy_id: intent.strategyId,
-      trade_type: intent.side.toLowerCase(),
-      cryptocurrency: baseSymbol, // Store base symbol only
-      amount: qty,
-      price: realMarketPrice,
-      total_value: totalValue,
-      executed_at: new Date().toISOString(),
-      is_test_mode: true,
-      notes: `Coordinator: UD=ON`,
-      strategy_trigger: `coord_${intent.source}|req:${requestId}`
-    };
-
-    const { error } = await supabaseClient
-      .from('mock_trades')
-      .insert(mockTrade);
-
-    if (error) {
-      console.error('❌ COORDINATOR: Trade execution failed:', error);
-      return { success: false, error: error.message };
-    }
-
-    console.log('✅ COORDINATOR: Trade executed successfully');
-    return { success: true, qty };
-
-  } catch (error) {
-    console.error('❌ COORDINATOR: Trade execution error:', error);
-    return { success: false, error: error.message };
-  }
-}
 
   // Cleanup old cached data periodically
   setInterval(() => {
