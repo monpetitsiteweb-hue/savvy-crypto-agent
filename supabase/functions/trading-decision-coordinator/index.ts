@@ -693,13 +693,41 @@ async function executeWithMinimalLock(
             console.log(`🚫 COORDINATOR: TP blocked by minimum hold period (${holdTime}ms < ${minHoldMs}ms)`);
             // Continue with original intent instead of TP override
           } else {
-            // TP override is allowed, proceed with SELL
-            return await executeTPSell(supabaseClient, intent, tpEvaluation, config, requestId);
+            // Check cooldown before executing TP SELL
+            const cooldownMs = config?.cooldownBetweenOppositeActionsMs || 0;
+            if (cooldownMs > 0) {
+              const recentBuy = recentTrades.find(t => t.trade_type === 'buy');
+              if (recentBuy) {
+                const timeSinceBuy = Date.now() - new Date(recentBuy.executed_at).getTime();
+                if (timeSinceBuy < cooldownMs) {
+                  console.log(`🚫 COORDINATOR: TP blocked by cooldown (${timeSinceBuy}ms < ${cooldownMs}ms)`);
+                  logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_cooldown', config, requestId, tpEvaluation.metadata);
+                  return { action: 'DEFER', reason: 'blocked_by_cooldown', request_id: requestId, retry_in_ms: 0 };
+                }
+              }
+            }
+            
+            // TP override is allowed, proceed with locked TP SELL
+            return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey);
           }
         }
       } else {
-        // No hold period restriction, proceed with TP SELL
-        return await executeTPSell(supabaseClient, intent, tpEvaluation, config, requestId);
+        // No hold period restriction, check cooldown
+        const cooldownMs = config?.cooldownBetweenOppositeActionsMs || 0;
+        if (cooldownMs > 0) {
+          const recentBuy = recentTrades.find(t => t.trade_type === 'buy');
+          if (recentBuy) {
+            const timeSinceBuy = Date.now() - new Date(recentBuy.executed_at).getTime();
+            if (timeSinceBuy < cooldownMs) {
+              console.log(`🚫 COORDINATOR: TP blocked by cooldown (${timeSinceBuy}ms < ${cooldownMs}ms)`);
+              logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_cooldown', config, requestId, tpEvaluation.metadata);
+              return { action: 'DEFER', reason: 'blocked_by_cooldown', request_id: requestId, retry_in_ms: 0 };
+            }
+          }
+        }
+        
+        // No restrictions, proceed with locked TP SELL
+        return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey);
       }
     }
     
@@ -1172,7 +1200,8 @@ async function executeTPSell(
       ...intent,
       side: 'SELL',
       qtySuggested: parseFloat(tpEvaluation.metadata.positionSize),
-      reason: `TP hit: ${tpEvaluation.pnlPct}% ≥ ${tpEvaluation.tpPct}%`
+      reason: `TP hit: ${tpEvaluation.pnlPct}% ≥ ${tpEvaluation.tpPct}%`,
+      source: 'coordinator_tp' // Tag as TP-triggered
     };
     
     // Get current price for execution
@@ -1210,6 +1239,93 @@ async function executeTPSell(
   } catch (error) {
     console.error('❌ COORDINATOR: TP SELL error:', error);
     return { action: 'DEFER', reason: 'tp_execution_error', request_id: requestId, retry_in_ms: 0 };
+  }
+}
+
+// Execute TP-triggered SELL with advisory lock protection
+async function executeTPSellWithLock(
+  supabaseClient: any,
+  intent: TradeIntent,
+  tpEvaluation: any,
+  config: UnifiedConfig,
+  requestId: string,
+  lockKey: number
+): Promise<TradeDecision> {
+  
+  let lockAcquired = false;
+  
+  try {
+    // Acquire the same advisory lock used by the main execution path
+    console.log(`🔒 COORDINATOR: Acquiring TP lock for atomic TP SELL: ${lockKey}`);
+    
+    const { data: lockResult } = await supabaseClient.rpc('pg_try_advisory_lock', {
+      key: lockKey
+    });
+
+    if (!lockResult) {
+      console.log(`🚫 COORDINATOR: TP SELL blocked by lock contention, deferring`);
+      return { action: 'DEFER', reason: 'tp_lock_contention', request_id: requestId, retry_in_ms: 200 };
+    }
+
+    lockAcquired = true;
+    console.log(`🔒 COORDINATOR: TP lock acquired - executing TP SELL`);
+    
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    
+    // Create TP SELL intent - sell the position size detected
+    const tpSellIntent: TradeIntent = {
+      ...intent,
+      side: 'SELL',
+      qtySuggested: parseFloat(tpEvaluation.metadata.positionSize),
+      reason: `TP hit: ${tpEvaluation.pnlPct}% ≥ ${tpEvaluation.tpPct}%`,
+      source: 'coordinator_tp' // Tag as TP-triggered
+    };
+    
+    // Get current price for execution
+    const priceData = await getMarketPrice(baseSymbol);
+    
+    // Execute the TP SELL
+    const executionResult = await executeTradeOrder(supabaseClient, tpSellIntent, {}, requestId, priceData);
+    
+    if (executionResult.success) {
+      console.log(`✅ COORDINATOR: TP SELL executed successfully under lock`);
+      
+      // Log TP decision with detailed metadata
+      await logDecisionAsync(
+        supabaseClient, 
+        intent, 
+        'SELL', 
+        'tp_hit', 
+        config, 
+        requestId, 
+        tpEvaluation.metadata
+      );
+      
+      return { 
+        action: 'SELL', 
+        reason: 'tp_hit', 
+        request_id: requestId, 
+        retry_in_ms: 0, 
+        qty: executionResult.qty 
+      };
+    } else {
+      console.error(`❌ COORDINATOR: TP SELL execution failed: ${executionResult.error}`);
+      return { action: 'DEFER', reason: 'tp_execution_failed', request_id: requestId, retry_in_ms: 0 };
+    }
+    
+  } catch (error) {
+    console.error(`❌ COORDINATOR: TP SELL error:`, error);
+    return { action: 'DEFER', reason: 'tp_execution_error', request_id: requestId, retry_in_ms: 0 };
+  } finally {
+    // Always release lock
+    if (lockAcquired) {
+      try {
+        await supabaseClient.rpc('pg_advisory_unlock', { key: lockKey });
+        console.log(`🔓 COORDINATOR: Released TP lock: ${lockKey}`);
+      } catch (unlockError) {
+        console.error(`❌ COORDINATOR: Failed to release TP lock:`, unlockError);
+      }
+    }
   }
 }
 
