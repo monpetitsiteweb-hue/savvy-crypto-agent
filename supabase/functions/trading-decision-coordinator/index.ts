@@ -48,7 +48,14 @@ type Reason =
   | "blocked_by_spread"
   | "blocked_by_liquidity"
   | "blocked_by_whale_conflict"
-  | "blocked_by_insufficient_profit";
+  | "blocked_by_insufficient_profit"
+  | "tp_hit"
+  | "manual_override_precedence"
+  | "confidence_override_applied"
+  | "tp_execution_failed"
+  | "tp_execution_error"
+  | "tp_lock_contention"
+  | "signal_too_weak";
 
 interface TradeDecision {
   action: DecisionAction;
@@ -1024,6 +1031,59 @@ async function executeTradeOrder(
     
     console.log(`💱 COORDINATOR: Trade calculation - ${intent.side} ${qty} ${baseSymbol} at €${realMarketPrice} = €${totalValue}`);
     
+    // For SELL orders, compute FIFO accounting fields
+    let fifoFields = {};
+    if (intent.side === 'SELL') {
+      // Recompute FIFO for this specific SELL quantity (already computed in profit gate)
+      const { data: buyTrades } = await supabaseClient
+        .from('mock_trades')
+        .select('amount, price, executed_at')
+        .eq('user_id', intent.userId)
+        .eq('strategy_id', intent.strategyId)
+        .eq('cryptocurrency', baseSymbol)
+        .eq('trade_type', 'buy')
+        .order('executed_at', { ascending: true });
+
+      const { data: sellTrades } = await supabaseClient
+        .from('mock_trades')
+        .select('original_purchase_amount')
+        .eq('user_id', intent.userId)
+        .eq('strategy_id', intent.strategyId)
+        .eq('cryptocurrency', baseSymbol)
+        .eq('trade_type', 'sell')
+        .not('original_purchase_amount', 'is', null);
+
+      if (buyTrades && buyTrades.length > 0) {
+        let totalSold = sellTrades ? sellTrades.reduce((sum, sell) => sum + parseFloat(sell.original_purchase_amount), 0) : 0;
+        let remainingQty = qty;
+        let fifoValue = 0;
+        let fifoAmount = 0;
+
+        for (const buy of buyTrades) {
+          if (remainingQty <= 0) break;
+          const buyAmount = parseFloat(buy.amount);
+          const buyPrice = parseFloat(buy.price);
+          const availableFromBuy = Math.max(0, buyAmount - totalSold);
+          
+          if (availableFromBuy > 0) {
+            const takeAmount = Math.min(remainingQty, availableFromBuy);
+            fifoAmount += takeAmount;
+            fifoValue += takeAmount * buyPrice;
+            remainingQty -= takeAmount;
+          }
+          totalSold -= Math.min(totalSold, buyAmount);
+        }
+
+        if (fifoAmount > 0) {
+          fifoFields = {
+            original_purchase_amount: fifoAmount,
+            original_purchase_value: fifoValue,
+            original_purchase_price: fifoValue / fifoAmount
+          };
+        }
+      }
+    }
+
     // Execute trade - store base symbol only
     const mockTrade = {
       user_id: intent.userId,
@@ -1036,7 +1096,8 @@ async function executeTradeOrder(
       executed_at: new Date().toISOString(),
       is_test_mode: true,
       notes: `Coordinator: UD=ON`,
-      strategy_trigger: intent.source === 'coordinator_tp' ? `coord_tp|req:${requestId}` : `coord_${intent.source}|req:${requestId}`
+      strategy_trigger: intent.source === 'coordinator_tp' ? `coord_tp|req:${requestId}` : `coord_${intent.source}|req:${requestId}`,
+      ...fifoFields
     };
 
     const { error } = await supabaseClient
