@@ -55,7 +55,10 @@ type Reason =
   | "tp_execution_failed"
   | "tp_execution_error"
   | "tp_lock_contention"
-  | "signal_too_weak";
+  | "signal_too_weak"
+  | "no_position_to_sell"
+  | "insufficient_position_size"
+  | "no_position_found";
 
 interface TradeDecision {
   action: DecisionAction;
@@ -1031,7 +1034,7 @@ async function executeTradeOrder(
     
     console.log(`💱 COORDINATOR: Trade calculation - ${intent.side} ${qty} ${baseSymbol} at €${realMarketPrice} = €${totalValue}`);
     
-    // For SELL orders, compute FIFO accounting fields
+    // For SELL orders, compute FIFO accounting fields and cap quantity
     let fifoFields = {};
     if (intent.side === 'SELL') {
       // Recompute FIFO for this specific SELL quantity (already computed in profit gate)
@@ -1074,13 +1077,28 @@ async function executeTradeOrder(
           totalSold -= Math.min(totalSold, buyAmount);
         }
 
-        if (fifoAmount > 0) {
-          fifoFields = {
-            original_purchase_amount: fifoAmount,
-            original_purchase_value: fifoValue,
-            original_purchase_price: fifoValue / fifoAmount
-          };
+        if (!fifoAmount || fifoAmount <= 0) {
+          console.log(`🚫 COORDINATOR: SELL blocked - no remaining position to sell`);
+          return { success: false, error: 'insufficient_position_size' };
         }
+
+        // Cap the sell size to what's actually available under FIFO
+        if (qty > fifoAmount) {
+          console.log(`⚠️ COORDINATOR: Capping SELL qty from ${qty} to ${fifoAmount} (FIFO remaining)`);
+          qty = fifoAmount;
+        }
+
+        // Recompute totalValue after any cap
+        totalValue = qty * realMarketPrice;
+
+        fifoFields = {
+          original_purchase_amount: fifoAmount,
+          original_purchase_value: fifoValue,
+          original_purchase_price: fifoValue / fifoAmount
+        };
+      } else {
+        console.log(`🚫 COORDINATOR: SELL blocked - no buy history found`);
+        return { success: false, error: 'insufficient_position_size' };
       }
     }
 
@@ -1173,6 +1191,25 @@ async function evaluateProfitGate(
     let totalSold = 0;
     if (sellTrades) {
       totalSold = sellTrades.reduce((sum: number, sell: any) => sum + parseFloat(sell.original_purchase_amount), 0);
+    }
+
+    // Guardrail: Quick check to prevent obvious oversells
+    let totalAvailable = 0;
+    for (const buy of buyTrades) {
+      totalAvailable += parseFloat(buy.amount);
+    }
+    totalAvailable -= totalSold;
+    
+    if ((intent.qtySuggested || 0.001) > totalAvailable + 1e-12) {
+      return {
+        allowed: false,
+        reason: 'insufficient_position_size',
+        metadata: { 
+          requested_qty: intent.qtySuggested, 
+          remaining_fifo: totalAvailable,
+          error: 'Requested quantity exceeds available FIFO position'
+        }
+      };
     }
 
     let remainingAmount = intent.qtySuggested || 0.001;
