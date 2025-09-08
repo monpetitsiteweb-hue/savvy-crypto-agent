@@ -534,6 +534,111 @@ async function logDecisionAsync(
   }
 }
 
+// ============= PHASE 1: TP DETECTION FUNCTIONS =============
+
+// Evaluate if current position has reached take-profit threshold
+async function evaluatePositionStatus(
+  supabaseClient: any,
+  intent: TradeIntent,
+  strategyConfig: any,
+  currentPrice: number,
+  requestId: string
+): Promise<{ shouldSell: boolean; pnlPct: number; tpPct: number; metadata: any } | null> {
+  
+  try {
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    
+    // Extract TP config
+    const tpPercentage = strategyConfig?.takeProfitPercentage || 0.5; // Default 0.5%
+    
+    // Get BUY trades to check if we have a position
+    const { data: buyTrades } = await supabaseClient
+      .from('mock_trades')
+      .select('amount, price, executed_at')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)  
+      .eq('cryptocurrency', baseSymbol)
+      .eq('trade_type', 'buy')
+      .order('executed_at', { ascending: true }); // FIFO order
+
+    if (!buyTrades || buyTrades.length === 0) {
+      return null; // No position to evaluate
+    }
+
+    // Get existing SELL trades to calculate what's already been sold
+    const { data: sellTrades } = await supabaseClient
+      .from('mock_trades')
+      .select('original_purchase_amount')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)
+      .eq('cryptocurrency', baseSymbol) 
+      .eq('trade_type', 'sell')
+      .not('original_purchase_amount', 'is', null);
+
+    // Calculate remaining position using FIFO
+    let totalSold = 0;
+    if (sellTrades) {
+      totalSold = sellTrades.reduce((sum: number, sell: any) => sum + parseFloat(sell.original_purchase_amount), 0);
+    }
+
+    let totalPurchaseValue = 0;
+    let totalPurchaseAmount = 0;
+    let tempSold = totalSold;
+    
+    // Calculate average purchase price for remaining position
+    for (const buy of buyTrades) {
+      const buyAmount = parseFloat(buy.amount);
+      const buyPrice = parseFloat(buy.price);
+      
+      // Calculate how much of this buy is still available
+      const availableFromThisBuy = Math.max(0, buyAmount - tempSold);
+      if (availableFromThisBuy <= 0) {
+        tempSold -= buyAmount;
+        continue;
+      }
+      
+      // Add available amount to remaining position
+      totalPurchaseAmount += availableFromThisBuy;
+      totalPurchaseValue += availableFromThisBuy * buyPrice;
+      tempSold = Math.max(0, tempSold - buyAmount);
+    }
+
+    if (totalPurchaseAmount === 0) {
+      return null; // No remaining position
+    }
+
+    const avgPurchasePrice = totalPurchaseValue / totalPurchaseAmount;
+    const pnlPct = ((currentPrice - avgPurchasePrice) / avgPurchasePrice) * 100;
+
+    const metadata = {
+      avgPurchasePrice: avgPurchasePrice.toFixed(2),
+      currentPrice: currentPrice.toFixed(2),
+      pnlPct: pnlPct.toFixed(2),
+      tpPct: tpPercentage.toFixed(2),
+      positionSize: totalPurchaseAmount.toFixed(8),
+      evaluation: 'tp_detection'
+    };
+
+    // Check if TP threshold is reached
+    if (pnlPct >= tpPercentage) {
+      return { 
+        shouldSell: true, 
+        pnlPct: parseFloat(pnlPct.toFixed(2)), 
+        tpPct: tpPercentage,
+        metadata 
+      };
+    }
+
+    return null; // TP not reached
+    
+  } catch (error) {
+    console.error(`❌ COORDINATOR: TP evaluation error for ${intent.symbol}:`, error);
+    return null;
+  }
+}
+
+// ============= MAIN EXECUTION LOGIC =============
+
 // Micro-queue management
 function getQueueLength(symbolKey: string): number {
   const queue = symbolQueues.get(symbolKey);
@@ -672,9 +777,15 @@ async function executeWithMinimalLock(
     }
     
     // PHASE 1: TP DETECTION - Check if position reached take-profit threshold
-    const tpEvaluation = await evaluatePositionStatus(
-      supabaseClient, intent, strategyConfig, priceData.price, requestId
-    );
+    let tpEvaluation = null;
+    try {
+      tpEvaluation = await evaluatePositionStatus(
+        supabaseClient, intent, strategyConfig, priceData.price, requestId
+      );
+    } catch (error) {
+      console.error(`❌ COORDINATOR: TP evaluation failed:`, error);
+      tpEvaluation = null;
+    }
     
     if (tpEvaluation && tpEvaluation.shouldSell) {
       console.log(`✅ COORDINATOR: TP hit → SELL now (pnl_pct=${tpEvaluation.pnlPct} ≥ tp=${tpEvaluation.tpPct}) req=${requestId}`);
@@ -1080,106 +1191,7 @@ async function evaluateProfitGate(
   }
 }
 
-// ============= PHASE 1: TP DETECTION FUNCTIONS =============
-
-// Evaluate if current position has reached take-profit threshold
-async function evaluatePositionStatus(
-  supabaseClient: any,
-  intent: TradeIntent,
-  strategyConfig: any,
-  currentPrice: number,
-  requestId: string
-): Promise<{ shouldSell: boolean; pnlPct: number; tpPct: number; metadata: any } | null> {
-  
-  try {
-    const baseSymbol = toBaseSymbol(intent.symbol);
-    
-    // Extract TP config
-    const tpPercentage = strategyConfig?.takeProfitPercentage || 0.5; // Default 0.5%
-    
-    // Get BUY trades to check if we have a position
-    const { data: buyTrades } = await supabaseClient
-      .from('mock_trades')
-      .select('amount, price, executed_at')
-      .eq('user_id', intent.userId)
-      .eq('strategy_id', intent.strategyId)  
-      .eq('cryptocurrency', baseSymbol)
-      .eq('trade_type', 'buy')
-      .order('executed_at', { ascending: true }); // FIFO order
-
-    if (!buyTrades || buyTrades.length === 0) {
-      return null; // No position to evaluate
-    }
-
-    // Get existing SELL trades to calculate what's already been sold
-    const { data: sellTrades } = await supabaseClient
-      .from('mock_trades')
-      .select('original_purchase_amount')
-      .eq('user_id', intent.userId)
-      .eq('strategy_id', intent.strategyId)
-      .eq('cryptocurrency', baseSymbol) 
-      .eq('trade_type', 'sell')
-      .not('original_purchase_amount', 'is', null);
-
-    // Calculate remaining position using FIFO
-    let totalSold = 0;
-    if (sellTrades) {
-      totalSold = sellTrades.reduce((sum: number, sell: any) => sum + parseFloat(sell.original_purchase_amount), 0);
-    }
-
-    let totalPurchaseValue = 0;
-    let totalPurchaseAmount = 0;
-    let tempSold = totalSold;
-    
-    // Calculate average purchase price for remaining position
-    for (const buy of buyTrades) {
-      const buyAmount = parseFloat(buy.amount);
-      const buyPrice = parseFloat(buy.price);
-      
-      // Calculate how much of this buy is still available
-      const availableFromThisBuy = Math.max(0, buyAmount - tempSold);
-      if (availableFromThisBuy <= 0) {
-        tempSold -= buyAmount;
-        continue;
-      }
-      
-      // Add available amount to remaining position
-      totalPurchaseAmount += availableFromThisBuy;
-      totalPurchaseValue += availableFromThisBuy * buyPrice;
-      tempSold = Math.max(0, tempSold - buyAmount);
-    }
-
-    if (totalPurchaseAmount === 0) {
-      return null; // No remaining position
-    }
-
-    const avgPurchasePrice = totalPurchaseValue / totalPurchaseAmount;
-    const pnlPct = ((currentPrice - avgPurchasePrice) / avgPurchasePrice) * 100;
-
-    const metadata = {
-      avgPurchasePrice: avgPurchasePrice.toFixed(2),
-      currentPrice: currentPrice.toFixed(2),
-      pnlPct: pnlPct.toFixed(2),
-      tpPct: tpPercentage.toFixed(2),
-      positionSize: totalPurchaseAmount.toFixed(8),
-      evaluation: 'tp_detection'
     };
-
-    // Check if TP threshold is reached
-    if (pnlPct >= tpPercentage) {
-      return { 
-        shouldSell: true, 
-        pnlPct: parseFloat(pnlPct.toFixed(2)), 
-        tpPct: tpPercentage,
-        metadata 
-      };
-    }
-
-    return null; // TP not reached
-    
-  } catch (error) {
-    console.error(`❌ COORDINATOR: TP evaluation error for ${intent.symbol}:`, error);
-    return null;
   }
 }
 
