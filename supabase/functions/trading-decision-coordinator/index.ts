@@ -671,6 +671,38 @@ async function executeWithMinimalLock(
       return { action: 'DEFER', reason: 'spread_too_wide', request_id: requestId, retry_in_ms: 0 };
     }
     
+    // PHASE 1: TP DETECTION - Check if position reached take-profit threshold
+    const tpEvaluation = await evaluatePositionStatus(
+      supabaseClient, intent, strategyConfig, priceData.price, requestId
+    );
+    
+    if (tpEvaluation && tpEvaluation.shouldSell) {
+      console.log(`✅ COORDINATOR: TP hit → SELL now (pnl_pct=${tpEvaluation.pnlPct} ≥ tp=${tpEvaluation.tpPct}) req=${requestId}`);
+      
+      // Check if TP override respects existing gates (hold period and cooldown)
+      const baseSymbol = toBaseSymbol(intent.symbol);
+      const recentTrades = await getRecentTrades(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
+      
+      // Check minimum hold period
+      const minHoldMs = config?.minHoldPeriodMs || 0;
+      if (minHoldMs > 0) {
+        const lastBuy = recentTrades.find(t => t.trade_type === 'buy');
+        if (lastBuy) {
+          const holdTime = Date.now() - new Date(lastBuy.executed_at).getTime();
+          if (holdTime < minHoldMs) {
+            console.log(`🚫 COORDINATOR: TP blocked by minimum hold period (${holdTime}ms < ${minHoldMs}ms)`);
+            // Continue with original intent instead of TP override
+          } else {
+            // TP override is allowed, proceed with SELL
+            return await executeTPSell(supabaseClient, intent, tpEvaluation, config, requestId);
+          }
+        }
+      } else {
+        // No hold period restriction, proceed with TP SELL
+        return await executeTPSell(supabaseClient, intent, tpEvaluation, config, requestId);
+      }
+    }
+    
     // Try to acquire lock with 300ms timeout
     console.log(`🔒 COORDINATOR: Acquiring minimal lock for atomic section: ${lockKey}`);
     
@@ -1019,6 +1051,169 @@ async function evaluateProfitGate(
     };
   }
 }
+
+// ============= PHASE 1: TP DETECTION FUNCTIONS =============
+
+// Evaluate if current position has reached take-profit threshold
+async function evaluatePositionStatus(
+  supabaseClient: any,
+  intent: TradeIntent,
+  strategyConfig: any,
+  currentPrice: number,
+  requestId: string
+): Promise<{ shouldSell: boolean; pnlPct: number; tpPct: number; metadata: any } | null> {
+  
+  try {
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    
+    // Extract TP config
+    const tpPercentage = strategyConfig?.takeProfitPercentage || 0.5; // Default 0.5%
+    
+    // Get BUY trades to check if we have a position
+    const { data: buyTrades } = await supabaseClient
+      .from('mock_trades')
+      .select('amount, price, executed_at')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)  
+      .eq('cryptocurrency', baseSymbol)
+      .eq('trade_type', 'buy')
+      .order('executed_at', { ascending: true }); // FIFO order
+
+    if (!buyTrades || buyTrades.length === 0) {
+      return null; // No position to evaluate
+    }
+
+    // Get existing SELL trades to calculate what's already been sold
+    const { data: sellTrades } = await supabaseClient
+      .from('mock_trades')
+      .select('original_purchase_amount')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)
+      .eq('cryptocurrency', baseSymbol) 
+      .eq('trade_type', 'sell')
+      .not('original_purchase_amount', 'is', null);
+
+    // Calculate remaining position using FIFO
+    let totalSold = 0;
+    if (sellTrades) {
+      totalSold = sellTrades.reduce((sum: number, sell: any) => sum + parseFloat(sell.original_purchase_amount), 0);
+    }
+
+    let totalPurchaseValue = 0;
+    let totalPurchaseAmount = 0;
+    let tempSold = totalSold;
+    
+    // Calculate average purchase price for remaining position
+    for (const buy of buyTrades) {
+      const buyAmount = parseFloat(buy.amount);
+      const buyPrice = parseFloat(buy.price);
+      
+      // Calculate how much of this buy is still available
+      const availableFromThisBuy = Math.max(0, buyAmount - tempSold);
+      if (availableFromThisBuy <= 0) {
+        tempSold -= buyAmount;
+        continue;
+      }
+      
+      // Add available amount to remaining position
+      totalPurchaseAmount += availableFromThisBuy;
+      totalPurchaseValue += availableFromThisBuy * buyPrice;
+      tempSold = Math.max(0, tempSold - buyAmount);
+    }
+
+    if (totalPurchaseAmount === 0) {
+      return null; // No remaining position
+    }
+
+    const avgPurchasePrice = totalPurchaseValue / totalPurchaseAmount;
+    const pnlPct = ((currentPrice - avgPurchasePrice) / avgPurchasePrice) * 100;
+
+    const metadata = {
+      avgPurchasePrice: avgPurchasePrice.toFixed(2),
+      currentPrice: currentPrice.toFixed(2),
+      pnlPct: pnlPct.toFixed(2),
+      tpPct: tpPercentage.toFixed(2),
+      positionSize: totalPurchaseAmount.toFixed(8),
+      evaluation: 'tp_detection'
+    };
+
+    // Check if TP threshold is reached
+    if (pnlPct >= tpPercentage) {
+      return { 
+        shouldSell: true, 
+        pnlPct: parseFloat(pnlPct.toFixed(2)), 
+        tpPct: tpPercentage,
+        metadata 
+      };
+    }
+
+    return null; // TP not reached
+    
+  } catch (error) {
+    console.error(`❌ COORDINATOR: TP evaluation error for ${intent.symbol}:`, error);
+    return null;
+  }
+}
+
+// Execute TP-triggered SELL
+async function executeTPSell(
+  supabaseClient: any,
+  intent: TradeIntent,
+  tpEvaluation: any,
+  config: UnifiedConfig,
+  requestId: string
+): Promise<TradeDecision> {
+  
+  try {
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    
+    // Create TP SELL intent - sell the position size detected
+    const tpSellIntent: TradeIntent = {
+      ...intent,
+      side: 'SELL',
+      qtySuggested: parseFloat(tpEvaluation.metadata.positionSize),
+      reason: `TP hit: ${tpEvaluation.pnlPct}% ≥ ${tpEvaluation.tpPct}%`
+    };
+    
+    // Get current price for execution
+    const priceData = await getMarketPrice(baseSymbol);
+    
+    // Execute the TP SELL
+    const executionResult = await executeTradeOrder(supabaseClient, tpSellIntent, {}, requestId, priceData);
+    
+    if (executionResult.success) {
+      console.log(`✅ COORDINATOR: TP SELL executed successfully`);
+      
+      // Log TP decision with detailed metadata
+      await logDecisionAsync(
+        supabaseClient, 
+        intent, 
+        'SELL', 
+        'tp_hit', 
+        config, 
+        requestId, 
+        tpEvaluation.metadata
+      );
+      
+      return { 
+        action: 'SELL', 
+        reason: 'tp_hit', 
+        request_id: requestId, 
+        retry_in_ms: 0, 
+        qty: executionResult.qty 
+      };
+    } else {
+      console.error(`❌ COORDINATOR: TP SELL execution failed: ${executionResult.error}`);
+      return { action: 'DEFER', reason: 'tp_execution_failed', request_id: requestId, retry_in_ms: 0 };
+    }
+    
+  } catch (error) {
+    console.error('❌ COORDINATOR: TP SELL error:', error);
+    return { action: 'DEFER', reason: 'tp_execution_error', request_id: requestId, retry_in_ms: 0 };
+  }
+}
+
+// ============= END PHASE 1: TP DETECTION =============
 
 // ============= END PROFIT-AWARE COORDINATOR =============
     
