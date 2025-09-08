@@ -47,7 +47,8 @@ type Reason =
   | "spread_too_wide"
   | "blocked_by_spread"
   | "blocked_by_liquidity"
-  | "blocked_by_whale_conflict";
+  | "blocked_by_whale_conflict"
+  | "blocked_by_insufficient_profit";
 
 interface TradeDecision {
   action: DecisionAction;
@@ -62,6 +63,14 @@ interface UnifiedConfig {
   minHoldPeriodMs: number;
   cooldownBetweenOppositeActionsMs: number;
   confidenceOverrideThreshold: number;
+}
+
+interface ProfitAwareConfig {
+  takeProfitPercentage: number;
+  stopLossPercentage: number;
+  minEdgeBpsForExit: number;
+  minProfitEurForExit: number;
+  confidenceThresholdForExit: number;
 }
 
 // In-memory caches for performance
@@ -146,12 +155,12 @@ serve(async (req) => {
       if (executionResult.success) {
         console.log(`🎯 UD_MODE=OFF → DIRECT EXECUTION: action=${intent.side} symbol=${intent.symbol} lock=NONE`);
         // Log decision for audit (async, non-blocking)
-        logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId);
+        logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId, undefined);
         return respond(intent.side, 'unified_decisions_disabled_direct_path', requestId, 0, { qty: executionResult.qty });
       } else {
         console.error(`❌ UD_MODE=OFF → DIRECT EXECUTION FAILED: ${executionResult.error}`);
         // Log decision for audit (async, non-blocking)
-        logDecisionAsync(supabaseClient, intent, 'DEFER', 'direct_execution_failed', unifiedConfig, requestId);
+        logDecisionAsync(supabaseClient, intent, 'DEFER', 'direct_execution_failed', unifiedConfig, requestId, undefined);
         return respond('DEFER', 'direct_execution_failed', requestId);
       }
     }
@@ -183,7 +192,7 @@ serve(async (req) => {
       if (conflictResult.hasConflict) {
         console.log(`🎯 UD_MODE=ON → DEFER: reason=${conflictResult.reason} symbol=${intent.symbol}`);
         cacheDecision(idempotencyKey, { action: 'DEFER', reason: conflictResult.reason as Reason, request_id: requestId, retry_in_ms: 0 });
-        logDecisionAsync(supabaseClient, intent, 'DEFER', conflictResult.reason as Reason, unifiedConfig, requestId);
+        logDecisionAsync(supabaseClient, intent, 'DEFER', conflictResult.reason as Reason, unifiedConfig, requestId, undefined);
         
         return respond('DEFER', conflictResult.reason as Reason, requestId);
       }
@@ -334,7 +343,7 @@ async function executeTradeDirectly(
             confidenceOverrideThreshold: 0.70
           };
           
-          await logDecisionAsync(supabaseClient, intent, 'DEFER', 'hold_min_period_not_met', pseudoUnifiedConfig, requestId);
+          await logDecisionAsync(supabaseClient, intent, 'DEFER', 'hold_min_period_not_met', pseudoUnifiedConfig, requestId, undefined);
           
           return { success: false, error: 'hold_min_period_not_met' };
         }
@@ -488,7 +497,8 @@ async function logDecisionAsync(
   action: DecisionAction,
   reason: Reason,
   unifiedConfig: UnifiedConfig,
-  requestId: string
+  requestId: string,
+  profitMetadata?: any
 ): Promise<void> {
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
@@ -515,7 +525,8 @@ async function logDecisionAsync(
           qtySuggested: intent.qtySuggested,
           unifiedConfig,
           request_id: requestId,
-          idempotencyKey: intent.idempotencyKey
+          idempotencyKey: intent.idempotencyKey,
+          ...(profitMetadata && { profitAnalysis: profitMetadata })
         }
       });
   } catch (error) {
@@ -649,14 +660,14 @@ async function executeWithMinimalLock(
     // Price freshness gate
     if (priceData.tickAgeMs > priceStaleMaxMs) {
       console.log(`🚫 COORDINATOR: Trade blocked - insufficient price freshness (${priceData.tickAgeMs}ms > ${priceStaleMaxMs}ms)`);
-      logDecisionAsync(supabaseClient, intent, 'DEFER', 'insufficient_price_freshness', config, requestId);
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'insufficient_price_freshness', config, requestId, undefined);
       return { action: 'DEFER', reason: 'insufficient_price_freshness', request_id: requestId, retry_in_ms: 0 };
     }
     
     // Spread gate
     if (priceData.spreadBps > spreadThresholdBps) {
       console.log(`🚫 COORDINATOR: Trade blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
-      logDecisionAsync(supabaseClient, intent, 'DEFER', 'spread_too_wide', config, requestId);
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'spread_too_wide', config, requestId, undefined);
       return { action: 'DEFER', reason: 'spread_too_wide', request_id: requestId, retry_in_ms: 0 };
     }
     
@@ -686,7 +697,7 @@ async function executeWithMinimalLock(
       console.log(`🎯 UD_MODE=ON → EXECUTE: action=${intent.side} symbol=${intent.symbol} lock=OK`);
       
       // Log ENTER/EXIT on successful execution
-      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId);
+      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined);
       
       return { action: intent.side as DecisionAction, reason: 'no_conflicts_detected', request_id: requestId, retry_in_ms: 0, qty: executionResult.qty };
     } else {
@@ -809,9 +820,207 @@ async function executeTradeOrder(
         }
       }
     } else {
+      // SELL GATE: Profit-aware logic
+      if (intent.side === 'SELL') {
+        const profitGateResult = await evaluateProfitGate(
+          supabaseClient, intent, strategyConfig, realMarketPrice, requestId
+        );
+        
+        if (!profitGateResult.allowed) {
+          console.log(`🚫 COORDINATOR: SELL blocked - ${profitGateResult.reason}`);
+          
+          // Log decision with profit metadata
+          await logDecisionAsync(
+            supabaseClient, intent, 'DEFER', 'blocked_by_insufficient_profit', 
+            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, profitGateResult.metadata
+          );
+          
+          return { 
+            success: false, 
+            error: `blocked_by_insufficient_profit: ${profitGateResult.reason}` 
+          };
+        }
+        
+        // Log successful profit gate evaluation
+        console.log(`✅ COORDINATOR: SELL allowed - profit gate passed`, profitGateResult.metadata);
+      }
+      
       // For SELL orders, use the suggested quantity
       qty = intent.qtySuggested || 0.001;
+}
+
+// ============= PROFIT-AWARE COORDINATOR (Milestone 1) =============
+
+// Evaluate profit gate for SELL orders
+async function evaluateProfitGate(
+  supabaseClient: any,
+  intent: TradeIntent,
+  strategyConfig: any,
+  currentPrice: number,
+  requestId: string
+): Promise<{ allowed: boolean; reason?: string; metadata: any }> {
+  
+  try {
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    
+    // Extract profit-aware config with defaults
+    const profitConfig: ProfitAwareConfig = {
+      takeProfitPercentage: strategyConfig?.takeProfitPercentage || 1.5,
+      stopLossPercentage: strategyConfig?.stopLossPercentage || 0.8,
+      minEdgeBpsForExit: strategyConfig?.minEdgeBpsForExit || 8,
+      minProfitEurForExit: strategyConfig?.minProfitEurForExit || 0.20,
+      confidenceThresholdForExit: strategyConfig?.confidenceThresholdForExit || 0.60
+    };
+
+    // Get recent BUY trades to calculate FIFO position cost basis
+    const { data: buyTrades } = await supabaseClient
+      .from('mock_trades')
+      .select('amount, price, executed_at')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)  
+      .eq('cryptocurrency', baseSymbol)
+      .eq('trade_type', 'buy')
+      .order('executed_at', { ascending: true }); // FIFO order
+
+    // Get existing SELL trades to calculate what's already been sold
+    const { data: sellTrades } = await supabaseClient
+      .from('mock_trades')
+      .select('original_purchase_amount, original_purchase_value')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)
+      .eq('cryptocurrency', baseSymbol) 
+      .eq('trade_type', 'sell')
+      .not('original_purchase_amount', 'is', null);
+
+    if (!buyTrades || buyTrades.length === 0) {
+      return {
+        allowed: false,
+        reason: 'no_position_to_sell',
+        metadata: { error: 'No BUY trades found for position' }
+      };
     }
+
+    // Calculate remaining position using FIFO
+    let totalSold = 0;
+    if (sellTrades) {
+      totalSold = sellTrades.reduce((sum: number, sell: any) => sum + parseFloat(sell.original_purchase_amount), 0);
+    }
+
+    let remainingAmount = intent.qtySuggested || 0.001;
+    let totalPurchaseValue = 0;
+    let totalPurchaseAmount = 0;
+    
+    // FIFO matching to get average cost basis for this SELL quantity
+    for (const buy of buyTrades) {
+      if (remainingAmount <= 0) break;
+      
+      const buyAmount = parseFloat(buy.amount);
+      const buyPrice = parseFloat(buy.price);
+      
+      // Calculate how much of this buy is still available
+      const availableFromThisBuy = Math.max(0, buyAmount - totalSold);
+      if (availableFromThisBuy <= 0) {
+        totalSold -= buyAmount;
+        continue;
+      }
+      
+      // Take what we need from this buy lot
+      const takeAmount = Math.min(remainingAmount, availableFromThisBuy);
+      totalPurchaseAmount += takeAmount;
+      totalPurchaseValue += takeAmount * buyPrice;
+      remainingAmount -= takeAmount;
+      totalSold -= (buyAmount - availableFromThisBuy);
+    }
+
+    if (totalPurchaseAmount === 0) {
+      return {
+        allowed: false,
+        reason: 'insufficient_position_size',
+        metadata: { error: 'No remaining position to sell' }
+      };
+    }
+
+    const avgPurchasePrice = totalPurchaseValue / totalPurchaseAmount;
+    const sellAmount = intent.qtySuggested || 0.001;
+    const sellValue = sellAmount * currentPrice;
+    const pnlEur = sellValue - totalPurchaseValue;
+    const pnlPct = ((currentPrice - avgPurchasePrice) / avgPurchasePrice) * 100;
+
+    // Calculate edge (bid-ask spread impact approximation)
+    const edgeBps = Math.abs(pnlPct) * 100; // Simplified: convert P&L% to basis points
+    
+    // Check take profit condition
+    const tpHit = pnlPct >= profitConfig.takeProfitPercentage;
+    
+    // Check stop loss condition  
+    const slHit = pnlPct <= -profitConfig.stopLossPercentage;
+    
+    // Check edge + EUR + confidence conditions
+    const edgeCondition = edgeBps >= profitConfig.minEdgeBpsForExit;
+    const eurCondition = pnlEur >= profitConfig.minProfitEurForExit;
+    const confidenceCondition = intent.confidence >= profitConfig.confidenceThresholdForExit;
+    const allConditionsMet = edgeCondition && eurCondition && confidenceCondition;
+
+    const metadata = {
+      pnl_eur: Number(pnlEur.toFixed(2)),
+      edge_bps: Number(edgeBps.toFixed(1)),
+      confidence: Number(intent.confidence.toFixed(3)),
+      tp_hit: tpHit,
+      sl_hit: slHit,
+      thresholds: {
+        tp_pct: profitConfig.takeProfitPercentage,
+        sl_pct: profitConfig.stopLossPercentage,
+        min_edge_bps: profitConfig.minEdgeBpsForExit,
+        min_profit_eur: profitConfig.minProfitEurForExit,
+        min_conf: profitConfig.confidenceThresholdForExit
+      },
+      conditions: {
+        edge_met: edgeCondition,
+        eur_met: eurCondition,
+        confidence_met: confidenceCondition
+      },
+      position: {
+        avg_purchase_price: Number(avgPurchasePrice.toFixed(2)),
+        current_price: Number(currentPrice.toFixed(2)),
+        pnl_pct: Number(pnlPct.toFixed(2))
+      }
+    };
+
+    // Allow SELL if any condition is met
+    const allowed = tpHit || slHit || allConditionsMet;
+    
+    if (!allowed) {
+      let reason = 'Insufficient profit conditions: ';
+      if (!tpHit) reason += `P&L ${pnlPct.toFixed(2)}% < TP ${profitConfig.takeProfitPercentage}%, `;
+      if (!slHit) reason += `P&L ${pnlPct.toFixed(2)}% > SL -${profitConfig.stopLossPercentage}%, `;
+      if (!allConditionsMet) {
+        reason += 'Edge/EUR/Confidence not all met: ';
+        if (!edgeCondition) reason += `edge ${edgeBps.toFixed(1)}bps < ${profitConfig.minEdgeBpsForExit}bps, `;
+        if (!eurCondition) reason += `P&L €${pnlEur.toFixed(2)} < €${profitConfig.minProfitEurForExit}, `;
+        if (!confidenceCondition) reason += `confidence ${intent.confidence.toFixed(3)} < ${profitConfig.confidenceThresholdForExit}`;
+      }
+      
+      return { allowed: false, reason: reason.replace(/, $/, ''), metadata };
+    }
+
+    let reason = 'Profit gate passed: ';
+    if (tpHit) reason += `Take Profit hit (${pnlPct.toFixed(2)}%)`;
+    else if (slHit) reason += `Stop Loss hit (${pnlPct.toFixed(2)}%)`;
+    else reason += `Edge/EUR/Confidence conditions met`;
+    
+    return { allowed: true, reason, metadata };
+    
+  } catch (error) {
+    console.error('❌ PROFIT GATE: Evaluation error:', error);
+    return {
+      allowed: false,
+      reason: `profit_evaluation_error: ${error.message}`,
+      metadata: { error: error.message }
+    };
+  }
+}
+
+// ============= END PROFIT-AWARE COORDINATOR =============
     
     const totalValue = qty * realMarketPrice;
     
