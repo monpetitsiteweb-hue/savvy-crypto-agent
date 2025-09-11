@@ -1508,12 +1508,11 @@ async function executeTPSellWithLock(
           : 0
       });
     
-      metrics = {
-        totalRequests: 0,
-        blockedByLockCount: 0,
-        deferCount: 0,
-        executionTimes: [],
-        lastReset: now
-      };
+      // Reset metrics
+      metrics.totalRequests = 0;
+      metrics.blockedByLockCount = 0;
+      metrics.deferCount = 0;
+      metrics.executionTimes = [];
+      metrics.lastReset = now;
     }
   }, 60000); // Run every minute
