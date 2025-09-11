@@ -978,7 +978,10 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </Button>
             <Button 
               variant="destructive" 
-              onClick={handleConfirmedSell}
+              onClick={() => {
+                console.log('[UI] CONFIRM SALE BUTTON CLICKED!');
+                handleConfirmedSell();
+              }}
             >
               Confirm Sale
             </Button>
