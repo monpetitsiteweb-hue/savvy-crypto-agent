@@ -429,6 +429,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         reason: 'Manual sell from Trading History UI',
         qtySuggested: trade.amount, // This is already the remaining amount from FIFO calculation
         metadata: {
+          mode: 'mock', // Ensure paper trading mode
           context: 'MANUAL',
           origin: 'UI',
           manualOverride: true,
@@ -442,41 +443,48 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         idempotencyKey: `idem_${Math.random().toString(36).substr(2, 8)}`
       };
 
-      console.log('[UI] SELL PAYLOAD:', JSON.stringify(tradeIntent, null, 2));
+      console.log('[UI] SELL PAYLOAD (before invoke):', JSON.stringify(tradeIntent, null, 2));
 
       // Send to coordinator
-      console.log('[UI] Sending to coordinator...');
+      console.log('[UI] → Invoking coordinator for SELL...');
       const { data: result, error } = await supabase.functions.invoke('trading-decision-coordinator', {
         body: { intent: tradeIntent }
       });
 
-      console.log(`[UI] SELL RESPONSE - status=${error ? 'error' : 'success'}`, { result, error });
+      console.log('[UI] ← Raw coordinator response:', { result, error });
+      console.log('[UI] Decision details:', {
+        action: result?.decision?.action,
+        reason: result?.decision?.reason,
+        request_id: result?.request_id
+      });
 
       if (error) {
         throw new Error(`Network error: ${error.message}`);
       }
       
-      if (!result?.success) {
-        const rejectionReason = result?.decision?.reason || result?.error || 'Unknown rejection';
-        console.error(`[UI] SELL REJECTED - ${rejectionReason}`);
-        
+      // Check for successful SELL decision
+      if (result?.ok === true && result?.decision?.action === 'SELL') {
+        console.log('[UI] ✅ SELL SUCCESS - position closed');
         toast({
-          title: "Sell Rejected",
-          description: rejectionReason,
-          variant: "destructive"
+          title: "Position Sold",
+          description: `Successfully sold ${trade.cryptocurrency} position`,
+          variant: "default"
         });
+        
+        // Refresh data after successful sell
+        fetchTradingHistory();
         return;
       }
 
-      console.log('[UI] SELL SUCCESS - position closed');
+      // Handle DEFER/HOLD or other non-SELL actions
+      const actionReason = result?.decision?.reason || 'Decision not available';
+      console.log(`[UI] ❌ SELL NOT EXECUTED - Action: ${result?.decision?.action}, Reason: ${actionReason}`);
+      
       toast({
-        title: "Position Sold",
-        description: `Successfully sold ${trade.cryptocurrency} position`,
-        variant: "default"
+        title: "Sell Not Executed",
+        description: actionReason,
+        variant: "destructive"
       });
-
-      // Refresh data after successful sell
-      fetchTradingHistory();
       
     } catch (error) {
       console.error('[UI] SELL ERROR:', error);
