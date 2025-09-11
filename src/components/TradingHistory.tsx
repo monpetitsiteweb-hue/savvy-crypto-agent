@@ -918,92 +918,93 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       </Tabs>
 
       {/* Sell Confirmation Modal */}
-      <Dialog 
-        open={sellConfirmation.open} 
-        onOpenChange={(open) => {
-          console.log('[UI] MODAL onOpenChange called:', open);
-          setSellConfirmation({ open, trade: null });
-        }}
-      >
-        <DialogContent onPointerDownOutside={() => console.log('[UI] MODAL clicked outside')}>
-          <DialogHeader>
-            <DialogTitle>Confirm Position Sale</DialogTitle>
-            <DialogDescription>
+      {sellConfirmation.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div 
+            className="fixed inset-0 bg-black/50"
+            onClick={() => {
+              console.log('[UI] BACKDROP CLICKED');
+              setSellConfirmation({ open: false, trade: null });
+            }}
+          />
+          <div className="relative z-50 w-full max-w-md bg-white rounded-lg shadow-lg p-6">
+            <h2 className="text-lg font-semibold mb-2">Confirm Position Sale</h2>
+            <p className="text-sm text-gray-600 mb-4">
               Are you sure you want to sell this position now?
               This will trigger a manual SELL with current market data and pass through our AI decision system.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="p-4 bg-red-100 border border-red-300 rounded">
-            <p className="text-red-800 font-bold">DEBUG: Modal is rendering</p>
-            <p className="text-sm">sellConfirmation.open: {String(sellConfirmation.open)}</p>
-            <p className="text-sm">sellConfirmation.trade: {sellConfirmation.trade?.id || 'null'}</p>
-          </div>
-          
-          {sellConfirmation.trade && (
-            <div className="space-y-4">
-              <div className="bg-muted/50 p-4 rounded-lg space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Symbol:</span>
-                  <span className="font-semibold">{sellConfirmation.trade.cryptocurrency}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Amount:</span>
-                  <span className="font-medium">{sellConfirmation.trade.amount.toFixed(8)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Entry Price:</span>
-                  <span className="font-medium">{formatEuro(sellConfirmation.trade.price)}</span>
-                </div>
-                {(() => {
-                  const performance = calculateTradePerformance(sellConfirmation.trade);
-                  const isProfit = (performance.gainLoss || 0) > 0;
-                  const isLoss = (performance.gainLoss || 0) < 0;
-                  
-                  return (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Current P&L (€):</span>
-                        <span className={`font-medium ${isProfit ? 'text-emerald-600' : isLoss ? 'text-red-600' : ''}`}>
-                          {formatEuro(performance.gainLoss || 0)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-muted-foreground">Current P&L (%):</span>
-                        <span className={`font-medium ${isProfit ? 'text-emerald-600' : isLoss ? 'text-red-600' : ''}`}>
-                          {formatPercentage(performance.gainLossPercentage || 0)}
-                        </span>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
+            </p>
+            
+            <div className="p-4 bg-red-100 border border-red-300 rounded mb-4">
+              <p className="text-red-800 font-bold">DEBUG: Modal is rendering</p>
+              <p className="text-sm">sellConfirmation.open: {String(sellConfirmation.open)}</p>
+              <p className="text-sm">sellConfirmation.trade: {sellConfirmation.trade?.id || 'null'}</p>
             </div>
-          )}
+            
+            {sellConfirmation.trade && (
+              <div className="space-y-4 mb-6">
+                <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Symbol:</span>
+                    <span className="font-semibold">{sellConfirmation.trade.cryptocurrency}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Amount:</span>
+                    <span className="font-medium">{sellConfirmation.trade.amount.toFixed(8)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Entry Price:</span>
+                    <span className="font-medium">{formatEuro(sellConfirmation.trade.price)}</span>
+                  </div>
+                  {(() => {
+                    const performance = calculateTradePerformance(sellConfirmation.trade);
+                    const isProfit = (performance.gainLoss || 0) > 0;
+                    const isLoss = (performance.gainLoss || 0) < 0;
+                    
+                    return (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-gray-600">Current P&L (€):</span>
+                          <span className={`font-medium ${isProfit ? 'text-green-600' : isLoss ? 'text-red-600' : ''}`}>
+                            {formatEuro(performance.gainLoss || 0)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-sm text-gray-600">Current P&L (%):</span>
+                          <span className={`font-medium ${isProfit ? 'text-green-600' : isLoss ? 'text-red-600' : ''}`}>
+                            {formatPercentage(performance.gainLossPercentage || 0)}
+                          </span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
 
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <button 
-              className="px-4 py-2 border rounded-md hover:bg-gray-50"
-              onClick={() => {
-                console.log('[UI] CANCEL CLICKED');
-                setSellConfirmation({ open: false, trade: null });
-              }}
-            >
-              Cancel
-            </button>
-            <button 
-              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-              onClick={async () => {
-                console.log('[UI] CONFIRM CLICKED - executing handleConfirmedSell');
-                await handleConfirmedSell();
-              }}
-              disabled={!sellConfirmation.trade}
-            >
-              Confirm Sale
-            </button>
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <button 
+                className="px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
+                onClick={() => {
+                  console.log('[UI] CANCEL CLICKED');
+                  setSellConfirmation({ open: false, trade: null });
+                }}
+              >
+                Cancel
+              </button>
+              <button 
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                onClick={async () => {
+                  console.log('[UI] CONFIRM CLICKED - executing handleConfirmedSell');
+                  await handleConfirmedSell();
+                }}
+                disabled={!sellConfirmation.trade}
+              >
+                Confirm Sale
+              </button>
+            </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </Card>
   );
 }
