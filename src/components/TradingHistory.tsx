@@ -650,6 +650,11 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               <p>Executed: {new Date(trade.executed_at).toLocaleString()}</p>
               {trade.notes && <p className="mt-1">Note: {trade.notes}</p>}
             </div>
+            {/* DEBUG: Show button conditions */}
+            <div className="text-xs text-red-500">
+              Debug: showSellButton={String(showSellButton)}, trade_type={trade.trade_type}
+            </div>
+            
             {showSellButton && trade.trade_type === 'buy' && (
               <button
                 className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50"
@@ -667,6 +672,19 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               >
                 SELL NOW
               </button>
+            )}
+            
+            {/* DEBUG: Show why button isn't showing */}
+            {showSellButton && trade.trade_type !== 'buy' && (
+              <div className="text-xs text-orange-500">
+                Button hidden: trade_type is "{trade.trade_type}", need "buy"
+              </div>
+            )}
+            
+            {!showSellButton && (
+              <div className="text-xs text-orange-500">
+                Button hidden: showSellButton is false
+              </div>
             )}
           </div>
         </div>
