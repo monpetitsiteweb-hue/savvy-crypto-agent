@@ -984,8 +984,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           <DialogFooter>
             <Button 
               variant="outline" 
-              onClick={() => {
-                console.log('[UI] CANCEL BUTTON CLICKED');
+              onMouseDown={() => console.log('[UI] CANCEL MOUSE DOWN')}
+              onMouseUp={() => console.log('[UI] CANCEL MOUSE UP')}
+              onPointerDown={() => console.log('[UI] CANCEL POINTER DOWN')}
+              onClick={(e) => {
+                console.log('[UI] CANCEL BUTTON CLICKED', e);
+                e.stopPropagation();
                 setSellConfirmation({ open: false, trade: null });
               }}
             >
@@ -993,8 +997,13 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </Button>
             <Button 
               variant="destructive" 
+              onMouseDown={() => console.log('[UI] CONFIRM MOUSE DOWN')}
+              onMouseUp={() => console.log('[UI] CONFIRM MOUSE UP')}
+              onPointerDown={() => console.log('[UI] CONFIRM POINTER DOWN')}
               onClick={(e) => {
                 console.log('[UI] CONFIRM SALE BUTTON CLICKED!', e);
+                e.preventDefault();
+                e.stopPropagation();
                 console.log('[UI] handleConfirmedSell type:', typeof handleConfirmedSell);
                 console.log('[UI] sellConfirmation:', sellConfirmation);
                 try {
@@ -1008,6 +1017,19 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               Confirm Sale
             </Button>
           </DialogFooter>
+          
+          {/* Test button outside modal for comparison */}
+          <div className="fixed bottom-4 right-4 z-50">
+            <Button 
+              onClick={() => {
+                console.log('[UI] TEST BUTTON OUTSIDE MODAL CLICKED!');
+                alert('Test button works!');
+              }}
+              className="bg-yellow-500 text-black"
+            >
+              TEST
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </Card>
