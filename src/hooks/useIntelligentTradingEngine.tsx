@@ -390,14 +390,19 @@ export const useIntelligentTradingEngine = () => {
 
   const executeSellOrder = async (strategy: any, position: Position, marketPrice: number, sellDecision: {reason: string, orderType?: string}) => {
     try {
-      await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason);
+      // Map sell decision reasons to proper context
+      const context = sellDecision.reason === 'TAKE_PROFIT' ? 'TP' : 
+                     sellDecision.reason === 'STOP_LOSS' ? 'SL' : 'MANUAL';
+      
+      console.log('🎯 SELL ORDER: Executing with context:', context, 'reason:', sellDecision.reason);
+      await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason, context);
     } catch (error) {
       logger.error('ENGINE: Error in executeTrade:', error);
     }
   };
 
   // Unified AI Signal Fusion and Context Gates
-  const evaluateSignalFusion = async (strategy: any, symbol: string, side: 'BUY' | 'SELL'): Promise<{
+  const evaluateSignalFusion = async (strategy: any, symbol: string, side: 'BUY' | 'SELL', context: 'ENTRY' | 'TP' | 'SL' | 'MANUAL' = 'ENTRY'): Promise<{
     sTotalScore: number;
     bucketScores: { trend: number; volatility: number; momentum: number; whale: number; sentiment: number };
     decision: 'ENTER' | 'EXIT' | 'HOLD' | 'DEFER';
@@ -405,6 +410,7 @@ export const useIntelligentTradingEngine = () => {
     gateBlocks: string[];
     effectiveConfig: any;
     valueSources: Record<string, any>;
+    context: string;
   }> => {
     const { computeEffectiveConfig, isAIFusionEnabled, getFusionConfig, getContextGatesConfig } = await import('@/utils/aiConfigHelpers');
     
@@ -423,7 +429,8 @@ export const useIntelligentTradingEngine = () => {
         reason: 'legacy_evaluation',
         gateBlocks: [],
         effectiveConfig: effectiveConfigWithSources,
-        valueSources: effectiveConfigWithSources.value_sources
+        valueSources: effectiveConfigWithSources.value_sources,
+        context
       };
     }
     
@@ -433,23 +440,35 @@ export const useIntelligentTradingEngine = () => {
     
     try {
       // Context Gates - Check blocking conditions first using effective config
+      // 🚀 HOTFIX: TP exits bypass liquidity and whale conflict gates
       if (gatesConfig) {
-        // Gate 1: Spread check
+        // Gate 1: Spread check (always enforced)
         const spread = await checkSpreadGate(symbol, effectiveConfigWithSources.spreadThresholdBps);
         if (spread.blocked) {
           gateBlocks.push('blocked_by_spread');
         }
         
-        // Gate 2: Liquidity/Depth check
-        const liquidity = await checkLiquidityGate(symbol, effectiveConfigWithSources.minDepthRatio);
-        if (liquidity.blocked) {
-          gateBlocks.push('blocked_by_liquidity');
+        // Gate 2: Liquidity/Depth check - BYPASS for TP exits
+        const enforceLiquidity = context !== 'TP';
+        if (enforceLiquidity) {
+          const liquidity = await checkLiquidityGate(symbol, effectiveConfigWithSources.minDepthRatio);
+          if (liquidity.blocked) {
+            gateBlocks.push('blocked_by_liquidity');
+            console.log(`🚫 LIQUIDITY GATE: Blocked ${side} for ${symbol} (context: ${context}) - depth ratio: ${liquidity.depthRatio} < ${effectiveConfigWithSources.minDepthRatio}`);
+          }
+        } else {
+          console.log(`✅ LIQUIDITY GATE: Bypassed for ${side} ${symbol} (context: ${context})`);
         }
         
-        // Gate 3: Whale conflict check
-        const whaleConflict = await checkWhaleConflictGate(symbol, side, effectiveConfigWithSources.whaleConflictWindowMs);
-        if (whaleConflict.blocked) {
-          gateBlocks.push('blocked_by_whale_conflict');
+        // Gate 3: Whale conflict check - BYPASS for TP exits  
+        const enforceWhaleConflict = context !== 'TP';
+        if (enforceWhaleConflict) {
+          const whaleConflict = await checkWhaleConflictGate(symbol, side, effectiveConfigWithSources.whaleConflictWindowMs);
+          if (whaleConflict.blocked) {
+            gateBlocks.push('blocked_by_whale_conflict');
+          }
+        } else {
+          console.log(`✅ WHALE GATE: Bypassed for ${side} ${symbol} (context: ${context})`);
         }
         
         // If any gate blocks, return immediately
@@ -461,7 +480,8 @@ export const useIntelligentTradingEngine = () => {
             reason: gateBlocks[0], // Use first blocking reason
             gateBlocks,
             effectiveConfig: effectiveConfigWithSources,
-            valueSources: effectiveConfigWithSources.value_sources
+            valueSources: effectiveConfigWithSources.value_sources,
+            context
           };
         }
       }
@@ -522,7 +542,8 @@ export const useIntelligentTradingEngine = () => {
         reason,
         gateBlocks: [],
         effectiveConfig: effectiveConfigWithSources,
-        valueSources: effectiveConfigWithSources.value_sources
+        valueSources: effectiveConfigWithSources.value_sources,
+        context
       };
       
     } catch (error) {
@@ -534,7 +555,8 @@ export const useIntelligentTradingEngine = () => {
         reason: 'fusion_evaluation_error',
         gateBlocks: [],
         effectiveConfig: effectiveConfigWithSources,
-        valueSources: effectiveConfigWithSources.value_sources
+        valueSources: effectiveConfigWithSources.value_sources,
+        context
       };
     }
   };
@@ -1459,19 +1481,27 @@ export const useIntelligentTradingEngine = () => {
     cryptocurrency: string, 
     price: number, 
     customAmount?: number,
-    trigger?: string
+    trigger?: string,
+    context?: 'ENTRY' | 'TP' | 'SL' | 'MANUAL'
   ) => {
-    console.log('🔧 ENGINE: executeTrade called with action:', action, 'symbol:', cryptocurrency);
+    console.log('🔧 ENGINE: executeTrade called with action:', action, 'symbol:', cryptocurrency, 'context:', context);
     
     const { isAIFusionEnabled } = await import('@/utils/aiConfigHelpers');
     const config = strategy.configuration;
     const isAIEnabled = isAIFusionEnabled(config);
     
+    // Determine context based on trigger if not explicitly provided
+    const tradeContext = context || (
+      trigger === 'TAKE_PROFIT' ? 'TP' :
+      trigger === 'STOP_LOSS' ? 'SL' :
+      action === 'buy' ? 'ENTRY' : 'MANUAL'
+    );
+    
     // NEW: AI signal fusion evaluation
     if (isAIEnabled) {
-      console.log('🧠 AI-FUSION: Evaluating signal fusion for', action, cryptocurrency);
+      console.log('🧠 AI-FUSION: Evaluating signal fusion for', action, cryptocurrency, 'context:', tradeContext);
       
-      const fusionResult = await evaluateSignalFusion(strategy, cryptocurrency, action.toUpperCase() as 'BUY' | 'SELL');
+      const fusionResult = await evaluateSignalFusion(strategy, cryptocurrency, action.toUpperCase() as 'BUY' | 'SELL', tradeContext);
       
       // Enhanced brackets for ScalpSmart
       const brackets = calculateScalpSmartBrackets(config, price);
