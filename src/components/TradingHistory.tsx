@@ -364,13 +364,31 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     
     try {
       console.log('[UI] Converting symbols...');
+      
+      // Check if utils are available, fallback if needed
+      if (typeof toBaseSymbol !== 'function') {
+        console.error('[UI] toBaseSymbol not available - import failed');
+        throw new Error('Symbol utilities not available');
+      }
+      
       const baseSymbol = toBaseSymbol(trade.cryptocurrency);
       console.log(`[UI] Base symbol: ${baseSymbol}`);
+      
+      if (typeof toPairSymbol !== 'function') {
+        console.error('[UI] toPairSymbol not available - import failed');
+        throw new Error('Symbol utilities not available');
+      }
       
       const pairSymbol = toPairSymbol(baseSymbol);
       console.log(`[UI] Pair symbol: ${pairSymbol}`);
       
       console.log('[UI] Getting current price...');
+      
+      if (!sharedPriceCache) {
+        console.error('[UI] sharedPriceCache not available - import failed');
+        throw new Error('Price cache not available');
+      }
+      
       const currentPrice = sharedPriceCache.getPrice(pairSymbol);
       console.log(`[UI] Current price: ${currentPrice}`);
       
@@ -973,8 +991,32 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
 
 // Debug helper function for DevTools console
 if (typeof window !== 'undefined') {
+  // Expose utilities globally for debugging
+  (window as any).toBaseSymbol = toBaseSymbol;
+  (window as any).toPairSymbol = toPairSymbol;
+  (window as any).sharedPriceCache = sharedPriceCache;
+  
   (window as any).debugManualSell = (symbol: string) => {
     console.log(`[DEBUG] Manual sell triggered for symbol: ${symbol}`);
+    console.log(`[DEBUG] toBaseSymbol available: ${typeof toBaseSymbol}`);
+    console.log(`[DEBUG] toPairSymbol available: ${typeof toPairSymbol}`);
+    console.log(`[DEBUG] sharedPriceCache available: ${typeof sharedPriceCache}`);
+    
+    if (typeof toBaseSymbol === 'function') {
+      const baseSymbol = toBaseSymbol(symbol);
+      console.log(`[DEBUG] Base symbol: ${baseSymbol}`);
+      
+      if (typeof toPairSymbol === 'function') {
+        const pairSymbol = toPairSymbol(baseSymbol);
+        console.log(`[DEBUG] Pair symbol: ${pairSymbol}`);
+        
+        if (sharedPriceCache) {
+          const price = sharedPriceCache.getPrice(pairSymbol);
+          console.log(`[DEBUG] Current price: ${price}`);
+        }
+      }
+    }
+    
     const mockTrade = {
       id: 'debug-' + Date.now(),
       cryptocurrency: symbol,
@@ -991,5 +1033,9 @@ if (typeof window !== 'undefined') {
     console.log('[DEBUG] To test fully, use the actual UI button or implement a real position');
   };
   
-  console.log('[DEBUG] debugManualSell(symbol) helper loaded. Usage: debugManualSell("BTC-EUR")');
+  console.log('[DEBUG] Utils exposed globally. Test with:');
+  console.log('- toBaseSymbol("BTC-EUR")');
+  console.log('- toPairSymbol("BTC")'); 
+  console.log('- sharedPriceCache.getPrice("BTC-EUR")');
+  console.log('- debugManualSell("BTC-EUR")');
 }
