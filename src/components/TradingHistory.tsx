@@ -329,8 +329,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   }, [user]);
 
-  // Handle direct sell - bypassing modal for debugging
+  // Handle direct sell - bypassing modal for debugging  
   const handleDirectSell = async (trade: Trade) => {
+    console.log('============ HANDLE DIRECT SELL STARTED ============');
     console.log(`[UI] DIRECT SELL CLICKED - symbol=${trade.cryptocurrency}, id=${trade.id}`);
     
     if (!user) {
@@ -627,17 +628,22 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               {trade.notes && <p className="mt-1">Note: {trade.notes}</p>}
             </div>
             {showSellButton && trade.trade_type === 'buy' && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-red-600 hover:text-red-700 hover:border-red-300"
-                onClick={async () => {
-                  console.log('[UI] SELL BUTTON CLICKED DIRECTLY');
-                  await handleDirectSell(trade);
+              <button
+                className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50"
+                onClick={(e) => {
+                  console.log('============ BUTTON CLICKED ============');
+                  console.log('Event:', e);
+                  console.log('Trade:', trade);
+                  console.log('ShowSellButton:', showSellButton);
+                  console.log('Trade Type:', trade.trade_type);
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleDirectSell(trade);
                 }}
+                style={{ zIndex: 9999, position: 'relative' }}
               >
-                Sell Position
-              </Button>
+                SELL NOW
+              </button>
             )}
           </div>
         </div>
