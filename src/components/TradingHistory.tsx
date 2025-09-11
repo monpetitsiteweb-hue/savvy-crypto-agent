@@ -918,8 +918,14 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       </Tabs>
 
       {/* Sell Confirmation Modal */}
-      <Dialog open={sellConfirmation.open} onOpenChange={(open) => setSellConfirmation({ open, trade: null })}>
-        <DialogContent>
+      <Dialog 
+        open={sellConfirmation.open} 
+        onOpenChange={(open) => {
+          console.log('[UI] MODAL onOpenChange called:', open);
+          setSellConfirmation({ open, trade: null });
+        }}
+      >
+        <DialogContent onPointerDownOutside={() => console.log('[UI] MODAL clicked outside')}>
           <DialogHeader>
             <DialogTitle>Confirm Position Sale</DialogTitle>
             <DialogDescription>
@@ -927,6 +933,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               This will trigger a manual SELL with current market data and pass through our AI decision system.
             </DialogDescription>
           </DialogHeader>
+          
+          <div className="p-4 bg-red-100 border border-red-300 rounded">
+            <p className="text-red-800 font-bold">DEBUG: Modal is rendering</p>
+            <p className="text-sm">sellConfirmation.open: {String(sellConfirmation.open)}</p>
+            <p className="text-sm">sellConfirmation.trade: {sellConfirmation.trade?.id || 'null'}</p>
+          </div>
           
           {sellConfirmation.trade && (
             <div className="space-y-4">
