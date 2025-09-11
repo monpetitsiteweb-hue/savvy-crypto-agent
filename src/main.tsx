@@ -6,6 +6,8 @@ import App from './App.tsx'
 import './index.css'
 import { Toaster } from "@/components/ui/sonner";
 import { checkAndClearLegacyStorage } from './utils/clearLocalSession';
+import { toBaseSymbol, toPairSymbol } from './utils/symbols';
+import { sharedPriceCache } from './utils/SharedPriceCache';
 
 // Check version but DON'T clear storage if user is already logged in
 const preservedAuth = localStorage.getItem('supabase.auth.token');
@@ -34,6 +36,37 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// Expose utility functions globally for debugging
+if (typeof window !== 'undefined') {
+  (window as any).toBaseSymbol = toBaseSymbol;
+  (window as any).toPairSymbol = toPairSymbol;
+  (window as any).sharedPriceCache = sharedPriceCache;
+  
+  (window as any).debugManualSell = (symbol: string) => {
+    console.log(`[DEBUG] Manual sell triggered for symbol: ${symbol}`);
+    console.log(`[DEBUG] toBaseSymbol available: ${typeof toBaseSymbol}`);
+    console.log(`[DEBUG] toPairSymbol available: ${typeof toPairSymbol}`);
+    console.log(`[DEBUG] sharedPriceCache available: ${typeof sharedPriceCache}`);
+    
+    const baseSymbol = toBaseSymbol(symbol);
+    console.log(`[DEBUG] Base symbol: ${baseSymbol}`);
+    
+    const pairSymbol = toPairSymbol(baseSymbol);
+    console.log(`[DEBUG] Pair symbol: ${pairSymbol}`);
+    
+    const price = sharedPriceCache.getPrice(pairSymbol);
+    console.log(`[DEBUG] Current price: ${price}`);
+    
+    console.log('[DEBUG] To test manual sell: navigate to Trading History and use the UI button');
+  };
+  
+  console.log('[DEBUG] Trading utilities loaded globally:');
+  console.log('- toBaseSymbol("BTC-EUR") // Convert pair to base symbol');
+  console.log('- toPairSymbol("BTC") // Convert base to pair symbol'); 
+  console.log('- sharedPriceCache.getPrice("BTC-EUR") // Get cached price');
+  console.log('- debugManualSell("BTC-EUR") // Test manual sell flow');
+}
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
