@@ -337,17 +337,45 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   // Handle confirmed sell - with comprehensive logging and error handling
   const handleConfirmedSell = async () => {
-    if (!user || !sellConfirmation.trade) return;
+    console.log('[UI] SELL CONFIRMED - starting handler...');
+    
+    if (!user) {
+      console.error('[UI] SELL FAILED - no user');
+      toast({
+        title: "Sell Failed",
+        description: "User not authenticated",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    if (!sellConfirmation.trade) {
+      console.error('[UI] SELL FAILED - no trade selected');
+      toast({
+        title: "Sell Failed", 
+        description: "No trade selected",
+        variant: "destructive"
+      });
+      return;
+    }
     
     const trade = sellConfirmation.trade;
-    console.log(`[UI] SELL CONFIRMED - sending to coordinator...`);
+    console.log(`[UI] SELL CONFIRMED - processing ${trade.cryptocurrency} trade ${trade.id}`);
     
     try {
+      console.log('[UI] Converting symbols...');
       const baseSymbol = toBaseSymbol(trade.cryptocurrency);
-      const currentPrice = sharedPriceCache.getPrice(toPairSymbol(baseSymbol));
+      console.log(`[UI] Base symbol: ${baseSymbol}`);
+      
+      const pairSymbol = toPairSymbol(baseSymbol);
+      console.log(`[UI] Pair symbol: ${pairSymbol}`);
+      
+      console.log('[UI] Getting current price...');
+      const currentPrice = sharedPriceCache.getPrice(pairSymbol);
+      console.log(`[UI] Current price: ${currentPrice}`);
       
       if (!currentPrice) {
-        const errorMsg = 'Current price not available';
+        const errorMsg = `Current price not available for ${pairSymbol}`;
         console.error(`[UI] SELL FAILED - ${errorMsg}`);
         toast({
           title: "Sell Failed",
@@ -358,7 +386,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       }
 
       // Calculate current P&L for confirmation display
+      console.log('[UI] Calculating performance...');
       const performance = calculateTradePerformance(trade);
+      console.log('[UI] Performance:', performance);
 
       // Build trade intent with full context
       const tradeIntent = {
@@ -386,6 +416,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       console.log('[UI] SELL PAYLOAD:', JSON.stringify(tradeIntent, null, 2));
 
       // Send to coordinator
+      console.log('[UI] Sending to coordinator...');
       const { data: result, error } = await supabase.functions.invoke('trading-decision-coordinator', {
         body: { intent: tradeIntent }
       });
