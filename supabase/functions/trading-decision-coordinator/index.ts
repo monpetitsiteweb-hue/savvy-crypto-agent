@@ -1030,7 +1030,7 @@ async function executeTradeOrder(
       qty = intent.qtySuggested || 0.001;
     }
     
-    const totalValue = qty * realMarketPrice;
+    let totalValue = qty * realMarketPrice;
     
     console.log(`💱 COORDINATOR: Trade calculation - ${intent.side} ${qty} ${baseSymbol} at €${realMarketPrice} = €${totalValue}`);
     
