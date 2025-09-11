@@ -981,31 +981,24 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
           )}
 
-          <div className="flex justify-end gap-3 pt-4 border-t">
+          <div className="flex justify-end gap-3 pt-4 border-t relative z-50">
             <button 
-              className="px-4 py-2 border rounded-md hover:bg-gray-50"
+              className="px-4 py-2 border rounded-md hover:bg-gray-50 relative z-50"
+              style={{ pointerEvents: 'auto' }}
               onMouseDown={(e) => {
                 console.log('[UI] CANCEL MOUSE DOWN', e);
-                e.preventDefault();
-                e.stopPropagation();
                 setSellConfirmation({ open: false, trade: null });
               }}
             >
               Cancel
             </button>
             <button 
-              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 relative z-50"
+              style={{ pointerEvents: 'auto' }}
               onMouseDown={(e) => {
                 console.log('[UI] CONFIRM MOUSE DOWN!', e);
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('[UI] handleConfirmedSell type:', typeof handleConfirmedSell);
-                console.log('[UI] sellConfirmation:', sellConfirmation);
-                try {
-                  handleConfirmedSell();
-                } catch (error) {
-                  console.error('[UI] ERROR IN HANDLER:', error);
-                }
+                console.log('[UI] Executing handleConfirmedSell...');
+                handleConfirmedSell();
               }}
               disabled={!sellConfirmation.trade}
             >
