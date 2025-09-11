@@ -183,7 +183,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   };
 
-  // FIFO helper functions
+  // FIFO helper functions - FIXED to match database logic
   const buildFifoLots = (allTrades: Trade[]) => {
     const sorted = [...allTrades].sort((a,b)=> new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
     const lotsBySymbol = new Map<string, { trade: Trade; remaining: number }[]>();
@@ -192,8 +192,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       if (!lotsBySymbol.has(sym)) lotsBySymbol.set(sym, []);
       if (t.trade_type === 'buy') {
         lotsBySymbol.get(sym)!.push({ trade: t, remaining: t.amount });
-      } else if (t.trade_type === 'sell') {
-        let sellRemaining = t.amount;
+      } else if (t.trade_type === 'sell' && t.original_purchase_amount) {
+        // Use original_purchase_amount which reflects actual FIFO consumption in database
+        let sellRemaining = t.original_purchase_amount;
         const lots = lotsBySymbol.get(sym)!;
         for (let i = 0; i < lots.length && sellRemaining > 1e-12; i++) {
           const lot = lots[i];
@@ -207,13 +208,16 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     let closedCount = 0;
     lotsBySymbol.forEach((lots) => {
       lots.forEach(({ trade, remaining }) => {
-        if (remaining > 1e-12) {
+        if (remaining > 1e-8) {  // Increased threshold to match database precision
           const ratio = remaining / trade.amount;
           openLots.push({
             ...trade,
-            amount: remaining,
+            amount: remaining, // Show actual remaining amount
             total_value: trade.total_value * ratio,
             fees: 0,
+            notes: remaining < trade.amount ? 
+              `Partial: ${remaining.toFixed(8)} of ${trade.amount.toFixed(8)} remaining` : 
+              trade.notes
           });
         } else {
           closedCount += 1;
