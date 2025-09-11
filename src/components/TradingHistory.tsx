@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
@@ -15,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { AlertTriangle } from 'lucide-react';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import { sharedPriceCache } from '@/utils/SharedPriceCache';
+import { useToast } from '@/hooks/use-toast';
 
 const PAGE_SIZE = 20;
 
@@ -65,12 +67,17 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { getTotalValue, balances } = useMockWallet();
+  const { toast } = useToast();
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [openPage, setOpenPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'open' | 'past'>('open');
+  const [sellConfirmation, setSellConfirmation] = useState<{ open: boolean; trade: Trade | null }>({ 
+    open: false, 
+    trade: null 
+  });
   const [stats, setStats] = useState({
     totalTrades: 0,
     totalVolume: 0,
@@ -322,55 +329,105 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   }, [user]);
 
-  // Handle selling a position
-  const handleSellPosition = async (trade: Trade) => {
-    if (!user) return;
+  // Handle sell button click - opens confirmation modal
+  const handleSellButtonClick = (trade: Trade) => {
+    console.log(`[UI] SELL BUTTON CLICKED - symbol=${trade.cryptocurrency}, id=${trade.id}`);
+    setSellConfirmation({ open: true, trade });
+  };
+
+  // Handle confirmed sell - with comprehensive logging and error handling
+  const handleConfirmedSell = async () => {
+    if (!user || !sellConfirmation.trade) return;
+    
+    const trade = sellConfirmation.trade;
+    console.log(`[UI] SELL CONFIRMED - sending to coordinator...`);
     
     try {
       const baseSymbol = toBaseSymbol(trade.cryptocurrency);
       const currentPrice = sharedPriceCache.getPrice(toPairSymbol(baseSymbol));
       
       if (!currentPrice) {
-        console.error('Cannot sell position: Current price not available');
+        const errorMsg = 'Current price not available';
+        console.error(`[UI] SELL FAILED - ${errorMsg}`);
+        toast({
+          title: "Sell Failed",
+          description: errorMsg,
+          variant: "destructive"
+        });
         return;
       }
 
-      // Create sell trade record
-      // Route manual SELL through coordinator for unified processing
+      // Calculate current P&L for confirmation display
+      const performance = calculateTradePerformance(trade);
+
+      // Build trade intent with full context
       const tradeIntent = {
         userId: user.id,
         strategyId: trade.strategy_id,
         symbol: trade.cryptocurrency,
         side: 'SELL' as const,
         source: 'manual',
-        confidence: 0.95, // High confidence for manual trades
-        reason: 'Manual sell from Trading History',
+        confidence: 0.95,
+        reason: 'Manual sell from Trading History UI',
         qtySuggested: trade.amount,
         metadata: {
           context: 'MANUAL',
+          origin: 'UI',
           manualOverride: true,
           originalTradeId: trade.id,
-          notes: 'Manual sell from Trading History'
+          notes: 'Manual sell from Trading History UI',
+          uiTimestamp: new Date().toISOString(),
+          currentPrice,
+          expectedPnl: performance.gainLoss || 0,
+          expectedPnlPct: performance.gainLossPercentage || 0
         }
       };
+
+      console.log('[UI] SELL PAYLOAD:', JSON.stringify(tradeIntent, null, 2));
 
       // Send to coordinator
       const { data: result, error } = await supabase.functions.invoke('trading-decision-coordinator', {
         body: { intent: tradeIntent }
       });
 
-      if (error) throw error;
+      console.log(`[UI] SELL RESPONSE - status=${error ? 'error' : 'success'}`, { result, error });
+
+      if (error) {
+        throw new Error(`Network error: ${error.message}`);
+      }
       
       if (!result?.success) {
-        throw new Error(result?.error || 'Trade coordinator rejected the manual sell');
+        const rejectionReason = result?.decision?.reason || result?.error || 'Unknown rejection';
+        console.error(`[UI] SELL REJECTED - ${rejectionReason}`);
+        
+        toast({
+          title: "Sell Rejected",
+          description: rejectionReason,
+          variant: "destructive"
+        });
+        return;
       }
 
-      // Refresh trading history to show updated positions
+      console.log('[UI] SELL SUCCESS - position closed');
+      toast({
+        title: "Position Sold",
+        description: `Successfully sold ${trade.cryptocurrency} position`,
+        variant: "default"
+      });
+
+      // Close modal and refresh
+      setSellConfirmation({ open: false, trade: null });
       fetchTradingHistory();
       
     } catch (error) {
-      console.error('Error selling position:', error);
-      window.NotificationSink?.log({ message: 'Error selling position', error });
+      console.error('[UI] SELL ERROR:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      
+      toast({
+        title: "Sell Failed",
+        description: errorMessage,
+        variant: "destructive"
+      });
     }
   };
 
@@ -544,7 +601,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                 size="sm"
                 variant="outline"
                 className="text-red-600 hover:text-red-700 hover:border-red-300"
-                onClick={() => handleSellPosition(trade)}
+                onClick={() => handleSellButtonClick(trade)}
               >
                 Sell Position
               </Button>
@@ -810,6 +867,98 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Sell Confirmation Modal */}
+      <Dialog open={sellConfirmation.open} onOpenChange={(open) => setSellConfirmation({ open, trade: null })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Position Sale</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to sell this position now?
+              This will trigger a manual SELL with current market data and pass through our AI decision system.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {sellConfirmation.trade && (
+            <div className="space-y-4">
+              <div className="bg-muted/50 p-4 rounded-lg space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Symbol:</span>
+                  <span className="font-semibold">{sellConfirmation.trade.cryptocurrency}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Amount:</span>
+                  <span className="font-medium">{sellConfirmation.trade.amount.toFixed(8)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Entry Price:</span>
+                  <span className="font-medium">{formatEuro(sellConfirmation.trade.price)}</span>
+                </div>
+                {(() => {
+                  const performance = calculateTradePerformance(sellConfirmation.trade);
+                  const isProfit = (performance.gainLoss || 0) > 0;
+                  const isLoss = (performance.gainLoss || 0) < 0;
+                  
+                  return (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Current P&L (€):</span>
+                        <span className={`font-medium ${isProfit ? 'text-emerald-600' : isLoss ? 'text-red-600' : ''}`}>
+                          {formatEuro(performance.gainLoss || 0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm text-muted-foreground">Current P&L (%):</span>
+                        <span className={`font-medium ${isProfit ? 'text-emerald-600' : isLoss ? 'text-red-600' : ''}`}>
+                          {formatPercentage(performance.gainLossPercentage || 0)}
+                        </span>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setSellConfirmation({ open: false, trade: null })}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleConfirmedSell}
+            >
+              Confirm Sale
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
+}
+
+// Debug helper function for DevTools console
+if (typeof window !== 'undefined') {
+  (window as any).debugManualSell = (symbol: string) => {
+    console.log(`[DEBUG] Manual sell triggered for symbol: ${symbol}`);
+    const mockTrade = {
+      id: 'debug-' + Date.now(),
+      cryptocurrency: symbol,
+      amount: 1.0,
+      price: 100,
+      trade_type: 'buy',
+      strategy_id: 'debug-strategy',
+      executed_at: new Date().toISOString(),
+      total_value: 100
+    };
+    
+    console.log('[DEBUG] Mock trade object:', mockTrade);
+    console.log('[DEBUG] This would trigger the same coordinator path as the UI button');
+    console.log('[DEBUG] To test fully, use the actual UI button or implement a real position');
+  };
+  
+  console.log('[DEBUG] debugManualSell(symbol) helper loaded. Usage: debugManualSell("BTC-EUR")');
 }
