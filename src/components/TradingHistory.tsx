@@ -981,24 +981,21 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
           )}
 
-          <div className="flex justify-end gap-3 pt-4 border-t relative z-50">
+          <div className="flex justify-end gap-3 pt-4 border-t">
             <button 
-              className="px-4 py-2 border rounded-md hover:bg-gray-50 relative z-50"
-              style={{ pointerEvents: 'auto' }}
-              onMouseDown={(e) => {
-                console.log('[UI] CANCEL MOUSE DOWN', e);
+              className="px-4 py-2 border rounded-md hover:bg-gray-50"
+              onClick={() => {
+                console.log('[UI] CANCEL CLICKED');
                 setSellConfirmation({ open: false, trade: null });
               }}
             >
               Cancel
             </button>
             <button 
-              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 relative z-50"
-              style={{ pointerEvents: 'auto' }}
-              onMouseDown={(e) => {
-                console.log('[UI] CONFIRM MOUSE DOWN!', e);
-                console.log('[UI] Executing handleConfirmedSell...');
-                handleConfirmedSell();
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              onClick={async () => {
+                console.log('[UI] CONFIRM CLICKED - executing handleConfirmedSell');
+                await handleConfirmedSell();
               }}
               disabled={!sellConfirmation.trade}
             >
