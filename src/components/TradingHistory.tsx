@@ -972,16 +972,26 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           <DialogFooter>
             <Button 
               variant="outline" 
-              onClick={() => setSellConfirmation({ open: false, trade: null })}
+              onClick={() => {
+                console.log('[UI] CANCEL BUTTON CLICKED');
+                setSellConfirmation({ open: false, trade: null });
+              }}
             >
               Cancel
             </Button>
             <Button 
               variant="destructive" 
-              onClick={() => {
-                console.log('[UI] CONFIRM SALE BUTTON CLICKED!');
-                handleConfirmedSell();
+              onClick={(e) => {
+                console.log('[UI] CONFIRM SALE BUTTON CLICKED!', e);
+                console.log('[UI] handleConfirmedSell type:', typeof handleConfirmedSell);
+                console.log('[UI] sellConfirmation:', sellConfirmation);
+                try {
+                  handleConfirmedSell();
+                } catch (error) {
+                  console.error('[UI] ERROR IN HANDLER:', error);
+                }
               }}
+              disabled={!sellConfirmation.trade}
             >
               Confirm Sale
             </Button>
