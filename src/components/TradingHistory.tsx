@@ -981,27 +981,22 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
           )}
 
-          <DialogFooter>
-            <Button 
-              variant="outline" 
-              onMouseDown={() => console.log('[UI] CANCEL MOUSE DOWN')}
-              onMouseUp={() => console.log('[UI] CANCEL MOUSE UP')}
-              onPointerDown={() => console.log('[UI] CANCEL POINTER DOWN')}
-              onClick={(e) => {
-                console.log('[UI] CANCEL BUTTON CLICKED', e);
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button 
+              className="px-4 py-2 border rounded-md hover:bg-gray-50"
+              onMouseDown={(e) => {
+                console.log('[UI] CANCEL MOUSE DOWN', e);
+                e.preventDefault();
                 e.stopPropagation();
                 setSellConfirmation({ open: false, trade: null });
               }}
             >
               Cancel
-            </Button>
-            <Button 
-              variant="destructive" 
-              onMouseDown={() => console.log('[UI] CONFIRM MOUSE DOWN')}
-              onMouseUp={() => console.log('[UI] CONFIRM MOUSE UP')}
-              onPointerDown={() => console.log('[UI] CONFIRM POINTER DOWN')}
-              onClick={(e) => {
-                console.log('[UI] CONFIRM SALE BUTTON CLICKED!', e);
+            </button>
+            <button 
+              className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              onMouseDown={(e) => {
+                console.log('[UI] CONFIRM MOUSE DOWN!', e);
                 e.preventDefault();
                 e.stopPropagation();
                 console.log('[UI] handleConfirmedSell type:', typeof handleConfirmedSell);
@@ -1015,20 +1010,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               disabled={!sellConfirmation.trade}
             >
               Confirm Sale
-            </Button>
-          </DialogFooter>
-          
-          {/* Test button outside modal for comparison */}
-          <div className="fixed bottom-4 right-4 z-50">
-            <Button 
-              onClick={() => {
-                console.log('[UI] TEST BUTTON OUTSIDE MODAL CLICKED!');
-                alert('Test button works!');
-              }}
-              className="bg-yellow-500 text-black"
-            >
-              TEST
-            </Button>
+            </button>
           </div>
         </DialogContent>
       </Dialog>
