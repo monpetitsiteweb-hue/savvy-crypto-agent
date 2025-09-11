@@ -329,6 +329,29 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   }, [user]);
 
+  // Add debugging at component mount level
+  useEffect(() => {
+    console.log('=== TRADING HISTORY COMPONENT MOUNTED ===');
+    console.log('User:', user?.id);
+    console.log('HasActiveStrategy:', hasActiveStrategy);
+    
+    // Test if onClick works at all
+    const testButton = document.createElement('button');
+    testButton.textContent = 'TEST BUTTON';
+    testButton.style.cssText = 'position:fixed;top:10px;left:10px;z-index:99999;background:red;color:white;padding:10px;';
+    testButton.onclick = () => {
+      console.log('TEST BUTTON CLICKED - JavaScript is working');
+      alert('JavaScript click events work!');
+    };
+    document.body.appendChild(testButton);
+    
+    return () => {
+      console.log('=== TRADING HISTORY COMPONENT UNMOUNTING ===');
+      const testBtn = document.querySelector('button[style*="position:fixed"]');
+      if (testBtn) testBtn.remove();
+    };
+  }, []);
+
   // Handle direct sell - bypassing modal for debugging  
   const handleDirectSell = async (trade: Trade) => {
     console.log('============ HANDLE DIRECT SELL STARTED ============');
