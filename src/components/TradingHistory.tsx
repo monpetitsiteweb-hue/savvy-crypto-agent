@@ -427,18 +427,19 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         source: 'manual',
         confidence: 0.95,
         reason: 'Manual sell from Trading History UI',
-        qtySuggested: trade.amount,
+        qtySuggested: trade.amount, // This is already the remaining amount from FIFO calculation
         metadata: {
           context: 'MANUAL',
           origin: 'UI',
           manualOverride: true,
           originalTradeId: trade.id,
-          notes: 'Manual sell from Trading History UI',
+          notes: `Manual sell from Trading History UI - ${trade.notes || 'Original position'}`,
           uiTimestamp: new Date().toISOString(),
           currentPrice,
           expectedPnl: performance.gainLoss || 0,
           expectedPnlPct: performance.gainLossPercentage || 0
-        }
+        },
+        idempotencyKey: `idem_${Math.random().toString(36).substr(2, 8)}`
       };
 
       console.log('[UI] SELL PAYLOAD:', JSON.stringify(tradeIntent, null, 2));
