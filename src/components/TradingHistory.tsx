@@ -681,17 +681,13 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             
             {showSellButton && trade.trade_type === 'buy' && (
               <button
-                className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50"
-                onMouseDown={() => console.log('🔥 SELL BUTTON MOUSE DOWN')}
-                onMouseUp={() => console.log('🔥 SELL BUTTON MOUSE UP')}
-                onClick={(e) => {
+                className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
+                onClick={() => {
                   console.log('🔥🔥🔥🔥🔥 SELL BUTTON CLICKED 🔥🔥🔥🔥🔥');
-                  console.log('Event:', e);
                   console.log('Trade:', trade);
                   console.log('ShowSellButton:', showSellButton);
                   console.log('Trade Type:', trade.trade_type);
-                  e.preventDefault();
-                  e.stopPropagation();
+                  
                   try {
                     console.log('🔥 About to call handleDirectSell...');
                     handleDirectSell(trade);
@@ -700,7 +696,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                     console.error('🔥 ERROR calling handleDirectSell:', error);
                   }
                 }}
-                style={{ zIndex: 9999, position: 'relative' }}
               >
                 SELL NOW
               </button>
