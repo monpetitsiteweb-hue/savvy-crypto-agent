@@ -668,18 +668,37 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               Debug: showSellButton={String(showSellButton)}, trade_type={trade.trade_type}
             </div>
             
+            {/* TESTING BUTTON */}
+            <button
+              className="px-2 py-1 text-xs bg-blue-500 text-white rounded mr-2"
+              onClick={() => {
+                console.log('🔥 TEST BUTTON CLICKED - BASIC JAVASCRIPT WORKS!');
+                alert('Test button works!');
+              }}
+            >
+              TEST
+            </button>
+            
             {showSellButton && trade.trade_type === 'buy' && (
               <button
                 className="px-3 py-1 text-sm border border-red-300 text-red-600 rounded hover:bg-red-50"
+                onMouseDown={() => console.log('🔥 SELL BUTTON MOUSE DOWN')}
+                onMouseUp={() => console.log('🔥 SELL BUTTON MOUSE UP')}
                 onClick={(e) => {
-                  console.log('============ BUTTON CLICKED ============');
+                  console.log('🔥🔥🔥🔥🔥 SELL BUTTON CLICKED 🔥🔥🔥🔥🔥');
                   console.log('Event:', e);
                   console.log('Trade:', trade);
                   console.log('ShowSellButton:', showSellButton);
                   console.log('Trade Type:', trade.trade_type);
                   e.preventDefault();
                   e.stopPropagation();
-                  handleDirectSell(trade);
+                  try {
+                    console.log('🔥 About to call handleDirectSell...');
+                    handleDirectSell(trade);
+                    console.log('🔥 handleDirectSell called successfully');
+                  } catch (error) {
+                    console.error('🔥 ERROR calling handleDirectSell:', error);
+                  }
                 }}
                 style={{ zIndex: 9999, position: 'relative' }}
               >
