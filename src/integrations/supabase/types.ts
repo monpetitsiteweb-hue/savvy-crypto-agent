@@ -483,6 +483,30 @@ export type Database = {
         }
         Relationships: []
       }
+      execution_holds: {
+        Row: {
+          created_at: string | null
+          hold_until: string
+          reason: string | null
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          hold_until: string
+          reason?: string | null
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          hold_until?: string
+          reason?: string | null
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       external_market_data: {
         Row: {
           category_context: Json | null

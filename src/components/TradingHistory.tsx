@@ -20,16 +20,16 @@ import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { useToast } from '@/hooks/use-toast';
 
 // ✅ After imports: version beacon + WeakMap
-const TH_VERSION = 'v13';
+const TH_VERSION = 'v14';
 console.log(`[TH ${TH_VERSION}] module loaded`);
 (window as any).__TH_VERSION = TH_VERSION;
 
 // v13 helpers
 function mark(step: string) {
-  (window as any).__THv13_step = step;
+  (window as any).__THv14_step = step;
   try {
     const el = document.getElementById('th-beacon');
-    if (el) el.textContent = `TH v13 • ${step}`;
+    if (el) el.textContent = `TH v14 • ${step}`;
   } catch {}
 }
 
@@ -43,16 +43,18 @@ async function withTimeout<T>(promise: Promise<T>, label: string, ms = 8000): Pr
 // 10s watchdog: if we don't reach "invoke-done", force a mock sell so you're not blocked
 function startWatchdog(userId: string, trade: Trade, pair: string) {
   const stop = setTimeout(async () => {
-    alert('[TH v13] watchdog fired – forcing emergency mock SELL');
+    console.error('[TH v14] watchdog fired – coordinator timeout');
     const price = sharedPriceCache.getPrice(pair);
-    if (!price) { alert('[TH v13] watchdog: no price – aborting fallback'); return; }
+    if (!price) { 
+      console.error('[TH v14] watchdog: no price – aborting fallback'); 
+      return; 
+    }
     try {
       await emergencyMockSellInsert(userId, trade, price);
-      (window as any).__THv13_watchdogFired = true;
-      alert('[TH v13] watchdog: mock SELL inserted');
+      (window as any).__THv14_watchdogFired = true;
+      console.log('[TH v14] watchdog: emergency mock SELL inserted');
     } catch (e:any) {
-      alert(`[TH v13] watchdog fallback failed: ${e?.message || e}`);
-      console.error('[TH v13] watchdog fallback failed', e);
+      console.error(`[TH v14] watchdog fallback failed: ${e?.message || e}`, e);
     }
   }, 10000);
   return () => clearTimeout(stop);
@@ -80,7 +82,7 @@ async function emergencyMockSellInsert(userId: string, trade: Trade, currentPric
     exit_value: exitValue,
     realized_pnl,
     realized_pnl_pct,
-    notes: (trade.notes ? trade.notes + ' • ' : '') + 'EMERGENCY MOCK SELL (client-side fallback)',
+    notes: (trade.notes ? trade.notes + ' • ' : '') + 'EMERGENCY MOCK SELL (client-side watchdog)',
     is_test_mode: true,
     strategy_id: trade.strategy_id || null,
   };
@@ -474,17 +476,16 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         via: resolved === sellBtnMap.get(btn) ? 'weakmap' : (resolved && trades.find(tr => tr.id === id) ? 'state' : 'dataset-json')
       });
 
-      alert(`[TH ${TH_VERSION}] delegate -> about to call handleDirectSell`);
-
+      // Open confirmation modal instead of calling handleDirectSell directly
       if (resolved) {
-        try { handleDirectSell(resolved); }
-        catch (err) { 
-          console.error(`[TH ${TH_VERSION}] delegate handleDirectSell error`, err); 
-          alert(`[TH ${TH_VERSION}] ERROR in handleDirectSell`); 
-        }
+        setSellConfirmation({ open: true, trade: resolved });
       } else {
         console.warn(`[TH ${TH_VERSION}] delegate could not resolve trade`);
-        alert(`[TH ${TH_VERSION}] ERROR: trade not resolved (no WeakMap, no state match, no dataset JSON)`);
+        toast({
+          title: "Error",
+          description: "Could not resolve trade data for sell operation",
+          variant: "destructive"
+        });
       }
     };
     ['pointerdown','click'].forEach(type => document.addEventListener(type, delegate, true));
@@ -634,7 +635,11 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   };
 
   // TradeCard component for rendering individual trades
-  const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
+  const TradeCard = ({ trade, showSellButton = false, onRequestSell }: { 
+    trade: Trade; 
+    showSellButton?: boolean;
+    onRequestSell?: (t: Trade) => void;
+  }) => {
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
     const [cardLoading, setCardLoading] = useState(true);
     const sellBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -833,18 +838,19 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                         data-sell-id={trade.id}
                         data-sell-sym={trade.cryptocurrency}
                         data-trade-json={encodeURIComponent(JSON.stringify(trade))}
-                        data-th-version="v13"
+                        data-th-version="v14"
                         ref={sellBtnRef}
                         type="button"
                         className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          alert('[TH v13] React onClick captured');
-                          handleDirectSell(trade);
+                          if (onRequestSell) {
+                            onRequestSell(trade);
+                          }
                         }}
                       >
-                        SELL NOW (v13)
+                        SELL NOW (v14)
               </button>
             )}
             
@@ -1048,6 +1054,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                     key={trade.id}
                     trade={trade}
                     showSellButton={true}
+                    onRequestSell={(t) => setSellConfirmation({ open: true, trade: t })}
                   />
                 ))}
               </div>
@@ -1141,6 +1148,43 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Confirmation Modal */}
+      <Dialog open={sellConfirmation.open} onOpenChange={(open) => setSellConfirmation(prev => ({ open, trade: open ? prev.trade : null }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Sell</DialogTitle>
+            <DialogDescription>
+              {sellConfirmation.trade ? (
+                <div className="space-y-2 mt-2 text-sm">
+                  <div><span className="text-muted-foreground">Asset:</span> <span className="font-medium">{sellConfirmation.trade.cryptocurrency}</span></div>
+                  <div><span className="text-muted-foreground">Amount:</span> <span className="font-medium">{sellConfirmation.trade.amount}</span></div>
+                  <div><span className="text-muted-foreground">Entry Price:</span> <span className="font-medium">€{sellConfirmation.trade.price.toFixed(2)}</span></div>
+                  <div className="text-xs text-muted-foreground mt-2">
+                    This will submit a mock/manual sell immediately with FIFO profit/loss calculation.
+                  </div>
+                </div>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setSellConfirmation({ open: false, trade: null })}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!sellConfirmation.trade) return;
+                const t = sellConfirmation.trade;
+                setSellConfirmation({ open: false, trade: null });
+                await handleDirectSell(t);
+              }}
+            >
+              Confirm Sell
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       </Card>
     </div>
   );

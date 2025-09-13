@@ -153,7 +153,7 @@ serve(async (req) => {
     }
 
     // FAST PATH FOR MANUAL/MOCK/FORCE
-    if (mode === 'mock' && (intent.source === 'manual' || intent.metadata?.force === true)) {
+    if (intent.source === 'manual' && (intent.metadata?.force === true || mode === 'mock')) {
       console.log('[coordinator] fast-path triggered for manual/mock/force');
       
       const exitPrice = Number(intent?.metadata?.currentPrice);
@@ -164,16 +164,78 @@ serve(async (req) => {
         });
       }
 
-      // Insert mock SELL directly
+      // FIFO snapshot calculation for manual SELL
+      const baseSymbol = toBaseSymbol(intent.symbol);
+      const sellAmount = intent.qtySuggested || 0;
+      
+      // Get all BUY trades for this user/strategy/symbol to calculate FIFO
+      const { data: buyTrades } = await supabaseClient
+        .from('mock_trades')
+        .select('*')
+        .eq('user_id', intent.userId)
+        .eq('strategy_id', intent.strategyId)  
+        .eq('cryptocurrency', baseSymbol)
+        .eq('trade_type', 'buy')
+        .eq('is_test_mode', true)
+        .order('executed_at', { ascending: true });
+
+      // Get existing SELL trades to calculate remaining amounts in each BUY
+      const { data: sellTrades } = await supabaseClient
+        .from('mock_trades')
+        .select('original_purchase_amount, executed_at')
+        .eq('user_id', intent.userId)
+        .eq('strategy_id', intent.strategyId)
+        .eq('cryptocurrency', baseSymbol) 
+        .eq('trade_type', 'sell')
+        .eq('is_test_mode', true)
+        .not('original_purchase_amount', 'is', null);
+
+      // Calculate FIFO snapshot fields
+      let totalPurchaseAmount = 0;
+      let totalPurchaseValue = 0;
+      let needAmount = sellAmount;
+
+      for (const buyTrade of buyTrades || []) {
+        if (needAmount <= 0) break;
+        
+        // Calculate how much of this BUY has been consumed by previous SELLs
+        const consumedByPreviousSells = (sellTrades || [])
+          .filter(sell => new Date(sell.executed_at) >= new Date(buyTrade.executed_at))
+          .reduce((sum, sell) => sum + (sell.original_purchase_amount || 0), 0);
+        
+        const remainingAmount = buyTrade.amount - consumedByPreviousSells;
+        
+        if (remainingAmount > 0) {
+          const takeAmount = Math.min(needAmount, remainingAmount);
+          totalPurchaseAmount += takeAmount;
+          totalPurchaseValue += takeAmount * buyTrade.price;
+          needAmount -= takeAmount;
+        }
+      }
+
+      const exitValue = sellAmount * exitPrice;
+      const avgPurchasePrice = totalPurchaseAmount > 0 ? totalPurchaseValue / totalPurchaseAmount : 0;
+      const realizedPnL = exitValue - totalPurchaseValue;
+      const realizedPnLPct = totalPurchaseValue > 0 ? (realizedPnL / totalPurchaseValue) * 100 : 0;
+
+      // Insert mock SELL with FIFO snapshot fields  
       const payload = {
         user_id: intent.userId,
         strategy_id: intent.strategyId,
         trade_type: 'sell',
-        cryptocurrency: intent.symbol,
-        amount: intent.qtySuggested || 0,
+        cryptocurrency: baseSymbol,
+        amount: sellAmount,
         price: exitPrice,
-        total_value: (intent.qtySuggested || 0) * exitPrice,
+        total_value: exitValue,
         executed_at: new Date().toISOString(),
+        original_purchase_amount: totalPurchaseAmount,
+        original_purchase_price: avgPurchasePrice,
+        original_purchase_value: totalPurchaseValue,
+        exit_value: exitValue,
+        realized_pnl: realizedPnL,
+        realized_pnl_pct: realizedPnLPct,
+        buy_fees: 0,
+        sell_fees: 0,
         notes: 'Manual mock SELL via force override (coordinator fast-path)',
         is_test_mode: true,
       };
@@ -187,10 +249,20 @@ serve(async (req) => {
         });
       }
 
+      // Add symbol quarantine to prevent automation races
+      await supabaseClient
+        .from('execution_holds')
+        .upsert({
+          user_id: intent.userId,
+          symbol: baseSymbol,
+          hold_until: new Date(Date.now() + 5000).toISOString(), // 5 second hold
+          reason: 'manual_sell_quarantine'
+        });
+
       console.log('[coordinator] mock sell inserted', payload);
       return new Response(JSON.stringify({ 
         ok:true, 
-        decision:{ action:'SELL', reason:'force-mock/manual override' } 
+        decision:{ action:'SELL', reason:'manual_fast_path' } 
       }), { 
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -280,6 +352,45 @@ serve(async (req) => {
           decision: { 
             action: 'DEFER', 
             reason: `Guards tripped: executionFailed - ${executionResult.error}`
+          }
+        }), { 
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // Check for manual quarantine before proceeding (only for automated traffic)
+    if (intent.source !== 'manual') {
+      const { data: holdData } = await supabaseClient
+        .from('execution_holds')
+        .select('hold_until')
+        .eq('user_id', intent.userId)
+        .eq('symbol', resolvedSymbol)
+        .gt('hold_until', new Date().toISOString())
+        .maybeSingle();
+
+      if (holdData) {
+        const guardReport = {
+          minNotionalFail: false,
+          cooldownActive: false,
+          riskLimitExceeded: false,
+          positionNotFound: false,
+          qtyMismatch: false,
+          marketClosed: false,
+          holdPeriodNotMet: false,
+          manualQuarantine: true,
+          other: null,
+        };
+        console.log('[coordinator] defer', guardReport);
+        
+        console.log(`🎯 UD_MODE=ON → DEFER: reason=manual_quarantine symbol=${intent.symbol}`);
+        
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: { 
+            action: 'DEFER', 
+            reason: `Guards tripped: manualQuarantine`
           }
         }), { 
           status: 200,
