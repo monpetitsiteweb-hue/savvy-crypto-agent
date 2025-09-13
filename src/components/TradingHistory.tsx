@@ -1,10 +1,8 @@
+// ✅ ALL imports first
 import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-
-// Map each SELL button element to its Trade (no leaks, survives re-renders)
-const sellBtnMap = new WeakMap<HTMLButtonElement, Trade>();
 import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -20,6 +18,14 @@ import { AlertTriangle } from 'lucide-react';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { useToast } from '@/hooks/use-toast';
+
+// ✅ After imports: version beacon + WeakMap
+const TH_VERSION = 'v9';
+console.log(`[TH ${TH_VERSION}] module loaded`);
+(window as any).__TH_VERSION = TH_VERSION;
+
+// Map each SELL button element to its Trade (no leaks, survives re-renders)
+const sellBtnMap = new WeakMap<HTMLButtonElement, Trade>();
 
 const PAGE_SIZE = 20;
 
@@ -71,6 +77,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { testMode } = useTestMode();
   const { getTotalValue, balances } = useMockWallet();
   const { toast } = useToast();
+  
+  // Mount beacon
+  useEffect(() => {
+    console.log(`[TH ${TH_VERSION}] TradingHistory mounted`);
+    return () => console.log(`[TH ${TH_VERSION}] TradingHistory unmounted`);
+  }, []);
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -361,25 +373,20 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   // Delegated SELL button handler (survives re-renders)
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
-      const btn = target.closest('button[data-testid="sell-now"]') as HTMLButtonElement | null;
+    const delegate = (e: Event) => {
+      const t = e.target as HTMLElement | null;
+      if (!t) return;
+      const btn = t.closest('button[data-testid="sell-now"]') as HTMLButtonElement | null;
       if (!btn) return;
       const trade = sellBtnMap.get(btn);
-      console.log('🔥 [DELEGATE] SELL detected', { hasTrade: !!trade, btnReady: !!btn });
-      if (trade) {
-        try { handleDirectSell(trade); }
-        catch (err) { console.error('🔥 [DELEGATE] handleDirectSell error:', err); }
-      } else {
-        console.warn('⚠️ [DELEGATE] No trade mapped for button - ref hook didn\'t run yet.');
-      }
+      console.log(`[TH ${TH_VERSION}] 🔥 delegate ${e.type}`, { id: btn.dataset.sellId, hasTrade: !!trade });
+      if (trade) { try { handleDirectSell(trade); } catch (err) { console.error(err); } }
     };
-    document.addEventListener('click', handler, true); // capture so nothing swallows it
-    console.log('✅ [DELEGATE] global SELL listener ON');
+    ['pointerdown','click'].forEach(type => document.addEventListener(type, delegate, true));
+    console.log(`[TH ${TH_VERSION}] ✅ delegate ON`);
     return () => {
-      document.removeEventListener('click', handler, true);
-      console.log('🧹 [DELEGATE] global SELL listener OFF');
+      ['pointerdown','click'].forEach(type => document.removeEventListener(type, delegate, true));
+      console.log(`[TH ${TH_VERSION}] 🧹 delegate OFF`);
     };
   }, []);
 
@@ -387,7 +394,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   useEffect(() => {
     const t = setInterval(() => {
       const n = document.querySelectorAll('button[data-testid="sell-now"]').length;
-      console.log('[DEBUG] SELL buttons in DOM:', n);
+      console.log(`[TH ${TH_VERSION}] [DEBUG] SELL buttons in DOM:`, n);
     }, 2000);
     return () => clearInterval(t);
   }, []);
@@ -591,10 +598,10 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       const el = sellBtnRef.current;
       if (!el) return;
       sellBtnMap.set(el, trade);
-      console.log('✅ [MAP] SELL button ↔ trade mapped', { id: trade.id, sym: trade.cryptocurrency });
+      console.log(`[TH ${TH_VERSION}] ✅ map set`, { id: trade.id, sym: trade.cryptocurrency });
       return () => {
         sellBtnMap.delete(el);
-        console.log('🧹 [MAP] SELL button mapping removed', { id: trade.id });
+        console.log(`[TH ${TH_VERSION}] 🧹 map delete`, { id: trade.id });
       };
     }, [trade.id]);
     
@@ -777,9 +784,17 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             {showSellButton && trade.trade_type === 'buy' && (
               <button
                 data-testid="sell-now"
+                data-sell-id={trade.id}
+                data-sell-sym={trade.cryptocurrency}
                 ref={sellBtnRef}
                 type="button"
                 className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log(`[TH ${TH_VERSION}] 🧪 REACT onClick`, { id: trade.id });
+                  handleDirectSell(trade);
+                }}
               >
                 SELL NOW
               </button>
