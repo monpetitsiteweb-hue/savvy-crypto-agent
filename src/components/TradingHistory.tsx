@@ -20,7 +20,7 @@ import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { useToast } from '@/hooks/use-toast';
 
 // ✅ After imports: version beacon + WeakMap
-const TH_VERSION = 'v14';
+const TH_VERSION = 'v14.1';
 console.log(`[TH ${TH_VERSION}] module loaded`);
 (window as any).__TH_VERSION = TH_VERSION;
 
@@ -421,26 +421,14 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   }, [user]);
 
-  // Add debugging at component mount level
+  // Mount beacon + global error handler
   useEffect(() => {
-    console.log('=== TRADING HISTORY COMPONENT MOUNTED ===');
+    console.log(`[TH ${TH_VERSION}] component mounted`);
     console.log('User:', user?.id);
     console.log('HasActiveStrategy:', hasActiveStrategy);
     
-    // Test if onClick works at all
-    const testButton = document.createElement('button');
-    testButton.textContent = 'TEST BUTTON';
-    testButton.style.cssText = 'position:fixed;top:10px;left:10px;z-index:99999;background:red;color:white;padding:10px;';
-    testButton.onclick = () => {
-      console.log('TEST BUTTON CLICKED - JavaScript is working');
-      alert('JavaScript click events work!');
-    };
-    document.body.appendChild(testButton);
-    
     return () => {
-      console.log('=== TRADING HISTORY COMPONENT UNMOUNTING ===');
-      const testBtn = document.querySelector('button[style*="position:fixed"]');
-      if (testBtn) testBtn.remove();
+      console.log(`[TH ${TH_VERSION}] component unmounting`);
     };
   }, []);
 
@@ -505,13 +493,13 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     return () => clearInterval(t);
   }, []);
 
-  // Handle direct sell - bypassing modal for debugging  
+  // Handle direct sell - executes manual sell
   const handleDirectSell = async (trade: Trade) => {
-    alert('[TH v13] entered handleDirectSell');
+    console.log(`[TH ${TH_VERSION}] entered handleDirectSell`);
     mark('entered');
 
     if (!user) {
-      alert('[TH v13] no user');
+      console.log(`[TH ${TH_VERSION}] no user`);
       toast({ title: 'Sell Failed', description: 'User not authenticated', variant: 'destructive' });
       return;
     }
@@ -521,11 +509,11 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       mark('symbols-start');
       const base = toBaseSymbol(trade.cryptocurrency);
       const pair = toPairSymbol(base);
-      alert(`[TH v13] symbols ok → base=${base} pair=${pair}`);
+      console.log(`[TH ${TH_VERSION}] symbols ok → base=${base} pair=${pair}`);
       mark('symbols-ok');
 
       const price = sharedPriceCache.getPrice(pair);
-      alert(`[TH v13] price check → ${pair}=${price}`);
+      console.log(`[TH ${TH_VERSION}] price check → ${pair}=${price}`);
       if (!price) {
         toast({ title: 'Sell Failed', description: `Current price not available for ${pair}`, variant: 'destructive' });
         return;
@@ -540,7 +528,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       mark('perf-ok');
 
       // === Strategy lookup (async + timeout) ===
-      alert('[TH v13] querying strategies…');
+      console.log(`[TH ${TH_VERSION}] querying strategies…`);
       mark('strategies-start');
       const { data: strategies, error: stratError } = await supabase
         .from('trading_strategies')
@@ -548,7 +536,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         .eq('user_id', user.id);
       if (stratError) throw stratError;
       const strategyId = trade.strategy_id || (strategies && strategies[0]?.id);
-      alert(`[TH v13] strategies ok → using ${strategyId || 'NONE'}`);
+      console.log(`[TH ${TH_VERSION}] strategies ok → using ${strategyId || 'NONE'}`);
       if (!strategyId) {
         stopWatchdog();
         toast({ title: 'Sell Failed', description: 'No valid strategy found for manual sell', variant: 'destructive' });
@@ -583,7 +571,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       mark('payload-ok');
 
       // === Invoke function (async + timeout) ===
-      alert(`[TH v13] invoking edge function… (invoke type=${typeof supabase.functions.invoke})`);
+      console.log(`[TH ${TH_VERSION}] invoking edge function… (invoke type=${typeof supabase.functions.invoke})`);
       mark('invoke-start');
       const { data: result, error } = await withTimeout(
         supabase.functions.invoke('trading-decision-coordinator', { body: { intent: sellPayload } }),
@@ -593,8 +581,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       mark('invoke-done');
       stopWatchdog();
 
-      alert(`[TH v13] invoke result → ok=${String(result?.ok)} action=${String(result?.decision?.action)}`);
-      console.log('[TH v13] invoke result', { error, result });
+      console.log(`[TH ${TH_VERSION}] invoke result → ok=${String(result?.ok)} action=${String(result?.decision?.action)}`);
+      console.log(`[TH ${TH_VERSION}] invoke result`, { error, result });
 
       if (error) throw new Error(`Network error: ${error.message}`);
 
@@ -609,8 +597,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       toast({ title: 'Sell Not Executed', description: result?.decision?.reason || 'No decision reason', variant: 'destructive' });
     } catch (err:any) {
       mark('error');
-      alert(`[TH v13] SELL ERROR → ${err?.message || err}`);
-      console.error('[TH v13] SELL ERROR', err);
+      console.error(`[TH ${TH_VERSION}] SELL ERROR → ${err?.message || err}`, err);
 
       // Final emergency fallback (in case the watchdog didn't fire yet)
       try {
@@ -627,8 +614,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         }
       } catch (fbErr:any) {
         mark('fallback-failed');
-        alert(`[TH v13] fallback failed → ${fbErr?.message || fbErr}`);
-        console.error('[TH v13] fallback failed', fbErr);
+        console.error(`[TH ${TH_VERSION}] fallback failed → ${fbErr?.message || fbErr}`, fbErr);
         toast({ title: 'Sell Failed', description: fbErr?.message || 'Unknown error', variant: 'destructive' });
       }
     }
@@ -816,21 +802,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               <p>Executed: {new Date(trade.executed_at).toLocaleString()}</p>
               {trade.notes && <p className="mt-1">Note: {trade.notes}</p>}
             </div>
-            {/* DEBUG: Show button conditions */}
-            <div className="text-xs text-red-500">
-              Debug: showSellButton={String(showSellButton)}, trade_type={trade.trade_type}
-            </div>
-            
-            {/* TESTING BUTTON */}
-            <button
-              className="px-2 py-1 text-xs bg-blue-500 text-white rounded mr-2"
-              onClick={() => {
-                console.log('🔥 TEST BUTTON CLICKED - BASIC JAVASCRIPT WORKS!');
-                alert('Test button works!');
-              }}
-            >
-              TEST
-            </button>
             
             {showSellButton && trade.trade_type === 'buy' && (
               <button
@@ -838,7 +809,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                         data-sell-id={trade.id}
                         data-sell-sym={trade.cryptocurrency}
                         data-trade-json={encodeURIComponent(JSON.stringify(trade))}
-                        data-th-version="v14"
+                        data-th-version="v14.1"
                         ref={sellBtnRef}
                         type="button"
                         className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
@@ -854,18 +825,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               </button>
             )}
             
-            {/* DEBUG: Show why button isn't showing */}
-            {showSellButton && trade.trade_type !== 'buy' && (
-              <div className="text-xs text-orange-500">
-                Button hidden: trade_type is "{trade.trade_type}", need "buy"
-              </div>
-            )}
-            
-            {!showSellButton && (
-              <div className="text-xs text-orange-500">
-                Button hidden: showSellButton is false
-              </div>
-            )}
           </div>
         </div>
       </Card>

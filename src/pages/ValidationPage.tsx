@@ -83,7 +83,7 @@ const ValidationPage = () => {
 
   const startValidationWindow = async (mode: 'UD_OFF' | 'UD_ON') => {
     if (currentValidation) {
-      alert('Validation already running. Stop current validation first.');
+      console.log('Validation already running. Stop current validation first.');
       return;
     }
 
