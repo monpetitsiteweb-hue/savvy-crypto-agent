@@ -20,16 +20,42 @@ import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { useToast } from '@/hooks/use-toast';
 
 // ✅ After imports: version beacon + WeakMap
-const TH_VERSION = 'v12';
+const TH_VERSION = 'v13';
 console.log(`[TH ${TH_VERSION}] module loaded`);
 (window as any).__TH_VERSION = TH_VERSION;
 
-// Timeout wrapper for async operations
+// v13 helpers
+function mark(step: string) {
+  (window as any).__THv13_step = step;
+  try {
+    const el = document.getElementById('th-beacon');
+    if (el) el.textContent = `TH v13 • ${step}`;
+  } catch {}
+}
+
 async function withTimeout<T>(promise: Promise<T>, label: string, ms = 8000): Promise<T> {
   return Promise.race([
     promise,
     new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${label} timeout after ${ms}ms`)), ms)),
   ]);
+}
+
+// 10s watchdog: if we don't reach "invoke-done", force a mock sell so you're not blocked
+function startWatchdog(userId: string, trade: Trade, pair: string) {
+  const stop = setTimeout(async () => {
+    alert('[TH v13] watchdog fired – forcing emergency mock SELL');
+    const price = sharedPriceCache.getPrice(pair);
+    if (!price) { alert('[TH v13] watchdog: no price – aborting fallback'); return; }
+    try {
+      await emergencyMockSellInsert(userId, trade, price);
+      (window as any).__THv13_watchdogFired = true;
+      alert('[TH v13] watchdog: mock SELL inserted');
+    } catch (e:any) {
+      alert(`[TH v13] watchdog fallback failed: ${e?.message || e}`);
+      console.error('[TH v13] watchdog fallback failed', e);
+    }
+  }, 10000);
+  return () => clearTimeout(stop);
 }
 
 // Emergency client-side mock sell fallback
@@ -480,174 +506,130 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   // Handle direct sell - bypassing modal for debugging  
   const handleDirectSell = async (trade: Trade) => {
-    alert(`[TH ${TH_VERSION}] entering handleDirectSell`);
-    console.log(`[TH ${TH_VERSION}] entering handleDirectSell`, { id: trade.id, sym: trade.cryptocurrency });
-    console.log('============ HANDLE DIRECT SELL STARTED ============');
-    console.log(`[UI] DIRECT SELL CLICKED - symbol=${trade.cryptocurrency}, id=${trade.id}`);
-    
+    alert('[TH v13] entered handleDirectSell');
+    mark('entered');
+
     if (!user) {
-      console.error(`[TH ${TH_VERSION}] no user`);
-      toast({
-        title: "Sell Failed",
-        description: "User not authenticated",
-        variant: "destructive"
-      });
+      alert('[TH v13] no user');
+      toast({ title: 'Sell Failed', description: 'User not authenticated', variant: 'destructive' });
       return;
     }
-    console.log(`[UI] SELL CONFIRMED - processing ${trade.cryptocurrency} trade ${trade.id}`);
-    
+
     try {
-      const t0 = performance.now();
-      console.log('[UI] Converting symbols...');
-      
-      // Check if utils are available, fallback if needed
-      if (typeof toBaseSymbol !== 'function') {
-        console.error('[UI] toBaseSymbol not available - import failed');
-        throw new Error('Symbol utilities not available');
-      }
-      
-      const baseSymbol = toBaseSymbol(trade.cryptocurrency);
-      console.log(`[UI] Base symbol: ${baseSymbol}`);
-      
-      if (typeof toPairSymbol !== 'function') {
-        console.error('[UI] toPairSymbol not available - import failed');
-        throw new Error('Symbol utilities not available');
-      }
-      
-      const pairSymbol = toPairSymbol(baseSymbol);
-      console.log(`[UI] Pair symbol: ${pairSymbol}`);
-      
-      console.log('[UI] Getting current price...');
-      
-      if (!sharedPriceCache) {
-        console.error('[UI] sharedPriceCache not available - import failed');
-        throw new Error('Price cache not available');
-      }
-      
-      const currentPrice = sharedPriceCache.getPrice(pairSymbol);
-      console.log(`[UI] Current price: ${currentPrice}`);
-      
-      if (!currentPrice) {
-        const errorMsg = `Current price not available for ${pairSymbol}`;
-        console.error(`[UI] SELL FAILED - ${errorMsg}`);
-        toast({
-          title: "Sell Failed",
-          description: errorMsg,
-          variant: "destructive"
-        });
+      // === Symbols & price (sync) ===
+      mark('symbols-start');
+      const base = toBaseSymbol(trade.cryptocurrency);
+      const pair = toPairSymbol(base);
+      alert(`[TH v13] symbols ok → base=${base} pair=${pair}`);
+      mark('symbols-ok');
+
+      const price = sharedPriceCache.getPrice(pair);
+      alert(`[TH v13] price check → ${pair}=${price}`);
+      if (!price) {
+        toast({ title: 'Sell Failed', description: `Current price not available for ${pair}`, variant: 'destructive' });
         return;
       }
+      mark('price-ok');
 
-      // Calculate current P&L for confirmation display
-      console.log('[UI] Calculating performance...');
-      const tradePerformance = calculateTradePerformance(trade);
-      console.log(`[TH ${TH_VERSION}] price + perf ready`);
-      console.log('[UI] Performance:', tradePerformance);
+      // start watchdog now that we have everything needed for a fallback
+      const stopWatchdog = startWatchdog(user.id, trade, pair);
 
-      // STEP 1: STRATEGY ID VALIDATION AND FALLBACK
-      console.log('🔍 STEP 1: STRATEGY VALIDATION');
-      console.log('trade.strategy_id:', trade.strategy_id);
-      
-      
-      // Get valid strategies for this user
+      // Perf (sync)
+      const perf = calculateTradePerformance(trade);
+      mark('perf-ok');
+
+      // === Strategy lookup (async + timeout) ===
+      alert('[TH v13] querying strategies…');
+      mark('strategies-start');
       const { data: strategies, error: stratError } = await supabase
         .from('trading_strategies')
         .select('id, strategy_name')
         .eq('user_id', user.id);
-      
-      console.log('Available strategies:', strategies);
-      console.log('Strategy query error:', stratError);
-      
-      // Use real strategy ID or first available strategy
-      let strategyId = trade.strategy_id;
-      if (!strategyId && strategies && strategies.length > 0) {
-        strategyId = strategies[0].id;
-        console.log('🔧 Using fallback strategy:', strategyId, strategies[0].strategy_name);
-      }
-      
+      if (stratError) throw stratError;
+      const strategyId = trade.strategy_id || (strategies && strategies[0]?.id);
+      alert(`[TH v13] strategies ok → using ${strategyId || 'NONE'}`);
       if (!strategyId) {
-        toast({
-          title: "Error",
-          description: "No valid strategy found for manual sell",
-          variant: "destructive"
-        });
+        stopWatchdog();
+        toast({ title: 'Sell Failed', description: 'No valid strategy found for manual sell', variant: 'destructive' });
         return;
       }
+      mark('strategies-ok');
 
-      // Build trade intent with full context - FIXED: use baseSymbol for coordinator
+      // === Build payload (sync) ===
       const sellPayload = {
         userId: user.id,
-        strategyId: strategyId, // Guaranteed to be non-null now
-        symbol: baseSymbol, // FIXED: coordinator expects BASE symbol, not pair
+        strategyId,
+        symbol: base,
         side: 'SELL' as const,
         source: 'manual',
         confidence: 0.95,
         reason: 'Manual sell from Trading History UI',
         qtySuggested: trade.amount,
-        mode: 'mock', // MOVED: mode at root level for coordinator
+        mode: 'mock',
         metadata: {
           context: 'MANUAL',
           origin: 'UI',
           manualOverride: true,
           originalTradeId: trade.id,
-          notes: `Manual sell from Trading History UI - ${trade.notes || 'Original position'}`,
           uiTimestamp: new Date().toISOString(),
-          currentPrice,
-          expectedPnl: tradePerformance.gainLoss || 0,
-          expectedPnlPct: tradePerformance.gainLossPercentage || 0,
-          force: true // Enable force override for debugging
+          currentPrice: price,
+          expectedPnl: perf.gainLoss || 0,
+          expectedPnlPct: perf.gainLossPercentage || 0,
+          force: true,
         },
-        idempotencyKey: `idem_${Math.random().toString(36).substr(2, 8)}`
+        idempotencyKey: `idem_${Math.random().toString(36).slice(2,10)}`,
       };
+      mark('payload-ok');
 
-      // STEP 1: LOCK CLIENT PAYLOAD - log exact object sent to coordinator
-      console.log('============ STEP 1: CLIENT PAYLOAD LOCKED ============');
-      console.log('sellPayload object:', JSON.stringify(sellPayload, null, 2));
-      console.log('sellPayload.symbol (must be BASE):', sellPayload.symbol);
-      console.log('sellPayload.qtySuggested:', sellPayload.qtySuggested);
-      console.log('sellPayload.strategyId (must be non-null):', sellPayload.strategyId);
-      console.log('sellPayload.source:', sellPayload.source);
-      console.log('sellPayload.mode (mock flag server reads):', sellPayload.mode);
-      console.log('[UI] typeof supabase.functions.invoke', typeof supabase.functions.invoke);
-      console.log('[UI] SUPABASE_URL check:', import.meta.env.VITE_SUPABASE_URL || 'NOT_SET');
-      console.log('[UI] ANON_KEY check:', !!(import.meta.env.VITE_SUPABASE_ANON_KEY) || 'NOT_SET');
+      // === Invoke function (async + timeout) ===
+      alert(`[TH v13] invoking edge function… (invoke type=${typeof supabase.functions.invoke})`);
+      mark('invoke-start');
+      const { data: result, error } = await withTimeout(
+        supabase.functions.invoke('trading-decision-coordinator', { body: { intent: sellPayload } }),
+        'edge-function-invoke',
+        8000
+      );
+      mark('invoke-done');
+      stopWatchdog();
 
-      // Add 5s timeout guard
-      const invokeTimeout = setTimeout(() => {
-        console.log('🚨 INVOKE-TIMEOUT: No response in 5 seconds');
-      }, 5000);
-
-      console.log(`[TH ${TH_VERSION}] → invoking function trading-decision-coordinator`);
-      const invokeStart = performance.now();
-      const { data: result, error } = await supabase.functions.invoke('trading-decision-coordinator', {
-        body: { intent: sellPayload }
-      });
-      console.log(`[TH ${TH_VERSION}] invoke done in`, Math.round(performance.now()-invokeStart), 'ms',
-        { error: !!error, resultOk: result?.ok, action: result?.decision?.action });
-
-      clearTimeout(invokeTimeout);
-      
-      console.log('============ STEP 5: COORDINATOR RESPONSE ============');
-      console.log('result.ok:', result?.ok);
-      console.log('decision.action:', result?.decision?.action);
-      console.log('decision.reason:', result?.decision?.reason);
-      console.log('Full raw response:', JSON.stringify({ result, error }, null, 2));
+      alert(`[TH v13] invoke result → ok=${String(result?.ok)} action=${String(result?.decision?.action)}`);
+      console.log('[TH v13] invoke result', { error, result });
 
       if (error) throw new Error(`Network error: ${error.message}`);
 
       if (result?.ok === true && result?.decision?.action === 'SELL') {
-        console.log(`[TH ${TH_VERSION}] ✅ SELL SUCCESS`);
-        toast({ title: "Position Sold", description: `Sold ${trade.cryptocurrency}`, variant: "default" });
+        mark('sell-success');
+        toast({ title: 'Position Sold', description: `Sold ${trade.cryptocurrency}`, variant: 'default' });
         fetchTradingHistory();
-      } else {
-        const why = result?.decision?.reason || 'No decision reason';
-        console.log(`[TH ${TH_VERSION}] ❌ SELL NOT EXECUTED`, { action: result?.decision?.action, why });
-        toast({ title: "Sell Not Executed", description: why, variant: "destructive" });
+        return;
       }
-      console.log(`[TH ${TH_VERSION}] handleDirectSell total`, Math.round(performance.now()-t0), 'ms');
-    } catch (err) {
-      console.error(`[TH ${TH_VERSION}] SELL ERROR`, err);
-      toast({ title: "Sell Failed", description: err instanceof Error ? err.message : 'Unknown error', variant: "destructive" });
+
+      mark('decision-not-sell');
+      toast({ title: 'Sell Not Executed', description: result?.decision?.reason || 'No decision reason', variant: 'destructive' });
+    } catch (err:any) {
+      mark('error');
+      alert(`[TH v13] SELL ERROR → ${err?.message || err}`);
+      console.error('[TH v13] SELL ERROR', err);
+
+      // Final emergency fallback (in case the watchdog didn't fire yet)
+      try {
+        const base = toBaseSymbol(trade.cryptocurrency);
+        const pair = toPairSymbol(base);
+        const price = sharedPriceCache.getPrice(pair);
+        if (price) {
+          await emergencyMockSellInsert(user!.id, trade, price);
+          mark('fallback-sell-inserted');
+          toast({ title: 'Emergency Mock Sell', description: `Inserted SELL for ${trade.cryptocurrency}`, variant: 'default' });
+          fetchTradingHistory();
+        } else {
+          toast({ title: 'Sell Failed', description: 'No price available for emergency fallback', variant: 'destructive' });
+        }
+      } catch (fbErr:any) {
+        mark('fallback-failed');
+        alert(`[TH v13] fallback failed → ${fbErr?.message || fbErr}`);
+        console.error('[TH v13] fallback failed', fbErr);
+        toast({ title: 'Sell Failed', description: fbErr?.message || 'Unknown error', variant: 'destructive' });
+      }
     }
   };
 
@@ -851,18 +833,18 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                         data-sell-id={trade.id}
                         data-sell-sym={trade.cryptocurrency}
                         data-trade-json={encodeURIComponent(JSON.stringify(trade))}
-                        data-th-version="v12"
+                        data-th-version="v13"
                         ref={sellBtnRef}
                         type="button"
                         className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          alert('[TH v12] React onClick captured');
+                          alert('[TH v13] React onClick captured');
                           handleDirectSell(trade);
                         }}
                       >
-                        SELL NOW (v12)
+                        SELL NOW (v13)
               </button>
             )}
             
@@ -941,7 +923,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           boxShadow: '0 0 0 2px #0f0 inset'
         }}
       >
-        TH v12 ACTIVE
+        TH v13 ACTIVE
       </div>
 
       <Card className="p-6">
@@ -949,7 +931,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Activity className="w-5 h-5" />
-            <h2 className="text-lg font-semibold">Trading History (TH v12)</h2>
+            <h2 className="text-lg font-semibold">Trading History (TH v13)</h2>
           </div>
           <Button
             variant="outline"
