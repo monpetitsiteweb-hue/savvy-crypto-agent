@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -550,25 +550,43 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     const [cardLoading, setCardLoading] = useState(true);
     const sellBtnRef = useRef<HTMLButtonElement | null>(null);
 
-    useEffect(() => {
+    // Attach native SELL click after the real button is rendered (not during skeleton)
+    useLayoutEffect(() => {
+      // Only attach when the card is ready and the SELL button should be visible
+      if (cardLoading || !showSellButton || trade.trade_type !== 'buy') return;
+
       const el = sellBtnRef.current;
       if (!el) return;
+
+      // Avoid double-attach on re-renders
+      if ((el as any).__nativeSellAttached) {
+        console.log('ℹ️ [NATIVE] SELL listener already attached', { id: trade.id });
+        return;
+      }
+
       const nativeClick = (ev: MouseEvent) => {
-        console.log('🔥 [NATIVE] SELL clicked → forwarding to handleDirectSell');
-        ev.stopPropagation(); // prevent any global traps from swallowing the event
+        console.log('🔥 [NATIVE] SELL clicked → forwarding to handleDirectSell', {
+          id: trade.id, sym: trade.cryptocurrency
+        });
         try {
           handleDirectSell(trade);
         } catch (err) {
           console.error('🔥 [NATIVE] handleDirectSell error:', err);
         }
       };
+
       el.addEventListener('click', nativeClick);
-      console.log('✅ [NATIVE] SELL listener attached');
+      (el as any).__nativeSellAttached = true;
+      console.log('✅ [NATIVE] SELL listener attached', { id: trade.id, sym: trade.cryptocurrency });
+
       return () => {
+        // Clean up and allow clean re-attach on re-render
         el.removeEventListener('click', nativeClick);
-        console.log('🧹 [NATIVE] SELL listener removed');
+        delete (el as any).__nativeSellAttached;
+        console.log('🧹 [NATIVE] SELL listener removed', { id: trade.id });
       };
-    }, [trade.id]);
+      // Re-run when readiness or visibility flips
+    }, [cardLoading, showSellButton, trade.trade_type, trade.id]);
     
     useEffect(() => {
       const loadPerformance = () => {
@@ -748,6 +766,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             
             {showSellButton && trade.trade_type === 'buy' && (
               <button
+                data-testid="sell-now"
                 ref={sellBtnRef}
                 type="button"
                 className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
