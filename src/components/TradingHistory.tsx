@@ -20,7 +20,7 @@ import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { useToast } from '@/hooks/use-toast';
 
 // ✅ After imports: version beacon + WeakMap
-const TH_VERSION = 'v10';
+const TH_VERSION = 'v11';
 console.log(`[TH ${TH_VERSION}] module loaded`);
 (window as any).__TH_VERSION = TH_VERSION;
 
@@ -78,10 +78,15 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { getTotalValue, balances } = useMockWallet();
   const { toast } = useToast();
   
-  // Mount beacon
+  // Mount beacon + global error handler
   useEffect(() => {
     console.log(`[TH ${TH_VERSION}] mounted`);
-    return () => console.log(`[TH ${TH_VERSION}] unmounted`);
+    const onErr = (e: ErrorEvent) => console.error(`[TH ${TH_VERSION}] window error`, e.message, e.error);
+    window.addEventListener('error', onErr);
+    return () => {
+      console.log(`[TH ${TH_VERSION}] unmounted`);
+      window.removeEventListener('error', onErr);
+    };
   }, []);
   
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -377,35 +382,71 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       const t = e.target as HTMLElement | null;
       const btn = t?.closest('button[data-testid="sell-now"]') as HTMLButtonElement | null;
       if (!btn) return;
-      console.log('[TH v10] delegate', e.type, { id: btn.dataset.sellId });
-      alert('[TH v10] delegate click captured'); // visible proof
-      const trade = sellBtnMap.get(btn);
-      if (trade) { try { handleDirectSell(trade); } catch (err) { console.error(err); } }
+
+      const id = btn.dataset.sellId || '';
+      let resolved: Trade | undefined;
+
+      // 1) WeakMap first
+      resolved = sellBtnMap.get(btn);
+
+      // 2) Fallback to trades state by id
+      if (!resolved && id) {
+        resolved = trades.find(tr => tr.id === id);
+      }
+
+      // 3) Fallback to embedded JSON on the button
+      if (!resolved) {
+        const json = btn.getAttribute('data-trade-json');
+        if (json) {
+          try { resolved = JSON.parse(decodeURIComponent(json)); } catch {}
+        }
+      }
+
+      console.log(`[TH ${TH_VERSION}] delegate click`, {
+        id,
+        found: !!resolved,
+        via: resolved === sellBtnMap.get(btn) ? 'weakmap' : (resolved && trades.find(tr => tr.id === id) ? 'state' : 'dataset-json')
+      });
+
+      alert(`[TH ${TH_VERSION}] delegate -> about to call handleDirectSell`);
+
+      if (resolved) {
+        try { handleDirectSell(resolved); }
+        catch (err) { 
+          console.error(`[TH ${TH_VERSION}] delegate handleDirectSell error`, err); 
+          alert(`[TH ${TH_VERSION}] ERROR in handleDirectSell`); 
+        }
+      } else {
+        console.warn(`[TH ${TH_VERSION}] delegate could not resolve trade`);
+        alert(`[TH ${TH_VERSION}] ERROR: trade not resolved (no WeakMap, no state match, no dataset JSON)`);
+      }
     };
     ['pointerdown','click'].forEach(type => document.addEventListener(type, delegate, true));
-    console.log('[TH v10] delegate ON');
+    console.log(`[TH ${TH_VERSION}] delegate ON`);
     return () => {
       ['pointerdown','click'].forEach(type => document.removeEventListener(type, delegate, true));
-      console.log('[TH v10] delegate OFF');
+      console.log(`[TH ${TH_VERSION}] delegate OFF`);
     };
-  }, []);
+  }, [trades]);
 
   // Optional DOM sanity probe
   useEffect(() => {
     const t = setInterval(() => {
       const n = document.querySelectorAll('button[data-testid="sell-now"]').length;
-      console.log('[TH v10] SELL buttons in DOM:', n);
+      console.log(`[TH ${TH_VERSION}] SELL buttons in DOM:`, n);
     }, 2000);
     return () => clearInterval(t);
   }, []);
 
   // Handle direct sell - bypassing modal for debugging  
   const handleDirectSell = async (trade: Trade) => {
+    alert(`[TH ${TH_VERSION}] entering handleDirectSell`);
+    console.log(`[TH ${TH_VERSION}] entering handleDirectSell`, { id: trade.id, sym: trade.cryptocurrency });
     console.log('============ HANDLE DIRECT SELL STARTED ============');
     console.log(`[UI] DIRECT SELL CLICKED - symbol=${trade.cryptocurrency}, id=${trade.id}`);
     
     if (!user) {
-      console.error('[UI] SELL FAILED - no user');
+      console.error(`[TH ${TH_VERSION}] no user`);
       toast({
         title: "Sell Failed",
         description: "User not authenticated",
@@ -416,6 +457,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     console.log(`[UI] SELL CONFIRMED - processing ${trade.cryptocurrency} trade ${trade.id}`);
     
     try {
+      const t0 = performance.now();
       console.log('[UI] Converting symbols...');
       
       // Check if utils are available, fallback if needed
@@ -458,8 +500,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
 
       // Calculate current P&L for confirmation display
       console.log('[UI] Calculating performance...');
-      const performance = calculateTradePerformance(trade);
-      console.log('[UI] Performance:', performance);
+      const tradePerformance = calculateTradePerformance(trade);
+      console.log(`[TH ${TH_VERSION}] price + perf ready`);
+      console.log('[UI] Performance:', tradePerformance);
 
       // STEP 1: STRATEGY ID VALIDATION AND FALLBACK
       console.log('🔍 STEP 1: STRATEGY VALIDATION');
@@ -510,8 +553,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           notes: `Manual sell from Trading History UI - ${trade.notes || 'Original position'}`,
           uiTimestamp: new Date().toISOString(),
           currentPrice,
-          expectedPnl: performance.gainLoss || 0,
-          expectedPnlPct: performance.gainLossPercentage || 0,
+          expectedPnl: tradePerformance.gainLoss || 0,
+          expectedPnlPct: tradePerformance.gainLossPercentage || 0,
           force: true // Enable force override for debugging
         },
         idempotencyKey: `idem_${Math.random().toString(36).substr(2, 8)}`
@@ -534,10 +577,13 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         console.log('🚨 INVOKE-TIMEOUT: No response in 5 seconds');
       }, 5000);
 
-      console.log('[UI] → Invoking coordinator for SELL...');
+      console.log(`[TH ${TH_VERSION}] → invoking function trading-decision-coordinator`);
+      const invokeStart = performance.now();
       const { data: result, error } = await supabase.functions.invoke('trading-decision-coordinator', {
         body: { intent: sellPayload }
       });
+      console.log(`[TH ${TH_VERSION}] invoke done in`, Math.round(performance.now()-invokeStart), 'ms',
+        { error: !!error, resultOk: result?.ok, action: result?.decision?.action });
 
       clearTimeout(invokeTimeout);
       
@@ -547,43 +593,21 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       console.log('decision.reason:', result?.decision?.reason);
       console.log('Full raw response:', JSON.stringify({ result, error }, null, 2));
 
-      if (error) {
-        throw new Error(`Network error: ${error.message}`);
-      }
-      
-      // Check for successful SELL decision
-      if (result?.ok === true && result?.decision?.action === 'SELL') {
-        console.log('[UI] ✅ SELL SUCCESS - position closed');
-        toast({
-          title: "Position Sold",
-          description: `Successfully sold ${trade.cryptocurrency} position`,
-          variant: "default"
-        });
-        
-        // Refresh data after successful sell
-        fetchTradingHistory();
-        return;
-      }
+      if (error) throw new Error(`Network error: ${error.message}`);
 
-      // Handle DEFER/HOLD or other non-SELL actions
-      const actionReason = result?.decision?.reason || 'Decision not available';
-      console.log(`[UI] ❌ SELL NOT EXECUTED - Action: ${result?.decision?.action}, Reason: ${actionReason}`);
-      
-      toast({
-        title: "Sell Not Executed",
-        description: actionReason,
-        variant: "destructive"
-      });
-      
-    } catch (error) {
-      console.error('[UI] SELL ERROR:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      
-      toast({
-        title: "Sell Failed",
-        description: errorMessage,
-        variant: "destructive"
-      });
+      if (result?.ok === true && result?.decision?.action === 'SELL') {
+        console.log(`[TH ${TH_VERSION}] ✅ SELL SUCCESS`);
+        toast({ title: "Position Sold", description: `Sold ${trade.cryptocurrency}`, variant: "default" });
+        fetchTradingHistory();
+      } else {
+        const why = result?.decision?.reason || 'No decision reason';
+        console.log(`[TH ${TH_VERSION}] ❌ SELL NOT EXECUTED`, { action: result?.decision?.action, why });
+        toast({ title: "Sell Not Executed", description: why, variant: "destructive" });
+      }
+      console.log(`[TH ${TH_VERSION}] handleDirectSell total`, Math.round(performance.now()-t0), 'ms');
+    } catch (err) {
+      console.error(`[TH ${TH_VERSION}] SELL ERROR`, err);
+      toast({ title: "Sell Failed", description: err instanceof Error ? err.message : 'Unknown error', variant: "destructive" });
     }
   };
 
@@ -598,10 +622,10 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       const el = sellBtnRef.current;
       if (!el) return;
       sellBtnMap.set(el, trade);
-      console.log('[TH v10] map set', { id: trade.id, sym: trade.cryptocurrency });
+      console.log(`[TH ${TH_VERSION}] ✅ map set`, { id: trade.id, sym: trade.cryptocurrency });
       return () => {
         sellBtnMap.delete(el);
-        console.log('[TH v10] map delete', { id: trade.id });
+        console.log(`[TH ${TH_VERSION}] 🧹 map delete`, { id: trade.id });
       };
     }, [trade.id]);
     
@@ -786,18 +810,19 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                 data-testid="sell-now"
                 data-sell-id={trade.id}
                 data-sell-sym={trade.cryptocurrency}
-                data-th-version="v10"
+                data-trade-json={encodeURIComponent(JSON.stringify(trade))}
+                data-th-version="v11"
                 ref={sellBtnRef}
                 type="button"
                 className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  alert('[TH v10] React onClick captured'); // visible proof
+                  alert(`[TH ${TH_VERSION}] React onClick captured`);
                   handleDirectSell(trade);
                 }}
               >
-                SELL NOW (v10)
+                SELL NOW (v11)
               </button>
             )}
             
@@ -876,7 +901,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           boxShadow: '0 0 0 2px #0f0 inset'
         }}
       >
-        TH v10 ACTIVE
+        TH v11 ACTIVE
       </div>
 
       <Card className="p-6">
@@ -884,7 +909,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Activity className="w-5 h-5" />
-            <h2 className="text-lg font-semibold">Trading History (TH v10)</h2>
+            <h2 className="text-lg font-semibold">Trading History (TH v11)</h2>
           </div>
           <Button
             variant="outline"
