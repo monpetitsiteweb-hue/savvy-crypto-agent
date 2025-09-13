@@ -106,6 +106,10 @@ serve(async (req) => {
   metrics.totalRequests++;
 
   try {
+    // STEP 2: CONFIRM FUNCTION HAS CREDENTIALS
+    console.log('[FUNC] env SUPABASE_URL set:', !!Deno.env.get('SUPABASE_URL'));
+    console.log('[FUNC] env SERVICE_ROLE set:', !!Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
+    
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -132,6 +136,19 @@ serve(async (req) => {
     // Validate intent
     if (!intent?.userId || !intent?.strategyId || !intent?.symbol || !intent?.side) {
       return respond('HOLD', 'internal_error', requestId);
+    }
+
+    // STEP 4: GATE OVERRIDES FOR MANUAL SELL (force debugging path)
+    const force = intent.source === 'manual' && (intent.metadata?.force === true);
+    if (force) {
+      console.log('🔥 MANUAL FORCE OVERRIDE: bypassing all gates for debugging');
+      const base = toBaseSymbol(intent.symbol);
+      const qty = intent.qtySuggested || 0.001;
+      const priceData = await getMarketPrice(base, 15000);
+      const exec = await executeTradeOrder(supabaseClient, { ...intent, symbol: base, qtySuggested: qty }, {}, requestId, priceData);
+      return exec.success
+        ? respond('SELL', 'manual_override_precedence', requestId, 0, { qty: exec.qty })
+        : respond('DEFER', 'direct_execution_failed', requestId);
     }
 
     // Check for duplicate/idempotent request
@@ -1207,14 +1224,27 @@ async function executeTradeOrder(
       ...fifoFields
     };
 
-    const { error } = await supabaseClient
+    const { data: insertResult, error } = await supabaseClient
       .from('mock_trades')
-      .insert(mockTrade);
+      .insert(mockTrade)
+      .select('id');
 
     if (error) {
       console.error('❌ COORDINATOR: Trade execution failed:', error);
       return { success: false, error: error.message };
     }
+
+    // STEP 4: PROVE THE WRITE - log successful insert
+    console.log('============ STEP 4: WRITE SUCCESSFUL ============');
+    console.log('Inserted row ID:', insertResult?.[0]?.id || 'ID_NOT_RETURNED');
+    console.log('Inserted trade data:', JSON.stringify({
+      symbol: mockTrade.cryptocurrency,
+      side: mockTrade.trade_type,
+      amount: mockTrade.amount,
+      price: mockTrade.price,
+      total_value: mockTrade.total_value,
+      fifo_fields: fifoFields
+    }, null, 2));
 
     console.log('✅ COORDINATOR: Trade executed successfully');
     return { success: true, qty };

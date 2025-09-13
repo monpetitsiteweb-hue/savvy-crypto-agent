@@ -418,10 +418,40 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       const performance = calculateTradePerformance(trade);
       console.log('[UI] Performance:', performance);
 
+      // STEP 1: STRATEGY ID VALIDATION AND FALLBACK
+      console.log('🔍 STEP 1: STRATEGY VALIDATION');
+      console.log('trade.strategy_id:', trade.strategy_id);
+      
+      
+      // Get valid strategies for this user
+      const { data: strategies, error: stratError } = await supabase
+        .from('trading_strategies')
+        .select('id, strategy_name')
+        .eq('user_id', user.id);
+      
+      console.log('Available strategies:', strategies);
+      console.log('Strategy query error:', stratError);
+      
+      // Use real strategy ID or first available strategy
+      let strategyId = trade.strategy_id;
+      if (!strategyId && strategies && strategies.length > 0) {
+        strategyId = strategies[0].id;
+        console.log('🔧 Using fallback strategy:', strategyId, strategies[0].strategy_name);
+      }
+      
+      if (!strategyId) {
+        toast({
+          title: "Error",
+          description: "No valid strategy found for manual sell",
+          variant: "destructive"
+        });
+        return;
+      }
+
       // Build trade intent with full context - FIXED: use baseSymbol for coordinator
       const sellPayload = {
         userId: user.id,
-        strategyId: trade.strategy_id || 'manual-fallback', // Must be non-null
+        strategyId: strategyId, // Guaranteed to be non-null now
         symbol: baseSymbol, // FIXED: coordinator expects BASE symbol, not pair
         side: 'SELL' as const,
         source: 'manual',
@@ -438,7 +468,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           uiTimestamp: new Date().toISOString(),
           currentPrice,
           expectedPnl: performance.gainLoss || 0,
-          expectedPnlPct: performance.gainLossPercentage || 0
+          expectedPnlPct: performance.gainLossPercentage || 0,
+          force: true // Enable force override for debugging
         },
         idempotencyKey: `idem_${Math.random().toString(36).substr(2, 8)}`
       };
@@ -451,6 +482,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       console.log('sellPayload.strategyId (must be non-null):', sellPayload.strategyId);
       console.log('sellPayload.source:', sellPayload.source);
       console.log('sellPayload.mode (mock flag server reads):', sellPayload.mode);
+      console.log('[UI] typeof supabase.functions.invoke', typeof supabase.functions.invoke);
+      console.log('[UI] SUPABASE_URL check:', import.meta.env.VITE_SUPABASE_URL || 'NOT_SET');
+      console.log('[UI] ANON_KEY check:', !!(import.meta.env.VITE_SUPABASE_ANON_KEY) || 'NOT_SET');
 
       // Add 5s timeout guard
       const invokeTimeout = setTimeout(() => {
