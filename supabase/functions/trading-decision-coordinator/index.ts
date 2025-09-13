@@ -117,6 +117,20 @@ serve(async (req) => {
 
     const { intent } = await req.json() as { intent: TradeIntent };
     
+    // STRUCTURED LOGGING
+    console.log('[coordinator] intent', JSON.stringify({
+      userId: intent?.userId,
+      strategyId: intent?.strategyId,
+      symbol: intent?.symbol,
+      side: intent?.side,
+      source: intent?.source,
+      mode: (intent as any).mode || intent.metadata?.mode,
+      qtySuggested: intent?.qtySuggested,
+      flags: intent?.metadata?.flags || null,
+      force: intent?.metadata?.force === true,
+      currentPrice: intent?.metadata?.currentPrice ?? null,
+    }, null, 2));
+    
     // STEP 2: COORDINATOR ENTRY LOGS
     console.log('============ STEP 2: COORDINATOR ENTRY ============');
     console.log('received intent (full JSON):', JSON.stringify(intent, null, 2));
@@ -138,6 +152,51 @@ serve(async (req) => {
       return respond('HOLD', 'internal_error', requestId);
     }
 
+    // FAST PATH FOR MANUAL/MOCK/FORCE
+    if (mode === 'mock' && (intent.source === 'manual' || intent.metadata?.force === true)) {
+      console.log('[coordinator] fast-path triggered for manual/mock/force');
+      
+      const exitPrice = Number(intent?.metadata?.currentPrice);
+      if (!Number.isFinite(exitPrice) || exitPrice <= 0) {
+        return new Response(JSON.stringify({ ok:false, error:'missing/invalid currentPrice for mock sell' }), { 
+          status: 400,
+          headers: corsHeaders 
+        });
+      }
+
+      // Insert mock SELL directly
+      const payload = {
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        trade_type: 'sell',
+        cryptocurrency: intent.symbol,
+        amount: intent.qtySuggested || 0,
+        price: exitPrice,
+        total_value: (intent.qtySuggested || 0) * exitPrice,
+        executed_at: new Date().toISOString(),
+        notes: 'Manual mock SELL via force override (coordinator fast-path)',
+        is_test_mode: true,
+      };
+
+      const { error: insErr } = await supabaseClient.from('mock_trades').insert([payload]);
+      if (insErr) {
+        console.error('[coordinator] mock sell insert failed', insErr);
+        return new Response(JSON.stringify({ ok:false, error: insErr.message }), { 
+          status: 500,
+          headers: corsHeaders 
+        });
+      }
+
+      console.log('[coordinator] mock sell inserted', payload);
+      return new Response(JSON.stringify({ 
+        ok:true, 
+        decision:{ action:'SELL', reason:'force-mock/manual override' } 
+      }), { 
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     // STEP 4: GATE OVERRIDES FOR MANUAL SELL (force debugging path)
     const force = intent.source === 'manual' && (intent.metadata?.force === true);
     if (force) {
@@ -148,7 +207,16 @@ serve(async (req) => {
       const exec = await executeTradeOrder(supabaseClient, { ...intent, symbol: base, qtySuggested: qty }, {}, requestId, priceData);
       return exec.success
         ? respond('SELL', 'manual_override_precedence', requestId, 0, { qty: exec.qty })
-        : respond('DEFER', 'direct_execution_failed', requestId);
+        : new Response(JSON.stringify({
+            ok: true,
+            decision: { 
+              action: 'DEFER', 
+              reason: `Guards tripped: executionFailed - manual force override failed`
+            }
+          }), { 
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
     }
 
     // Check for duplicate/idempotent request
@@ -191,10 +259,32 @@ serve(async (req) => {
         logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId, undefined);
         return respond(intent.side, 'unified_decisions_disabled_direct_path', requestId, 0, { qty: executionResult.qty });
       } else {
+        const guardReport = {
+          minNotionalFail: false,
+          cooldownActive: false,
+          riskLimitExceeded: false,
+          positionNotFound: false,
+          qtyMismatch: false,
+          marketClosed: false,
+          executionFailed: true,
+          other: executionResult.error,
+        };
+        console.log('[coordinator] defer', guardReport);
+        
         console.error(`❌ UD_MODE=OFF → DIRECT EXECUTION FAILED: ${executionResult.error}`);
         // Log decision for audit (async, non-blocking)
         logDecisionAsync(supabaseClient, intent, 'DEFER', 'direct_execution_failed', unifiedConfig, requestId, undefined);
-        return respond('DEFER', 'direct_execution_failed', requestId);
+        
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: { 
+            action: 'DEFER', 
+            reason: `Guards tripped: executionFailed - ${executionResult.error}`
+          }
+        }), { 
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
       }
     }
 
@@ -205,15 +295,36 @@ serve(async (req) => {
     
     // Check micro-queue for this symbol
     const queueLength = getQueueLength(symbolKey);
-    if (queueLength > 1) {
-      // Too many concurrent requests for this symbol - defer with jitter
-      const retryMs = 300 + Math.random() * 500; // 300-800ms jitter
-      metrics.deferCount++;
-      
-      console.log(`🎯 UD_MODE=ON → DEFER: reason=queue_overload_defer symbol=${intent.symbol} retry=${retryMs}ms`);
-      
-      return respond('DEFER', 'queue_overload_defer', requestId, Math.round(retryMs));
-    }
+     if (queueLength > 1) {
+       // Too many concurrent requests for this symbol - defer with jitter
+       const retryMs = 300 + Math.random() * 500; // 300-800ms jitter
+       metrics.deferCount++;
+       
+       const guardReport = {
+         minNotionalFail: false,
+         cooldownActive: false,
+         riskLimitExceeded: false,
+         positionNotFound: false,
+         qtyMismatch: false,
+         marketClosed: false,
+         queueOverload: true,
+         other: null,
+       };
+       console.log('[coordinator] defer', guardReport);
+       
+       console.log(`🎯 UD_MODE=ON → DEFER: reason=queue_overload_defer symbol=${intent.symbol} retry=${retryMs}ms`);
+       
+       return new Response(JSON.stringify({
+         ok: true,
+         decision: { 
+           action: 'DEFER', 
+           reason: `Guards tripped: queueOverload`
+         }
+       }), { 
+         status: 200,
+         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+       });
+     }
 
     // Add to queue and process
     addToQueue(symbolKey, intent);
@@ -223,11 +334,30 @@ serve(async (req) => {
       const conflictResult = await detectConflicts(supabaseClient, intent, unifiedConfig);
       
       if (conflictResult.hasConflict) {
+        const guardReport = conflictResult.guardReport || {};
+        console.log('[coordinator] defer', guardReport);
+        
+        const guardNames = Object.entries(guardReport)
+          .filter(([,v]) => v)
+          .map(([k]) => k)
+          .join(', ') || 'unknown';
+        
+        const reasonWithGuards = `Guards tripped: ${guardNames}`;
+        
         console.log(`🎯 UD_MODE=ON → DEFER: reason=${conflictResult.reason} symbol=${intent.symbol}`);
         cacheDecision(idempotencyKey, { action: 'DEFER', reason: conflictResult.reason as Reason, request_id: requestId, retry_in_ms: 0 });
         logDecisionAsync(supabaseClient, intent, 'DEFER', conflictResult.reason as Reason, unifiedConfig, requestId, undefined);
         
-        return respond('DEFER', conflictResult.reason as Reason, requestId);
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: { 
+            action: 'DEFER', 
+            reason: reasonWithGuards 
+          }
+        }), { 
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
       }
 
       // No conflicts - proceed with execution using advisory lock ONLY for atomic section
@@ -787,7 +917,19 @@ async function detectConflicts(
   supabaseClient: any,
   intent: TradeIntent,
   config: UnifiedConfig
-): Promise<{ hasConflict: boolean; reason: string }> {
+): Promise<{ hasConflict: boolean; reason: string; guardReport?: any }> {
+  
+  // Initialize guard report
+  const guardReport = {
+    minNotionalFail: false,
+    cooldownActive: false,
+    riskLimitExceeded: false,
+    positionNotFound: false,
+    qtyMismatch: false,
+    marketClosed: false,
+    holdPeriodNotMet: false,
+    other: null as string | null,
+  };
   
   // Get recent trades for this symbol
   const baseSymbol = toBaseSymbol(intent.symbol);
@@ -805,7 +947,7 @@ async function detectConflicts(
   
   // Apply precedence-based conflict rules
   if (intent.source === 'manual') {
-    return { hasConflict: false, reason: 'manual_override_precedence' };
+    return { hasConflict: false, reason: 'manual_override_precedence', guardReport };
   }
 
   if (intent.source === 'pool' && intent.side === 'SELL') {
@@ -816,10 +958,11 @@ async function detectConflicts(
     );
     
     if (recentBuy) {
-      return { hasConflict: true, reason: 'blocked_by_precedence:POOL_EXIT' };
+      guardReport.cooldownActive = true;
+      return { hasConflict: true, reason: 'blocked_by_precedence:POOL_EXIT', guardReport };
     }
     
-    return { hasConflict: false, reason: 'no_conflicts_detected' };
+    return { hasConflict: false, reason: 'no_conflicts_detected', guardReport };
   }
 
   // UNIVERSAL HOLD PERIOD CHECK - All SELL intents (first in order)
@@ -830,8 +973,12 @@ async function detectConflicts(
       const minHoldPeriodMs = config.minHoldPeriodMs || 300000; // 5 minutes default
       
       if (timeSinceBuy < minHoldPeriodMs) {
-        return { hasConflict: true, reason: 'hold_min_period_not_met' };
+        guardReport.holdPeriodNotMet = true;
+        return { hasConflict: true, reason: 'hold_min_period_not_met', guardReport };
       }
+    } else {
+      guardReport.positionNotFound = true;
+      return { hasConflict: true, reason: 'no_position_found', guardReport };
     }
   }
 
@@ -847,14 +994,15 @@ async function detectConflicts(
       // Check confidence override for high-confidence sources
       if (['intelligent', 'news', 'whale'].includes(intent.source) && 
           intent.confidence >= config.confidenceOverrideThreshold) {
-        return { hasConflict: false, reason: 'confidence_override_applied' };
+        return { hasConflict: false, reason: 'confidence_override_applied', guardReport };
       }
       
-      return { hasConflict: true, reason: 'blocked_by_cooldown' };
+      guardReport.cooldownActive = true;
+      return { hasConflict: true, reason: 'blocked_by_cooldown', guardReport };
     }
   }
 
-  return { hasConflict: false, reason: 'no_conflicts_detected' };
+  return { hasConflict: false, reason: 'no_conflicts_detected', guardReport };
 }
 
 // Execute with minimal advisory lock (atomic section only)
