@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -548,6 +548,27 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const TradeCard = ({ trade, showSellButton = false }: { trade: Trade; showSellButton?: boolean }) => {
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
     const [cardLoading, setCardLoading] = useState(true);
+    const sellBtnRef = useRef<HTMLButtonElement | null>(null);
+
+    useEffect(() => {
+      const el = sellBtnRef.current;
+      if (!el) return;
+      const nativeClick = (ev: MouseEvent) => {
+        console.log('🔥 [NATIVE] SELL clicked → forwarding to handleDirectSell');
+        ev.stopPropagation(); // prevent any global traps from swallowing the event
+        try {
+          handleDirectSell(trade);
+        } catch (err) {
+          console.error('🔥 [NATIVE] handleDirectSell error:', err);
+        }
+      };
+      el.addEventListener('click', nativeClick);
+      console.log('✅ [NATIVE] SELL listener attached');
+      return () => {
+        el.removeEventListener('click', nativeClick);
+        console.log('🧹 [NATIVE] SELL listener removed');
+      };
+    }, [trade.id]);
     
     useEffect(() => {
       const loadPerformance = () => {
@@ -727,54 +748,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             
             {showSellButton && trade.trade_type === 'buy' && (
               <button
-                ref={(el) => {
-                  if (el) {
-                    console.log(`🔥 SELL BUTTON RENDERED for ${trade.cryptocurrency}`, {
-                      visible: el.offsetParent !== null,
-                      dimensions: { width: el.offsetWidth, height: el.offsetHeight },
-                      position: el.getBoundingClientRect(),
-                      showSellButton,
-                      trade_type: trade.trade_type
-                    });
-                  }
-                }}
+                ref={sellBtnRef}
+                type="button"
                 className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
-                onMouseEnter={() => console.log(`🔥 MOUSE ENTER SELL BUTTON ${trade.cryptocurrency}`)}
-                onMouseDown={() => console.log(`🔥 MOUSE DOWN SELL BUTTON ${trade.cryptocurrency}`)}
-                onMouseUp={() => console.log(`🔥 MOUSE UP SELL BUTTON ${trade.cryptocurrency}`)}
-                onClickCapture={(e) => {
-                  console.log(`🔥 CLICK CAPTURE SELL BUTTON ${trade.cryptocurrency}`, e);
-                }}
-                onClick={(e) => {
-                  console.log('============ BUTTON CLICKED ============');
-                  console.log(`🔥🔥🔥🔥🔥 SELL BUTTON CLICKED ${trade.cryptocurrency} 🔥🔥🔥🔥🔥`);
-                  console.log('Event:', e);
-                  console.log('Trade:', trade);
-                  console.log('ShowSellButton:', showSellButton);
-                  console.log('Trade Type:', trade.trade_type);
-                  console.log(`[UI] Base symbol: ${toBaseSymbol(trade.cryptocurrency)}`);
-                  console.log(`[UI] Pair symbol: ${toPairSymbol(toBaseSymbol(trade.cryptocurrency))}`);
-                  console.log(`[UI] Current price: ${sharedPriceCache.getPrice(toPairSymbol(toBaseSymbol(trade.cryptocurrency)))}`);
-                  
-                  // Prerequisites check
-                  console.log('=== PREREQUISITES ===');
-                  console.log('user.id:', user?.id);
-                  console.log('trade.strategy_id:', trade.strategy_id);
-                  const pairSymbol = toPairSymbol(toBaseSymbol(trade.cryptocurrency));
-                  console.log('pairSymbol:', pairSymbol);
-                  const currentPrice = sharedPriceCache.getPrice(pairSymbol);
-                  console.log('currentPrice:', currentPrice);
-                  console.log('sharedPriceCache.getAllPrices().has(pairSymbol):', sharedPriceCache.getAllPrices().has(pairSymbol));
-                  console.log('sharedPriceCache.getAllPrices().size:', sharedPriceCache.getAllPrices().size);
-                  
-                  try {
-                    console.log('🔥 About to call handleDirectSell...');
-                    handleDirectSell(trade);
-                    console.log('🔥 handleDirectSell called successfully');
-                  } catch (error) {
-                    console.error('🔥 ERROR calling handleDirectSell:', error);
-                  }
-                }}
               >
                 SELL NOW
               </button>
