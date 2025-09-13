@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+
+// Map each SELL button element to its Trade (no leaks, survives re-renders)
+const sellBtnMap = new WeakMap<HTMLButtonElement, Trade>();
 import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -356,6 +359,39 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   }, []);
 
+  // Delegated SELL button handler (survives re-renders)
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const btn = target.closest('button[data-testid="sell-now"]') as HTMLButtonElement | null;
+      if (!btn) return;
+      const trade = sellBtnMap.get(btn);
+      console.log('🔥 [DELEGATE] SELL detected', { hasTrade: !!trade, btnReady: !!btn });
+      if (trade) {
+        try { handleDirectSell(trade); }
+        catch (err) { console.error('🔥 [DELEGATE] handleDirectSell error:', err); }
+      } else {
+        console.warn('⚠️ [DELEGATE] No trade mapped for button - ref hook didn\'t run yet.');
+      }
+    };
+    document.addEventListener('click', handler, true); // capture so nothing swallows it
+    console.log('✅ [DELEGATE] global SELL listener ON');
+    return () => {
+      document.removeEventListener('click', handler, true);
+      console.log('🧹 [DELEGATE] global SELL listener OFF');
+    };
+  }, []);
+
+  // Optional DOM sanity probe
+  useEffect(() => {
+    const t = setInterval(() => {
+      const n = document.querySelectorAll('button[data-testid="sell-now"]').length;
+      console.log('[DEBUG] SELL buttons in DOM:', n);
+    }, 2000);
+    return () => clearInterval(t);
+  }, []);
+
   // Handle direct sell - bypassing modal for debugging  
   const handleDirectSell = async (trade: Trade) => {
     console.log('============ HANDLE DIRECT SELL STARTED ============');
@@ -550,43 +586,17 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     const [cardLoading, setCardLoading] = useState(true);
     const sellBtnRef = useRef<HTMLButtonElement | null>(null);
 
-    // Attach native SELL click after the real button is rendered (not during skeleton)
-    useLayoutEffect(() => {
-      // Only attach when the card is ready and the SELL button should be visible
-      if (cardLoading || !showSellButton || trade.trade_type !== 'buy') return;
-
+    // Map button to trade (no direct click listener - handled by delegation)
+    useEffect(() => {
       const el = sellBtnRef.current;
       if (!el) return;
-
-      // Avoid double-attach on re-renders
-      if ((el as any).__nativeSellAttached) {
-        console.log('ℹ️ [NATIVE] SELL listener already attached', { id: trade.id });
-        return;
-      }
-
-      const nativeClick = (ev: MouseEvent) => {
-        console.log('🔥 [NATIVE] SELL clicked → forwarding to handleDirectSell', {
-          id: trade.id, sym: trade.cryptocurrency
-        });
-        try {
-          handleDirectSell(trade);
-        } catch (err) {
-          console.error('🔥 [NATIVE] handleDirectSell error:', err);
-        }
-      };
-
-      el.addEventListener('click', nativeClick);
-      (el as any).__nativeSellAttached = true;
-      console.log('✅ [NATIVE] SELL listener attached', { id: trade.id, sym: trade.cryptocurrency });
-
+      sellBtnMap.set(el, trade);
+      console.log('✅ [MAP] SELL button ↔ trade mapped', { id: trade.id, sym: trade.cryptocurrency });
       return () => {
-        // Clean up and allow clean re-attach on re-render
-        el.removeEventListener('click', nativeClick);
-        delete (el as any).__nativeSellAttached;
-        console.log('🧹 [NATIVE] SELL listener removed', { id: trade.id });
+        sellBtnMap.delete(el);
+        console.log('🧹 [MAP] SELL button mapping removed', { id: trade.id });
       };
-      // Re-run when readiness or visibility flips
-    }, [cardLoading, showSellButton, trade.trade_type, trade.id]);
+    }, [trade.id]);
     
     useEffect(() => {
       const loadPerformance = () => {
