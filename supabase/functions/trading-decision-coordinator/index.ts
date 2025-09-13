@@ -113,15 +113,21 @@ serve(async (req) => {
 
     const { intent } = await req.json() as { intent: TradeIntent };
     
+    // STEP 2: COORDINATOR ENTRY LOGS
+    console.log('============ STEP 2: COORDINATOR ENTRY ============');
+    console.log('received intent (full JSON):', JSON.stringify(intent, null, 2));
+    
+    const resolvedSymbol = toBaseSymbol(intent.symbol); // symbol for DB lookups
+    console.log('resolvedSymbol (for DB lookups):', resolvedSymbol);
+    
+    // Read mode from root level (client moved it there)
+    const mode = (intent as any).mode || intent.metadata?.mode || 'live';
+    console.log('mode (mock vs real wallet):', mode);
+    
     // Generate request ID and idempotency key
     const requestId = generateRequestId();
     const idempotencyKey = generateIdempotencyKey(intent);
     intent.idempotencyKey = idempotencyKey;
-    
-    console.log(`🎯 COORDINATOR: Processing intent [${requestId}]:`, JSON.stringify({
-      ...intent,
-      idempotencyKey
-    }, null, 2));
 
     // Validate intent
     if (!intent?.userId || !intent?.strategyId || !intent?.symbol || !intent?.side) {
@@ -423,6 +429,55 @@ async function executeTradeDirectly(
         }
       }
     } else {
+      // STEP 3: PROVE WALLET/POSITION STATE for SELL orders
+      console.log('============ STEP 3: WALLET/POSITION STATE ============');
+      
+      // Query position aggregates for this symbol  
+      const { data: allTrades } = await supabaseClient
+        .from('mock_trades')
+        .select('trade_type, amount, cryptocurrency')
+        .eq('user_id', intent.userId)
+        .eq('strategy_id', intent.strategyId)
+        .in('cryptocurrency', [baseSymbol, `${baseSymbol}-EUR`]); // Check both forms for legacy compatibility
+      
+      let sumBuys = 0, sumSells = 0;
+      let buysBaseForm = 0, buysPairForm = 0, sellsBaseForm = 0, sellsPairForm = 0;
+      
+      if (allTrades) {
+        allTrades.forEach(trade => {
+          const amount = parseFloat(trade.amount);
+          if (trade.cryptocurrency === baseSymbol) {
+            if (trade.trade_type === 'buy') {
+              buysBaseForm += amount;
+              sumBuys += amount;
+            } else {
+              sellsBaseForm += amount;
+              sumSells += amount;
+            }
+          } else if (trade.cryptocurrency === `${baseSymbol}-EUR`) {
+            if (trade.trade_type === 'buy') {
+              buysPairForm += amount;
+              sumBuys += amount;
+            } else {
+              sellsPairForm += amount; 
+              sumSells += amount;
+            }
+          }
+        });
+      }
+      
+      const netPosition = sumBuys - sumSells;
+      console.log('sum(buys):', sumBuys);
+      console.log('sum(sells):', sumSells);
+      console.log('net available_qty:', netPosition);
+      console.log('cryptocurrency key queried:', `both "${baseSymbol}" and "${baseSymbol}-EUR"`);
+      console.log(`Legacy data check: buys base=${buysBaseForm}, buys pair=${buysPairForm}, sells base=${sellsBaseForm}, sells pair=${sellsPairForm}`);
+      
+      if (netPosition <= 0) {
+        console.log(`🚫 DIRECT: SELL blocked - no position (net=${netPosition})`);
+        return { success: false, error: 'no_position_to_sell' };
+      }
+      
       // For SELL orders, use the suggested quantity
       qty = intent.qtySuggested || 0.001;
     }
@@ -451,13 +506,47 @@ async function executeTradeDirectly(
       .insert(mockTrade);
 
     if (error) {
+      console.log('============ STEP 4: WRITE FAILED ============');
+      console.log('DB insert error:', error);
       throw new Error(`DB insert failed: ${error.message}`);
     }
 
+    // STEP 4: PROVE THE WRITE - log successful insert
+    console.log('============ STEP 4: WRITE SUCCESSFUL ============');
+    console.log('Inserted mockTrade:', JSON.stringify(mockTrade, null, 2));
+    
+    // Query back the inserted row for confirmation
+    const { data: insertedRow } = await supabaseClient
+      .from('mock_trades')
+      .select('id, cryptocurrency, trade_type, amount, original_purchase_amount, original_purchase_price')
+      .eq('user_id', intent.userId)
+      .eq('trade_type', intent.side.toLowerCase())
+      .order('executed_at', { ascending: false })
+      .limit(1);
+      
+    if (insertedRow && insertedRow.length > 0) {
+      console.log('New row id:', insertedRow[0].id);
+      console.log('Echo inserted fields:', insertedRow[0]);
+    } else {
+      console.log('⚠️ Could not query back inserted row');
+    }
+
     console.log('✅ DIRECT: Trade executed successfully');
+    
+    // STEP 5: FINAL DECISION - log for user 
+    console.log('============ STEP 5: FINAL DECISION ============');
+    console.log('decision.action:', intent.side);
+    console.log('decision.reason: unified_decisions_disabled_direct_path');
+    
     return { success: true, qty };
 
   } catch (error) {
+    console.log('============ STEP 4: EXECUTION FAILED ============');
+    console.log('Error message:', error.message);
+    console.log('============ STEP 5: FINAL DECISION ============');
+    console.log('decision.action: DEFER');
+    console.log('decision.reason:', error.message);
+    
     console.error('❌ DIRECT: Execution failed:', error.message);
     return { success: false, error: error.message };
   }

@@ -418,18 +418,18 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       const performance = calculateTradePerformance(trade);
       console.log('[UI] Performance:', performance);
 
-      // Build trade intent with full context
-      const tradeIntent = {
+      // Build trade intent with full context - FIXED: use baseSymbol for coordinator
+      const sellPayload = {
         userId: user.id,
-        strategyId: trade.strategy_id,
-        symbol: trade.cryptocurrency,
+        strategyId: trade.strategy_id || 'manual-fallback', // Must be non-null
+        symbol: baseSymbol, // FIXED: coordinator expects BASE symbol, not pair
         side: 'SELL' as const,
         source: 'manual',
         confidence: 0.95,
         reason: 'Manual sell from Trading History UI',
-        qtySuggested: trade.amount, // This is already the remaining amount from FIFO calculation
+        qtySuggested: trade.amount,
+        mode: 'mock', // MOVED: mode at root level for coordinator
         metadata: {
-          mode: 'mock', // Ensure paper trading mode
           context: 'MANUAL',
           origin: 'UI',
           manualOverride: true,
@@ -443,20 +443,32 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         idempotencyKey: `idem_${Math.random().toString(36).substr(2, 8)}`
       };
 
-      console.log('[UI] SELL PAYLOAD (before invoke):', JSON.stringify(tradeIntent, null, 2));
+      // STEP 1: LOCK CLIENT PAYLOAD - log exact object sent to coordinator
+      console.log('============ STEP 1: CLIENT PAYLOAD LOCKED ============');
+      console.log('sellPayload object:', JSON.stringify(sellPayload, null, 2));
+      console.log('sellPayload.symbol (must be BASE):', sellPayload.symbol);
+      console.log('sellPayload.qtySuggested:', sellPayload.qtySuggested);
+      console.log('sellPayload.strategyId (must be non-null):', sellPayload.strategyId);
+      console.log('sellPayload.source:', sellPayload.source);
+      console.log('sellPayload.mode (mock flag server reads):', sellPayload.mode);
 
-      // Send to coordinator
+      // Add 5s timeout guard
+      const invokeTimeout = setTimeout(() => {
+        console.log('🚨 INVOKE-TIMEOUT: No response in 5 seconds');
+      }, 5000);
+
       console.log('[UI] → Invoking coordinator for SELL...');
       const { data: result, error } = await supabase.functions.invoke('trading-decision-coordinator', {
-        body: { intent: tradeIntent }
+        body: { intent: sellPayload }
       });
 
-      console.log('[UI] ← Raw coordinator response:', { result, error });
-      console.log('[UI] Decision details:', {
-        action: result?.decision?.action,
-        reason: result?.decision?.reason,
-        request_id: result?.request_id
-      });
+      clearTimeout(invokeTimeout);
+      
+      console.log('============ STEP 5: COORDINATOR RESPONSE ============');
+      console.log('result.ok:', result?.ok);
+      console.log('decision.action:', result?.decision?.action);
+      console.log('decision.reason:', result?.decision?.reason);
+      console.log('Full raw response:', JSON.stringify({ result, error }, null, 2));
 
       if (error) {
         throw new Error(`Network error: ${error.message}`);
