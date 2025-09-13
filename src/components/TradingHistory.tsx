@@ -20,9 +20,49 @@ import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { useToast } from '@/hooks/use-toast';
 
 // ✅ After imports: version beacon + WeakMap
-const TH_VERSION = 'v11';
+const TH_VERSION = 'v12';
 console.log(`[TH ${TH_VERSION}] module loaded`);
 (window as any).__TH_VERSION = TH_VERSION;
+
+// Timeout wrapper for async operations
+async function withTimeout<T>(promise: Promise<T>, label: string, ms = 8000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${label} timeout after ${ms}ms`)), ms)),
+  ]);
+}
+
+// Emergency client-side mock sell fallback
+async function emergencyMockSellInsert(userId: string, trade: Trade, currentPrice: number) {
+  const purchaseValue = trade.amount * trade.price;
+  const exitValue = trade.amount * currentPrice;
+  const realized_pnl = exitValue - purchaseValue;
+  const realized_pnl_pct = purchaseValue > 0 ? (realized_pnl / purchaseValue) * 100 : 0;
+
+  const payload = {
+    user_id: userId,
+    trade_type: 'sell',
+    cryptocurrency: trade.cryptocurrency,
+    amount: trade.amount,
+    price: currentPrice,
+    total_value: exitValue,
+    executed_at: new Date().toISOString(),
+    // snapshot / fifo fields:
+    original_purchase_amount: trade.amount,
+    original_purchase_price: trade.price,
+    original_purchase_value: purchaseValue,
+    exit_value: exitValue,
+    realized_pnl,
+    realized_pnl_pct,
+    notes: (trade.notes ? trade.notes + ' • ' : '') + 'EMERGENCY MOCK SELL (client-side fallback)',
+    is_test_mode: true,
+    strategy_id: trade.strategy_id || null,
+  };
+
+  const { data, error } = await supabase.from('mock_trades').insert([payload]).select();
+  if (error) throw error;
+  return data;
+}
 
 // Map each SELL button element to its Trade (no leaks, survives re-renders)
 const sellBtnMap = new WeakMap<HTMLButtonElement, Trade>();
@@ -807,22 +847,22 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             
             {showSellButton && trade.trade_type === 'buy' && (
               <button
-                data-testid="sell-now"
-                data-sell-id={trade.id}
-                data-sell-sym={trade.cryptocurrency}
-                data-trade-json={encodeURIComponent(JSON.stringify(trade))}
-                data-th-version="v11"
-                ref={sellBtnRef}
-                type="button"
-                className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  alert(`[TH ${TH_VERSION}] React onClick captured`);
-                  handleDirectSell(trade);
-                }}
-              >
-                SELL NOW (v11)
+                        data-testid="sell-now"
+                        data-sell-id={trade.id}
+                        data-sell-sym={trade.cryptocurrency}
+                        data-trade-json={encodeURIComponent(JSON.stringify(trade))}
+                        data-th-version="v12"
+                        ref={sellBtnRef}
+                        type="button"
+                        className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          alert('[TH v12] React onClick captured');
+                          handleDirectSell(trade);
+                        }}
+                      >
+                        SELL NOW (v12)
               </button>
             )}
             
@@ -901,7 +941,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           boxShadow: '0 0 0 2px #0f0 inset'
         }}
       >
-        TH v11 ACTIVE
+        TH v12 ACTIVE
       </div>
 
       <Card className="p-6">
@@ -909,7 +949,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Activity className="w-5 h-5" />
-            <h2 className="text-lg font-semibold">Trading History (TH v11)</h2>
+            <h2 className="text-lg font-semibold">Trading History (TH v12)</h2>
           </div>
           <Button
             variant="outline"
