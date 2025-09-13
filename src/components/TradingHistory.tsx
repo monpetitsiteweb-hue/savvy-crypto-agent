@@ -20,7 +20,7 @@ import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { useToast } from '@/hooks/use-toast';
 
 // ✅ After imports: version beacon + WeakMap
-const TH_VERSION = 'v9';
+const TH_VERSION = 'v10';
 console.log(`[TH ${TH_VERSION}] module loaded`);
 (window as any).__TH_VERSION = TH_VERSION;
 
@@ -80,8 +80,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   // Mount beacon
   useEffect(() => {
-    console.log(`[TH ${TH_VERSION}] TradingHistory mounted`);
-    return () => console.log(`[TH ${TH_VERSION}] TradingHistory unmounted`);
+    console.log(`[TH ${TH_VERSION}] mounted`);
+    return () => console.log(`[TH ${TH_VERSION}] unmounted`);
   }, []);
   
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -375,18 +375,18 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   useEffect(() => {
     const delegate = (e: Event) => {
       const t = e.target as HTMLElement | null;
-      if (!t) return;
-      const btn = t.closest('button[data-testid="sell-now"]') as HTMLButtonElement | null;
+      const btn = t?.closest('button[data-testid="sell-now"]') as HTMLButtonElement | null;
       if (!btn) return;
+      console.log('[TH v10] delegate', e.type, { id: btn.dataset.sellId });
+      alert('[TH v10] delegate click captured'); // visible proof
       const trade = sellBtnMap.get(btn);
-      console.log(`[TH ${TH_VERSION}] 🔥 delegate ${e.type}`, { id: btn.dataset.sellId, hasTrade: !!trade });
       if (trade) { try { handleDirectSell(trade); } catch (err) { console.error(err); } }
     };
     ['pointerdown','click'].forEach(type => document.addEventListener(type, delegate, true));
-    console.log(`[TH ${TH_VERSION}] ✅ delegate ON`);
+    console.log('[TH v10] delegate ON');
     return () => {
       ['pointerdown','click'].forEach(type => document.removeEventListener(type, delegate, true));
-      console.log(`[TH ${TH_VERSION}] 🧹 delegate OFF`);
+      console.log('[TH v10] delegate OFF');
     };
   }, []);
 
@@ -394,7 +394,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   useEffect(() => {
     const t = setInterval(() => {
       const n = document.querySelectorAll('button[data-testid="sell-now"]').length;
-      console.log(`[TH ${TH_VERSION}] [DEBUG] SELL buttons in DOM:`, n);
+      console.log('[TH v10] SELL buttons in DOM:', n);
     }, 2000);
     return () => clearInterval(t);
   }, []);
@@ -598,10 +598,10 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       const el = sellBtnRef.current;
       if (!el) return;
       sellBtnMap.set(el, trade);
-      console.log(`[TH ${TH_VERSION}] ✅ map set`, { id: trade.id, sym: trade.cryptocurrency });
+      console.log('[TH v10] map set', { id: trade.id, sym: trade.cryptocurrency });
       return () => {
         sellBtnMap.delete(el);
-        console.log(`[TH ${TH_VERSION}] 🧹 map delete`, { id: trade.id });
+        console.log('[TH v10] map delete', { id: trade.id });
       };
     }, [trade.id]);
     
@@ -786,17 +786,18 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                 data-testid="sell-now"
                 data-sell-id={trade.id}
                 data-sell-sym={trade.cryptocurrency}
+                data-th-version="v10"
                 ref={sellBtnRef}
                 type="button"
                 className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  console.log(`[TH ${TH_VERSION}] 🧪 REACT onClick`, { id: trade.id });
+                  alert('[TH v10] React onClick captured'); // visible proof
                   handleDirectSell(trade);
                 }}
               >
-                SELL NOW
+                SELL NOW (v10)
               </button>
             )}
             
@@ -858,23 +859,43 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const paginatedOpenPositions = openPositions.slice(openStartIndex, openEndIndex);
 
   return (
-    <Card className="p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <Activity className="w-5 h-5" />
-          <h2 className="text-lg font-semibold">Trading History</h2>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={fetchTradingHistory}
-          disabled={loading}
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+    <div className="space-y-6">
+      {/* Fixed beacon for visual proof */}
+      <div
+        id="th-beacon"
+        style={{
+          position: 'fixed',
+          top: 6,
+          right: 6,
+          zIndex: 99999,
+          background: '#111',
+          color: '#0f0',
+          fontSize: 12,
+          padding: '4px 8px',
+          borderRadius: 6,
+          boxShadow: '0 0 0 2px #0f0 inset'
+        }}
+      >
+        TH v10 ACTIVE
       </div>
+
+      <Card className="p-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <Activity className="w-5 h-5" />
+            <h2 className="text-lg font-semibold">Trading History (TH v10)</h2>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchTradingHistory}
+            disabled={loading}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
 
       {/* Portfolio Summary */}
       <div className="mb-6">
@@ -1073,8 +1094,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           )}
         </TabsContent>
       </Tabs>
-
-    </Card>
+      </Card>
+    </div>
   );
 }
 

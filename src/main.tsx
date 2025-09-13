@@ -20,9 +20,9 @@ if (!preservedAuth) {
   console.log('🔒 PRESERVING: Found existing auth session, skipping storage clear');
 }
 
-// Always restore test mode
-if (preservedTestMode) {
-  localStorage.setItem('global-test-mode', preservedTestMode);
+if ('serviceWorker' in navigator && location.hostname === 'localhost') {
+  navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+  console.log('[TH v10] SW unregistered for dev');
 }
 
 const queryClient = new QueryClient({
