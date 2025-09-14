@@ -37,13 +37,11 @@ serve(async (req) => {
 
   // Security check for scheduled calls
   const hdrSecret = req.headers.get('x-cron-secret');
-  const isScheduled = (() => { 
-    try { 
-      return (await req.clone().json()).scheduled === true; 
-    } catch { 
-      return false; 
-    } 
-  })();
+  let isScheduled = false;
+  try {
+    const body = await req.clone().json();
+    isScheduled = body?.scheduled === true;
+  } catch { /* non-scheduled/manual call */ }
   
   if (isScheduled) {
     // Read CRON_SECRET from vault.decrypted_secrets for validation
