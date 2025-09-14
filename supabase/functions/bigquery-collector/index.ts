@@ -19,6 +19,7 @@ serve(async (req) => {
 
     const { action, symbols, startDate, endDate, userId, sourceId } = await req.json();
     console.log(`🏦 BigQuery Collector received:`, { action, symbols, startDate, endDate, userId });
+    console.log(`📡 Function deployment active at:`, new Date().toISOString());
 
     // Get BigQuery configuration from data source
     const { data: dataSource } = await supabaseClient

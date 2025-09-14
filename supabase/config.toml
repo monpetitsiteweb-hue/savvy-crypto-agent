@@ -68,3 +68,6 @@ verify_jwt = true
 
 [functions.data-sync-scheduler]
 verify_jwt = true
+
+[functions.bigquery-collector]
+verify_jwt = true
