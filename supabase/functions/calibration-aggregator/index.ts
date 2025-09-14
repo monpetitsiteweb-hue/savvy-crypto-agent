@@ -67,20 +67,33 @@ serve(async (req) => {
     let totalProcessed = 0;
     let totalUpserted = 0;
 
-    // Get all users with strategies
+    // Get all users with strategies, filtering out null user_id values
     const { data: users, error: usersError } = await supabase
       .from('trading_strategies')
       .select('user_id')
-      .neq('user_id', null);
+      .not('user_id', 'is', null);
 
     if (usersError) {
       throw new Error(`Error fetching users: ${usersError.message}`);
     }
 
-    const uniqueUsers = [...new Set(users?.map(u => u.user_id) || [])];
-    console.log(`Processing ${uniqueUsers.length} users`);
+    // Filter out invalid UUIDs and "null" strings
+    const isValidUUID = (uuid: string): boolean => {
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      return typeof uuid === 'string' && uuid !== 'null' && uuidRegex.test(uuid);
+    };
+
+    const allUserIds = users?.map(u => u.user_id).filter(Boolean) || [];
+    const uniqueUsers = [...new Set(allUserIds)].filter(isValidUUID);
+    console.log(`Processing ${uniqueUsers.length} valid users (filtered from ${allUserIds.length} total)`);
 
     for (const userId of uniqueUsers) {
+      // Additional safety check for valid UUID
+      if (!userId || typeof userId !== 'string' || userId === 'null') {
+        console.warn(`Skipping invalid user_id: ${userId}`);
+        continue;
+      }
+
       console.log(`Processing user: ${userId}`);
 
       // Get user's strategies
