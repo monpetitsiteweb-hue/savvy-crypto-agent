@@ -252,6 +252,159 @@ export type Database = {
         }
         Relationships: []
       }
+      calibration_metrics: {
+        Row: {
+          computed_at: string
+          confidence_band: string
+          coverage_pct: number
+          created_at: string
+          horizon: string
+          id: string
+          mean_expectation_error_pct: number | null
+          mean_realized_pnl_pct: number | null
+          median_mae_pct: number | null
+          median_mfe_pct: number | null
+          median_realized_pnl_pct: number | null
+          missed_opportunity_pct: number
+          reliability_correlation: number | null
+          sample_count: number
+          sl_hit_rate_pct: number
+          strategy_id: string
+          symbol: string
+          time_window: string
+          tp_hit_rate_pct: number
+          updated_at: string
+          user_id: string
+          volatility_regime: string | null
+          win_rate_pct: number
+          window_end_ts: string
+          window_start_ts: string
+        }
+        Insert: {
+          computed_at?: string
+          confidence_band: string
+          coverage_pct?: number
+          created_at?: string
+          horizon: string
+          id?: string
+          mean_expectation_error_pct?: number | null
+          mean_realized_pnl_pct?: number | null
+          median_mae_pct?: number | null
+          median_mfe_pct?: number | null
+          median_realized_pnl_pct?: number | null
+          missed_opportunity_pct?: number
+          reliability_correlation?: number | null
+          sample_count?: number
+          sl_hit_rate_pct?: number
+          strategy_id: string
+          symbol: string
+          time_window: string
+          tp_hit_rate_pct?: number
+          updated_at?: string
+          user_id: string
+          volatility_regime?: string | null
+          win_rate_pct?: number
+          window_end_ts: string
+          window_start_ts: string
+        }
+        Update: {
+          computed_at?: string
+          confidence_band?: string
+          coverage_pct?: number
+          created_at?: string
+          horizon?: string
+          id?: string
+          mean_expectation_error_pct?: number | null
+          mean_realized_pnl_pct?: number | null
+          median_mae_pct?: number | null
+          median_mfe_pct?: number | null
+          median_realized_pnl_pct?: number | null
+          missed_opportunity_pct?: number
+          reliability_correlation?: number | null
+          sample_count?: number
+          sl_hit_rate_pct?: number
+          strategy_id?: string
+          symbol?: string
+          time_window?: string
+          tp_hit_rate_pct?: number
+          updated_at?: string
+          user_id?: string
+          volatility_regime?: string | null
+          win_rate_pct?: number
+          window_end_ts?: string
+          window_start_ts?: string
+        }
+        Relationships: []
+      }
+      calibration_suggestions: {
+        Row: {
+          applied_at: string | null
+          applied_by: string | null
+          based_on_window: string
+          confidence_score: number
+          created_at: string
+          current_value: number | null
+          dismissed_at: string | null
+          dismissed_by: string | null
+          expected_impact_pct: number | null
+          horizon: string
+          id: string
+          reason: string
+          sample_size: number
+          status: string
+          strategy_id: string
+          suggested_value: number | null
+          suggestion_type: string
+          symbol: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          applied_at?: string | null
+          applied_by?: string | null
+          based_on_window: string
+          confidence_score?: number
+          created_at?: string
+          current_value?: number | null
+          dismissed_at?: string | null
+          dismissed_by?: string | null
+          expected_impact_pct?: number | null
+          horizon: string
+          id?: string
+          reason: string
+          sample_size?: number
+          status?: string
+          strategy_id: string
+          suggested_value?: number | null
+          suggestion_type: string
+          symbol: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          applied_at?: string | null
+          applied_by?: string | null
+          based_on_window?: string
+          confidence_score?: number
+          created_at?: string
+          current_value?: number | null
+          dismissed_at?: string | null
+          dismissed_by?: string | null
+          expected_impact_pct?: number | null
+          horizon?: string
+          id?: string
+          reason?: string
+          sample_size?: number
+          status?: string
+          strategy_id?: string
+          suggested_value?: number | null
+          suggestion_type?: string
+          symbol?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       coin_pool_states: {
         Row: {
           config_snapshot: Json
