@@ -483,6 +483,128 @@ export type Database = {
         }
         Relationships: []
       }
+      decision_events: {
+        Row: {
+          confidence: number | null
+          created_at: string
+          decision_ts: string
+          entry_price: number | null
+          expected_pnl_pct: number | null
+          id: string
+          metadata: Json | null
+          qty_suggested: number | null
+          raw_intent: Json | null
+          reason: string | null
+          side: string
+          sl_pct: number | null
+          source: string
+          strategy_id: string
+          symbol: string
+          tp_pct: number | null
+          trade_id: string | null
+          user_id: string
+        }
+        Insert: {
+          confidence?: number | null
+          created_at?: string
+          decision_ts?: string
+          entry_price?: number | null
+          expected_pnl_pct?: number | null
+          id?: string
+          metadata?: Json | null
+          qty_suggested?: number | null
+          raw_intent?: Json | null
+          reason?: string | null
+          side: string
+          sl_pct?: number | null
+          source: string
+          strategy_id: string
+          symbol: string
+          tp_pct?: number | null
+          trade_id?: string | null
+          user_id: string
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string
+          decision_ts?: string
+          entry_price?: number | null
+          expected_pnl_pct?: number | null
+          id?: string
+          metadata?: Json | null
+          qty_suggested?: number | null
+          raw_intent?: Json | null
+          reason?: string | null
+          side?: string
+          sl_pct?: number | null
+          source?: string
+          strategy_id?: string
+          symbol?: string
+          tp_pct?: number | null
+          trade_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      decision_outcomes: {
+        Row: {
+          created_at: string
+          decision_id: string
+          evaluated_at: string
+          expectation_error_pct: number | null
+          hit_sl: boolean | null
+          hit_tp: boolean | null
+          horizon: string
+          id: string
+          mae_pct: number | null
+          mfe_pct: number | null
+          missed_opportunity: boolean | null
+          realized_pnl_pct: number | null
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          decision_id: string
+          evaluated_at?: string
+          expectation_error_pct?: number | null
+          hit_sl?: boolean | null
+          hit_tp?: boolean | null
+          horizon: string
+          id?: string
+          mae_pct?: number | null
+          mfe_pct?: number | null
+          missed_opportunity?: boolean | null
+          realized_pnl_pct?: number | null
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          decision_id?: string
+          evaluated_at?: string
+          expectation_error_pct?: number | null
+          hit_sl?: boolean | null
+          hit_tp?: boolean | null
+          horizon?: string
+          id?: string
+          mae_pct?: number | null
+          mfe_pct?: number | null
+          missed_opportunity?: boolean | null
+          realized_pnl_pct?: number | null
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "decision_outcomes_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "decision_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       execution_holds: {
         Row: {
           created_at: string | null
@@ -1675,6 +1797,20 @@ export type Database = {
         Returns: {
           client_id_encrypted: string
           is_sandbox: boolean
+        }[]
+      }
+      get_pending_decisions_for_horizon: {
+        Args: { horizon_key: string }
+        Returns: {
+          decision_ts: string
+          entry_price: number
+          expected_pnl_pct: number
+          id: string
+          side: string
+          sl_pct: number
+          symbol: string
+          tp_pct: number
+          user_id: string
         }[]
       }
       get_user_connection_status: {
