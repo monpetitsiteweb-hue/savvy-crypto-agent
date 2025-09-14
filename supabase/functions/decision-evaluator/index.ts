@@ -40,7 +40,14 @@ serve(async (req) => {
   })();
   
   if (isScheduled) {
-    const expected = Deno.env.get('CRON_SECRET');
+    // Read CRON_SECRET from vault.secrets for validation
+    const { data: secretData } = await supabase
+      .from('vault.secrets')
+      .select('secret')
+      .eq('name', 'CRON_SECRET')
+      .single();
+    
+    const expected = secretData?.secret;
     if (!expected || hdrSecret !== expected) {
       return new Response(JSON.stringify({ success: false, error: 'forbidden' }), { 
         status: 403, 
