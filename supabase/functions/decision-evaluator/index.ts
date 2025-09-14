@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
 };
 
 interface DecisionEvent {
@@ -29,6 +29,12 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Create Supabase client first
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  );
+
   // Security check for scheduled calls
   const hdrSecret = req.headers.get('x-cron-secret');
   const isScheduled = (() => { 
@@ -40,29 +46,31 @@ serve(async (req) => {
   })();
   
   if (isScheduled) {
-    // Read CRON_SECRET from vault.secrets for validation
-    const { data: secretData } = await supabase
-      .from('vault.secrets')
-      .select('secret')
+    // Read CRON_SECRET from vault.decrypted_secrets for validation
+    const { data, error } = await supabase
+      .from('vault.decrypted_secrets')
+      .select('decrypted_secret')
       .eq('name', 'CRON_SECRET')
       .single();
     
-    const expected = secretData?.secret;
+    if (error) {
+      return new Response(JSON.stringify({ success: false, error: 'secret_lookup_failed' }), { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const expected = data?.decrypted_secret;
     if (!expected || hdrSecret !== expected) {
       return new Response(JSON.stringify({ success: false, error: 'forbidden' }), { 
         status: 403, 
-        headers: corsHeaders 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
   }
 
   try {
     console.log('📊 EVALUATOR: Starting decision evaluation cycle');
-    
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
 
     // Process each horizon
     const horizons = ['15m', '1h', '4h', '24h'];
