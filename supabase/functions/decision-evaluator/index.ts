@@ -39,29 +39,22 @@ serve(async (req) => {
   const hdrSecret = req.headers.get('x-cron-secret');
   let isScheduled = false;
   try {
-    const body = await req.clone().json();
-    isScheduled = body?.scheduled === true;
+    const b = await req.clone().json();
+    isScheduled = b?.scheduled === true;
   } catch { /* non-scheduled/manual call */ }
   
   if (isScheduled) {
-    // Read CRON_SECRET from vault.decrypted_secrets for validation
     const { data, error } = await supabase
-      .from('vault.decrypted_secrets')
+      .schema('vault')
+      .from('decrypted_secrets')
       .select('decrypted_secret')
       .eq('name', 'CRON_SECRET')
       .single();
-    
-    if (error) {
-      return new Response(JSON.stringify({ success: false, error: 'secret_lookup_failed' }), { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-    
+
     const expected = data?.decrypted_secret;
-    if (!expected || hdrSecret !== expected) {
-      return new Response(JSON.stringify({ success: false, error: 'forbidden' }), { 
-        status: 403, 
+    if (error || !expected || hdrSecret !== expected) {
+      return new Response(JSON.stringify({ success: false, error: 'forbidden' }), {
+        status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
