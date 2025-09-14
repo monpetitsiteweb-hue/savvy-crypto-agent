@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useUserRole } from '@/hooks/useUserRole';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -46,10 +47,23 @@ interface DecisionOutcome {
 
 export function DevLearningPage() {
   const { user } = useAuth();
+  const { role } = useUserRole();
   const [decisionEvents, setDecisionEvents] = useState<DecisionEvent[]>([]);
   const [decisionOutcomes, setDecisionOutcomes] = useState<DecisionOutcome[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedHorizon, setSelectedHorizon] = useState<string>('1h');
+
+  // Feature flag: Only show to admins for now
+  if (role !== 'admin') {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-4">Access Restricted</h1>
+          <p className="text-muted-foreground">This page is currently in development and restricted to administrators.</p>
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
     if (user) {

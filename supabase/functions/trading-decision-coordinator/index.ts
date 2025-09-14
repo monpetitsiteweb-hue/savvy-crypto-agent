@@ -278,7 +278,8 @@ serve(async (req) => {
       const priceData = await getMarketPrice(base, 15000);
       const exec = await executeTradeOrder(supabaseClient, { ...intent, symbol: base, qtySuggested: qty }, {}, requestId, priceData);
       return exec.success
-        ? respond('SELL', 'manual_override_precedence', requestId, 0, { qty: exec.qty })
+        ? (logDecisionAsync(supabaseClient, intent, 'SELL', 'manual_override_precedence', { enableUnifiedDecisions: false } as UnifiedConfig, requestId, undefined, exec.tradeId),
+           respond('SELL', 'manual_override_precedence', requestId, 0, { qty: exec.qty }))
         : new Response(JSON.stringify({
             ok: true,
             decision: { 
@@ -328,7 +329,7 @@ serve(async (req) => {
       if (executionResult.success) {
         console.log(`🎯 UD_MODE=OFF → DIRECT EXECUTION: action=${intent.side} symbol=${intent.symbol} lock=NONE`);
         // Log decision for audit (async, non-blocking)
-        logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId, undefined);
+        logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId, undefined, executionResult.tradeId);
         return respond(intent.side, 'unified_decisions_disabled_direct_path', requestId, 0, { qty: executionResult.qty });
       } else {
         const guardReport = {
@@ -891,8 +892,12 @@ async function logDecisionAsync(
 
     // PHASE 1 ENHANCEMENT: Log to decision_events for learning loop
     const currentPrice = profitMetadata?.position?.current_price;
-    const tpPct = unifiedConfig.confidenceOverrideThreshold * 0.5; // Derive TP from confidence
-    const slPct = unifiedConfig.confidenceOverrideThreshold * 0.3; // Derive SL from confidence
+    
+    // Prefer strategy config for TP/SL, fallback to confidence-derived values
+    const defaultTpPct = unifiedConfig.confidenceOverrideThreshold * 0.5;
+    const defaultSlPct = unifiedConfig.confidenceOverrideThreshold * 0.3;
+    const tpPct = intent.metadata?.takeProfitPercentage || defaultTpPct;
+    const slPct = intent.metadata?.stopLossPercentage || defaultSlPct;
 
     await supabaseClient
       .from('decision_events')
@@ -1226,9 +1231,9 @@ async function executeWithMinimalLock(
               if (recentBuy) {
                 const timeSinceBuy = Date.now() - new Date(recentBuy.executed_at).getTime();
                 if (timeSinceBuy < cooldownMs) {
-                  console.log(`🚫 COORDINATOR: TP blocked by cooldown (${timeSinceBuy}ms < ${cooldownMs}ms)`);
-                  logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_cooldown', config, requestId, tpEvaluation.metadata);
-                  return { action: 'DEFER', reason: 'blocked_by_cooldown', request_id: requestId, retry_in_ms: 0 };
+                // TP SELL: Skip cooldown check - TP exits should be fast
+                console.log(`🎯 COORDINATOR: TP SELL bypassing cooldown - taking profit at ${tpEvaluation.pnlPct}%`);
+                return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey);
                 }
               }
             }
@@ -1245,9 +1250,9 @@ async function executeWithMinimalLock(
           if (recentBuy) {
             const timeSinceBuy = Date.now() - new Date(recentBuy.executed_at).getTime();
             if (timeSinceBuy < cooldownMs) {
-              console.log(`🚫 COORDINATOR: TP blocked by cooldown (${timeSinceBuy}ms < ${cooldownMs}ms)`);
-              logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_cooldown', config, requestId, tpEvaluation.metadata);
-              return { action: 'DEFER', reason: 'blocked_by_cooldown', request_id: requestId, retry_in_ms: 0 };
+            // TP SELL: Skip cooldown check - TP exits should be fast
+            console.log(`🎯 COORDINATOR: TP SELL bypassing cooldown - taking profit at ${tpEvaluation.pnlPct}%`);
+            return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey);
             }
           }
         }
@@ -1282,8 +1287,8 @@ async function executeWithMinimalLock(
     if (executionResult.success) {
       console.log(`🎯 UD_MODE=ON → EXECUTE: action=${intent.side} symbol=${intent.symbol} lock=OK`);
       
-      // Log ENTER/EXIT on successful execution
-      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined);
+      // Log ENTER/EXIT on successful execution with trade_id
+      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined, executionResult.tradeId);
       
       return { action: intent.side as DecisionAction, reason: 'no_conflicts_detected', request_id: requestId, retry_in_ms: 0, qty: executionResult.qty };
     } else {
@@ -1339,7 +1344,7 @@ async function executeTradeOrder(
   strategyConfig: any,
   requestId: string,
   priceData?: { price: number; tickAgeMs: number; spreadBps: number }
-): Promise<{ success: boolean; error?: string; qty?: number }> {
+): Promise<{ success: boolean; error?: string; qty?: number; tradeId?: string }> {
   
   try {
     const baseSymbol = toBaseSymbol(intent.symbol); // Define at top to avoid scope issues
@@ -1546,7 +1551,7 @@ async function executeTradeOrder(
     }, null, 2));
 
     console.log('✅ COORDINATOR: Trade executed successfully');
-    return { success: true, qty };
+    return { success: true, qty, tradeId: insertResult?.[0]?.id };
 
   } catch (error) {
     console.error('❌ COORDINATOR: Trade execution error:', error.message);
@@ -1779,10 +1784,11 @@ async function executeTPSell(
         supabaseClient, 
         intent, 
         'SELL', 
-        'tp_hit', 
+        'tp_hit_fastpath', 
         config, 
         requestId, 
-        tpEvaluation.metadata
+        tpEvaluation.metadata,
+        executionResult.tradeId
       );
       
       return { 
@@ -1856,10 +1862,11 @@ async function executeTPSellWithLock(
         supabaseClient, 
         intent, 
         'SELL', 
-        'tp_hit', 
+        'tp_hit_fastpath', 
         config, 
         requestId, 
-        tpEvaluation.metadata
+        tpEvaluation.metadata,
+        executionResult.tradeId
       );
       
       return { 

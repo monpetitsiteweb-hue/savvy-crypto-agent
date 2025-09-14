@@ -175,10 +175,10 @@ async function evaluateDecision(
     ? Math.abs(realized_pnl_pct - decision.expected_pnl_pct)
     : null;
 
-  // Insert outcome
+  // Insert outcome with upsert to prevent duplicates
   const { error: insertError } = await supabase
     .from('decision_outcomes')
-    .insert({
+    .upsert({
       decision_id: decision.id,
       user_id: decision.user_id,
       symbol: decision.symbol,
@@ -191,6 +191,8 @@ async function evaluateDecision(
       missed_opportunity,
       expectation_error_pct: expectation_error_pct ? Number(expectation_error_pct.toFixed(2)) : null,
       evaluated_at: now.toISOString()
+    }, {
+      onConflict: 'decision_id,horizon'
     });
 
   if (insertError) {
