@@ -20,7 +20,7 @@ serve(async (req) => {
     console.log('=== Calibration Aggregator Started ===');
     const body = await req.json().catch(() => ({}));
     
-    // Security check for scheduled calls using already-parsed body
+    // Use the already-parsed body for scheduled detection
     const isScheduled = body?.scheduled === true;
     const hdrSecret = req.headers.get('x-cron-secret') ?? '';
 
