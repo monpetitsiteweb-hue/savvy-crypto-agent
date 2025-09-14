@@ -29,6 +29,26 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Security check for scheduled calls
+  const hdrSecret = req.headers.get('x-cron-secret');
+  const isScheduled = (() => { 
+    try { 
+      return (await req.clone().json()).scheduled === true; 
+    } catch { 
+      return false; 
+    } 
+  })();
+  
+  if (isScheduled) {
+    const expected = Deno.env.get('CRON_SECRET');
+    if (!expected || hdrSecret !== expected) {
+      return new Response(JSON.stringify({ success: false, error: 'forbidden' }), { 
+        status: 403, 
+        headers: corsHeaders 
+      });
+    }
+  }
+
   try {
     console.log('📊 EVALUATOR: Starting decision evaluation cycle');
     
