@@ -45,13 +45,37 @@ interface DecisionOutcome {
   created_at: string;
 }
 
+interface CalibrationMetric {
+  id: string;
+  user_id: string;
+  strategy_id: string;
+  symbol: string;
+  horizon: string;
+  time_window: string;
+  confidence_band: string;
+  sample_count: number;
+  win_rate_pct: number;
+  mean_realized_pnl_pct: number;
+  tp_hit_rate_pct: number;
+  sl_hit_rate_pct: number;
+  computed_at: string;
+  created_at: string;
+}
+
 export function DevLearningPage() {
   const { user } = useAuth();
   const { role } = useUserRole();
   const [decisionEvents, setDecisionEvents] = useState<DecisionEvent[]>([]);
   const [decisionOutcomes, setDecisionOutcomes] = useState<DecisionOutcome[]>([]);
+  const [calibrationMetrics, setCalibrationMetrics] = useState<CalibrationMetric[]>([]);
   const [loading, setLoading] = useState(true);
+  const [calibrationLoading, setCalibrationLoading] = useState(false);
   const [selectedHorizon, setSelectedHorizon] = useState<string>('1h');
+  const [calibrationFilters, setCalibrationFilters] = useState({
+    horizon: '1h',
+    symbol: '',
+    strategy: ''
+  });
 
   // Feature flag: Only show to admins for now
   if (role !== 'admin') {
@@ -103,6 +127,20 @@ export function DevLearningPage() {
         setDecisionOutcomes(outcomes || []);
       }
 
+      // Fetch calibration metrics
+      const { data: calibration, error: calibrationError } = await supabase
+        .from('calibration_metrics')
+        .select('*')
+        .eq('user_id', user!.id)
+        .order('computed_at', { ascending: false })
+        .limit(200);
+
+      if (calibrationError) {
+        console.error('Error fetching calibration metrics:', calibrationError);
+      } else {
+        setCalibrationMetrics(calibration || []);
+      }
+
     } catch (error) {
       console.error('Error fetching learning data:', error);
     } finally {
@@ -122,6 +160,24 @@ export function DevLearningPage() {
       }
     } catch (error) {
       console.error('Error triggering evaluator:', error);
+    }
+  };
+
+  const triggerCalibrationAggregator = async () => {
+    try {
+      setCalibrationLoading(true);
+      const { data, error } = await supabase.functions.invoke('calibration-aggregator');
+      if (error) {
+        console.error('Error triggering calibration aggregator:', error);
+      } else {
+        console.log('Calibration aggregator triggered:', data);
+        // Refresh data after aggregation
+        setTimeout(fetchData, 3000);
+      }
+    } catch (error) {
+      console.error('Error triggering calibration aggregator:', error);
+    } finally {
+      setCalibrationLoading(false);
     }
   };
 
@@ -180,6 +236,13 @@ export function DevLearningPage() {
             <Button onClick={triggerEvaluator} variant="default">
               Trigger Evaluator
             </Button>
+            <Button 
+              onClick={triggerCalibrationAggregator} 
+              variant="secondary"
+              disabled={calibrationLoading}
+            >
+              {calibrationLoading ? 'Running...' : 'Run Calibration'}
+            </Button>
           </div>
         </div>
 
@@ -187,6 +250,7 @@ export function DevLearningPage() {
           <TabsList className="bg-slate-800 border-slate-700">
             <TabsTrigger value="events">Decision Events ({decisionEvents.length})</TabsTrigger>
             <TabsTrigger value="outcomes">Outcomes ({decisionOutcomes.length})</TabsTrigger>
+            <TabsTrigger value="calibration">Calibration</TabsTrigger>
             <TabsTrigger value="analysis">Analysis</TabsTrigger>
           </TabsList>
 
@@ -335,6 +399,137 @@ export function DevLearningPage() {
                         </div>
                       );
                     })
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="calibration" className="space-y-4">
+            <Card className="bg-slate-800/80 border-slate-700">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Target className="w-5 h-5 text-blue-400" />
+                  Calibration Metrics
+                </CardTitle>
+                <CardDescription>
+                  Performance metrics grouped by confidence bands and time horizons
+                </CardDescription>
+                
+                <div className="flex gap-4 mt-4">
+                  <div className="flex gap-2">
+                    <label className="text-slate-400 text-sm">Horizon:</label>
+                    <select 
+                      value={calibrationFilters.horizon}
+                      onChange={(e) => setCalibrationFilters(prev => ({ ...prev, horizon: e.target.value }))}
+                      className="bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600"
+                    >
+                      <option value="">All</option>
+                      <option value="15m">15m</option>
+                      <option value="1h">1h</option>
+                      <option value="4h">4h</option>
+                      <option value="24h">24h</option>
+                    </select>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <label className="text-slate-400 text-sm">Symbol:</label>
+                    <select 
+                      value={calibrationFilters.symbol}
+                      onChange={(e) => setCalibrationFilters(prev => ({ ...prev, symbol: e.target.value }))}
+                      className="bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600"
+                    >
+                      <option value="">All</option>
+                      {[...new Set(calibrationMetrics.map(m => m.symbol))].sort().map(symbol => (
+                        <option key={symbol} value={symbol}>{symbol}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-600">
+                        <th className="text-left text-slate-400 pb-2">Symbol</th>
+                        <th className="text-left text-slate-400 pb-2">Horizon</th>
+                        <th className="text-left text-slate-400 pb-2">Confidence</th>
+                        <th className="text-right text-slate-400 pb-2">Samples</th>
+                        <th className="text-right text-slate-400 pb-2">Win Rate</th>
+                        <th className="text-right text-slate-400 pb-2">Avg P&L</th>
+                        <th className="text-right text-slate-400 pb-2">TP Rate</th>
+                        <th className="text-right text-slate-400 pb-2">SL Rate</th>
+                        <th className="text-left text-slate-400 pb-2">Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {calibrationMetrics
+                        .filter(metric => {
+                          if (calibrationFilters.horizon && metric.horizon !== calibrationFilters.horizon) return false;
+                          if (calibrationFilters.symbol && metric.symbol !== calibrationFilters.symbol) return false;
+                          return true;
+                        })
+                        .sort((a, b) => {
+                          // Sort by symbol, then horizon, then confidence band
+                          if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
+                          if (a.horizon !== b.horizon) return a.horizon.localeCompare(b.horizon);
+                          return a.confidence_band.localeCompare(b.confidence_band);
+                        })
+                        .map((metric) => (
+                          <tr key={metric.id} className="border-b border-slate-700/50">
+                            <td className="py-2 text-white font-medium">{metric.symbol}</td>
+                            <td className="py-2 text-slate-300">
+                              <Badge variant="outline" className="text-xs">{metric.horizon}</Badge>
+                            </td>
+                            <td className="py-2 text-slate-300">
+                              <Badge 
+                                variant="secondary" 
+                                className="text-xs bg-blue-900/20 text-blue-300"
+                              >
+                                {metric.confidence_band}
+                              </Badge>
+                            </td>
+                            <td className="py-2 text-right text-white">{metric.sample_count}</td>
+                            <td className={`py-2 text-right font-medium ${
+                              metric.win_rate_pct >= 60 ? 'text-green-400' : 
+                              metric.win_rate_pct >= 40 ? 'text-yellow-400' : 'text-red-400'
+                            }`}>
+                              {metric.win_rate_pct.toFixed(1)}%
+                            </td>
+                            <td className={`py-2 text-right font-medium ${
+                              metric.mean_realized_pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'
+                            }`}>
+                              {formatPct(metric.mean_realized_pnl_pct)}
+                            </td>
+                            <td className="py-2 text-right text-slate-300">
+                              {metric.tp_hit_rate_pct.toFixed(1)}%
+                            </td>
+                            <td className="py-2 text-right text-slate-300">
+                              {metric.sl_hit_rate_pct.toFixed(1)}%
+                            </td>
+                            <td className="py-2 text-slate-400 text-xs">
+                              {new Date(metric.computed_at).toLocaleDateString()}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                  
+                  {calibrationMetrics.length === 0 && (
+                    <div className="text-center py-8 text-slate-400">
+                      No calibration metrics found. Run calibration aggregator to generate metrics.
+                    </div>
+                  )}
+                  
+                  {calibrationMetrics.filter(metric => {
+                    if (calibrationFilters.horizon && metric.horizon !== calibrationFilters.horizon) return false;
+                    if (calibrationFilters.symbol && metric.symbol !== calibrationFilters.symbol) return false;
+                    return true;
+                  }).length === 0 && calibrationMetrics.length > 0 && (
+                    <div className="text-center py-8 text-slate-400">
+                      No metrics match the current filters.
+                    </div>
                   )}
                 </div>
               </CardContent>
