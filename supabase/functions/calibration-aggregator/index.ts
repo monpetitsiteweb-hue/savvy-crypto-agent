@@ -20,14 +20,10 @@ serve(async (req) => {
     console.log('=== Calibration Aggregator Started ===');
     const body = await req.json().catch(() => ({}));
     
-    // Security check for scheduled calls (aligned with decision-evaluator)
-    const hdrSecret = req.headers.get('x-cron-secret');
-    let isScheduled = false;
-    try {
-      const b = await req.clone().json();
-      isScheduled = b?.scheduled === true;
-    } catch { /* non-scheduled/manual call */ }
-    
+    // Security check for scheduled calls using already-parsed body
+    const isScheduled = body?.scheduled === true;
+    const hdrSecret = req.headers.get('x-cron-secret') ?? '';
+
     if (isScheduled) {
       const { data, error } = await supabase
         .schema('vault')
@@ -36,8 +32,15 @@ serve(async (req) => {
         .eq('name', 'CRON_SECRET')
         .single();
 
-      const expected = data?.decrypted_secret;
-      if (error || !expected || hdrSecret !== expected) {
+      const expected = data?.decrypted_secret ?? '';
+      if (error) {
+        console.error('Vault lookup failed:', error.message);
+        return new Response(JSON.stringify({ error: 'Vault lookup failed' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+      if (!expected || hdrSecret !== expected) {
         console.error('Invalid or missing cron secret');
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
           status: 403,
