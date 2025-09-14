@@ -847,7 +847,7 @@ async function getMarketPrice(symbol: string, maxStaleMs: number = 15000): Promi
   }
 }
 
-// Async decision logging (non-blocking)
+// Async decision logging - Enhanced for Phase 1 Learning Loop
 async function logDecisionAsync(
   supabaseClient: any,
   intent: TradeIntent,
@@ -855,7 +855,8 @@ async function logDecisionAsync(
   reason: Reason,
   unifiedConfig: UnifiedConfig,
   requestId: string,
-  profitMetadata?: any
+  profitMetadata?: any,
+  tradeId?: string
 ): Promise<void> {
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
@@ -866,6 +867,7 @@ async function logDecisionAsync(
       action === 'SELL' ? 'EXIT' :
       action;
     
+    // Log to existing trade_decisions_log for compatibility
     await supabaseClient
       .from('trade_decisions_log')
       .insert({
@@ -886,6 +888,44 @@ async function logDecisionAsync(
           ...(profitMetadata && { profitAnalysis: profitMetadata })
         }
       });
+
+    // PHASE 1 ENHANCEMENT: Log to decision_events for learning loop
+    const currentPrice = profitMetadata?.position?.current_price;
+    const tpPct = unifiedConfig.confidenceOverrideThreshold * 0.5; // Derive TP from confidence
+    const slPct = unifiedConfig.confidenceOverrideThreshold * 0.3; // Derive SL from confidence
+
+    await supabaseClient
+      .from('decision_events')
+      .insert({
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        symbol: baseSymbol,
+        side: action,
+        source: intent.source,
+        confidence: intent.confidence,
+        reason: `${reason}: ${intent.reason || 'No additional details'}`,
+        expected_pnl_pct: intent.metadata?.expectedPnL || null,
+        tp_pct: tpPct,
+        sl_pct: slPct,
+        entry_price: currentPrice || intent.metadata?.currentPrice || null,
+        qty_suggested: intent.qtySuggested,
+        decision_ts: new Date().toISOString(),
+        trade_id: tradeId,
+        metadata: {
+          request_id: requestId,
+          unifiedConfig,
+          profitAnalysis: profitMetadata,
+          rawIntent: {
+            symbol: intent.symbol,
+            idempotencyKey: intent.idempotencyKey,
+            ts: intent.ts
+          }
+        },
+        raw_intent: intent as any
+      });
+
+    console.log(`📋 LEARNING: Logged decision event - ${action} ${baseSymbol} (${reason})`);
+      
   } catch (error) {
     console.error('❌ COORDINATOR: Failed to log decision:', error.message);
   }
