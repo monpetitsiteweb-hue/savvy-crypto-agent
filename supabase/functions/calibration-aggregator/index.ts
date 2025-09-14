@@ -20,16 +20,28 @@ serve(async (req) => {
     console.log('=== Calibration Aggregator Started ===');
     const body = await req.json().catch(() => ({}));
     
-    // Check for cron secret if this is a scheduled call
-    if (body.scheduled) {
-      const cronSecret = req.headers.get('x-cron-secret');
-      const expectedSecret = Deno.env.get('CRON_SECRET');
-      
-      if (!cronSecret || cronSecret !== expectedSecret) {
+    // Security check for scheduled calls (aligned with decision-evaluator)
+    const hdrSecret = req.headers.get('x-cron-secret');
+    let isScheduled = false;
+    try {
+      const b = await req.clone().json();
+      isScheduled = b?.scheduled === true;
+    } catch { /* non-scheduled/manual call */ }
+    
+    if (isScheduled) {
+      const { data, error } = await supabase
+        .schema('vault')
+        .from('decrypted_secrets')
+        .select('decrypted_secret')
+        .eq('name', 'CRON_SECRET')
+        .single();
+
+      const expected = data?.decrypted_secret;
+      if (error || !expected || hdrSecret !== expected) {
         console.error('Invalid or missing cron secret');
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
     }
@@ -130,23 +142,25 @@ serve(async (req) => {
 
             if (bandOutcomes.length === 0) continue;
 
-            // Compute metrics
+            // Compute metrics with data quality guards
             const sampleCount = bandOutcomes.length;
             const winningOutcomes = bandOutcomes.filter(o => 
-              o.realized_pnl_pct != null && o.realized_pnl_pct > 0
+              o.realized_pnl_pct != null && !isNaN(o.realized_pnl_pct) && isFinite(o.realized_pnl_pct) && o.realized_pnl_pct > 0
             );
-            const winRate = sampleCount > 0 ? (winningOutcomes.length / sampleCount * 100) : 0;
+            const winRate = sampleCount > 0 ? Math.min(100, Math.max(0, (winningOutcomes.length / sampleCount * 100))) : 0;
             
-            const validPnlOutcomes = bandOutcomes.filter(o => o.realized_pnl_pct != null);
+            const validPnlOutcomes = bandOutcomes.filter(o => 
+              o.realized_pnl_pct != null && !isNaN(o.realized_pnl_pct) && isFinite(o.realized_pnl_pct)
+            );
             const meanRealizedPnl = validPnlOutcomes.length > 0 
               ? validPnlOutcomes.reduce((sum, o) => sum + o.realized_pnl_pct, 0) / validPnlOutcomes.length
               : 0;
 
             const tpHits = bandOutcomes.filter(o => o.hit_tp === true).length;
-            const tpHitRate = sampleCount > 0 ? (tpHits / sampleCount * 100) : 0;
+            const tpHitRate = sampleCount > 0 ? Math.min(100, Math.max(0, (tpHits / sampleCount * 100))) : 0;
 
             const slHits = bandOutcomes.filter(o => o.hit_sl === true).length;
-            const slHitRate = sampleCount > 0 ? (slHits / sampleCount * 100) : 0;
+            const slHitRate = sampleCount > 0 ? Math.min(100, Math.max(0, (slHits / sampleCount * 100))) : 0;
 
             // Prepare upsert data
             const calibrationData = {
@@ -159,10 +173,11 @@ serve(async (req) => {
               window_start_ts: windowStart.toISOString(),
               window_end_ts: windowEnd.toISOString(),
               sample_count: sampleCount,
-              win_rate_pct: Math.round(winRate * 100) / 100,
-              mean_realized_pnl_pct: Math.round(meanRealizedPnl * 100) / 100,
-              tp_hit_rate_pct: Math.round(tpHitRate * 100) / 100,
-              sl_hit_rate_pct: Math.round(slHitRate * 100) / 100,
+              win_rate_pct: Math.round(Math.min(100, Math.max(0, winRate)) * 100) / 100,
+              mean_realized_pnl_pct: !isNaN(meanRealizedPnl) && isFinite(meanRealizedPnl) 
+                ? Math.round(Math.min(1000, Math.max(-1000, meanRealizedPnl)) * 100) / 100 : 0,
+              tp_hit_rate_pct: Math.round(Math.min(100, Math.max(0, tpHitRate)) * 100) / 100,
+              sl_hit_rate_pct: Math.round(Math.min(100, Math.max(0, slHitRate)) * 100) / 100,
               // Set other fields to defaults for MVP
               coverage_pct: 0,
               median_realized_pnl_pct: null,

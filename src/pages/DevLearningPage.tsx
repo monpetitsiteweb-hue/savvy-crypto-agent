@@ -445,6 +445,22 @@ export function DevLearningPage() {
                       ))}
                     </select>
                   </div>
+                  
+                  <div className="flex gap-2">
+                    <label className="text-slate-400 text-sm">Strategy:</label>
+                    <select 
+                      value={calibrationFilters.strategy}
+                      onChange={(e) => setCalibrationFilters(prev => ({ ...prev, strategy: e.target.value }))}
+                      className="bg-slate-700 text-white text-sm rounded px-2 py-1 border border-slate-600"
+                    >
+                      <option value="">All</option>
+                      {[...new Set(calibrationMetrics.map(m => m.strategy_id))].sort().map(strategyId => (
+                        <option key={strategyId} value={strategyId}>
+                          {strategyId.slice(0,8)}...
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -460,7 +476,7 @@ export function DevLearningPage() {
                         <th className="text-right text-slate-400 pb-2">Avg P&L</th>
                         <th className="text-right text-slate-400 pb-2">TP Rate</th>
                         <th className="text-right text-slate-400 pb-2">SL Rate</th>
-                        <th className="text-left text-slate-400 pb-2">Updated</th>
+                        <th className="text-left text-slate-400 pb-2">Last Computed</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -468,6 +484,7 @@ export function DevLearningPage() {
                         .filter(metric => {
                           if (calibrationFilters.horizon && metric.horizon !== calibrationFilters.horizon) return false;
                           if (calibrationFilters.symbol && metric.symbol !== calibrationFilters.symbol) return false;
+                          if (calibrationFilters.strategy && metric.strategy_id !== calibrationFilters.strategy) return false;
                           return true;
                         })
                         .sort((a, b) => {
@@ -509,7 +526,12 @@ export function DevLearningPage() {
                               {metric.sl_hit_rate_pct.toFixed(1)}%
                             </td>
                             <td className="py-2 text-slate-400 text-xs">
-                              {new Date(metric.computed_at).toLocaleDateString()}
+                              <div className="flex flex-col">
+                                <span>{new Date(metric.computed_at).toLocaleDateString()}</span>
+                                <span className="text-xs text-slate-500">
+                                  {new Date(metric.computed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -524,7 +546,8 @@ export function DevLearningPage() {
                   
                   {calibrationMetrics.filter(metric => {
                     if (calibrationFilters.horizon && metric.horizon !== calibrationFilters.horizon) return false;
-                    if (calibrationFilters.symbol && metric.symbol !== calibrationFilters.symbol) return false;
+                    if (calibrationFilters.symbol && metric.symbol !== calibrationFilters.symbol) return false; 
+                    if (calibrationFilters.strategy && metric.strategy_id !== calibrationFilters.strategy) return false;
                     return true;
                   }).length === 0 && calibrationMetrics.length > 0 && (
                     <div className="text-center py-8 text-slate-400">
