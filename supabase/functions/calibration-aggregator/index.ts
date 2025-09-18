@@ -24,23 +24,25 @@ serve(async (req) => {
     const isScheduled = body?.scheduled === true;
     const hdrSecret = req.headers.get('x-cron-secret') ?? '';
 
+    // --- Scheduled-call auth (align with decision-evaluator) ---
     if (isScheduled) {
-      // Requires: grant usage on schema vault + select on vault.decrypted_secrets to service_role (see migration).
-      const { data, error } = await supabase
-        .schema('vault')
-        .from('decrypted_secrets')
+      // Requires: grant usage on schema vault + select on vault.decrypted_secrets to service_role.
+      // IMPORTANT: use the same querying style as decision-evaluator.
+      const { data: secretRow, error: vaultErr } = await supabase
+        .from('vault.decrypted_secrets')   // <— note: schema-qualified table name, no .schema('vault') call
         .select('decrypted_secret')
         .eq('name', 'CRON_SECRET')
         .single();
 
-      const expected = data?.decrypted_secret ?? '';
-      if (error) {
-        console.error('Vault lookup failed:', error.message);
+      if (vaultErr) {
+        console.error('Vault lookup failed:', vaultErr.message); // keep the response generic
         return new Response(JSON.stringify({ error: 'Vault lookup failed' }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
+
+      const expected = secretRow?.decrypted_secret ?? '';
       if (!expected || hdrSecret !== expected) {
         console.error('Invalid or missing cron secret');
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -49,6 +51,7 @@ serve(async (req) => {
         });
       }
     }
+    // --- end scheduled auth block ---
 
     // Define horizons and confidence bands
     const horizons = ['15m', '1h', '4h', '24h'];
