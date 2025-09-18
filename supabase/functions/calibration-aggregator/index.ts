@@ -58,8 +58,21 @@ serve(async (req) => {
         });
       }
 
+      // Normalize/trim to avoid invisible mismatches
+      const headerClean = hdrSecret.trim();
+      const expectedClean = expected.trim();
+
+      // Source marker (no secret values!)
+      if (secretRow?.decrypted_secret) {
+        console.log('[calibration-aggregator] cron auth source=vault');
+      } else if (Deno.env.get('CRON_SECRET')) {
+        console.log('[calibration-aggregator] cron auth source=env');
+      } else {
+        console.log('[calibration-aggregator] cron auth source=none');
+      }
+
       // 4) Compare header
-      if (hdrSecret !== expected) {
+      if (headerClean !== expectedClean) {
         console.error('Invalid or missing cron secret');
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
           status: 403,
