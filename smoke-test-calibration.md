@@ -1,59 +1,120 @@
-# Calibration System Smoke Tests
+# Calibration System Smoke Tests (Ready to run)
 
-## Prerequisites
+These tests verify the calibration-aggregator security path, manual path, and UI.
 
-Before testing, ensure vault permissions are granted for edge functions:
+## Prerequisites (run in Supabase SQL editor)
+
 ```sql
 create extension if not exists supabase_vault;
 grant usage on schema vault to service_role;
 grant select on table vault.decrypted_secrets to service_role;
+
+select name, decrypted_secret
+from vault.decrypted_secrets
+where name = 'CRON_SECRET';
 ```
 
-Also ensure CRON_SECRET exists in `vault.decrypted_secrets` table.
+Expected output includes:
 
-## Test 1: Manual Invoke (should succeed without cron secret)
+```
+name         | decrypted_secret
+-------------+--------------------------------------------------------------
+CRON_SECRET  | bdcfefcd44654a9fb943a7b454eb4420019c527d824564a97be1bf2bbe3bbd15
+```
+
+## Shared setup (run once in your browser console while logged into the app)
 ```javascript
-// Run in browser console on Dev/Learning page
-await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/calibration-aggregator', {
+// Project ref and user access token (from your session)
+const SB = 'fuieplftlcxdfkxyqzlt';
+const tok = localStorage.getItem(`sb-${SB}-auth-token`);
+if (!tok) throw new Error('No Supabase session found. Log into the app first.');
+const ACCESS_TOKEN = JSON.parse(tok).access_token;
+
+// Known-good cron secret (from vault)
+const CRON_SECRET = 'bdcfefcd44654a9fb943a7b454eb4420019c527d824564a97be1bf2bbe3bbd15';
+
+// Helper to call the function
+const fn = (path, init) => fetch(`https://${SB}.supabase.co/functions/v1/${path}`, init);
+console.log('Setup OK');
+```
+
+## Test 1: Manual invoke (should 200 without cron secret)
+```javascript
+await fn('calibration-aggregator', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${localStorage.getItem('sb-fuieplftlcxdfkxyqzlt-auth-token') ? JSON.parse(localStorage.getItem('sb-fuieplftlcxdfkxyqzlt-auth-token')).access_token : 'YOUR_ANON_KEY'}`
+    'Authorization': `Bearer ${ACCESS_TOKEN}`
   },
   body: JSON.stringify({ manual: true })
 }).then(r => r.json()).then(console.log);
 ```
 
-## Test 2: Scheduled call with wrong secret (should return 403)
+Expect: `success: true`, HTTP 200, summary JSON. If there are no outcomes in the last 30 days, you'll see `metrics_upserted: 0`.
+
+## Test 2: Scheduled call with WRONG secret (should 403)
 ```javascript
-// Run in browser console  
-await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/calibration-aggregator', {
-  method: 'POST', 
+await fn('calibration-aggregator', {
+  method: 'POST',
   headers: {
     'Content-Type': 'application/json',
+    'Authorization': `Bearer ${ACCESS_TOKEN}`,
     'x-cron-secret': 'wrong-secret'
   },
   body: JSON.stringify({ scheduled: true })
-}).then(r => r.status).then(console.log); // Should return 403
+}).then(r => r.status).then(console.log);
 ```
 
-## Test 3: Scheduled call with right secret (should 200)
+Expect: 403
+
+## Test 3: Scheduled call with CORRECT secret (should 200)
 ```javascript
-// Admin only - get CRON_SECRET from vault first
-// This would normally be called by the cron job, not manually
-await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/calibration-aggregator', {
+await fn('calibration-aggregator', {
   method: 'POST',
   headers: {
-    'Content-Type': 'application/json', 
-    'Authorization': 'Bearer SERVICE_ROLE_KEY',
-    'x-cron-secret': 'ACTUAL_CRON_SECRET_FROM_VAULT'
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${ACCESS_TOKEN}`,
+    'x-cron-secret': CRON_SECRET
   },
   body: JSON.stringify({ scheduled: true })
 }).then(r => r.json()).then(console.log);
 ```
 
-## Test 4: Verify UI shows updated metrics
-1. Run manual calibration via UI button
-2. Check table shows "Last Computed" timestamps
-3. Test horizon/symbol/strategy filters
-4. Verify metrics display correctly with proper color coding
+Expect: `success: true`, HTTP 200, summary JSON.
+
+## Test 4: Generate outcomes → aggregate → see metrics
+
+1. Go to `/dev/learning` (temporarily admin-unlocked).
+2. Click **Trigger Evaluator** (writes decision_outcomes).
+3. Wait ~2–3 seconds.
+4. Click **Run Calibration**.
+5. Go to the **Calibration** tab and verify:
+   - Rows appear (non-zero sample_count).
+   - "Last Computed" shows a fresh timestamp.
+   - Filters (horizon/symbol/strategy) work.
+
+If you still see zero rows, confirm outcomes exist in the last 30 days:
+```sql
+select count(*) as recent_outcomes
+from public.decision_outcomes o
+join public.decision_events e on e.id = o.decision_id
+where e.decision_ts >= now() - interval '30 days';
+```
+
+## Test 5: Scheduler wiring (Supabase Dashboard)
+
+Edge Functions → calibration-aggregator → Schedules → Add schedule
+
+- **Cron**: `0 2 * * *` (daily 02:00 UTC)
+- **Method**: POST
+- **Body**: `{"scheduled": true}`
+- **Headers**:
+  - `x-cron-secret`: `bdcfefcd44654a9fb943a7b454eb4420019c527d824564a97be1bf2bbe3bbd15`
+  - **Authorization**: toggle **Use service role** = ON
+
+## Acceptance criteria
+
+- Test 1 returns 200.
+- Test 2 returns 403.
+- Test 3 returns 200.
+- Test 4 shows metrics and updated timestamps in the UI.
