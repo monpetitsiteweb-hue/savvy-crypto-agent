@@ -1,5 +1,16 @@
 # Calibration System Smoke Tests
 
+## Prerequisites
+
+Before testing, ensure vault permissions are granted for edge functions:
+```sql
+create extension if not exists supabase_vault;
+grant usage on schema vault to service_role;
+grant select on table vault.decrypted_secrets to service_role;
+```
+
+Also ensure CRON_SECRET exists in `vault.decrypted_secrets` table.
+
 ## Test 1: Manual Invoke (should succeed without cron secret)
 ```javascript
 // Run in browser console on Dev/Learning page
@@ -13,9 +24,9 @@ await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/calibration-a
 }).then(r => r.json()).then(console.log);
 ```
 
-## Test 2: Scheduled call with wrong secret (should 403)
+## Test 2: Scheduled call with wrong secret (should return 403)
 ```javascript
-// Run in browser console
+// Run in browser console  
 await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/calibration-aggregator', {
   method: 'POST', 
   headers: {
@@ -23,7 +34,7 @@ await fetch('https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/calibration-a
     'x-cron-secret': 'wrong-secret'
   },
   body: JSON.stringify({ scheduled: true })
-}).then(r => r.json()).then(console.log);
+}).then(r => r.status).then(console.log); // Should return 403
 ```
 
 ## Test 3: Scheduled call with right secret (should 200)
