@@ -1,5 +1,7 @@
 # Calibration System Smoke Tests (Ready to run)
 
+**Requires:** vault grants for service_role and CRON_SECRET present in vault.decrypted_secrets.
+
 These tests verify the calibration-aggregator security path, manual path, and UI.
 
 ## Prerequisites (run in Supabase SQL editor)
