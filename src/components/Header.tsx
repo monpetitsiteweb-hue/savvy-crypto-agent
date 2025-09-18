@@ -122,15 +122,26 @@ export const Header = () => {
             </Button>
 
             {role === 'admin' && (
-              <Button 
-                className={`text-white font-medium ${
-                  location.pathname === '/admin' ? 'bg-green-600 hover:bg-green-700' : 'bg-green-500 hover:bg-green-600'
-                }`}
-                size="sm"
-                onClick={() => navigate(location.pathname === '/admin' ? '/' : '/admin')}
-              >
-                {location.pathname === '/admin' ? 'Dashboard' : 'Admin'}
-              </Button>
+              <>
+                <Button 
+                  className={`text-white font-medium ${
+                    location.pathname === '/admin' ? 'bg-green-600 hover:bg-green-700' : 'bg-green-500 hover:bg-green-600'
+                  }`}
+                  size="sm"
+                  onClick={() => navigate(location.pathname === '/admin' ? '/' : '/admin')}
+                >
+                  {location.pathname === '/admin' ? 'Dashboard' : 'Admin'}
+                </Button>
+
+                <Button 
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigate('/dev/learning')}
+                  className="text-slate-300 hover:text-white border-slate-600"
+                >
+                  Dev / Learning
+                </Button>
+              </>
             )}
 
             {/* Coinbase Connection Button */}
@@ -271,20 +282,34 @@ export const Header = () => {
                 </Button>
               )}
 
-              {/* Admin Button */}
+              {/* Admin Buttons */}
               {role === 'admin' && (
-                <Button 
-                  className={`w-full text-white font-medium ${
-                    location.pathname === '/admin' ? 'bg-green-600 hover:bg-green-700' : 'bg-green-500 hover:bg-green-600'
-                  }`}
-                  size="sm"
-                  onClick={() => {
-                    navigate(location.pathname === '/admin' ? '/' : '/admin');
-                    setShowMobileMenu(false);
-                  }}
-                >
-                  {location.pathname === '/admin' ? 'Dashboard' : 'Admin'}
-                </Button>
+                <>
+                  <Button 
+                    className={`w-full text-white font-medium ${
+                      location.pathname === '/admin' ? 'bg-green-600 hover:bg-green-700' : 'bg-green-500 hover:bg-green-600'
+                    }`}
+                    size="sm"
+                    onClick={() => {
+                      navigate(location.pathname === '/admin' ? '/' : '/admin');
+                      setShowMobileMenu(false);
+                    }}
+                  >
+                    {location.pathname === '/admin' ? 'Dashboard' : 'Admin'}
+                  </Button>
+
+                  <Button 
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigate('/dev/learning');
+                      setShowMobileMenu(false);
+                    }}
+                    className="w-full text-slate-300 hover:text-white border-slate-600"
+                  >
+                    Dev / Learning
+                  </Button>
+                </>
               )}
 
               {/* User Actions */}

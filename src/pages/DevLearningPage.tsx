@@ -77,9 +77,7 @@ export function DevLearningPage() {
     strategy: ''
   });
 
-  // TEMP override (remove after verification)
-  const forceAdmin = true;
-  const isAdmin = forceAdmin || role === 'admin';
+  const isAdmin = role === 'admin';
 
   if (!isAdmin) {
     return (

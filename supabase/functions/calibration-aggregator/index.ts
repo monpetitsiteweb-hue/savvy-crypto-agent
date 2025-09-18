@@ -25,6 +25,7 @@ serve(async (req) => {
     const hdrSecret = req.headers.get('x-cron-secret') ?? '';
 
     if (isScheduled) {
+      // Requires: grant usage on schema vault + select on vault.decrypted_secrets to service_role (see migration).
       const { data, error } = await supabase
         .schema('vault')
         .from('decrypted_secrets')
