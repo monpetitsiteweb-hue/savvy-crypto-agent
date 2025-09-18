@@ -24,26 +24,42 @@ serve(async (req) => {
     const isScheduled = body?.scheduled === true;
     const hdrSecret = req.headers.get('x-cron-secret') ?? '';
 
-    // --- Scheduled-call auth (align with decision-evaluator) ---
+    // Note: Some projects don't expose the `vault` schema via PostgREST.
+    // To avoid 500s, we fallback to the CRON_SECRET env if vault isn't reachable.
+
+    // --- Scheduled-call auth (dual-source: vault -> env) ---
     if (isScheduled) {
-      // Requires: grant usage on schema vault + select on vault.decrypted_secrets to service_role.
-      // IMPORTANT: use the same querying style as decision-evaluator.
+      let expected = '';
+
+      // 1) Try vault (preferred)
       const { data: secretRow, error: vaultErr } = await supabase
-        .from('vault.decrypted_secrets')   // <— note: schema-qualified table name, no .schema('vault') call
+        .from('vault.decrypted_secrets') // schema-qualified; may fail if schema not exposed by PostgREST
         .select('decrypted_secret')
         .eq('name', 'CRON_SECRET')
-        .single();
+        .maybeSingle();
 
-      if (vaultErr) {
-        console.error('Vault lookup failed:', vaultErr.message); // keep the response generic
-        return new Response(JSON.stringify({ error: 'Vault lookup failed' }), {
+      if (secretRow?.decrypted_secret) {
+        expected = secretRow.decrypted_secret;
+      } else {
+        console.warn('Vault lookup unavailable, falling back to env CRON_SECRET', vaultErr?.message ?? '');
+      }
+
+      // 2) Fallback to env
+      if (!expected) {
+        expected = Deno.env.get('CRON_SECRET') ?? '';
+      }
+
+      // 3) If still empty, this is a server misconfig (no secret source available)
+      if (!expected) {
+        console.error('No cron secret available (vault+env both unavailable)');
+        return new Response(JSON.stringify({ error: 'Server misconfiguration' }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
 
-      const expected = secretRow?.decrypted_secret ?? '';
-      if (!expected || hdrSecret !== expected) {
+      // 4) Compare header
+      if (hdrSecret !== expected) {
         console.error('Invalid or missing cron secret');
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
           status: 403,

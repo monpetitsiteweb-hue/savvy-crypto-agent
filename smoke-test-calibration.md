@@ -2,6 +2,8 @@
 
 **Requires:** vault grants for service_role and CRON_SECRET present in vault.decrypted_secrets.
 
+If your project's PostgREST isn't exposing the vault schema, set the edge function secret CRON_SECRET to the same value stored in vault and redeploy. The function will fall back to the env value.
+
 These tests verify the calibration-aggregator security path, manual path, and UI.
 
 ## Prerequisites (run in Supabase SQL editor)
