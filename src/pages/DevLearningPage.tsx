@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { ArrowUp, ArrowDown, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, CheckCircle } from 'lucide-react';
+import { DataHealthPanel } from '@/components/market/DataHealthPanel';
 
 interface DecisionEvent {
   id: string;
@@ -252,6 +253,7 @@ export function DevLearningPage() {
             <TabsTrigger value="events">Decision Events ({decisionEvents.length})</TabsTrigger>
             <TabsTrigger value="outcomes">Outcomes ({decisionOutcomes.length})</TabsTrigger>
             <TabsTrigger value="calibration">Calibration</TabsTrigger>
+            <TabsTrigger value="data-health">Data Health</TabsTrigger>
             <TabsTrigger value="analysis">Analysis</TabsTrigger>
           </TabsList>
 
@@ -558,6 +560,10 @@ export function DevLearningPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="data-health" className="space-y-4">
+            <DataHealthPanel />
           </TabsContent>
 
           <TabsContent value="analysis" className="space-y-4">
