@@ -34,8 +34,8 @@ export function DataHealthPanel() {
     coverage_pct: 0,
     staleness_minutes: 0,
     error_count: 0,
-    total_candles: 0,
-    features_up_to_date: false,
+    total_series: 0,
+    healthy_series: 0,
   });
   const [loading, setLoading] = useState(true);
   const [backfillLoading, setBackfillLoading] = useState(false);
