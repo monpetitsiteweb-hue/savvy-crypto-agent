@@ -253,21 +253,25 @@ async function updateHealthMetrics(
   symbol: string,
   granularity: string,
   success: boolean,
-  errorMessage?: string
+  latestCandleTs?: string
 ): Promise<void> {
-  const now = new Date().toISOString();
-  
-  const healthData = {
-    symbol,
-    granularity,
-    last_backfill_at: success ? now : undefined,
-    error_message: success ? null : errorMessage,
-    ...(success && { last_ts_utc: now })
+  const updateData: any = {
+    last_backfill_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    error_count_24h: success ? 0 : 1
   };
+
+  if (success && latestCandleTs) {
+    updateData.last_ts_utc = latestCandleTs;
+  }
 
   await supabase
     .from('market_data_health')
-    .upsert(healthData, {
+    .upsert({
+      symbol,
+      granularity,
+      ...updateData
+    }, {
       onConflict: 'symbol,granularity'
     });
 }
@@ -278,6 +282,18 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Cron secret authentication
+    const cronSecret = req.headers.get('x-cron-secret');
+    const expectedSecret = Deno.env.get('CRON_SECRET');
+    
+    if (!cronSecret || cronSecret.trim() !== expectedSecret?.trim()) {
+      logger.error('Invalid cron secret provided');
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -296,6 +312,8 @@ Deno.serve(async (req) => {
     for (const symbol of symbols) {
       for (const granularity of granularities) {
         try {
+          let latestCandleTs: string | undefined;
+          
           if (granularity === '4h') {
             // Ensure we have 1h data first, then synthesize 4h
             if (!granularities.includes('1h')) {
@@ -304,7 +322,20 @@ Deno.serve(async (req) => {
             }
             
             const synthetic4hCount = await synthesize4hCandles(supabase, symbol, startTime, endTime);
-            await updateHealthMetrics(supabase, symbol, granularity, true);
+            
+            // Get latest 4h candle timestamp
+            if (synthetic4hCount > 0) {
+              const { data } = await supabase
+                .from('market_ohlcv_raw')
+                .select('ts_utc')
+                .eq('symbol', symbol)
+                .eq('granularity', '4h')
+                .order('ts_utc', { ascending: false })
+                .limit(1);
+              latestCandleTs = data?.[0]?.ts_utc;
+            }
+            
+            await updateHealthMetrics(supabase, symbol, granularity, true, latestCandleTs);
             
             results.push({
               symbol,
@@ -329,7 +360,14 @@ Deno.serve(async (req) => {
             );
 
             const upsertedCount = await upsertCandles(supabase, symbol, granularity, candles);
-            await updateHealthMetrics(supabase, symbol, granularity, true);
+            
+            // Get latest candle timestamp from fetched data  
+            if (candles.length > 0) {
+              const sortedCandles = candles.sort((a, b) => b[0] - a[0]);
+              latestCandleTs = new Date(sortedCandles[0][0] * 1000).toISOString();
+            }
+            
+            await updateHealthMetrics(supabase, symbol, granularity, true, latestCandleTs);
             
             results.push({
               symbol,
@@ -344,7 +382,7 @@ Deno.serve(async (req) => {
         } catch (error) {
           logger.error(`✗ ${symbol} ${granularity}: ${error.message}`);
           
-          await updateHealthMetrics(supabase, symbol, granularity, false, error.message);
+          await updateHealthMetrics(supabase, symbol, granularity, false);
           
           results.push({
             symbol,

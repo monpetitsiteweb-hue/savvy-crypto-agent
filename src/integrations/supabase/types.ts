@@ -952,6 +952,123 @@ export type Database = {
         }
         Relationships: []
       }
+      market_data_health: {
+        Row: {
+          coverage_pct_90d: number | null
+          error_count_24h: number | null
+          granularity: string
+          last_backfill_at: string | null
+          last_live_ingest_at: string | null
+          last_ts_utc: string | null
+          max_staleness_min: number | null
+          symbol: string
+          updated_at: string | null
+        }
+        Insert: {
+          coverage_pct_90d?: number | null
+          error_count_24h?: number | null
+          granularity: string
+          last_backfill_at?: string | null
+          last_live_ingest_at?: string | null
+          last_ts_utc?: string | null
+          max_staleness_min?: number | null
+          symbol: string
+          updated_at?: string | null
+        }
+        Update: {
+          coverage_pct_90d?: number | null
+          error_count_24h?: number | null
+          granularity?: string
+          last_backfill_at?: string | null
+          last_live_ingest_at?: string | null
+          last_ts_utc?: string | null
+          max_staleness_min?: number | null
+          symbol?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      market_features_v0: {
+        Row: {
+          created_at: string | null
+          granularity: string
+          ret_1h: number | null
+          ret_24h: number | null
+          ret_4h: number | null
+          ret_7d: number | null
+          symbol: string
+          ts_utc: string
+          vol_1h: number | null
+          vol_24h: number | null
+          vol_4h: number | null
+          vol_7d: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          granularity: string
+          ret_1h?: number | null
+          ret_24h?: number | null
+          ret_4h?: number | null
+          ret_7d?: number | null
+          symbol: string
+          ts_utc: string
+          vol_1h?: number | null
+          vol_24h?: number | null
+          vol_4h?: number | null
+          vol_7d?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          granularity?: string
+          ret_1h?: number | null
+          ret_24h?: number | null
+          ret_4h?: number | null
+          ret_7d?: number | null
+          symbol?: string
+          ts_utc?: string
+          vol_1h?: number | null
+          vol_24h?: number | null
+          vol_4h?: number | null
+          vol_7d?: number | null
+        }
+        Relationships: []
+      }
+      market_ohlcv_raw: {
+        Row: {
+          close: number
+          created_at: string | null
+          granularity: string
+          high: number
+          low: number
+          open: number
+          symbol: string
+          ts_utc: string
+          volume: number | null
+        }
+        Insert: {
+          close: number
+          created_at?: string | null
+          granularity: string
+          high: number
+          low: number
+          open: number
+          symbol: string
+          ts_utc: string
+          volume?: number | null
+        }
+        Update: {
+          close?: number
+          created_at?: string | null
+          granularity?: string
+          high?: number
+          low?: number
+          open?: number
+          symbol?: string
+          ts_utc?: string
+          volume?: number | null
+        }
+        Relationships: []
+      }
       mock_trades: {
         Row: {
           amount: number
@@ -2008,6 +2125,10 @@ export type Database = {
       pgp_key_id: {
         Args: { "": string }
         Returns: string
+      }
+      refresh_data_health_metrics: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
       }
       reset_mock_wallet_balances: {
         Args: { target_balance?: number }

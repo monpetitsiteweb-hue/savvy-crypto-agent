@@ -174,26 +174,27 @@ async function upsertCandles(
     symbol,
     granularity,
     ts_utc: new Date(candle[0] * 1000).toISOString(),
-    open: candle[1],
+    open: candle[3],  // Correct Coinbase order: [time, low, high, open, close, volume]
     high: candle[2],
-    low: candle[3],
+    low: candle[1],
     close: candle[4],
     volume: candle[5],
   }));
 
   // Batch upsert with conflict resolution (idempotent)
-  const { error, count } = await supabase
+  const { data, error } = await supabase
     .from('market_ohlcv_raw')
     .upsert(rows, {
       onConflict: 'symbol,granularity,ts_utc',
       ignoreDuplicates: true
-    });
+    })
+    .select();
 
   if (error) {
     throw new Error(`Failed to upsert candles: ${error.message}`);
   }
 
-  return count || 0;
+  return data?.length || 0;
 }
 
 async function computeFeatures(
@@ -203,12 +204,13 @@ async function computeFeatures(
   latestTimestamp: Date
 ): Promise<void> {
   // Get the last 168 candles (7 days worth for 1h granularity) to compute rolling features
-  const lookbackHours = granularity === '1h' ? 168 : granularity === '4h' ? 42 : 7;
-  const lookbackStart = new Date(latestTimestamp.getTime() - (lookbackHours * (granularity === '1h' ? 3600000 : granularity === '4h' ? 14400000 : 86400000)));
+  const step = { '1h': 1, '4h': 4, '24h': 24 }[granularity] || 1;
+  const lookbackCandles = Math.max(168 / step, 50); // At least 50 candles for computation
+  const lookbackStart = new Date(latestTimestamp.getTime() - (lookbackCandles * step * 3600000));
 
   const { data: candles, error } = await supabase
     .from('market_ohlcv_raw')
-    .select('ts_utc, close_price')
+    .select('ts_utc, close')
     .eq('symbol', symbol)
     .eq('granularity', granularity)
     .gte('ts_utc', lookbackStart.toISOString())
@@ -220,35 +222,56 @@ async function computeFeatures(
     return;
   }
 
-  // Compute rolling returns and volatility
-  const prices = candles.map(c => parseFloat(c.close_price));
-  const returns = prices.slice(1).map((price, i) => (price - prices[i]) / prices[i]);
+  // Scale windows by granularity
+  const ret_1h_window = Math.max(1, Math.floor(1 / step));
+  const ret_4h_window = Math.max(1, Math.floor(4 / step));
+  const ret_24h_window = Math.max(1, Math.floor(24 / step));
+  const ret_7d_window = Math.max(1, Math.floor(168 / step));
 
-  // Calculate rolling windows (use all available data if we don't have enough)
-  const windows = {
-    '1h': Math.min(1, returns.length),
-    '4h': Math.min(4, returns.length),
-    '24h': Math.min(24, returns.length),
-    '7d': Math.min(168, returns.length)
+  // Compute rolling returns and volatility for the latest candle
+  const prices = candles.map(c => parseFloat(c.close));
+  const lastIndex = prices.length - 1;
+
+  if (lastIndex < 1) return;
+
+  // Calculate log returns using scaled windows
+  const ret_1h = lastIndex >= ret_1h_window ? Math.log(prices[lastIndex] / prices[lastIndex - ret_1h_window]) : null;
+  const ret_4h = lastIndex >= ret_4h_window ? Math.log(prices[lastIndex] / prices[lastIndex - ret_4h_window]) : null;
+  const ret_24h = lastIndex >= ret_24h_window ? Math.log(prices[lastIndex] / prices[lastIndex - ret_24h_window]) : null;
+  const ret_7d = lastIndex >= ret_7d_window ? Math.log(prices[lastIndex] / prices[lastIndex - ret_7d_window]) : null;
+
+  // Calculate rolling volatility using scaled windows
+  const getVolatility = (windowSize: number) => {
+    if (lastIndex < windowSize || windowSize < 2) return null;
+    
+    const returns = [];
+    for (let i = lastIndex - windowSize + 1; i <= lastIndex; i++) {
+      returns.push(Math.log(prices[i] / prices[i - 1]));
+    }
+    
+    const mean = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+    const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / (returns.length - 1);
+    return Math.sqrt(variance);
   };
 
-  const features: any = {
+  const vol_1h = getVolatility(ret_1h_window);
+  const vol_4h = getVolatility(ret_4h_window);
+  const vol_24h = getVolatility(ret_24h_window);
+  const vol_7d = getVolatility(ret_7d_window);
+
+  const features = {
     symbol,
     granularity,
     ts_utc: latestTimestamp.toISOString(),
+    ret_1h,
+    ret_4h,
+    ret_24h,
+    ret_7d,
+    vol_1h,
+    vol_4h,
+    vol_24h,
+    vol_7d
   };
-
-  // Compute returns and volatility for each window
-  for (const [window, periods] of Object.entries(windows)) {
-    if (periods > 0) {
-      const windowReturns = returns.slice(-periods);
-      const totalReturn = windowReturns.reduce((sum, ret) => sum + ret, 0);
-      const variance = windowReturns.reduce((sum, ret) => sum + Math.pow(ret - (totalReturn / periods), 2), 0) / periods;
-      
-      features[`ret_${window}`] = totalReturn;
-      features[`vol_${window}`] = Math.sqrt(variance);
-    }
-  }
 
   // Upsert features (idempotent)
   const { error: featuresError } = await supabase
@@ -268,28 +291,25 @@ async function updateHealthMetrics(
   symbol: string,
   granularity: string,
   success: boolean,
-  candlesIngested: number = 0,
-  featuresComputed: boolean = false,
-  errorMessage?: string
+  latestCandleTs?: string
 ): Promise<void> {
-  const now = new Date().toISOString();
-  
-  const healthData = {
-    symbol,
-    granularity,
-    last_live_ingest_at: success ? now : undefined,
-    last_error_at: success ? undefined : now,
-    error_message: success ? null : errorMessage,
-    ...(success && { 
-      last_successful_ts: now,
-      candles_ingested_count: candlesIngested,
-      last_feature_compute_at: featuresComputed ? now : undefined
-    })
+  const updateData: any = {
+    last_live_ingest_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    error_count_24h: success ? 0 : 1
   };
+
+  if (success && latestCandleTs) {
+    updateData.last_ts_utc = latestCandleTs;
+  }
 
   await supabase
     .from('market_data_health')
-    .upsert(healthData, {
+    .upsert({
+      symbol,
+      granularity,
+      ...updateData
+    }, {
       onConflict: 'symbol,granularity'
     });
 }
@@ -300,6 +320,18 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Cron secret authentication
+    const cronSecret = req.headers.get('x-cron-secret');
+    const expectedSecret = Deno.env.get('CRON_SECRET');
+    
+    if (!cronSecret || cronSecret.trim() !== expectedSecret?.trim()) {
+      logger.error('Invalid cron secret provided');
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
@@ -326,7 +358,7 @@ Deno.serve(async (req) => {
           
           if (candles.length === 0) {
             logger.info(`No new candles for ${symbol} ${granularity}`);
-            await updateHealthMetrics(supabase, symbol, granularity, true, 0, false);
+            await updateHealthMetrics(supabase, symbol, granularity, true);
             
             results.push({
               symbol,
@@ -340,8 +372,18 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          // Sort candles by time ascending
+          candles.sort((a, b) => a[0] - b[0]);
+
           // Upsert new candles
           const upsertedCount = await upsertCandles(supabase, symbol, granularity, candles);
+          
+          // Get latest candle timestamp from fetched data
+          let latestCandleTs: string | undefined;
+          if (candles.length > 0) {
+            const sortedCandles = candles.sort((a, b) => b[0] - a[0]);
+            latestCandleTs = new Date(sortedCandles[0][0] * 1000).toISOString();
+          }
           
           // Compute features for the latest candle
           const latestCandle = candles.reduce((latest, current) => 
@@ -351,7 +393,7 @@ Deno.serve(async (req) => {
           
           await computeFeatures(supabase, symbol, granularity, latestTimestamp);
           
-          await updateHealthMetrics(supabase, symbol, granularity, true, upsertedCount, true);
+          await updateHealthMetrics(supabase, symbol, granularity, true, latestCandleTs);
           
           results.push({
             symbol,
@@ -368,7 +410,7 @@ Deno.serve(async (req) => {
         } catch (error) {
           logger.error(`✗ ${symbol} ${granularity}: ${error.message}`);
           
-          await updateHealthMetrics(supabase, symbol, granularity, false, 0, false, error.message);
+          await updateHealthMetrics(supabase, symbol, granularity, false);
           
           results.push({
             symbol,

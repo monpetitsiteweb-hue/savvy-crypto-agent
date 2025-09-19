@@ -34,34 +34,35 @@ async function computeFeatures(
     throw new Error(`Failed to fetch candles for features: ${error.message}`);
   }
 
-  if (!candles || candles.length < 168) { // Need at least 7 days of hourly data
+  if (!candles || candles.length < 2) {
     logger.warn(`Insufficient data for ${symbol} ${granularity}: ${candles?.length || 0} candles`);
     return 0;
   }
 
+  // Scale windows by granularity
+  const step = { '1h': 1, '4h': 4, '24h': 24 }[granularity] || 1;
+  const ret_1h_window = Math.max(1, Math.floor(1 / step));
+  const ret_4h_window = Math.max(1, Math.floor(4 / step));  
+  const ret_24h_window = Math.max(1, Math.floor(24 / step));
+  const ret_7d_window = Math.max(1, Math.floor(168 / step));
+
   // Compute rolling returns and volatility features
   const features = [];
   
-  for (let i = 167; i < candles.length; i++) { // Start after 7 days for full lookbacks
+  for (let i = 1; i < candles.length; i++) {
     const currentCandle = candles[i];
     const ts_utc = currentCandle.ts_utc;
     const currentPrice = currentCandle.close;
     
-    // Get lookback windows
-    const lookback1h = Math.max(0, i - 1);
-    const lookback4h = Math.max(0, i - 4);
-    const lookback24h = Math.max(0, i - 24);
-    const lookback7d = Math.max(0, i - 168);
+    // Calculate returns (log returns for better properties) using scaled windows
+    const ret_1h = i >= ret_1h_window ? Math.log(currentPrice / candles[i - ret_1h_window].close) : null;
+    const ret_4h = i >= ret_4h_window ? Math.log(currentPrice / candles[i - ret_4h_window].close) : null;
+    const ret_24h = i >= ret_24h_window ? Math.log(currentPrice / candles[i - ret_24h_window].close) : null;
+    const ret_7d = i >= ret_7d_window ? Math.log(currentPrice / candles[i - ret_7d_window].close) : null;
     
-    // Calculate returns (log returns for better properties)
-    const ret_1h = lookback1h < i ? Math.log(currentPrice / candles[lookback1h].close) : null;
-    const ret_4h = lookback4h < i ? Math.log(currentPrice / candles[lookback4h].close) : null;
-    const ret_24h = lookback24h < i ? Math.log(currentPrice / candles[lookback24h].close) : null;
-    const ret_7d = lookback7d < i ? Math.log(currentPrice / candles[lookback7d].close) : null;
-    
-    // Calculate rolling volatility (std dev of log returns)
+    // Calculate rolling volatility (std dev of log returns) using scaled windows
     const getVolatility = (startIdx: number, endIdx: number) => {
-      if (startIdx >= endIdx) return null;
+      if (startIdx >= endIdx || endIdx - startIdx < 2) return null;
       
       const returns = [];
       for (let j = startIdx + 1; j <= endIdx; j++) {
@@ -75,10 +76,10 @@ async function computeFeatures(
       return Math.sqrt(variance);
     };
     
-    const vol_1h = getVolatility(Math.max(0, i - 1), i);
-    const vol_4h = getVolatility(Math.max(0, i - 4), i);
-    const vol_24h = getVolatility(Math.max(0, i - 24), i);
-    const vol_7d = getVolatility(Math.max(0, i - 168), i);
+    const vol_1h = i >= ret_1h_window ? getVolatility(Math.max(0, i - ret_1h_window), i) : null;
+    const vol_4h = i >= ret_4h_window ? getVolatility(Math.max(0, i - ret_4h_window), i) : null;
+    const vol_24h = i >= ret_24h_window ? getVolatility(Math.max(0, i - ret_24h_window), i) : null;
+    const vol_7d = i >= ret_7d_window ? getVolatility(Math.max(0, i - ret_7d_window), i) : null;
     
     features.push({
       symbol,
@@ -130,6 +131,18 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Cron secret authentication
+    const cronSecret = req.headers.get('x-cron-secret');
+    const expectedSecret = Deno.env.get('CRON_SECRET');
+    
+    if (!cronSecret || cronSecret.trim() !== expectedSecret?.trim()) {
+      logger.error('Invalid cron secret provided');
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''

@@ -73,10 +73,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.ohlcv-backfill]
-verify_jwt = false
+verify_jwt = true
 
 [functions.ohlcv-live-ingest]
-verify_jwt = false
+verify_jwt = true
 
 [functions.features-refresh]
-verify_jwt = false
+verify_jwt = true
