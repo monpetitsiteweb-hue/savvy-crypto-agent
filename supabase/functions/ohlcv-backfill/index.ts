@@ -14,9 +14,9 @@ interface BackfillRequest {
 
 interface CoinbaseCandle {
   0: number; // timestamp
-  1: number; // open
+  1: number; // low  
   2: number; // high
-  3: number; // low
+  3: number; // open
   4: number; // close
   5: number; // volume
 }
@@ -30,6 +30,8 @@ const RATE_LIMIT = {
   circuitBreakerThreshold: 5,
 };
 
+const MAX_CANDLES_PER_REQUEST = 300;
+
 class RateLimiter {
   private lastRequestTime = 0;
   private failureCount = 0;
@@ -37,17 +39,15 @@ class RateLimiter {
   private circuitOpenTime = 0;
 
   async throttle(): Promise<void> {
-    // Circuit breaker check
     if (this.circuitOpen) {
       const timeSinceOpen = Date.now() - this.circuitOpenTime;
-      if (timeSinceOpen < 60000) { // 1 minute circuit breaker
+      if (timeSinceOpen < 60000) {
         throw new Error('Circuit breaker open - too many failures');
       }
       this.circuitOpen = false;
       this.failureCount = 0;
     }
 
-    // Rate limiting
     const now = Date.now();
     const timeSinceLastRequest = now - this.lastRequestTime;
     const minInterval = 1000 / RATE_LIMIT.requestsPerSecond;
@@ -73,20 +73,30 @@ class RateLimiter {
   }
 }
 
-async function fetchCoinbaseCandles(
+async function fetchCoinbaseCandlesPaginated(
   symbol: string,
   granularity: string,
-  start: string,
-  end: string,
+  startTime: Date,
+  endTime: Date,
   rateLimiter: RateLimiter
 ): Promise<CoinbaseCandle[]> {
-  const granularitySeconds = granularity === '1h' ? 3600 : granularity === '4h' ? 14400 : 86400;
+  const granularitySeconds = granularity === '1h' ? 3600 : 86400; // Only native 1h and 24h
+  const allCandles: CoinbaseCandle[] = [];
   
-  for (let attempt = 0; attempt < RATE_LIMIT.maxRetries; attempt++) {
+  let currentStart = new Date(startTime);
+  
+  while (currentStart < endTime) {
+    // Calculate window end (300 candles max per request)
+    const windowMs = (MAX_CANDLES_PER_REQUEST - 1) * granularitySeconds * 1000;
+    const currentEnd = new Date(Math.min(
+      currentStart.getTime() + windowMs,
+      endTime.getTime()
+    ));
+    
     try {
       await rateLimiter.throttle();
 
-      const url = `https://api.exchange.coinbase.com/products/${symbol}/candles?start=${start}&end=${end}&granularity=${granularitySeconds}`;
+      const url = `https://api.exchange.coinbase.com/products/${symbol}/candles?start=${currentStart.toISOString()}&end=${currentEnd.toISOString()}&granularity=${granularitySeconds}`;
       
       const response = await fetch(url, {
         headers: {
@@ -96,11 +106,7 @@ async function fetchCoinbaseCandles(
 
       if (!response.ok) {
         if (response.status === 429) {
-          // Rate limited - exponential backoff with jitter
-          const delay = Math.min(
-            RATE_LIMIT.baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000,
-            RATE_LIMIT.maxDelayMs
-          );
+          const delay = Math.min(RATE_LIMIT.baseDelayMs * 2, RATE_LIMIT.maxDelayMs);
           logger.warn(`Rate limited on ${symbol}, retrying in ${delay}ms`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
@@ -108,29 +114,104 @@ async function fetchCoinbaseCandles(
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const candles = await response.json() as CoinbaseCandle[];
       rateLimiter.recordSuccess();
-      return data as CoinbaseCandle[];
-
+      
+      if (candles.length > 0) {
+        allCandles.push(...candles);
+        logger.info(`Fetched ${candles.length} candles for ${symbol} ${granularity} (${currentStart.toISOString()} to ${currentEnd.toISOString()})`);
+      }
+      
+      // Advance window
+      currentStart = new Date(currentEnd.getTime() + 1000); // +1s to avoid overlap
     } catch (error) {
       rateLimiter.recordFailure();
-      
-      if (attempt === RATE_LIMIT.maxRetries - 1) {
-        throw error;
-      }
+      logger.error(`Failed to fetch ${symbol} ${granularity} window: ${error.message}`);
+      throw error;
+    }
+  }
+  
+  return allCandles;
+}
 
-      // Exponential backoff with jitter
-      const delay = Math.min(
-        RATE_LIMIT.baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000,
-        RATE_LIMIT.maxDelayMs
-      );
+async function synthesize4hCandles(
+  supabase: any,
+  symbol: string,
+  startTime: Date,
+  endTime: Date
+): Promise<number> {
+  // Synthesize 4h candles from 1h candles
+  const { data: hourlyCandles, error } = await supabase
+    .from('market_ohlcv_raw')
+    .select('*')
+    .eq('symbol', symbol)
+    .eq('granularity', '1h')
+    .gte('ts_utc', startTime.toISOString())
+    .lte('ts_utc', endTime.toISOString())
+    .order('ts_utc');
+
+  if (error) {
+    throw new Error(`Failed to fetch 1h candles for 4h synthesis: ${error.message}`);
+  }
+
+  if (!hourlyCandles || hourlyCandles.length === 0) {
+    return 0;
+  }
+
+  // Group by 4-hour buckets (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC)
+  const grouped = new Map<string, typeof hourlyCandles>();
+  
+  for (const candle of hourlyCandles) {
+    const ts = new Date(candle.ts_utc);
+    const hour = ts.getUTCHours();
+    const bucket = Math.floor(hour / 4) * 4;
+    const bucketTime = new Date(ts);
+    bucketTime.setUTCHours(bucket, 0, 0, 0);
+    const bucketKey = bucketTime.toISOString();
+    
+    if (!grouped.has(bucketKey)) {
+      grouped.set(bucketKey, []);
+    }
+    grouped.get(bucketKey)!.push(candle);
+  }
+
+  // Synthesize 4h candles
+  const synthetic4h = [];
+  for (const [bucketTime, candles] of grouped) {
+    if (candles.length === 4) { // Only complete 4h periods
+      const sortedCandles = candles.sort((a, b) => new Date(a.ts_utc).getTime() - new Date(b.ts_utc).getTime());
       
-      logger.warn(`Attempt ${attempt + 1} failed for ${symbol}, retrying in ${delay}ms: ${error.message}`);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      synthetic4h.push({
+        symbol,
+        granularity: '4h',
+        ts_utc: bucketTime,
+        open: sortedCandles[0].open,
+        high: Math.max(...sortedCandles.map(c => c.high)),
+        low: Math.min(...sortedCandles.map(c => c.low)),
+        close: sortedCandles[3].close,
+        volume: sortedCandles.reduce((sum, c) => sum + c.volume, 0),
+      });
     }
   }
 
-  throw new Error(`Failed to fetch ${symbol} after ${RATE_LIMIT.maxRetries} attempts`);
+  if (synthetic4h.length === 0) {
+    return 0;
+  }
+
+  // Upsert synthetic 4h candles
+  const { data, error: upsertError } = await supabase
+    .from('market_ohlcv_raw')
+    .upsert(synthetic4h, {
+      onConflict: 'symbol,granularity,ts_utc',
+      ignoreDuplicates: true
+    })
+    .select();
+
+  if (upsertError) {
+    throw new Error(`Failed to upsert synthetic 4h candles: ${upsertError.message}`);
+  }
+
+  return data?.length || 0;
 }
 
 async function upsertCandles(
@@ -145,26 +226,26 @@ async function upsertCandles(
     symbol,
     granularity,
     ts_utc: new Date(candle[0] * 1000).toISOString(),
-    open: candle[1],
+    open: candle[3],  // Correct Coinbase order: [time, low, high, open, close, volume]
     high: candle[2],
-    low: candle[3],
+    low: candle[1],
     close: candle[4],
     volume: candle[5],
   }));
 
-  // Batch upsert with conflict resolution (idempotent)
-  const { error, count } = await supabase
+  const { data, error } = await supabase
     .from('market_ohlcv_raw')
     .upsert(rows, {
       onConflict: 'symbol,granularity,ts_utc',
       ignoreDuplicates: true
-    });
+    })
+    .select();
 
   if (error) {
     throw new Error(`Failed to upsert candles: ${error.message}`);
   }
 
-  return count || 0;
+  return data?.length || 0;
 }
 
 async function updateHealthMetrics(
@@ -180,9 +261,8 @@ async function updateHealthMetrics(
     symbol,
     granularity,
     last_backfill_at: success ? now : undefined,
-    last_error_at: success ? undefined : now,
     error_message: success ? null : errorMessage,
-    ...(success && { last_successful_ts: now })
+    ...(success && { last_ts_utc: now })
   };
 
   await supabase
@@ -205,7 +285,7 @@ Deno.serve(async (req) => {
 
     const { symbols, granularities, lookback_days }: BackfillRequest = await req.json();
     
-    logger.info(`Starting backfill for ${symbols.length} symbols × ${granularities.length} granularities, ${lookback_days} days`);
+    logger.info(`Starting paginated backfill for ${symbols.length} symbols × ${granularities.length} granularities, ${lookback_days} days`);
 
     const rateLimiter = new RateLimiter();
     const results: any[] = [];
@@ -216,30 +296,51 @@ Deno.serve(async (req) => {
     for (const symbol of symbols) {
       for (const granularity of granularities) {
         try {
-          logger.info(`Backfilling ${symbol} ${granularity}`);
-          
-          const candles = await fetchCoinbaseCandles(
-            symbol,
-            granularity,
-            startTime.toISOString(),
-            endTime.toISOString(),
-            rateLimiter
-          );
+          if (granularity === '4h') {
+            // Ensure we have 1h data first, then synthesize 4h
+            if (!granularities.includes('1h')) {
+              logger.warn(`Skipping 4h synthesis for ${symbol} - 1h not in granularities list`);
+              continue;
+            }
+            
+            const synthetic4hCount = await synthesize4hCandles(supabase, symbol, startTime, endTime);
+            await updateHealthMetrics(supabase, symbol, granularity, true);
+            
+            results.push({
+              symbol,
+              granularity,
+              candles_fetched: 0,
+              candles_synthesized: synthetic4hCount,
+              candles_upserted: synthetic4hCount,
+              success: true
+            });
 
-          const upsertedCount = await upsertCandles(supabase, symbol, granularity, candles);
-          
-          await updateHealthMetrics(supabase, symbol, granularity, true);
-          
-          results.push({
-            symbol,
-            granularity,
-            candles_fetched: candles.length,
-            candles_upserted: upsertedCount,
-            success: true
-          });
+            logger.info(`✓ ${symbol} ${granularity}: ${synthetic4hCount} synthesized from 1h`);
+          } else {
+            // Native granularities (1h, 24h)
+            logger.info(`Backfilling ${symbol} ${granularity} with pagination`);
+            
+            const candles = await fetchCoinbaseCandlesPaginated(
+              symbol,
+              granularity,
+              startTime,
+              endTime,
+              rateLimiter
+            );
 
-          logger.info(`✓ ${symbol} ${granularity}: ${candles.length} fetched, ${upsertedCount} upserted`);
+            const upsertedCount = await upsertCandles(supabase, symbol, granularity, candles);
+            await updateHealthMetrics(supabase, symbol, granularity, true);
+            
+            results.push({
+              symbol,
+              granularity,
+              candles_fetched: candles.length,
+              candles_upserted: upsertedCount,
+              success: true
+            });
 
+            logger.info(`✓ ${symbol} ${granularity}: ${candles.length} fetched, ${upsertedCount} upserted`);
+          }
         } catch (error) {
           logger.error(`✗ ${symbol} ${granularity}: ${error.message}`);
           
@@ -258,7 +359,7 @@ Deno.serve(async (req) => {
     const successCount = results.filter(r => r.success).length;
     const totalCount = results.length;
 
-    logger.info(`Backfill complete: ${successCount}/${totalCount} successful`);
+    logger.info(`Paginated backfill complete: ${successCount}/${totalCount} successful`);
 
     return new Response(JSON.stringify({
       success: true,

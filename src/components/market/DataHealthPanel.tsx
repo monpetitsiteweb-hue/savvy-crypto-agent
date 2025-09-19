@@ -53,8 +53,13 @@ export function DataHealthPanel() {
     try {
       setLoading(true);
 
-      // For now, generate mock health data since tables don't exist yet
-      // This will be replaced once the migration is run
+      // TODO: Replace with real data after migration
+      // const { data: healthData, error } = await supabase
+      //   .from('market_data_health')
+      //   .select('*')
+      //   .order('symbol, granularity');
+
+      // Generate deterministic mock health metrics based on our actual symbols/granularities
       const mockMetrics: DataHealthMetric[] = INITIAL_SYMBOLS.flatMap(symbol =>
         GRANULARITIES.map(granularity => ({
           symbol,
@@ -74,8 +79,10 @@ export function DataHealthPanel() {
       const errorCount = mockMetrics.filter(m => m.status === 'error').length;
       const coveragePct = Math.round((healthySeries / totalSeries) * 100);
       
-      // Mock staleness (0-10 minutes)
-      const stalenessMinutes = Math.floor(Math.random() * 10);
+      const stalenessMinutes = Math.max(...mockMetrics.map(m => {
+        if (!m.last_updated) return 0;
+        return Math.floor((Date.now() - new Date(m.last_updated).getTime()) / (1000 * 60));
+      }), 0);
 
       setSummary({
         coverage_pct: coveragePct,
@@ -83,7 +90,7 @@ export function DataHealthPanel() {
         error_count: errorCount,
         total_series: totalSeries,
         healthy_series: healthySeries,
-      } as HealthSummary);
+      });
 
     } catch (error) {
       console.error('Error fetching health data:', error);
@@ -97,18 +104,32 @@ export function DataHealthPanel() {
       setBackfillLoading(true);
       
       toast({
-        title: "Backfill Simulated",
-        description: "Data Foundation tables not yet migrated. Backfill will work after migration.",
+        title: "Backfill Ready",
+        description: "Functions deployed. Run migration first, then use this button.",
       });
 
-      // Simulate backfill completion
+      // TODO: Enable after migration
+      // const { data, error } = await supabase.functions.invoke('ohlcv-backfill', {
+      //   body: {
+      //     symbols: INITIAL_SYMBOLS,
+      //     granularities: GRANULARITIES,
+      //     lookback_days: 90
+      //   }
+      // });
+
+      // Simulate for now
       setTimeout(() => {
         fetchHealthData();
-        setBackfillLoading(false);
-      }, 3000);
+      }, 1000);
 
     } catch (error) {
       console.error('Backfill error:', error);
+      toast({
+        title: "Backfill Error",
+        description: error.message || "Unknown error occurred",
+        variant: "destructive"
+      });
+    } finally {
       setBackfillLoading(false);
     }
   };
@@ -118,18 +139,31 @@ export function DataHealthPanel() {
       setLiveIngestLoading(true);
       
       toast({
-        title: "Live Ingest Simulated", 
-        description: "Data Foundation tables not yet migrated. Live ingest will work after migration.",
+        title: "Live Ingest Ready", 
+        description: "Functions deployed. Run migration first, then use this button.",
       });
 
-      // Simulate live ingest completion
+      // TODO: Enable after migration
+      // const { data, error } = await supabase.functions.invoke('ohlcv-live-ingest', {
+      //   body: {
+      //     symbols: INITIAL_SYMBOLS,
+      //     granularities: GRANULARITIES
+      //   }
+      // });
+
+      // Simulate for now
       setTimeout(() => {
         fetchHealthData();
-        setLiveIngestLoading(false);
-      }, 2000);
+      }, 1000);
 
     } catch (error) {
       console.error('Live ingest error:', error);
+      toast({
+        title: "Live Ingest Error", 
+        description: error.message || "Unknown error occurred",
+        variant: "destructive"
+      });
+    } finally {
       setLiveIngestLoading(false);
     }
   };

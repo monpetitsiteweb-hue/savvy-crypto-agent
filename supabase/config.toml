@@ -71,3 +71,12 @@ verify_jwt = true
 
 [functions.bigquery-collector]
 verify_jwt = true
+
+[functions.ohlcv-backfill]
+verify_jwt = false
+
+[functions.ohlcv-live-ingest]
+verify_jwt = false
+
+[functions.features-refresh]
+verify_jwt = false

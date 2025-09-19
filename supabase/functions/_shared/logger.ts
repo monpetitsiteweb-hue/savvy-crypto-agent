@@ -5,8 +5,8 @@ const noop = () => {};
 
 export const logger = {
   debug: DEBUG ? console.debug.bind(console) : noop,
-  info:  DEBUG ? console.info.bind(console)  : noop,
-  log:   noop,
+  info:  console.info.bind(console),  // Always log info for observability
+  log:   console.log.bind(console),   // Always log
   trace: noop,
   warn:  console.warn.bind(console),
   error: console.error.bind(console),
