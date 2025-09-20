@@ -3,7 +3,9 @@ import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type, x-cron-secret',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 interface BackfillRequest {
@@ -283,16 +285,24 @@ Deno.serve(async (req) => {
 
   try {
     // Cron secret authentication
-    const cronSecret = req.headers.get('x-cron-secret');
-    const expectedSecret = Deno.env.get('CRON_SECRET');
-    
-    if (!cronSecret || cronSecret.trim() !== expectedSecret?.trim()) {
-      logger.error('Invalid cron secret provided');
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    const headerSecret = req.headers.get('x-cron-secret')?.trim() ?? '';
+    const envSecret = Deno.env.get('CRON_SECRET')?.trim() ?? '';
+
+    if (!envSecret) {
+      console.error('[data-ingest] CRON_SECRET env missing');
+      return new Response(JSON.stringify({ error: 'Server misconfiguration' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
+
+    if (headerSecret !== envSecret) {
+      console.error('[data-ingest] invalid x-cron-secret (mismatch)');
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    console.log('[data-ingest] cron auth ok');
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
