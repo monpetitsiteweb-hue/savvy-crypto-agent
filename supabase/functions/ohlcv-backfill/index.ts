@@ -228,11 +228,11 @@ async function upsertCandles(
     symbol,
     granularity,
     ts_utc: new Date(candle[0] * 1000).toISOString(),
-    open: candle[3],  // Correct Coinbase order: [time, low, high, open, close, volume]
-    high: candle[2],
-    low: candle[1],
-    close: candle[4],
-    volume: candle[5],
+    open: Number.isFinite(candle[3]) ? candle[3] : 0,
+    high: Number.isFinite(candle[2]) ? candle[2] : 0,
+    low: Number.isFinite(candle[1]) ? candle[1] : 0,
+    close: Number.isFinite(candle[4]) ? candle[4] : 0,
+    volume: Number.isFinite(candle[5]) && candle[5] >= 0 ? candle[5] : 0,
   }));
 
   const { data, error } = await supabase
@@ -278,46 +278,74 @@ async function updateHealthMetrics(
     });
 }
 
+const name = "ohlcv-backfill";
+
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   try {
-    // Diagnostic probe
-    const auth = req.headers.get("authorization") ?? "";
-    const apikey = req.headers.get("apikey") ?? "";
     const cronHeader = (req.headers.get("x-cron-secret") ?? "").trim();
     const cronEnv = (Deno.env.get("CRON_SECRET") ?? "").trim();
 
-    console.log(JSON.stringify({
-      tag: "edge_probe",
-      cronEnvPrefix: cronEnv.slice(0, 8),
-      cronEnvLen: cronEnv.length,
-      cronHeaderPrefix: cronHeader.slice(0, 8),
-      cronHeaderLen: cronHeader.length,
-      hasCronEnv: !!cronEnv,
-      authPrefix: auth.slice(0, 12),
-      apikeyPrefix: apikey.slice(0, 12)
-    }));
+    // Diagnostic probe (only when DEBUG_PROBE=1)
+    if (Deno.env.get("DEBUG_PROBE") === "1") {
+      const auth = req.headers.get("authorization") ?? "";
+      const apikey = req.headers.get("apikey") ?? "";
+      
+      console.log(JSON.stringify({
+        tag: "edge_probe",
+        cronEnvPrefix: cronEnv.slice(0, 8),
+        cronEnvLen: cronEnv.length,
+        cronHeaderPrefix: cronHeader.slice(0, 8),
+        cronHeaderLen: cronHeader.length,
+        hasCronEnv: !!cronEnv,
+        authPrefix: auth.slice(0, 12),
+        apikeyPrefix: apikey.slice(0, 12)
+      }));
+    }
 
     // Cron secret authentication
     if (!cronEnv || cronHeader !== cronEnv) {
-      console.error("[data-ingest] invalid x-cron-secret (mismatch)", {
-        cronEnvLen: cronEnv.length,
-        cronHeaderLen: cronHeader.length
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { 
+        status: 403, 
+        headers: corsHeaders 
       });
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 403 });
     }
-
-    console.log('[data-ingest] cron auth ok');
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { symbols, granularities, lookback_days }: BackfillRequest = await req.json();
+    // Payload hardening
+    let payload: any = {};
+    try { 
+      payload = await req.json(); 
+    } catch { 
+      payload = {}; 
+    }
+    
+    const symbols = Array.isArray(payload.symbols) && payload.symbols.length 
+      ? payload.symbols 
+      : ["BTC-EUR","ETH-EUR","XRP-EUR"];
+    const granularitiesDefault = ["1h","24h","4h"];
+    const granularities = Array.isArray(payload.granularities) && payload.granularities.length 
+      ? payload.granularities 
+      : granularitiesDefault;
+    const lookback_days = Number.isFinite(payload.lookback_days) && payload.lookback_days > 0 
+      ? payload.lookback_days 
+      : 30;
+
+    if (!Array.isArray(symbols) || !Array.isArray(granularities)) {
+      return new Response(JSON.stringify({ 
+        error: "Invalid payload: symbols[] and granularities[] required" 
+      }), { 
+        status: 400, 
+        headers: corsHeaders 
+      });
+    }
     
     logger.info(`Starting paginated backfill for ${symbols.length} symbols × ${granularities.length} granularities, ${lookback_days} days`);
 

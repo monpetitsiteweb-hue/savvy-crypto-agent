@@ -87,14 +87,14 @@ async function computeFeatures(
       symbol,
       granularity,
       ts_utc,
-      ret_1h,
-      ret_4h,
-      ret_24h,
-      ret_7d,
-      vol_1h,
-      vol_4h,
-      vol_24h,
-      vol_7d,
+      ret_1h: Number.isFinite(ret_1h) ? ret_1h : null,
+      ret_4h: Number.isFinite(ret_4h) ? ret_4h : null,
+      ret_24h: Number.isFinite(ret_24h) ? ret_24h : null,
+      ret_7d: Number.isFinite(ret_7d) ? ret_7d : null,
+      vol_1h: Number.isFinite(vol_1h) ? vol_1h : null,
+      vol_4h: Number.isFinite(vol_4h) ? vol_4h : null,
+      vol_24h: Number.isFinite(vol_24h) ? vol_24h : null,
+      vol_7d: Number.isFinite(vol_7d) ? vol_7d : null,
     });
   }
 
@@ -127,46 +127,74 @@ async function updateHealthMetrics(supabase: any): Promise<void> {
   }
 }
 
+const name = "features-refresh";
+
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   try {
-    // Diagnostic probe
-    const auth = req.headers.get("authorization") ?? "";
-    const apikey = req.headers.get("apikey") ?? "";
     const cronHeader = (req.headers.get("x-cron-secret") ?? "").trim();
     const cronEnv = (Deno.env.get("CRON_SECRET") ?? "").trim();
 
-    console.log(JSON.stringify({
-      tag: "edge_probe",
-      cronEnvPrefix: cronEnv.slice(0, 8),
-      cronEnvLen: cronEnv.length,
-      cronHeaderPrefix: cronHeader.slice(0, 8),
-      cronHeaderLen: cronHeader.length,
-      hasCronEnv: !!cronEnv,
-      authPrefix: auth.slice(0, 12),
-      apikeyPrefix: apikey.slice(0, 12)
-    }));
+    // Diagnostic probe (only when DEBUG_PROBE=1)
+    if (Deno.env.get("DEBUG_PROBE") === "1") {
+      const auth = req.headers.get("authorization") ?? "";
+      const apikey = req.headers.get("apikey") ?? "";
+      
+      console.log(JSON.stringify({
+        tag: "edge_probe",
+        cronEnvPrefix: cronEnv.slice(0, 8),
+        cronEnvLen: cronEnv.length,
+        cronHeaderPrefix: cronHeader.slice(0, 8),
+        cronHeaderLen: cronHeader.length,
+        hasCronEnv: !!cronEnv,
+        authPrefix: auth.slice(0, 12),
+        apikeyPrefix: apikey.slice(0, 12)
+      }));
+    }
 
     // Cron secret authentication
     if (!cronEnv || cronHeader !== cronEnv) {
-      console.error("[data-ingest] invalid x-cron-secret (mismatch)", {
-        cronEnvLen: cronEnv.length,
-        cronHeaderLen: cronHeader.length
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { 
+        status: 403, 
+        headers: corsHeaders 
       });
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 403 });
     }
-
-    console.log('[data-ingest] cron auth ok');
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { symbols, granularities, lookback_days }: FeaturesRequest = await req.json();
+    // Payload hardening
+    let payload: any = {};
+    try { 
+      payload = await req.json(); 
+    } catch { 
+      payload = {}; 
+    }
+    
+    const symbols = Array.isArray(payload.symbols) && payload.symbols.length 
+      ? payload.symbols 
+      : ["BTC-EUR","ETH-EUR","XRP-EUR"];
+    const granularitiesDefault = ["1h","4h","24h"];
+    const granularities = Array.isArray(payload.granularities) && payload.granularities.length 
+      ? payload.granularities 
+      : granularitiesDefault;
+    const lookback_days = Number.isFinite(payload.lookback_days) && payload.lookback_days > 0 
+      ? payload.lookback_days 
+      : 30;
+
+    if (!Array.isArray(symbols) || !Array.isArray(granularities)) {
+      return new Response(JSON.stringify({ 
+        error: "Invalid payload: symbols[] and granularities[] required" 
+      }), { 
+        status: 400, 
+        headers: corsHeaders 
+      });
+    }
     
     logger.info(`Computing features for ${symbols.length} symbols × ${granularities.length} granularities`);
 
