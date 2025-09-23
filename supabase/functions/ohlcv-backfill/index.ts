@@ -25,11 +25,11 @@ interface CoinbaseCandle {
 
 // Rate limiting configuration
 const RATE_LIMIT = {
-  requestsPerSecond: 10,
-  maxRetries: 3,
-  baseDelayMs: 1000,
-  maxDelayMs: 30000,
-  circuitBreakerThreshold: 5,
+  requestsPerSecond: 8,         // More conservative than 10 rps
+  maxRetries: 5,                // More retry attempts
+  baseDelayMs: 150,             // Increased base delay
+  maxDelayMs: 10000,            // Longer max delay for severe rate limiting
+  circuitBreakerThreshold: 7,   // More tolerance before circuit breaking
 };
 
 const MAX_CANDLES_PER_REQUEST = 300;
@@ -108,9 +108,13 @@ async function fetchCoinbaseCandlesPaginated(
 
       if (!response.ok) {
         if (response.status === 429) {
-          const delay = Math.min(RATE_LIMIT.baseDelayMs * 2, RATE_LIMIT.maxDelayMs);
-          logger.warn(`Rate limited on ${symbol}, retrying in ${delay}ms`);
-          await new Promise(resolve => setTimeout(resolve, delay));
+          // More aggressive rate limit handling with exponential backoff
+          const attemptDelay = Math.min(RATE_LIMIT.baseDelayMs * Math.pow(2, rateLimiter.failureCount), RATE_LIMIT.maxDelayMs);
+          logger.warn(`Rate limited on ${symbol} (attempt ${rateLimiter.failureCount + 1}), retrying in ${attemptDelay}ms`);
+          rateLimiter.recordFailure();
+          await new Promise(resolve => setTimeout(resolve, attemptDelay));
+          
+          // Reset window start to retry this exact same request
           continue;
         }
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -329,7 +333,7 @@ Deno.serve(async (req) => {
     
     const symbols = Array.isArray(payload.symbols) && payload.symbols.length 
       ? payload.symbols 
-      : ["BTC-EUR","ETH-EUR","XRP-EUR"];
+      : ["BTC-EUR","ETH-EUR","XRP-EUR","ADA-EUR","SOL-EUR"];
     const granularitiesDefault = ["1h","24h","4h"];
     const granularities = Array.isArray(payload.granularities) && payload.granularities.length 
       ? payload.granularities 
@@ -337,6 +341,9 @@ Deno.serve(async (req) => {
     const lookback_days = Number.isFinite(payload.lookback_days) && payload.lookback_days > 0 
       ? payload.lookback_days 
       : 30;
+
+    // Shuffle symbols to prevent systematic rate limit starvation of later symbols
+    const shuffledSymbols = [...symbols].sort(() => Math.random() - 0.5);
 
     if (!Array.isArray(symbols) || !Array.isArray(granularities)) {
       return new Response(JSON.stringify({ 
@@ -348,6 +355,7 @@ Deno.serve(async (req) => {
     }
     
     logger.info(`Starting paginated backfill for ${symbols.length} symbols × ${granularities.length} granularities, ${lookback_days} days`);
+    logger.info(`Processing symbols in random order: ${shuffledSymbols.join(', ')}`);
 
     const rateLimiter = new RateLimiter();
     const results: any[] = [];
@@ -355,7 +363,7 @@ Deno.serve(async (req) => {
     const startTime = new Date(endTime.getTime() - (lookback_days * 24 * 60 * 60 * 1000));
 
     // Process each symbol-granularity combination
-    for (const symbol of symbols) {
+    for (const symbol of shuffledSymbols) {
       for (const granularity of granularities) {
         try {
           let latestCandleTs: string | undefined;

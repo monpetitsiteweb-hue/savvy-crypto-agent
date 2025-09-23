@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADA/SOL Catch-up Test</title>
+</head>
+<body>
+    <h1>ADA/SOL OHLCV Catch-up</h1>
+    <p>This will trigger a catch-up backfill for ADA-EUR and SOL-EUR with extended lookback.</p>
+    
+    <button onclick="runCatchUp()">Start Catch-up (60 days)</button>
+    <button onclick="checkStatus()">Check Current Status</button>
+    
+    <div id="results"></div>
+
+    <script>
+        const SUPABASE_URL = 'https://fuieplftlcxdfkxyqzlt.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8';
+        const CRON_SECRET = 'your-cron-secret-here'; // User will need to set this
+
+        function log(message) {
+            const results = document.getElementById('results');
+            const timestamp = new Date().toISOString();
+            results.innerHTML += `<p><strong>${timestamp}:</strong> ${message}</p>`;
+            console.log(message);
+        }
+
+        async function runCatchUp() {
+            log('🚀 Starting ADA/SOL catch-up with 60-day lookback...');
+            
+            try {
+                const response = await fetch(`${SUPABASE_URL}/functions/v1/ohlcv-backfill`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                        'apikey': SUPABASE_ANON_KEY,
+                        'x-cron-secret': CRON_SECRET,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        symbols: ['ADA-EUR', 'SOL-EUR'],
+                        granularities: ['1h', '24h', '4h'],
+                        lookback_days: 60  // Extended lookback to catch up
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log('✅ Catch-up completed successfully!');
+                    log(`📊 Summary: ${result.summary.successful_series}/${result.summary.total_series} successful`);
+                    
+                    // Show detailed results
+                    result.results.forEach(r => {
+                        const status = r.success ? '✅' : '❌';
+                        const details = r.success 
+                            ? `${r.candles_fetched || 0} fetched, ${r.candles_upserted || 0} upserted, ${r.candles_synthesized || 0} synthesized`
+                            : `Error: ${r.error}`;
+                        log(`${status} ${r.symbol} ${r.granularity}: ${details}`);
+                    });
+                } else {
+                    log(`❌ Catch-up failed: ${result.error}`);
+                }
+                
+            } catch (error) {
+                log(`❌ Network error: ${error.message}`);
+            }
+        }
+
+        async function checkStatus() {
+            log('🔍 Checking current market data health...');
+            
+            try {
+                const response = await fetch(`${SUPABASE_URL}/rest/v1/market_data_health?symbol=in.(ADA-EUR,SOL-EUR,BTC-EUR,ETH-EUR)&select=symbol,granularity,last_ts_utc,coverage_pct_90d,max_staleness_min&order=symbol,granularity`, {
+                    headers: {
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                        'apikey': SUPABASE_ANON_KEY
+                    }
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log('📈 Current market data health:');
+                    data.forEach(row => {
+                        const staleness = Math.round(row.max_staleness_min / 60); // Convert to hours
+                        const coverage = Math.round(row.coverage_pct_90d);
+                        log(`   ${row.symbol} ${row.granularity}: ${coverage}% coverage, ${staleness}h stale, last: ${row.last_ts_utc}`);
+                    });
+                } else {
+                    log(`❌ Status check failed: ${data.message}`);
+                }
+                
+            } catch (error) {
+                log(`❌ Status check error: ${error.message}`);
+            }
+        }
+
+        // Auto-check status on load
+        window.addEventListener('load', checkStatus);
+    </script>
+</body>
+</html>
