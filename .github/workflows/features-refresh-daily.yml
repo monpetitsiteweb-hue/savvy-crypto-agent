@@ -16,5 +16,5 @@ jobs:
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
-            -d '{"symbols":["BTC-EUR","ETH-EUR","XRP-EUR"],"granularities":["1h","4h","24h"],"lookback_days":30}' \
+            -d '{"symbols":["BTC-EUR","ETH-EUR","XRP-EUR","ADA-EUR","SOL-EUR"],"granularities":["1h","4h","24h"],"lookback_days":30}' \
             https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/features-refresh
