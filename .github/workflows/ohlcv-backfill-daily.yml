@@ -1,0 +1,20 @@
+name: OHLCV Backfill Daily
+
+on:
+  schedule:
+    - cron: '10 2 * * *'  # 02:10 UTC daily
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger OHLCV Backfill
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"symbols":["BTC-EUR","ETH-EUR","XRP-EUR"],"granularities":["1h","24h","4h"],"lookback_days":30}' \
+            https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/ohlcv-backfill

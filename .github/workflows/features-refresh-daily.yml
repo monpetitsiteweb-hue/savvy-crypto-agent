@@ -1,0 +1,20 @@
+name: Features Refresh Daily
+
+on:
+  schedule:
+    - cron: '25 2 * * *'  # 02:25 UTC daily
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Features Refresh
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"symbols":["BTC-EUR","ETH-EUR","XRP-EUR"],"granularities":["1h","4h","24h"],"lookback_days":30}' \
+            https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/features-refresh
