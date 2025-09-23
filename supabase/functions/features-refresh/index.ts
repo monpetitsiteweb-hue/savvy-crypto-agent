@@ -133,22 +133,30 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Diagnostic probe
+    const auth = req.headers.get("authorization") ?? "";
+    const apikey = req.headers.get("apikey") ?? "";
+    const cronHeader = (req.headers.get("x-cron-secret") ?? "").trim();
+    const cronEnv = (Deno.env.get("CRON_SECRET") ?? "").trim();
+
+    console.log(JSON.stringify({
+      tag: "edge_probe",
+      cronEnvPrefix: cronEnv.slice(0, 8),
+      cronEnvLen: cronEnv.length,
+      cronHeaderPrefix: cronHeader.slice(0, 8),
+      cronHeaderLen: cronHeader.length,
+      hasCronEnv: !!cronEnv,
+      authPrefix: auth.slice(0, 12),
+      apikeyPrefix: apikey.slice(0, 12)
+    }));
+
     // Cron secret authentication
-    const headerSecret = req.headers.get('x-cron-secret')?.trim() ?? '';
-    const envSecret = Deno.env.get('CRON_SECRET')?.trim() ?? '';
-
-    if (!envSecret) {
-      console.error('[data-ingest] CRON_SECRET env missing');
-      return new Response(JSON.stringify({ error: 'Server misconfiguration' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    if (!cronEnv || cronHeader !== cronEnv) {
+      console.error("[data-ingest] invalid x-cron-secret (mismatch)", {
+        cronEnvLen: cronEnv.length,
+        cronHeaderLen: cronHeader.length
       });
-    }
-
-    if (headerSecret !== envSecret) {
-      console.error('[data-ingest] invalid x-cron-secret (mismatch)');
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 403 });
     }
 
     console.log('[data-ingest] cron auth ok');
