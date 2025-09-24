@@ -82,8 +82,9 @@ serve(async (req) => {
     }
     // --- end scheduled auth block ---
 
-    // Define horizons and confidence bands
-    const horizons = ['15m', '1h', '4h', '24h'];
+    // Define symbol universe, horizons and confidence bands
+    const symbolUniverse = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR'];
+    const horizons = ['1h', '4h', '24h'];
     const confidenceBands = [
       { min: 0.50, max: 0.60, label: '[0.50-0.60)' },
       { min: 0.60, max: 0.70, label: '[0.60-0.70)' },
@@ -91,6 +92,11 @@ serve(async (req) => {
       { min: 0.80, max: 0.90, label: '[0.80-0.90)' },
       { min: 0.90, max: 1.00, label: '[0.90-1.00]' }
     ];
+
+    // Determine which symbols to process
+    const symbolsToProcess = isScheduled ? symbolUniverse : (body?.symbols || symbolUniverse);
+    console.log(`Processing symbols: ${symbolsToProcess.join(', ')}`);
+    console.log(`Processing horizons: ${horizons.join(', ')}`);
 
     // Calculate 30-day window
     const windowStart = new Date();
@@ -102,6 +108,15 @@ serve(async (req) => {
 
     let totalProcessed = 0;
     let totalUpserted = 0;
+    const symbolHorizonMetrics = new Map<string, { processed: number, upserted: number }>();
+
+    // Initialize tracking for all symbol-horizon combinations
+    for (const symbol of symbolsToProcess) {
+      for (const horizon of horizons) {
+        const key = `${symbol}-${horizon}`;
+        symbolHorizonMetrics.set(key, { processed: 0, upserted: 0 });
+      }
+    }
 
     // Get all users with strategies, filtering out null user_id values
     const { data: users, error: usersError } = await supabase
@@ -146,7 +161,7 @@ serve(async (req) => {
       for (const strategy of strategies || []) {
         console.log(`Processing strategy: ${strategy.id}`);
 
-        // Get decision outcomes with events in the time window
+        // Get decision outcomes with events in the time window, filtered by symbol
         const { data: outcomes, error: outcomesError } = await supabase
           .from('decision_outcomes')
           .select(`
@@ -154,13 +169,15 @@ serve(async (req) => {
             decision_events!inner(
               confidence,
               strategy_id,
-              decision_ts
+              decision_ts,
+              symbol
             )
           `)
           .eq('user_id', userId)
           .eq('decision_events.strategy_id', strategy.id)
           .gte('decision_events.decision_ts', windowStart.toISOString())
-          .lte('decision_events.decision_ts', windowEnd.toISOString());
+          .lte('decision_events.decision_ts', windowEnd.toISOString())
+          .in('symbol', symbolsToProcess);
 
         if (outcomesError) {
           console.error(`Error fetching outcomes for strategy ${strategy.id}:`, outcomesError);
@@ -250,22 +267,40 @@ serve(async (req) => {
             if (upsertError) {
               console.error(`Error upserting calibration metric:`, upsertError);
             } else {
+              const metricKey = `${symbol}-${horizon}`;
+              const currentMetrics = symbolHorizonMetrics.get(metricKey) || { processed: 0, upserted: 0 };
+              currentMetrics.upserted++;
+              symbolHorizonMetrics.set(metricKey, currentMetrics);
+              
               totalUpserted++;
               console.log(`✅ Upserted metric for ${symbol}-${horizon}-${band.label}: ${sampleCount} samples, ${winRate.toFixed(1)}% win rate`);
             }
 
+            const metricKey = `${symbol}-${horizon}`;
+            const currentMetrics = symbolHorizonMetrics.get(metricKey) || { processed: 0, upserted: 0 };
+            currentMetrics.processed++;
+            symbolHorizonMetrics.set(metricKey, currentMetrics);
             totalProcessed++;
           }
         }
       }
     }
 
+    // Log per-symbol/horizon metrics
+    console.log('\n=== Per-Symbol/Horizon Metrics ===');
+    for (const [key, metrics] of symbolHorizonMetrics) {
+      console.log(`${key}: ${metrics.processed} processed, ${metrics.upserted} upserted`);
+    }
+
     const summary = {
       success: true,
       window: `${windowStart.toISOString()} to ${windowEnd.toISOString()}`,
+      symbols_processed: symbolsToProcess,
+      horizons_processed: horizons,
       users_processed: uniqueUsers.length,
       metrics_processed: totalProcessed,
       metrics_upserted: totalUpserted,
+      per_symbol_horizon: Object.fromEntries(symbolHorizonMetrics),
       computed_at: new Date().toISOString()
     };
 
