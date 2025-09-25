@@ -1925,21 +1925,14 @@ async function tripBreaker(
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
     
-    await supabaseClient
-      .from('execution_circuit_breakers')
-      .upsert({
-        user_id: intent.userId,
-        strategy_id: intent.strategyId,
-        symbol: baseSymbol,
-        breaker_type,
-        threshold_value,
-        is_active: true,
-        last_trip_at: new Date().toISOString(),
-        trip_count: supabaseClient.raw('COALESCE(trip_count, 0) + 1'),
-        trip_reason: reason
-      }, {
-        onConflict: 'user_id,strategy_id,symbol,breaker_type'
-      });
+    await supabaseClient.rpc('trip_breaker', {
+      p_user: intent.userId,
+      p_strategy: intent.strategyId,
+      p_symbol: baseSymbol,
+      p_type: breaker_type,
+      p_threshold: threshold_value,
+      p_reason: reason
+    });
 
     console.log(`🚨 BREAKER TRIPPED: ${breaker_type} for ${baseSymbol} - ${reason}`);
   } catch (error) {

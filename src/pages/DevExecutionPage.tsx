@@ -54,18 +54,66 @@ export function DevExecutionPage() {
     try {
       setLoading(true);
 
-      // TODO: Load data after migration is approved and types are updated
-      // This will be functional once the Phase 3.1 database migration is complete
-      setMetrics({
-        avg_abs_slippage_bps: 0,
-        latency_p95_ms: 0,
-        partial_fill_rate_pct: 0,
-        trade_count: 0
-      });
-      
-      setRecentLogs([]);
-      setBreakers([]);
-      setActiveBreakersCount(0);
+      // 1) Metrics (24h)
+      const { data: mRows, error: mErr } = await supabase
+        .from('execution_quality_metrics_24h')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('strategy_id', activeStrategy.id);
+
+      if (mErr) throw mErr;
+
+      const m = mRows?.[0] || null;
+      setMetrics(m ? {
+        avg_abs_slippage_bps: Number(m.avg_abs_slippage_bps ?? 0),
+        latency_p95_ms: Number(m.latency_p95_ms ?? 0),
+        partial_fill_rate_pct: Number(m.partial_fill_rate_pct ?? 0),
+        trade_count: Number(m.trade_count ?? 0)
+      } : { avg_abs_slippage_bps: 0, latency_p95_ms: 0, partial_fill_rate_pct: 0, trade_count: 0 });
+
+      // 2) Recent logs (last 20)
+      const { data: logs, error: lErr } = await supabase
+        .from('execution_quality_log')
+        .select('id,symbol,side,executed_at,slippage_bps,execution_latency_ms,partial_fill')
+        .eq('user_id', user.id)
+        .eq('strategy_id', activeStrategy.id)
+        .order('executed_at', { ascending: false })
+        .limit(20);
+
+      if (lErr) throw lErr;
+
+      setRecentLogs((logs || []).map((row: any) => ({
+        id: row.id,
+        symbol: row.symbol,
+        side: String(row.side || '').toUpperCase(),
+        executed_at: row.executed_at,
+        slippage_bps: Number(row.slippage_bps ?? 0),
+        execution_latency_ms: Number(row.execution_latency_ms ?? 0),
+        partial_fill: !!row.partial_fill
+      })));
+
+      // 3) Breakers (all, count active)
+      const { data: br, error: bErr } = await supabase
+        .from('execution_circuit_breakers')
+        .select('id,symbol,breaker_type,threshold_value,is_active,last_trip_at,trip_count,trip_reason')
+        .eq('user_id', user.id)
+        .eq('strategy_id', activeStrategy.id)
+        .order('is_active', { ascending: false })
+        .order('last_trip_at', { ascending: false });
+
+      if (bErr) throw bErr;
+
+      setActiveBreakersCount((br || []).filter(b => b.is_active).length);
+      setBreakers((br || []).map((b: any) => ({
+        id: b.id,
+        symbol: b.symbol,
+        breaker_type: b.breaker_type,
+        threshold_value: Number(b.threshold_value ?? 0),
+        is_active: !!b.is_active,
+        last_trip_at: b.last_trip_at,
+        trip_count: Number(b.trip_count ?? 0),
+        trip_reason: b.trip_reason || ''
+      })));
 
     } catch (error) {
       console.error('Error loading execution data:', error);
@@ -83,7 +131,7 @@ export function DevExecutionPage() {
     if (!user || !activeStrategy) return;
 
     try {
-      const { error } = await supabase.rpc('reset_breaker' as any, {
+      const { error } = await supabase.rpc('reset_breaker', {
         p_user: user.id,
         p_strategy: activeStrategy.id,
         p_symbol: symbol,
@@ -140,7 +188,7 @@ export function DevExecutionPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Execution Quality Monitor</h1>
-          <p className="text-muted-foreground">Strategy: {activeStrategy.strategy_name}</p>
+          <p className="text-muted-foreground">Strategy: {activeStrategy.strategy_name || activeStrategy.name || activeStrategy.id}</p>
         </div>
         <Button onClick={loadData} variant="outline">
           Refresh Data
@@ -235,8 +283,8 @@ export function DevExecutionPage() {
                   <TableRow key={log.id}>
                     <TableCell className="font-medium">{log.symbol}</TableCell>
                     <TableCell>
-                      <Badge variant={log.side === 'buy' ? 'default' : 'secondary'}>
-                        {log.side.toUpperCase()}
+                      <Badge variant={log.side === 'BUY' ? 'default' : 'secondary'}>
+                        {log.side}
                       </Badge>
                     </TableCell>
                     <TableCell>

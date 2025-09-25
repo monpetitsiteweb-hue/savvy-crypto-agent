@@ -10,7 +10,7 @@ interface StrategyData {
   configuration: any;
   is_active: boolean;
   created_at: string;
-  test_mode: boolean;
+  is_test_mode: boolean;
 }
 
 export const useActiveStrategy = () => {
@@ -27,14 +27,14 @@ export const useActiveStrategy = () => {
     }
 
     try {
-      // Query based on the current mode - look for strategies active in test or live mode
-      const activeField = testMode ? 'is_active_test' : 'is_active_live';
-      
+      // For simplicity, we'll look for active strategies based on is_active flag
+      // and match the test mode with is_test_mode
       const { data: strategies, error } = await supabase
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
-        .eq(activeField, true)
+        .eq('is_active', true)
+        .eq('is_test_mode', testMode)
         .order('created_at', { ascending: false })
         .limit(1);
         
