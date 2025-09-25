@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.5';
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.50.5";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -52,27 +52,15 @@ serve(async (req) => {
     console.log('=== Calibration Aggregator Started ===');
     console.log(`Scheduled: ${isScheduled}`);
 
-    // Query last 30 days from decision_outcomes
+    // Query last 30 days from decision_outcomes directly
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const { data: outcomes, error: outcomesError } = await supabase
       .from('decision_outcomes')
-      .select(`
-        user_id,
-        symbol,
-        horizon,
-        realized_pnl_pct,
-        hit_tp,
-        hit_sl,
-        decision_events!inner(
-          strategy_id,
-          confidence,
-          decision_ts
-        )
-      `)
-      .gte('decision_events.decision_ts', thirtyDaysAgo.toISOString())
-      .order('decision_events.decision_ts', { ascending: false });
+      .select('user_id, strategy_id, symbol, horizon, confidence_band, realized_pnl_pct, hit_tp, hit_sl, decision_ts')
+      .gte('decision_ts', thirtyDaysAgo.toISOString())
+      .order('decision_ts', { ascending: false });
 
     if (outcomesError) {
       throw new Error(`Failed to fetch decision outcomes: ${outcomesError.message}`);
@@ -98,24 +86,21 @@ serve(async (req) => {
     }>();
 
     for (const outcome of outcomes || []) {
-      // Get confidence from joined decision_events
-      const confidence = outcome.decision_events?.confidence;
-      if (!confidence) continue;
-
-      // Find the appropriate confidence band
-      const band = confidenceBands.find(b => confidence >= b.min && confidence < b.max);
-      if (!band) continue;
+      // Skip if missing required fields
+      if (!outcome.user_id || !outcome.strategy_id || !outcome.symbol || !outcome.horizon || !outcome.confidence_band) {
+        continue;
+      }
 
       // Create aggregate key
-      const key = `${outcome.user_id}-${outcome.decision_events.strategy_id}-${outcome.symbol}-${outcome.horizon}-${band.label}`;
+      const key = `${outcome.user_id}-${outcome.strategy_id}-${outcome.symbol}-${outcome.horizon}-${outcome.confidence_band}`;
       
       if (!aggregates.has(key)) {
         aggregates.set(key, {
           user_id: outcome.user_id,
-          strategy_id: outcome.decision_events.strategy_id,
+          strategy_id: outcome.strategy_id,
           symbol: outcome.symbol,
           horizon: outcome.horizon,
-          confidence_band: band.label,
+          confidence_band: outcome.confidence_band,
           outcomes: []
         });
       }
@@ -168,24 +153,16 @@ serve(async (req) => {
         symbol: aggregate.symbol,
         horizon: aggregate.horizon,
         confidence_band: aggregate.confidence_band,
-        time_window: '30d',
-        window_start_ts: thirtyDaysAgo.toISOString(),
-        window_end_ts: now.toISOString(),
+        window_days: 30,
         sample_count: sampleCount,
         win_rate_pct: winRatePct,
         mean_realized_pnl_pct: meanRealizedPnlPct,
         tp_hit_rate_pct: tpHitRatePct,
         sl_hit_rate_pct: slHitRatePct,
         computed_at: now.toISOString(),
-        // Set defaults for other fields
+        // Set defaults for required fields
         coverage_pct: 0,
-        median_realized_pnl_pct: null,
-        median_mfe_pct: null,
-        median_mae_pct: null,
-        missed_opportunity_pct: 0,
-        mean_expectation_error_pct: null,
-        reliability_correlation: null,
-        volatility_regime: null
+        missed_opportunity_pct: 0
       });
     }
 
@@ -194,7 +171,7 @@ serve(async (req) => {
       const { error: upsertError } = await supabase
         .from('calibration_metrics')
         .upsert(metricsToUpsert, {
-          onConflict: 'user_id,strategy_id,symbol,horizon,confidence_band,time_window',
+          onConflict: 'user_id,strategy_id,symbol,horizon,confidence_band,window_days',
           ignoreDuplicates: false
         });
 
@@ -218,7 +195,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error in calibration aggregator:', error);
     return new Response(JSON.stringify({ 
-      error: error.message 
+      error: error instanceof Error ? error.message : 'Unknown error'
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
