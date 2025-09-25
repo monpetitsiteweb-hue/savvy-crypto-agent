@@ -10,6 +10,7 @@ type CalibrationRow = {
   tp_hit_rate_pct: number | null;
   sl_hit_rate_pct: number | null;
   computed_at: string;
+  strategy_id: string;
 };
 
 export default function Calibration() {
@@ -17,6 +18,7 @@ export default function Calibration() {
   const [loading, setLoading] = useState(true);
   const [symbol, setSymbol] = useState("ALL");
   const [horizon, setHorizon] = useState("ALL");
+  const [strategy, setStrategy] = useState("ALL");
 
   useEffect(() => {
     const fetchData = async () => {
@@ -65,20 +67,38 @@ export default function Calibration() {
     () => ["ALL", ...Array.from(new Set(rows.map(r => r.horizon)))],
     [rows]
   );
+  const strategies = useMemo(
+    () => ["ALL", ...Array.from(new Set(rows.map(r => r.strategy_id)))],
+    [rows]
+  );
+  
+  const lastComputed = useMemo(() => {
+    return rows.length > 0 
+      ? new Date(Math.max(...rows.map(r => new Date(r.computed_at).getTime()))) 
+      : null;
+  }, [rows]);
 
   const filtered = useMemo(
     () =>
       rows.filter(
         r =>
           (symbol === "ALL" || r.symbol === symbol) &&
-          (horizon === "ALL" || r.horizon === horizon)
+          (horizon === "ALL" || r.horizon === horizon) &&
+          (strategy === "ALL" || r.strategy_id === strategy)
       ),
-    [rows, symbol, horizon]
+    [rows, symbol, horizon, strategy]
   );
 
   return (
     <div className="p-6 space-y-4">
-      <h1 className="text-2xl font-semibold">Calibration (30d)</h1>
+      <div>
+        <h1 className="text-2xl font-semibold">Calibration (30d)</h1>
+        {lastComputed && (
+          <span className="text-xs text-slate-400">
+            Last computed: {lastComputed.toLocaleString()}
+          </span>
+        )}
+      </div>
 
       <div className="flex gap-3">
         <select className="border rounded px-2 py-1" value={symbol} onChange={e => setSymbol(e.target.value)}>
@@ -90,6 +110,12 @@ export default function Calibration() {
         <select className="border rounded px-2 py-1" value={horizon} onChange={e => setHorizon(e.target.value)}>
           {horizons.map(h => (
             <option key={h} value={h}>{h}</option>
+          ))}
+        </select>
+
+        <select className="border rounded px-2 py-1" value={strategy} onChange={e => setStrategy(e.target.value)}>
+          {strategies.map(s => (
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
       </div>
