@@ -83,7 +83,7 @@ export function DevExecutionPage() {
     if (!user || !activeStrategy) return;
 
     try {
-      const { error } = await supabase.rpc('reset_breaker', {
+      const { error } = await supabase.rpc('reset_breaker' as any, {
         p_user: user.id,
         p_strategy: activeStrategy.id,
         p_symbol: symbol,
@@ -140,7 +140,7 @@ export function DevExecutionPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Execution Quality Monitor</h1>
-          <p className="text-muted-foreground">Strategy: {activeStrategy.name}</p>
+          <p className="text-muted-foreground">Strategy: {activeStrategy.strategy_name}</p>
         </div>
         <Button onClick={loadData} variant="outline">
           Refresh Data
