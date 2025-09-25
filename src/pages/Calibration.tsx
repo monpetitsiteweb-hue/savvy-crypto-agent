@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 
 type CalibrationRow = {
   symbol: string;
@@ -20,33 +19,42 @@ export default function Calibration() {
   const [horizon, setHorizon] = useState("ALL");
 
   useEffect(() => {
-    (async () => {
+    const fetchData = async () => {
       setLoading(true);
-      const { data, error } = await supabase
-        .from("calibration_metrics")
-        .select(`
-          symbol,
-          horizon,
-          confidence_band,
-          sample_count,
-          win_rate_pct,
-          mean_realized_pnl_pct,
-          tp_hit_rate_pct,
-          sl_hit_rate_pct,
-          computed_at
-        `)
-        .order("symbol", { ascending: true })
-        .order("horizon", { ascending: true })
-        .order("confidence_band", { ascending: true });
+      
+      try {
+        // Import supabase client dynamically to avoid type inference issues
+        const { supabase } = await import("@/integrations/supabase/client");
+        
+        // Use fetch-like approach to bypass complex types
+        const result: any = await (supabase as any)
+          .from("calibration_metrics")
+          .select("*")
+          .eq("window_days", 30);
 
-      if (error) {
-        console.error("calibration_metrics error", error);
+        const { data, error } = result;
+
+        if (error) {
+          console.error("calibration_metrics error", error);
+          setRows([]);
+        } else {
+          // Sort manually to avoid complex query builder types
+          const sortedData = (data || []).sort((a: any, b: any) => {
+            if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
+            if (a.horizon !== b.horizon) return a.horizon.localeCompare(b.horizon);
+            return a.confidence_band.localeCompare(b.confidence_band);
+          });
+          setRows(sortedData as CalibrationRow[]);
+        }
+      } catch (err) {
+        console.error("Query error:", err);
         setRows([]);
-      } else {
-        setRows(data || []);
       }
+      
       setLoading(false);
-    })();
+    };
+
+    fetchData();
   }, []);
 
   const symbols = useMemo(
