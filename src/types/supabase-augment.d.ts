@@ -1,10 +1,9 @@
-// Fix duplicate Database identifier by not redeclaring it
-import type { Database } from '@/types/supabase';
+import type { Database as GenDatabase } from '@/types/supabase';
 
 declare module '@/types/supabase' {
   namespace Database {
     namespace public {
-      interface Tables extends Database['public']['Tables'] {
+      interface Tables {
         whale_signal_events: {
           Row: {
             id: string;
@@ -16,8 +15,26 @@ declare module '@/types/supabase' {
             metadata?: unknown;
             user_id?: string | null;
           };
-          Insert: Partial<Database['public']['Tables']['whale_signal_events']['Row']>;
-          Update: Partial<Database['public']['Tables']['whale_signal_events']['Row']>;
+          Insert: {
+            id?: string;
+            created_at?: string;
+            symbol: string;
+            side: string;
+            size: number;
+            source: string;
+            metadata?: unknown;
+            user_id?: string | null;
+          };
+          Update: {
+            id?: string;
+            created_at?: string;
+            symbol?: string;
+            side?: string;
+            size?: number;
+            source?: string;
+            metadata?: unknown;
+            user_id?: string | null;
+          };
           Relationships: [];
         };
       }

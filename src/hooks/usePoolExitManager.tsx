@@ -22,6 +22,7 @@ import {
   roundToTick
 } from '@/utils/poolManager';
 import { supabase } from '@/integrations/supabase/client';
+import { StrategyData, normalizeStrategy } from '@/types/strategy';
 
 interface PoolExitManagerProps {
   isEnabled: boolean;
@@ -98,7 +99,12 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
         return false;
       }
 
-      const unifiedConfig = (strategy.unified_config as any) || { enableUnifiedDecisions: false };
+      const unifiedConfig = {
+        enableUnifiedDecisions: false,
+        minHoldPeriodMs: 300000,
+        cooldownBetweenOppositeActionsMs: 180000,
+        confidenceOverrideThreshold: 0.7,
+      };
 
       if ((unifiedConfig as any)?.enableUnifiedDecisions) {
         // NEW: Emit intent to coordinator
@@ -415,18 +421,21 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
 
     try {
       // Get all active strategies for the user
-      const { data: strategies, error: strategiesError } = await supabase
+      const { data: strategyRows, error: strategiesError } = await supabase
         .from('trading_strategies')
-        .select('id, configuration')
+        .select('id, configuration, is_active, is_test_mode')
         .eq('user_id', user.id)
-        .eq('is_active_test', true);
+        .eq('is_active', true);
 
       if (strategiesError) {
         console.error('❌ POOL_MANAGER: Error fetching strategies:', strategiesError);
         return;
       }
 
-      for (const strategy of strategies || []) {
+      const strategies: StrategyData[] = (strategyRows || []).map(normalizeStrategy);
+      const activeTestStrategies = strategies.filter(s => s.is_active_test);
+
+      for (const strategy of activeTestStrategies || []) {
         const config = strategy.configuration as any;
         const poolConfig = config?.poolExitConfig;
         

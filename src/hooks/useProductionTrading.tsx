@@ -221,7 +221,7 @@ export const useProductionTrading = () => {
 
       // Check if connection has required API keys for live trading
       const connection = connections[0];
-      if (!connection.api_identifier_encrypted || !connection.api_private_key_encrypted) {
+      if (!((connection as any).api_identifier_encrypted ?? connection.api_name_encrypted) || !connection.api_private_key_encrypted) {
         toast({
           title: "API Keys Required",
           description: "Your Coinbase connection needs API keys for live trading",

@@ -3,6 +3,8 @@ import { useTestMode } from './useTestMode';
 import { useAuth } from './useAuth';
 import { useMockWallet } from './useMockWallet';
 import { supabase } from '@/integrations/supabase/client';
+import { fromTable } from '@/utils/supa';
+import { StrategyData, normalizeStrategy } from '@/types/strategy';
 import { Toast } from '@/ui/ToastService';
 import { useRealTimeMarketData } from './useRealTimeMarketData';
 import { usePoolExitManager } from './usePoolExitManager';
@@ -106,14 +108,22 @@ export const useIntelligentTradingEngine = () => {
       engineLog('INTELLIGENT_ENGINE: Starting comprehensive strategy check');
       
       // Fetch active strategies
-      const { data: strategies, error } = await supabase
+      const { data: strategyRows, error } = await supabase
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
-        .eq('is_active_test', true);
+        .eq('is_active', true);
 
-      if (error || !strategies?.length) {
+      if (error || !strategyRows?.length) {
         engineLog('ENGINE: No active strategies found:', error);
+        return;
+      }
+
+      const strategies: StrategyData[] = (strategyRows || []).map(normalizeStrategy);
+      const activeTestStrategies = strategies.filter(s => s.is_active_test);
+
+      if (!activeTestStrategies?.length) {
+        engineLog('ENGINE: No active test strategies found');
         return;
       }
 
@@ -132,7 +142,7 @@ export const useIntelligentTradingEngine = () => {
       const currentMarketData = Object.keys(marketData).length > 0 ? marketData : await getCurrentData(symbolsToFetch);
       
       // Process each strategy with comprehensive logic
-      for (const strategy of strategies) {
+      for (const strategy of activeTestStrategies) {
         await processStrategyComprehensively(strategy, currentMarketData);
       }
     } catch (error) {
@@ -1074,21 +1084,37 @@ export const useIntelligentTradingEngine = () => {
     try {
       const cryptoSymbol = symbol.split('-')[0];
       
+      type WhaleSignalEvent = {
+        id: string;
+        created_at: string;
+        symbol: string;
+        side: string;
+        size?: number;
+        source?: string;
+        event_type?: string;
+        timestamp?: string;
+        processed?: boolean;
+        metadata?: any;
+      };
+
       // Check for whale signals in the whale_signal_events table (this exists!)
-      const { data: whaleSignals } = await supabase
-        .from('whale_signal_events')
+      const whaleRows = await fromTable('whale_signal_events')
         .select('*')
-        .eq('token_symbol', cryptoSymbol)
-        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString())
-        .order('timestamp', { ascending: false })
+        .eq('symbol', cryptoSymbol)
+        .gte('created_at', new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString())
+        .order('created_at', { ascending: false })
         .limit(10);
 
-      // Check whale signals for symbol
+      const whaleSignals: WhaleSignalEvent[] = Array.isArray(whaleRows.data) ? whaleRows.data as any : [];
 
       if (whaleSignals?.length) {
         // Check for significant whale activity (large amounts)
-        const largeTransactions = whaleSignals.filter(signal => 
-          signal.amount > 100000 // Large whale transactions
+        function hasSize(x: any): x is { size: number } {
+          return x && typeof x.size === 'number';
+        }
+        
+        const largeTransactions = whaleSignals.filter(hasSize).filter(signal => 
+          signal.size > 100000 // Large whale transactions
         );
 
         if (largeTransactions.length > 0) {
