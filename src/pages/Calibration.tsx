@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 type CalibrationRow = {
   symbol: string;
@@ -10,7 +11,7 @@ type CalibrationRow = {
   tp_hit_rate_pct: number | null;
   sl_hit_rate_pct: number | null;
   computed_at: string;
-  strategy_id: string;
+  strategy_id: string | null;
 };
 
 export default function Calibration() {
@@ -25,28 +26,19 @@ export default function Calibration() {
       setLoading(true);
       
       try {
-        // Import supabase client dynamically to avoid type inference issues
-        const { supabase } = await import("@/integrations/supabase/client");
-        
-        // Use fetch-like approach to bypass complex types
-        const result: any = await (supabase as any)
+        const { data, error } = await (supabase as any)
           .from("calibration_metrics")
           .select("*")
-          .eq("window_days", 30);
-
-        const { data, error } = result;
+          .eq("window_days", 30)
+          .order("symbol", { ascending: true })
+          .order("horizon", { ascending: true })
+          .order("confidence_band", { ascending: true });
 
         if (error) {
           console.error("calibration_metrics error", error);
           setRows([]);
         } else {
-          // Sort manually to avoid complex query builder types
-          const sortedData = (data || []).sort((a: any, b: any) => {
-            if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
-            if (a.horizon !== b.horizon) return a.horizon.localeCompare(b.horizon);
-            return a.confidence_band.localeCompare(b.confidence_band);
-          });
-          setRows(sortedData as CalibrationRow[]);
+          setRows((data || []) as CalibrationRow[]);
         }
       } catch (err) {
         console.error("Query error:", err);
@@ -68,7 +60,7 @@ export default function Calibration() {
     [rows]
   );
   const strategies = useMemo(
-    () => ["ALL", ...Array.from(new Set(rows.map(r => r.strategy_id)))],
+    () => ["ALL", ...Array.from(new Set(rows.map(r => r.strategy_id || "Unassigned")))],
     [rows]
   );
   
@@ -84,7 +76,7 @@ export default function Calibration() {
         r =>
           (symbol === "ALL" || r.symbol === symbol) &&
           (horizon === "ALL" || r.horizon === horizon) &&
-          (strategy === "ALL" || r.strategy_id === strategy)
+          (strategy === "ALL" || (r.strategy_id || "Unassigned") === strategy)
       ),
     [rows, symbol, horizon, strategy]
   );
