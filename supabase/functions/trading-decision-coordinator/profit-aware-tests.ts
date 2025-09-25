@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Unit and Integration Tests for Profit-Aware Coordinator (Milestone 1)
 
 interface TestCase {
