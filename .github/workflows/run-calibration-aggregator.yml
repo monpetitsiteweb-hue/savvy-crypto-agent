@@ -15,4 +15,4 @@ jobs:
             -H "Content-Type: application/json" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             -d '{}' \
-            https://fuieplftlcxdfkxyqzlt.supabase.co/calibration-aggregator?scheduled=true
+            https://fuieplftlcxdfkxyqzlt.functions.supabase.co/calibration-aggregator?scheduled=true
