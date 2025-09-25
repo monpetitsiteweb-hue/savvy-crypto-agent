@@ -6,85 +6,79 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
 };
 
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL') ?? '',
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-);
-
 serve(async (req) => {
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { 
+      status: 204,
+      headers: corsHeaders 
+    });
   }
 
   try {
-    console.log('=== Calibration Aggregator Started ===');
-    const body = await req.json().catch(() => ({}));
+    // Initialize Supabase client with service role for writes
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     
-    // Use the already-parsed body for scheduled detection
-    const isScheduled = body?.scheduled === true;
-    const hdrSecret = req.headers.get('x-cron-secret') ?? '';
+    if (!supabaseUrl || !serviceRoleKey) {
+      return new Response(JSON.stringify({ error: 'Missing Supabase configuration' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
 
-    // Note: Some projects don't expose the `vault` schema via PostgREST.
-    // To avoid 500s, we fallback to the CRON_SECRET env if vault isn't reachable.
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    // --- Scheduled-call auth (dual-source: vault -> env) ---
+    // Parse input - check both URL params and body for scheduled flag
+    const url = new URL(req.url);
+    const isScheduledFromQuery = url.searchParams.get('scheduled') === 'true';
+    const body = await req.json().catch(() => ({}));
+    const isScheduledFromBody = body?.scheduled === true;
+    const isScheduled = isScheduledFromQuery || isScheduledFromBody;
+
+    // Security: Validate cron secret for scheduled calls
     if (isScheduled) {
-      let expected = '';
-
-      // 1) Try vault (preferred)
-      const { data: secretRow, error: vaultErr } = await supabase
-        .from('vault.decrypted_secrets') // schema-qualified; may fail if schema not exposed by PostgREST
-        .select('decrypted_secret')
-        .eq('name', 'CRON_SECRET')
-        .maybeSingle();
-
-      if (secretRow?.decrypted_secret) {
-        expected = secretRow.decrypted_secret;
-      } else {
-        console.warn('Vault lookup unavailable, falling back to env CRON_SECRET', vaultErr?.message ?? '');
-      }
-
-      // 2) Fallback to env
-      if (!expected) {
-        expected = Deno.env.get('CRON_SECRET') ?? '';
-      }
-
-      // 3) If still empty, this is a server misconfig (no secret source available)
-      if (!expected) {
-        console.error('No cron secret available (vault+env both unavailable)');
-        return new Response(JSON.stringify({ error: 'Server misconfiguration' }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-
-      // Normalize/trim to avoid invisible mismatches
-      const headerClean = hdrSecret.trim();
-      const expectedClean = expected.trim();
-
-      // Source marker (no secret values!)
-      if (secretRow?.decrypted_secret) {
-        console.log('[calibration-aggregator] cron auth source=vault');
-      } else if (Deno.env.get('CRON_SECRET')) {
-        console.log('[calibration-aggregator] cron auth source=env');
-      } else {
-        console.log('[calibration-aggregator] cron auth source=none');
-      }
-
-      // 4) Compare header
-      if (headerClean !== expectedClean) {
-        console.error('Invalid or missing cron secret');
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      const cronSecret = Deno.env.get('CRON_SECRET');
+      const headerSecret = req.headers.get('x-cron-secret');
+      
+      if (!cronSecret || headerSecret !== cronSecret) {
+        return new Response(JSON.stringify({ error: 'Unauthorized (cron secret mismatch)' }), {
           status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
     }
-    // --- end scheduled auth block ---
 
-    // Define symbol universe, horizons and confidence bands
-    const symbolUniverse = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR'];
-    const horizons = ['1h', '4h', '24h'];
+    console.log('=== Calibration Aggregator Started ===');
+    console.log(`Scheduled: ${isScheduled}`);
+
+    // Query last 30 days from decision_outcomes
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const { data: outcomes, error: outcomesError } = await supabase
+      .from('decision_outcomes')
+      .select(`
+        user_id,
+        symbol,
+        horizon,
+        realized_pnl_pct,
+        hit_tp,
+        hit_sl,
+        decision_events!inner(
+          strategy_id,
+          confidence,
+          decision_ts
+        )
+      `)
+      .gte('decision_events.decision_ts', thirtyDaysAgo.toISOString())
+      .order('decision_events.decision_ts', { ascending: false });
+
+    if (outcomesError) {
+      throw new Error(`Failed to fetch decision outcomes: ${outcomesError.message}`);
+    }
+
+    // Define confidence bands
     const confidenceBands = [
       { min: 0.50, max: 0.60, label: '[0.50-0.60)' },
       { min: 0.60, max: 0.70, label: '[0.60-0.70)' },
@@ -93,235 +87,141 @@ serve(async (req) => {
       { min: 0.90, max: 1.00, label: '[0.90-1.00]' }
     ];
 
-    // Determine which symbols to process
-    const symbolsToProcess = isScheduled ? symbolUniverse : (body?.symbols || symbolUniverse);
-    console.log(`Processing symbols: ${symbolsToProcess.join(', ')}`);
-    console.log(`Processing horizons: ${horizons.join(', ')}`);
+    // Aggregate in memory by (user_id, strategy_id, symbol, horizon, confidence_band)
+    const aggregates = new Map<string, {
+      user_id: string;
+      strategy_id: string;
+      symbol: string;
+      horizon: string;
+      confidence_band: string;
+      outcomes: any[];
+    }>();
 
-    // Calculate 30-day window
-    const windowStart = new Date();
-    windowStart.setDate(windowStart.getDate() - 30);
-    const windowEnd = new Date();
-    const timeWindow = '30d';
+    for (const outcome of outcomes || []) {
+      // Get confidence from joined decision_events
+      const confidence = outcome.decision_events?.confidence;
+      if (!confidence) continue;
 
-    console.log(`Computing calibration metrics for window: ${windowStart.toISOString()} to ${windowEnd.toISOString()}`);
+      // Find the appropriate confidence band
+      const band = confidenceBands.find(b => confidence >= b.min && confidence < b.max);
+      if (!band) continue;
 
-    let totalProcessed = 0;
-    let totalUpserted = 0;
-    const symbolHorizonMetrics = new Map<string, { processed: number, upserted: number }>();
+      // Create aggregate key
+      const key = `${outcome.user_id}-${outcome.decision_events.strategy_id}-${outcome.symbol}-${outcome.horizon}-${band.label}`;
+      
+      if (!aggregates.has(key)) {
+        aggregates.set(key, {
+          user_id: outcome.user_id,
+          strategy_id: outcome.decision_events.strategy_id,
+          symbol: outcome.symbol,
+          horizon: outcome.horizon,
+          confidence_band: band.label,
+          outcomes: []
+        });
+      }
+      
+      aggregates.get(key)!.outcomes.push(outcome);
+    }
 
-    // Initialize tracking for all symbol-horizon combinations
-    for (const symbol of symbolsToProcess) {
-      for (const horizon of horizons) {
-        const key = `${symbol}-${horizon}`;
-        symbolHorizonMetrics.set(key, { processed: 0, upserted: 0 });
+    console.log(`Processing ${aggregates.size} aggregates from ${outcomes?.length || 0} outcomes`);
+
+    // Calculate metrics and prepare upserts
+    const metricsToUpsert = [];
+    const now = new Date();
+
+    for (const [key, aggregate] of aggregates) {
+      const { outcomes: groupOutcomes } = aggregate;
+      
+      // Sample count
+      const sampleCount = groupOutcomes.length;
+      
+      // Filter out non-finite PnL values (guardrail)
+      const validPnlOutcomes = groupOutcomes.filter(o => 
+        o.realized_pnl_pct != null && 
+        Number.isFinite(o.realized_pnl_pct)
+      );
+      
+      // Win rate calculation (clamp to [0,1] before converting to percent)
+      const winningOutcomes = validPnlOutcomes.filter(o => o.realized_pnl_pct > 0);
+      const winRateRatio = sampleCount > 0 ? winningOutcomes.length / sampleCount : 0;
+      const winRatePct = Math.round(Math.max(0, Math.min(1, winRateRatio)) * 100 * 100) / 100; // Clamp and round to 2 decimals
+      
+      // Mean realized PnL calculation (2 decimals)
+      const meanPnlPct = validPnlOutcomes.length > 0 
+        ? validPnlOutcomes.reduce((sum, o) => sum + o.realized_pnl_pct, 0) / validPnlOutcomes.length
+        : 0;
+      const meanRealizedPnlPct = Math.round(meanPnlPct * 100) / 100;
+      
+      // TP hit rate calculation (clamp to [0,1] before converting to percent)
+      const tpHits = groupOutcomes.filter(o => o.hit_tp === true).length;
+      const tpHitRateRatio = sampleCount > 0 ? tpHits / sampleCount : 0;
+      const tpHitRatePct = Math.round(Math.max(0, Math.min(1, tpHitRateRatio)) * 100 * 100) / 100;
+      
+      // SL hit rate calculation (clamp to [0,1] before converting to percent)
+      const slHits = groupOutcomes.filter(o => o.hit_sl === true).length;
+      const slHitRateRatio = sampleCount > 0 ? slHits / sampleCount : 0;
+      const slHitRatePct = Math.round(Math.max(0, Math.min(1, slHitRateRatio)) * 100 * 100) / 100;
+
+      metricsToUpsert.push({
+        user_id: aggregate.user_id,
+        strategy_id: aggregate.strategy_id,
+        symbol: aggregate.symbol,
+        horizon: aggregate.horizon,
+        confidence_band: aggregate.confidence_band,
+        time_window: '30d',
+        window_start_ts: thirtyDaysAgo.toISOString(),
+        window_end_ts: now.toISOString(),
+        sample_count: sampleCount,
+        win_rate_pct: winRatePct,
+        mean_realized_pnl_pct: meanRealizedPnlPct,
+        tp_hit_rate_pct: tpHitRatePct,
+        sl_hit_rate_pct: slHitRatePct,
+        computed_at: now.toISOString(),
+        // Set defaults for other fields
+        coverage_pct: 0,
+        median_realized_pnl_pct: null,
+        median_mfe_pct: null,
+        median_mae_pct: null,
+        missed_opportunity_pct: 0,
+        mean_expectation_error_pct: null,
+        reliability_correlation: null,
+        volatility_regime: null
+      });
+    }
+
+    // Upsert all metrics
+    if (metricsToUpsert.length > 0) {
+      const { error: upsertError } = await supabase
+        .from('calibration_metrics')
+        .upsert(metricsToUpsert, {
+          onConflict: 'user_id,strategy_id,symbol,horizon,confidence_band,time_window',
+          ignoreDuplicates: false
+        });
+
+      if (upsertError) {
+        throw new Error(`Failed to upsert calibration metrics: ${upsertError.message}`);
       }
     }
 
-    // Get all users with strategies, filtering out null user_id values
-    const { data: users, error: usersError } = await supabase
-      .from('trading_strategies')
-      .select('user_id')
-      .not('user_id', 'is', null);
-
-    if (usersError) {
-      throw new Error(`Error fetching users: ${usersError.message}`);
-    }
-
-    // Filter out invalid UUIDs and "null" strings
-    const isValidUUID = (uuid: string): boolean => {
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      return typeof uuid === 'string' && uuid !== 'null' && uuidRegex.test(uuid);
-    };
-
-    const allUserIds = users?.map(u => u.user_id).filter(Boolean) || [];
-    const uniqueUsers = [...new Set(allUserIds)].filter(isValidUUID);
-    console.log(`Processing ${uniqueUsers.length} valid users (filtered from ${allUserIds.length} total)`);
-
-    for (const userId of uniqueUsers) {
-      // Additional safety check for valid UUID
-      if (!userId || typeof userId !== 'string' || userId === 'null') {
-        console.warn(`Skipping invalid user_id: ${userId}`);
-        continue;
-      }
-
-      console.log(`Processing user: ${userId}`);
-
-      // Get user's strategies
-      const { data: strategies, error: strategiesError } = await supabase
-        .from('trading_strategies')
-        .select('id')
-        .eq('user_id', userId);
-
-      if (strategiesError) {
-        console.error(`Error fetching strategies for user ${userId}:`, strategiesError);
-        continue;
-      }
-
-      for (const strategy of strategies || []) {
-        console.log(`Processing strategy: ${strategy.id}`);
-
-        // Get decision outcomes with events in the time window, filtered by symbol
-        const { data: outcomes, error: outcomesError } = await supabase
-          .from('decision_outcomes')
-          .select(`
-            *,
-            decision_events!inner(
-              confidence,
-              strategy_id,
-              decision_ts,
-              symbol
-            )
-          `)
-          .eq('user_id', userId)
-          .eq('decision_events.strategy_id', strategy.id)
-          .gte('decision_events.decision_ts', windowStart.toISOString())
-          .lte('decision_events.decision_ts', windowEnd.toISOString())
-          .in('symbol', symbolsToProcess);
-
-        if (outcomesError) {
-          console.error(`Error fetching outcomes for strategy ${strategy.id}:`, outcomesError);
-          continue;
-        }
-
-        // Group by symbol and horizon
-        const groups = new Map<string, any[]>();
-        
-        for (const outcome of outcomes || []) {
-          const key = `${outcome.symbol}_${outcome.horizon}`;
-          if (!groups.has(key)) groups.set(key, []);
-          groups.get(key)!.push(outcome);
-        }
-
-        // Process each symbol-horizon combination
-        for (const [key, groupOutcomes] of groups) {
-          const [symbol, horizon] = key.split('_');
-          
-          console.log(`Processing ${symbol} - ${horizon}: ${groupOutcomes.length} outcomes`);
-
-          // Process each confidence band
-          for (const band of confidenceBands) {
-            const bandOutcomes = groupOutcomes.filter(o => 
-              o.decision_events.confidence >= band.min && 
-              o.decision_events.confidence < band.max
-            );
-
-            if (bandOutcomes.length === 0) continue;
-
-            // Compute metrics with data quality guards
-            const sampleCount = bandOutcomes.length;
-            const winningOutcomes = bandOutcomes.filter(o => 
-              o.realized_pnl_pct != null && !isNaN(o.realized_pnl_pct) && isFinite(o.realized_pnl_pct) && o.realized_pnl_pct > 0
-            );
-            const winRate = sampleCount > 0 ? Math.min(100, Math.max(0, (winningOutcomes.length / sampleCount * 100))) : 0;
-            
-            const validPnlOutcomes = bandOutcomes.filter(o => 
-              o.realized_pnl_pct != null && !isNaN(o.realized_pnl_pct) && isFinite(o.realized_pnl_pct)
-            );
-            const meanRealizedPnl = validPnlOutcomes.length > 0 
-              ? validPnlOutcomes.reduce((sum, o) => sum + o.realized_pnl_pct, 0) / validPnlOutcomes.length
-              : 0;
-
-            const tpHits = bandOutcomes.filter(o => o.hit_tp === true).length;
-            const tpHitRate = sampleCount > 0 ? Math.min(100, Math.max(0, (tpHits / sampleCount * 100))) : 0;
-
-            const slHits = bandOutcomes.filter(o => o.hit_sl === true).length;
-            const slHitRate = sampleCount > 0 ? Math.min(100, Math.max(0, (slHits / sampleCount * 100))) : 0;
-
-            // Prepare upsert data
-            const calibrationData = {
-              user_id: userId,
-              strategy_id: strategy.id,
-              symbol,
-              horizon,
-              time_window: timeWindow,
-              confidence_band: band.label,
-              window_start_ts: windowStart.toISOString(),
-              window_end_ts: windowEnd.toISOString(),
-              sample_count: sampleCount,
-              win_rate_pct: Math.round(Math.min(100, Math.max(0, winRate)) * 100) / 100,
-              mean_realized_pnl_pct: !isNaN(meanRealizedPnl) && isFinite(meanRealizedPnl) 
-                ? Math.round(Math.min(1000, Math.max(-1000, meanRealizedPnl)) * 100) / 100 : 0,
-              tp_hit_rate_pct: Math.round(Math.min(100, Math.max(0, tpHitRate)) * 100) / 100,
-              sl_hit_rate_pct: Math.round(Math.min(100, Math.max(0, slHitRate)) * 100) / 100,
-              // Set other fields to defaults for MVP
-              coverage_pct: 0,
-              median_realized_pnl_pct: null,
-              median_mfe_pct: null,
-              median_mae_pct: null,
-              missed_opportunity_pct: 0,
-              mean_expectation_error_pct: null,
-              reliability_correlation: null,
-              volatility_regime: null,
-              computed_at: new Date().toISOString()
-            };
-
-            // Upsert into calibration_metrics
-            const { data: upsertResult, error: upsertError } = await supabase
-              .from('calibration_metrics')
-              .upsert(calibrationData, {
-                onConflict: 'user_id,strategy_id,symbol,horizon,time_window,confidence_band',
-                ignoreDuplicates: false
-              });
-
-            if (upsertError) {
-              console.error(`Error upserting calibration metric:`, upsertError);
-            } else {
-              const metricKey = `${symbol}-${horizon}`;
-              const currentMetrics = symbolHorizonMetrics.get(metricKey) || { processed: 0, upserted: 0 };
-              currentMetrics.upserted++;
-              symbolHorizonMetrics.set(metricKey, currentMetrics);
-              
-              totalUpserted++;
-              console.log(`✅ Upserted metric for ${symbol}-${horizon}-${band.label}: ${sampleCount} samples, ${winRate.toFixed(1)}% win rate`);
-            }
-
-            const metricKey = `${symbol}-${horizon}`;
-            const currentMetrics = symbolHorizonMetrics.get(metricKey) || { processed: 0, upserted: 0 };
-            currentMetrics.processed++;
-            symbolHorizonMetrics.set(metricKey, currentMetrics);
-            totalProcessed++;
-          }
-        }
-      }
-    }
-
-    // Log per-symbol/horizon metrics
-    console.log('\n=== Per-Symbol/Horizon Metrics ===');
-    for (const [key, metrics] of symbolHorizonMetrics) {
-      console.log(`${key}: ${metrics.processed} processed, ${metrics.upserted} upserted`);
-    }
-
-    const summary = {
-      success: true,
-      window: `${windowStart.toISOString()} to ${windowEnd.toISOString()}`,
-      symbols_processed: symbolsToProcess,
-      horizons_processed: horizons,
-      users_processed: uniqueUsers.length,
-      metrics_processed: totalProcessed,
-      metrics_upserted: totalUpserted,
-      per_symbol_horizon: Object.fromEntries(symbolHorizonMetrics),
-      computed_at: new Date().toISOString()
-    };
-
+    console.log(`✅ Upserted ${metricsToUpsert.length} calibration metrics`);
     console.log('=== Calibration Aggregation Complete ===');
-    console.log(JSON.stringify(summary, null, 2));
 
-    return new Response(JSON.stringify(summary), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    // Return success response
+    return new Response(JSON.stringify({ 
+      ok: true, 
+      scheduled: isScheduled 
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
     console.error('Error in calibration aggregator:', error);
-    return new Response(
-      JSON.stringify({ 
-        error: error.message,
-        timestamp: new Date().toISOString()
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
+    return new Response(JSON.stringify({ 
+      error: error.message 
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 });
