@@ -1,0 +1,18 @@
+name: Run Calibration Aggregator
+
+on:
+  schedule:
+    - cron: '17 2 * * *'  # 02:17 UTC daily
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  run-aggregator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Calibration Aggregator
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -d '{}' \
+            https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/calibration-aggregator?scheduled=true
