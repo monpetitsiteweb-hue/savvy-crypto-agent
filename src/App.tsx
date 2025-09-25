@@ -11,6 +11,7 @@ import AdminPage from "./pages/AdminPage";
 import ProfilePage from "./pages/ProfilePage";
 import ValidationPage from "./pages/ValidationPage";
 import { DevLearningPage } from "./pages/DevLearningPage";
+import Calibration from "./pages/Calibration";
 import NotFound from "./pages/NotFound";
 
 // Step 5: Parent key scanner (prod-safe, default OFF)
@@ -49,6 +50,7 @@ function AppInternal() {
                     <Route path="/admin" element={<AdminPage />} />
                     <Route path="/profile" element={<ProfilePage />} />
                     <Route path="/validation" element={<ValidationPage />} />
+                    <Route path="/calibration" element={<Calibration />} />
                     <Route path="/dev/learning" element={<DevLearningPage />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>

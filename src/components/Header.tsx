@@ -136,6 +136,15 @@ export const Header = () => {
                 <Button 
                   variant="outline"
                   size="sm"
+                  onClick={() => navigate('/calibration')}
+                  className="text-slate-300 hover:text-white border-slate-600"
+                >
+                  Calibration
+                </Button>
+
+                <Button 
+                  variant="outline"
+                  size="sm"
                   onClick={() => navigate('/dev/learning')}
                   className="text-slate-300 hover:text-white border-slate-600"
                 >
@@ -296,6 +305,18 @@ export const Header = () => {
                     }}
                   >
                     {location.pathname === '/admin' ? 'Dashboard' : 'Admin'}
+                  </Button>
+
+                  <Button 
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigate('/calibration');
+                      setShowMobileMenu(false);
+                    }}
+                    className="w-full text-slate-300 hover:text-white border-slate-600"
+                  >
+                    Calibration
                   </Button>
 
                   <Button 
