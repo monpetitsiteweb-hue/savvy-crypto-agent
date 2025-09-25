@@ -401,6 +401,26 @@ serve(async (req) => {
       }
     }
 
+    // PHASE 3.1: PRE-EXECUTION CIRCUIT BREAKER GATE
+    const breakerCheck = await checkCircuitBreakers(supabaseClient, intent);
+    if (breakerCheck.blocked) {
+      console.log(`🚫 COORDINATOR: Blocked by circuit breaker - ${breakerCheck.reason}`);
+      const guardReport = { circuitBreakerActive: true };
+      console.log('[coordinator] defer', guardReport);
+      
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_circuit_breaker', unifiedConfig, requestId, { breaker_types: breakerCheck.breaker_types });
+      return new Response(JSON.stringify({
+        ok: true,
+        decision: { 
+          action: 'DEFER', 
+          reason: `Guards tripped: circuitBreakerActive - ${breakerCheck.reason}`
+        }
+      }), { 
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     // Unified Decisions ON - Use conflict detection approach
     console.log('🎯 UD_MODE=ON → CONFLICT DETECTION: checking for holds and conflicts');
     
@@ -1197,6 +1217,14 @@ async function executeWithMinimalLock(
       return { action: 'DEFER', reason: 'spread_too_wide', request_id: requestId, retry_in_ms: 0 };
     }
     
+    // PHASE 3.1: PRE-EXECUTION CIRCUIT BREAKER GATE
+    const breakerCheck = await checkCircuitBreakers(supabaseClient, intent);
+    if (breakerCheck.blocked) {
+      console.log(`🚫 COORDINATOR: Blocked by circuit breaker - ${breakerCheck.reason}`);
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_circuit_breaker', config, requestId, { breaker_types: breakerCheck.breaker_types });
+      return { action: 'DEFER', reason: 'blocked_by_circuit_breaker', request_id: requestId, retry_in_ms: 0 };
+    }
+    
     // PHASE 1: TP DETECTION - Check if position reached take-profit threshold
     let tpEvaluation = null;
     try {
@@ -1282,11 +1310,18 @@ async function executeWithMinimalLock(
     lockAcquired = true;
     console.log(`🔒 COORDINATOR: Minimal lock acquired - executing atomic section`);
 
+    // PHASE 3.1: Capture decision timestamp for latency tracking
+    const decision_at = new Date().toISOString();
+
     // ATOMIC SECTION: Execute trade with real price data
-    const executionResult = await executeTradeOrder(supabaseClient, intent, strategyConfig, requestId, priceData);
+    const executionResult = await executeTradeOrder(supabaseClient, intent, strategyConfig, requestId, priceData, decision_at);
     
     if (executionResult.success) {
       console.log(`🎯 UD_MODE=ON → EXECUTE: action=${intent.side} symbol=${intent.symbol} lock=OK`);
+      
+      // PHASE 3.1: Post-execution quality logging and breaker evaluation
+      await logExecutionQuality(supabaseClient, intent, executionResult, decision_at, priceData);
+      await evaluateCircuitBreakers(supabaseClient, intent);
       
       // Log ENTER/EXIT on successful execution with trade_id
       await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined, executionResult.tradeId);
@@ -1344,8 +1379,9 @@ async function executeTradeOrder(
   intent: TradeIntent,
   strategyConfig: any,
   requestId: string,
-  priceData?: { price: number; tickAgeMs: number; spreadBps: number }
-): Promise<{ success: boolean; error?: string; qty?: number; tradeId?: string }> {
+  priceData?: { price: number; tickAgeMs: number; spreadBps: number },
+  decision_at?: string
+): Promise<{ success: boolean; error?: string; qty?: number; tradeId?: string; executed_at?: string; decision_price?: number; executed_price?: number; partial_fill?: boolean }> {
   
   try {
     const baseSymbol = toBaseSymbol(intent.symbol); // Define at top to avoid scope issues
@@ -1513,6 +1549,14 @@ async function executeTradeOrder(
       }
     }
 
+    // PHASE 3.1: Capture execution timestamp and compute metrics
+    const executed_at = new Date().toISOString();
+    const execution_latency_ms = decision_at ? new Date(executed_at).getTime() - new Date(decision_at).getTime() : null;
+    const decision_price = priceData?.price || realMarketPrice;
+    const executed_price = realMarketPrice;
+    const slippage_bps = ((executed_price - decision_price) / decision_price) * 10000;
+    const partial_fill = false; // Mock trades are always full fills
+    
     // Execute trade - store base symbol only
     const mockTrade = {
       user_id: intent.userId,
@@ -1522,10 +1566,14 @@ async function executeTradeOrder(
       amount: qty,
       price: realMarketPrice,
       total_value: totalValue,
-      executed_at: new Date().toISOString(),
+      executed_at,
       is_test_mode: true,
       notes: `Coordinator: UD=ON`,
       strategy_trigger: intent.source === 'coordinator_tp' ? `coord_tp|req:${requestId}` : `coord_${intent.source}|req:${requestId}`,
+      // PHASE 3.1: Add execution quality quick fields
+      execution_latency_ms,
+      slippage_bps,
+      partial_fill,
       ...fifoFields
     };
 
@@ -1548,15 +1596,354 @@ async function executeTradeOrder(
       amount: mockTrade.amount,
       price: mockTrade.price,
       total_value: mockTrade.total_value,
+      execution_latency_ms,
+      slippage_bps,
+      partial_fill,
       fifo_fields: fifoFields
     }, null, 2));
 
     console.log('✅ COORDINATOR: Trade executed successfully');
-    return { success: true, qty, tradeId: insertResult?.[0]?.id };
+    return { 
+      success: true, 
+      qty, 
+      tradeId: insertResult?.[0]?.id,
+      executed_at,
+      decision_price,
+      executed_price,
+      partial_fill
+    };
 
   } catch (error) {
     console.error('❌ COORDINATOR: Trade execution error:', error.message);
     return { success: false, error: error.message };
+  }
+}
+
+// ============= PHASE 3.1: EXECUTION QUALITY & CIRCUIT BREAKERS =============
+
+// Check circuit breakers before execution
+async function checkCircuitBreakers(
+  supabaseClient: any,
+  intent: TradeIntent
+): Promise<{ blocked: boolean; reason?: string; breaker_types?: string[] }> {
+  try {
+    const { data: breakers } = await supabaseClient
+      .from('execution_circuit_breakers')
+      .select('breaker_type, threshold_value')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)
+      .eq('symbol', toBaseSymbol(intent.symbol))
+      .eq('is_active', true);
+
+    if (breakers && breakers.length > 0) {
+      const breaker_types = breakers.map((b: any) => b.breaker_type);
+      return {
+        blocked: true,
+        reason: `Active breakers: ${breaker_types.join(', ')}`,
+        breaker_types
+      };
+    }
+
+    return { blocked: false };
+  } catch (error) {
+    console.error('❌ BREAKER CHECK: Error checking circuit breakers:', error);
+    return { blocked: false }; // Fail open to avoid blocking all trades
+  }
+}
+
+// Log execution quality metrics
+async function logExecutionQuality(
+  supabaseClient: any,
+  intent: TradeIntent,
+  executionResult: any,
+  decision_at: string,
+  priceData: any
+): Promise<void> {
+  try {
+    const executed_at = executionResult.executed_at || new Date().toISOString();
+    const execution_latency_ms = new Date(executed_at).getTime() - new Date(decision_at).getTime();
+    const decision_price = priceData?.price || executionResult.decision_price;
+    const executed_price = executionResult.executed_price;
+    const slippage_bps = ((executed_price - decision_price) / decision_price) * 10000;
+    const decision_qty = intent.qtySuggested || 0;
+    const executed_qty = executionResult.qty || 0;
+    const partial_fill = executed_qty < decision_qty;
+    
+    // Optional context fields - best effort
+    const spread_bps = priceData?.spread || null;
+    const market_depth = null; // Could be enhanced later
+    const volatility_regime = null; // Could be enhanced later
+
+    const qualityLog = {
+      user_id: intent.userId,
+      strategy_id: intent.strategyId,
+      symbol: toBaseSymbol(intent.symbol),
+      side: intent.side.toLowerCase(),
+      decision_at,
+      executed_at,
+      execution_latency_ms,
+      decision_price,
+      executed_price,
+      decision_qty,
+      executed_qty,
+      partial_fill,
+      slippage_bps,
+      spread_bps,
+      market_depth,
+      volatility_regime,
+      trade_id: executionResult.tradeId
+    };
+
+    await supabaseClient.from('execution_quality_log').insert([qualityLog]);
+    console.log('📊 EXECUTION QUALITY: Logged execution metrics', {
+      symbol: qualityLog.symbol,
+      side: qualityLog.side,
+      slippage_bps: qualityLog.slippage_bps,
+      execution_latency_ms: qualityLog.execution_latency_ms,
+      partial_fill: qualityLog.partial_fill
+    });
+  } catch (error) {
+    console.error('❌ EXECUTION QUALITY: Failed to log metrics:', error);
+  }
+}
+
+// Evaluate circuit breaker conditions and trip if needed
+async function evaluateCircuitBreakers(
+  supabaseClient: any,
+  intent: TradeIntent
+): Promise<void> {
+  try {
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    const windowStart = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 minutes ago
+    
+    // Get recent execution quality logs for this {user, strategy, symbol}
+    const { data: recentLogs } = await supabaseClient
+      .from('execution_quality_log')
+      .select('slippage_bps, partial_fill, executed_at')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)
+      .eq('symbol', baseSymbol)
+      .gte('executed_at', windowStart)
+      .order('executed_at', { ascending: false });
+
+    if (!recentLogs || recentLogs.length === 0) return;
+
+    // SLIPPAGE BREAKER: avg(abs(slippage_bps)) > 50 across ≥3 fills
+    if (recentLogs.length >= 3) {
+      const avgAbsSlippage = recentLogs.reduce((sum: number, log: any) => sum + Math.abs(log.slippage_bps), 0) / recentLogs.length;
+      if (avgAbsSlippage > 50) {
+        console.log(`🚨 BREAKER TRIP: Slippage threshold exceeded (${avgAbsSlippage.toFixed(1)}bps avg)`);
+        await tripBreaker(supabaseClient, intent, 'slippage', 50, `Avg slippage ${avgAbsSlippage.toFixed(1)}bps > 50bps`);
+      }
+    }
+
+    // PARTIAL FILL BREAKER: partial_fill ratio > 0.30
+    const partialFills = recentLogs.filter((log: any) => log.partial_fill).length;
+    const partialFillRate = partialFills / recentLogs.length;
+    if (partialFillRate > 0.30) {
+      console.log(`🚨 BREAKER TRIP: Partial fill rate exceeded (${(partialFillRate * 100).toFixed(1)}%)`);
+      await tripBreaker(supabaseClient, intent, 'partial_fill_rate', 0.30, `Partial fill rate ${(partialFillRate * 100).toFixed(1)}% > 30%`);
+    }
+
+  } catch (error) {
+    console.error('❌ BREAKER EVALUATION: Error evaluating circuit breakers:', error);
+  }
+}
+
+// Trip a circuit breaker
+async function tripBreaker(
+  supabaseClient: any,
+  intent: TradeIntent,
+  breaker_type: string,
+  threshold_value: number,
+  reason: string
+): Promise<void> {
+  try {
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    
+    await supabaseClient
+      .from('execution_circuit_breakers')
+      .upsert({
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        symbol: baseSymbol,
+        breaker_type,
+        threshold_value,
+        is_active: true,
+        last_trip_at: new Date().toISOString(),
+        trip_count: supabaseClient.raw('COALESCE(trip_count, 0) + 1'),
+        trip_reason: reason
+      }, {
+        onConflict: 'user_id,strategy_id,symbol,breaker_type'
+      });
+
+    console.log(`🚨 BREAKER TRIPPED: ${breaker_type} for ${baseSymbol} - ${reason}`);
+  } catch (error) {
+    console.error('❌ BREAKER TRIP: Failed to trip breaker:', error);
+  }
+}
+
+// ============= PHASE 3.1: EXECUTION QUALITY & CIRCUIT BREAKERS =============
+
+// Check circuit breakers before execution
+async function checkCircuitBreakers(
+  supabaseClient: any,
+  intent: TradeIntent
+): Promise<{ blocked: boolean; reason?: string; breaker_types?: string[] }> {
+  try {
+    const { data: breakers } = await supabaseClient
+      .from('execution_circuit_breakers')
+      .select('breaker_type, threshold_value')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)
+      .eq('symbol', toBaseSymbol(intent.symbol))
+      .eq('is_active', true);
+
+    if (breakers && breakers.length > 0) {
+      const breaker_types = breakers.map((b: any) => b.breaker_type);
+      return {
+        blocked: true,
+        reason: `Active breakers: ${breaker_types.join(', ')}`,
+        breaker_types
+      };
+    }
+
+    return { blocked: false };
+  } catch (error) {
+    console.error('❌ BREAKER CHECK: Error checking circuit breakers:', error);
+    return { blocked: false }; // Fail open to avoid blocking all trades
+  }
+}
+
+// Log execution quality metrics
+async function logExecutionQuality(
+  supabaseClient: any,
+  intent: TradeIntent,
+  executionResult: any,
+  decision_at: string,
+  priceData: any
+): Promise<void> {
+  try {
+    const executed_at = executionResult.executed_at || new Date().toISOString();
+    const execution_latency_ms = new Date(executed_at).getTime() - new Date(decision_at).getTime();
+    const decision_price = priceData?.price || executionResult.decision_price;
+    const executed_price = executionResult.executed_price;
+    const slippage_bps = ((executed_price - decision_price) / decision_price) * 10000;
+    const decision_qty = intent.qtySuggested || 0;
+    const executed_qty = executionResult.qty || 0;
+    const partial_fill = executed_qty < decision_qty;
+    
+    // Optional context fields - best effort
+    const spread_bps = priceData?.spreadBps || null;
+    const market_depth = null; // Could be enhanced later
+    const volatility_regime = null; // Could be enhanced later
+
+    const qualityLog = {
+      user_id: intent.userId,
+      strategy_id: intent.strategyId,
+      symbol: toBaseSymbol(intent.symbol),
+      side: intent.side.toLowerCase(),
+      decision_at,
+      executed_at,
+      execution_latency_ms,
+      decision_price,
+      executed_price,
+      decision_qty,
+      executed_qty,
+      partial_fill,
+      slippage_bps,
+      spread_bps,
+      market_depth,
+      volatility_regime,
+      trade_id: executionResult.tradeId
+    };
+
+    await supabaseClient.from('execution_quality_log').insert([qualityLog]);
+    console.log('📊 EXECUTION QUALITY: Logged execution metrics', {
+      symbol: qualityLog.symbol,
+      side: qualityLog.side,
+      slippage_bps: qualityLog.slippage_bps,
+      execution_latency_ms: qualityLog.execution_latency_ms,
+      partial_fill: qualityLog.partial_fill
+    });
+  } catch (error) {
+    console.error('❌ EXECUTION QUALITY: Failed to log metrics:', error);
+  }
+}
+
+// Evaluate circuit breaker conditions and trip if needed
+async function evaluateCircuitBreakers(
+  supabaseClient: any,
+  intent: TradeIntent
+): Promise<void> {
+  try {
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    const windowStart = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 minutes ago
+    
+    // Get recent execution quality logs for this {user, strategy, symbol}
+    const { data: recentLogs } = await supabaseClient
+      .from('execution_quality_log')
+      .select('slippage_bps, partial_fill, executed_at')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)
+      .eq('symbol', baseSymbol)
+      .gte('executed_at', windowStart)
+      .order('executed_at', { ascending: false });
+
+    if (!recentLogs || recentLogs.length === 0) return;
+
+    // SLIPPAGE BREAKER: avg(abs(slippage_bps)) > 50 across ≥3 fills
+    if (recentLogs.length >= 3) {
+      const avgAbsSlippage = recentLogs.reduce((sum: number, log: any) => sum + Math.abs(log.slippage_bps), 0) / recentLogs.length;
+      if (avgAbsSlippage > 50) {
+        console.log(`🚨 BREAKER TRIP: Slippage threshold exceeded (${avgAbsSlippage.toFixed(1)}bps avg)`);
+        await tripBreaker(supabaseClient, intent, 'slippage', 50, `Avg slippage ${avgAbsSlippage.toFixed(1)}bps > 50bps`);
+      }
+    }
+
+    // PARTIAL FILL BREAKER: partial_fill ratio > 0.30
+    const partialFills = recentLogs.filter((log: any) => log.partial_fill).length;
+    const partialFillRate = partialFills / recentLogs.length;
+    if (partialFillRate > 0.30) {
+      console.log(`🚨 BREAKER TRIP: Partial fill rate exceeded (${(partialFillRate * 100).toFixed(1)}%)`);
+      await tripBreaker(supabaseClient, intent, 'partial_fill_rate', 0.30, `Partial fill rate ${(partialFillRate * 100).toFixed(1)}% > 30%`);
+    }
+
+  } catch (error) {
+    console.error('❌ BREAKER EVALUATION: Error evaluating circuit breakers:', error);
+  }
+}
+
+// Trip a circuit breaker
+async function tripBreaker(
+  supabaseClient: any,
+  intent: TradeIntent,
+  breaker_type: string,
+  threshold_value: number,
+  reason: string
+): Promise<void> {
+  try {
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    
+    await supabaseClient
+      .from('execution_circuit_breakers')
+      .upsert({
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        symbol: baseSymbol,
+        breaker_type,
+        threshold_value,
+        is_active: true,
+        last_trip_at: new Date().toISOString(),
+        trip_count: supabaseClient.raw('COALESCE(trip_count, 0) + 1'),
+        trip_reason: reason
+      }, {
+        onConflict: 'user_id,strategy_id,symbol,breaker_type'
+      });
+
+    console.log(`🚨 BREAKER TRIPPED: ${breaker_type} for ${baseSymbol} - ${reason}`);
+  } catch (error) {
+    console.error('❌ BREAKER TRIP: Failed to trip breaker:', error);
   }
 }
 
