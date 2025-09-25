@@ -52,30 +52,65 @@ serve(async (req) => {
     console.log('=== Calibration Aggregator Started ===');
     console.log(`Scheduled: ${isScheduled}`);
 
-    // Query last 30 days from decision_outcomes directly
+    // Query last 30 days from decision_outcomes
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const { data: outcomes, error: outcomesError } = await supabase
       .from('decision_outcomes')
-      .select('user_id, strategy_id, symbol, horizon, confidence_band, realized_pnl_pct, hit_tp, hit_sl, decision_ts')
-      .gte('decision_ts', thirtyDaysAgo.toISOString())
-      .order('decision_ts', { ascending: false });
+      .select('decision_id, user_id, symbol, horizon, realized_pnl_pct, hit_tp, hit_sl, evaluated_at')
+      .gte('evaluated_at', thirtyDaysAgo.toISOString())
+      .order('evaluated_at', { ascending: false });
 
     if (outcomesError) {
       throw new Error(`Failed to fetch decision outcomes: ${outcomesError.message}`);
     }
 
-    // Define confidence bands
-    const confidenceBands = [
-      { min: 0.50, max: 0.60, label: '[0.50-0.60)' },
-      { min: 0.60, max: 0.70, label: '[0.60-0.70)' },
-      { min: 0.70, max: 0.80, label: '[0.70-0.80)' },
-      { min: 0.80, max: 0.90, label: '[0.80-0.90)' },
-      { min: 0.90, max: 1.00, label: '[0.90-1.00]' }
-    ];
+    // Extract unique decision_ids to fetch corresponding events
+    const decisionIds = [...new Set((outcomes || []).map(o => o.decision_id).filter(Boolean))];
+    
+    if (decisionIds.length === 0) {
+      console.log('No decision outcomes found in the last 30 days');
+      return new Response(JSON.stringify({ 
+        ok: true, 
+        scheduled: isScheduled,
+        processed: 0 
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
 
-    // Aggregate in memory by (user_id, strategy_id, symbol, horizon, confidence_band)
+    // Fetch decision events for the decision_ids
+    const { data: events, error: eventsError } = await supabase
+      .from('decision_events')
+      .select('id, strategy_id, confidence')
+      .in('id', decisionIds);
+
+    if (eventsError) {
+      throw new Error(`Failed to fetch decision events: ${eventsError.message}`);
+    }
+
+    // Create a map from decision_id to event data
+    const eventMap = new Map<string, { strategy_id: string; confidence: number }>();
+    for (const event of events || []) {
+      eventMap.set(event.id, {
+        strategy_id: event.strategy_id,
+        confidence: event.confidence
+      });
+    }
+
+    // Function to map confidence to confidence band
+    const getConfidenceBand = (confidence: number): string => {
+      if (confidence >= 0.50 && confidence < 0.60) return '[0.50-0.60)';
+      if (confidence >= 0.60 && confidence < 0.70) return '[0.60-0.70)';
+      if (confidence >= 0.70 && confidence < 0.80) return '[0.70-0.80)';
+      if (confidence >= 0.80 && confidence < 0.90) return '[0.80-0.90)';
+      if (confidence >= 0.90 && confidence <= 1.00) return '[0.90-1.00]';
+      return '[0.50-0.60)'; // Default fallback
+    };
+
+    // Join outcomes with events and aggregate by (user_id, strategy_id, symbol, horizon, confidence_band)
     const aggregates = new Map<string, {
       user_id: string;
       strategy_id: string;
@@ -86,21 +121,29 @@ serve(async (req) => {
     }>();
 
     for (const outcome of outcomes || []) {
-      // Skip if missing required fields
-      if (!outcome.user_id || !outcome.strategy_id || !outcome.symbol || !outcome.horizon || !outcome.confidence_band) {
+      // Skip if missing required fields or no matching event
+      if (!outcome.user_id || !outcome.symbol || !outcome.horizon || !outcome.decision_id) {
         continue;
       }
 
+      const eventData = eventMap.get(outcome.decision_id);
+      if (!eventData || !eventData.strategy_id || eventData.confidence == null) {
+        continue;
+      }
+
+      // Map confidence to confidence band
+      const confidence_band = getConfidenceBand(eventData.confidence);
+
       // Create aggregate key
-      const key = `${outcome.user_id}-${outcome.strategy_id}-${outcome.symbol}-${outcome.horizon}-${outcome.confidence_band}`;
+      const key = `${outcome.user_id}-${eventData.strategy_id}-${outcome.symbol}-${outcome.horizon}-${confidence_band}`;
       
       if (!aggregates.has(key)) {
         aggregates.set(key, {
           user_id: outcome.user_id,
-          strategy_id: outcome.strategy_id,
+          strategy_id: eventData.strategy_id,
           symbol: outcome.symbol,
           horizon: outcome.horizon,
-          confidence_band: outcome.confidence_band,
+          confidence_band: confidence_band,
           outcomes: []
         });
       }
