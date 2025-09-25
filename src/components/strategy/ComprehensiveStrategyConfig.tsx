@@ -608,14 +608,14 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       // Deactivate any existing test strategies
       await supabase
         .from('trading_strategies')
-        .update({ is_active_test: false })
+        .update({ is_active: false })
         .eq('user_id', user.id)
         .neq('id', createdStrategyId);
 
       // Activate the new strategy in test mode
       await supabase
         .from('trading_strategies')
-        .update({ is_active_test: true })
+        .update({ is_active: true })
         .eq('id', createdStrategyId)
         .eq('user_id', user.id);
 

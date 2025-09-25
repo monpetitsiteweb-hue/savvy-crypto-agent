@@ -10,12 +10,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { logger } from '@/utils/logger';
 import { ComprehensiveStrategyConfig } from './strategy/ComprehensiveStrategyConfig';
 import { formatEuro, formatPercentage, formatDuration } from '@/utils/currencyFormatter';
-
-interface StrategyConfigProps {
-  onLayoutChange?: (isFullWidth: boolean) => void;
-}
-
-// Strategy type is now imported from @/types/strategy
+import { normalizeStrategy, StrategyData } from '@/types/strategy';
 
 interface StrategyConfigProps {
   onLayoutChange?: (isFullWidth: boolean) => void;
@@ -31,12 +26,12 @@ interface StrategyPerformance {
 export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [strategies, setStrategies] = useState<StrategyData[]>([]);
   const [currentView, setCurrentView] = useState<'list' | 'create' | 'edit' | 'comprehensive'>('list');
-  const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
+  const [selectedStrategy, setSelectedStrategy] = useState<StrategyData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showProductionActivationModal, setShowProductionActivationModal] = useState(false);
-  const [strategyToActivate, setStrategyToActivate] = useState<Strategy | null>(null);
+  const [strategyToActivate, setStrategyToActivate] = useState<StrategyData | null>(null);
   const [strategyPerformance, setStrategyPerformance] = useState<Record<string, StrategyPerformance>>({});
 
   useEffect(() => {
@@ -91,15 +86,14 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
 
       if (error) throw error;
       
-      // Filter strategies based on current view mode
+      // Filter strategies based on current view mode using is_test_mode field
       const filteredStrategies = (data || []).filter(strategy => {
-        const shouldShow = testMode ? strategy.test_mode === true : strategy.test_mode === false;
-        return shouldShow;
+        return testMode ? strategy.is_test_mode === true : strategy.is_test_mode === false;
       });
-      setStrategies(filteredStrategies);
+      setStrategies(filteredStrategies.map(normalizeStrategy));
       
       // Fetch performance data for each strategy
-      await fetchPerformanceData(filteredStrategies);
+      await fetchPerformanceData(filteredStrategies.map(normalizeStrategy));
     } catch (error) {
       logger.error('Error fetching strategies:', error);
     } finally {
@@ -107,7 +101,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     }
   };
 
-  const fetchPerformanceData = async (strategies: Strategy[]) => {
+  const fetchPerformanceData = async (strategies: StrategyData[]) => {
     if (!user || strategies.length === 0) return;
 
     try {
@@ -157,7 +151,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     }
   };
 
-  const handleStrategyToggle = (strategy: Strategy, isTest: boolean) => {
+  const handleStrategyToggle = (strategy: StrategyData, isTest: boolean) => {
     if (!isTest && !strategy.is_active_live) {
       // For Live mode activation, show production confirmation
       setStrategyToActivate(strategy);
@@ -181,7 +175,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     setStrategyToActivate(null);
   };
 
-  const toggleStrategy = async (strategy: Strategy, isTest: boolean) => {
+  const toggleStrategy = async (strategy: StrategyData, isTest: boolean) => {
     if (!user) return;
 
     try {
@@ -230,12 +224,12 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     }
   };
 
-  const handleStrategyEdit = (strategy: Strategy) => {
+  const handleStrategyEdit = (strategy: StrategyData) => {
     setSelectedStrategy(strategy);
     setCurrentView('comprehensive');
   };
 
-  const handlePushToProduction = async (strategy: Strategy) => {
+  const handlePushToProduction = async (strategy: StrategyData) => {
     if (!user) return;
 
     try {
@@ -245,10 +239,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
         strategy_name: strategy.strategy_name,
         description: strategy.description,
         configuration: strategy.configuration,
-        test_mode: false, // This marks it as production
+        is_test_mode: false, // This marks it as production
         is_active: false,
-        is_active_test: false,
-        is_active_live: false, // Not automatically activated
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -265,7 +257,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     }
   };
 
-  const handleCloneStrategy = async (strategy: Strategy) => {
+  const handleCloneStrategy = async (strategy: StrategyData) => {
     if (!user) return;
 
     try {
@@ -276,10 +268,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
           strategy_name: `${strategy.strategy_name} (Clone)`,
           description: `Clone of ${strategy.strategy_name}`,
           configuration: strategy.configuration,
-          test_mode: true,
-          is_active: false,
-          is_active_test: false,
-          is_active_live: false
+          is_test_mode: true,
+          is_active: false
         });
 
       if (error) throw error;
@@ -480,203 +470,79 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                       )}
                     </Button>
                   </div>
+                  
+                  {/* Performance indicators */}
+                  {strategyPerformance[strategy.id] && (
+                    <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div className="text-center">
+                        <div className="font-semibold text-lg">
+                          {strategyPerformance[strategy.id].totalTrades}
+                        </div>
+                        <div className="text-muted-foreground">Total Trades</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="font-semibold text-lg">
+                          {formatPercentage(strategyPerformance[strategy.id].winRate)}
+                        </div>
+                        <div className="text-muted-foreground">Win Rate</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="font-semibold text-lg">
+                          {formatDuration(strategyPerformance[strategy.id].avgDuration)}
+                        </div>
+                        <div className="text-muted-foreground">Avg Duration</div>
+                      </div>
+                      <div className="text-center">
+                        <div className={`font-semibold text-lg ${strategyPerformance[strategy.id].avgProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatEuro(strategyPerformance[strategy.id].avgProfit)}
+                        </div>
+                        <div className="text-muted-foreground">Avg P&L</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Strategy Performance Summary */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-4">
-                  <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 dark:from-blue-950 dark:to-blue-900 dark:border-blue-800">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">Risk Level</p>
-                          <p className="text-lg font-bold text-blue-900 dark:text-blue-100">
-                            {strategy.configuration?.riskProfile || 'Medium'}
-                          </p>
-                        </div>
-                        <Settings className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 dark:from-green-950 dark:to-green-900 dark:border-green-800">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-semibold text-green-700 dark:text-green-300 uppercase tracking-wide">Win Rate</p>
-                          <p className="text-lg font-bold text-green-900 dark:text-green-100">
-                            {formatPercentage(strategyPerformance[strategy.id]?.winRate)}
-                          </p>
-                        </div>
-                        <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200 dark:from-purple-950 dark:to-purple-900 dark:border-purple-800">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 uppercase tracking-wide">Total Trades</p>
-                          <p className="text-lg font-bold text-purple-900 dark:text-purple-100">
-                            {strategyPerformance[strategy.id]?.totalTrades || 0}
-                          </p>
-                        </div>
-                        <Activity className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 dark:from-orange-950 dark:to-orange-900 dark:border-orange-800">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-semibold text-orange-700 dark:text-orange-300 uppercase tracking-wide">Avg Duration</p>
-                          <p className="text-lg font-bold text-orange-900 dark:text-orange-100">
-                            {formatDuration(strategyPerformance[strategy.id]?.avgDuration)}
-                          </p>
-                        </div>
-                        <Activity className="h-5 w-5 text-orange-600 dark:text-orange-400" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200 dark:from-red-950 dark:to-red-900 dark:border-red-800">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-semibold text-red-700 dark:text-red-300 uppercase tracking-wide">Stop Loss</p>
-                          <p className="text-lg font-bold text-red-900 dark:text-red-100">
-                            {strategy.configuration?.stopLossPercentage ? `${strategy.configuration.stopLossPercentage}%` : '-'}
-                          </p>
-                        </div>
-                        <Activity className="h-5 w-5 text-red-600 dark:text-red-400" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200 dark:from-yellow-950 dark:to-yellow-900 dark:border-yellow-800">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs font-semibold text-yellow-700 dark:text-yellow-300 uppercase tracking-wide">Avg Profit</p>
-                          <p className="text-lg font-bold text-yellow-900 dark:text-yellow-100">
-                            {strategyPerformance[strategy.id]?.avgProfit !== undefined ? formatEuro(strategyPerformance[strategy.id].avgProfit) : '-'}
-                          </p>
-                        </div>
-                        <TrendingUp className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Strategy Configuration Summary */}
-                <div className="bg-muted/50 p-4 rounded-lg space-y-3">
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <span className="font-semibold text-foreground">Exposure:</span> 
-                      <span className="ml-2 text-muted-foreground">{strategy.configuration?.maxWalletExposure || 50}%</span>
-                    </div>
-                    <div>
-                      <span className="font-semibold text-foreground">Take Profit:</span> 
-                      <span className="ml-2 text-muted-foreground">{strategy.configuration?.takeProfitPercentage || 2.5}%</span>
-                    </div>
-                    <div>
-                      <span className="font-semibold text-foreground">Order Type:</span> 
-                      <span className="ml-2 text-muted-foreground">{strategy.configuration?.buyOrderType || 'Market'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Tags and Categories */}
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className="bg-primary/20 text-primary border-primary/30 font-medium">
-                    {strategy.configuration?.selectedCoins?.length || 0} Coins
-                  </Badge>
-                  <Badge variant="outline" className="bg-secondary/20 text-secondary-foreground border-secondary/30 font-medium">
-                    {strategy.configuration?.category || 'Trend'} Strategy
-                  </Badge>
-                  {strategy.configuration?.enableDCA && (
-                    <Badge variant="outline" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 border-green-300 dark:border-green-700 font-medium">
-                      DCA Enabled
-                    </Badge>
-                  )}
-                  {strategy.configuration?.enableShorting && (
-                    <Badge variant="outline" className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100 border-orange-300 dark:border-orange-700 font-medium">
-                      Shorting
-                    </Badge>
-                  )}
-                  <Badge variant="outline" className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100 border-blue-300 dark:border-blue-700 font-medium">
-                    {strategy.configuration?.tags?.join(', ') || 'Scalping, Automated'}
-                  </Badge>
-                </div>
-              </CardContent>
             </Card>
           ))}
         </div>
       )}
 
-      {/* Production Activation Confirmation Modal */}
+      {/* Production Activation Modal */}
       <AlertDialog open={showProductionActivationModal} onOpenChange={setShowProductionActivationModal}>
-        <AlertDialogContent className="bg-gradient-to-br from-card via-card/95 to-red-50/10 border-2 border-red-500/30 shadow-2xl">
-          <AlertDialogHeader className="relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-r from-red-500/10 via-transparent to-red-500/10" />
-            <AlertDialogTitle className="flex items-center gap-3 text-xl relative z-10">
-              <div className="h-10 w-10 rounded-full bg-red-500/20 flex items-center justify-center">
-                <AlertTriangle className="h-5 w-5 text-red-500" />
-              </div>
-              <span className="bg-gradient-to-r from-red-600 to-red-500 bg-clip-text text-transparent">
-                Activate Strategy in Live Trading
-              </span>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              Production Trading Warning
             </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-4 text-base relative z-10">
-              <div className="bg-red-50/80 dark:bg-red-950/50 p-4 rounded-lg border border-red-200/50 dark:border-red-800/50">
-                <p className="font-bold text-red-700 dark:text-red-300 text-lg mb-2">
-                  ⚠️ REAL MONEY TRADING WARNING
-                </p>
-                <p className="text-red-600 dark:text-red-400 font-medium">
-                  You are about to activate "{strategyToActivate?.strategy_name}" with real funds from your connected Coinbase account.
-                </p>
-              </div>
-              
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 bg-red-500 rounded-full"></div>
-                  <span>This will execute real trades with actual money</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 bg-red-500 rounded-full"></div>
-                  <span>You can incur real financial losses</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 bg-red-500 rounded-full"></div>
-                  <span>Make sure you've thoroughly tested this strategy first</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 bg-red-500 rounded-full"></div>
-                  <span>Monitor your positions actively</span>
-                </div>
-              </div>
-
-              <div className="bg-amber-50/80 dark:bg-amber-950/50 p-3 rounded-lg border border-amber-200/50 dark:border-amber-800/50">
-                <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
-                  💡 Recommendation: Only activate strategies that have performed well in Test Mode.
-                </p>
-              </div>
+            <AlertDialogDescription className="space-y-3">
+              <p className="font-bold text-red-600">
+                ⚠️ You are about to activate live trading with real money!
+              </p>
+              <p className="text-sm text-muted-foreground">
+                This strategy will start making actual trades using your connected Coinbase account.
+                Make sure you have:
+              </p>
+              <ul className="text-sm list-disc list-inside space-y-1 text-muted-foreground">
+                <li>Tested the strategy thoroughly</li>
+                <li>Set appropriate risk limits</li>
+                <li>Connected your Coinbase account</li>
+                <li>Sufficient funds in your account</li>
+              </ul>
+              <p className="text-sm font-semibold text-red-600">
+                This action cannot be undone automatically. You will need to manually deactivate the strategy to stop trading.
+              </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-3 pt-4">
-            <AlertDialogCancel 
-              onClick={handleCancelProductionActivation}
-              className="hover:bg-muted/50"
-            >
-              Cancel - Keep Safe
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCancelProductionActivation}>
+              Cancel – Keep Testing
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleProductionActivation}
-              className="bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white font-bold shadow-lg"
+              className="bg-red-600 hover:bg-red-700"
             >
-              I Understand - Activate with Real Money
+              Yes, Activate Live Trading
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

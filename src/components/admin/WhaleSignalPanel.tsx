@@ -58,15 +58,30 @@ export function WhaleSignalPanel() {
 
   const loadData = async () => {
     try {
-      // Load whale signal events
+      // Load recent trades as whale events (placeholder until whale_signal_events table exists)
       const { data: events, error: eventsError } = await supabase
-        .from('whale_signal_events')
+        .from('mock_trades')
         .select('*')
-        .order('timestamp', { ascending: false })
+        .order('executed_at', { ascending: false })
         .limit(50);
 
       if (eventsError) throw eventsError;
-      setWhaleEvents(events || []);
+      // Transform trades to whale event format for display
+      const transformedEvents = (events || []).map(trade => ({
+        id: trade.id,
+        created_at: trade.executed_at,
+        symbol: trade.cryptocurrency,
+        side: trade.trade_type,
+        size: trade.amount,
+        source: 'trading',
+        source_id: trade.strategy_id || trade.id,
+        event_type: 'trade',
+        timestamp: trade.executed_at,
+        processed: true,
+        user_id: trade.user_id,
+        metadata: { trade_data: trade }
+      }));
+      setWhaleEvents(transformedEvents);
 
       // Load whale signal data sources
       const { data: sources, error: sourcesError } = await supabase
