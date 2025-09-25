@@ -15,16 +15,10 @@ interface StrategyConfigProps {
   onLayoutChange?: (isFullWidth: boolean) => void;
 }
 
-interface Strategy {
-  id: string;
-  strategy_name: string;
-  description: string;
-  configuration: any;
-  is_active_test: boolean;
-  is_active_live: boolean;
-  test_mode: boolean;
-  created_at: string;
-  updated_at: string;
+// Strategy type is now imported from @/types/strategy
+
+interface StrategyConfigProps {
+  onLayoutChange?: (isFullWidth: boolean) => void;
 }
 
 interface StrategyPerformance {

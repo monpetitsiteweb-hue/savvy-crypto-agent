@@ -3,15 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { logger } from '@/utils/logger';
-
-interface StrategyData {
-  id: string;
-  strategy_name: string;
-  configuration: any;
-  is_active: boolean;
-  created_at: string;
-  is_test_mode: boolean;
-}
+import { normalizeStrategy, StrategyData } from '@/types/strategy';
 
 export const useActiveStrategy = () => {
   const { user } = useAuth();
@@ -44,7 +36,7 @@ export const useActiveStrategy = () => {
         logger.error('Error loading active strategy:', error);
       }
 
-      setActiveStrategy(data || null);
+      setActiveStrategy(data ? normalizeStrategy(data) : null);
     } catch (error) {
       logger.error('Error loading active strategy:', error);
       setActiveStrategy(null);

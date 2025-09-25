@@ -9,6 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDown, Eye, Zap } from 'lucide-react';
 import { logger } from '@/utils/logger';
+import { normalizeStrategy, StrategyData } from '@/types/strategy';
 
 interface DebugInfo {
   timestamp: string;
@@ -31,14 +32,6 @@ interface DecisionSnapshot {
   created_at: string;
 }
 
-interface StrategyDebugInfo {
-  id: string;
-  name: string;
-  is_active_test: boolean;
-  is_active_live: boolean;
-  created_at: string;
-}
-
 export const DebugPanel = () => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
@@ -48,6 +41,7 @@ export const DebugPanel = () => {
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [decisionSnapshots, setDecisionSnapshots] = useState<DecisionSnapshot[]>([]);
   const [showSnapshots, setShowSnapshots] = useState(false);
+  const [strategies, setStrategies] = useState<StrategyData[]>([]);
 
   const fetchDecisionSnapshots = async () => {
     if (!user) return;
@@ -78,6 +72,10 @@ export const DebugPanel = () => {
         .select('*')
         .eq('user_id', user.id);
 
+      if (allStrategies) {
+        setStrategies((allStrategies || []).map(normalizeStrategy));
+      }
+
       // Test AI assistant connection
       const { data: aiTest, error: aiError } = await supabase.functions.invoke('ai-trading-assistant', {
         body: {
@@ -88,6 +86,8 @@ export const DebugPanel = () => {
           debug: true
         }
       });
+
+      const normalizedStrategies = (allStrategies || []).map(normalizeStrategy);
 
       const info: DebugInfo = {
         timestamp: new Date().toISOString(),
@@ -100,17 +100,17 @@ export const DebugPanel = () => {
         activeStrategy: activeStrategy ? {
           id: activeStrategy.id,
           name: activeStrategy.strategy_name,
-          is_active_test: (activeStrategy as any).is_active_test,
-          is_active_live: (activeStrategy as any).is_active_live,
+          is_active_test: activeStrategy.is_active_test,
+          is_active_live: activeStrategy.is_active_live,
           configuration: activeStrategy.configuration
         } : null,
-        allStrategies: allStrategies?.map(s => ({
+        allStrategies: normalizedStrategies.map(s => ({
           id: s.id,
           name: s.strategy_name,
           is_active_test: s.is_active_test,
           is_active_live: s.is_active_live,
           created_at: s.created_at
-        })) || [],
+        })),
         lastAIResponse: aiTest ? {
           success: true,
           response: aiTest

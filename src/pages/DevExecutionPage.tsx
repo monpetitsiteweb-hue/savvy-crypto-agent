@@ -188,7 +188,7 @@ export function DevExecutionPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Execution Quality Monitor</h1>
-          <p className="text-muted-foreground">Strategy: {activeStrategy.strategy_name || activeStrategy.name || activeStrategy.id}</p>
+          <p className="text-muted-foreground">Strategy: {activeStrategy.strategy_name || activeStrategy.id}</p>
         </div>
         <Button onClick={loadData} variant="outline">
           Refresh Data

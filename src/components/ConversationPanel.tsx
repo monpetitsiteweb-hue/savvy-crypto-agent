@@ -12,23 +12,13 @@ import { useTechnicalIndicators } from '@/hooks/useTechnicalIndicators';
 import { useProductionTrading, ProductionTradeDetails } from '@/hooks/useProductionTrading';
 import { ProductionTradeConfirmation } from './ProductionTradeConfirmation';
 import { supabase } from '@/integrations/supabase/client';
+import { normalizeStrategy, StrategyData } from '@/types/strategy';
 
 interface Message {
   id: string;
   type: 'user' | 'ai';
   content: string;
   timestamp: Date;
-}
-
-interface StrategyData {
-  id: string;
-  strategy_name: string;
-  configuration: any;
-  is_active: boolean; // Keep for backward compatibility
-  is_active_test: boolean;
-  is_active_live: boolean;
-  created_at: string;
-  test_mode: boolean;
 }
 
 export const ConversationPanel = () => {
@@ -143,7 +133,7 @@ export const ConversationPanel = () => {
         .order('created_at', { ascending: false });
 
       if (data && !error) {
-        setUserStrategies(data);
+        setUserStrategies((data || []).map(normalizeStrategy));
       } else {
         logger.error('Error loading strategies:', error);
       }
@@ -496,7 +486,7 @@ export const ConversationPanel = () => {
               
               
               if (updatedStrategies && !refreshError) {
-                setUserStrategies(updatedStrategies);
+                setUserStrategies(updatedStrategies.map(normalizeStrategy));
                 
                 
                 // If technicalIndicators were updated, sync with the hook
