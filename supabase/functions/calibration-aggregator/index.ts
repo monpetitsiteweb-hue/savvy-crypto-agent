@@ -159,10 +159,7 @@ serve(async (req) => {
         mean_realized_pnl_pct: meanRealizedPnlPct,
         tp_hit_rate_pct: tpHitRatePct,
         sl_hit_rate_pct: slHitRatePct,
-        computed_at: now.toISOString(),
-        // Set defaults for required fields
-        coverage_pct: 0,
-        missed_opportunity_pct: 0
+        computed_at: now.toISOString()
       });
     }
 
@@ -176,7 +173,8 @@ serve(async (req) => {
         });
 
       if (upsertError) {
-        throw new Error(`Failed to upsert calibration metrics: ${upsertError.message}`);
+        console.error('Full Supabase upsert error:', upsertError);
+        throw new Error(`Failed to upsert calibration metrics: ${(upsertError as any)?.message || 'Unknown upsert error'}`);
       }
     }
 
