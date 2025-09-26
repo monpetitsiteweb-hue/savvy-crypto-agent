@@ -36,13 +36,13 @@ export async function resetBreakerRPC(params: {
   user_id: string
   strategy_id: string
   symbol: string
-  breaker: string
+  breaker_type: string
 }) {
   const { data, error } = await supabase.rpc('reset_breaker', {
     p_user: params.user_id,
     p_strategy: params.strategy_id,
     p_symbol: params.symbol,
-    p_type: params.breaker,
+    p_type: params.breaker_type,
   })
   if (error) throw error
   return Boolean(data)

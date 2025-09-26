@@ -36,9 +36,9 @@ export function ExecutionQualityMetrics24h({ userId, strategyId }: ExecutionQual
     loadMetrics();
   }, [userId, strategyId]);
 
-  const formatNumber = (value: number | null, decimals: number = 2) => {
+  const formatNumber = (value: number | null | undefined, decimals = 2) => {
     if (value === null || value === undefined) return '-';
-    return value.toFixed(decimals);
+    return Number(value).toFixed(decimals);
   };
 
   if (loading) {

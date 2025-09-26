@@ -39,15 +39,22 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
     
-    const url = new URL(req.url);
-    const path = url.pathname;
+    let body: any = {};
+    try { 
+      body = await req.json(); 
+    } catch (e) {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'Invalid JSON body' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    const action = (body?.action ?? '').toLowerCase();
 
-    if (path === '/reset' && req.method === 'POST') {
-      const body: ResetRequest = await req.json();
-      
+    if (action === 'reset') {
       if (!body.user_id || !body.strategy_id || !body.symbol || !body.breaker) {
         return new Response(
-          JSON.stringify({ error: 'Missing required fields' }),
+          JSON.stringify({ ok: false, error: 'Missing required fields' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -62,7 +69,7 @@ serve(async (req) => {
       if (error) {
         console.error('Reset breaker error:', error);
         return new Response(
-          JSON.stringify({ error: 'Failed to reset breaker' }),
+          JSON.stringify({ ok: false, error: 'Failed to reset breaker' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -73,12 +80,10 @@ serve(async (req) => {
       );
     }
 
-    if (path === '/trip' && req.method === 'POST') {
-      const body: TripRequest = await req.json();
-      
+    if (action === 'trip') {
       if (!body.user_id || !body.strategy_id || !body.symbol || !body.breaker) {
         return new Response(
-          JSON.stringify({ error: 'Missing required fields' }),
+          JSON.stringify({ ok: false, error: 'Missing required fields' }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -106,7 +111,7 @@ serve(async (req) => {
       if (error) {
         console.error('Trip breaker error:', error);
         return new Response(
-          JSON.stringify({ error: 'Failed to trip breaker' }),
+          JSON.stringify({ ok: false, error: 'Failed to trip breaker' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -118,14 +123,14 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ error: 'Not found' }),
-      { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ ok: false, error: 'Invalid action' }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
     console.error('Breaker ops error:', error);
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ ok: false, error: 'Internal server error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

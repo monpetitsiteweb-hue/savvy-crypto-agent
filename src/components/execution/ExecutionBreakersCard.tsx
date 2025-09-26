@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, AlertTriangle } from 'lucide-react';
 import { getBreakers, type BreakerRow } from '@/lib/db/execution';
 import { format } from 'date-fns';
+import { supabase } from '@/integrations/supabase/client';
 
 interface ExecutionBreakersCardProps {
   userId: string;
@@ -41,23 +42,18 @@ export function ExecutionBreakersCard({ userId, strategyId }: ExecutionBreakersC
     setResetting(resetKey);
 
     try {
-      const response = await fetch('/functions/v1/breaker-ops/reset', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('breaker-ops', {
+        body: {
+          action: 'reset',
           user_id: breaker.user_id,
           strategy_id: breaker.strategy_id,
           symbol: breaker.symbol,
-          breaker: breaker.breaker_type
-        })
+          breaker: breaker.breaker_type,
+        },
       });
 
-      const result = await response.json();
-
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || 'Failed to reset breaker');
+      if (error || !data?.ok) {
+        throw new Error(error?.message || data?.error || 'Failed to reset breaker');
       }
 
       toast({
