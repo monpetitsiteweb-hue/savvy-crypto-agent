@@ -80,3 +80,6 @@ verify_jwt = true
 
 [functions.features-refresh]
 verify_jwt = true
+
+[functions.breaker-ops]
+verify_jwt = true

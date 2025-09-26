@@ -12,6 +12,7 @@ import ProfilePage from "./pages/ProfilePage";
 import ValidationPage from "./pages/ValidationPage";
 import { DevLearningPage } from "./pages/DevLearningPage";
 import { DevExecutionPage } from "./pages/DevExecutionPage";
+import ExecutionQualityPage from "./pages/ExecutionQualityPage";
 import Calibration from "./pages/Calibration";
 import NotFound from "./pages/NotFound";
 
@@ -54,6 +55,7 @@ function AppInternal() {
                     <Route path="/calibration" element={<Calibration />} />
                     <Route path="/dev/learning" element={<DevLearningPage />} />
                     <Route path="/dev/execution" element={<DevExecutionPage />} />
+                    <Route path="/execution-quality" element={<ExecutionQualityPage />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </BrowserRouter>
