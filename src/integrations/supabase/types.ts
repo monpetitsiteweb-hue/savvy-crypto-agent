@@ -277,6 +277,7 @@ export type Database = {
           user_id: string
           volatility_regime: string | null
           win_rate_pct: number
+          window_days: number
           window_end_ts: string
           window_start_ts: string
         }
@@ -298,14 +299,15 @@ export type Database = {
           sl_hit_rate_pct?: number
           strategy_id: string
           symbol: string
-          time_window: string
+          time_window?: string
           tp_hit_rate_pct?: number
           updated_at?: string
           user_id: string
           volatility_regime?: string | null
           win_rate_pct?: number
-          window_end_ts: string
-          window_start_ts: string
+          window_days?: number
+          window_end_ts?: string
+          window_start_ts?: string
         }
         Update: {
           computed_at?: string
@@ -331,6 +333,7 @@ export type Database = {
           user_id?: string
           volatility_regime?: string | null
           win_rate_pct?: number
+          window_days?: number
           window_end_ts?: string
           window_start_ts?: string
         }
@@ -758,6 +761,54 @@ export type Database = {
           },
         ]
       }
+      execution_circuit_breakers: {
+        Row: {
+          activated_at: string | null
+          breaker_type: string
+          created_at: string
+          current_value: number
+          id: string
+          is_active: boolean
+          last_reset_at: string | null
+          strategy_id: string
+          symbol: string
+          threshold_value: number
+          trip_reason: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          activated_at?: string | null
+          breaker_type: string
+          created_at?: string
+          current_value?: number
+          id?: string
+          is_active?: boolean
+          last_reset_at?: string | null
+          strategy_id: string
+          symbol: string
+          threshold_value: number
+          trip_reason?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          activated_at?: string | null
+          breaker_type?: string
+          created_at?: string
+          current_value?: number
+          id?: string
+          is_active?: boolean
+          last_reset_at?: string | null
+          strategy_id?: string
+          symbol?: string
+          threshold_value?: number
+          trip_reason?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       execution_holds: {
         Row: {
           created_at: string | null
@@ -777,6 +828,60 @@ export type Database = {
           created_at?: string | null
           hold_until?: string
           reason?: string | null
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      execution_quality_log: {
+        Row: {
+          created_at: string
+          executed_at: string
+          executed_price: number
+          execution_latency_ms: number
+          filled_amount: number
+          id: string
+          metadata: Json | null
+          partial_fill: boolean
+          requested_amount: number
+          requested_price: number | null
+          side: string
+          slippage_bps: number
+          strategy_id: string
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          executed_at?: string
+          executed_price: number
+          execution_latency_ms?: number
+          filled_amount: number
+          id?: string
+          metadata?: Json | null
+          partial_fill?: boolean
+          requested_amount: number
+          requested_price?: number | null
+          side: string
+          slippage_bps?: number
+          strategy_id: string
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          executed_at?: string
+          executed_price?: number
+          execution_latency_ms?: number
+          filled_amount?: number
+          id?: string
+          metadata?: Json | null
+          partial_fill?: boolean
+          requested_amount?: number
+          requested_price?: number | null
+          side?: string
+          slippage_bps?: number
+          strategy_id?: string
           symbol?: string
           user_id?: string
         }
@@ -1753,6 +1858,18 @@ export type Database = {
       }
     }
     Views: {
+      execution_quality_metrics_24h: {
+        Row: {
+          avg_abs_slippage_bps: number | null
+          latency_p95_ms: number | null
+          partial_fill_rate_pct: number | null
+          strategy_id: string | null
+          symbol: string | null
+          trade_count: number | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
       mock_coverage: {
         Row: {
           available: number | null
@@ -2128,6 +2245,15 @@ export type Database = {
       }
       refresh_data_health_metrics: {
         Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
+      reset_breaker: {
+        Args: {
+          p_strategy: string
+          p_symbol: string
+          p_type: string
+          p_user: string
+        }
         Returns: undefined
       }
       reset_mock_wallet_balances: {
