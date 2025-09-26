@@ -150,20 +150,20 @@ export function ExecutionBreakersCard({ userId, strategyId }: ExecutionBreakersC
                       {format(new Date(breaker.updated_at), 'MMM dd, HH:mm')}
                     </TableCell>
                     <TableCell>
-                      {!breaker.is_active && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleReset(breaker)}
-                          disabled={resetting === `${breaker.user_id}-${breaker.strategy_id}-${breaker.symbol}-${breaker.breaker_type}`}
-                        >
-                          {resetting === `${breaker.user_id}-${breaker.strategy_id}-${breaker.symbol}-${breaker.breaker_type}` ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            'Reset'
-                          )}
-                        </Button>
-                      )}
+                    {!breaker.is_active && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleReset(breaker)}
+                        disabled={resetting === `${breaker.user_id}-${breaker.strategy_id}-${breaker.symbol}-${breaker.breaker_type}`}
+                      >
+                        {resetting === `${breaker.user_id}-${breaker.strategy_id}-${breaker.symbol}-${breaker.breaker_type}` ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          'Reset'
+                        )}
+                      </Button>
+                    )}
                     </TableCell>
                   </TableRow>
                 ))}
