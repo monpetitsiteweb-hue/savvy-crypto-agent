@@ -31,19 +31,19 @@ export async function getQualityMetrics24h(userId: string, strategyId?: string) 
   return data as MetricsRow[]
 }
 
-/** Calls RPC reset_breaker (returns boolean). */
+/** Calls RPC reset_breaker (returns true on success). */
 export async function resetBreakerRPC(params: {
   user_id: string
   strategy_id: string
   symbol: string
   breaker_type: string
 }) {
-  const { data, error } = await supabase.rpc('reset_breaker', {
+  const { error } = await supabase.rpc('reset_breaker', {
     p_user: params.user_id,
     p_strategy: params.strategy_id,
     p_symbol: params.symbol,
     p_type: params.breaker_type,
   })
   if (error) throw error
-  return Boolean(data)
+  return true
 }
