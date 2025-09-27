@@ -433,7 +433,7 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
       }
 
       const strategies: StrategyData[] = (strategyRows || []).map(normalizeStrategy);
-      const activeTestStrategies = strategies.filter(s => s.is_active_test);
+      const activeTestStrategies = strategies.filter(s => s.is_active && s.is_test_mode);
 
       for (const strategy of activeTestStrategies || []) {
         const config = strategy.configuration as any;

@@ -250,14 +250,9 @@ export const StrategyAutomation: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-3">
                     <Badge variant={
-                      testMode 
-                        ? (strategy.is_active_test ? 'default' : 'outline')
-                        : (strategy.is_active_live ? 'default' : 'outline')
+                      strategy.is_active ? 'default' : 'outline'
                     }>
-                      {testMode 
-                        ? (strategy.is_active_test ? 'Active' : 'Inactive')
-                        : (strategy.is_active_live ? 'Active' : 'Inactive')
-                      }
+                      {strategy.is_active ? 'Active' : 'Inactive'}
                     </Badge>
                   </div>
                 </div>

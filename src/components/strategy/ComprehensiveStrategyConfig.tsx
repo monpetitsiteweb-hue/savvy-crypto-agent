@@ -565,8 +565,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         configuration: syncedFormData as any,
         test_mode: true, // Always create in test mode
         is_active: false, // Keep for backward compatibility
-        is_active_test: false, // Created but not activated
-        is_active_live: false, // Never allow direct creation in live mode
+        // NOTE: Removed is_active_test/is_active_live as they don't exist in DB schema
         updated_at: new Date().toISOString()
       };
 

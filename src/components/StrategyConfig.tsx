@@ -6,6 +6,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Plus, Settings, Activity, TrendingUp, Play, Pause, Edit, Copy, AlertTriangle, Trash2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
+import { useUserRole } from '@/hooks/useUserRole';
 import { supabase } from '@/integrations/supabase/client';
 import { logger } from '@/utils/logger';
 import { ComprehensiveStrategyConfig } from './strategy/ComprehensiveStrategyConfig';
@@ -26,6 +27,7 @@ interface StrategyPerformance {
 export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
+  const { isAdmin } = useUserRole();
   const [strategies, setStrategies] = useState<StrategyData[]>([]);
   const [currentView, setCurrentView] = useState<'list' | 'create' | 'edit' | 'comprehensive'>('list');
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyData | null>(null);
@@ -78,6 +80,15 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     if (!user) return;
     
     try {
+      console.debug('🔍 Fetching strategies:', { 
+        testMode, 
+        userIdUsedInQuery: user.id, 
+        filters: { 
+          user_id: user.id, 
+          test_mode_filter: testMode ? 'is_test_mode = true' : 'is_test_mode = false' 
+        } 
+      });
+
       const { data, error } = await supabase
         .from('trading_strategies')
         .select('*')
@@ -90,6 +101,16 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       const filteredStrategies = (data || []).filter(strategy => {
         return testMode ? strategy.is_test_mode === true : strategy.is_test_mode === false;
       });
+      
+      console.debug('📊 Strategy fetch results:', {
+        testMode,
+        userIdUsedInQuery: user.id,
+        filters: `user_id=${user.id}, is_test_mode=${testMode}`,
+        totalRowsFromDB: data?.length || 0,
+        rowCount: filteredStrategies.length,
+        matchingStrategyIds: filteredStrategies.map(s => s.id)
+      });
+      
       setStrategies(filteredStrategies.map(normalizeStrategy));
       
       // Fetch performance data for each strategy
@@ -152,7 +173,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
   };
 
   const handleStrategyToggle = (strategy: StrategyData, isTest: boolean) => {
-    if (!isTest && !strategy.is_active_live) {
+    if (!isTest && !(strategy.is_active && !strategy.is_test_mode)) {
       // For Live mode activation, show production confirmation
       setStrategyToActivate(strategy);
       setShowProductionActivationModal(true);
@@ -179,22 +200,22 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     if (!user) return;
 
     try {
-      const field = isTest ? 'is_active_test' : 'is_active_live';
-      const currentValue = isTest ? strategy.is_active_test : strategy.is_active_live;
+      // FIX: Use correct database fields - is_active (not is_active_test/is_active_live)
+      const currentValue = strategy.is_active;
       
-      // If activating, first deactivate all other strategies in the same environment
+      // If activating, first deactivate all other strategies in the same test/live environment
       if (!currentValue) {
-        const deactivateField = isTest ? 'is_active_test' : 'is_active_live';
         await supabase
           .from('trading_strategies')
-          .update({ [deactivateField]: false })
+          .update({ is_active: false })
           .eq('user_id', user.id)
+          .eq('is_test_mode', isTest)
           .neq('id', strategy.id);
       }
       
       const { error } = await supabase
         .from('trading_strategies')
-        .update({ [field]: !currentValue })
+        .update({ is_active: !currentValue })
         .eq('id', strategy.id)
         .eq('user_id', user.id);
 
@@ -325,6 +346,11 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
             <p className="text-muted-foreground mb-4">
               Create your first trading strategy to get started with automated trading.
             </p>
+            {isAdmin && (
+              <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-md mb-4">
+                <strong>Admin Diagnostic:</strong> 0 strategies matched filters. user_id={user?.id}, testMode={testMode ? 'ON' : 'OFF'}, filters=user_id={user?.id} & is_test_mode={testMode}
+              </div>
+            )}
             <Button onClick={() => setCurrentView('create')}>
               <Plus className="h-4 w-4 mr-2" />
               Create Your First Strategy
@@ -349,13 +375,13 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                   </div>
                   <div className="mb-3">
                     {testMode ? (
-                      strategy.is_active_test ? (
+                      strategy.is_active ? (
                         <Badge variant="default" className="bg-green-500">Test Active</Badge>
                       ) : (
                         <Badge variant="outline">Test Inactive</Badge>
                       )
                     ) : (
-                      strategy.is_active_live ? (
+                      strategy.is_active ? (
                         <Badge variant="default" className="bg-green-500">Live Active</Badge>
                       ) : (
                         <Badge variant="outline">Live Inactive</Badge>
@@ -408,7 +434,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                       </AlertDialogContent>
                     </AlertDialog>
                     {/* Push to Production button - only show for test strategies that are active */}
-                    {testMode && strategy.is_active_test && (
+                    {testMode && strategy.is_active && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
@@ -451,22 +477,14 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                       </AlertDialog>
                     )}
                     <Button
-                      variant={testMode ? (strategy.is_active_test ? "destructive" : "default") : (strategy.is_active_live ? "destructive" : "default")}
+                      variant={strategy.is_active ? "destructive" : "default"}
                       size="sm"
                       onClick={() => handleStrategyToggle(strategy, testMode)}
                     >
-                      {testMode ? (
-                        strategy.is_active_test ? (
-                          <Pause className="h-4 w-4" />
-                        ) : (
-                          <Play className="h-4 w-4" />
-                        )
+                      {strategy.is_active ? (
+                        <Pause className="h-4 w-4" />
                       ) : (
-                        strategy.is_active_live ? (
-                          <Pause className="h-4 w-4" />
-                        ) : (
-                          <Play className="h-4 w-4" />
-                        )
+                        <Play className="h-4 w-4" />
                       )}
                     </Button>
                   </div>

@@ -19,6 +19,16 @@ export const useActiveStrategy = () => {
     }
 
     try {
+      console.debug('🔍 useActiveStrategy fetching:', { 
+        testMode, 
+        userIdUsedInQuery: user.id, 
+        filters: { 
+          user_id: user.id, 
+          is_active: true,
+          is_test_mode: testMode 
+        } 
+      });
+
       // For simplicity, we'll look for active strategies based on is_active flag
       // and match the test mode with is_test_mode
       const { data: strategies, error } = await supabase
@@ -32,7 +42,16 @@ export const useActiveStrategy = () => {
         
       const data = strategies?.[0] || null;
 
+      console.debug('📊 useActiveStrategy results:', {
+        testMode,
+        userIdUsedInQuery: user.id,
+        filters: `user_id=${user.id}, is_active=true, is_test_mode=${testMode}`,
+        rowCount: strategies?.length || 0,
+        foundStrategyId: data?.id || 'none'
+      });
+
       if (error) {
+        console.error('❌ useActiveStrategy error:', error);
         logger.error('Error loading active strategy:', error);
       }
 

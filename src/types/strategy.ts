@@ -15,12 +15,12 @@ export interface StrategyData extends StrategyRow {
  * Normalize DB row -> StrategyData with back-compat fields populated.
  * Rules:
  * - test_mode <- prefer existing row.test_mode, else is_test_mode, default false
- * - is_active_test <- true if is_active && test_mode
- * - is_active_live <- true if is_active && !test_mode
+ * - is_active_test <- true if is_active && is_test_mode
+ * - is_active_live <- true if is_active && !is_test_mode
  */
 export function normalizeStrategy(row: StrategyRow): StrategyData {
-  const test_mode = (row as any).test_mode ?? ((row as any).is_test_mode ?? false);
-  const is_active = (row as any).is_active ?? false;
+  const test_mode = (row as any).test_mode ?? (row.is_test_mode ?? false);
+  const is_active = row.is_active ?? false;
 
   return {
     ...row,
