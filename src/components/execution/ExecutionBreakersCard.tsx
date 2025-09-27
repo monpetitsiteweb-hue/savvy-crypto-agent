@@ -127,43 +127,43 @@ export function ExecutionBreakersCard({ userId, strategyId }: ExecutionBreakersC
                 {breakers.map((breaker) => (
                   <TableRow key={breaker.id}>
                     <TableCell className="font-medium">{breaker.symbol}</TableCell>
-                    <TableCell>{breaker.breaker_type}</TableCell>
-                    <TableCell>
-                      <Badge variant={!breaker.is_active ? "destructive" : "secondary"}>
-                        {!breaker.is_active ? "Tripped" : "Normal"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="max-w-xs truncate">
-                      {breaker.trip_reason || '-'}
-                    </TableCell>
-                    <TableCell>
-                      {breaker.last_trip_at 
-                        ? format(new Date(breaker.last_trip_at), 'MMM dd, HH:mm')
-                        : '-'
-                      }
-                    </TableCell>
-                    <TableCell>
-                      -
-                    </TableCell>
+                     <TableCell>{breaker.breaker_type}</TableCell>
+                     <TableCell>
+                       <Badge variant={!breaker.is_active ? "destructive" : "secondary"}>
+                         {!breaker.is_active ? "Tripped" : "Normal"}
+                       </Badge>
+                     </TableCell>
+                     <TableCell className="max-w-xs truncate">
+                       {breaker.trip_reason || '-'}
+                     </TableCell>
+                     <TableCell>
+                       {breaker.last_trip_at 
+                         ? format(new Date(breaker.last_trip_at), 'MMM dd, HH:mm')
+                         : '-'
+                       }
+                     </TableCell>
+                     <TableCell>
+                       -
+                     </TableCell>
                     <TableCell>{breaker.trip_count}</TableCell>
                     <TableCell>
                       {format(new Date(breaker.updated_at), 'MMM dd, HH:mm')}
                     </TableCell>
                     <TableCell>
-                    {!breaker.is_active && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleReset(breaker)}
-                        disabled={resetting === `${breaker.user_id}-${breaker.strategy_id}-${breaker.symbol}-${breaker.breaker_type}`}
-                      >
-                        {resetting === `${breaker.user_id}-${breaker.strategy_id}-${breaker.symbol}-${breaker.breaker_type}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          'Reset'
-                        )}
-                      </Button>
-                    )}
+                     {!breaker.is_active && (
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={() => handleReset(breaker)}
+                         disabled={resetting === `${breaker.user_id}-${breaker.strategy_id}-${breaker.symbol}-${breaker.breaker_type}`}
+                       >
+                         {resetting === `${breaker.user_id}-${breaker.strategy_id}-${breaker.symbol}-${breaker.breaker_type}` ? (
+                           <Loader2 className="h-4 w-4 animate-spin" />
+                         ) : (
+                           'Reset'
+                         )}
+                       </Button>
+                     )}
                     </TableCell>
                   </TableRow>
                 ))}
