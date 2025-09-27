@@ -425,7 +425,8 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
         .from('trading_strategies')
         .select('id, configuration, is_active, is_test_mode')
         .eq('user_id', user.id)
-        .eq('is_active', true);
+        .eq('is_active', true)
+        .eq('is_test_mode', true);
 
       if (strategiesError) {
         console.error('❌ POOL_MANAGER: Error fetching strategies:', strategiesError);
