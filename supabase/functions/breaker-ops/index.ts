@@ -75,7 +75,7 @@ serve(async (req) => {
       }
 
       return new Response(
-        JSON.stringify({ ok: Boolean(data) }),
+        JSON.stringify({ ok: true }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
