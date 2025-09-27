@@ -421,12 +421,12 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
 
     try {
       // Get all active strategies for the user
-      const { data: strategyRows, error: strategiesError } = await supabase
+      const { data: strategyRows, error: strategiesError } = await (supabase as any)
         .from('trading_strategies')
-        .select('id, configuration, is_active, is_test_mode')
+        .select('*')
         .eq('user_id', user.id)
         .eq('is_active', true)
-        .eq('is_test_mode', true);
+        .eq('test_mode', true);
 
       if (strategiesError) {
         console.error('❌ POOL_MANAGER: Error fetching strategies:', strategiesError);

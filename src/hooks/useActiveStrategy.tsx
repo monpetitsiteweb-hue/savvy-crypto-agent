@@ -31,12 +31,12 @@ export const useActiveStrategy = () => {
 
       // For simplicity, we'll look for active strategies based on is_active flag
       // and match the test mode with is_test_mode
-      const { data: strategies, error } = await supabase
+      const { data: strategies, error } = await (supabase as any)
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
         .eq('is_active', true)
-        .eq('is_test_mode', testMode)
+        .eq('test_mode', testMode)
         .order('created_at', { ascending: false })
         .limit(1);
         

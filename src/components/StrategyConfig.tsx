@@ -89,11 +89,11 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
         } 
       });
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
-        .eq('is_test_mode', testMode)
+        .eq('test_mode', testMode)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -200,11 +200,11 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       
       // If activating, first deactivate all other strategies in the same test/live environment
       if (!currentValue) {
-        await supabase
+        await (supabase as any)
           .from('trading_strategies')
           .update({ is_active: false })
           .eq('user_id', user.id)
-          .eq('is_test_mode', isTest)
+          .eq('test_mode', isTest)
           .neq('id', strategy.id);
       }
       
@@ -255,7 +255,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
         strategy_name: strategy.strategy_name,
         description: strategy.description,
         configuration: strategy.configuration,
-        is_test_mode: false, // This marks it as production
+        test_mode: false, // This marks it as production
         is_active: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -284,7 +284,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
           strategy_name: `${strategy.strategy_name} (Clone)`,
           description: `Clone of ${strategy.strategy_name}`,
           configuration: strategy.configuration,
-          is_test_mode: true,
+          test_mode: true,
           is_active: false
         });
 
@@ -343,7 +343,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
             </p>
             {isAdmin && (
               <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-md mb-4">
-                <strong>Admin Diagnostic:</strong> 0 strategies matched filters. user_id={user?.id}, testMode={testMode ? 'ON' : 'OFF'}, filters=user_id={user?.id} & is_test_mode={testMode}
+                <strong>Admin Diagnostic:</strong> 0 strategies matched filters. user_id={user?.id}, testMode={testMode ? 'ON' : 'OFF'}, filters=user_id={user?.id} & test_mode={testMode}
               </div>
             )}
             <Button onClick={() => setCurrentView('create')}>
