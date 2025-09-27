@@ -85,7 +85,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
         userIdUsedInQuery: user.id, 
         filters: { 
           user_id: user.id, 
-          test_mode_filter: testMode ? 'is_test_mode = true' : 'is_test_mode = false' 
+          is_test_mode: testMode
         } 
       });
 
@@ -93,28 +93,23 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
         .from('trading_strategies')
         .select('*')
         .eq('user_id', user.id)
+        .eq('is_test_mode', testMode)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      
-      // Filter strategies based on current view mode using is_test_mode field
-      const filteredStrategies = (data || []).filter(strategy => {
-        return testMode ? strategy.is_test_mode === true : strategy.is_test_mode === false;
-      });
       
       console.debug('📊 Strategy fetch results:', {
         testMode,
         userIdUsedInQuery: user.id,
         filters: `user_id=${user.id}, is_test_mode=${testMode}`,
-        totalRowsFromDB: data?.length || 0,
-        rowCount: filteredStrategies.length,
-        matchingStrategyIds: filteredStrategies.map(s => s.id)
+        rowCount: data?.length || 0,
+        matchingStrategyIds: data?.map(s => s.id) || []
       });
       
-      setStrategies(filteredStrategies.map(normalizeStrategy));
+      setStrategies((data || []).map(normalizeStrategy));
       
       // Fetch performance data for each strategy
-      await fetchPerformanceData(filteredStrategies.map(normalizeStrategy));
+      await fetchPerformanceData((data || []).map(normalizeStrategy));
     } catch (error) {
       logger.error('Error fetching strategies:', error);
     } finally {
@@ -173,7 +168,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
   };
 
   const handleStrategyToggle = (strategy: StrategyData, isTest: boolean) => {
-    if (!isTest && !(strategy.is_active && !strategy.is_test_mode)) {
+    if (!isTest && !strategy.is_active_live) {
       // For Live mode activation, show production confirmation
       setStrategyToActivate(strategy);
       setShowProductionActivationModal(true);
@@ -375,13 +370,13 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                   </div>
                   <div className="mb-3">
                     {testMode ? (
-                      strategy.is_active ? (
+                      strategy.is_active_test ? (
                         <Badge variant="default" className="bg-green-500">Test Active</Badge>
                       ) : (
                         <Badge variant="outline">Test Inactive</Badge>
                       )
                     ) : (
-                      strategy.is_active ? (
+                      strategy.is_active_live ? (
                         <Badge variant="default" className="bg-green-500">Live Active</Badge>
                       ) : (
                         <Badge variant="outline">Live Inactive</Badge>
@@ -434,7 +429,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                       </AlertDialogContent>
                     </AlertDialog>
                     {/* Push to Production button - only show for test strategies that are active */}
-                    {testMode && strategy.is_active && (
+                    {testMode && strategy.is_active_test && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button

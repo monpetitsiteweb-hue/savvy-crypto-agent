@@ -120,7 +120,7 @@ export const useIntelligentTradingEngine = () => {
       }
 
       const strategies: StrategyData[] = (strategyRows || []).map(normalizeStrategy);
-      const activeTestStrategies = strategies.filter(s => s.is_active && s.is_test_mode);
+      const activeTestStrategies = strategies.filter(s => s.is_active_test);
 
       if (!activeTestStrategies?.length) {
         engineLog('ENGINE: No active test strategies found');

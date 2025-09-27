@@ -100,15 +100,17 @@ export const DebugPanel = () => {
         activeStrategy: activeStrategy ? {
           id: activeStrategy.id,
           name: activeStrategy.strategy_name,
-          is_active_test: activeStrategy.is_active && activeStrategy.is_test_mode,
-          is_active_live: activeStrategy.is_active && !activeStrategy.is_test_mode,
+          is_active_test: activeStrategy.is_active_test,
+          is_active_live: activeStrategy.is_active_live,
+          test_mode: activeStrategy.test_mode,
           configuration: activeStrategy.configuration
         } : null,
         allStrategies: normalizedStrategies.map(s => ({
           id: s.id,
           name: s.strategy_name,
-          is_active_test: s.is_active && s.is_test_mode,
-          is_active_live: s.is_active && !s.is_test_mode,
+          is_active_test: s.is_active_test,
+          is_active_live: s.is_active_live,
+          test_mode: s.test_mode,
           created_at: s.created_at
         })),
         lastAIResponse: aiTest ? {
@@ -232,8 +234,9 @@ export const DebugPanel = () => {
                       <p><strong>Test Mode:</strong> {debugInfo.testMode ? '✅' : '❌'}</p>
                       <p><strong>Active Strategy:</strong> {debugInfo.activeStrategy?.name || '❌ None'}</p>
                       <p><strong>Strategy ID:</strong> {debugInfo.activeStrategy?.id || 'N/A'}</p>
-                      <p><strong>Test Active:</strong> {debugInfo.activeStrategy?.is_active && debugInfo.activeStrategy?.is_test_mode ? '✅' : '❌'}</p>
-                      <p><strong>Live Active:</strong> {debugInfo.activeStrategy?.is_active && !debugInfo.activeStrategy?.is_test_mode ? '✅' : '❌'}</p>
+                      <p><strong>Test Active:</strong> {debugInfo.activeStrategy?.is_active_test ? '✅' : '❌'}</p>
+                      <p><strong>Live Active:</strong> {debugInfo.activeStrategy?.is_active_live ? '✅' : '❌'}</p>
+                      <p><strong>Test Mode:</strong> {debugInfo.activeStrategy?.test_mode ? 'ON' : 'OFF'}</p>
                     </div>
                   </div>
                 </div>
@@ -247,7 +250,7 @@ export const DebugPanel = () => {
                       debugInfo.allStrategies.map((strategy, i) => (
                         <div key={i} className="border-b border-slate-200 pb-1 mb-1">
                           <p><strong>{strategy.name}</strong></p>
-                          <p>Test: {strategy.is_active && strategy.is_test_mode ? '✅' : '❌'} | Live: {strategy.is_active && !strategy.is_test_mode ? '✅' : '❌'}</p>
+                          <p>Test: {strategy.is_active_test ? '✅' : '❌'} | Live: {strategy.is_active_live ? '✅' : '❌'}</p>
                         </div>
                       ))
                     )}
