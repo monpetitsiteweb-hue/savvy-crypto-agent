@@ -60,10 +60,10 @@ serve(async (req) => {
       }
 
       const { data, error } = await supabase.rpc('reset_breaker', {
-        p_breaker: body.breaker,
-        p_strategy_id: body.strategy_id,
+        p_user: body.user_id,
+        p_strategy: body.strategy_id,
         p_symbol: body.symbol,
-        p_user_id: body.user_id,
+        p_type: body.breaker,
       });
 
       if (error) {
@@ -95,15 +95,16 @@ serve(async (req) => {
             user_id: body.user_id,
             strategy_id: body.strategy_id,
             symbol: body.symbol,
-            breaker: body.breaker,
-            tripped: true,
-            tripped_at: new Date().toISOString(),
-            last_reason: body.reason || 'manual trip',
-            thresholds: body.thresholds || {},
+            breaker_type: body.breaker,
+            is_active: false,
+            last_trip_at: new Date().toISOString(),
+            trip_reason: body.reason || 'manual trip',
             updated_at: new Date().toISOString(),
+            threshold_value: 0,
+            trip_count: 1,
           },
           {
-            onConflict: 'user_id,strategy_id,symbol,breaker',
+            onConflict: 'user_id,strategy_id,symbol,breaker_type',
             ignoreDuplicates: false,
           }
         );
