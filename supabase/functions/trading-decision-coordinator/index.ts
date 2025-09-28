@@ -1783,38 +1783,6 @@ async function tripBreaker(
   }
 }
 
-// ============= PHASE 3.1: EXECUTION QUALITY & CIRCUIT BREAKERS =============
-
-// Check circuit breakers before execution
-async function checkCircuitBreakers(
-  supabaseClient: any,
-  intent: TradeIntent
-): Promise<{ blocked: boolean; reason?: string; breaker_types?: string[] }> {
-  try {
-    const { data: breakers } = await supabaseClient
-      .from('execution_circuit_breakers')
-      .select('breaker_type, threshold_value')
-      .eq('user_id', intent.userId)
-      .eq('strategy_id', intent.strategyId)
-      .eq('symbol', toBaseSymbol(intent.symbol))
-      .eq('is_active', true);
-
-    if (breakers && breakers.length > 0) {
-      const breaker_types = breakers.map((b: any) => b.breaker_type);
-      return {
-        blocked: true,
-        reason: `Active breakers: ${breaker_types.join(', ')}`,
-        breaker_types
-      };
-    }
-
-    return { blocked: false };
-  } catch (error) {
-    console.error('❌ BREAKER CHECK: Error checking circuit breakers:', error);
-    return { blocked: false }; // Fail open to avoid blocking all trades
-  }
-}
-
 // Log execution quality metrics
 async function logExecutionQuality(
   supabaseClient: any,
