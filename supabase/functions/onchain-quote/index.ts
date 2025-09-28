@@ -1,10 +1,10 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { TOKENS, WETH, toAtomic, type Token } from './tokens.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 const ZEROEX_API_KEY = Deno.env.get('ZEROEX_API_KEY');
@@ -123,7 +123,7 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
   }
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -554,15 +554,9 @@ async function handleCoWQuote(chainId: number, sellToken: Token, buyToken: Token
   // Calculate price as quote/base
   const sellAmountFloat = Number(sellAmount) / (10 ** sellToken.decimals);
   const buyAmountFloat = Number(buyAmount) / (10 ** buyToken.decimals);
-  let price: number;
   
-  if (side === 'BUY') {
-    // sell quote, buy base → price = sellAmountFloat / buyAmountFloat (quote/base)
-    price = sellAmountFloat / buyAmountFloat;
-  } else {
-    // sell base, buy quote → price = buyAmountFloat / sellAmountFloat (quote/base)
-    price = buyAmountFloat / sellAmountFloat;
-  }
+  // Since we only support SELL, price = buyAmountFloat / sellAmountFloat (quote/base)
+  const price = buyAmountFloat / sellAmountFloat;
 
   if (!price || price <= 0) {
     return new Response(JSON.stringify({ error: 'Invalid price calculation from CoW', provider: 'cow' }), {
@@ -581,7 +575,7 @@ async function handleCoWQuote(chainId: number, sellToken: Token, buyToken: Token
   const minOut = buyAmount.toString();
 
   // Calculate effective BPS cost
-  const notionalQuote = side === 'BUY' ? amount : amount * price;
+  const notionalQuote = amount * price; // CoW only supports SELL
   const feeBps = feePct ? feePct * 10000 : 0;
   const effectiveBpsCost = feeBps; // CoW doesn't charge gas directly
 
