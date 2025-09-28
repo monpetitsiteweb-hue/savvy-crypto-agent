@@ -22,7 +22,7 @@ export class CoWConnector implements ExecutionConnector {
         amount: req.amount,
         slippageBps: req.slippageBps,
         provider: 'cow',
-        from: '0x0000000000000000000000000000000000000001', // Hardcoded for now
+        from: '0x0000000000000000000000000000000000000001',
       });
 
       if (result.error) {

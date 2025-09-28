@@ -45,6 +45,10 @@ const ONEINCH_CHAIN_IDS = {
   42161: 42161, // Arbitrum
 };
 
+function tokenFor0x(t: Token): string {
+  return t.symbol === 'ETH' ? 'ETH' : t.address;
+}
+
 const parseQty = (v: string | number | undefined): bigint | null => {
   if (v == null) return null;
   if (typeof v === 'number') return BigInt(Math.trunc(v));
@@ -94,15 +98,13 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
     const baseUrl = CHAIN_BASE_URLS[chainId as keyof typeof CHAIN_BASE_URLS];
     if (!baseUrl) return null;
 
-    // Use "ETH" string for native ETH instead of sentinel address
-    const nativeAddress = 'ETH';
-
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (ZEROEX_API_KEY) {
       headers['0x-api-key'] = ZEROEX_API_KEY;
     }
 
-    const url = `${baseUrl}/swap/v1/quote?sellToken=${nativeAddress}&buyToken=${quoteTokenAddress}&sellAmount=1000000000000000000&skipValidation=true`;
+    const nativeSymbol = 'ETH'; // 0x expects 'ETH' for native
+    const url = `${baseUrl}/swap/v1/quote?sellToken=${nativeSymbol}&buyToken=${quoteTokenAddress}&sellAmount=1000000000000000000&skipValidation=true`;
     
     const response = await fetch(url, { headers });
     
@@ -228,9 +230,8 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   }
 
   const params = new URLSearchParams();
-  // Use "ETH" string for native ETH, addresses for ERC-20 tokens
-  params.set('sellToken', sellToken.symbol === 'ETH' ? 'ETH' : sellToken.address);
-  params.set('buyToken', buyToken.symbol === 'ETH' ? 'ETH' : buyToken.address);
+  params.set('sellToken', tokenFor0x(sellToken));
+  params.set('buyToken', tokenFor0x(buyToken));
   params.set('sellAmount', sellAmountAtomic.toString());
   
   if (slippageBps) {
@@ -251,63 +252,73 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   }
   
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`0x API error (${response.status}): ${url} - ${errorText.substring(0, 200)}`);
+    const txt = await response.text();
+    console.error('0x error', response.status, url, txt.slice(0, 200));
     
     // Fallback: if "no Route matched", try /swap/v1/price
-    if (errorText.includes('no Route matched')) {
+    if (txt.includes('no Route matched')) {
       const priceUrl = url.replace('/swap/v1/quote', '/swap/v1/price');
       console.log('Trying 0x /price fallback:', priceUrl);
       
       const priceResponse = await fetch(priceUrl, { headers });
-      if (priceResponse.ok) {
-        const priceData = await priceResponse.json();
-        console.log('0x price fallback response:', priceData);
-        
-        const px0x = Number(priceData.price);
-        if (px0x && px0x > 0) {
-          const price = side === 'BUY' ? 1 / px0x : px0x;
-          
-          // Calculate gas cost if available
-          let gasCostQuote: number | undefined;
-          const estGas = parseQty(priceData.estimatedGas);
-          if (estGas) {
-            const gasPriceWei = await getRpcGasPrice(chainId);
-            if (gasPriceWei) {
-              const gasCostWei = estGas * gasPriceWei;
-              const DEN = 10n ** 18n;
-              const whole = gasCostWei / DEN;
-              const frac = gasCostWei % DEN;
-              const gasCostNative = Number(whole) + Number(frac) / 1e18;
-              const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address);
-              if (nativeToQuotePrice) {
-                gasCostQuote = gasCostNative * nativeToQuotePrice;
-              }
-            }
+      if (!priceResponse.ok) {
+        const priceErrorTxt = await priceResponse.text();
+        console.error('0x error', priceResponse.status, priceUrl, priceErrorTxt.slice(0, 200));
+        return new Response(JSON.stringify({ error: txt, provider: '0x' }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      const priceData = await priceResponse.json();
+      const px0x = Number(priceData.price);
+      if (!px0x || px0x <= 0) {
+        return new Response(JSON.stringify({ error: 'Invalid price from 0x price', provider: '0x' }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      const price = side === 'BUY' ? 1 / px0x : px0x;
+      
+      // Calculate gas cost if available
+      let gasCostQuote: number | undefined;
+      const estGas = parseQty(priceData.estimatedGas);
+      if (estGas) {
+        const gasPriceWei = await getRpcGasPrice(chainId);
+        if (gasPriceWei) {
+          const gasCostWei = estGas * gasPriceWei;
+          const DEN = 10n ** 18n;
+          const whole = gasCostWei / DEN;
+          const frac = gasCostWei % DEN;
+          const gasCostNative = Number(whole) + Number(frac) / 1e18;
+          const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address);
+          if (nativeToQuotePrice) {
+            gasCostQuote = gasCostNative * nativeToQuotePrice;
           }
-          
-          const notionalQuote = side === 'BUY' ? amount : amount * price;
-          const gasBps = gasCostQuote ? (gasCostQuote / notionalQuote) * 10000 : 0;
-          
-          return new Response(JSON.stringify({
-            provider: '0x' as const,
-            price,
-            gasCostQuote,
-            feePct: undefined,
-            minOut: undefined, // No guaranteedPrice from /price endpoint
-            priceImpactBps: undefined,
-            mevRoute: 'public' as const,
-            quoteTs: Date.now(),
-            raw: { ...priceData, fallback: 'price' },
-            effectiveBpsCost: gasBps,
-          }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
         }
       }
+      
+      const notionalQuote = side === 'BUY' ? amount : amount * price;
+      const gasBps = gasCostQuote ? (gasCostQuote / notionalQuote) * 10000 : 0;
+      
+      return new Response(JSON.stringify({
+        provider: '0x' as const,
+        price,
+        gasCostQuote,
+        feePct: undefined,
+        minOut: undefined, // No guaranteedPrice from /price endpoint
+        priceImpactBps: priceData.estimatedPriceImpact ? Math.round(parseFloat(priceData.estimatedPriceImpact) * 10000) : undefined,
+        mevRoute: 'public' as const,
+        quoteTs: Date.now(),
+        raw: { ...priceData, fallback: 'price' },
+        effectiveBpsCost: gasBps,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
     
-    return new Response(JSON.stringify({ error: errorText, provider: '0x' }), {
+    return new Response(JSON.stringify({ error: txt, provider: '0x' }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -609,10 +620,11 @@ async function handleCoWQuote(chainId: number, sellToken: Token, buyToken: Token
   const cowData = await response.json();
   console.log('CoW API response:', cowData);
 
-  // Parse CoW response
-  const buyAmount = parseQty(cowData.buyAmount);
-  const sellAmount = parseQty(cowData.sellAmount);
-  const feeAmount = parseQty(cowData.feeAmount);
+  // Parse CoW response - handle both direct and nested quote structure
+  const q = cowData.quote ?? cowData;
+  const buyAmount = parseQty(q?.buyAmount);
+  const sellAmount = parseQty(q?.sellAmount);
+  const feeAmount = parseQty(q?.feeAmount);
   
   if (!buyAmount || buyAmount <= 0n || !sellAmount || sellAmount <= 0n) {
     return new Response(JSON.stringify({ error: 'Invalid amounts from CoW', provider: 'cow' }), {
