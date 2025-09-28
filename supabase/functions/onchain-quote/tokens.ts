@@ -18,5 +18,9 @@ export const TOKENS: Record<number, Record<'ETH'|'USDC', Token>> = {
   }
 };
 
-export const toAtomic = (v: number, d: number) => BigInt(Math.round(v * 10 ** d));
-export const fromAtomic = (x: bigint, d: number) => Number(x) / 10 ** d; // only for small values
+export const toAtomic = (v: number | string, d: number) => {
+  const s = typeof v === 'number' ? v.toString() : v;
+  const [i, f = ''] = s.split('.');
+  const frac = (f + '0'.repeat(d)).slice(0, d);
+  return BigInt(i + frac);
+};

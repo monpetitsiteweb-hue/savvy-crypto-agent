@@ -1,6 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { TOKENS, toAtomic, fromAtomic, type Token } from './tokens.ts';
+import { TOKENS, toAtomic, type Token } from './tokens.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -55,7 +55,17 @@ async function getRpcGasPrice(chainId: number): Promise<bigint | null> {
   }
 }
 
+// In-memory cache for native-to-quote prices (30s TTL)
+const priceCache = new Map<string, { price: number | null; expiry: number }>();
+
 async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string): Promise<number | null> {
+  const cacheKey = `${chainId}:${quoteTokenAddress}`;
+  const cached = priceCache.get(cacheKey);
+  
+  if (cached && Date.now() < cached.expiry) {
+    return cached.price;
+  }
+
   try {
     const baseUrl = CHAIN_BASE_URLS[chainId as keyof typeof CHAIN_BASE_URLS];
     if (!baseUrl) return null;
@@ -71,12 +81,20 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
     
     const response = await fetch(url, { headers });
     
-    if (!response.ok) return null;
+    if (!response.ok) {
+      priceCache.set(cacheKey, { price: null, expiry: Date.now() + 30_000 });
+      return null;
+    }
     
     const data = await response.json();
-    return data.price ? parseFloat(data.price) : null;
+    const price = data.price ? parseFloat(data.price) : null;
+    
+    // Cache for 30 seconds
+    priceCache.set(cacheKey, { price, expiry: Date.now() + 30_000 });
+    return price;
   } catch (error) {
     console.error('Failed to get native to quote price:', error);
+    priceCache.set(cacheKey, { price: null, expiry: Date.now() + 30_000 });
     return null;
   }
 }
@@ -154,7 +172,14 @@ serve(async (req) => {
     const url = `${baseUrl}/swap/v1/quote?${params.toString()}`;
     console.log('Calling 0x API:', url);
 
-    const response = await fetch(url, { headers });
+    let response = await fetch(url, { headers });
+    
+    // Retry once for 429/5xx errors with 150ms backoff
+    if (!response.ok && (response.status === 429 || response.status >= 500)) {
+      console.log('0x API error, retrying after 150ms:', response.status);
+      await new Promise(resolve => setTimeout(resolve, 150));
+      response = await fetch(url, { headers });
+    }
     
     if (!response.ok) {
       const errorText = await response.text();
@@ -191,22 +216,26 @@ serve(async (req) => {
       }
     }
 
-    // Calculate minOut in atomic units using guaranteedPrice
+    // Calculate minOut in atomic units using guaranteedPrice with BigInt math
     let minOut: string | undefined;
     const guaranteedPrice = zeroXData.guaranteedPrice ? Number(zeroXData.guaranteedPrice) : null;
     if (guaranteedPrice) {
+      const SCALE = 1_000_000n; // 1e6 for precision
+      const gpScaled = BigInt(Math.floor(guaranteedPrice * Number(SCALE)));
+      const qPow = BigInt(10) ** BigInt(quoteToken.decimals);
+      const bPow = BigInt(10) ** BigInt(baseToken.decimals);
+      
+      let minOutAtomic: bigint;
       if (side === 'BUY') {
-        // sell quote, receive base → guaranteedPrice = base/quote
-        // base_out_min = floor( sell_quote_atomic / (guaranteedPrice * 10^quote_decimals) * 10^base_decimals )
-        const num = Number(sellAmountAtomic) / 10 ** quoteToken.decimals;
-        const baseOutMin = Math.floor(num / guaranteedPrice * 10 ** baseToken.decimals);
-        minOut = String(baseOutMin);
+        // sell quote, receive base → gp = base/quote
+        // base_out_min = sell_quote_atomic * gp * 10^base_dec / (SCALE * 10^quote_dec)
+        minOutAtomic = (sellAmountAtomic * gpScaled * bPow) / (SCALE * qPow);
       } else {
-        // SELL base, receive quote → guaranteedPrice = quote/base
-        const num = Number(sellAmountAtomic) / 10 ** baseToken.decimals;
-        const quoteOutMin = Math.floor(num * guaranteedPrice * 10 ** quoteToken.decimals);
-        minOut = String(quoteOutMin);
+        // sell base, receive quote → gp = quote/base
+        // quote_out_min = sell_base_atomic * gp * 10^quote_dec / (SCALE * 10^base_dec)
+        minOutAtomic = (sellAmountAtomic * gpScaled * qPow) / (SCALE * bPow);
       }
+      minOut = minOutAtomic.toString();
     }
 
     // Calculate effective BPS cost using corrected notional and gas
