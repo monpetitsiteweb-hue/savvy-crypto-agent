@@ -50,6 +50,7 @@ import NaturalLanguageStrategy from './NaturalLanguageStrategy';
 import { AIIntelligenceSettings, AIIntelligenceConfig } from './AIIntelligenceSettings';
 import { TechnicalIndicatorSettings, TechnicalIndicatorConfig } from './TechnicalIndicatorSettings';
 import { PoolExitManagementPanel } from './PoolExitManagementPanel';
+import { ExecutionSettingsPanel } from './ExecutionSettingsPanel';
 
 import { getAllSymbols } from '@/data/coinbaseCoins';
 import { getUnsupportedSymbols } from '@/utils/marketAvailability';
@@ -183,6 +184,17 @@ interface StrategyFormData {
     cooldownBetweenOppositeActionsMs: number;
     confidenceOverrideThreshold: number;
   };
+  // Execution Settings
+  executionSettings: {
+    execution_mode: 'COINBASE' | 'ONCHAIN';
+    chain_id: number;
+    slippage_bps_default: number;
+    preferred_providers: string[];
+    mev_policy: 'auto' | 'force_private' | 'cow_only';
+    max_gas_cost_pct: number;
+    max_price_impact_bps: number;
+    max_quote_age_ms: number;
+  };
 }
 
 interface ComprehensiveStrategyConfigProps {
@@ -262,13 +274,20 @@ const MENU_SECTIONS = [
       { id: 'dollar-cost-averaging', label: 'Dollar Cost Averaging', icon: DollarSign }
     ]
   },
-  {
-    id: 'decisions',
-    title: 'UNIFIED DECISIONS',
-    items: [
-      { id: 'unified-decisions', label: 'Unified Decisions', icon: Shield }
-    ]
-  }
+    {
+      id: 'decisions',
+      title: 'UNIFIED DECISIONS',
+      items: [
+        { id: 'unified-decisions', label: 'Unified Decisions', icon: Shield }
+      ]
+    },
+    {
+      id: 'execution',
+      title: 'EXECUTION',
+      items: [
+        { id: 'execution-settings', label: 'Execution Settings', icon: Settings }
+      ]
+    }
 ];
 
 // Define TooltipField outside the component to prevent recreation on every render
@@ -316,6 +335,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 }) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
+  const { toast } = useToast();
   const [activeSection, setActiveSection] = useState('basic-settings');
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [showLiveConfirmation, setShowLiveConfirmation] = useState(false);
@@ -477,6 +497,16 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         kPeriod: 3,
         dPeriod: 3,
       },
+    },
+    executionSettings: {
+      execution_mode: 'COINBASE',
+      chain_id: 8453,
+      slippage_bps_default: 50,
+      preferred_providers: ['0x', 'cow', '1inch', 'uniswap'],
+      mev_policy: 'auto',
+      max_gas_cost_pct: 0.35,
+      max_price_impact_bps: 40,
+      max_quote_age_ms: 1500
     }
   });
 
@@ -499,6 +529,19 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   useEffect(() => {
     if (existingStrategy?.configuration) {
       const config = existingStrategy.configuration;
+      
+      // Load execution settings from database columns (not configuration JSON)
+      const executionSettingsFromDb = {
+        execution_mode: (existingStrategy as any).execution_mode || 'COINBASE',
+        chain_id: (existingStrategy as any).chain_id || 8453,
+        slippage_bps_default: (existingStrategy as any).slippage_bps_default || 50,
+        preferred_providers: (existingStrategy as any).preferred_providers || ['0x', 'cow', '1inch', 'uniswap'],
+        mev_policy: (existingStrategy as any).mev_policy || 'auto',
+        max_gas_cost_pct: (existingStrategy as any).max_gas_cost_pct || 0.35,
+        max_price_impact_bps: (existingStrategy as any).max_price_impact_bps || 40,
+        max_quote_age_ms: (existingStrategy as any).max_quote_age_ms || 1500
+      };
+      
       setFormData(prev => ({ 
         ...prev, 
         ...config,
@@ -511,7 +554,9 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         technicalIndicatorConfig: {
           ...prev.technicalIndicatorConfig,
           ...config.technicalIndicatorConfig
-        }
+        },
+        // Load execution settings from database columns
+        executionSettings: executionSettingsFromDb
       }));
     }
   }, [existingStrategy]);
@@ -566,11 +611,20 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         test_mode: true, // Always create in test mode
         is_active: false, // Keep for backward compatibility
         // NOTE: Removed is_active_test/is_active_live as they don't exist in DB schema
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        // Execution settings - using (as any) to bypass TypeScript issues with new columns
+        execution_mode: formData.executionSettings.execution_mode,
+        chain_id: formData.executionSettings.chain_id,
+        slippage_bps_default: formData.executionSettings.slippage_bps_default,
+        preferred_providers: formData.executionSettings.preferred_providers,
+        mev_policy: formData.executionSettings.mev_policy,
+        max_gas_cost_pct: formData.executionSettings.max_gas_cost_pct,
+        max_price_impact_bps: formData.executionSettings.max_price_impact_bps,
+        max_quote_age_ms: formData.executionSettings.max_quote_age_ms
       };
 
       if (isEditing && existingStrategy) {
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from('trading_strategies')
           .update(strategyData)
           .eq('id', existingStrategy.id)
@@ -578,9 +632,15 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
         if (error) throw error;
         
+        // Show success toast for execution settings
+        toast({
+          title: "Execution settings saved",
+          description: "Your strategy execution configuration has been updated successfully.",
+        });
+        
         onBack();
       } else {
-        const { data, error } = await supabase
+        const { data, error } = await (supabase as any)
           .from('trading_strategies')
           .insert({
             ...strategyData,
@@ -590,6 +650,12 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
           .single();
 
         if (error) throw error;
+
+        // Show success toast for execution settings
+        toast({
+          title: "Execution settings saved",
+          description: "Your strategy execution configuration has been created successfully.",
+        });
 
         // Store the created strategy ID and show activation modal
         setCreatedStrategyId(data.id);
@@ -1925,6 +1991,14 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                       }}
                       onChange={(unifiedConfig) => updateFormData('unifiedConfig', unifiedConfig)}
                       isActive={formData.enableTestTrading || formData.enableLiveTrading}
+                    />
+                  )}
+
+                  {/* Execution Settings Panel */}
+                  {activeSection === 'execution-settings' && (
+                    <ExecutionSettingsPanel 
+                      settings={formData.executionSettings}
+                      onChange={(executionSettings) => updateFormData('executionSettings', executionSettings)}
                     />
                   )}
                 </form>
