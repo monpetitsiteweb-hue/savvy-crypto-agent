@@ -1,6 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { TOKENS, toAtomic, type Token } from './tokens.ts';
+import { TOKENS, WETH, toAtomic, type Token } from './tokens.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -431,8 +431,13 @@ async function handle1inchQuote(chainId: number, sellToken: Token, buyToken: Tok
     }
   }
 
-  // minOut is the guaranteed buy amount from 1inch
-  const minOut = buyAmount.toString();
+  // Calculate minOut = dstAmount minus slippage
+  const slippagePct = (slippageBps ?? 50) / 10000; // default 50 bps if undefined
+  // minOut = dstAmount * (1 - slippage)
+  const SCALE = 1_000_000n;
+  const oneMinusSlippageScaled = BigInt(Math.floor((1 - slippagePct) * 1_000_000));
+  const minOutAtomic = (buyAmount * oneMinusSlippageScaled) / SCALE;
+  const minOut = minOutAtomic.toString();
 
   // Calculate effective BPS cost
   const notionalQuote = side === 'BUY' ? amount : amount * price;
@@ -468,16 +473,35 @@ async function handleCoWQuote(chainId: number, sellToken: Token, buyToken: Token
     });
   }
 
+  // Temporarily support only SELL orders
+  if (side !== 'SELL') {
+    return new Response(JSON.stringify({ error: 'CoW BUY quotes not supported yet', provider: 'cow' }), {
+      status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // Map ETH to WETH for CoW Protocol
+  const wethForChain = WETH[chainId as keyof typeof WETH];
+  let finalSellToken = sellToken;
+  let finalBuyToken = buyToken;
+  
+  if (sellToken.symbol === 'ETH' && wethForChain) {
+    finalSellToken = wethForChain;
+  }
+  if (buyToken.symbol === 'ETH' && wethForChain) {
+    finalBuyToken = wethForChain;
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
 
   // CoW quote request body
   const cowRequest = {
-    sellToken: sellToken.address,
-    buyToken: buyToken.address,
+    sellToken: finalSellToken.address,
+    buyToken: finalBuyToken.address,
     sellAmountBeforeFee: sellAmountAtomic.toString(),
-    kind: side === 'SELL' ? 'sell' : 'buy',
+    kind: 'sell',
     partiallyFillable: false,
     sellTokenBalance: 'erc20',
     buyTokenBalance: 'erc20',
@@ -580,73 +604,8 @@ async function handleCoWQuote(chainId: number, sellToken: Token, buyToken: Token
 }
 
 async function handleUniswapQuote(chainId: number, sellToken: Token, buyToken: Token, sellAmountAtomic: bigint, slippageBps: number | undefined, side: string, amount: number, baseToken: Token, quoteToken: Token) {
-  // Fallback implementation since UNISWAP_API_KEY is not available
-  // Using a public Uniswap V3 quoter simulation
-  console.log('Using Uniswap fallback implementation for quote');
-
-  // For now, return a basic quote based on simple price estimation
-  // In production, you would integrate with Uniswap Routing API or V3 quoter contract
-  
-  // Simple fallback: estimate based on current pool ratios (this is a placeholder)
-  // In reality, you'd query Uniswap V3 pools or use the routing API
-  
-  // For demonstration, return a quote that's slightly less favorable than 0x
-  const estimatedPrice = side === 'BUY' ? 
-    (amount * 1.002) / amount : // quote/base with small spread
-    amount / (amount * 1.002);   // quote/base with small spread
-  
-  if (!estimatedPrice || estimatedPrice <= 0) {
-    return new Response(JSON.stringify({ error: 'Unable to calculate Uniswap price', provider: 'uniswap' }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-
-  // Estimate minOut based on slippage
-  const slippageMultiplier = slippageBps ? (1 - slippageBps / 10000) : 0.995;
-  const estimatedBuyAmount = side === 'BUY' ? 
-    sellAmountAtomic * BigInt(Math.floor(slippageMultiplier * 1000000)) / 1000000n :
-    sellAmountAtomic * BigInt(Math.floor(estimatedPrice * slippageMultiplier * 1000000)) / 1000000n;
-
-  // Estimate gas costs
-  let gasCostQuote: number | undefined;
-  const estimatedGas = 150000n; // Typical Uniswap V3 swap gas
-  const gasPriceWei = await getRpcGasPrice(chainId);
-  
-  if (gasPriceWei) {
-    const gasCostWei = estimatedGas * gasPriceWei;
-    const DEN = 10n ** 18n;
-    const whole = gasCostWei / DEN;
-    const frac  = gasCostWei % DEN;
-    const gasCostNative = Number(whole) + Number(frac) / 1e18;
-    const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address);
-    if (nativeToQuotePrice) {
-      gasCostQuote = gasCostNative * nativeToQuotePrice;
-    }
-  }
-
-  const minOut = estimatedBuyAmount.toString();
-
-  // Calculate effective BPS cost
-  const notionalQuote = side === 'BUY' ? amount : amount * estimatedPrice;
-  const feeBps = 30; // Uniswap V3 0.3% fee tier
-  const gasBps = gasCostQuote ? (gasCostQuote / notionalQuote) * 10000 : 0;
-  const effectiveBpsCost = feeBps + gasBps;
-
-  const result = {
-    provider: 'uniswap' as const,
-    price: estimatedPrice,
-    gasCostQuote,
-    feePct: 0.003, // 0.3% fee
-    minOut,
-    priceImpactBps: undefined,
-    mevRoute: 'public' as const,
-    quoteTs: Date.now(),
-    raw: { fallback: true, estimatedGas: estimatedGas.toString() },
-    effectiveBpsCost,
-  };
-
-  return new Response(JSON.stringify(result), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+  return new Response(JSON.stringify({
+    error: 'Uniswap direct quoting disabled: no UNISWAP_API_KEY / Routing API not integrated yet',
+    provider: 'uniswap'
+  }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
 }

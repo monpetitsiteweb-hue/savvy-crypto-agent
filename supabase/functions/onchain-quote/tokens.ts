@@ -18,6 +18,12 @@ export const TOKENS: Record<number, Record<'ETH'|'USDC', Token>> = {
   }
 };
 
+export const WETH: Record<number, Token> = {
+  1:     { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', decimals: 18, symbol: 'WETH' },
+  8453:  { address: '0x4200000000000000000000000000000000000006', decimals: 18, symbol: 'WETH' },
+  42161: { address: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1', decimals: 18, symbol: 'WETH' },
+};
+
 export const toAtomic = (v: number | string, d: number) => {
   const s = typeof v === 'number' ? v.toString() : v;
   const [i, f = ''] = s.split('.');
