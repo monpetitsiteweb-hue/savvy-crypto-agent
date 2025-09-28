@@ -17,6 +17,7 @@ export async function fetchOnchainQuote(payload: {
   amount: number | string;
   slippageBps?: number;
   provider: '0x' | '1inch' | 'cow' | 'uniswap';
+  from?: string;
 }) {
   const { data, error } = await supabase.functions.invoke('onchain-quote', {
     body: payload

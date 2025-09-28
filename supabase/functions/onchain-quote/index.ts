@@ -94,7 +94,8 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
     const baseUrl = CHAIN_BASE_URLS[chainId as keyof typeof CHAIN_BASE_URLS];
     if (!baseUrl) return null;
 
-    const nativeAddress = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+    // Use "ETH" string for native ETH instead of sentinel address
+    const nativeAddress = 'ETH';
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (ZEROEX_API_KEY) {
@@ -129,7 +130,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { chainId, base, quote, side, amount, slippageBps, provider = '0x' } = await req.json();
+    const { chainId, base, quote, side, amount, slippageBps, provider = '0x', from } = await req.json();
 
     console.log('Received quote request:', { chainId, base, quote, side, amount, slippageBps, provider });
 
@@ -191,7 +192,7 @@ Deno.serve(async (req) => {
     } else if (provider === '1inch') {
       return await handle1inchQuote(chainId, sellToken, buyToken, sellAmountAtomic, slippageBps, side, amount, baseToken, quoteToken);
     } else if (provider === 'cow') {
-      return await handleCoWQuote(chainId, sellToken, buyToken, sellAmountAtomic, slippageBps, side, amount, baseToken, quoteToken);
+      return await handleCoWQuote(chainId, sellToken, buyToken, sellAmountAtomic, slippageBps, side, amount, baseToken, quoteToken, from);
     } else if (provider === 'uniswap') {
       return await handleUniswapQuote(chainId, sellToken, buyToken, sellAmountAtomic, slippageBps, side, amount, baseToken, quoteToken);
     }
@@ -227,8 +228,9 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   }
 
   const params = new URLSearchParams();
-  params.set('sellToken', sellToken.address);
-  params.set('buyToken', buyToken.address);
+  // Use "ETH" string for native ETH, addresses for ERC-20 tokens
+  params.set('sellToken', sellToken.symbol === 'ETH' ? 'ETH' : sellToken.address);
+  params.set('buyToken', buyToken.symbol === 'ETH' ? 'ETH' : buyToken.address);
   params.set('sellAmount', sellAmountAtomic.toString());
   
   if (slippageBps) {
@@ -250,7 +252,61 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('0x API error:', errorText);
+    console.error(`0x API error (${response.status}): ${url} - ${errorText.substring(0, 200)}`);
+    
+    // Fallback: if "no Route matched", try /swap/v1/price
+    if (errorText.includes('no Route matched')) {
+      const priceUrl = url.replace('/swap/v1/quote', '/swap/v1/price');
+      console.log('Trying 0x /price fallback:', priceUrl);
+      
+      const priceResponse = await fetch(priceUrl, { headers });
+      if (priceResponse.ok) {
+        const priceData = await priceResponse.json();
+        console.log('0x price fallback response:', priceData);
+        
+        const px0x = Number(priceData.price);
+        if (px0x && px0x > 0) {
+          const price = side === 'BUY' ? 1 / px0x : px0x;
+          
+          // Calculate gas cost if available
+          let gasCostQuote: number | undefined;
+          const estGas = parseQty(priceData.estimatedGas);
+          if (estGas) {
+            const gasPriceWei = await getRpcGasPrice(chainId);
+            if (gasPriceWei) {
+              const gasCostWei = estGas * gasPriceWei;
+              const DEN = 10n ** 18n;
+              const whole = gasCostWei / DEN;
+              const frac = gasCostWei % DEN;
+              const gasCostNative = Number(whole) + Number(frac) / 1e18;
+              const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address);
+              if (nativeToQuotePrice) {
+                gasCostQuote = gasCostNative * nativeToQuotePrice;
+              }
+            }
+          }
+          
+          const notionalQuote = side === 'BUY' ? amount : amount * price;
+          const gasBps = gasCostQuote ? (gasCostQuote / notionalQuote) * 10000 : 0;
+          
+          return new Response(JSON.stringify({
+            provider: '0x' as const,
+            price,
+            gasCostQuote,
+            feePct: undefined,
+            minOut: undefined, // No guaranteedPrice from /price endpoint
+            priceImpactBps: undefined,
+            mevRoute: 'public' as const,
+            quoteTs: Date.now(),
+            raw: { ...priceData, fallback: 'price' },
+            effectiveBpsCost: gasBps,
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+    }
+    
     return new Response(JSON.stringify({ error: errorText, provider: '0x' }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -463,7 +519,7 @@ async function handle1inchQuote(chainId: number, sellToken: Token, buyToken: Tok
   });
 }
 
-async function handleCoWQuote(chainId: number, sellToken: Token, buyToken: Token, sellAmountAtomic: bigint, slippageBps: number | undefined, side: string, amount: number, baseToken: Token, quoteToken: Token) {
+async function handleCoWQuote(chainId: number, sellToken: Token, buyToken: Token, sellAmountAtomic: bigint, slippageBps: number | undefined, side: string, amount: number, baseToken: Token, quoteToken: Token, from?: string) {
   const baseUrl = COW_BASE_URLS[chainId as keyof typeof COW_BASE_URLS];
   
   if (!baseUrl || chainId !== 1) { // CoW only supports mainnet for now
@@ -492,6 +548,19 @@ async function handleCoWQuote(chainId: number, sellToken: Token, buyToken: Token
     finalBuyToken = wethForChain;
   }
 
+  // Validate and set from address
+  let fromAddress: string;
+  if (from) {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(from)) {
+      return new Response(JSON.stringify({ error: 'Invalid from address', provider: 'cow' }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    fromAddress = from;
+  } else {
+    fromAddress = Deno.env.get('COW_DEFAULT_FROM') || '0x0000000000000000000000000000000000000001';
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -505,6 +574,7 @@ async function handleCoWQuote(chainId: number, sellToken: Token, buyToken: Token
     partiallyFillable: false,
     sellTokenBalance: 'erc20',
     buyTokenBalance: 'erc20',
+    from: fromAddress,
   };
 
   const url = `${baseUrl}/mainnet/api/v1/quote`;
