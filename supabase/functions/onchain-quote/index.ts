@@ -27,8 +27,11 @@ const CHAIN_BASE_URLS = {
 const parseQty = (v: string | number | undefined): bigint | null => {
   if (v == null) return null;
   if (typeof v === 'number') return BigInt(Math.trunc(v));
-  const s = String(v);
-  return s.startsWith('0x') ? BigInt(s) : BigInt(Math.trunc(Number(s)));
+  const s = String(v).trim();
+  if (/^0x/i.test(s)) return BigInt(s);     // hex
+  if (/^\d+$/.test(s)) return BigInt(s);    // decimal
+  console.error('parseQty: unrecognized quantity', v);
+  return null;
 };
 
 async function getRpcGasPrice(chainId: number): Promise<bigint | null> {
@@ -208,8 +211,11 @@ serve(async (req) => {
     // Calculate gas cost in quote currency
     let gasCostQuote: number | undefined;
     if (estGas && gasPriceWei) {
-      const gasCostWei = estGas * gasPriceWei;
-      const gasCostNative = Number(gasCostWei) / 1e18; // safe because gas cost is small
+      const gasCostWei = estGas * gasPriceWei;         // bigint
+      const DEN = 10n ** 18n;
+      const whole = gasCostWei / DEN;                  // bigint
+      const frac  = gasCostWei % DEN;                  // bigint
+      const gasCostNative = Number(whole) + Number(frac) / 1e18; // safe
       const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address);
       if (nativeToQuotePrice) {
         gasCostQuote = gasCostNative * nativeToQuotePrice;
