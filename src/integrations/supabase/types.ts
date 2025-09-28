@@ -764,46 +764,64 @@ export type Database = {
       execution_circuit_breakers: {
         Row: {
           activated_at: string | null
-          breaker_type: string
+          breaker: string
+          cleared_at: string | null
           created_at: string
           current_value: number
           id: string
           is_active: boolean
+          last_reason: string | null
           last_reset_at: string | null
           strategy_id: string
           symbol: string
           threshold_value: number
+          thresholds: Json | null
+          trip_count: number
           trip_reason: string | null
+          tripped: boolean
+          tripped_at: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           activated_at?: string | null
-          breaker_type: string
+          breaker: string
+          cleared_at?: string | null
           created_at?: string
           current_value?: number
           id?: string
           is_active?: boolean
+          last_reason?: string | null
           last_reset_at?: string | null
           strategy_id: string
           symbol: string
-          threshold_value: number
+          threshold_value?: number
+          thresholds?: Json | null
+          trip_count?: number
           trip_reason?: string | null
+          tripped?: boolean
+          tripped_at?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
           activated_at?: string | null
-          breaker_type?: string
+          breaker?: string
+          cleared_at?: string | null
           created_at?: string
           current_value?: number
           id?: string
           is_active?: boolean
+          last_reason?: string | null
           last_reset_at?: string | null
           strategy_id?: string
           symbol?: string
           threshold_value?: number
+          thresholds?: Json | null
+          trip_count?: number
           trip_reason?: string | null
+          tripped?: boolean
+          tripped_at?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -835,54 +853,78 @@ export type Database = {
       }
       execution_quality_log: {
         Row: {
+          context: string | null
           created_at: string
           executed_at: string
           executed_price: number
           execution_latency_ms: number
+          fee_pct: number | null
+          fill_ms: number | null
           filled_amount: number
           id: string
+          liquidity_score: number | null
+          meta: Json | null
           metadata: Json | null
           partial_fill: boolean
           requested_amount: number
           requested_price: number | null
           side: string
           slippage_bps: number
+          spread_pct: number | null
+          status: string | null
           strategy_id: string
           symbol: string
+          ts: string
           user_id: string
         }
         Insert: {
+          context?: string | null
           created_at?: string
           executed_at?: string
           executed_price: number
           execution_latency_ms?: number
+          fee_pct?: number | null
+          fill_ms?: number | null
           filled_amount: number
           id?: string
+          liquidity_score?: number | null
+          meta?: Json | null
           metadata?: Json | null
           partial_fill?: boolean
           requested_amount: number
           requested_price?: number | null
           side: string
           slippage_bps?: number
+          spread_pct?: number | null
+          status?: string | null
           strategy_id: string
           symbol: string
+          ts: string
           user_id: string
         }
         Update: {
+          context?: string | null
           created_at?: string
           executed_at?: string
           executed_price?: number
           execution_latency_ms?: number
+          fee_pct?: number | null
+          fill_ms?: number | null
           filled_amount?: number
           id?: string
+          liquidity_score?: number | null
+          meta?: Json | null
           metadata?: Json | null
           partial_fill?: boolean
           requested_amount?: number
           requested_price?: number | null
           side?: string
           slippage_bps?: number
+          spread_pct?: number | null
+          status?: string | null
           strategy_id?: string
           symbol?: string
+          ts?: string
           user_id?: string
         }
         Relationships: []
@@ -1177,83 +1219,146 @@ export type Database = {
       mock_trades: {
         Row: {
           amount: number
+          amount_in_wei: number | null
+          amount_out_wei: number | null
           buy_fees: number | null
+          chain_id: number | null
           cryptocurrency: string
+          effective_bps_cost: number | null
           executed_at: string
+          execution_mode: string | null
           exit_value: number | null
+          fee_native_wei: number | null
           fees: number | null
+          gas_cost_pct: number | null
+          gas_estimate_wei: number | null
+          gas_used_wei: number | null
           id: string
           integrity_reason: string | null
           is_corrupted: boolean
           is_test_mode: boolean | null
           market_conditions: Json | null
+          mev_route: string | null
           notes: string | null
           original_purchase_amount: number | null
           original_purchase_price: number | null
           original_purchase_value: number | null
           price: number
+          price_impact_bps: number | null
+          price_quoted: number | null
+          price_realized: number | null
           profit_loss: number | null
+          provider: string | null
+          quote_age_ms: number | null
           realized_pnl: number | null
           realized_pnl_pct: number | null
+          route_source: string | null
+          router: string | null
           sell_fees: number | null
+          slippage_bps: number | null
           strategy_id: string
           strategy_trigger: string | null
+          token_in: string | null
+          token_out: string | null
           total_value: number
           trade_type: string
+          tx_hash: string | null
           user_id: string
         }
         Insert: {
           amount: number
+          amount_in_wei?: number | null
+          amount_out_wei?: number | null
           buy_fees?: number | null
+          chain_id?: number | null
           cryptocurrency: string
+          effective_bps_cost?: number | null
           executed_at?: string
+          execution_mode?: string | null
           exit_value?: number | null
+          fee_native_wei?: number | null
           fees?: number | null
+          gas_cost_pct?: number | null
+          gas_estimate_wei?: number | null
+          gas_used_wei?: number | null
           id?: string
           integrity_reason?: string | null
           is_corrupted?: boolean
           is_test_mode?: boolean | null
           market_conditions?: Json | null
+          mev_route?: string | null
           notes?: string | null
           original_purchase_amount?: number | null
           original_purchase_price?: number | null
           original_purchase_value?: number | null
           price: number
+          price_impact_bps?: number | null
+          price_quoted?: number | null
+          price_realized?: number | null
           profit_loss?: number | null
+          provider?: string | null
+          quote_age_ms?: number | null
           realized_pnl?: number | null
           realized_pnl_pct?: number | null
+          route_source?: string | null
+          router?: string | null
           sell_fees?: number | null
+          slippage_bps?: number | null
           strategy_id: string
           strategy_trigger?: string | null
+          token_in?: string | null
+          token_out?: string | null
           total_value: number
           trade_type: string
+          tx_hash?: string | null
           user_id: string
         }
         Update: {
           amount?: number
+          amount_in_wei?: number | null
+          amount_out_wei?: number | null
           buy_fees?: number | null
+          chain_id?: number | null
           cryptocurrency?: string
+          effective_bps_cost?: number | null
           executed_at?: string
+          execution_mode?: string | null
           exit_value?: number | null
+          fee_native_wei?: number | null
           fees?: number | null
+          gas_cost_pct?: number | null
+          gas_estimate_wei?: number | null
+          gas_used_wei?: number | null
           id?: string
           integrity_reason?: string | null
           is_corrupted?: boolean
           is_test_mode?: boolean | null
           market_conditions?: Json | null
+          mev_route?: string | null
           notes?: string | null
           original_purchase_amount?: number | null
           original_purchase_price?: number | null
           original_purchase_value?: number | null
           price?: number
+          price_impact_bps?: number | null
+          price_quoted?: number | null
+          price_realized?: number | null
           profit_loss?: number | null
+          provider?: string | null
+          quote_age_ms?: number | null
           realized_pnl?: number | null
           realized_pnl_pct?: number | null
+          route_source?: string | null
+          router?: string | null
           sell_fees?: number | null
+          slippage_bps?: number | null
           strategy_id?: string
           strategy_trigger?: string | null
+          token_in?: string | null
+          token_out?: string | null
           total_value?: number
           trade_type?: string
+          tx_hash?: string | null
           user_id?: string
         }
         Relationships: [
@@ -1680,13 +1785,21 @@ export type Database = {
       }
       trading_strategies: {
         Row: {
+          chain_id: number | null
           configuration: Json
           created_at: string
           description: string | null
+          execution_mode: string | null
           id: string
           is_active: boolean
           is_active_live: boolean | null
           is_active_test: boolean | null
+          max_gas_cost_pct: number | null
+          max_price_impact_bps: number | null
+          max_quote_age_ms: number | null
+          mev_policy: string | null
+          preferred_providers: string[] | null
+          slippage_bps_default: number | null
           strategy_name: string
           test_mode: boolean | null
           unified_config: Json | null
@@ -1694,13 +1807,21 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          chain_id?: number | null
           configuration: Json
           created_at?: string
           description?: string | null
+          execution_mode?: string | null
           id?: string
           is_active?: boolean
           is_active_live?: boolean | null
           is_active_test?: boolean | null
+          max_gas_cost_pct?: number | null
+          max_price_impact_bps?: number | null
+          max_quote_age_ms?: number | null
+          mev_policy?: string | null
+          preferred_providers?: string[] | null
+          slippage_bps_default?: number | null
           strategy_name: string
           test_mode?: boolean | null
           unified_config?: Json | null
@@ -1708,13 +1829,21 @@ export type Database = {
           user_id: string
         }
         Update: {
+          chain_id?: number | null
           configuration?: Json
           created_at?: string
           description?: string | null
+          execution_mode?: string | null
           id?: string
           is_active?: boolean
           is_active_live?: boolean | null
           is_active_test?: boolean | null
+          max_gas_cost_pct?: number | null
+          max_price_impact_bps?: number | null
+          max_quote_age_ms?: number | null
+          mev_policy?: string | null
+          preferred_providers?: string[] | null
+          slippage_bps_default?: number | null
           strategy_name?: string
           test_mode?: boolean | null
           unified_config?: Json | null
@@ -1869,6 +1998,30 @@ export type Database = {
           user_id: string | null
         }
         Relationships: []
+      }
+      execution_quality_onchain_24h: {
+        Row: {
+          avg_gas_cost_pct: number | null
+          avg_price_impact_bps: number | null
+          avg_quote_age_ms: number | null
+          avg_slippage_bps: number | null
+          chain_id: number | null
+          high_slippage_count: number | null
+          provider: string | null
+          slippage_p95_bps: number | null
+          strategy_id: string | null
+          trade_count: number | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mock_trades_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       mock_coverage: {
         Row: {
@@ -2249,12 +2402,21 @@ export type Database = {
       }
       reset_breaker: {
         Args: {
-          p_strategy: string
+          p_breaker: string
+          p_strategy_id: string
           p_symbol: string
-          p_type: string
-          p_user: string
+          p_user_id: string
         }
-        Returns: undefined
+        Returns: boolean
+      }
+      reset_breaker_dbg: {
+        Args: {
+          p_breaker: string
+          p_strategy_id: string
+          p_symbol: string
+          p_user_id: string
+        }
+        Returns: string
       }
       reset_mock_wallet_balances: {
         Args: { target_balance?: number }
