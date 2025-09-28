@@ -198,6 +198,12 @@ serve(async (req) => {
 
     // Calculate price as quote/base using 0x price with correct inversion for BUY
     const px0x = Number(zeroXData.price); // buy/sell normalized from 0x
+    if (!px0x || px0x <= 0) {
+      return new Response(JSON.stringify({ error: 'Invalid or missing price from 0x', provider: '0x' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
     const price = side === 'BUY' ? 1 / px0x : px0x; // we want quote/base
 
     // Parse gas quantities robustly
