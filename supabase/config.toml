@@ -83,3 +83,6 @@ verify_jwt = true
 
 [functions.breaker-ops]
 verify_jwt = true
+
+[functions.onchain-quote]
+verify_jwt = false
