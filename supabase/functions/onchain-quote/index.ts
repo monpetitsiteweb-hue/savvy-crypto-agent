@@ -10,6 +10,7 @@ const corsHeaders = {
 const ZEROEX_API_KEY = Deno.env.get('ZEROEX_API_KEY');
 const ONEINCH_API_KEY = Deno.env.get('ONEINCH_API_KEY');
 const UNISWAP_API_KEY = Deno.env.get('UNISWAP_API_KEY');
+const ZEROX_ROOT = 'https://api.0x.org';
 const RPC_URL_1 = Deno.env.get('RPC_URL_1') || 'https://eth.llamarpc.com';
 const RPC_URL_8453 = Deno.env.get('RPC_URL_8453') || 'https://base.llamarpc.com';
 const RPC_URL_42161 = Deno.env.get('RPC_URL_42161') || 'https://arbitrum.llamarpc.com';
@@ -50,8 +51,7 @@ function isClientAuthError(status: number) {
 }
 
 function to0xTokenParam(t: Token) {
-  // Use 'ETH' sentinel first for native, but we'll also try WETH as fallback
-  return t.symbol === 'ETH' ? 'ETH' : t.address;
+  return t.symbol === 'ETH' ? 'ETH' : t.address.toLowerCase();
 }
 
 function withParam(params: URLSearchParams, key: string, val: string) {
@@ -107,15 +107,12 @@ async function fetch0xTokenList(chainId: number): Promise<any[]> {
   }
 
   try {
-    const baseUrl = CHAIN_BASE_URLS[chainId as keyof typeof CHAIN_BASE_URLS];
-    if (!baseUrl) return [];
-
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (ZEROEX_API_KEY) {
       headers['0x-api-key'] = ZEROEX_API_KEY;
     }
 
-    const url = `${baseUrl}/swap/v1/tokens`;
+    const url = `${ZEROX_ROOT}/swap/v1/tokens?chainId=${chainId}`;
     const response = await fetch(url, { headers });
     
     if (!response.ok) {
@@ -191,16 +188,12 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
   }
 
   try {
-    const baseUrl = CHAIN_BASE_URLS[chainId as keyof typeof CHAIN_BASE_URLS];
-    if (!baseUrl) return null;
-
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (ZEROEX_API_KEY) {
       headers['0x-api-key'] = ZEROEX_API_KEY;
     }
 
-    const nativeSymbol = 'ETH'; // 0x expects 'ETH' for native
-    const url = `${baseUrl}/swap/v1/quote?sellToken=${nativeSymbol}&buyToken=${quoteTokenAddress}&sellAmount=1000000000000000000&skipValidation=true`;
+    const url = `${ZEROX_ROOT}/swap/v1/quote?chainId=${chainId}&sellToken=ETH&buyToken=${quoteTokenAddress}&sellAmount=1000000000000000000&skipValidation=true`;
     
     const response = await fetch(url, { headers });
     
@@ -208,7 +201,7 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
       // Retry once using WETH as sellToken for chains where ETH sentinel fails
       const weth = WETH[chainId as keyof typeof WETH];
       if (weth) {
-        const url2 = `${baseUrl}/swap/v1/quote?sellToken=${weth.address}&buyToken=${quoteTokenAddress}&sellAmount=1000000000000000000&skipValidation=true`;
+        const url2 = `${ZEROX_ROOT}/swap/v1/quote?chainId=${chainId}&sellToken=${weth.address.toLowerCase()}&buyToken=${quoteTokenAddress}&sellAmount=1000000000000000000&skipValidation=true`;
         let r2 = await fetch(url2, { headers });
         if (!r2.ok && (r2.status === 429 || r2.status >= 500)) {
           await new Promise(res => setTimeout(res, 150));
@@ -256,13 +249,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    const baseUrl = CHAIN_BASE_URLS[chainId as keyof typeof CHAIN_BASE_URLS];
-    if (!baseUrl && provider === '0x') {
-      return new Response(JSON.stringify({ error: `Unsupported chainId: ${chainId}`, provider: '0x' }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
 
     // Get token info from registry
     const chainTokens = TOKENS[chainId as keyof typeof TOKENS];
@@ -328,20 +314,13 @@ Deno.serve(async (req) => {
 
 // Provider-specific handlers
 async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token, sellAmountAtomic: bigint, slippageBps: number | undefined, side: string, amount: number, baseToken: Token, quoteToken: Token) {
-  const baseUrl = CHAIN_BASE_URLS[chainId as keyof typeof CHAIN_BASE_URLS];
-  if (!baseUrl) {
-    return new Response(JSON.stringify({ error: `Unsupported chainId: ${chainId}`, provider: '0x' }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (ZEROEX_API_KEY) {
     headers['0x-api-key'] = ZEROEX_API_KEY;
   }
 
   const params = new URLSearchParams();
+  params.set('chainId', String(chainId));
   params.set('sellToken', to0xTokenParam(sellToken));
   params.set('buyToken', to0xTokenParam(buyToken));
   params.set('sellAmount', sellAmountAtomic.toString());
@@ -351,7 +330,7 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   }
   params.set('skipValidation', 'true');
 
-  const url = `${baseUrl}/swap/v1/quote?${params.toString()}`;
+  const url = `${ZEROX_ROOT}/swap/v1/quote?${params.toString()}`;
   console.log('Calling 0x API:', url);
 
   // Track attempts for debug info
@@ -378,8 +357,8 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
     if (weth) {
       // If sell is native → try WETH instead
       if (sellToken.symbol === 'ETH') {
-        const p2 = withParam(params, 'sellToken', weth.address);
-        const url2 = `${baseUrl}/swap/v1/quote?${p2.toString()}`;
+        const p2 = withParam(params, 'sellToken', weth.address.toLowerCase());
+        const url2 = `${ZEROX_ROOT}/swap/v1/quote?${p2.toString()}`;
         attempts.push({url: url2, status: 0, note: 'trying_weth_sell'});
         wethQuoteTried = true;
         let r2 = await fetch(url2, { headers });
@@ -397,8 +376,8 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
 
       // If buy is native → try WETH instead
       if (buyToken.symbol === 'ETH') {
-        const p3 = withParam(params, 'buyToken', weth.address);
-        const url3 = `${baseUrl}/swap/v1/quote?${p3.toString()}`;
+        const p3 = withParam(params, 'buyToken', weth.address.toLowerCase());
+        const url3 = `${ZEROX_ROOT}/swap/v1/quote?${p3.toString()}`;
         attempts.push({url: url3, status: 0, note: 'trying_weth_buy'});
         wethQuoteTried = true;
         let r3 = await fetch(url3, { headers });
@@ -430,7 +409,7 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
           p4.set('buyToken', buyAlias);
         }
         
-        const url4 = `${baseUrl}/swap/v1/quote?${p4.toString()}`;
+        const url4 = `${ZEROX_ROOT}/swap/v1/quote?${p4.toString()}`;
         attempts.push({url: url4, status: 0, note: 'trying_stable_alias'});
         let r4 = await fetch(url4, { headers });
         if (!r4.ok && (r4.status === 429 || r4.status >= 500)) {
@@ -447,7 +426,7 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
     }
 
     // --- Fallback C: /price ---
-    const priceUrl = `${baseUrl}/swap/v1/price?${params.toString()}`;
+    const priceUrl = `${ZEROX_ROOT}/swap/v1/price?${params.toString()}`;
     console.log('Trying 0x /price fallback:', priceUrl);
     attempts.push({url: priceUrl, status: 0, note: 'trying_price'});
     let pr = await fetch(priceUrl, { headers });
