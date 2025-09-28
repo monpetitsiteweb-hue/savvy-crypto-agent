@@ -97,6 +97,91 @@ async function getRpcGasPrice(chainId: number): Promise<bigint | null> {
 // In-memory cache for native-to-quote prices (30s TTL)
 const priceCache = new Map<string, { price: number | null; expiry: number }>();
 
+// In-memory cache for 0x token lists (60s TTL)
+const tokenListCache = new Map<number, { tokens: any[]; expiry: number }>();
+
+async function fetch0xTokenList(chainId: number): Promise<any[]> {
+  const cached = tokenListCache.get(chainId);
+  if (cached && Date.now() < cached.expiry) {
+    return cached.tokens;
+  }
+
+  try {
+    const baseUrl = CHAIN_BASE_URLS[chainId as keyof typeof CHAIN_BASE_URLS];
+    if (!baseUrl) return [];
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (ZEROEX_API_KEY) {
+      headers['0x-api-key'] = ZEROEX_API_KEY;
+    }
+
+    const url = `${baseUrl}/swap/v1/tokens`;
+    const response = await fetch(url, { headers });
+    
+    if (!response.ok) {
+      console.error('Failed to fetch 0x token list:', response.status, url);
+      return [];
+    }
+
+    const data = await response.json();
+    const tokens = data.records || [];
+    
+    // Cache for 60 seconds
+    tokenListCache.set(chainId, { tokens, expiry: Date.now() + 60_000 });
+    return tokens;
+  } catch (error) {
+    console.error('Error fetching 0x token list:', error);
+    return [];
+  }
+}
+
+function pick0xStableAlias(chainId: number, wanted: Token, tokenList: any[]): string {
+  // Only handle USDC tokens
+  if (wanted.symbol !== 'USDC') {
+    return wanted.address;
+  }
+
+  // Find USDC variants in the token list
+  const usdcVariants = tokenList.filter(token => {
+    const symbol = token.symbol?.toUpperCase() || '';
+    const name = token.name?.toLowerCase() || '';
+    
+    return ['USDC', 'USDC.E', 'USDBC'].includes(symbol) || 
+           name.includes('usd coin');
+  });
+
+  if (usdcVariants.length === 0) {
+    return wanted.address;
+  }
+
+  // Prefer exact USDC match, then USDC.e, then USDbC
+  const priorityOrder = ['USDC', 'USDC.E', 'USDBC'];
+  
+  for (const priority of priorityOrder) {
+    const match = usdcVariants.find(token => 
+      token.symbol?.toUpperCase() === priority
+    );
+    if (match && match.address) {
+      // Log the selection
+      if (chainId === 8453 || chainId === 42161) {
+        console.log(`USDC alias selected for chain ${chainId}: ${match.address} (${match.symbol})`);
+      }
+      return match.address;
+    }
+  }
+
+  // Fallback to first variant found
+  const fallback = usdcVariants[0];
+  if (fallback?.address) {
+    if (chainId === 8453 || chainId === 42161) {
+      console.log(`USDC alias fallback for chain ${chainId}: ${fallback.address} (${fallback.symbol})`);
+    }
+    return fallback.address;
+  }
+
+  return wanted.address;
+}
+
 async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string): Promise<number | null> {
   const cacheKey = `${chainId}:${quoteTokenAddress}`;
   const cached = priceCache.get(cacheKey);
@@ -269,10 +354,14 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   const url = `${baseUrl}/swap/v1/quote?${params.toString()}`;
   console.log('Calling 0x API:', url);
 
+  // Track attempts for debug info
+  const attempts: Array<{url: string, status: number, note: string}> = [];
+
   let response = await fetch(url, { headers });
 
   // Retry once (150ms) on 429/5xx
   if (!response.ok && (response.status === 429 || response.status >= 500)) {
+    attempts.push({url, status: response.status, note: 'initial_failure'});
     await new Promise(r => setTimeout(r, 150));
     response = await fetch(url, { headers });
   }
@@ -280,6 +369,7 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   if (!response.ok && !isClientAuthError(response.status)) {
     const txt = await response.text();
     console.error('0x /quote error', response.status, url, txt.slice(0, 200));
+    attempts.push({url, status: response.status, note: 'quote_failed'});
 
     // --- Fallback A: try WETH for native legs then /quote again ---
     let wethQuoteTried = false;
@@ -290,6 +380,7 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
       if (sellToken.symbol === 'ETH') {
         const p2 = withParam(params, 'sellToken', weth.address);
         const url2 = `${baseUrl}/swap/v1/quote?${p2.toString()}`;
+        attempts.push({url: url2, status: 0, note: 'trying_weth_sell'});
         wethQuoteTried = true;
         let r2 = await fetch(url2, { headers });
         if (!r2.ok && (r2.status === 429 || r2.status >= 500)) {
@@ -298,14 +389,17 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
         }
         if (r2.ok) {
           const d2 = await r2.json();
-          return await build0xSuccessResponse(d2, /*side*/ side, /*amount*/ amount, /*base*/ baseToken, /*quote*/ quoteToken, /*sellAmount*/ sellAmountAtomic, chainId);
+          attempts.push({url: url2, status: r2.status, note: 'weth_sell_success'});
+          return await build0xSuccessResponse(d2, /*side*/ side, /*amount*/ amount, /*base*/ baseToken, /*quote*/ quoteToken, /*sellAmount*/ sellAmountAtomic, chainId, attempts);
         }
+        attempts.push({url: url2, status: r2.status, note: 'weth_sell_failed'});
       }
 
       // If buy is native → try WETH instead
       if (buyToken.symbol === 'ETH') {
         const p3 = withParam(params, 'buyToken', weth.address);
         const url3 = `${baseUrl}/swap/v1/quote?${p3.toString()}`;
+        attempts.push({url: url3, status: 0, note: 'trying_weth_buy'});
         wethQuoteTried = true;
         let r3 = await fetch(url3, { headers });
         if (!r3.ok && (r3.status === 429 || r3.status >= 500)) {
@@ -314,14 +408,48 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
         }
         if (r3.ok) {
           const d3 = await r3.json();
-          return await build0xSuccessResponse(d3, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId);
+          attempts.push({url: url3, status: r3.status, note: 'weth_buy_success'});
+          return await build0xSuccessResponse(d3, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
         }
+        attempts.push({url: url3, status: r3.status, note: 'weth_buy_failed'});
       }
     }
 
-    // --- Fallback B: /price ---
+    // --- Fallback B: try stable alias ---
+    const tokenList = await fetch0xTokenList(chainId);
+    if (tokenList.length > 0) {
+      const sellAlias = pick0xStableAlias(chainId, sellToken, tokenList);
+      const buyAlias = pick0xStableAlias(chainId, buyToken, tokenList);
+      
+      if (sellAlias !== sellToken.address || buyAlias !== buyToken.address) {
+        const p4 = new URLSearchParams(params.toString());
+        if (sellAlias !== sellToken.address) {
+          p4.set('sellToken', sellAlias);
+        }
+        if (buyAlias !== buyToken.address) {
+          p4.set('buyToken', buyAlias);
+        }
+        
+        const url4 = `${baseUrl}/swap/v1/quote?${p4.toString()}`;
+        attempts.push({url: url4, status: 0, note: 'trying_stable_alias'});
+        let r4 = await fetch(url4, { headers });
+        if (!r4.ok && (r4.status === 429 || r4.status >= 500)) {
+          await new Promise(r => setTimeout(r, 150));
+          r4 = await fetch(url4, { headers });
+        }
+        if (r4.ok) {
+          const d4 = await r4.json();
+          attempts.push({url: url4, status: r4.status, note: 'stable_alias_success'});
+          return await build0xSuccessResponse(d4, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts, 'stable_alias');
+        }
+        attempts.push({url: url4, status: r4.status, note: 'stable_alias_failed'});
+      }
+    }
+
+    // --- Fallback C: /price ---
     const priceUrl = `${baseUrl}/swap/v1/price?${params.toString()}`;
     console.log('Trying 0x /price fallback:', priceUrl);
+    attempts.push({url: priceUrl, status: 0, note: 'trying_price'});
     let pr = await fetch(priceUrl, { headers });
     if (!pr.ok && (pr.status === 429 || pr.status >= 500)) {
       await new Promise(r => setTimeout(r, 150));
@@ -329,11 +457,13 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
     }
     if (pr.ok) {
       const priceData = await pr.json();
-      return await build0xPriceResponse(priceData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId);
+      attempts.push({url: priceUrl, status: pr.status, note: 'price_success'});
+      return await build0xPriceResponse(priceData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
     }
+    attempts.push({url: priceUrl, status: pr.status, note: 'price_failed'});
 
     // If still failing, return original error text
-    return new Response(JSON.stringify({ error: txt, provider: '0x' }), {
+    return new Response(JSON.stringify({ error: txt, provider: '0x', raw: { debug: { attempts } } }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -342,17 +472,19 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   if (!response.ok) {
     // 401/403 → return as is
     const txt = await response.text();
-    return new Response(JSON.stringify({ error: txt, provider: '0x' }), {
+    attempts.push({url, status: response.status, note: 'auth_error'});
+    return new Response(JSON.stringify({ error: txt, provider: '0x', raw: { debug: { attempts } } }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
+  attempts.push({url, status: response.status, note: 'success'});
   const zeroXData = await response.json();
-  return await build0xSuccessResponse(zeroXData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId);
+  return await build0xSuccessResponse(zeroXData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
 }
 
-async function build0xSuccessResponse(zeroXData: any, side: string, amount: number, baseToken: Token, quoteToken: Token, sellAmountAtomic: bigint, chainId: number) {
+async function build0xSuccessResponse(zeroXData: any, side: string, amount: number, baseToken: Token, quoteToken: Token, sellAmountAtomic: bigint, chainId: number, attempts?: Array<{url: string, status: number, note: string}>, fallbackType?: string) {
   const px0x = Number(zeroXData.price);
   if (!px0x || px0x <= 0) {
     return new Response(JSON.stringify({ error: 'Invalid or missing price from 0x', provider: '0x' }), {
@@ -396,6 +528,14 @@ async function build0xSuccessResponse(zeroXData: any, side: string, amount: numb
   const priceImpactBps = zeroXData.estimatedPriceImpact ? Math.round(parseFloat(zeroXData.estimatedPriceImpact) * 10000) : 0;
   const gasBps = gasCostQuote ? (gasCostQuote / notionalQuote) * 10000 : 0;
 
+  const raw: any = { ...zeroXData };
+  if (attempts && attempts.length > 0) {
+    raw.debug = { attempts };
+  }
+  if (fallbackType) {
+    raw.fallback = fallbackType;
+  }
+
   return new Response(JSON.stringify({
     provider: '0x' as const,
     price,
@@ -405,12 +545,12 @@ async function build0xSuccessResponse(zeroXData: any, side: string, amount: numb
     priceImpactBps: priceImpactBps || undefined,
     mevRoute: 'public' as const,
     quoteTs: Date.now(),
-    raw: zeroXData,
+    raw,
     effectiveBpsCost: priceImpactBps + gasBps,
   }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
 }
 
-async function build0xPriceResponse(priceData: any, side: string, amount: number, baseToken: Token, quoteToken: Token, sellAmountAtomic: bigint, chainId: number) {
+async function build0xPriceResponse(priceData: any, side: string, amount: number, baseToken: Token, quoteToken: Token, sellAmountAtomic: bigint, chainId: number, attempts?: Array<{url: string, status: number, note: string}>) {
   const px0x = Number(priceData.price);
   if (!px0x || px0x <= 0) {
     return new Response(JSON.stringify({ error: 'Invalid price from 0x /price', provider: '0x' }), {
@@ -436,6 +576,11 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
   const notionalQuote = side === 'BUY' ? amount : amount * price;
   const gasBps = gasCostQuote ? (gasCostQuote / notionalQuote) * 10000 : 0;
 
+  const raw: any = { ...priceData, fallback: 'price' };
+  if (attempts && attempts.length > 0) {
+    raw.debug = { attempts };
+  }
+
   return new Response(JSON.stringify({
     provider: '0x' as const,
     price,
@@ -445,7 +590,7 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
     priceImpactBps: priceData.estimatedPriceImpact ? Math.round(parseFloat(priceData.estimatedPriceImpact) * 10000) : undefined,
     mevRoute: 'public' as const,
     quoteTs: Date.now(),
-    raw: { ...priceData, fallback: 'price' },
+    raw,
     effectiveBpsCost: gasBps,
   }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
 }
