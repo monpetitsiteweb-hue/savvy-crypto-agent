@@ -57,12 +57,11 @@ function to0xTokenParam(t: Token) {
 }
 
 function get0xHeaders(): Record<string, string> {
-  const h: Record<string, string> = {
+  return {
     'Content-Type': 'application/json',
     '0x-version': ZEROX_VERSION,
+    ...(ZEROEX_API_KEY && {'0x-api-key': ZEROEX_API_KEY})
   };
-  if (ZEROEX_API_KEY) h['0x-api-key'] = ZEROEX_API_KEY;
-  return h;
 }
 
 function withParam(params: URLSearchParams, key: string, val: string) {
@@ -310,12 +309,18 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   const attempts: Array<{url: string, status: number, note: string}> = [];
 
   let response = await fetch(url, { headers });
+  console.log('0x v2 status:', response.status);
+  const bodyProbe = await response.clone().text();
+  console.log('0x v2 body (first 300):', bodyProbe.slice(0,300));
 
   // Retry once (150ms) on 429/5xx
   if (!response.ok && (response.status === 429 || response.status >= 500)) {
     attempts.push({url, status: response.status, note: 'initial_failure'});
     await new Promise(r => setTimeout(r, 150));
     response = await fetch(url, { headers });
+    console.log('0x v2 retry status:', response.status);
+    const retryBodyProbe = await response.clone().text();
+    console.log('0x v2 retry body (first 300):', retryBodyProbe.slice(0,300));
   }
 
   if (!response.ok && !isClientAuthError(response.status)) {
@@ -333,9 +338,16 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
         const url2 = `${ZEROX_ROOT}/swap/permit2/price?${p2.toString()}`;
         attempts.push({url: url2, status: 0, note: 'trying_weth_sell'});
         let r2 = await fetch(url2, { headers });
+        console.log('0x v2 WETH sell status:', r2.status);
+        const wethSellBodyProbe = await r2.clone().text();
+        console.log('0x v2 WETH sell body (first 300):', wethSellBodyProbe.slice(0,300));
+        
         if (!r2.ok && (r2.status === 429 || r2.status >= 500)) {
           await new Promise(r => setTimeout(r, 150));
           r2 = await fetch(url2, { headers });
+          console.log('0x v2 WETH sell retry status:', r2.status);
+          const wethSellRetryBodyProbe = await r2.clone().text();
+          console.log('0x v2 WETH sell retry body (first 300):', wethSellRetryBodyProbe.slice(0,300));
         }
         if (r2.ok) {
           const d2 = await r2.json();
@@ -351,9 +363,16 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
         const url3 = `${ZEROX_ROOT}/swap/permit2/price?${p3.toString()}`;
         attempts.push({url: url3, status: 0, note: 'trying_weth_buy'});
         let r3 = await fetch(url3, { headers });
+        console.log('0x v2 WETH buy status:', r3.status);
+        const wethBuyBodyProbe = await r3.clone().text();
+        console.log('0x v2 WETH buy body (first 300):', wethBuyBodyProbe.slice(0,300));
+        
         if (!r3.ok && (r3.status === 429 || r3.status >= 500)) {
           await new Promise(r => setTimeout(r, 150));
           r3 = await fetch(url3, { headers });
+          console.log('0x v2 WETH buy retry status:', r3.status);
+          const wethBuyRetryBodyProbe = await r3.clone().text();
+          console.log('0x v2 WETH buy retry body (first 300):', wethBuyRetryBodyProbe.slice(0,300));
         }
         if (r3.ok) {
           const d3 = await r3.json();
@@ -389,6 +408,34 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
 
   attempts.push({url, status: response.status, note: 'success'});
   const zeroXData = await response.json();
+  
+  // If response is OK but has no usable price, try /quote endpoint as fallback
+  if (!zeroXData.price || Number(zeroXData.price) <= 0) {
+    const quoteUrl = `${ZEROX_ROOT}/swap/permit2/quote?${params.toString()}`;
+    console.log('Calling 0x API (v2) quote fallback:', quoteUrl);
+    attempts.push({url: quoteUrl, status: 0, note: 'trying_quote_fallback'});
+    
+    let quoteResponse = await fetch(quoteUrl, { headers });
+    console.log('0x v2 quote fallback status:', quoteResponse.status);
+    const quoteBodyProbe = await quoteResponse.clone().text();
+    console.log('0x v2 quote fallback body (first 300):', quoteBodyProbe.slice(0,300));
+    
+    if (!quoteResponse.ok && (quoteResponse.status === 429 || quoteResponse.status >= 500)) {
+      await new Promise(r => setTimeout(r, 150));
+      quoteResponse = await fetch(quoteUrl, { headers });
+      console.log('0x v2 quote fallback retry status:', quoteResponse.status);
+      const quoteRetryBodyProbe = await quoteResponse.clone().text();
+      console.log('0x v2 quote fallback retry body (first 300):', quoteRetryBodyProbe.slice(0,300));
+    }
+    
+    if (quoteResponse.ok) {
+      const quoteData = await quoteResponse.json();
+      attempts.push({url: quoteUrl, status: quoteResponse.status, note: 'quote_fallback_success'});
+      return await build0xPriceResponse(quoteData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
+    }
+    attempts.push({url: quoteUrl, status: quoteResponse.status, note: 'quote_fallback_failed'});
+  }
+  
   return await build0xPriceResponse(zeroXData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
 }
 
@@ -459,9 +506,18 @@ async function build0xSuccessResponse(zeroXData: any, side: string, amount: numb
 }
 
 async function build0xPriceResponse(priceData: any, side: string, amount: number, baseToken: Token, quoteToken: Token, sellAmountAtomic: bigint, chainId: number, attempts?: Array<{url: string, status: number, note: string}>) {
-  const px0x = Number(priceData.price);
+  let px0x = Number(priceData?.price);
   if (!px0x || px0x <= 0) {
-    return new Response(JSON.stringify({ error: 'Invalid price from 0x /price', provider: '0x' }), {
+    const sellAmt = parseQty(priceData?.sellAmount);
+    const buyAmt  = parseQty(priceData?.buyAmount);
+    if (sellAmt && buyAmt) {
+      const sell = Number(sellAmt) / 10 ** baseToken.decimals;
+      const buy  = Number(buyAmt)  / 10 ** quoteToken.decimals;
+      px0x = (side === 'BUY') ? (sell / buy) : (buy / sell);
+    }
+  }
+  if (!px0x || px0x <= 0) {
+    return new Response(JSON.stringify({ error: 'Invalid price from 0x v2', provider: '0x', raw: priceData }), {
       status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
