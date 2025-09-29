@@ -1,5 +1,5 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { TOKENS, WETH, toAtomic, type Token } from './tokens.ts';
+import { TOKENS, WETH, toAtomic, normalizeToken, type Token } from './tokens.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -230,26 +230,22 @@ Deno.serve(async (req) => {
     }
 
 
-    // Get token info from registry
-    const chainTokens = TOKENS[chainId as keyof typeof TOKENS];
-    if (!chainTokens) {
-      return new Response(JSON.stringify({ error: `No tokens configured for chainId: ${chainId}`, provider }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    const baseToken = chainTokens[base as keyof typeof chainTokens];
-    const quoteToken = chainTokens[quote as keyof typeof chainTokens];
+    // Normalize tokens using the new normalizeToken function
+    let baseToken: Token;
+    let quoteToken: Token;
     
-    if (!baseToken || !quoteToken) {
-      return new Response(JSON.stringify({ error: `Unsupported token pair: ${base}/${quote} on chain ${chainId}`, provider }), {
+    try {
+      baseToken = normalizeToken(chainId, base);
+      quoteToken = normalizeToken(chainId, quote);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Invalid token';
+      return new Response(JSON.stringify({ error: errorMessage, provider }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Convert amount to atomic units
+    // Convert amount to atomic units based on token decimals
     let sellAmountAtomic: bigint;
     let sellToken: Token;
     let buyToken: Token;
@@ -260,7 +256,7 @@ Deno.serve(async (req) => {
       sellToken = quoteToken;
       buyToken = baseToken;
     } else {
-      // SELL base for quote → sell base, buy quote
+      // SELL base for quote → sell base, buy quote  
       sellAmountAtomic = toAtomic(amount, baseToken.decimals);
       sellToken = baseToken;
       buyToken = quoteToken;
@@ -326,7 +322,7 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
 
   if (!response.ok && !isClientAuthError(response.status)) {
     const txt = await response.text();
-    console.error('0x /quote error', response.status, url, txt.slice(0, 200));
+    console.error('0x v2 error', response.status, url, 'Full response body:', txt);
     attempts.push({url, status: response.status, note: 'quote_failed'});
 
     // --- Fallback A: try WETH for native legs then /price again ---
@@ -508,18 +504,25 @@ async function build0xSuccessResponse(zeroXData: any, side: string, amount: numb
 
 async function build0xPriceResponse(priceData: any, side: string, amount: number, baseToken: Token, quoteToken: Token, sellAmountAtomic: bigint, chainId: number, attempts?: Array<{url: string, status: number, note: string}>) {
   let px0x = Number(priceData?.price);
+  
+  // If data.price is missing but sellAmount & buyAmount exist, compute price = buyAmount/sellAmount
   if (!px0x || px0x <= 0) {
     const sellAmt = parseQty(priceData?.sellAmount);
     const buyAmt  = parseQty(priceData?.buyAmount);
     if (sellAmt && buyAmt) {
-      const sell = Number(sellAmt) / 10 ** (side === 'BUY' ? quoteToken.decimals : baseToken.decimals);
-      const buy  = Number(buyAmt)  / 10 ** (side === 'BUY' ? baseToken.decimals  : quoteToken.decimals);
-      // SELL base→quote: price = buy/sell; BUY base with quote: price = sell/buy
-      px0x = (side === 'BUY') ? (sell / buy) : (buy / sell);
+      // For 0x v2, compute price directly from amounts
+      px0x = Number(buyAmt) / Number(sellAmt);
+      console.log('Computed price from amounts:', px0x, 'sellAmt:', sellAmt.toString(), 'buyAmt:', buyAmt.toString());
     }
   }
+  
   if (!px0x || px0x <= 0) {
-    return new Response(JSON.stringify({ error: 'Invalid price from 0x v2', provider: '0x', raw: priceData }), {
+    return new Response(JSON.stringify({ 
+      error: 'Invalid price from 0x v2 - no price field and unable to compute from amounts', 
+      provider: '0x', 
+      raw: priceData,
+      debug: { sellAmount: priceData?.sellAmount, buyAmount: priceData?.buyAmount }
+    }), {
       status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
