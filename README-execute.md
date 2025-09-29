@@ -1,0 +1,397 @@
+# On-Chain Execution API
+
+The `/onchain-execute` Edge Function enables on-chain swap execution via 0x on Base and Arbitrum, with built-in safety features including simulation, minOut protection, and trade persistence.
+
+## Features
+
+- **Quote Integration**: Automatically fetches quotes from `/onchain-quote` with taker address for executable quotes
+- **Simulation**: Optional `eth_call` simulation to verify transaction will succeed before sending
+- **Flexible Modes**: 
+  - `build` mode: Returns unsigned transaction payload for client-side signing
+  - `send` mode: Accepts signed transaction and broadcasts to network
+- **Trade Persistence**: All trades stored in `public.trades` with full audit trail in `public.trade_events`
+- **Status Tracking**: Track trades through lifecycle: `built` → `submitted` → `mined`/`failed`
+
+## API Endpoints
+
+### POST /onchain-execute
+
+Execute or build a swap transaction.
+
+**Request Body:**
+
+```json
+{
+  "chainId": 8453,              // 1 (Ethereum), 8453 (Base), or 42161 (Arbitrum)
+  "base": "ETH",                // Base token symbol or address
+  "quote": "USDC",              // Quote token symbol or address
+  "side": "SELL",               // SELL or BUY
+  "amount": 1,                  // Amount in human units
+  "slippageBps": 50,            // Optional: slippage in basis points (default: 50)
+  "provider": "0x",             // Optional: provider (default: "0x")
+  "taker": "0x...",             // Optional: taker address (required for send mode)
+  "mode": "build",              // Optional: "build" or "send" (default: "build")
+  "simulateOnly": false,        // Optional: true to only simulate, not execute (default: false)
+  "signedTx": "0x..."           // Required for send mode: signed raw transaction
+}
+```
+
+**Validation:**
+- `taker` must match regex `^0x[0-9a-fA-F]{40}$` if provided
+- `side` must be `SELL` or `BUY`
+- `mode` must be `build` or `send`
+
+**Response (build mode):**
+
+```json
+{
+  "tradeId": "uuid",
+  "status": "built",
+  "price": 4145.23,
+  "minOut": "4145230000",
+  "gasCostQuote": 0.0234,
+  "unit": "USDC/ETH",
+  "txPayload": {
+    "to": "0x...",
+    "data": "0x...",
+    "value": "0x0",
+    "gas": "0x...",
+    "from": "0x..."
+  },
+  "raw": { /* full quote response */ }
+}
+```
+
+**Response (send mode, submitted):**
+
+```json
+{
+  "tradeId": "uuid",
+  "status": "submitted",
+  "txHash": "0x...",
+  "price": 4145.23,
+  "minOut": "4145230000",
+  "gasCostQuote": 0.0234,
+  "unit": "USDC/ETH",
+  "raw": { /* full quote response */ }
+}
+```
+
+**Response (simulation failed):**
+
+```json
+{
+  "tradeId": "uuid",
+  "status": "simulate_revert",
+  "error": "execution reverted: ...",
+  "price": 4145.23,
+  "minOut": "4145230000",
+  "gasCostQuote": 0.0234,
+  "unit": "USDC/ETH"
+}
+```
+
+### GET /onchain-execute?tradeId={uuid}
+
+Retrieve a trade by ID with full event history.
+
+**Response:**
+
+```json
+{
+  "trade": {
+    "id": "uuid",
+    "created_at": "2025-09-29T12:00:00Z",
+    "updated_at": "2025-09-29T12:00:05Z",
+    "chain_id": 8453,
+    "base": "ETH",
+    "quote": "USDC",
+    "side": "SELL",
+    "amount": 1,
+    "slippage_bps": 50,
+    "provider": "0x",
+    "taker": "0x...",
+    "mode": "send",
+    "simulate_only": false,
+    "price": 4145.23,
+    "min_out": "4145230000",
+    "gas_quote": 0.0234,
+    "status": "submitted",
+    "tx_hash": "0x...",
+    "tx_payload": { /* transaction object */ },
+    "receipts": null,
+    "effective_price": null,
+    "gas_wei": null,
+    "total_network_fee": null,
+    "notes": null,
+    "raw_quote": { /* full quote response */ }
+  },
+  "events": [
+    {
+      "id": 1,
+      "trade_id": "uuid",
+      "created_at": "2025-09-29T12:00:00Z",
+      "phase": "quote",
+      "severity": "info",
+      "payload": { /* quote data */ }
+    },
+    {
+      "id": 2,
+      "trade_id": "uuid",
+      "created_at": "2025-09-29T12:00:02Z",
+      "phase": "simulate",
+      "severity": "info",
+      "payload": { "success": true, "result": "0x..." }
+    },
+    {
+      "id": 3,
+      "trade_id": "uuid",
+      "created_at": "2025-09-29T12:00:05Z",
+      "phase": "submit",
+      "severity": "info",
+      "payload": { "txHash": "0x..." }
+    }
+  ]
+}
+```
+
+## Usage Examples
+
+### Example 1: Build transaction for client-side signing (recommended)
+
+```typescript
+// Step 1: Build transaction
+const buildResponse = await fetch(`${SUPABASE_URL}/functions/v1/onchain-execute`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+  },
+  body: JSON.stringify({
+    chainId: 8453,
+    base: 'ETH',
+    quote: 'USDC',
+    side: 'SELL',
+    amount: 1,
+    slippageBps: 50,
+    taker: '0xYourAddress...',
+    mode: 'build',
+  }),
+});
+
+const buildData = await buildResponse.json();
+console.log('Transaction to sign:', buildData.txPayload);
+
+// Step 2: Sign transaction on client (e.g., with ethers, viem, etc.)
+const signedTx = await wallet.signTransaction(buildData.txPayload);
+
+// Step 3: Send signed transaction
+const sendResponse = await fetch(`${SUPABASE_URL}/functions/v1/onchain-execute`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+  },
+  body: JSON.stringify({
+    chainId: 8453,
+    base: 'ETH',
+    quote: 'USDC',
+    side: 'SELL',
+    amount: 1,
+    slippageBps: 50,
+    taker: '0xYourAddress...',
+    mode: 'send',
+    signedTx,
+  }),
+});
+
+const sendData = await sendResponse.json();
+console.log('Transaction hash:', sendData.txHash);
+```
+
+### Example 2: Simulate transaction only
+
+```typescript
+const response = await fetch(`${SUPABASE_URL}/functions/v1/onchain-execute`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+  },
+  body: JSON.stringify({
+    chainId: 8453,
+    base: 'ETH',
+    quote: 'USDC',
+    side: 'SELL',
+    amount: 1,
+    taker: '0xYourAddress...',
+    simulateOnly: true,
+  }),
+});
+
+const data = await response.json();
+if (data.status === 'simulate_revert') {
+  console.error('Simulation failed:', data.error);
+} else {
+  console.log('Simulation successful, expected price:', data.price);
+}
+```
+
+### Example 3: Retrieve trade status
+
+```typescript
+const response = await fetch(
+  `${SUPABASE_URL}/functions/v1/onchain-execute?tradeId=${tradeId}`,
+  {
+    headers: {
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+  }
+);
+
+const data = await response.json();
+console.log('Trade status:', data.trade.status);
+console.log('Events:', data.events);
+```
+
+## Database Schema
+
+### `public.trades`
+
+Stores all trade execution attempts with full lifecycle tracking.
+
+**Key Fields:**
+- `taker`: EOA address (validated: `^0x[0-9a-fA-F]{40}$`)
+- `mode`: `build` or `send`
+- `status`: `built` → `submitted` → `mined`/`failed` or `simulate_revert`
+- `raw_quote`: Full quote response from `/onchain-quote`
+- `tx_payload`: Unsigned transaction object (for build mode)
+- `tx_hash`: Transaction hash (for send mode)
+- `receipts`: Transaction receipt (when mined)
+
+### `public.trade_events`
+
+Append-only audit trail of trade execution steps.
+
+**Phases:**
+- `quote`: Quote fetched from `/onchain-quote`
+- `simulate`: Transaction simulation result
+- `approve`: Approval transaction (if needed)
+- `submit`: Transaction submitted to network
+- `mined`: Transaction confirmed on-chain
+- `error`: Error occurred during execution
+
+**Severities:** `info`, `warn`, `error`
+
+## Security & Access Control
+
+**RLS (Row-Level Security):**
+- RLS is **enabled** on both `trades` and `trade_events` tables
+- **No policies** are configured by default
+- All DB operations use **service role key** (bypasses RLS)
+- Client-side reads/writes are **blocked** by default
+
+**Adding Per-User Policies (Optional):**
+
+If you want to allow users to view their own trades:
+
+```sql
+-- Example: Allow users to view trades where taker matches their address
+-- (Requires plumbing user's EVM address via custom header or JWT claim)
+
+create policy "User can select own trades"
+  on public.trades for select to authenticated
+  using (
+    auth.role() = 'authenticated' 
+    and taker is not null 
+    and lower(taker) = lower(current_setting('request.headers', true)::json->>'x-evm-address')
+  );
+
+create policy "User can select own trade events"
+  on public.trade_events for select to authenticated
+  using (
+    exists (
+      select 1 from public.trades
+      where trades.id = trade_events.trade_id
+        and lower(trades.taker) = lower(current_setting('request.headers', true)::json->>'x-evm-address')
+    )
+  );
+```
+
+## Environment Variables
+
+- `SUPABASE_URL`: Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY`: Service role key (required for DB operations)
+- `RPC_URL_1`: Ethereum RPC URL (default: `https://eth.llamarpc.com`)
+- `RPC_URL_8453`: Base RPC URL (default: `https://base.llamarpc.com`)
+- `RPC_URL_42161`: Arbitrum RPC URL (default: `https://arbitrum.llamarpc.com`)
+- `ZEROEX_API_KEY`: 0x API key (optional but recommended)
+
+## Verification Queries
+
+### Recent trades
+
+```sql
+select created_at, chain_id, side, base, quote, amount, provider, status, tx_hash
+from public.trades 
+order by created_at desc 
+limit 10;
+```
+
+### Failed trades with reasons
+
+```sql
+select created_at, status, notes, raw_quote->'debug' as debug
+from public.trades 
+where status in ('failed','simulate_revert')
+order by created_at desc 
+limit 20;
+```
+
+### Success rate today
+
+```sql
+select 
+  count(*) filter (where status='mined')::float / nullif(count(*),0) as mined_rate
+from public.trades 
+where created_at::date = now()::date;
+```
+
+### Trade with full event history
+
+```sql
+select 
+  t.*,
+  json_agg(te.* order by te.created_at) as events
+from public.trades t
+left join public.trade_events te on te.trade_id = t.id
+where t.id = 'trade-uuid-here'
+group by t.id;
+```
+
+## Status Transitions
+
+```
+built ──────────┐
+                │
+                ├──> simulate_revert (simulation failed)
+                │
+                ├──> submitted ──> mined (success)
+                │
+                └──> submitted ──> failed (tx reverted or error)
+```
+
+## Notes
+
+- **Private Keys**: This implementation does NOT hold private keys. Client must sign transactions.
+- **Gas Estimation**: Gas estimates come from 0x quote; actual gas used may vary.
+- **Slippage**: `minOut` protects against slippage; transaction will revert if output is less than `minOut`.
+- **Simulation**: Not foolproof; blockchain state may change between simulation and execution.
+- **Receipt Polling**: Current implementation returns immediately after submission; client should poll for receipt or implement background polling.
+
+## Support
+
+For issues or questions:
+1. Check Edge Function logs: https://supabase.com/dashboard/project/{project_id}/functions/onchain-execute/logs
+2. Review trade events in database for execution details
+3. Verify RPC endpoints are accessible and API keys are valid

@@ -1700,6 +1700,125 @@ export type Database = {
         }
         Relationships: []
       }
+      trade_events: {
+        Row: {
+          created_at: string
+          id: number
+          payload: Json | null
+          phase: string
+          severity: string
+          trade_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          payload?: Json | null
+          phase: string
+          severity?: string
+          trade_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          payload?: Json | null
+          phase?: string
+          severity?: string
+          trade_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_events_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trades: {
+        Row: {
+          amount: number
+          base: string
+          chain_id: number
+          created_at: string
+          effective_price: number | null
+          gas_quote: number | null
+          gas_wei: number | null
+          id: string
+          min_out: string | null
+          mode: string
+          notes: string | null
+          price: number | null
+          provider: string
+          quote: string
+          raw_quote: Json | null
+          receipts: Json | null
+          side: string
+          simulate_only: boolean
+          slippage_bps: number
+          status: string
+          taker: string | null
+          total_network_fee: string | null
+          tx_hash: string | null
+          tx_payload: Json | null
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          base: string
+          chain_id: number
+          created_at?: string
+          effective_price?: number | null
+          gas_quote?: number | null
+          gas_wei?: number | null
+          id?: string
+          min_out?: string | null
+          mode?: string
+          notes?: string | null
+          price?: number | null
+          provider?: string
+          quote: string
+          raw_quote?: Json | null
+          receipts?: Json | null
+          side: string
+          simulate_only?: boolean
+          slippage_bps?: number
+          status?: string
+          taker?: string | null
+          total_network_fee?: string | null
+          tx_hash?: string | null
+          tx_payload?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          base?: string
+          chain_id?: number
+          created_at?: string
+          effective_price?: number | null
+          gas_quote?: number | null
+          gas_wei?: number | null
+          id?: string
+          min_out?: string | null
+          mode?: string
+          notes?: string | null
+          price?: number | null
+          provider?: string
+          quote?: string
+          raw_quote?: Json | null
+          receipts?: Json | null
+          side?: string
+          simulate_only?: boolean
+          slippage_bps?: number
+          status?: string
+          taker?: string | null
+          total_network_fee?: string | null
+          tx_hash?: string | null
+          tx_payload?: Json | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       trading_history: {
         Row: {
           amount: number
