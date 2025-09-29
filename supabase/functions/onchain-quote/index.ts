@@ -225,6 +225,7 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
 
   try {
     const headers = get0xHeaders();
+    const quoteToken = normalizeToken(chainId, quoteTokenAddress);
 
     const url = `${ZEROX_ROOT}/swap/permit2/price?chainId=${chainId}&sellToken=${ETH_SENTINEL}&buyToken=${quoteTokenAddress}&sellAmount=1000000000000000000`;
     
@@ -242,9 +243,29 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
         }
         if (r2.ok) {
           const d2 = await r2.json();
-          const price = d2.price ? parseFloat(d2.price) : null;
-          priceCache.set(cacheKey, { price, expiry: Date.now() + 30_000 });
-          return price;
+          
+          // Humanize the price: prefer computing from amounts
+          let priceHuman: number | null = null;
+          const sellAmt = parseQty(d2.sellAmount || '1000000000000000000');
+          const buyAmt = parseQty(d2.buyAmount);
+          
+          if (sellAmt && buyAmt) {
+            priceHuman = humanPriceFromAmounts({
+              side: 'SELL',
+              baseDecimals: 18, // ETH/WETH
+              quoteDecimals: quoteToken.decimals,
+              sellAmountAtomic: sellAmt,
+              buyAmountAtomic: buyAmt
+            });
+          } else if (d2.price) {
+            // Fallback: scale atomic ratio to human price
+            const atomicRatio = parseFloat(d2.price);
+            const scale = 10 ** (18 - quoteToken.decimals);
+            priceHuman = atomicRatio * scale;
+          }
+          
+          priceCache.set(cacheKey, { price: priceHuman, expiry: Date.now() + 30_000 });
+          return priceHuman;
         }
       }
       priceCache.set(cacheKey, { price: null, expiry: Date.now() + 30_000 });
@@ -252,11 +273,30 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
     }
     
     const data = await response.json();
-    const price = data.price ? parseFloat(data.price) : null;
+    
+    // Humanize the price: prefer computing from amounts
+    let priceHuman: number | null = null;
+    const sellAmt = parseQty(data.sellAmount || '1000000000000000000');
+    const buyAmt = parseQty(data.buyAmount);
+    
+    if (sellAmt && buyAmt) {
+      priceHuman = humanPriceFromAmounts({
+        side: 'SELL',
+        baseDecimals: 18, // ETH
+        quoteDecimals: quoteToken.decimals,
+        sellAmountAtomic: sellAmt,
+        buyAmountAtomic: buyAmt
+      });
+    } else if (data.price) {
+      // Fallback: scale atomic ratio to human price
+      const atomicRatio = parseFloat(data.price);
+      const scale = 10 ** (18 - quoteToken.decimals);
+      priceHuman = atomicRatio * scale;
+    }
     
     // Cache for 30 seconds
-    priceCache.set(cacheKey, { price, expiry: Date.now() + 30_000 });
-    return price;
+    priceCache.set(cacheKey, { price: priceHuman, expiry: Date.now() + 30_000 });
+    return priceHuman;
   } catch (error) {
     console.error('Failed to get native to quote price:', error);
     priceCache.set(cacheKey, { price: null, expiry: Date.now() + 30_000 });
@@ -270,7 +310,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { chainId, base, quote, side, amount, slippageBps, provider = '0x', from } = await req.json();
+    const { chainId, base, quote, side, amount, slippageBps, provider = '0x', from, taker } = await req.json();
 
     console.log('Received quote request:', { chainId, base, quote, side, amount, slippageBps, provider });
 
@@ -317,7 +357,7 @@ Deno.serve(async (req) => {
 
     // Branch on provider
     if (provider === '0x') {
-      return await handle0xQuote(chainId, sellToken, buyToken, sellAmountAtomic, slippageBps, side, amount, baseToken, quoteToken);
+      return await handle0xQuote(chainId, sellToken, buyToken, sellAmountAtomic, slippageBps, side, amount, baseToken, quoteToken, taker);
     } else if (provider === '1inch') {
       return await handle1inchQuote(chainId, sellToken, buyToken, sellAmountAtomic, slippageBps, side, amount, baseToken, quoteToken);
     } else if (provider === 'cow') {
@@ -342,7 +382,7 @@ Deno.serve(async (req) => {
 });
 
 // Provider-specific handlers
-async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token, sellAmountAtomic: bigint, slippageBps: number | undefined, side: string, amount: number, baseToken: Token, quoteToken: Token) {
+async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token, sellAmountAtomic: bigint, slippageBps: number | undefined, side: string, amount: number, baseToken: Token, quoteToken: Token, taker?: string) {
   const headers = get0xHeaders();
 
   const params = new URLSearchParams();
@@ -592,15 +632,26 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
     });
   }
 
-  // Use v2 gas fields
+  // Use totalNetworkFee first, then fallback to gas calculation
   let gasCostQuote: number | undefined;
-  const estGas = parseQty(priceData.estimatedGas ?? priceData.gas);
-  const gasPriceWei = parseQty(priceData.gasPrice) ?? await getRpcGasPrice(chainId);
-  if (estGas && gasPriceWei) {
-    const gasCostWei = estGas * gasPriceWei;
+  let gasWei: bigint | null = null;
+  
+  if (priceData.totalNetworkFee) {
+    gasWei = parseQty(priceData.totalNetworkFee);
+  } else {
+    // Fallback to estimatedGas * gasPrice
+    const estGas = parseQty(priceData.estimatedGas ?? priceData.gas);
+    const gasPriceWei = parseQty(priceData.gasPrice) ?? await getRpcGasPrice(chainId);
+    if (estGas && gasPriceWei) {
+      gasWei = estGas * gasPriceWei;
+    }
+  }
+  
+  if (gasWei) {
+    // Convert wei → native (divide by 1e18) and multiply by HUMAN native→quote price
     const DEN = 10n ** 18n;
-    const whole = gasCostWei / DEN;
-    const frac  = gasCostWei % DEN;
+    const whole = gasWei / DEN;
+    const frac  = gasWei % DEN;
     const gasCostNative = Number(whole) + Number(frac) / 1e18;
     const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address);
     if (nativeToQuotePrice) gasCostQuote = gasCostNative * nativeToQuotePrice;
