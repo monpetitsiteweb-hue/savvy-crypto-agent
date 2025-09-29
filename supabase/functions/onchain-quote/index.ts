@@ -301,6 +301,7 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   params.set('sellToken', to0xTokenParam(sellToken));
   params.set('buyToken', to0xTokenParam(buyToken));
   params.set('sellAmount', sellAmountAtomic.toString());
+  if (slippageBps != null) params.set('slippageBps', String(slippageBps));
 
   const url = `${ZEROX_ROOT}/swap/permit2/price?${params.toString()}`;
   console.log('Calling 0x API (v2):', url);
@@ -511,8 +512,9 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
     const sellAmt = parseQty(priceData?.sellAmount);
     const buyAmt  = parseQty(priceData?.buyAmount);
     if (sellAmt && buyAmt) {
-      const sell = Number(sellAmt) / 10 ** baseToken.decimals;
-      const buy  = Number(buyAmt)  / 10 ** quoteToken.decimals;
+      const sell = Number(sellAmt) / 10 ** (side === 'BUY' ? quoteToken.decimals : baseToken.decimals);
+      const buy  = Number(buyAmt)  / 10 ** (side === 'BUY' ? baseToken.decimals  : quoteToken.decimals);
+      // SELL base→quote: price = buy/sell; BUY base with quote: price = sell/buy
       px0x = (side === 'BUY') ? (sell / buy) : (buy / sell);
     }
   }
@@ -523,10 +525,10 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
   }
   const price = side === 'BUY' ? 1 / px0x : px0x;
 
-  // best-effort gas from /price (or RPC)
+  // Use v2 gas fields
   let gasCostQuote: number | undefined;
-  const estGas = parseQty(priceData.estimatedGas);
-  const gasPriceWei = await getRpcGasPrice(chainId);
+  const estGas = parseQty(priceData.estimatedGas ?? priceData.gas);
+  const gasPriceWei = parseQty(priceData.gasPrice) ?? await getRpcGasPrice(chainId);
   if (estGas && gasPriceWei) {
     const gasCostWei = estGas * gasPriceWei;
     const DEN = 10n ** 18n;
@@ -535,6 +537,12 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
     const gasCostNative = Number(whole) + Number(frac) / 1e18;
     const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address);
     if (nativeToQuotePrice) gasCostQuote = gasCostNative * nativeToQuotePrice;
+  }
+
+  // Provide minOut when v2 returns minBuyAmount
+  let minOut: string | undefined;
+  if (priceData.minBuyAmount) {
+    minOut = String(priceData.minBuyAmount);
   }
 
   const notionalQuote = side === 'BUY' ? amount : amount * price;
@@ -550,7 +558,7 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
     price,
     gasCostQuote,
     feePct: undefined,
-    minOut: undefined, // /price doesn't guarantee output
+    minOut,
     priceImpactBps: priceData.estimatedPriceImpact ? Math.round(parseFloat(priceData.estimatedPriceImpact) * 10000) : undefined,
     mevRoute: 'public' as const,
     quoteTs: Date.now(),
