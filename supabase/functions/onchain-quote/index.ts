@@ -1,6 +1,26 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { TOKENS, WETH, toAtomic, normalizeToken, type Token } from './tokens.ts';
 
+/**
+ * Onchain Quote API - Returns humanized pricing
+ * 
+ * Response schema:
+ * {
+ *   provider: '0x' | '1inch' | 'cow' | 'uniswap',
+ *   price: number,                    // Humanized price (quote per base, e.g. "USDC per ETH")
+ *   gasCostQuote?: number,           // Gas cost in quote currency
+ *   feePct?: number,                 // Fee as percentage
+ *   minOut?: string,                 // Minimum output amount (atomic)
+ *   priceImpactBps?: number,         // Price impact in basis points
+ *   mevRoute: 'public' | 'cow_intent',
+ *   quoteTs: number,                 // Quote timestamp
+ *   raw: any,                        // Raw provider response
+ *   effectiveBpsCost: number,        // Total cost in basis points
+ *   unit: string,                    // Price unit description (e.g. "USDC/ETH")
+ *   rawPriceAtomicRatio?: number     // Raw atomic ratio for audit (buyAmount/sellAmount)
+ * }
+ */
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -79,6 +99,39 @@ const parseQty = (v: string | number | undefined): bigint | null => {
   console.error('parseQty: unrecognized quantity', v);
   return null;
 };
+
+function humanPriceFromAmounts({
+  side,               // 'SELL' | 'BUY'
+  baseDecimals,       // e.g. 18 for ETH
+  quoteDecimals,      // e.g. 6 for USDC
+  sellAmountAtomic,   // bigint
+  buyAmountAtomic     // bigint
+}: {
+  side: string;
+  baseDecimals: number;
+  quoteDecimals: number;
+  sellAmountAtomic: bigint;
+  buyAmountAtomic: bigint;
+}): number {
+  if (sellAmountAtomic <= 0n || buyAmountAtomic <= 0n) return NaN;
+
+  const basePow  = 10n ** BigInt(baseDecimals);
+  const quotePow = 10n ** BigInt(quoteDecimals);
+
+  // We always want price = (quote per 1 base)
+  // SELL (sell base → buy quote): price = (buy/sell) * (10^(baseDec-quoteDec))
+  // BUY  (sell quote → buy base): price = (sell/buy) * (10^(baseDec-quoteDec))
+  let num: bigint;
+  let den: bigint;
+
+  if (side === 'SELL') { num = buyAmountAtomic; den = sellAmountAtomic; }
+  else                 { num = sellAmountAtomic; den = buyAmountAtomic; }
+
+  // Compute double in steps to avoid precision issues
+  const ratio = Number(num) / Number(den);  // atomic ratio (careful but fine for 64-bit sized values here)
+  const scale = Number(basePow) / Number(quotePow);
+  return ratio * scale;
+}
 
 async function getRpcGasPrice(chainId: number): Promise<bigint | null> {
   try {
@@ -503,30 +556,41 @@ async function build0xSuccessResponse(zeroXData: any, side: string, amount: numb
 }
 
 async function build0xPriceResponse(priceData: any, side: string, amount: number, baseToken: Token, quoteToken: Token, sellAmountAtomic: bigint, chainId: number, attempts?: Array<{url: string, status: number, note: string}>) {
-  let px0x = Number(priceData?.price);
-  
-  // If data.price is missing but sellAmount & buyAmount exist, compute price = buyAmount/sellAmount
-  if (!px0x || px0x <= 0) {
-    const sellAmt = parseQty(priceData?.sellAmount);
-    const buyAmt  = parseQty(priceData?.buyAmount);
-    if (sellAmt && buyAmt) {
-      // For 0x v2, compute price directly from amounts
-      px0x = Number(buyAmt) / Number(sellAmt);
-      console.log('Computed price from amounts:', px0x, 'sellAmt:', sellAmt.toString(), 'buyAmt:', buyAmt.toString());
-    }
+  const sellAmt = parseQty(priceData?.sellAmount);
+  const buyAmt  = parseQty(priceData?.buyAmount);
+  let priceHuman: number | undefined;
+  let rawPriceAtomicRatio: number | undefined;
+
+  if (sellAmt && buyAmt) {
+    priceHuman = humanPriceFromAmounts({
+      side, 
+      baseDecimals: baseToken.decimals, 
+      quoteDecimals: quoteToken.decimals,
+      sellAmountAtomic: sellAmt, 
+      buyAmountAtomic: buyAmt
+    });
+    rawPriceAtomicRatio = Number(buyAmt) / Number(sellAmt);
+    console.log('Computed price from amounts:', rawPriceAtomicRatio, 'sellAmt:', sellAmt.toString(), 'buyAmt:', buyAmt.toString());
+  } else if (priceData?.price) {
+    // priceData.price is an atomic ratio (buy/sell). Convert it:
+    const atomicRatio = Number(priceData.price);
+    const scale = 10 ** (baseToken.decimals - quoteToken.decimals);
+    // SELL: price = atomicRatio * scale
+    // BUY : price = (1 / atomicRatio) * scale
+    priceHuman = (side === 'SELL') ? (atomicRatio * scale) : ((1 / atomicRatio) * scale);
+    rawPriceAtomicRatio = atomicRatio;
   }
-  
-  if (!px0x || px0x <= 0) {
+
+  if (!priceHuman || !isFinite(priceHuman) || priceHuman <= 0) {
     return new Response(JSON.stringify({ 
-      error: 'Invalid price from 0x v2 - no price field and unable to compute from amounts', 
+      error: 'Invalid price from 0x v2', 
       provider: '0x', 
       raw: priceData,
-      debug: { sellAmount: priceData?.sellAmount, buyAmount: priceData?.buyAmount }
+      debug: { sellAmount: priceData?.sellAmount, buyAmount: priceData?.buyAmount, attempts }
     }), {
       status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
-  const price = side === 'BUY' ? 1 / px0x : px0x;
 
   // Use v2 gas fields
   let gasCostQuote: number | undefined;
@@ -548,17 +612,20 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
     minOut = String(priceData.minBuyAmount);
   }
 
-  const notionalQuote = side === 'BUY' ? amount : amount * price;
+  const notionalQuote = side === 'BUY' ? amount : amount * priceHuman;
   const gasBps = gasCostQuote ? (gasCostQuote / notionalQuote) * 10000 : 0;
 
   const raw: any = { ...priceData, fallback: 'price' };
   if (attempts && attempts.length > 0) {
     raw.debug = { attempts };
   }
+  if (rawPriceAtomicRatio !== undefined) {
+    raw.rawPriceAtomicRatio = rawPriceAtomicRatio;
+  }
 
   return new Response(JSON.stringify({
     provider: '0x' as const,
-    price,
+    price: priceHuman,
     gasCostQuote,
     feePct: undefined,
     minOut,
@@ -567,6 +634,8 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
     quoteTs: Date.now(),
     raw,
     effectiveBpsCost: gasBps,
+    unit: `${quoteToken.symbol}/${baseToken.symbol}`,
+    rawPriceAtomicRatio,
   }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }});
 }
 
@@ -628,20 +697,19 @@ async function handle1inchQuote(chainId: number, sellToken: Token, buyToken: Tok
     });
   }
 
-  // Calculate price as quote/base
-  const sellAmountFloat = Number(sellAmountAtomic) / (10 ** sellToken.decimals);
-  const buyAmountFloat = Number(buyAmount) / (10 ** buyToken.decimals);
-  let price: number;
-  
-  if (side === 'BUY') {
-    // sell quote, buy base → price = sellAmountFloat / buyAmountFloat (quote/base)
-    price = sellAmountFloat / buyAmountFloat;
-  } else {
-    // sell base, buy quote → price = buyAmountFloat / sellAmountFloat (quote/base)
-    price = buyAmountFloat / sellAmountFloat;
-  }
+  // Calculate humanized price (quote per base) using the helper
+  const priceHuman = humanPriceFromAmounts({
+    side,
+    baseDecimals: baseToken.decimals,
+    quoteDecimals: quoteToken.decimals,
+    sellAmountAtomic,
+    buyAmountAtomic: buyAmount
+  });
 
-  if (!price || price <= 0) {
+  // Calculate raw atomic ratio for audit
+  const rawPriceAtomicRatio = Number(buyAmount) / Number(sellAmountAtomic);
+
+  if (!priceHuman || !isFinite(priceHuman) || priceHuman <= 0) {
     return new Response(JSON.stringify({ error: 'Invalid price calculation from 1inch', provider: '1inch' }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -675,22 +743,24 @@ async function handle1inchQuote(chainId: number, sellToken: Token, buyToken: Tok
   const minOut = minOutAtomic.toString();
 
   // Calculate effective BPS cost
-  const notionalQuote = side === 'BUY' ? amount : amount * price;
+  const notionalQuote = side === 'BUY' ? amount : amount * priceHuman;
   const feeBps = 0; // 1inch typically doesn't show explicit fees in quotes
   const gasBps = gasCostQuote ? (gasCostQuote / notionalQuote) * 10000 : 0;
   const effectiveBpsCost = feeBps + gasBps;
 
   const result = {
     provider: '1inch' as const,
-    price,
+    price: priceHuman,
     gasCostQuote,
     feePct: undefined,
     minOut,
     priceImpactBps: undefined,
     mevRoute: 'public' as const,
     quoteTs: Date.now(),
-    raw: oneInchData,
+    raw: { ...oneInchData, rawPriceAtomicRatio },
     effectiveBpsCost,
+    unit: `${quoteToken.symbol}/${baseToken.symbol}`,
+    rawPriceAtomicRatio,
   };
 
   return new Response(JSON.stringify(result), {
@@ -801,14 +871,19 @@ async function handleCoWQuote(chainId: number, sellToken: Token, buyToken: Token
     });
   }
 
-  // Calculate price as quote/base
-  const sellAmountFloat = Number(sellAmount) / (10 ** sellToken.decimals);
-  const buyAmountFloat = Number(buyAmount) / (10 ** buyToken.decimals);
-  
-  // Since we only support SELL, price = buyAmountFloat / sellAmountFloat (quote/base)
-  const price = buyAmountFloat / sellAmountFloat;
+  // Calculate humanized price (quote per base) using the helper
+  const priceHuman = humanPriceFromAmounts({
+    side,
+    baseDecimals: baseToken.decimals,
+    quoteDecimals: quoteToken.decimals,
+    sellAmountAtomic: sellAmount,
+    buyAmountAtomic: buyAmount
+  });
 
-  if (!price || price <= 0) {
+  // Calculate raw atomic ratio for audit
+  const rawPriceAtomicRatio = Number(buyAmount) / Number(sellAmount);
+
+  if (!priceHuman || !isFinite(priceHuman) || priceHuman <= 0) {
     return new Response(JSON.stringify({ error: 'Invalid price calculation from CoW', provider: 'cow' }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -825,21 +900,23 @@ async function handleCoWQuote(chainId: number, sellToken: Token, buyToken: Token
   const minOut = buyAmount.toString();
 
   // Calculate effective BPS cost
-  const notionalQuote = amount * price; // CoW only supports SELL
+  const notionalQuote = amount * priceHuman; // CoW only supports SELL
   const feeBps = feePct ? feePct * 10000 : 0;
   const effectiveBpsCost = feeBps; // CoW doesn't charge gas directly
 
   const result = {
     provider: 'cow' as const,
-    price,
+    price: priceHuman,
     gasCostQuote: undefined, // CoW doesn't expose gas costs
     feePct,
     minOut,
     priceImpactBps: undefined,
     mevRoute: 'cow_intent' as const,
     quoteTs: Date.now(),
-    raw: cowData,
+    raw: { ...cowData, rawPriceAtomicRatio },
     effectiveBpsCost,
+    unit: `${quoteToken.symbol}/${baseToken.symbol}`,
+    rawPriceAtomicRatio,
   };
 
   return new Response(JSON.stringify(result), {
