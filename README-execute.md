@@ -320,12 +320,25 @@ create policy "User can select own trade events"
 
 ## Environment Variables
 
-- `SUPABASE_URL`: Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY`: Service role key (required for DB operations)
+- `SB_URL`: Supabase project URL
+- `SB_SERVICE_ROLE`: Service role key (required for DB operations)
 - `RPC_URL_1`: Ethereum RPC URL (default: `https://eth.llamarpc.com`)
 - `RPC_URL_8453`: Base RPC URL (default: `https://base.llamarpc.com`)
 - `RPC_URL_42161`: Arbitrum RPC URL (default: `https://arbitrum.llamarpc.com`)
 - `ZEROEX_API_KEY`: 0x API key (optional but recommended)
+
+## Deploy Quickstart (Windows/PowerShell)
+
+```powershell
+supabase link --project-ref fuieplftlcxdfkxyqzlt
+supabase secrets set SB_URL="https://fuieplftlcxdfkxyqzlt.supabase.co"
+supabase secrets set SB_SERVICE_ROLE="<service-role-key>"
+supabase secrets set ZEROEX_API_KEY="<0x-key>"
+supabase secrets set RPC_URL_1="https://eth.llamarpc.com"
+supabase secrets set RPC_URL_8453="https://base.llamarpc.com"
+supabase secrets set RPC_URL_42161="https://arbitrum.llamarpc.com"
+supabase functions deploy onchain-execute
+```
 
 ## Verification Queries
 

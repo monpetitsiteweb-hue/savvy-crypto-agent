@@ -8,11 +8,11 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 };
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const PROJECT_URL = Deno.env.get('SB_URL')!;
+const SERVICE_ROLE = Deno.env.get('SB_SERVICE_ROLE')!;
 
 // Service role client (bypasses RLS)
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createClient(PROJECT_URL, SERVICE_ROLE);
 
 interface ExecuteRequest {
   chainId: number;
@@ -167,7 +167,7 @@ Deno.serve(async (req) => {
     console.log(`Received execute request: ${side} ${amount} ${base}/${quote} on chain ${chainId}, mode=${mode}, simulateOnly=${simulateOnly}`);
 
     // Step 1: Call /onchain-quote to get price snapshot
-    const quoteUrl = new URL(`${SUPABASE_URL}/functions/v1/onchain-quote`);
+    const quoteUrl = new URL(`${PROJECT_URL}/functions/v1/onchain-quote`);
     const quotePayload = {
       chainId,
       base,
@@ -185,7 +185,7 @@ Deno.serve(async (req) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Authorization': `Bearer ${SERVICE_ROLE}`,
       },
       body: JSON.stringify(quotePayload),
     });
