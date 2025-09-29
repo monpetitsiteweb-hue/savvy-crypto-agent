@@ -215,7 +215,7 @@ function pick0xStableAlias(chainId: number, wanted: Token, tokenList: any[]): st
   return wanted.address;
 }
 
-async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string): Promise<number | null> {
+async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string, quoteTokenDecimals: number): Promise<number | null> {
   const cacheKey = `${chainId}:${quoteTokenAddress}`;
   const cached = priceCache.get(cacheKey);
   
@@ -225,7 +225,6 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
 
   try {
     const headers = get0xHeaders();
-    const quoteToken = normalizeToken(chainId, quoteTokenAddress);
 
     const url = `${ZEROX_ROOT}/swap/permit2/price?chainId=${chainId}&sellToken=${ETH_SENTINEL}&buyToken=${quoteTokenAddress}&sellAmount=1000000000000000000`;
     
@@ -253,14 +252,14 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
             priceHuman = humanPriceFromAmounts({
               side: 'SELL',
               baseDecimals: 18, // ETH/WETH
-              quoteDecimals: quoteToken.decimals,
+              quoteDecimals: quoteTokenDecimals,
               sellAmountAtomic: sellAmt,
               buyAmountAtomic: buyAmt
             });
           } else if (d2.price) {
             // Fallback: scale atomic ratio to human price
             const atomicRatio = parseFloat(d2.price);
-            const scale = 10 ** (18 - quoteToken.decimals);
+            const scale = 10 ** (18 - quoteTokenDecimals);
             priceHuman = atomicRatio * scale;
           }
           
@@ -283,14 +282,14 @@ async function getNativeToQuotePrice(chainId: number, quoteTokenAddress: string)
       priceHuman = humanPriceFromAmounts({
         side: 'SELL',
         baseDecimals: 18, // ETH
-        quoteDecimals: quoteToken.decimals,
+        quoteDecimals: quoteTokenDecimals,
         sellAmountAtomic: sellAmt,
         buyAmountAtomic: buyAmt
       });
     } else if (data.price) {
       // Fallback: scale atomic ratio to human price
       const atomicRatio = parseFloat(data.price);
-      const scale = 10 ** (18 - quoteToken.decimals);
+      const scale = 10 ** (18 - quoteTokenDecimals);
       priceHuman = atomicRatio * scale;
     }
     
@@ -499,11 +498,13 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   attempts.push({url, status: response.status, note: 'success'});
   const zeroXData = await response.json();
   
-  // If response is OK but has no usable price, try /quote endpoint as fallback
-  if (!zeroXData.price || Number(zeroXData.price) <= 0) {
-    const quoteUrl = `${ZEROX_ROOT}/swap/permit2/quote?${params.toString()}`;
-    console.log('Calling 0x API (v2) quote fallback:', quoteUrl);
-    attempts.push({url: quoteUrl, status: 0, note: 'trying_quote_fallback'});
+  // If response is OK but has no usable price, try /quote endpoint as fallback (only if taker provided)
+  if ((!zeroXData.price || Number(zeroXData.price) <= 0) && taker) {
+    const quoteParams = new URLSearchParams(params.toString());
+    quoteParams.set('taker', taker);
+    const quoteUrl = `${ZEROX_ROOT}/swap/permit2/quote?${quoteParams.toString()}`;
+    console.log('Calling 0x API (v2) quote fallback with taker:', quoteUrl);
+    attempts.push({url: quoteUrl, status: 0, note: 'trying_quote_fallback_with_taker'});
     
     let quoteResponse = await fetch(quoteUrl, { headers });
     console.log('0x v2 quote fallback status:', quoteResponse.status);
@@ -524,6 +525,9 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
       return await build0xPriceResponse(quoteData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
     }
     attempts.push({url: quoteUrl, status: quoteResponse.status, note: 'quote_fallback_failed'});
+  } else if (!zeroXData.price || Number(zeroXData.price) <= 0) {
+    console.log('0x v2 /quote fallback skipped: no taker provided');
+    attempts.push({url: 'N/A', status: 0, note: 'quote_fallback_skipped_no_taker'});
   }
   
   return await build0xPriceResponse(zeroXData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
@@ -548,8 +552,11 @@ async function build0xSuccessResponse(zeroXData: any, side: string, amount: numb
     const whole = gasCostWei / DEN;
     const frac  = gasCostWei % DEN;
     const gasCostNative = Number(whole) + Number(frac) / 1e18;
-    const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address);
-    if (nativeToQuotePrice) gasCostQuote = gasCostNative * nativeToQuotePrice;
+    const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address, quoteToken.decimals);
+    if (nativeToQuotePrice) {
+      gasCostQuote = gasCostNative * nativeToQuotePrice;
+      console.log(`Gas cost calculation: nativeToQuotePrice=${nativeToQuotePrice}, gasCostNative=${gasCostNative}, gasCostQuote=${gasCostQuote}`);
+    }
   }
 
   // guaranteedPrice → minOut (atomic)
@@ -653,8 +660,11 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
     const whole = gasWei / DEN;
     const frac  = gasWei % DEN;
     const gasCostNative = Number(whole) + Number(frac) / 1e18;
-    const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address);
-    if (nativeToQuotePrice) gasCostQuote = gasCostNative * nativeToQuotePrice;
+    const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address, quoteToken.decimals);
+    if (nativeToQuotePrice) {
+      gasCostQuote = gasCostNative * nativeToQuotePrice;
+      console.log(`Gas cost calculation: nativeToQuotePrice=${nativeToQuotePrice}, gasCostNative=${gasCostNative}, gasCostQuote=${gasCostQuote}`);
+    }
   }
 
   // Provide minOut when v2 returns minBuyAmount
@@ -779,9 +789,10 @@ async function handle1inchQuote(chainId: number, sellToken: Token, buyToken: Tok
     const whole = gasCostWei / DEN;
     const frac  = gasCostWei % DEN;
     const gasCostNative = Number(whole) + Number(frac) / 1e18;
-    const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address);
+    const nativeToQuotePrice = await getNativeToQuotePrice(chainId, quoteToken.address, quoteToken.decimals);
     if (nativeToQuotePrice) {
       gasCostQuote = gasCostNative * nativeToQuotePrice;
+      console.log(`Gas cost calculation: nativeToQuotePrice=${nativeToQuotePrice}, gasCostNative=${gasCostNative}, gasCostQuote=${gasCostQuote}`);
     }
   }
 
