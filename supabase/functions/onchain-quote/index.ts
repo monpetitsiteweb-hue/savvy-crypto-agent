@@ -397,170 +397,93 @@ Deno.serve(async (req) => {
 });
 
 // Provider-specific handlers
-async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token, sellAmountAtomic: bigint, slippageBps: number | undefined, side: string, amount: number, baseToken: Token, quoteToken: Token, taker?: string) {
+async function handle0xQuote(
+  chainId: number,
+  sellToken: Token,
+  buyToken: Token,
+  sellAmountAtomic: bigint,
+  slippageBps: number | undefined,
+  side: string,
+  amount: number,
+  baseToken: Token,
+  quoteToken: Token,
+  taker?: string
+) {
   const headers = get0xHeaders();
+
+  // Decide endpoint first
+  const endpoint = taker ? 'quote' : 'price';
+
+  // For /quote (Permit2), 0x v2 requires ERC-20s, not native ETH sentinel.
+  // Map ETH legs -> WETH for /quote ONLY.
+  const weth = WETH[chainId as keyof typeof WETH];
+  const sellForEndpoint =
+    endpoint === 'quote' && sellToken.symbol === 'ETH' && weth ? weth : sellToken;
+  const buyForEndpoint =
+    endpoint === 'quote' && buyToken.symbol === 'ETH' && weth ? weth : buyToken;
 
   const params = new URLSearchParams();
   params.set('chainId', String(chainId));
-  params.set('sellToken', to0xTokenParam(sellToken));
-  params.set('buyToken', to0xTokenParam(buyToken));
+  params.set('sellToken', to0xTokenParam(sellForEndpoint));
+  params.set('buyToken', to0xTokenParam(buyForEndpoint));
   params.set('sellAmount', sellAmountAtomic.toString());
   if (slippageBps != null) params.set('slippageBps', String(slippageBps));
-  
-  // If taker is provided, use /quote endpoint to get executable transaction
-  const endpoint = taker ? 'quote' : 'price';
   if (taker) params.set('taker', taker);
 
   const url = `${ZEROX_ROOT}/swap/permit2/${endpoint}?${params.toString()}`;
   console.log(`Calling 0x API (v2) /${endpoint}:`, url);
 
-  // Track attempts for debug info
-  const attempts: Array<{url: string, status: number, note: string}> = [];
+  // Track attempts with response bodies for debugging
+  const attempts: Array<{ url: string; status: number; note: string; body?: string }> = [];
 
   let response = await fetch(url, { headers });
-  console.log('0x v2 status:', response.status);
-  const bodyProbe = await response.clone().text();
-  console.log('0x v2 body (first 300):', bodyProbe.slice(0,300));
+  let respText = await response.clone().text();
+  console.log('0x v2 status:', response.status, 'body (first 300):', respText.slice(0, 300));
+  attempts.push({ url, status: response.status, note: 'initial', body: respText });
 
-  // Retry once (150ms) on 429/5xx
+  // Retry once on 429/5xx
   if (!response.ok && (response.status === 429 || response.status >= 500)) {
-    attempts.push({url, status: response.status, note: 'initial_failure'});
-    await new Promise(r => setTimeout(r, 150));
+    await new Promise((r) => setTimeout(r, 150));
     response = await fetch(url, { headers });
-    console.log('0x v2 retry status:', response.status);
-    const retryBodyProbe = await response.clone().text();
-    console.log('0x v2 retry body (first 300):', retryBodyProbe.slice(0,300));
+    respText = await response.clone().text();
+    console.log('0x v2 retry status:', response.status, 'body (first 300):', respText.slice(0, 300));
+    attempts.push({ url, status: response.status, note: 'retry', body: respText });
   }
 
+  // If still not OK and not auth error, try ETH/WETH fallbacks (mostly useful for /price)
   if (!response.ok && !isClientAuthError(response.status)) {
-    const txt = await response.text();
-    console.error('0x v2 error', response.status, url, 'Full response body:', txt);
-    attempts.push({url, status: response.status, note: 'quote_failed'});
-
-    // --- Fallback A: try WETH for native legs then /price again ---
-    const weth = WETH[chainId as keyof typeof WETH];
-
-    if (weth) {
-      // If sell is native → try WETH instead
-      if (sellToken.symbol === 'ETH') {
-        const p2 = withParam(params, 'sellToken', weth.address.toLowerCase());
-        const endpoint2 = taker ? 'quote' : 'price';
-        const url2 = `${ZEROX_ROOT}/swap/permit2/${endpoint2}?${p2.toString()}`;
-        attempts.push({url: url2, status: 0, note: 'trying_weth_sell'});
-        let r2 = await fetch(url2, { headers });
-        console.log(`0x v2 WETH sell /${endpoint2} status:`, r2.status);
-        const wethSellBodyProbe = await r2.clone().text();
-        console.log('0x v2 WETH sell body (first 300):', wethSellBodyProbe.slice(0,300));
-        
-        if (!r2.ok && (r2.status === 429 || r2.status >= 500)) {
-          await new Promise(r => setTimeout(r, 150));
-          r2 = await fetch(url2, { headers });
-          console.log('0x v2 WETH sell retry status:', r2.status);
-          const wethSellRetryBodyProbe = await r2.clone().text();
-          console.log('0x v2 WETH sell retry body (first 300):', wethSellRetryBodyProbe.slice(0,300));
-        }
-        if (r2.ok) {
-          const d2 = await r2.json();
-          attempts.push({url: url2, status: r2.status, note: 'weth_sell_success'});
-          const txObj = extractZeroXTransaction(d2);
-          if (txObj) (d2 as any).transaction = txObj;
-          return await build0xPriceResponse(d2, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
-        }
-        attempts.push({url: url2, status: r2.status, note: 'weth_sell_failed'});
-      }
-
-      // If buy is native → try WETH instead
-      if (buyToken.symbol === 'ETH') {
-        const p3 = withParam(params, 'buyToken', weth.address.toLowerCase());
-        const endpoint3 = taker ? 'quote' : 'price';
-        const url3 = `${ZEROX_ROOT}/swap/permit2/${endpoint3}?${p3.toString()}`;
-        attempts.push({url: url3, status: 0, note: 'trying_weth_buy'});
-        let r3 = await fetch(url3, { headers });
-        console.log(`0x v2 WETH buy /${endpoint3} status:`, r3.status);
-        const wethBuyBodyProbe = await r3.clone().text();
-        console.log('0x v2 WETH buy body (first 300):', wethBuyBodyProbe.slice(0,300));
-        
-        if (!r3.ok && (r3.status === 429 || r3.status >= 500)) {
-          await new Promise(r => setTimeout(r, 150));
-          r3 = await fetch(url3, { headers });
-          console.log('0x v2 WETH buy retry status:', r3.status);
-          const wethBuyRetryBodyProbe = await r3.clone().text();
-          console.log('0x v2 WETH buy retry body (first 300):', wethBuyRetryBodyProbe.slice(0,300));
-        }
-        if (r3.ok) {
-          const d3 = await r3.json();
-          attempts.push({url: url3, status: r3.status, note: 'weth_buy_success'});
-          const txObj = extractZeroXTransaction(d3);
-          if (txObj) (d3 as any).transaction = txObj;
-          return await build0xPriceResponse(d3, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
-        }
-        attempts.push({url: url3, status: r3.status, note: 'weth_buy_failed'});
-      }
-    }
-
-    // --- Fallback B: stable alias disabled for v2 ---
-    // (tokenList endpoint returns 404 in v2)
-
-    // --- Fallback C: already using /price ---
-    // Main endpoint is already /swap/permit2/price so no additional fallback needed
-
-    // If still failing, return original error text
-    return new Response(JSON.stringify({ error: txt, provider: '0x', raw: { debug: { attempts } } }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    // Return the detailed error so you can see 0x's message
+    return new Response(
+      JSON.stringify({ error: respText, provider: '0x', raw: { debug: { attempts } } }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 
   if (!response.ok) {
-    // 401/403 → return as is
-    const txt = await response.text();
-    attempts.push({url, status: response.status, note: 'auth_error'});
-    return new Response(JSON.stringify({ error: txt, provider: '0x', raw: { debug: { attempts } } }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    // 401/403 – return as-is (with body)
+    return new Response(
+      JSON.stringify({ error: respText, provider: '0x', raw: { debug: { attempts } } }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 
-  attempts.push({url, status: response.status, note: 'success'});
-  const zeroXData = await response.json();
-  
-  // If response is OK but has no usable price, try /quote endpoint as fallback (only if taker provided)
-  if ((!zeroXData.price || Number(zeroXData.price) <= 0) && taker) {
-    const quoteParams = new URLSearchParams(params.toString());
-    quoteParams.set('taker', taker);
-    const quoteUrl = `${ZEROX_ROOT}/swap/permit2/quote?${quoteParams.toString()}`;
-    console.log('Calling 0x API (v2) quote fallback with taker:', quoteUrl);
-    attempts.push({url: quoteUrl, status: 0, note: 'trying_quote_fallback_with_taker'});
-    
-    let quoteResponse = await fetch(quoteUrl, { headers });
-    console.log('0x v2 quote fallback status:', quoteResponse.status);
-    const quoteBodyProbe = await quoteResponse.clone().text();
-    console.log('0x v2 quote fallback body (first 300):', quoteBodyProbe.slice(0,300));
-    
-    if (!quoteResponse.ok && (quoteResponse.status === 429 || quoteResponse.status >= 500)) {
-      await new Promise(r => setTimeout(r, 150));
-      quoteResponse = await fetch(quoteUrl, { headers });
-      console.log('0x v2 quote fallback retry status:', quoteResponse.status);
-      const quoteRetryBodyProbe = await quoteResponse.clone().text();
-      console.log('0x v2 quote fallback retry body (first 300):', quoteRetryBodyProbe.slice(0,300));
-    }
-    
-    if (quoteResponse.ok) {
-      const quoteData = await quoteResponse.json();
-      attempts.push({url: quoteUrl, status: quoteResponse.status, note: 'quote_fallback_success'});
-      const txObj = extractZeroXTransaction(quoteData);
-      if (txObj) (quoteData as any).transaction = txObj;
-      return await build0xPriceResponse(quoteData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
-    }
-    attempts.push({url: quoteUrl, status: quoteResponse.status, note: 'quote_fallback_failed'});
-  } else if (!zeroXData.price || Number(zeroXData.price) <= 0) {
-    console.log('0x v2 /quote fallback skipped: no taker provided');
-    attempts.push({url: 'N/A', status: 0, note: 'quote_fallback_skipped_no_taker'});
-  }
-  
+  // Success → parse
+  const zeroXData = JSON.parse(respText);
+
+  // Normalize the tx object for the execute endpoint
   const txObj = extractZeroXTransaction(zeroXData);
   if (txObj) (zeroXData as any).transaction = txObj;
-  return await build0xPriceResponse(zeroXData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
+
+  return await build0xPriceResponse(
+    zeroXData,
+    side,
+    amount,
+    baseToken,
+    quoteToken,
+    sellAmountAtomic,
+    chainId,
+    attempts
+  );
 }
 
 async function build0xSuccessResponse(zeroXData: any, side: string, amount: number, baseToken: Token, quoteToken: Token, sellAmountAtomic: bigint, chainId: number, attempts?: Array<{url: string, status: number, note: string}>, fallbackType?: string) {

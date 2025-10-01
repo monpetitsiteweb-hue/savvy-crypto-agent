@@ -201,6 +201,18 @@ Deno.serve(async (req) => {
     const quoteData = await quoteResponse.json();
     console.log('Quote received:', { provider: quoteData.provider, price: quoteData.price, gasCostQuote: quoteData.gasCostQuote });
 
+    // ❗ Fail-fast if quote failed or has no price
+    if (quoteData?.error || !quoteData?.price || !(quoteData.price > 0)) {
+      return new Response(
+        JSON.stringify({
+          error: 'Quote failed',
+          detail: quoteData?.error || 'No price in quote',
+          raw: quoteData,
+        }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Step 2: Insert trade record
     const tradeRecord: Omit<TradeRecord, 'id'> = {
       chain_id: chainId,
