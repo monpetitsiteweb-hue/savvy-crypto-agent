@@ -4,7 +4,9 @@ The `/onchain-execute` Edge Function enables on-chain swap execution via 0x on B
 
 ## Features
 
-- **Quote Integration**: Automatically fetches quotes from `/onchain-quote` with taker address for executable quotes
+- **Quote Integration**: Automatically fetches quotes from `/onchain-quote`
+  - When `taker` is provided: Uses 0x `/quote` endpoint → returns price + executable transaction
+  - Without `taker`: Uses 0x `/price` endpoint → returns price only (no transaction)
 - **Simulation**: Optional `eth_call` simulation to verify transaction will succeed before sending
 - **Flexible Modes**: 
   - `build` mode: Returns unsigned transaction payload for client-side signing
@@ -29,7 +31,7 @@ Execute or build a swap transaction.
   "amount": 1,                  // Amount in human units
   "slippageBps": 50,            // Optional: slippage in basis points (default: 50)
   "provider": "0x",             // Optional: provider (default: "0x")
-  "taker": "0x...",             // Optional: taker address (required for send mode)
+  "taker": "0x...",             // REQUIRED for build/send modes: your wallet address
   "mode": "build",              // Optional: "build" or "send" (default: "build")
   "simulateOnly": false,        // Optional: true to only simulate, not execute (default: false)
   "signedTx": "0x..."           // Required for send mode: signed raw transaction

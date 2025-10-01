@@ -390,9 +390,13 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
   params.set('buyToken', to0xTokenParam(buyToken));
   params.set('sellAmount', sellAmountAtomic.toString());
   if (slippageBps != null) params.set('slippageBps', String(slippageBps));
+  
+  // If taker is provided, use /quote endpoint to get executable transaction
+  const endpoint = taker ? 'quote' : 'price';
+  if (taker) params.set('taker', taker);
 
-  const url = `${ZEROX_ROOT}/swap/permit2/price?${params.toString()}`;
-  console.log('Calling 0x API (v2):', url);
+  const url = `${ZEROX_ROOT}/swap/permit2/${endpoint}?${params.toString()}`;
+  console.log(`Calling 0x API (v2) /${endpoint}:`, url);
 
   // Track attempts for debug info
   const attempts: Array<{url: string, status: number, note: string}> = [];
@@ -424,10 +428,11 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
       // If sell is native → try WETH instead
       if (sellToken.symbol === 'ETH') {
         const p2 = withParam(params, 'sellToken', weth.address.toLowerCase());
-        const url2 = `${ZEROX_ROOT}/swap/permit2/price?${p2.toString()}`;
+        const endpoint2 = taker ? 'quote' : 'price';
+        const url2 = `${ZEROX_ROOT}/swap/permit2/${endpoint2}?${p2.toString()}`;
         attempts.push({url: url2, status: 0, note: 'trying_weth_sell'});
         let r2 = await fetch(url2, { headers });
-        console.log('0x v2 WETH sell status:', r2.status);
+        console.log(`0x v2 WETH sell /${endpoint2} status:`, r2.status);
         const wethSellBodyProbe = await r2.clone().text();
         console.log('0x v2 WETH sell body (first 300):', wethSellBodyProbe.slice(0,300));
         
@@ -449,10 +454,11 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
       // If buy is native → try WETH instead
       if (buyToken.symbol === 'ETH') {
         const p3 = withParam(params, 'buyToken', weth.address.toLowerCase());
-        const url3 = `${ZEROX_ROOT}/swap/permit2/price?${p3.toString()}`;
+        const endpoint3 = taker ? 'quote' : 'price';
+        const url3 = `${ZEROX_ROOT}/swap/permit2/${endpoint3}?${p3.toString()}`;
         attempts.push({url: url3, status: 0, note: 'trying_weth_buy'});
         let r3 = await fetch(url3, { headers });
-        console.log('0x v2 WETH buy status:', r3.status);
+        console.log(`0x v2 WETH buy /${endpoint3} status:`, r3.status);
         const wethBuyBodyProbe = await r3.clone().text();
         console.log('0x v2 WETH buy body (first 300):', wethBuyBodyProbe.slice(0,300));
         
