@@ -100,6 +100,22 @@ const parseQty = (v: string | number | undefined): bigint | null => {
   return null;
 };
 
+function extractZeroXTransaction(zx: any): any | null {
+  if (!zx || typeof zx !== 'object') return null;
+
+  // v2 common shapes
+  if (zx.transaction && typeof zx.transaction === 'object') return zx.transaction;
+  if (Array.isArray(zx.transactions) && zx.transactions.length > 0 && typeof zx.transactions[0] === 'object') {
+    return zx.transactions[0];
+  }
+  if (zx.protocolResponse && zx.protocolResponse.tx && typeof zx.protocolResponse.tx === 'object') {
+    return zx.protocolResponse.tx;
+  }
+  if (zx.tx && typeof zx.tx === 'object') return zx.tx;
+
+  return null;
+}
+
 function humanPriceFromAmounts({
   side,               // 'SELL' | 'BUY'
   baseDecimals,       // e.g. 18 for ETH
@@ -446,6 +462,8 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
         if (r2.ok) {
           const d2 = await r2.json();
           attempts.push({url: url2, status: r2.status, note: 'weth_sell_success'});
+          const txObj = extractZeroXTransaction(d2);
+          if (txObj) (d2 as any).transaction = txObj;
           return await build0xPriceResponse(d2, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
         }
         attempts.push({url: url2, status: r2.status, note: 'weth_sell_failed'});
@@ -472,6 +490,8 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
         if (r3.ok) {
           const d3 = await r3.json();
           attempts.push({url: url3, status: r3.status, note: 'weth_buy_success'});
+          const txObj = extractZeroXTransaction(d3);
+          if (txObj) (d3 as any).transaction = txObj;
           return await build0xPriceResponse(d3, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
         }
         attempts.push({url: url3, status: r3.status, note: 'weth_buy_failed'});
@@ -528,6 +548,8 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
     if (quoteResponse.ok) {
       const quoteData = await quoteResponse.json();
       attempts.push({url: quoteUrl, status: quoteResponse.status, note: 'quote_fallback_success'});
+      const txObj = extractZeroXTransaction(quoteData);
+      if (txObj) (quoteData as any).transaction = txObj;
       return await build0xPriceResponse(quoteData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
     }
     attempts.push({url: quoteUrl, status: quoteResponse.status, note: 'quote_fallback_failed'});
@@ -536,6 +558,8 @@ async function handle0xQuote(chainId: number, sellToken: Token, buyToken: Token,
     attempts.push({url: 'N/A', status: 0, note: 'quote_fallback_skipped_no_taker'});
   }
   
+  const txObj = extractZeroXTransaction(zeroXData);
+  if (txObj) (zeroXData as any).transaction = txObj;
   return await build0xPriceResponse(zeroXData, side, amount, baseToken, quoteToken, sellAmountAtomic, chainId, attempts);
 }
 
@@ -689,6 +713,10 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
   if (rawPriceAtomicRatio !== undefined) {
     raw.rawPriceAtomicRatio = rawPriceAtomicRatio;
   }
+  
+  // Normalize transaction field for execute endpoint
+  const txObj = extractZeroXTransaction(priceData);
+  if (txObj) raw.transaction = txObj;
 
   return new Response(JSON.stringify({
     provider: '0x' as const,

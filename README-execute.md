@@ -342,6 +342,131 @@ supabase secrets set RPC_URL_42161="https://arbitrum.llamarpc.com"
 supabase functions deploy onchain-execute
 ```
 
+## PowerShell Test Script
+
+```powershell
+# Configuration
+$env:SUPABASE_ANON_KEY = "your-anon-key"
+$BASE  = 'https://fuieplftlcxdfkxyqzlt.functions.supabase.co'
+$EXEC  = "$BASE/onchain-execute"
+$QUOTE = "$BASE/onchain-quote"
+
+$Headers = @{
+  'Authorization' = "Bearer $($env:SUPABASE_ANON_KEY)"
+  'Content-Type'  = 'application/json'
+}
+
+# Helper: Execute trade
+function Invoke-Execute {
+  param(
+    [int]$chainId,
+    [string]$base,
+    [string]$quote,
+    [ValidateSet('SELL','BUY')] [string]$side,
+    [double]$amount,
+    [int]$slippageBps = 50,
+    [string]$taker = '',
+    [ValidateSet('build','send')] [string]$mode = 'build',
+    [bool]$simulateOnly = $false,
+    [string]$signedTx = $null
+  )
+
+  $body = @{
+    chainId      = $chainId
+    base         = $base
+    quote        = $quote
+    side         = $side
+    amount       = $amount
+    slippageBps  = $slippageBps
+    mode         = $mode
+    simulateOnly = $simulateOnly
+  }
+  if ($taker -and $taker -ne '') { $body.taker = $taker }
+  if ($signedTx) { $body.signedTx = $signedTx }
+
+  $json = $body | ConvertTo-Json -Depth 10
+
+  try {
+    $res = Invoke-RestMethod -Method POST -Uri $EXEC -Headers $Headers -Body $json
+  } catch {
+    if ($_.Exception.Response) {
+      $sr = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+      $text = $sr.ReadToEnd()
+      Write-Error "HTTP error $($_.Exception.Response.StatusCode): $text"
+    } else {
+      Write-Error "HTTP error: $($_.Exception.Message)"
+    }
+    return
+  }
+
+  $res | Select-Object tradeId,status,price,minOut,gasCostQuote,unit,txHash | Format-List
+  return $res
+}
+
+# Helper: Get trade by ID (explicit URL building for PowerShell)
+function Get-Trade {
+  param([Parameter(Mandatory=$true)][string]$tradeId)
+  
+  # Build URL explicitly (PowerShell needs this for proper parsing)
+  $execBase = 'https://fuieplftlcxdfkxyqzlt.functions.supabase.co/onchain-execute'
+  $url = "${execBase}?tradeId=${tradeId}"
+  
+  try {
+    $res = Invoke-RestMethod -Method GET -Uri $url -Headers $Headers
+  } catch {
+    Write-Error "GET error: $($_.Exception.Message)"
+    return
+  }
+  $res.trade | Select-Object id,status,chain_id,base,quote,side,amount,tx_hash | Format-List
+  if ($res.events -and $res.events.Count -gt 0) {
+    "Last event:"; ($res.events[-1] | Select-Object created_at,phase,severity) | Format-List
+  }
+  return $res
+}
+
+# Helper: Assert txPayload exists
+function Assert-HasTxPayload {
+  param($execResult)
+  if (-not $execResult) { throw "No result object." }
+  if (-not $execResult.txPayload) { throw "Missing txPayload in build response." }
+  if (-not $execResult.txPayload.to -or -not $execResult.txPayload.data) {
+    throw "txPayload incomplete (to/data missing)."
+  }
+  "txPayload looks present."
+}
+
+# Helper: Assert quote snapshot
+function Assert-QuoteSnapshot {
+  param($execResult)
+  if (-not $execResult) { throw "No result object." }
+  if (-not $execResult.price -or $execResult.price -le 0) { throw "Invalid or missing price." }
+  if ($execResult.unit -notmatch '\/') { throw "Missing/invalid unit." }
+  "Quote snapshot OK."
+}
+
+# Test 0: Quote sanity check
+Write-Host "`n=== Test 0: Quote Sanity ===" -ForegroundColor Cyan
+Invoke-RestMethod -Method POST -Uri $QUOTE -Headers $Headers -Body (@{
+  chainId=8453; base='ETH'; quote='USDC'; side='SELL'; amount='1'; slippageBps=50
+} | ConvertTo-Json) | Select-Object provider,price,unit,gasCostQuote | Format-List
+
+# Test 1: Build transaction
+Write-Host "`n=== Test 1: Build Transaction ===" -ForegroundColor Cyan
+$taker = '0x0000000000000000000000000000000000000001'
+$r1 = Invoke-Execute 8453 'ETH' 'USDC' 'SELL' 1 -taker $taker -mode 'build'
+Assert-QuoteSnapshot $r1
+Assert-HasTxPayload  $r1
+
+# Test 2: GET by ID
+Write-Host "`n=== Test 2: GET Trade by ID ===" -ForegroundColor Cyan
+if ($r1.tradeId) {
+  $g1 = Get-Trade $r1.tradeId
+  "Retrieved trade: $($g1.trade.status)"
+} else {
+  Write-Warning "No tradeId in response"
+}
+```
+
 ## Verification Queries
 
 ### Recent trades

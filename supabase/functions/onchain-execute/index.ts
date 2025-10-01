@@ -248,16 +248,25 @@ Deno.serve(async (req) => {
     await addTradeEvent(tradeId, 'quote', 'info', { quote: quoteData });
 
     // Step 3: Build transaction payload (if we have raw data from quote)
+    function pickTx(raw: any): any | null {
+      if (!raw) return null;
+      if (raw.transaction) return raw.transaction;
+      if (Array.isArray(raw.transactions) && raw.transactions[0]) return raw.transactions[0];
+      if (raw.protocolResponse?.tx) return raw.protocolResponse.tx;
+      if (raw.tx) return raw.tx;
+      return null;
+    }
+
     let txPayload: any = null;
-    if (quoteData.raw && quoteData.raw.transaction) {
+    const tx = pickTx(quoteData.raw);
+    if (tx && tx.to && tx.data) {
       txPayload = {
-        to: quoteData.raw.transaction.to,
-        data: quoteData.raw.transaction.data,
-        value: quoteData.raw.transaction.value || '0x0',
-        gas: quoteData.raw.transaction.gas,
+        to: tx.to,
+        data: tx.data,
+        value: tx.value ?? '0x0',
+        gas: tx.gas ?? tx.gasLimit,   // some shapes use gasLimit
         from: taker,
       };
-
       await updateTradeStatus(tradeId, 'built', { tx_payload: txPayload });
     }
 
