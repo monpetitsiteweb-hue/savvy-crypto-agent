@@ -418,6 +418,284 @@ const tx = await permit2Contract.permit(
 await tx.wait();
 ```
 
+## Headless "Sign & Send" Flow
+
+### Overview
+
+The `/onchain-sign-and-send` endpoint enables fully automated, server-side execution without browser wallet interaction:
+
+1. **Build** → `/onchain-quote` or `/onchain-execute` (mode=build) creates trade with `status='built'`
+2. **Sign & Send** → `/onchain-sign-and-send` signs and broadcasts → `status='submitted'`  
+3. **Confirm** → `/onchain-receipts` polls receipt → `status='mined'` or `failed`
+
+### POST /onchain-sign-and-send
+
+Sign and broadcast a previously built trade without UI interaction.
+
+**Request:**
+```json
+{
+  "tradeId": "uuid"
+}
+```
+
+**Success Response:**
+```json
+{
+  "ok": true,
+  "tradeId": "uuid",
+  "tx_hash": "0xabcdef...",
+  "network": "base"
+}
+```
+
+**Error Responses:**
+
+*Taker mismatch (local mode):*
+```json
+{
+  "ok": false,
+  "error": "TAKER_MISMATCH",
+  "message": "Local mode requires taker to match BOT_ADDRESS (0x...), got 0x..."
+}
+```
+
+*Signing failed:*
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "SIGNING_FAILED",
+    "message": "Webhook signer returned 500"
+  }
+}
+```
+
+*Broadcast failed:*
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "BROADCAST_FAILED",
+    "message": "nonce too low",
+    "rpcBody": { "code": -32000, "message": "nonce too low" }
+  }
+}
+```
+
+### Signer Modes
+
+#### Webhook Mode (Production)
+
+**When to use:** Production environments where private keys must never be on the Edge Function server.
+
+**Environment Configuration:**
+```bash
+supabase secrets set SERVER_SIGNER_MODE=webhook
+supabase secrets set SIGNER_WEBHOOK_URL=https://your-signer-service.com/sign
+supabase secrets set SIGNER_WEBHOOK_AUTH=your_secret_token
+```
+
+**How it works:**
+1. Edge Function POSTs `{ txPayload, chainId }` to your webhook URL
+2. Your webhook service (separate infrastructure) signs the transaction with your private key
+3. Webhook returns `{ signedTx: "0x..." }`
+4. Edge Function broadcasts the signed transaction to Base
+
+**Webhook API Contract:**
+
+*Request to your webhook:*
+```json
+{
+  "txPayload": {
+    "to": "0xDef1C0ded9bec7F1a1670819833240f027b25EfF",
+    "data": "0x...",
+    "value": "0",
+    "gas": "150000",
+    "from": "0xYourBotAddress"
+  },
+  "chainId": 8453
+}
+```
+
+*Expected response:*
+```json
+{
+  "signedTx": "0x02f8b..."
+}
+```
+
+#### Local Mode (Dev Only)
+
+**When to use:** Development/testing ONLY. **NEVER in production.**
+
+**Environment Configuration:**
+```bash
+supabase secrets set SERVER_SIGNER_MODE=local
+supabase secrets set SERVER_SIGNER_LOCAL=true  # Safety flag - required
+supabase secrets set BOT_PRIVATE_KEY=0x...      # Private key (NEVER commit!)
+supabase secrets set BOT_ADDRESS=0x...          # Address derived from private key
+supabase secrets set RPC_URL_8453=https://mainnet.base.org
+```
+
+**How it works:**
+1. Edge Function validates `BOT_ADDRESS` matches derived address from `BOT_PRIVATE_KEY`
+2. Builds EIP-1559 transaction (fetches nonce and gas fees from RPC)
+3. Signs locally using `BOT_PRIVATE_KEY`
+4. Broadcasts signed transaction to Base
+
+**Important:** In local mode, the `taker` field in the build step **MUST match** `BOT_ADDRESS`. If it doesn't, signing will fail with `TAKER_MISMATCH` error.
+
+### Safety Rails
+
+Both signer modes enforce:
+
+1. **Chain allowlist:** Only Base (8453) is allowed
+2. **To-address allowlist:** Only 0x Exchange Proxy (`0xDef1C0ded9bec7F1a1670819833240f027b25EfF`) and approved contracts
+3. **Value cap:** Transactions with `value > MAX_TX_VALUE_WEI` are rejected (default: 100 ETH)
+4. **From validation:** (Local mode only) `txPayload.from` must match signer address
+
+**Optional value cap:**
+```bash
+# Set custom maximum transaction value (in wei)
+supabase secrets set MAX_TX_VALUE_WEI=100000000000000000000  # 100 ETH
+```
+
+### Security Notes
+
+- **Webhook mode:** Private keys never touch the Edge Function server
+- **Local mode:** Private key stored in environment variables → **dev/test only, NEVER production**
+- **Taker validation:** In local mode, trade must be built with `taker = BOT_ADDRESS`
+- **Event logging:** All signing/broadcast attempts logged to `trade_events` table
+- **Error handling:** Failed signs/broadcasts keep trade in `built` status for retry
+- **No server keys for UI flows:** `/onchain-execute` never holds private keys; user signs in browser
+
+### Example: Complete Headless Flow
+
+```bash
+# Step 1: Build a trade (specify bot as taker for local mode)
+curl -X POST https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/onchain-execute \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <anon-key>" \
+  -d '{
+    "chainId": 8453,
+    "base": "ETH",
+    "quote": "USDC",
+    "side": "SELL",
+    "amount": 1,
+    "slippageBps": 50,
+    "taker": "0xYourBotAddress",
+    "mode": "build"
+  }'
+
+# Response: { "tradeId": "trade-uuid", "status": "built", ... }
+
+# Step 2: Sign and send (headless)
+curl -X POST https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/onchain-sign-and-send \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <anon-key>" \
+  -d '{
+    "tradeId": "trade-uuid"
+  }'
+
+# Response: { "ok": true, "tradeId": "trade-uuid", "tx_hash": "0xabc...", "network": "base" }
+
+# Step 3: Poll for receipt
+curl -X POST https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/onchain-receipts \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <anon-key>" \
+  -d '{
+    "tradeId": "trade-uuid"
+  }'
+
+# Response: { "ok": true, "results": [{ "tradeId": "...", "status": "mined", ... }] }
+```
+
+### PowerShell Example
+
+```powershell
+# Configuration
+$Headers = @{
+  'Authorization' = "Bearer <anon-key>"
+  'Content-Type' = 'application/json'
+}
+$BASE = 'https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1'
+
+# Step 1: Build trade
+$buildBody = @{
+  chainId = 8453
+  base = 'ETH'
+  quote = 'USDC'
+  side = 'SELL'
+  amount = 1
+  slippageBps = 50
+  taker = '0xYourBotAddress'
+  mode = 'build'
+} | ConvertTo-Json
+
+$buildResult = Invoke-RestMethod `
+  -Uri "$BASE/onchain-execute" `
+  -Method Post `
+  -Headers $Headers `
+  -Body $buildBody
+
+Write-Host "Trade built: $($buildResult.tradeId)"
+
+# Step 2: Sign and send
+$signSendBody = @{
+  tradeId = $buildResult.tradeId
+} | ConvertTo-Json
+
+$sendResult = Invoke-RestMethod `
+  -Uri "$BASE/onchain-sign-and-send" `
+  -Method Post `
+  -Headers $Headers `
+  -Body $signSendBody
+
+Write-Host "Transaction hash: $($sendResult.tx_hash)"
+
+# Step 3: Poll for receipt
+$receiptBody = @{
+  tradeId = $buildResult.tradeId
+} | ConvertTo-Json
+
+do {
+  Start-Sleep -Seconds 2
+  $receiptResult = Invoke-RestMethod `
+    -Uri "$BASE/onchain-receipts" `
+    -Method Post `
+    -Headers $Headers `
+    -Body $receiptBody
+  
+  $status = $receiptResult.results[0].status
+  Write-Host "Status: $status"
+} while ($status -eq 'pending')
+
+Write-Host "Final status: $status"
+```
+
+### Troubleshooting
+
+**Error: "TAKER_MISMATCH"**
+- **Cause:** In local mode, trade's `taker` doesn't match `BOT_ADDRESS`
+- **Fix:** When calling `/onchain-execute`, set `"taker": "your-bot-address"`
+
+**Error: "SIGNING_FAILED"**
+- **Cause:** Webhook signer returned error or local signer couldn't sign
+- **Fix:** Check `trade_events` table for details. For webhook, verify URL/auth. For local, check private key format.
+
+**Error: "BROADCAST_FAILED: nonce too low"**
+- **Cause:** Transaction nonce already used (duplicate or concurrent send)
+- **Fix:** Check if transaction already submitted. Wait for pending tx to confirm before retrying.
+
+**Error: "Value exceeds maximum"**
+- **Cause:** Transaction value > `MAX_TX_VALUE_WEI`
+- **Fix:** Reduce trade size or increase `MAX_TX_VALUE_WEI` env var
+
+**Trade stuck in "submitted"**
+- **Cause:** Transaction hasn't been mined yet or RPC lagging
+- **Fix:** Wait longer and keep polling `/onchain-receipts`. Check tx on Base block explorer.
+
 ## Usage Examples
 
 ### PowerShell: Test wallet helpers (USDC example)
@@ -665,6 +943,7 @@ supabase secrets set RPC_URL_42161="https://arbitrum.llamarpc.com"
 supabase functions deploy onchain-execute
 supabase functions deploy onchain-quote
 supabase functions deploy onchain-receipts
+supabase functions deploy onchain-sign-and-send
 supabase functions deploy wallet-ensure-weth
 supabase functions deploy wallet-permit2-status
 ```

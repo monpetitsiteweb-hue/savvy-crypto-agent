@@ -60,6 +60,12 @@ export const BASE_0X = {
   PERMIT2: '0x000000000022D473030F116dDEE9F6B43aC78BA3',
 } as const;
 
+// Allowed destination addresses for onchain execution (Base)
+// Used by signer to validate transactions
+export const ALLOWED_TO_ADDRESSES = [
+  BASE_0X.SPENDER, // 0x Exchange Proxy v4
+] as const;
+
 // Permit2 domain for EIP-712
 export const PERMIT2_DOMAIN = {
   name: 'Permit2',
