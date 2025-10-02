@@ -6,12 +6,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { getSigner } from '../_shared/signer.ts';
 import { ALLOWED_TO_ADDRESSES } from '../_shared/addresses.ts';
-
-const corsHeaders = {
+import { corsHeaders } from '../_shared/cors.ts';
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
 
 // ========================================================================
 // Notification Helper

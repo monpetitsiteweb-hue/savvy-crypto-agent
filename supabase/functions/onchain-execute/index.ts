@@ -1,12 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { simulateCall, sendRawTransaction, waitForReceipt } from '../_shared/eth.ts';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-};
+import { corsHeaders } from '../_shared/cors.ts';
 
 const PROJECT_URL = Deno.env.get('SB_URL')!;
 const SERVICE_ROLE = Deno.env.get('SB_SERVICE_ROLE')!;

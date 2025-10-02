@@ -1,5 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { TOKENS, WETH, toAtomic, normalizeToken, type Token } from './tokens.ts';
+import { corsHeaders } from '../_shared/cors.ts';
 
 /**
  * Onchain Quote API - Returns humanized pricing
@@ -20,12 +21,6 @@ import { TOKENS, WETH, toAtomic, normalizeToken, type Token } from './tokens.ts'
  *   rawPriceAtomicRatio?: number     // Raw atomic ratio for audit (buyAmount/sellAmount)
  * }
  */
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
 
 const ZEROEX_API_KEY = Deno.env.get('ZEROEX_API_KEY');
 const ONEINCH_API_KEY = Deno.env.get('ONEINCH_API_KEY');
