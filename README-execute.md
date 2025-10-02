@@ -157,6 +157,158 @@ Retrieve a trade by ID with full event history.
 }
 ```
 
+## Wallet Helper Endpoints
+
+### POST /wallet-ensure-weth
+
+Check if wallet has sufficient WETH balance. Returns wrap plan if balance insufficient.
+
+**Request:**
+```json
+{
+  "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+  "minWethNeeded": "1000000000000000000"  // Wei string
+}
+```
+
+**Response (sufficient balance):**
+```json
+{
+  "ok": true,
+  "action": "none",
+  "balance": "2000000000000000000",
+  "balanceHuman": "2.000000"
+}
+```
+
+**Response (need to wrap):**
+```json
+{
+  "ok": true,
+  "action": "wrap",
+  "balance": "500000000000000000",
+  "balanceHuman": "0.500000",
+  "wrapPlan": {
+    "chainId": 8453,
+    "wethAddress": "0x4200000000000000000000000000000000000006",
+    "method": "deposit()",
+    "calldata": "0xd0e30db0",
+    "value": "500000000000000000",
+    "valueHuman": "0.500000",
+    "note": "Wrap 0.500000 ETH to WETH. Send this value to WETH.deposit()"
+  }
+}
+```
+
+**Client execution (if wrap needed):**
+```typescript
+// Using ethers.js
+const wethContract = new ethers.Contract(
+  wrapPlan.wethAddress,
+  ['function deposit() payable'],
+  signer
+);
+const tx = await wethContract.deposit({ value: wrapPlan.value });
+await tx.wait();
+```
+
+### POST /wallet-permit2-status
+
+Check Permit2 allowance for 0x spender. Returns EIP-712 typed data if approval needed.
+
+**Request:**
+```json
+{
+  "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+  "token": "WETH",  // or "USDC"
+  "minAllowance": "1000000000000000000"  // Wei string
+}
+```
+
+**Response (sufficient allowance):**
+```json
+{
+  "ok": true,
+  "action": "none",
+  "allowance": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+  "allowanceHuman": "1.157921e+59"
+}
+```
+
+**Response (need approval):**
+```json
+{
+  "ok": true,
+  "action": "permit2-sign",
+  "allowance": "0",
+  "allowanceHuman": "0.000000",
+  "typedData": {
+    "domain": {
+      "name": "Permit2",
+      "chainId": 8453,
+      "verifyingContract": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+    },
+    "types": {
+      "PermitSingle": [
+        { "name": "details", "type": "PermitDetails" },
+        { "name": "spender", "type": "address" },
+        { "name": "sigDeadline", "type": "uint256" }
+      ],
+      "PermitDetails": [
+        { "name": "token", "type": "address" },
+        { "name": "amount", "type": "uint160" },
+        { "name": "expiration", "type": "uint48" },
+        { "name": "nonce", "type": "uint48" }
+      ]
+    },
+    "primaryType": "PermitSingle",
+    "message": {
+      "details": {
+        "token": "0x4200000000000000000000000000000000000006",
+        "amount": "1461501637330902918203684832716283019655932542975",
+        "expiration": "1759424621",
+        "nonce": "0"
+      },
+      "spender": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+      "sigDeadline": "1759393221"
+    }
+  },
+  "permit2Contract": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+  "spender": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+  "note": "Sign this EIP-712 data with your wallet, then call Permit2.permit() with signature"
+}
+```
+
+**Client execution (if approval needed):**
+```typescript
+// Step 1: Sign EIP-712 typed data
+const signature = await signer._signTypedData(
+  typedData.domain,
+  typedData.types,
+  typedData.message
+);
+
+// Step 2: Submit to Permit2 contract
+const permit2Contract = new ethers.Contract(
+  permit2Contract,
+  [
+    'function permit(address owner, tuple(tuple(address token, uint160 amount, uint48 expiration, uint48 nonce) details, address spender, uint256 sigDeadline) permitSingle, bytes signature)'
+  ],
+  signer
+);
+
+const tx = await permit2Contract.permit(
+  address, // owner
+  {
+    details: typedData.message.details,
+    spender: typedData.message.spender,
+    sigDeadline: typedData.message.sigDeadline
+  },
+  signature
+);
+await tx.wait();
+```
+
 ## Usage Examples
 
 ### Example 1: Build transaction for client-side signing (recommended)
@@ -340,6 +492,9 @@ supabase secrets set RPC_URL_1="https://eth.llamarpc.com"
 supabase secrets set RPC_URL_8453="https://base.llamarpc.com"
 supabase secrets set RPC_URL_42161="https://arbitrum.llamarpc.com"
 supabase functions deploy onchain-execute
+supabase functions deploy onchain-quote
+supabase functions deploy wallet-ensure-weth
+supabase functions deploy wallet-permit2-status
 ```
 
 ## PowerShell Test Script
