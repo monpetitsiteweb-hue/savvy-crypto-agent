@@ -92,17 +92,84 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Enforce router allowlist
-    const toOk = ALLOWED_TO_ADDRESSES.some(a => a.toLowerCase() === trade.tx_payload.to.toLowerCase());
-    if (!toOk) {
-      return new Response(JSON.stringify({ 
-        ok: false, 
-        error: 'TO_NOT_ALLOWED',
-        to: trade.tx_payload.to 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // Enforce router allowlist with 0x v2 Settler validation
+    const targetTo = trade.tx_payload.to.toLowerCase();
+    
+    if (trade.provider === '0x') {
+      // For 0x quotes, validate against the original quote's transaction.to
+      const quoteTo = trade.raw_quote?.transaction?.to?.toLowerCase();
+      
+      if (!quoteTo) {
+        // Log guard event
+        await supabase.from('trade_events').insert({
+          trade_id: tradeId,
+          phase: 'guard',
+          severity: 'error',
+          payload: {
+            error: 'MISSING_QUOTE_TO',
+            message: '0x quote missing transaction.to',
+          },
+        });
+        
+        return new Response(JSON.stringify({ 
+          ok: false, 
+          error: 'MISSING_QUOTE_TO',
+          message: '0x quote missing transaction.to for validation'
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      if (targetTo !== quoteTo) {
+        // Log guard event
+        await supabase.from('trade_events').insert({
+          trade_id: tradeId,
+          phase: 'guard',
+          severity: 'error',
+          payload: {
+            error: 'TO_MISMATCH',
+            target_to: targetTo,
+            quote_to: quoteTo,
+          },
+        });
+        
+        return new Response(JSON.stringify({ 
+          ok: false, 
+          error: 'TO_MISMATCH',
+          target_to: trade.tx_payload.to,
+          quote_to: trade.raw_quote.transaction.to,
+          message: 'tx_payload.to does not match original 0x quote transaction.to'
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    } else {
+      // For non-0x providers, use static allowlist
+      const toOk = ALLOWED_TO_ADDRESSES.some(a => a.toLowerCase() === targetTo);
+      if (!toOk) {
+        // Log guard event
+        await supabase.from('trade_events').insert({
+          trade_id: tradeId,
+          phase: 'guard',
+          severity: 'error',
+          payload: {
+            error: 'TO_NOT_ALLOWED',
+            to: trade.tx_payload.to,
+            provider: trade.provider,
+          },
+        });
+        
+        return new Response(JSON.stringify({ 
+          ok: false, 
+          error: 'TO_NOT_ALLOWED',
+          to: trade.tx_payload.to 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     // Get signer

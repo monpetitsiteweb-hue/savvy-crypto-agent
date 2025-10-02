@@ -60,10 +60,28 @@ export const BASE_0X = {
   PERMIT2: '0x000000000022D473030F116dDEE9F6B43aC78BA3',
 } as const;
 
+// ============================================================================
+// 0x v2 "Settler" Architecture & Security Model
+// ============================================================================
+//
+// IMPORTANT: 0x v2 uses dynamic "Settler" contracts for routing instead of
+// a fixed Exchange Proxy. Each quote may target a different Settler address
+// deployed on-chain, returned in the quote's `transaction.to` field.
+//
+// For headless signing safety, /onchain-sign-and-send validates that:
+// - tx_payload.to matches the original raw_quote.transaction.to (for provider='0x')
+// - This prevents substitution attacks while supporting 0x v2's dynamic routing
+//
+// Reference: https://0x.org/docs/tx-relay-api/introduction
+//
+// The legacy 0x Exchange Proxy (0xDef1C0de...) below is kept for backwards
+// compatibility with older quotes and as a fallback allowlist for non-0x providers.
+// ============================================================================
+
 // Allowed destination addresses for onchain execution (Base)
-// Used by signer to validate transactions
+// Used by signer to validate transactions (fallback for non-0x providers)
 export const ALLOWED_TO_ADDRESSES = [
-  BASE_0X.SPENDER, // 0x Exchange Proxy v4
+  BASE_0X.SPENDER, // Legacy 0x Exchange Proxy v4 (fallback)
 ] as const;
 
 // Permit2 domain for EIP-712

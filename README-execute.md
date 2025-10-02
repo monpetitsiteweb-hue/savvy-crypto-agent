@@ -496,6 +496,17 @@ supabase secrets set SIGNER_WEBHOOK_URL=https://your-signer-service.com/sign
 supabase secrets set SIGNER_WEBHOOK_AUTH=your_secret_token
 ```
 
+**Security Note: 0x v2 Dynamic Settler Validation**
+
+0x API v2 uses dynamic "Settler" contracts for routing instead of a fixed Exchange Proxy. Each quote returns a unique Settler address in `transaction.to`. 
+
+For headless signing safety, `/onchain-sign-and-send` validates that:
+- `tx_payload.to` equals the `transaction.to` from the stored `raw_quote` (for `provider='0x'`)
+- This prevents substitution attacks while supporting 0x v2's dynamic routing architecture
+- The legacy 0x Exchange Proxy (`0xDef1C0de...`) is kept as a fallback allowlist for non-0x providers
+
+Reference: [0x Tx Relay API docs](https://0x.org/docs/tx-relay-api/introduction)
+
 **How it works:**
 1. Edge Function POSTs `{ txPayload, chainId }` to your webhook URL
 2. Your webhook service (separate infrastructure) signs the transaction with your private key
