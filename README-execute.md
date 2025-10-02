@@ -14,6 +14,98 @@ The `/onchain-execute` Edge Function enables on-chain swap execution via 0x on B
 - **Trade Persistence**: All trades stored in `public.trades` with full audit trail in `public.trade_events`
 - **Status Tracking**: Track trades through lifecycle: `built` → `submitted` → `mined`/`failed`
 
+## Authentication & Testing
+
+### Function Auth Configuration
+
+| Function | Auth Required | Purpose |
+|----------|---------------|---------|
+| `onchain-execute` | ❌ **Public** (DEV) | Build/simulate trades |
+| `onchain-sign-and-send` | ✅ **Protected** | Sign and broadcast |
+| `onchain-quote` | ❌ **Public** | Get quotes |
+| `onchain-signer-debug` | ❌ **Public** | Diagnostics |
+
+> **⚠️ PROD Security:** In production, set `[functions.onchain-execute].verify_jwt = true` in `supabase/config.toml` to protect the build endpoint.
+
+### Quick Test: curl (Linux/macOS/WSL)
+
+```bash
+export BASE="https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1"
+export ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8"
+
+# Step 1: Build/simulate trade (public endpoint)
+curl -s "$BASE/onchain-execute" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "chainId": 8453,
+    "base": "ETH",
+    "quote": "USDC",
+    "side": "SELL",
+    "amount": 0.01,
+    "slippageBps": 50,
+    "provider": "0x",
+    "taker": "0x0000000000000000000000000000000000000001",
+    "mode": "build",
+    "simulateOnly": true
+  }' | jq
+
+# Expected: { "tradeId": "...", "status": "built", "price": ..., "minOut": ... }
+
+# Step 2: Sign & send trade (protected endpoint - requires auth)
+TRADE_ID="<paste-trade-id-from-step-1>"
+curl -s "$BASE/onchain-sign-and-send" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ANON" \
+  -H "apikey: $ANON" \
+  -d "{\"tradeId\": \"$TRADE_ID\"}" | jq
+
+# Expected: { "ok": true, "tradeId": "...", "tx_hash": "0x..." }
+```
+
+### Quick Test: PowerShell (Windows)
+
+```powershell
+$BASE = "https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1"
+$ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8"
+
+# Step 1: Build/simulate trade (public endpoint)
+$buildBody = @{
+  chainId = 8453
+  base = "ETH"
+  quote = "USDC"
+  side = "SELL"
+  amount = 0.01
+  slippageBps = 50
+  provider = "0x"
+  taker = "0x0000000000000000000000000000000000000001"
+  mode = "build"
+  simulateOnly = $true
+} | ConvertTo-Json
+
+$buildResponse = Invoke-RestMethod "$BASE/onchain-execute" -Method POST -Headers @{
+  "Content-Type" = "application/json"
+} -Body $buildBody
+
+$buildResponse
+# Expected: tradeId, status: "built", price, minOut
+
+# Step 2: Sign & send trade (protected endpoint - requires auth)
+$tradeId = $buildResponse.tradeId
+
+$signBody = @{ tradeId = $tradeId } | ConvertTo-Json
+
+$signResponse = Invoke-RestMethod "$BASE/onchain-sign-and-send" -Method POST -Headers @{
+  "Content-Type" = "application/json"
+  "Authorization" = "Bearer $ANON"
+  "apikey" = "$ANON"
+} -Body $signBody
+
+$signResponse
+# Expected: ok: true, tx_hash: "0x..."
+```
+
 ## API Endpoints
 
 ### POST /onchain-execute
