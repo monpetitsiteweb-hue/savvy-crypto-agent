@@ -137,6 +137,42 @@ class LocalSigner implements Signer {
       throw new Error(`Value ${valueWei} exceeds maximum ${MAX_TX_VALUE_WEI}`);
     }
 
+    // Normalize gas
+    const gasStr = txPayload.gas ?? '0x0';
+    let gas: bigint;
+    
+    if (gasStr.startsWith('0x')) {
+      gas = BigInt(gasStr);
+    } else if (/^\d+$/.test(gasStr)) {
+      gas = BigInt(gasStr);
+    } else {
+      gas = 0n;
+    }
+
+    // If gas is 0, estimate it with 10% buffer
+    if (gas === 0n) {
+      const estimateResponse = await fetch(this.rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_estimateGas',
+          params: [{
+            from: txPayload.from,
+            to: txPayload.to,
+            data: txPayload.data,
+            value: '0x' + valueWei.toString(16),
+          }],
+        }),
+      });
+      const estimateResult = await estimateResponse.json();
+      if (estimateResult.error) {
+        throw new Error(`Gas estimation failed: ${estimateResult.error.message}`);
+      }
+      gas = BigInt(estimateResult.result) * 110n / 100n;
+    }
+
     // Get nonce
     const nonceResponse = await fetch(this.rpcUrl, {
       method: 'POST',
@@ -159,7 +195,7 @@ class LocalSigner implements Signer {
       to: txPayload.to as `0x${string}`,
       data: txPayload.data as `0x${string}`,
       value: valueWei,
-      gas: BigInt(txPayload.gas),
+      gas,
       nonce,
       chainId,
       maxPriorityFeePerGas,

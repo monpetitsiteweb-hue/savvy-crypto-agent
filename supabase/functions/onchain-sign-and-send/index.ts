@@ -5,10 +5,12 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { getSigner } from '../_shared/signer.ts';
+import { ALLOWED_TO_ADDRESSES } from '../_shared/addresses.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 Deno.serve(async (req) => {
@@ -36,13 +38,16 @@ Deno.serve(async (req) => {
     }
 
     // Initialize Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseUrl = Deno.env.get('SB_URL') ?? Deno.env.get('SUPABASE_URL');
+    const supabaseKey = Deno.env.get('SB_SERVICE_ROLE') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Missing Supabase credentials');
+    }
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Load trade
     const { data: trade, error: tradeError } = await supabase
-      .from('onchain_trades')
+      .from('trades')
       .select('*')
       .eq('id', tradeId)
       .single();
@@ -81,6 +86,19 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ 
         ok: false, 
         error: 'Trade missing tx_payload' 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Enforce router allowlist
+    const toOk = ALLOWED_TO_ADDRESSES.some(a => a.toLowerCase() === trade.tx_payload.to.toLowerCase());
+    if (!toOk) {
+      return new Response(JSON.stringify({ 
+        ok: false, 
+        error: 'TO_NOT_ALLOWED',
+        to: trade.tx_payload.to 
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -189,7 +207,7 @@ Deno.serve(async (req) => {
 
       // Update trade to submitted
       await supabase
-        .from('onchain_trades')
+        .from('trades')
         .update({
           status: 'submitted',
           tx_hash: txHash,
