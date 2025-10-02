@@ -64,7 +64,7 @@ Execute or build a swap transaction.
 }
 ```
 
-**Response (send mode, submitted):**
+**Response (send mode with signedTx in request):**
 
 ```json
 {
@@ -79,6 +79,44 @@ Execute or build a swap transaction.
 }
 ```
 
+### POST /onchain-execute (Send-only mode)
+
+Broadcast a signed transaction for an existing built trade.
+
+**Request:**
+```json
+{
+  "tradeId": "uuid",
+  "signedTx": "0x..."
+}
+```
+
+**Success Response:**
+
+```json
+{
+  "ok": true,
+  "tradeId": "uuid",
+  "tx_hash": "0x...",
+  "network": "base"
+}
+```
+
+**Error Response (broadcast failed):**
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "BROADCAST_FAILED",
+    "message": "execution reverted: ...",
+    "rpcBody": { /* RPC error details */ }
+  }
+}
+```
+
+**Note:** On broadcast failure, the trade status remains `built` so the user can retry with a different signed transaction.
+
 **Response (simulation failed):**
 
 ```json
@@ -92,6 +130,60 @@ Execute or build a swap transaction.
   "unit": "USDC/ETH"
 }
 ```
+
+### POST /onchain-receipts
+
+Poll transaction receipts for submitted trades and update their status.
+
+**Request (poll specific trade):**
+```json
+{
+  "tradeId": "uuid"
+}
+```
+
+**Request (poll all submitted trades):**
+```json
+{}
+```
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "polled": 3,
+  "results": [
+    {
+      "tradeId": "uuid-1",
+      "tx_hash": "0x...",
+      "status": "mined",
+      "blockNumber": "0x...",
+      "gasUsed": "0x...",
+      "effectiveGasPrice": "0x..."
+    },
+    {
+      "tradeId": "uuid-2",
+      "tx_hash": "0x...",
+      "status": "pending"
+    },
+    {
+      "tradeId": "uuid-3",
+      "tx_hash": "0x...",
+      "status": "failed",
+      "blockNumber": "0x...",
+      "gasUsed": "0x...",
+      "effectiveGasPrice": "0x..."
+    }
+  ]
+}
+```
+
+**Status values:**
+- `mined`: Transaction confirmed successfully (receipt.status = 0x1)
+- `failed`: Transaction reverted on-chain (receipt.status = 0x0)
+- `pending`: Receipt not yet available
+- `error`: RPC error while fetching receipt
 
 ### GET /onchain-execute?tradeId={uuid}
 
@@ -345,7 +437,7 @@ Invoke-RestMethod `
   -Body $Body
 ```
 
-### Example 1: Build transaction for client-side signing (recommended)
+### Example 1: Build and send separately (recommended)
 
 ```typescript
 // Step 1: Build transaction
@@ -369,11 +461,12 @@ const buildResponse = await fetch(`${SUPABASE_URL}/functions/v1/onchain-execute`
 
 const buildData = await buildResponse.json();
 console.log('Transaction to sign:', buildData.txPayload);
+const tradeId = buildData.tradeId;
 
 // Step 2: Sign transaction on client (e.g., with ethers, viem, etc.)
 const signedTx = await wallet.signTransaction(buildData.txPayload);
 
-// Step 3: Send signed transaction
+// Step 3: Send signed transaction (send-only mode)
 const sendResponse = await fetch(`${SUPABASE_URL}/functions/v1/onchain-execute`, {
   method: 'POST',
   headers: {
@@ -381,20 +474,44 @@ const sendResponse = await fetch(`${SUPABASE_URL}/functions/v1/onchain-execute`,
     'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
   },
   body: JSON.stringify({
-    chainId: 8453,
-    base: 'ETH',
-    quote: 'USDC',
-    side: 'SELL',
-    amount: 1,
-    slippageBps: 50,
-    taker: '0xYourAddress...',
-    mode: 'send',
+    tradeId,
     signedTx,
   }),
 });
 
 const sendData = await sendResponse.json();
-console.log('Transaction hash:', sendData.txHash);
+if (sendData.ok) {
+  console.log('Transaction hash:', sendData.tx_hash);
+  
+  // Step 4: Poll for receipt
+  const pollReceipt = async () => {
+    const receiptResponse = await fetch(`${SUPABASE_URL}/functions/v1/onchain-receipts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ tradeId }),
+    });
+    
+    const receiptData = await receiptResponse.json();
+    const result = receiptData.results[0];
+    
+    if (result.status === 'pending') {
+      // Still pending, wait and retry
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return pollReceipt();
+    }
+    
+    return result;
+  };
+  
+  const finalStatus = await pollReceipt();
+  console.log('Final status:', finalStatus.status);
+  console.log('Block number:', finalStatus.blockNumber);
+} else {
+  console.error('Send failed:', sendData.error);
+}
 ```
 
 ### Example 2: Simulate transaction only
@@ -471,6 +588,26 @@ Append-only audit trail of trade execution steps.
 
 **Severities:** `info`, `warn`, `error`
 
+## Trade Lifecycle
+
+Trades progress through the following states:
+
+1. **`built`**: Transaction payload created, ready to sign
+2. **`simulate_revert`**: Simulation failed (terminal state)
+3. **`submitted`**: Signed transaction broadcast to network
+4. **`mined`**: Transaction confirmed on-chain (success)
+5. **`failed`**: Transaction reverted on-chain (terminal state)
+
+**State transitions:**
+- `built` → `submitted` (via send mode)
+- `built` → `simulate_revert` (if simulation fails)
+- `submitted` → `mined` (receipt with status 0x1)
+- `submitted` → `failed` (receipt with status 0x0)
+
+**Retry behavior:**
+- If send fails (RPC error), status remains `built` so user can retry
+- Use `/onchain-receipts` to poll for confirmations after send
+
 ## Security & Access Control
 
 **RLS (Row-Level Security):**
@@ -527,6 +664,7 @@ supabase secrets set RPC_URL_8453="https://base.llamarpc.com"
 supabase secrets set RPC_URL_42161="https://arbitrum.llamarpc.com"
 supabase functions deploy onchain-execute
 supabase functions deploy onchain-quote
+supabase functions deploy onchain-receipts
 supabase functions deploy wallet-ensure-weth
 supabase functions deploy wallet-permit2-status
 ```

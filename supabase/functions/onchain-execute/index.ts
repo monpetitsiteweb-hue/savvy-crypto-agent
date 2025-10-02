@@ -76,6 +76,88 @@ async function updateTradeStatus(tradeId: string, status: string, updates: Parti
   }
 }
 
+/**
+ * Handle send-only request: broadcast a signed transaction for an existing built trade
+ */
+async function handleSendOnly(tradeId: string, signedTx: string) {
+  console.log(`Send-only request for trade ${tradeId}`);
+
+  // Validate trade exists and is in built status
+  const { data: trade, error: tradeError } = await supabase
+    .from('trades')
+    .select('*')
+    .eq('id', tradeId)
+    .single();
+
+  if (tradeError || !trade) {
+    return new Response(
+      JSON.stringify({ ok: false, error: { code: 'TRADE_NOT_FOUND', message: 'Trade not found' } }),
+      { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
+  if (trade.status !== 'built') {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: {
+          code: 'INVALID_STATUS',
+          message: `Trade status is '${trade.status}', expected 'built'`,
+        },
+      }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // Broadcast transaction
+  console.log('Broadcasting signed transaction...');
+  const sendResult = await sendRawTransaction(trade.chain_id, signedTx);
+
+  if (!sendResult.success) {
+    // Log error event
+    await addTradeEvent(tradeId, 'error', 'error', {
+      phase: 'submit',
+      error: sendResult.error,
+      rpcError: sendResult,
+    });
+
+    // Keep status as 'built' so user can retry
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: {
+          code: 'BROADCAST_FAILED',
+          message: sendResult.error || 'Failed to broadcast transaction',
+          rpcBody: sendResult,
+        },
+      }),
+      { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
+  const txHash = sendResult.txHash!;
+  console.log(`Transaction submitted: ${txHash}`);
+
+  // Update trade: status='submitted', tx_hash, sent_at
+  await updateTradeStatus(tradeId, 'submitted', {
+    tx_hash: txHash,
+    // Note: sent_at would need to be added to TradeRecord interface if needed
+  });
+
+  // Log submit event
+  await addTradeEvent(tradeId, 'submit', 'info', { txHash });
+
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      tradeId,
+      tx_hash: txHash,
+      network: trade.chain_id === 8453 ? 'base' : `chain-${trade.chain_id}`,
+    }),
+    { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
+}
+
 Deno.serve(async (req) => {
   // CORS preflight
   if (req.method === 'OPTIONS') {
@@ -130,9 +212,14 @@ Deno.serve(async (req) => {
 
   // POST handler - execute trade
   try {
-    const body: ExecuteRequest = await req.json();
+    const body: any = await req.json();
     
-    // Validate input
+    // Check if this is a send-only request (tradeId + signedTx)
+    if (body.tradeId && body.signedTx && !body.chainId) {
+      return await handleSendOnly(body.tradeId, body.signedTx);
+    }
+    
+    // Otherwise, proceed with full build/execute flow
     const { chainId, base, quote, side, amount, slippageBps = 50, provider = '0x', taker, mode = 'build', simulateOnly = false, signedTx } = body;
 
     if (!chainId || !base || !quote || !side || !amount) {
