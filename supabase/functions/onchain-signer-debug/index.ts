@@ -27,6 +27,17 @@ Deno.serve(async (req) => {
     // RPC URLs
     const rpc8453 = Deno.env.get('RPC_URL_8453');
     
+    // Mask URLs to show only origin
+    const maskUrl = (url: string | undefined): string | undefined => {
+      if (!url) return undefined;
+      try {
+        const parsed = new URL(url);
+        return `${parsed.origin}/...`;
+      } catch {
+        return 'invalid URL';
+      }
+    };
+    
     const response = {
       mode,
       config: {
@@ -34,6 +45,7 @@ Deno.serve(async (req) => {
         hasWebhookAuth: !!activeAuth,
         urlSource: devUrl ? 'DEV_SIGNER_WEBHOOK_URL' : prodUrl ? 'SIGNER_WEBHOOK_URL' : 'none',
         authSource: devAuth ? 'DEV_SIGNER_WEBHOOK_AUTH' : prodAuth ? 'SIGNER_WEBHOOK_AUTH' : 'none',
+        maskedUrl: maskUrl(activeUrl),
       },
       chains: {
         allowedChainIds: [8453],

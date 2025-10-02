@@ -192,6 +192,79 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ========================================================================
+    // PREFLIGHT: Value Cap Check
+    // ========================================================================
+    const maxTxValueWeiStr = Deno.env.get('MAX_TX_VALUE_WEI');
+    if (maxTxValueWeiStr) {
+      const maxTxValueWei = BigInt(maxTxValueWeiStr);
+      const tradeValueStr = trade.tx_payload.value || '0x0';
+      const tradeValue = BigInt(tradeValueStr);
+      
+      if (tradeValue > maxTxValueWei) {
+        console.error(`❌ Value cap exceeded: ${tradeValue} > ${maxTxValueWei}`);
+        
+        // Log guard event
+        await supabase.from('trade_events').insert({
+          trade_id: tradeId,
+          phase: 'guard',
+          severity: 'error',
+          payload: {
+            error: 'VALUE_CAP_EXCEEDED',
+            value: tradeValueStr,
+            cap: maxTxValueWeiStr,
+          },
+        });
+        
+        return new Response(JSON.stringify({ 
+          ok: false, 
+          error: 'VALUE_CAP_EXCEEDED'
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // ========================================================================
+    // PREFLIGHT: Webhook Signer Configuration Check
+    // ========================================================================
+    const signerMode = Deno.env.get('SERVER_SIGNER_MODE') || 'local';
+    if (signerMode === 'webhook') {
+      const devUrl = Deno.env.get('DEV_SIGNER_WEBHOOK_URL');
+      const devAuth = Deno.env.get('DEV_SIGNER_WEBHOOK_AUTH');
+      const prodUrl = Deno.env.get('SIGNER_WEBHOOK_URL');
+      const prodAuth = Deno.env.get('SIGNER_WEBHOOK_AUTH');
+      
+      const activeUrl = devUrl || prodUrl;
+      const activeAuth = devAuth || prodAuth;
+      
+      if (!activeUrl || !activeAuth) {
+        console.error('❌ Webhook signer misconfigured: missing URL or AUTH');
+        
+        // Log guard event
+        await supabase.from('trade_events').insert({
+          trade_id: tradeId,
+          phase: 'guard',
+          severity: 'error',
+          payload: {
+            error: 'SIGNER_MISCONFIGURED',
+            mode: signerMode,
+            hasUrl: !!activeUrl,
+            hasAuth: !!activeAuth,
+          },
+        });
+        
+        return new Response(JSON.stringify({ 
+          ok: false, 
+          error: 'SIGNER_MISCONFIGURED'
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // Enforce router allowlist with 0x v2 Settler validation
     const targetTo = trade.tx_payload.to.toLowerCase();
     
