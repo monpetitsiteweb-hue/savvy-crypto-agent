@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: onchain-signer-dev
+    env: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: BOT_PRIVATE_KEY
+        sync: false
+      - key: BOT_ADDRESS
+        sync: false
+      - key: WEBHOOK_AUTH
+        generateValue: true
+      - key: RPC_URL_8453
+        sync: false
+      - key: MAX_TX_VALUE_WEI
+        value: "1000000000000000000"
+    healthCheckPath: /healthz

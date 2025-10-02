@@ -7,6 +7,115 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+// ========================================================================
+// Notification Helper
+// ========================================================================
+async function sendNotification(payload: {
+  event: string;
+  tradeId: string;
+  chainId: number;
+  txHash?: string | null;
+  provider?: string;
+  symbol?: string;
+  side?: string;
+  explorerUrl?: string;
+  error?: string;
+  gasUsed?: string;
+  blockNumber?: string;
+}) {
+  const webhookUrl = Deno.env.get('NOTIFICATION_WEBHOOK_URL');
+  if (!webhookUrl) return;
+
+  const webhookType = Deno.env.get('NOTIFICATION_WEBHOOK_TYPE') || 'slack';
+
+  try {
+    let body: any;
+
+    if (webhookType === 'discord') {
+      const emoji = payload.event === 'mined' ? '✅' : '❌';
+      const fields = [
+        { name: 'Trade ID', value: `\`${payload.tradeId}\``, inline: true },
+        { name: 'Chain', value: `Base (${payload.chainId})`, inline: true },
+        { name: 'Provider', value: payload.provider || 'N/A', inline: true },
+        { name: 'Symbol', value: payload.symbol || 'N/A', inline: true },
+        { name: 'Side', value: payload.side?.toUpperCase() || 'N/A', inline: true },
+      ];
+
+      if (payload.txHash) {
+        fields.push({ name: 'TX Hash', value: `\`${payload.txHash}\``, inline: false });
+      }
+      if (payload.explorerUrl) {
+        fields.push({ name: 'Explorer', value: `[View on BaseScan](${payload.explorerUrl})`, inline: false });
+      }
+      if (payload.gasUsed) {
+        fields.push({ name: 'Gas Used', value: payload.gasUsed, inline: true });
+      }
+      if (payload.blockNumber) {
+        fields.push({ name: 'Block', value: payload.blockNumber, inline: true });
+      }
+      if (payload.error) {
+        fields.push({ name: 'Error', value: `\`\`\`${payload.error}\`\`\``, inline: false });
+      }
+
+      body = {
+        embeds: [{
+          title: `${emoji} ${payload.event.toUpperCase()}`,
+          color: payload.event === 'mined' ? 0x00ff00 : 0xff0000,
+          fields,
+          timestamp: new Date().toISOString(),
+        }],
+      };
+    } else {
+      const emoji = payload.event === 'mined' ? ':white_check_mark:' : ':x:';
+      const fields = [
+        { title: 'Trade ID', value: payload.tradeId, short: true },
+        { title: 'Chain', value: `Base (${payload.chainId})`, short: true },
+        { title: 'Provider', value: payload.provider || 'N/A', short: true },
+        { title: 'Symbol', value: payload.symbol || 'N/A', short: true },
+        { title: 'Side', value: payload.side?.toUpperCase() || 'N/A', short: true },
+      ];
+
+      if (payload.txHash) {
+        fields.push({ title: 'TX Hash', value: `\`${payload.txHash}\``, short: false });
+      }
+      if (payload.explorerUrl) {
+        fields.push({ title: 'Explorer', value: `<${payload.explorerUrl}|View on BaseScan>`, short: false });
+      }
+      if (payload.gasUsed) {
+        fields.push({ title: 'Gas Used', value: payload.gasUsed, short: true });
+      }
+      if (payload.blockNumber) {
+        fields.push({ title: 'Block', value: payload.blockNumber, short: true });
+      }
+      if (payload.error) {
+        fields.push({ title: 'Error', value: `\`\`\`${payload.error}\`\`\``, short: false });
+      }
+
+      body = {
+        attachments: [{
+          color: payload.event === 'mined' ? 'good' : 'danger',
+          title: `${emoji} ${payload.event.toUpperCase()}`,
+          fields,
+          footer: 'Onchain Execution',
+          ts: Math.floor(Date.now() / 1000),
+        }],
+      };
+    }
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      console.warn(`⚠️  Notification failed: ${response.status}`);
+    }
+  } catch (err) {
+    console.warn('⚠️  Notification error:', err.message);
+  }
+}
+
 const PROJECT_URL = Deno.env.get('SB_URL')!;
 const SERVICE_ROLE = Deno.env.get('SB_SERVICE_ROLE')!;
 
@@ -49,7 +158,7 @@ async function getReceipt(chainId: number, txHash: string) {
 }
 
 async function processReceipt(trade: any) {
-  const { id: tradeId, chain_id, tx_hash } = trade;
+  const { id: tradeId, chain_id, tx_hash, provider, symbol, side } = trade;
 
   console.log(`Polling receipt for trade ${tradeId}, tx ${tx_hash}`);
 
@@ -125,6 +234,21 @@ async function processReceipt(trade: any) {
   if (eventError) {
     console.error(`Failed to add event for ${tradeId}:`, eventError);
   }
+
+  // Send notification
+  await sendNotification({
+    event: newStatus, // 'mined' or 'failed'
+    tradeId,
+    chainId: chain_id,
+    txHash: tx_hash,
+    provider,
+    symbol,
+    side,
+    explorerUrl: `https://basescan.org/tx/${tx_hash}`,
+    gasUsed: receipt.gasUsed,
+    blockNumber: receipt.blockNumber,
+    error: txSuccess ? undefined : 'Transaction reverted',
+  });
 
   return {
     tradeId,

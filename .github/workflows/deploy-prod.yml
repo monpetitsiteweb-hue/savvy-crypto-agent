@@ -1,0 +1,50 @@
+name: Deploy to PROD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install Supabase CLI
+        run: |
+          npm install -g supabase
+
+      - name: Link to PROD Supabase project
+        run: |
+          supabase link --project-ref ${{ secrets.SB_PROJECT_REF_PROD }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy Edge Functions to PROD
+        run: |
+          supabase functions deploy --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deployment Summary
+        run: |
+          echo "✅ Edge Functions deployed to PROD project: ${{ secrets.SB_PROJECT_REF_PROD }}"
+          echo "🔗 Functions URL: https://${{ secrets.SB_PROJECT_REF_PROD }}.supabase.co/functions/v1/"
+          echo ""
+          echo "🚨 CRITICAL: Verify PROD secrets are set in Supabase UI:"
+          echo "  - SERVER_SIGNER_MODE=webhook"
+          echo "  - SIGNER_WEBHOOK_URL=https://your-prod-signer.railway.app/sign"
+          echo "  - SIGNER_WEBHOOK_AUTH=Bearer your-prod-secret"
+          echo "  - RPC_URL_8453=https://mainnet.base.org"
+          echo "  - ZEROEX_API_KEY=your-prod-api-key"
+          echo "  - SB_URL, SB_SERVICE_ROLE"
+          echo "  - MAX_TX_VALUE_WEI=<strict-limit>"
+          echo "  - NOTIFICATION_WEBHOOK_URL=<slack-or-discord>"

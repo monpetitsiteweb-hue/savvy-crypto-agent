@@ -13,6 +13,111 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+// ========================================================================
+// Notification Helper
+// ========================================================================
+async function sendNotification(payload: {
+  event: string;
+  tradeId: string;
+  chainId: number;
+  txHash?: string | null;
+  provider?: string;
+  symbol?: string;
+  side?: string;
+  explorerUrl?: string;
+  error?: string;
+}) {
+  const webhookUrl = Deno.env.get('NOTIFICATION_WEBHOOK_URL');
+  if (!webhookUrl) return; // Notifications disabled
+
+  const webhookType = Deno.env.get('NOTIFICATION_WEBHOOK_TYPE') || 'slack';
+
+  try {
+    let body: any;
+
+    if (webhookType === 'discord') {
+      const emoji = payload.event.includes('failed') ? '❌' : 
+                    payload.event === 'submitted' ? '✅' : 
+                    payload.event.includes('attempt') ? '⏳' : '🔔';
+      
+      const fields = [
+        { name: 'Trade ID', value: `\`${payload.tradeId}\``, inline: true },
+        { name: 'Chain', value: `Base (${payload.chainId})`, inline: true },
+        { name: 'Provider', value: payload.provider || 'N/A', inline: true },
+        { name: 'Symbol', value: payload.symbol || 'N/A', inline: true },
+        { name: 'Side', value: payload.side?.toUpperCase() || 'N/A', inline: true },
+      ];
+
+      if (payload.txHash) {
+        fields.push({ name: 'TX Hash', value: `\`${payload.txHash}\``, inline: false });
+      }
+      if (payload.explorerUrl) {
+        fields.push({ name: 'Explorer', value: `[View on BaseScan](${payload.explorerUrl})`, inline: false });
+      }
+      if (payload.error) {
+        fields.push({ name: 'Error', value: `\`\`\`${payload.error}\`\`\``, inline: false });
+      }
+
+      body = {
+        embeds: [{
+          title: `${emoji} ${payload.event.replace(/_/g, ' ').toUpperCase()}`,
+          color: payload.event.includes('failed') ? 0xff0000 : 
+                 payload.event === 'submitted' ? 0x00ff00 : 
+                 0xffaa00,
+          fields,
+          timestamp: new Date().toISOString(),
+        }],
+      };
+    } else {
+      const emoji = payload.event.includes('failed') ? ':x:' : 
+                    payload.event === 'submitted' ? ':white_check_mark:' : 
+                    payload.event.includes('attempt') ? ':hourglass:' : ':bell:';
+
+      const fields = [
+        { title: 'Trade ID', value: payload.tradeId, short: true },
+        { title: 'Chain', value: `Base (${payload.chainId})`, short: true },
+        { title: 'Provider', value: payload.provider || 'N/A', short: true },
+        { title: 'Symbol', value: payload.symbol || 'N/A', short: true },
+        { title: 'Side', value: payload.side?.toUpperCase() || 'N/A', short: true },
+      ];
+
+      if (payload.txHash) {
+        fields.push({ title: 'TX Hash', value: `\`${payload.txHash}\``, short: false });
+      }
+      if (payload.explorerUrl) {
+        fields.push({ title: 'Explorer', value: `<${payload.explorerUrl}|View on BaseScan>`, short: false });
+      }
+      if (payload.error) {
+        fields.push({ title: 'Error', value: `\`\`\`${payload.error}\`\`\``, short: false });
+      }
+
+      body = {
+        attachments: [{
+          color: payload.event.includes('failed') ? 'danger' : 
+                 payload.event === 'submitted' ? 'good' : 
+                 'warning',
+          title: `${emoji} ${payload.event.replace(/_/g, ' ').toUpperCase()}`,
+          fields,
+          footer: 'Onchain Execution',
+          ts: Math.floor(Date.now() / 1000),
+        }],
+      };
+    }
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      console.warn(`⚠️  Notification failed: ${response.status} ${response.statusText}`);
+    }
+  } catch (err) {
+    console.warn('⚠️  Notification error:', err.message);
+  }
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -179,6 +284,16 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Send notification: sign attempt
+    await sendNotification({
+      event: 'sign_attempt',
+      tradeId,
+      chainId: trade.chain_id,
+      provider: trade.provider,
+      symbol: trade.symbol,
+      side: trade.side,
+    });
+
     // Get signer
     const signer = getSigner();
     
@@ -219,7 +334,18 @@ Deno.serve(async (req) => {
         },
       });
 
-      return new Response(JSON.stringify({ 
+      // Send notification: signing failed
+      await sendNotification({
+        event: 'signing_failed',
+        tradeId,
+        chainId: trade.chain_id,
+        provider: trade.provider,
+        symbol: trade.symbol,
+        side: trade.side,
+        error: signError.message,
+      });
+
+      return new Response(JSON.stringify({
         ok: false, 
         error: {
           code: 'SIGNING_FAILED',
@@ -230,6 +356,17 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // Send notification: broadcast attempt
+    await sendNotification({
+      event: 'broadcast_attempt',
+      tradeId,
+      chainId: trade.chain_id,
+      txHash: null,
+      provider: trade.provider,
+      symbol: trade.symbol,
+      side: trade.side,
+    });
 
     // Broadcast transaction
     const rpcUrl = Deno.env.get('RPC_URL_8453')!;
@@ -263,7 +400,18 @@ Deno.serve(async (req) => {
           },
         });
 
-        return new Response(JSON.stringify({ 
+        // Send notification: broadcast failed
+        await sendNotification({
+          event: 'broadcast_failed',
+          tradeId,
+          chainId: trade.chain_id,
+          provider: trade.provider,
+          symbol: trade.symbol,
+          side: trade.side,
+          error: rpcResult.error.message || 'RPC error',
+        });
+
+        return new Response(JSON.stringify({
           ok: false, 
           error: {
             code: 'BROADCAST_FAILED',
@@ -300,7 +448,19 @@ Deno.serve(async (req) => {
         },
       });
 
-      return new Response(JSON.stringify({ 
+      // Send notification: submitted
+      await sendNotification({
+        event: 'submitted',
+        tradeId,
+        chainId: trade.chain_id,
+        txHash,
+        provider: trade.provider,
+        symbol: trade.symbol,
+        side: trade.side,
+        explorerUrl: `https://basescan.org/tx/${txHash}`,
+      });
+
+      return new Response(JSON.stringify({
         ok: true,
         tradeId,
         tx_hash: txHash,

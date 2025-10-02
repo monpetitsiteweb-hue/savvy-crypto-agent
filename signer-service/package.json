@@ -1,0 +1,18 @@
+{
+  "name": "onchain-signer-service",
+  "version": "1.0.0",
+  "description": "Webhook signer service for 0x trades on Base",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "viem": "^2.37.11"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
