@@ -97,7 +97,14 @@ Deno.serve(async (req) => {
     
     if (trade.provider === '0x') {
       // For 0x quotes, validate against the original quote's transaction.to
-      const quoteTo = trade.raw_quote?.transaction?.to?.toLowerCase();
+      // Accept multiple common 0x quote shapes
+      const quoteToRaw =
+        (trade.raw_quote?.transaction?.to ??
+         trade.raw_quote?.to ??
+         trade.raw_quote?.tx?.to ??
+         trade.raw_quote?.target);
+
+      const quoteTo = typeof quoteToRaw === 'string' ? quoteToRaw.toLowerCase() : undefined;
       
       if (!quoteTo) {
         // Log guard event
