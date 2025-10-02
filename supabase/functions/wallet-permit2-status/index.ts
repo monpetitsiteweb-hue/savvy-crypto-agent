@@ -1,5 +1,5 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { BASE_CHAIN_ID, BASE_TOKENS, BASE_0X, PERMIT2_DOMAIN, PERMIT2_TYPES } from '../_shared/addresses.ts';
+import { BASE_CHAIN_ID, BASE_TOKENS, BASE_0X, BASE_DECIMALS, PERMIT2_DOMAIN, PERMIT2_TYPES, formatTokenAmount } from '../_shared/addresses.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -44,6 +44,7 @@ Deno.serve(async (req) => {
     }
 
     const tokenAddress = BASE_TOKENS[token as keyof typeof BASE_TOKENS];
+    const decimals = BASE_DECIMALS[token as keyof typeof BASE_DECIMALS];
 
     // Call Permit2.allowance(owner, token, spender)
     // function allowance(address owner, address token, address spender) returns ((uint160 amount, uint48 expiration, uint48 nonce))
@@ -88,7 +89,7 @@ Deno.serve(async (req) => {
           ok: true,
           action: 'none',
           allowance: currentAmount.toString(),
-          allowanceHuman: (Number(currentAmount) / 1e18).toFixed(6),
+          allowanceHuman: formatTokenAmount(currentAmount, decimals),
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -122,7 +123,7 @@ Deno.serve(async (req) => {
         ok: true,
         action: 'permit2-sign',
         allowance: currentAmount.toString(),
-        allowanceHuman: (Number(currentAmount) / 1e18).toFixed(6),
+        allowanceHuman: formatTokenAmount(currentAmount, decimals),
         typedData,
         permit2Contract: BASE_0X.PERMIT2,
         spender: BASE_0X.SPENDER,

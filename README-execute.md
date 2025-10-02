@@ -224,12 +224,21 @@ await tx.wait();
 
 Check Permit2 allowance for 0x spender. Returns EIP-712 typed data if approval needed.
 
-**Request:**
+**Request (WETH example):**
 ```json
 {
   "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
-  "token": "WETH",  // or "USDC"
-  "minAllowance": "1000000000000000000"  // Wei string
+  "token": "WETH",
+  "minAllowance": "1000000000000000000"  // 1 WETH in wei (18 decimals)
+}
+```
+
+**Request (USDC example):**
+```json
+{
+  "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+  "token": "USDC",
+  "minAllowance": "1000000"  // 1 USDC in atomic units (6 decimals)
 }
 ```
 
@@ -239,7 +248,7 @@ Check Permit2 allowance for 0x spender. Returns EIP-712 typed data if approval n
   "ok": true,
   "action": "none",
   "allowance": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
-  "allowanceHuman": "1.157921e+59"
+  "allowanceHuman": "115792089237316195423570985008687907853269984665640564039457.584007"
 }
 ```
 
@@ -318,6 +327,23 @@ await tx.wait();
 ```
 
 ## Usage Examples
+
+### PowerShell: Test wallet helpers (USDC example)
+
+```powershell
+# Check USDC Permit2 allowance (6 decimals)
+$Body = @{
+  address = "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"
+  token = "USDC"
+  minAllowance = "1000000"  # 1 USDC (6 decimals)
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Uri "https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/wallet-permit2-status" `
+  -Method Post `
+  -Headers @{ "Authorization" = "Bearer <anon-key>"; "Content-Type" = "application/json" } `
+  -Body $Body
+```
 
 ### Example 1: Build transaction for client-side signing (recommended)
 

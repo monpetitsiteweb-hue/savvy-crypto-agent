@@ -1,5 +1,5 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { BASE_CHAIN_ID, BASE_TOKENS } from '../_shared/addresses.ts';
+import { BASE_CHAIN_ID, BASE_TOKENS, formatTokenAmount } from '../_shared/addresses.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
           ok: true,
           action: 'none',
           balance: currentBalance.toString(),
-          balanceHuman: (Number(currentBalance) / 1e18).toFixed(6),
+          balanceHuman: formatTokenAmount(currentBalance, 18),
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -77,20 +77,22 @@ Deno.serve(async (req) => {
     // Need to wrap ETH → WETH
     const wrapAmount = needed - currentBalance;
     
+    const valueHuman = formatTokenAmount(wrapAmount, 18);
+    
     return new Response(
       JSON.stringify({
         ok: true,
         action: 'wrap',
         balance: currentBalance.toString(),
-        balanceHuman: (Number(currentBalance) / 1e18).toFixed(6),
+        balanceHuman: formatTokenAmount(currentBalance, 18),
         wrapPlan: {
           chainId: BASE_CHAIN_ID,
           wethAddress: BASE_TOKENS.WETH,
           method: 'deposit()',
           calldata: '0xd0e30db0', // deposit() signature
           value: wrapAmount.toString(),
-          valueHuman: (Number(wrapAmount) / 1e18).toFixed(6),
-          note: `Wrap ${(Number(wrapAmount) / 1e18).toFixed(6)} ETH to WETH. Send this value to WETH.deposit()`,
+          valueHuman,
+          note: `Wrap ${valueHuman} ETH to WETH. Send this value to WETH.deposit()`,
         }
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

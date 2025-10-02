@@ -20,6 +20,36 @@ export const BASE_TOKENS = {
   ETH: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
 } as const;
 
+// Token decimals on Base
+export const BASE_DECIMALS = {
+  WETH: 18,
+  USDC: 6,
+} as const;
+
+/**
+ * Safe formatter to convert wei/atomic BigInt to human-readable string
+ * Avoids Number(BigInt) overflow by using string math
+ */
+export function formatTokenAmount(amount: bigint, decimals: number): string {
+  const str = amount.toString();
+  if (str === '0') return '0.000000';
+  
+  const negative = str.startsWith('-');
+  const absStr = negative ? str.slice(1) : str;
+  
+  if (absStr.length <= decimals) {
+    // Less than 1 unit: pad with leading zeros
+    const padded = absStr.padStart(decimals, '0');
+    const result = `0.${padded}`;
+    return (negative ? '-' : '') + result.slice(0, decimals + 8); // Max 6 decimal places shown
+  }
+  
+  // >= 1 unit: insert decimal point
+  const intPart = absStr.slice(0, -decimals);
+  const fracPart = absStr.slice(-decimals).padEnd(6, '0').slice(0, 6);
+  return (negative ? '-' : '') + `${intPart}.${fracPart}`;
+}
+
 // 0x v2 Permit2 integration addresses on Base
 // Ref: https://docs.0x.org/0x-swap-api/advanced-topics/erc20-transformation#permit2
 export const BASE_0X = {
