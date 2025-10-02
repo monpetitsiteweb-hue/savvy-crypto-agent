@@ -1,6 +1,13 @@
 /**
  * Centralized contract addresses and constants for onchain execution
- * Ref: https://0x.org/docs/api-references/swap-api/guides/use-0x-api-liquidity-in-your-smart-contracts
+ * 
+ * Key distinction:
+ * - PERMIT2: Uniswap's Permit2 contract for signature-based approvals (EIP-712)
+ * - SPENDER: 0x Exchange Proxy that executes swaps and pulls tokens via Permit2
+ * 
+ * Ref: https://0x.org/docs/0x-swap-api/advanced-topics/permit2-erc20-approvals
+ * Ref: https://docs.0x.org/0x-swap-api/api-references/get-swap-v1-quote
+ * Base contracts: https://docs.base.org/docs/contracts
  */
 
 export const BASE_CHAIN_ID = 8453;
@@ -13,12 +20,13 @@ export const BASE_TOKENS = {
   ETH: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
 } as const;
 
-// 0x v2 Permit2 integration addresses
+// 0x v2 Permit2 integration addresses on Base
 // Ref: https://docs.0x.org/0x-swap-api/advanced-topics/erc20-transformation#permit2
 export const BASE_0X = {
-  // 0x Permit2 Swap Router (spender for allowances)
-  SPENDER: '0x000000000022D473030F116dDEE9F6B43aC78BA3',
-  // Uniswap Permit2 contract
+  // 0x Exchange Proxy v4 (the router that executes swaps via Permit2)
+  // This is the spender you grant allowance to via Permit2
+  SPENDER: '0xDef1C0ded9bec7F1a1670819833240f027b25EfF',
+  // Uniswap Permit2 contract (handles signature validation & token transfers)
   PERMIT2: '0x000000000022D473030F116dDEE9F6B43aC78BA3',
 } as const;
 

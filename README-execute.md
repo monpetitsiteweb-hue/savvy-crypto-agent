@@ -159,6 +159,14 @@ Retrieve a trade by ID with full event history.
 
 ## Wallet Helper Endpoints
 
+### Architecture Note: Permit2 vs Spender
+
+When using 0x v2 with Permit2:
+- **Permit2** (`0x000000000022D473030F116dDEE9F6B43aC78BA3`): Uniswap's signature validation contract. You sign EIP-712 typed data to authorize token transfers.
+- **SPENDER** (`0xDef1C0ded9bec7F1a1670819833240f027b25EfF`): 0x Exchange Proxy v4 on Base. This is the router that executes swaps and pulls tokens via Permit2.
+
+**Flow**: User signs Permit2 approval → calls `Permit2.permit()` → 0x router (SPENDER) can now transfer tokens on user's behalf.
+
 ### POST /wallet-ensure-weth
 
 Check if wallet has sufficient WETH balance. Returns wrap plan if balance insufficient.
@@ -269,12 +277,12 @@ Check Permit2 allowance for 0x spender. Returns EIP-712 typed data if approval n
         "expiration": "1759424621",
         "nonce": "0"
       },
-      "spender": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+      "spender": "0xDef1C0ded9bec7F1a1670819833240f027b25EfF",
       "sigDeadline": "1759393221"
     }
   },
   "permit2Contract": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-  "spender": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+  "spender": "0xDef1C0ded9bec7F1a1670819833240f027b25EfF",
   "note": "Sign this EIP-712 data with your wallet, then call Permit2.permit() with signature"
 }
 ```
