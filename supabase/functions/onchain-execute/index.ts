@@ -315,7 +315,8 @@ Deno.serve(async (req) => {
       price: quoteData.price || null,
       min_out: quoteData.minOut || null,
       gas_quote: quoteData.gasCostQuote || null,
-      raw_quote: quoteData,
+      // Store actual 0x response for 0x provider, otherwise store wrapped response
+      raw_quote: provider === '0x' ? quoteData.raw : quoteData,
       status: 'built',
       tx_hash: null,
       tx_payload: null,
@@ -346,27 +347,68 @@ Deno.serve(async (req) => {
     // Add quote event
     await addTradeEvent(tradeId, 'quote', 'info', { quote: quoteData });
 
-    // Step 3: Build transaction payload (if we have raw data from quote)
-    function pickTx(raw: any): any | null {
-      if (!raw) return null;
-      if (raw.transaction) return raw.transaction;
-      if (Array.isArray(raw.transactions) && raw.transactions[0]) return raw.transactions[0];
-      if (raw.protocolResponse?.tx) return raw.protocolResponse.tx;
-      if (raw.tx) return raw.tx;
-      return null;
+    // ❗ For 0x provider with taker in build mode, validate transaction object exists
+    if (provider === '0x' && taker && mode === 'build') {
+      if (!quoteData.raw?.transaction?.to) {
+        console.error('0x quote missing transaction.to:', quoteData.raw);
+        await addTradeEvent(tradeId, 'guard', 'error', {
+          error: 'QUOTE_MISSING_TRANSACTION',
+          message: '0x quote does not include transaction object with .to address',
+          raw: quoteData.raw,
+        });
+        await updateTradeStatus(tradeId, 'failed', {
+          notes: 'Quote validation failed: missing transaction.to',
+        });
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            tradeId,
+            error: 'QUOTE_MISSING_TRANSACTION',
+            message: '0x quote does not include transaction object with .to address',
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
+    // Step 3: Build transaction payload
     let txPayload: any = null;
-    const tx = pickTx(quoteData.raw);
-    if (tx && tx.to && tx.data) {
+
+    if (provider === '0x' && quoteData.raw?.transaction) {
+      // For 0x, derive tx_payload directly from raw_quote.transaction
+      const tx = quoteData.raw.transaction;
       txPayload = {
         to: tx.to,
         data: tx.data,
         value: tx.value ?? '0x0',
-        gas: tx.gas ?? tx.gasLimit,   // some shapes use gasLimit
+        gas: tx.gas ?? tx.gasLimit,
         from: taker,
       };
       await updateTradeStatus(tradeId, 'built', { tx_payload: txPayload });
+      console.log(`✅ Built trade ${tradeId}: tx.to=${txPayload.to}`);
+    } else {
+      // For other providers, use pickTx helper
+      function pickTx(raw: any): any | null {
+        if (!raw) return null;
+        if (raw.transaction) return raw.transaction;
+        if (Array.isArray(raw.transactions) && raw.transactions[0]) return raw.transactions[0];
+        if (raw.protocolResponse?.tx) return raw.protocolResponse.tx;
+        if (raw.tx) return raw.tx;
+        return null;
+      }
+
+      const tx = pickTx(quoteData.raw);
+      if (tx && tx.to && tx.data) {
+        txPayload = {
+          to: tx.to,
+          data: tx.data,
+          value: tx.value ?? '0x0',
+          gas: tx.gas ?? tx.gasLimit,
+          from: taker,
+        };
+        await updateTradeStatus(tradeId, 'built', { tx_payload: txPayload });
+        console.log(`✅ Built trade ${tradeId}: tx.to=${txPayload.to}`);
+      }
     }
 
     // Step 4: Simulate (if requested or in send mode)
