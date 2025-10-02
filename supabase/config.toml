@@ -86,3 +86,6 @@ verify_jwt = true
 
 [functions.onchain-quote]
 verify_jwt = false
+
+[functions.onchain-signer-debug]
+verify_jwt = false
