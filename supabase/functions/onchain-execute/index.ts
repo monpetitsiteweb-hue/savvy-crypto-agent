@@ -242,7 +242,10 @@ Deno.serve(async (req) => {
 
   // POST handler - execute trade
   try {
+    const url = new URL(req.url);
+    const debugMode = url.searchParams.get('debug') === '1';
     const body: any = await req.json();
+    const debugFromBody = body.debug === true;
     
     // Check if this is a send-only request (tradeId + signedTx)
     if (body.tradeId && body.signedTx && !body.chainId) {
@@ -250,6 +253,7 @@ Deno.serve(async (req) => {
     }
     
     // Otherwise, proceed with full build/execute flow
+    const isDebug = debugMode || debugFromBody;
     const { chainId, base, quote, side, amount, slippageBps = 50, provider = '0x', taker, mode = 'build', simulateOnly = false, signedTx } = body;
 
     if (!chainId || !base || !quote || !side || !amount) {
@@ -310,9 +314,37 @@ Deno.serve(async (req) => {
 
     if (!quoteResponse.ok) {
       const errorText = await quoteResponse.text();
+      const upstreamBody = errorText.substring(0, isDebug ? 2000 : 500);
+      
+      if (isDebug) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            phase: 'quote',
+            upstream: {
+              status: quoteResponse.status,
+              body: upstreamBody,
+              attempts: []
+            },
+            headersUsed: {
+              authorization: `SERVICE_ROLE (present: ${!!SERVICE_ROLE})`,
+              apikeyPresent: true,
+              zxVersion: 'v2',
+              zxApiKeyPresent: !!Deno.env.get('ZEROEX_API_KEY')
+            },
+            note: 'Set ZEROEX_API_KEY and redeploy if 401/403.'
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       return new Response(
-        JSON.stringify({ error: `Quote failed: ${errorText}` }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ 
+          error: `Quote failed: ${errorText.substring(0, 300)}`,
+          upstreamStatus: quoteResponse.status,
+          upstreamBody: upstreamBody
+        }),
+        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -321,10 +353,33 @@ Deno.serve(async (req) => {
 
     // ❗ Fail-fast if quote failed or has no price
     if (quoteData?.error || !quoteData?.price || !(quoteData.price > 0)) {
+      if (isDebug) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            phase: 'quote',
+            upstream: {
+              status: 200,
+              body: JSON.stringify(quoteData).substring(0, 2000),
+              attempts: quoteData.raw?.debug?.attempts || []
+            },
+            headersUsed: {
+              authorization: `SERVICE_ROLE (present: ${!!SERVICE_ROLE})`,
+              apikeyPresent: true,
+              zxVersion: 'v2',
+              zxApiKeyPresent: !!Deno.env.get('ZEROEX_API_KEY')
+            },
+            note: 'Set ZEROEX_API_KEY and redeploy if 401/403.'
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       return new Response(
         JSON.stringify({
           error: 'Quote failed',
           detail: quoteData?.error || 'No price in quote',
+          upstreamBody: JSON.stringify(quoteData).substring(0, 500),
           raw: quoteData,
         }),
         { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -158,6 +158,62 @@ Use the Quick Test snippets above (curl or PowerShell):
 ### ⚠️ PROD Security
 In production, set `[functions.onchain-execute].verify_jwt = true` in `supabase/config.toml` and redeploy.
 
+## Debugging Quote Failures
+
+If you get a 502 error during execution, enable debug mode to see detailed upstream quote information:
+
+### Debug Mode POST
+```bash
+curl -s "$BASE/onchain-execute" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "apikey: $ANON" \
+  -d '{
+    "debug": true,
+    "chainId": 8453, "base": "ETH", "quote": "USDC",
+    "side":"SELL","amount":0.01,"slippageBps":50,
+    "provider":"0x",
+    "taker":"0x0000000000000000000000000000000000000001",
+    "mode":"build","simulateOnly":true
+  }' | jq
+```
+
+Or add `?debug=1` to the URL:
+```bash
+curl -s "$BASE/onchain-execute?debug=1" -X POST ...
+```
+
+### Direct Quote Test
+Isolate whether the failure is at the quote level:
+```bash
+curl -s "$BASE/onchain-quote" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "apikey: $ANON" \
+  -d '{
+    "chainId": 8453, "base": "ETH", "quote": "USDC",
+    "side":"SELL","amount":"0.01","slippageBps":50,
+    "provider":"0x",
+    "taker":"0x0000000000000000000000000000000000000001"
+  }' | jq
+```
+
+### Diagnostics Endpoints
+Check function health and configuration:
+```bash
+curl -s "$BASE/onchain-execute?diag=1" | jq
+curl -s "$BASE/onchain-quote?diag=1" | jq
+curl -s "$BASE/onchain-signer-debug" | jq
+```
+
+**Common Issues:**
+- **401/403 from 0x API**: Missing or invalid `ZEROEX_API_KEY`. Set it with:
+  ```bash
+  supabase secrets set ZEROEX_API_KEY="<your-0x-key>"
+  supabase functions deploy onchain-quote onchain-execute
+  ```
+- **No price in quote**: Pair might not be available on 0x, try a different provider or check token addresses
+
 ## API Endpoints
 
 ### POST /onchain-execute
