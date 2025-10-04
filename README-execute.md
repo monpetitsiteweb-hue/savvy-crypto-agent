@@ -130,6 +130,102 @@ curl "$BASE/onchain-execute?preflight=0" ...
 { "preflight": false, ... }
 ```
 
+### Permit2 Submit Proxy
+
+Once you have the EIP-712 signature from preflight, submit it server-side to execute the Permit2 approval:
+
+**curl (Linux/macOS/WSL):**
+```bash
+curl -s "$BASE/wallet-permit2-submit" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "apikey: $ANON" \
+  -d '{
+    "chainId": 8453,
+    "owner": "0x...",
+    "typedData": {
+      "domain": {
+        "name": "Permit2",
+        "chainId": 8453,
+        "verifyingContract": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+      },
+      "types": { ... },
+      "primaryType": "PermitSingle",
+      "message": {
+        "details": {
+          "token": "0x4200000000000000000000000000000000000006",
+          "amount": "1461501637330902918203684832716283019655932542975",
+          "expiration": "1704067200",
+          "nonce": "0"
+        },
+        "spender": "0xDef1C0ded9bec7F1a1670819833240f027b25EfF",
+        "sigDeadline": "1703894400"
+      }
+    },
+    "signature": "0x..."
+  }' | jq
+```
+
+**PowerShell (Windows):**
+```powershell
+$permitBody = @{
+  chainId = 8453
+  owner = "0x..."
+  typedData = @{
+    domain = @{
+      name = "Permit2"
+      chainId = 8453
+      verifyingContract = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+    }
+    types = @{ ... }
+    primaryType = "PermitSingle"
+    message = @{
+      details = @{
+        token = "0x4200000000000000000000000000000000000006"
+        amount = "1461501637330902918203684832716283019655932542975"
+        expiration = "1704067200"
+        nonce = "0"
+      }
+      spender = "0xDef1C0ded9bec7F1a1670819833240f027b25EfF"
+      sigDeadline = "1703894400"
+    }
+  }
+  signature = "0x..."
+} | ConvertTo-Json -Depth 10
+
+Invoke-RestMethod "$BASE/wallet-permit2-submit" -Method POST -Headers @{
+  "Content-Type" = "application/json"
+  "apikey" = "$ANON"
+} -Body $permitBody
+```
+
+**Success Response:**
+```json
+{
+  "ok": true,
+  "network": "base",
+  "tx_hash": "0x..."
+}
+```
+
+**Error Response:**
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "BROADCAST_FAILED",
+    "message": "execution reverted: ...",
+    "rpcBody": { ... }
+  }
+}
+```
+
+**Security:**
+- Only accepts Permit2 domain with verifyingContract = `0x000000000022D473030F116dDEE9F6B43aC78BA3`
+- Only accepts spender = `0xDef1C0ded9bec7F1a1670819833240f027b25EfF` (0x Exchange Proxy on Base)
+- Currently Base (8453) only
+- Validates all EIP-712 structure before building transaction
+
 ### Function Auth Configuration
 
 | Function | Auth Required | Purpose |
