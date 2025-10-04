@@ -16,6 +16,120 @@ The `/onchain-execute` Edge Function enables on-chain swap execution via 0x on B
 
 ## Authentication & Testing
 
+### Debugging Quote Failures
+
+If `/onchain-execute` returns a 502 before creating a trade, enable debug mode to diagnose upstream quote failures:
+
+```bash
+# Debug mode: returns 200 with structured error payload instead of 502
+curl -s "$BASE/onchain-execute?debug=1" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "apikey: $ANON" \
+  -d '{
+    "chainId": 8453,
+    "base": "ETH",
+    "quote": "USDC",
+    "side": "SELL",
+    "amount": 0.01,
+    "taker": "0x0000000000000000000000000000000000000001"
+  }' | jq
+
+# Or pass debug in body:
+curl -s "$BASE/onchain-execute" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "apikey: $ANON" \
+  -d '{
+    "debug": true,
+    "chainId": 8453,
+    "base": "ETH",
+    "quote": "USDC",
+    "side": "SELL",
+    "amount": 0.01
+  }' | jq
+
+# Test /onchain-quote directly to isolate quote failures:
+curl -s "$BASE/onchain-quote" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "apikey: $ANON" \
+  -d '{
+    "chainId": 8453,
+    "base": "ETH",
+    "quote": "USDC",
+    "side": "SELL",
+    "amount": 0.01,
+    "taker": "0x0000000000000000000000000000000000000001"
+  }' | jq
+```
+
+**Common 401/403 from 0x:** Missing or invalid `ZEROEX_API_KEY`. Fix:
+```bash
+supabase secrets set ZEROEX_API_KEY="<your-0x-key>"
+supabase functions deploy onchain-quote onchain-execute
+```
+
+**Health checks:**
+```bash
+# Ping: verify env vars are set
+curl "$BASE/onchain-execute?ping=1" | jq
+curl "$BASE/onchain-quote?ping=1" | jq
+
+# Diagnostics: non-sensitive runtime info
+curl "$BASE/onchain-execute?diag=1" | jq
+curl "$BASE/onchain-signer-debug" | jq
+```
+
+### Preflight Checks (WETH & Permit2)
+
+Before simulation/send, `/onchain-execute` runs preflight checks (enabled by default when `taker` is provided):
+
+1. **WETH Balance** (if selling ETH on Base): Ensures sufficient wrapped ETH
+2. **Permit2 Allowance**: Verifies token approval for the 0x spender
+
+If checks fail, you'll receive `status: "preflight_required"` with a structured plan:
+
+```json
+{
+  "tradeId": "...",
+  "status": "preflight_required",
+  "reason": "insufficient_weth",
+  "wrapPlan": {
+    "chainId": 8453,
+    "wethAddress": "0x4200000000000000000000000000000000000006",
+    "method": "deposit()",
+    "calldata": "0xd0e30db0",
+    "value": "10000000000000000",
+    "valueHuman": "0.010000",
+    "note": "Wrap 0.010000 ETH to WETH. Send this value to WETH.deposit()"
+  },
+  "note": "Wrap WETH, then re-run."
+}
+```
+
+Or for Permit2:
+```json
+{
+  "tradeId": "...",
+  "status": "preflight_required",
+  "reason": "permit2_required",
+  "typedData": { ... },
+  "spender": "0xDef1C0ded9bec7F1a1670819833240f027b25EfF",
+  "permit2Contract": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+  "note": "Sign Permit2 then call Permit2.permit()"
+}
+```
+
+**Bypass preflight** (for testing or if prerequisites already met):
+```bash
+# Via querystring:
+curl "$BASE/onchain-execute?preflight=0" ...
+
+# Or in body:
+{ "preflight": false, ... }
+```
+
 ### Function Auth Configuration
 
 | Function | Auth Required | Purpose |

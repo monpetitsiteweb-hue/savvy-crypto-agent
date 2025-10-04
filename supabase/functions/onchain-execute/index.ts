@@ -2,6 +2,7 @@ import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { simulateCall, sendRawTransaction, waitForReceipt } from '../_shared/eth.ts';
 import { corsHeaders } from '../_shared/cors.ts';
+import { BASE_CHAIN_ID } from '../_shared/addresses.ts';
 
 const PROJECT_URL = Deno.env.get('SB_URL')!;
 const SERVICE_ROLE = Deno.env.get('SB_SERVICE_ROLE')!;
@@ -21,6 +22,7 @@ interface ExecuteRequest {
   mode?: 'build' | 'send';
   simulateOnly?: boolean;
   signedTx?: string; // For send mode
+  preflight?: boolean; // Default true, set false to skip preflight checks
 }
 
 interface TradeRecord {
@@ -69,6 +71,107 @@ async function updateTradeStatus(tradeId: string, status: string, updates: Parti
   if (error) {
     console.error('Failed to update trade status:', error);
   }
+}
+
+/**
+ * Run preflight checks: WETH balance and Permit2 allowance
+ * Returns a structured response if prerequisites are missing, null if all checks pass
+ */
+async function runPreflight(
+  quoteData: any,
+  params: { chainId: number; side: string; base: string; quote: string; taker: string }
+): Promise<any | null> {
+  const { chainId, side, base, quote, taker } = params;
+
+  // Only run on Base for now
+  if (chainId !== BASE_CHAIN_ID) {
+    return null;
+  }
+
+  // Determine sell token based on side
+  const sellToken = side === 'SELL' ? base : quote;
+  
+  // Get sellAmountAtomic from quote
+  const sellAmountAtomic = quoteData.raw?.sellAmount;
+  if (!sellAmountAtomic || typeof sellAmountAtomic !== 'string') {
+    console.warn('Missing sellAmount in quote, skipping preflight');
+    return null;
+  }
+
+  console.log(`Preflight: checking ${sellToken} for ${sellAmountAtomic} wei`);
+
+  // If selling ETH on Base, check WETH balance
+  let tokenToCheck = sellToken;
+  if (sellToken === 'ETH' && chainId === BASE_CHAIN_ID) {
+    tokenToCheck = 'WETH';
+    
+    console.log('Checking WETH balance...');
+    const wethResponse = await fetch(`${PROJECT_URL}/functions/v1/wallet-ensure-weth`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SERVICE_ROLE}`,
+        'apikey': SERVICE_ROLE,
+      },
+      body: JSON.stringify({
+        address: taker,
+        minWethNeeded: sellAmountAtomic,
+      }),
+    });
+
+    if (!wethResponse.ok) {
+      console.error('WETH check failed:', await wethResponse.text());
+      return null;
+    }
+
+    const wethData = await wethResponse.json();
+    if (wethData.action === 'wrap') {
+      console.log('WETH wrap required');
+      return {
+        status: 'preflight_required',
+        reason: 'insufficient_weth',
+        wrapPlan: wethData.wrapPlan,
+        note: 'Wrap WETH, then re-run.',
+      };
+    }
+  }
+
+  // Check Permit2 allowance for the sell token
+  console.log(`Checking Permit2 allowance for ${tokenToCheck}...`);
+  const permit2Response = await fetch(`${PROJECT_URL}/functions/v1/wallet-permit2-status`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SERVICE_ROLE}`,
+      'apikey': SERVICE_ROLE,
+    },
+    body: JSON.stringify({
+      address: taker,
+      token: tokenToCheck,
+      minAllowance: sellAmountAtomic,
+    }),
+  });
+
+  if (!permit2Response.ok) {
+    console.error('Permit2 check failed:', await permit2Response.text());
+    return null;
+  }
+
+  const permit2Data = await permit2Response.json();
+  if (permit2Data.action === 'permit2-sign') {
+    console.log('Permit2 approval required');
+    return {
+      status: 'preflight_required',
+      reason: 'permit2_required',
+      typedData: permit2Data.typedData,
+      spender: permit2Data.spender,
+      permit2Contract: permit2Data.permit2Contract,
+      note: 'Sign Permit2 then call Permit2.permit()',
+    };
+  }
+
+  console.log('Preflight checks passed');
+  return null;
 }
 
 /**
@@ -254,7 +357,8 @@ Deno.serve(async (req) => {
     
     // Otherwise, proceed with full build/execute flow
     const isDebug = debugMode || debugFromBody;
-    const { chainId, base, quote, side, amount, slippageBps = 50, provider = '0x', taker, mode = 'build', simulateOnly = false, signedTx } = body;
+    const { chainId, base, quote, side, amount, slippageBps = 50, provider = '0x', taker, mode = 'build', simulateOnly = false, signedTx, preflight = true } = body;
+    const preflightEnabled = preflight !== false && url.searchParams.get('preflight') !== '0';
 
     if (!chainId || !base || !quote || !side || !amount) {
       return new Response(
@@ -432,6 +536,27 @@ Deno.serve(async (req) => {
 
     // Add quote event
     await addTradeEvent(tradeId, 'quote', 'info', { quote: quoteData });
+
+    // Run preflight checks if enabled and taker is present
+    if (preflightEnabled && taker) {
+      console.log('Running preflight checks...');
+      const preflightResult = await runPreflight(quoteData, { chainId, side, base, quote, taker });
+      if (preflightResult) {
+        console.log('Preflight failed:', preflightResult.reason);
+        await addTradeEvent(tradeId, 'preflight', 'warn', preflightResult);
+        return new Response(
+          JSON.stringify({
+            tradeId,
+            ...preflightResult,
+            price: quoteData.price,
+            minOut: quoteData.minOut,
+            gasCostQuote: quoteData.gasCostQuote,
+            unit: quoteData.unit,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
 
     // ❗ For 0x provider with taker in build mode, validate transaction object exists
     if (provider === '0x' && taker && mode === 'build') {
