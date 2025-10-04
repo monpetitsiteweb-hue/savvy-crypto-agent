@@ -106,6 +106,54 @@ $signResponse
 # Expected: ok: true, tx_hash: "0x..."
 ```
 
+## Deployment & Secrets Setup
+
+This project's Edge Functions read credentials from the function environment. If these aren't set, `/onchain-execute` will 502 at startup and `/onchain-sign-and-send` can't reach the database.
+
+### 1) Link your project
+```bash
+supabase link --project-ref fuieplftlcxdfkxyqzlt
+```
+
+### 2) Set required secrets
+```bash
+# Required by /onchain-execute and /onchain-sign-and-send
+supabase secrets set \
+  SB_URL="https://fuieplftlcxdfkxyqzlt.supabase.co" \
+  SB_SERVICE_ROLE="<YOUR_SERVICE_ROLE_KEY>"
+
+# RPC (required for Base broadcasting/signing)
+supabase secrets set RPC_URL_8453="https://base.llamarpc.com"
+
+# Optional (0x API key reduces rate limits):
+supabase secrets set ZEROEX_API_KEY="<optional_0x_key>"
+
+# (Optional) Other networks supported by the codebase:
+supabase secrets set RPC_URL_1="https://eth.llamarpc.com"
+supabase secrets set RPC_URL_42161="https://arbitrum.llamarpc.com"
+```
+
+### 3) Redeploy to apply secrets
+```bash
+supabase functions deploy onchain-execute onchain-sign-and-send
+```
+
+### 4) Verify
+
+Use the Quick Test snippets above (curl or PowerShell):
+
+- `/onchain-execute` is public in DEV → should return `{ status: "built", tradeId }`
+- `/onchain-sign-and-send` is protected → requires `Authorization: Bearer <anon>` (and `apikey` when using the `/functions/v1` REST base)
+
+### Troubleshooting
+
+- **502 on `/onchain-execute`** → missing `SB_URL` and/or `SB_SERVICE_ROLE` in function secrets. Set them, then redeploy.
+- **401 on `/onchain-sign-and-send`** → missing/invalid JWT headers, or empty `tradeId` (build step failed). Re-run the build, copy the returned `tradeId`, and include auth headers.
+- **Domain note**: Using `https://<project>.supabase.co/functions/v1/...` typically requires both `Authorization` and `apikey` headers. The `https://<project>.functions.supabase.co/...` domain usually needs only `Authorization` for protected endpoints.
+
+### ⚠️ PROD Security
+In production, set `[functions.onchain-execute].verify_jwt = true` in `supabase/config.toml` and redeploy.
+
 ## API Endpoints
 
 ### POST /onchain-execute
