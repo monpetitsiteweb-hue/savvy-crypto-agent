@@ -1,0 +1,160 @@
+<!-- save as sign-permit2.html and open in a desktop browser with MetaMask installed -->
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Permit2 EIP-712 Sign</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
+    textarea, input, button { width: 100%; box-sizing: border-box; font-family: monospace; }
+    textarea { min-height: 180px; }
+    .row { margin-bottom: 16px; }
+    .sig { min-height: 64px; }
+    .ok { color: #0a0; }
+    .err { color: #c00; white-space: pre-wrap; }
+    .muted { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Sign Permit2 Typed Data</h1>
+
+  <div class="row">
+    <label>Owner (must match your selected MetaMask account)</label>
+    <input id="owner" value="0xD41AF2019Bd5F1b1Ec6dCF8FE5d2368bCE10fCeF" />
+  </div>
+
+  <div class="row">
+    <label>Typed Data (EIP-712)</label>
+    <textarea id="typedData" readonly>
+{
+  "domain": {
+    "name": "Permit2",
+    "chainId": 8453,
+    "verifyingContract": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+  },
+  "types": {
+    "PermitSingle": [
+      { "name": "details", "type": "PermitDetails" },
+      { "name": "spender", "type": "address" },
+      { "name": "sigDeadline", "type": "uint256" }
+    ],
+    "PermitDetails": [
+      { "name": "token", "type": "address" },
+      { "name": "amount", "type": "uint160" },
+      { "name": "expiration", "type": "uint48" },
+      { "name": "nonce", "type": "uint48" }
+    ]
+  },
+  "primaryType": "PermitSingle",
+  "message": {
+    "details": {
+      "token": "0x4200000000000000000000000000000000000006",
+      "amount": "1461501637330902918203684832716283019655932542975",
+      "expiration": "1791113839",
+      "nonce": "0"
+    },
+    "spender": "0xDef1C0ded9bec7F1a1670819833240f027b25EfF",
+    "sigDeadline": "1759581439"
+  }
+}
+    </textarea>
+    <div class="muted">Network: Base (8453)</div>
+  </div>
+
+  <div class="row">
+    <button id="btn">Connect & Sign (eth_signTypedData_v4)</button>
+  </div>
+
+  <div class="row">
+    <label>Signature (0x + 130 hex chars)</label>
+    <textarea id="sig" class="sig" readonly></textarea>
+  </div>
+
+  <div id="msg" class="muted"></div>
+
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  const btn = $('btn'), sigOut = $('sig'), msg = $('msg');
+
+  function setMsg(text, cls='muted') { msg.className = cls; msg.textContent = text; }
+  function copy(text) {
+    try { navigator.clipboard.writeText(text); } catch {}
+  }
+
+  async function ensureBaseNetwork() {
+    const baseHex = '0x2105'; // 8453
+    try {
+      const chainId = await ethereum.request({ method: 'eth_chainId' });
+      if (chainId !== baseHex) {
+        try {
+          await ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: baseHex }],
+          });
+        } catch (switchErr) {
+          // attempt to add Base then switch
+          if (switchErr && switchErr.code === 4902) {
+            await ethereum.request({
+              method: 'wallet_addEthereumChain',
+              params: [{
+                chainId: baseHex,
+                chainName: 'Base',
+                nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+                rpcUrls: ['https://mainnet.base.org'],
+                blockExplorerUrls: ['https://basescan.org']
+              }]
+            });
+          } else {
+            throw switchErr;
+          }
+        }
+      }
+    } catch (e) {
+      // Non-fatal; user can still sign if wallet allows
+    }
+  }
+
+  btn.onclick = async () => {
+    sigOut.value = '';
+    setMsg('', 'muted');
+
+    try {
+      if (!window.ethereum) {
+        setMsg('MetaMask (window.ethereum) not found. Open this file in a desktop browser with MetaMask installed and enabled.', 'err');
+        return;
+      }
+
+      await ethereum.request({ method: 'eth_requestAccounts' });
+      await ensureBaseNetwork();
+
+      const owner = $('owner').value.trim();
+      const typedData = JSON.parse($('typedData').value);
+
+      // Optional: verify the selected account matches owner
+      const accounts = await ethereum.request({ method: 'eth_accounts' });
+      if (!accounts || !accounts.length) {
+        setMsg('No MetaMask account connected.', 'err');
+        return;
+      }
+      if (accounts[0].toLowerCase() !== owner.toLowerCase()) {
+        setMsg(`Warning: selected account ${accounts[0]} ≠ owner ${owner}. Proceeding will sign as ${accounts[0]}.`, 'err');
+      }
+
+      const sig = await ethereum.request({
+        method: 'eth_signTypedData_v4',
+        params: [owner, JSON.stringify(typedData)]
+      });
+
+      sigOut.value = sig;
+      copy(sig);
+      setMsg('Signature copied to clipboard.', 'ok');
+    } catch (e) {
+      setMsg((e && e.message) ? e.message : String(e), 'err');
+    }
+  };
+})();
+</script>
+</body>
+</html>
