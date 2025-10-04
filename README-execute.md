@@ -27,6 +27,8 @@ The `/onchain-execute` Edge Function enables on-chain swap execution via 0x on B
 
 > **⚠️ PROD Security:** In production, set `[functions.onchain-execute].verify_jwt = true` in `supabase/config.toml` to protect the build endpoint.
 
+**Note:** When using the `https://<project-ref>.supabase.co/functions/v1` base, include the `apikey: <anon>` header on all calls (public and protected). If you switch to the `https://<project-ref>.functions.supabase.co` base, `apikey` isn't required; protected endpoints still need `Authorization: Bearer <anon>`.
+
 ### Quick Test: curl (Linux/macOS/WSL)
 
 ```bash
@@ -37,6 +39,7 @@ export ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZi
 curl -s "$BASE/onchain-execute" \
   -X POST \
   -H "Content-Type: application/json" \
+  -H "apikey: $ANON" \
   -d '{
     "chainId": 8453,
     "base": "ETH",
@@ -86,6 +89,7 @@ $buildBody = @{
 
 $buildResponse = Invoke-RestMethod "$BASE/onchain-execute" -Method POST -Headers @{
   "Content-Type" = "application/json"
+  "apikey"       = "$ANON"
 } -Body $buildBody
 
 $buildResponse
