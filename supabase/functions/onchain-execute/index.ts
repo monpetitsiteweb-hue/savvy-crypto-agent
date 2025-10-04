@@ -159,10 +159,45 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // GET handler - retrieve trade by ID
+  // GET handler - health checks and trade retrieval
   if (req.method === 'GET') {
+    const url = new URL(req.url);
+    
+    // Health check: ?ping=1
+    if (url.searchParams.get('ping') === '1') {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          name: 'onchain-execute',
+          env: {
+            has_SB_URL: !!Deno.env.get('SB_URL'),
+            has_SB_SERVICE_ROLE: !!Deno.env.get('SB_SERVICE_ROLE'),
+            has_RPC_URL_8453: !!Deno.env.get('RPC_URL_8453'),
+            has_ZEROEX_API_KEY: !!Deno.env.get('ZEROEX_API_KEY'),
+          }
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Diagnostics: ?diag=1
+    if (url.searchParams.get('diag') === '1') {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          name: 'onchain-execute',
+          projectRef: 'fuieplftlcxdfkxyqzlt',
+          signerMode: Deno.env.get('SERVER_SIGNER_MODE') || 'unset',
+          runtime: {
+            region: Deno.env.get('DENO_REGION') || 'unknown',
+            node: typeof process !== 'undefined' ? process.version : 'N/A',
+          }
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
     try {
-      const url = new URL(req.url);
       const tradeId = url.searchParams.get('tradeId');
       
       if (!tradeId) {

@@ -7,70 +7,31 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const mode = Deno.env.get('SERVER_SIGNER_MODE') || 'local';
+    const mode = Deno.env.get('SERVER_SIGNER_MODE') || 'unset';
     
-    // DEV signer config
+    // Check webhook config
     const devUrl = Deno.env.get('DEV_SIGNER_WEBHOOK_URL');
     const devAuth = Deno.env.get('DEV_SIGNER_WEBHOOK_AUTH');
-    
-    // PROD signer config
     const prodUrl = Deno.env.get('SIGNER_WEBHOOK_URL');
     const prodAuth = Deno.env.get('SIGNER_WEBHOOK_AUTH');
     
-    // Determine active URL/auth based on mode
     const activeUrl = devUrl || prodUrl;
     const activeAuth = devAuth || prodAuth;
     
-    // Value cap
-    const maxValueWei = Deno.env.get('MAX_TX_VALUE_WEI');
+    // Check local key (not actually used yet, but kept for future)
+    const localKey = Deno.env.get('BOT_PRIVATE_KEY');
     
-    // RPC URLs
-    const rpc8453 = Deno.env.get('RPC_URL_8453');
-    
-    // Mask URLs to show only origin
-    const maskUrl = (url: string | undefined): string | undefined => {
-      if (!url) return undefined;
-      try {
-        const parsed = new URL(url);
-        return `${parsed.origin}/...`;
-      } catch {
-        return 'invalid URL';
-      }
-    };
+    // Bot address (if we can derive it - for now just null)
+    const botAddress = null; // Would need to derive from key or webhook
     
     const response = {
+      ok: true,
       mode,
-      config: {
-        hasWebhookUrl: !!activeUrl,
-        hasWebhookAuth: !!activeAuth,
-        urlSource: devUrl ? 'DEV_SIGNER_WEBHOOK_URL' : prodUrl ? 'SIGNER_WEBHOOK_URL' : 'none',
-        authSource: devAuth ? 'DEV_SIGNER_WEBHOOK_AUTH' : prodAuth ? 'SIGNER_WEBHOOK_AUTH' : 'none',
-        maskedUrl: maskUrl(activeUrl),
-      },
-      chains: {
-        allowedChainIds: [8453],
-        hasRpc8453: !!rpc8453,
-      },
-      limits: {
-        valueCapConfigured: !!maxValueWei,
-        valueCapWei: maxValueWei || 'not set',
-      },
-      warnings: [] as string[],
+      hasWebhookUrl: !!activeUrl,
+      hasWebhookAuth: !!activeAuth,
+      hasLocalKey: !!localKey,
+      botAddress,
     };
-
-    // Warnings
-    if (mode === 'webhook' && !activeUrl) {
-      response.warnings.push('SERVER_SIGNER_MODE=webhook but no webhook URL configured');
-    }
-    if (mode === 'webhook' && !activeAuth) {
-      response.warnings.push('SERVER_SIGNER_MODE=webhook but no webhook auth configured');
-    }
-    if (!maxValueWei) {
-      response.warnings.push('MAX_TX_VALUE_WEI not set - no value cap enforced');
-    }
-    if (!rpc8453) {
-      response.warnings.push('RPC_URL_8453 not set - may use public RPC with rate limits');
-    }
 
     return new Response(JSON.stringify(response, null, 2), {
       status: 200,
