@@ -64,7 +64,7 @@ curl -s "$BASE/onchain-quote" \
   }' | jq
 ```
 
-**Common 401/403 from 0x:** Missing or invalid `ZEROEX_API_KEY`. Fix:
+**Common 401/403 from 0x:** Missing or invalid `ZEROEX_API_KEY`. If you see the error message `"Invalid authentication credentials"` from 0x, fix by setting the API key:
 ```bash
 supabase secrets set ZEROEX_API_KEY="<your-0x-key>"
 supabase functions deploy onchain-quote onchain-execute
@@ -139,6 +139,7 @@ Once you have the EIP-712 signature from preflight, submit it server-side to exe
 curl -s "$BASE/wallet-permit2-submit" \
   -X POST \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ANON" \
   -H "apikey: $ANON" \
   -d '{
     "chainId": 8453,
@@ -220,6 +221,7 @@ $permitJson = $permitPayload | ConvertTo-Json -Depth 10
 
 $response = Invoke-RestMethod -Uri "$BASE/wallet-permit2-submit" -Method POST -Headers @{
   "Content-Type" = "application/json"
+  "Authorization" = "Bearer $ANON"
   "apikey" = $ANON
 } -Body $permitJson
 
@@ -227,6 +229,8 @@ $response
 ```
 
 **Note:** Copy the `typedData` object from the preflight response, sign it using MetaMask's `eth_signTypedData_v4`, then paste the resulting signature into the `signature` field above.
+
+**Signature sanity check:** The `signature` must match `^0x[0-9a-fA-F]{130}$` (65-byte hex). Double-check you're pasting the signature, not an address or contract address (e.g., the Permit2 contract `0x000000000022D473...`).
 
 **Success Response:**
 ```json
@@ -446,7 +450,7 @@ curl -s "$BASE/onchain-signer-debug" | jq
 ```
 
 **Common Issues:**
-- **401/403 from 0x API**: Missing or invalid `ZEROEX_API_KEY`. Set it with:
+- **401/403 from 0x API**: Missing or invalid `ZEROEX_API_KEY`. If you see `"Invalid authentication credentials"` from 0x, set it with:
   ```bash
   supabase secrets set ZEROEX_API_KEY="<your-0x-key>"
   supabase functions deploy onchain-quote onchain-execute
