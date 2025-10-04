@@ -1,5 +1,5 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { BASE_CHAIN_ID, BASE_TOKENS, BASE_0X, BASE_DECIMALS, PERMIT2_DOMAIN, PERMIT2_TYPES, formatTokenAmount } from '../_shared/addresses.ts';
+import { BASE_CHAIN_ID, BASE_TOKENS, BASE_0X, BASE_DECIMALS, formatTokenAmount } from '../_shared/addresses.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,6 +9,44 @@ const corsHeaders = {
 
 const RPC_URL = Deno.env.get('RPC_URL_8453') || 'https://base.llamarpc.com';
 
+const PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
+const PERMIT2_TYPES = {
+  PermitSingle: [
+    { name: 'details', type: 'PermitDetails' },
+    { name: 'spender', type: 'address' },
+    { name: 'sigDeadline', type: 'uint256' },
+  ],
+  PermitDetails: [
+    { name: 'token', type: 'address' },
+    { name: 'amount', type: 'uint160' },
+    { name: 'expiration', type: 'uint48' },
+    { name: 'nonce', type: 'uint48' },
+  ],
+};
+
+function buildTypedData(chainId: number, tokenAddress: string, spender: string) {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    domain: {
+      name: 'Permit2',
+      chainId,
+      verifyingContract: PERMIT2,
+    },
+    types: PERMIT2_TYPES,
+    primaryType: 'PermitSingle' as const,
+    message: {
+      details: {
+        token: tokenAddress,
+        amount: '1461501637330902918203684832716283019655932542975', // uint160 max
+        expiration: String(now + 365 * 24 * 60 * 60),
+        nonce: '0',
+      },
+      spender,
+      sigDeadline: String(now + 60 * 60),
+    },
+  };
+}
+
 /**
  * Check Permit2 allowance and return EIP-712 typed data if approval needed
  * Does NOT execute any transactions - returns typed data for client to sign
@@ -17,6 +55,24 @@ const RPC_URL = Deno.env.get('RPC_URL_8453') || 'https://base.llamarpc.com';
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  const url = new URL(req.url);
+  if (url.searchParams.has('ping')) {
+    return new Response(JSON.stringify({ ok: true, service: 'wallet-permit2-status' }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+  if (url.searchParams.has('diag')) {
+    return new Response(JSON.stringify({
+      ok: true,
+      service: 'wallet-permit2-status',
+      rpc: RPC_URL,
+      permit2: PERMIT2,
+      spender: BASE_0X.SPENDER,
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 
   try {
@@ -29,9 +85,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    if (!token || !['WETH', 'USDC'].includes(token)) {
+    if (!token || typeof token !== 'string') {
       return new Response(
-        JSON.stringify({ error: 'token must be WETH or USDC' }),
+        JSON.stringify({ error: 'token (symbol or address) is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -43,8 +99,24 @@ Deno.serve(async (req) => {
       );
     }
 
-    const tokenAddress = BASE_TOKENS[token as keyof typeof BASE_TOKENS];
-    const decimals = BASE_DECIMALS[token as keyof typeof BASE_DECIMALS];
+    // Determine token address: prefer symbol mapping, else treat as address
+    let tokenAddress: string;
+    let decimals: number;
+    if (token.startsWith('0x')) {
+      tokenAddress = token;
+      decimals = 18; // default
+    } else {
+      const upperToken = token.toUpperCase();
+      if (BASE_TOKENS[upperToken as keyof typeof BASE_TOKENS]) {
+        tokenAddress = BASE_TOKENS[upperToken as keyof typeof BASE_TOKENS];
+        decimals = BASE_DECIMALS[upperToken as keyof typeof BASE_DECIMALS];
+      } else {
+        return new Response(
+          JSON.stringify({ error: `Unknown token symbol: ${token}. Provide address instead.` }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
 
     // Call Permit2.allowance(owner, token, spender)
     // function allowance(address owner, address token, address spender) returns ((uint160 amount, uint48 expiration, uint48 nonce))
@@ -96,27 +168,7 @@ Deno.serve(async (req) => {
     }
 
     // Need to sign Permit2 approval
-    // Use 2^160-1 for unlimited approval, or needed amount
-    const approvalAmount = '1461501637330902918203684832716283019655932542975'; // 2^160-1
-    const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
-    const expiration = Math.floor(Date.now() / 1000) + 31536000; // 1 year
-
-    // EIP-712 typed data for Permit2
-    const typedData = {
-      domain: PERMIT2_DOMAIN,
-      types: PERMIT2_TYPES,
-      primaryType: 'PermitSingle' as const,
-      message: {
-        details: {
-          token: tokenAddress,
-          amount: approvalAmount,
-          expiration: expiration.toString(),
-          nonce: '0', // First permit - client should read actual nonce if needed
-        },
-        spender: BASE_0X.SPENDER,
-        sigDeadline: deadline.toString(),
-      }
-    };
+    const typedData = buildTypedData(BASE_CHAIN_ID, tokenAddress, BASE_0X.SPENDER);
 
     return new Response(
       JSON.stringify({
@@ -125,7 +177,7 @@ Deno.serve(async (req) => {
         allowance: currentAmount.toString(),
         allowanceHuman: formatTokenAmount(currentAmount, decimals),
         typedData,
-        permit2Contract: BASE_0X.PERMIT2,
+        permit2Contract: PERMIT2,
         spender: BASE_0X.SPENDER,
         note: 'Sign this EIP-712 data with your wallet, then call Permit2.permit() with signature',
       }),

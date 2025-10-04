@@ -166,38 +166,67 @@ curl -s "$BASE/wallet-permit2-submit" \
   }' | jq
 ```
 
-**PowerShell (Windows):**
+**PowerShell (Windows) – Full Workflow:**
+
 ```powershell
-$permitBody = @{
+# Step 1: Get preflight typedData from /onchain-execute
+# (Assume you already have a preflight_required response with typedData)
+
+# Step 2: Sign the typedData in MetaMask using eth_signTypedData_v4
+# Copy the typedData JSON, sign in MetaMask, get signature
+
+# Step 3: Submit to Permit2 via /wallet-permit2-submit
+$BASE = "https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1"
+$ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+$permitPayload = @{
   chainId = 8453
-  owner = "0x..."
+  owner = "0xYourTakerAddress"
   typedData = @{
     domain = @{
       name = "Permit2"
       chainId = 8453
       verifyingContract = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
     }
-    types = @{ ... }
+    types = @{
+      PermitSingle = @(
+        @{ name = "details"; type = "PermitDetails" }
+        @{ name = "spender"; type = "address" }
+        @{ name = "sigDeadline"; type = "uint256" }
+      )
+      PermitDetails = @(
+        @{ name = "token"; type = "address" }
+        @{ name = "amount"; type = "uint160" }
+        @{ name = "expiration"; type = "uint48" }
+        @{ name = "nonce"; type = "uint48" }
+      )
+    }
     primaryType = "PermitSingle"
     message = @{
       details = @{
         token = "0x4200000000000000000000000000000000000006"
         amount = "1461501637330902918203684832716283019655932542975"
-        expiration = "1704067200"
+        expiration = "1735689600"
         nonce = "0"
       }
       spender = "0xDef1C0ded9bec7F1a1670819833240f027b25EfF"
       sigDeadline = "1703894400"
     }
   }
-  signature = "0x..."
-} | ConvertTo-Json -Depth 10
+  signature = "0xYourSignatureFromMetaMask"
+}
 
-Invoke-RestMethod "$BASE/wallet-permit2-submit" -Method POST -Headers @{
+$permitJson = $permitPayload | ConvertTo-Json -Depth 10
+
+$response = Invoke-RestMethod -Uri "$BASE/wallet-permit2-submit" -Method POST -Headers @{
   "Content-Type" = "application/json"
-  "apikey" = "$ANON"
-} -Body $permitBody
+  "apikey" = $ANON
+} -Body $permitJson
+
+$response
 ```
+
+**Note:** Copy the `typedData` object from the preflight response, sign it using MetaMask's `eth_signTypedData_v4`, then paste the resulting signature into the `signature` field above.
 
 **Success Response:**
 ```json

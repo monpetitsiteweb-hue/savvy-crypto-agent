@@ -12,6 +12,7 @@ import { BASE_CHAIN_ID, BASE_0X } from '../_shared/addresses.ts';
 import { getSigner } from '../_shared/signer.ts';
 import { sendRawTransaction } from '../_shared/eth.ts';
 import { corsHeaders } from '../_shared/cors.ts';
+import { encodeFunctionData, parseAbi } from 'https://esm.sh/viem@1.21.4';
 
 const RPC_URL = Deno.env.get('RPC_URL_8453') || 'https://base.llamarpc.com';
 const BOT_ADDRESS = Deno.env.get('BOT_ADDRESS') || '';
@@ -45,60 +46,33 @@ function validateTypedData(typedData: any, chainId: number): string | null {
   return null;
 }
 
+const permit2Abi = parseAbi([
+  'function permit(address owner, ((address token, uint160 amount, uint48 expiration, uint48 nonce) details, address spender, uint256 sigDeadline) permitSingle, bytes signature)'
+]);
+
 /**
- * Encode Permit2.permit() calldata
- * Function: permit(address owner, PermitSingle permitSingle, bytes signature)
+ * Encode Permit2.permit() calldata using viem
  */
-function encodePermitCalldata(owner: string, typedData: any, signature: string): string {
-  const msg = typedData.message;
-  const details = msg.details;
-
-  // Permit2.permit() selector: 0x30f28b7a
-  const selector = '30f28b7a';
-
-  // ABI encode parameters
-  // owner (address)
-  const ownerPadded = owner.slice(2).padStart(64, '0');
-
-  // Offset to permitSingle struct (3 * 32 bytes from start)
-  const permitSingleOffset = (3 * 32).toString(16).padStart(64, '0');
-
-  // Offset to signature bytes (calculated after permitSingle struct)
-  const signatureOffset = (3 * 32 + 6 * 32).toString(16).padStart(64, '0');
-
-  // PermitSingle struct (6 words):
-  // details.token (address)
-  const tokenPadded = details.token.slice(2).padStart(64, '0');
-  // details.amount (uint160)
-  const amountPadded = BigInt(details.amount).toString(16).padStart(64, '0');
-  // details.expiration (uint48)
-  const expirationPadded = BigInt(details.expiration).toString(16).padStart(64, '0');
-  // details.nonce (uint48)
-  const noncePadded = BigInt(details.nonce).toString(16).padStart(64, '0');
-  // spender (address)
-  const spenderPadded = msg.spender.slice(2).padStart(64, '0');
-  // sigDeadline (uint256)
-  const deadlinePadded = BigInt(msg.sigDeadline).toString(16).padStart(64, '0');
-
-  // Signature bytes (dynamic)
-  const sigBytes = signature.slice(2); // Remove 0x
-  const sigLength = (sigBytes.length / 2).toString(16).padStart(64, '0');
-  const sigPadded = sigBytes.padEnd(Math.ceil(sigBytes.length / 64) * 64, '0');
-
-  const calldata = '0x' + selector + 
-    ownerPadded + 
-    permitSingleOffset + 
-    signatureOffset +
-    tokenPadded +
-    amountPadded +
-    expirationPadded +
-    noncePadded +
-    spenderPadded +
-    deadlinePadded +
-    sigLength +
-    sigPadded;
-
-  return calldata;
+function encodePermitCalldata(owner: string, typedData: any, signature: string): `0x${string}` {
+  const m = typedData.message;
+  return encodeFunctionData({
+    abi: permit2Abi,
+    functionName: 'permit',
+    args: [
+      owner as `0x${string}`,
+      {
+        details: {
+          token: m.details.token as `0x${string}`,
+          amount: BigInt(m.details.amount),
+          expiration: Number(m.details.expiration),
+          nonce: Number(m.details.nonce),
+        },
+        spender: m.spender as `0x${string}`,
+        sigDeadline: BigInt(m.sigDeadline),
+      },
+      signature as `0x${string}`,
+    ],
+  });
 }
 
 Deno.serve(async (req) => {
