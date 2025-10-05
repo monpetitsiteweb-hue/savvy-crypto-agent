@@ -517,22 +517,29 @@ Deno.serve(async (req) => {
       notes: null,
     };
 
-    const { data: insertedTrade, error: insertError } = await supabase
-      .from('trades')
-      .insert(tradeRecord)
-      .select()
-      .single();
+    // Guard: only persist if persist !== false
+    let tradeId: string;
+    if (body.persist !== false) {
+      const { data: insertedTrade, error: insertError } = await supabase
+        .from('trades')
+        .insert(tradeRecord)
+        .select()
+        .single();
 
-    if (insertError || !insertedTrade) {
-      console.error('Failed to insert trade:', insertError);
-      return new Response(
-        JSON.stringify({ error: 'Failed to create trade record' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      if (insertError || !insertedTrade) {
+        console.error('Failed to insert trade:', insertError);
+        return new Response(
+          JSON.stringify({ error: 'Failed to create trade record' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      tradeId = insertedTrade.id;
+      console.log(`Trade record created: ${tradeId}`);
+    } else {
+      tradeId = 'no-persist-' + crypto.randomUUID();
+      console.log(`Skipping trade persistence (persist=false), mock tradeId: ${tradeId}`);
     }
-
-    const tradeId = insertedTrade.id;
-    console.log(`Trade record created: ${tradeId}`);
 
     // Add quote event
     await addTradeEvent(tradeId, 'quote', 'info', { quote: quoteData });
