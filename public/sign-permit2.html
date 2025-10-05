@@ -28,35 +28,56 @@
     <label>Typed Data (EIP-712)</label>
     <textarea id="typedData" readonly>
 {
-  "domain": {
-    "name": "Permit2",
-    "chainId": 8453,
-    "verifyingContract": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
-  },
-  "types": {
-    "PermitSingle": [
-      { "name": "details", "type": "PermitDetails" },
-      { "name": "spender", "type": "address" },
-      { "name": "sigDeadline", "type": "uint256" }
-    ],
-    "PermitDetails": [
-      { "name": "token", "type": "address" },
-      { "name": "amount", "type": "uint160" },
-      { "name": "expiration", "type": "uint48" },
-      { "name": "nonce", "type": "uint48" }
-    ]
-  },
-  "primaryType": "PermitSingle",
-  "message": {
-    "details": {
-      "token": "0x4200000000000000000000000000000000000006",
-      "amount": "1461501637330902918203684832716283019655932542975",
-      "expiration": "1791113839",
-      "nonce": "0"
-    },
-    "spender": "0xDef1C0ded9bec7F1a1670819833240f027b25EfF",
-    "sigDeadline": "1759581439"
-  }
+    "domain":  {
+                   "name":  "Permit2",
+                   "chainId":  8453,
+                   "verifyingContract":  "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+               },
+    "types":  {
+                  "PermitSingle":  [
+                                       {
+                                           "name":  "details",
+                                           "type":  "PermitDetails"
+                                       },
+                                       {
+                                           "name":  "spender",
+                                           "type":  "address"
+                                       },
+                                       {
+                                           "name":  "sigDeadline",
+                                           "type":  "uint256"
+                                       }
+                                   ],
+                  "PermitDetails":  [
+                                        {
+                                            "name":  "token",
+                                            "type":  "address"
+                                        },
+                                        {
+                                            "name":  "amount",
+                                            "type":  "uint160"
+                                        },
+                                        {
+                                            "name":  "expiration",
+                                            "type":  "uint48"
+                                        },
+                                        {
+                                            "name":  "nonce",
+                                            "type":  "uint48"
+                                        }
+                                    ]
+              },
+    "primaryType":  "PermitSingle",
+    "message":  {
+                    "details":  {
+                                    "token":  "0x4200000000000000000000000000000000000006",
+                                    "amount":  "1461501637330902918203684832716283019655932542975",
+                                    "expiration":  "1791224097",
+                                    "nonce":  "0"
+                                },
+                    "spender":  "0xDef1C0ded9bec7F1a1670819833240f027b25EfF",
+                    "sigDeadline":  "1759691697"
+                }
 }
     </textarea>
     <div class="muted">Network: Base (8453)</div>
