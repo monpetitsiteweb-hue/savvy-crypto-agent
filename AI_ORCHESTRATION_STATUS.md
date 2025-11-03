@@ -84,13 +84,6 @@ MAX_TX_VALUE_WEI
 
 ## 2. Current Run/Test Pipeline
 
-### **NO ORCHESTRATOR PIPELINE FOUND**
-The codebase does **not** contain:
-- `orchestrator-run` function
-- `/start-build` or `/complete-build` endpoints
-- GitHub Issue-driven workflow automation
-- Lovable brief generation integration
-
 ### Actual Trade Flow (Live System)
 ```
 1. Intent Generation
