@@ -95,3 +95,6 @@ verify_jwt = false
 
 [functions.onchain-sign-and-send]
 verify_jwt = true
+
+[functions.wallet-ensure-weth]
+verify_jwt = false
