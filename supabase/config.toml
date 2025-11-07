@@ -98,3 +98,15 @@ verify_jwt = true
 
 [functions.wallet-ensure-weth]
 verify_jwt = false
+
+[functions.simulate-wrap]
+verify_jwt = false
+
+[functions.simulate-permit2]
+verify_jwt = false
+
+[functions.simulate-swap]
+verify_jwt = false
+
+[functions.test-simulations]
+verify_jwt = false
