@@ -110,3 +110,6 @@ verify_jwt = false
 
 [functions.test-simulations]
 verify_jwt = false
+
+[functions.test-preflight-weth]
+verify_jwt = false

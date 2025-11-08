@@ -76,6 +76,9 @@ async function updateTradeStatus(tradeId: string, status: string, updates: Parti
 /**
  * Run preflight checks: WETH balance and Permit2 allowance
  * Returns a structured response if prerequisites are missing, null if all checks pass
+ * 
+ * Environment variables:
+ * - ENABLE_AUTO_WRAP: Set to 'true' to allow automatic WETH wrapping when policy permits
  */
 async function runPreflight(
   quoteData: any,
@@ -100,6 +103,10 @@ async function runPreflight(
 
   console.log(`Preflight: checking ${sellToken} for ${sellAmountAtomic} wei`);
 
+  // Check if auto-wrap is enabled via policy/config
+  const autoWrapEnabled = Deno.env.get('ENABLE_AUTO_WRAP') === 'true';
+  console.log(`preflight.config: autoWrapEnabled=${autoWrapEnabled}`);
+
   // If selling ETH on Base, check WETH balance
   let tokenToCheck = sellToken;
   if (sellToken === 'ETH' && chainId === BASE_CHAIN_ID) {
@@ -116,23 +123,51 @@ async function runPreflight(
       body: JSON.stringify({
         address: taker,
         minWethNeeded: sellAmountAtomic,
+        autoWrap: autoWrapEnabled, // Use config-driven auto-wrap policy
       }),
     });
 
     if (!wethResponse.ok) {
-      console.error('WETH check failed:', await wethResponse.text());
+      const errorText = await wethResponse.text();
+      console.error('WETH check failed:', errorText);
+      
+      // If auto-wrap is blocked by policy (e.g., address mismatch), return a structured error
+      if (wethResponse.status === 409) {
+        console.log('preflight.wrap.blocked: Auto-wrap policy not satisfied');
+        return {
+          status: 'preflight_required',
+          reason: 'insufficient_weth',
+          wrapPlan: { error: 'Auto-wrap blocked by policy', detail: errorText },
+          note: 'Manual WETH wrap required or adjust policy.',
+        };
+      }
+      
       return null;
     }
 
     const wethData = await wethResponse.json();
     if (wethData.action === 'wrap') {
-      console.log('WETH wrap required');
+      console.log('preflight.wrap.needed: WETH wrap required');
       return {
         status: 'preflight_required',
         reason: 'insufficient_weth',
         wrapPlan: wethData.wrapPlan,
-        note: 'Wrap WETH, then re-run.',
+        note: autoWrapEnabled 
+          ? 'Auto-wrap enabled but not executed (read-only check).'
+          : 'Wrap WETH manually, then re-run.',
       };
+    }
+    
+    if (wethData.action === 'wrapped') {
+      console.log('preflight.wrap.executed: Auto-wrap completed', {
+        txHash: wethData.txHash,
+        newBalance: wethData.newWethBalance,
+      });
+      // Continue to Permit2 checks after successful wrap
+    }
+    
+    if (wethData.action === 'none') {
+      console.log('preflight.wrap.sufficient: WETH balance already sufficient');
     }
   }
 
