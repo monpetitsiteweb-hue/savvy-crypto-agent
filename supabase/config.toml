@@ -113,3 +113,6 @@ verify_jwt = false
 
 [functions.test-preflight-weth]
 verify_jwt = false
+
+[functions.test-live-sell]
+verify_jwt = false
