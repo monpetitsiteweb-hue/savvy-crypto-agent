@@ -51,49 +51,109 @@ Deno.serve(async (req) => {
     } catch (error) {
       console.error('ensure_weth.error.bad_json:', error);
       return new Response(
-        JSON.stringify({ ok: false, code: 'bad_json', error: 'Invalid JSON body' }),
+        JSON.stringify({ ok: false, code: 'bad_json', message: 'Invalid JSON body' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const { address, minWethNeeded, minWethNeededWei, autoWrap, maxWaitMs = 8000 } = body;
-    const minWeth = minWethNeededWei || minWethNeeded;
+    // Parse and normalize input schema
+    let { action, owner, address, minWethNeededWei, amountWei, minWethNeeded, maxWaitMs = 8000 } = body;
+    
+    // Backward compatibility: support 'address' as alias for 'owner'
+    if (!owner && address) {
+      owner = address;
+    }
+    
+    // Backward compatibility: support legacy field names
+    if (!minWethNeededWei) {
+      if (amountWei) {
+        console.log('input.alias_used', { field: 'amountWei', normalizedTo: 'minWethNeededWei' });
+        minWethNeededWei = amountWei;
+      } else if (minWethNeeded) {
+        console.log('input.alias_used', { field: 'minWethNeeded', normalizedTo: 'minWethNeededWei' });
+        minWethNeededWei = minWethNeeded;
+      }
+    }
+    
+    // Backward compatibility: infer action from autoWrap if not specified
+    if (!action) {
+      const { autoWrap } = body;
+      action = autoWrap === true ? 'submit' : 'plan';
+    }
 
-    // Validate required fields
-    if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
-      console.error('ensure_weth.error.bad_request: Invalid address format');
+    // Validate owner address
+    if (!owner || typeof owner !== 'string') {
+      console.error('exec.error', { code: 'bad_request', message: 'owner is required', field: 'owner' });
       return new Response(
-        JSON.stringify({ ok: false, code: 'bad_request', error: 'Invalid address format' }),
+        JSON.stringify({ ok: false, code: 'bad_request', message: 'owner is required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-
-    if (!minWeth || typeof minWeth !== 'string') {
-      console.error('ensure_weth.error.bad_request: minWethNeeded must be a wei string');
+    
+    if (!/^0x[0-9a-fA-F]{40}$/.test(owner)) {
+      console.error('exec.error', { code: 'bad_request', message: 'owner must be a valid 0x-prefixed address', field: 'owner' });
       return new Response(
-        JSON.stringify({ ok: false, code: 'bad_request', error: 'minWethNeeded must be a wei string' }),
+        JSON.stringify({ ok: false, code: 'bad_request', message: 'owner must be a valid 0x-prefixed address' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Validate BOT_ADDRESS if autoWrap=true
-    if (autoWrap === true) {
+    // Validate minWethNeededWei
+    if (!minWethNeededWei || typeof minWethNeededWei !== 'string') {
+      console.error('exec.error', { code: 'bad_request', message: 'minWethNeededWei must be a string', field: 'minWethNeededWei' });
+      return new Response(
+        JSON.stringify({ ok: false, code: 'bad_request', message: 'minWethNeededWei must be a decimal string' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    if (!/^[0-9]+$/.test(minWethNeededWei)) {
+      console.error('exec.error', { code: 'bad_request', message: 'minWethNeededWei must match ^[0-9]+$', field: 'minWethNeededWei', value: minWethNeededWei });
+      return new Response(
+        JSON.stringify({ ok: false, code: 'bad_request', message: 'minWethNeededWei must be a decimal string' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Validate BigInt conversion
+    let needed: bigint;
+    try {
+      needed = BigInt(minWethNeededWei);
+    } catch (error) {
+      console.error('exec.error', { code: 'bad_request', message: 'minWethNeededWei not parseable as BigInt', field: 'minWethNeededWei', value: minWethNeededWei, error: String(error) });
+      return new Response(
+        JSON.stringify({ ok: false, code: 'bad_request', message: 'minWethNeededWei must be a valid decimal string' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Validate action
+    if (!['plan', 'submit'].includes(action)) {
+      console.error('exec.error', { code: 'bad_request', message: 'action must be "plan" or "submit"', field: 'action', value: action });
+      return new Response(
+        JSON.stringify({ ok: false, code: 'bad_request', message: 'action must be "plan" or "submit"' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Validate BOT_ADDRESS if action=submit
+    if (action === 'submit') {
       if (!BOT_ADDRESS) {
         console.error('ensure_weth.error.missing_env: BOT_ADDRESS not configured');
         return new Response(
-          JSON.stringify({ ok: false, code: 'missing_env', error: 'BOT_ADDRESS not configured' }),
+          JSON.stringify({ ok: false, code: 'missing_env', message: 'BOT_ADDRESS not configured' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      if (address.toLowerCase() !== BOT_ADDRESS.toLowerCase()) {
-        console.error('ensure_weth.error.address_mismatch:', { address, BOT_ADDRESS });
+      if (owner.toLowerCase() !== BOT_ADDRESS.toLowerCase()) {
+        console.error('ensure_weth.error.address_mismatch:', { owner, BOT_ADDRESS });
         return new Response(
           JSON.stringify({ 
             ok: false, 
             code: 'address_mismatch', 
-            error: 'Only BOT_ADDRESS can use autoWrap=true',
-            details: { address, expected: BOT_ADDRESS }
+            message: 'Only BOT_ADDRESS can use action=submit',
+            details: { owner, expected: BOT_ADDRESS }
           }),
           { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
@@ -103,7 +163,7 @@ Deno.serve(async (req) => {
       if (SERVER_SIGNER_MODE === 'local' && !BOT_PRIVATE_KEY) {
         console.error('ensure_weth.error.missing_env: BOT_PRIVATE_KEY not configured for local signer');
         return new Response(
-          JSON.stringify({ ok: false, code: 'missing_env', error: 'BOT_PRIVATE_KEY not configured' }),
+          JSON.stringify({ ok: false, code: 'missing_env', message: 'BOT_PRIVATE_KEY not configured' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -111,16 +171,16 @@ Deno.serve(async (req) => {
       if (SERVER_SIGNER_MODE === 'webhook' && (!SIGNER_WEBHOOK_URL || !SIGNER_WEBHOOK_AUTH)) {
         console.error('ensure_weth.error.missing_env: Webhook signer not configured');
         return new Response(
-          JSON.stringify({ ok: false, code: 'missing_env', error: 'SIGNER_WEBHOOK_URL or SIGNER_WEBHOOK_AUTH not configured' }),
+          JSON.stringify({ ok: false, code: 'missing_env', message: 'SIGNER_WEBHOOK_URL or SIGNER_WEBHOOK_AUTH not configured' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
     }
 
-    console.log('ensure_weth.check.start', { address, minWeth, autoWrap });
+    console.log('ensure_weth.check.start', { owner, minWethNeededWei, action });
 
     // Get WETH balance
-    const balanceOfData = `0x70a08231${address.slice(2).padStart(64, '0')}`;
+    const balanceOfData = `0x70a08231${owner.slice(2).padStart(64, '0')}`;
     const wethBalanceResponse = await fetch(RPC_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -139,13 +199,12 @@ Deno.serve(async (req) => {
     if (wethBalanceResult.error) {
       console.error('ensure_weth.error.rpc_error:', wethBalanceResult.error);
       return new Response(
-        JSON.stringify({ ok: false, code: 'unexpected', error: 'Failed to read WETH balance', detail: wethBalanceResult.error }),
+        JSON.stringify({ ok: false, code: 'unexpected', message: 'Failed to read WETH balance', detail: wethBalanceResult.error }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const currentWethBalance = BigInt(wethBalanceResult.result || '0x0');
-    const needed = BigInt(minWeth);
 
     console.log('ensure_weth.check.done', { 
       currentWethBalance: currentWethBalance.toString(), 
@@ -158,6 +217,8 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({
           ok: true,
+          mode: action,
+          minWethNeededWei,
           action: 'none',
           wethBalanceWei: currentWethBalance.toString(),
           balanceHuman: formatTokenAmount(currentWethBalance, 18),
@@ -170,15 +231,17 @@ Deno.serve(async (req) => {
     const deficitWei = needed - currentWethBalance;
     const valueHuman = formatTokenAmount(deficitWei, 18);
 
-    // If autoWrap is false, return plan only (backwards compatible)
-    if (autoWrap !== true) {
+    // If action is plan, return plan only
+    if (action === 'plan') {
       return new Response(
         JSON.stringify({
           ok: true,
+          mode: 'plan',
+          minWethNeededWei,
           action: 'wrap',
           wethBalanceWei: currentWethBalance.toString(),
           balanceHuman: formatTokenAmount(currentWethBalance, 18),
-          wrapPlan: {
+          plan: {
             chainId: BASE_CHAIN_ID,
             wethAddress: BASE_TOKENS.WETH,
             method: 'deposit()',
@@ -192,8 +255,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // autoWrap=true: Check idempotency
-    const idempotencyKey = `${address.toLowerCase()}|${deficitWei.toString()}`;
+    // action=submit: Check idempotency
+    const idempotencyKey = `${owner.toLowerCase()}|${deficitWei.toString()}`;
     const pending = pendingWraps.get(idempotencyKey);
     if (pending) {
       console.log('ensure_weth.wrap.pending: Idempotent request detected', { txHash: pending.txHash });
@@ -227,7 +290,7 @@ Deno.serve(async (req) => {
     if (ethBalanceResult.error) {
       console.error('ensure_weth.wrap.error: Failed to read ETH balance', ethBalanceResult.error);
       return new Response(
-        JSON.stringify({ ok: false, code: 'unexpected', error: 'Failed to read ETH balance', detail: ethBalanceResult.error }),
+        JSON.stringify({ ok: false, code: 'unexpected', message: 'Failed to read ETH balance', detail: ethBalanceResult.error }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -243,7 +306,7 @@ Deno.serve(async (req) => {
         JSON.stringify({ 
           ok: false, 
           code: 'insufficient_eth',
-          error: 'Insufficient ETH balance for wrap',
+          message: 'Insufficient ETH balance for wrap',
           details: {
             ethNeeded,
             ethAvailable,
@@ -273,7 +336,7 @@ Deno.serve(async (req) => {
     if (!sendResult.success || !sendResult.txHash) {
       console.error('ensure_weth.wrap.error: Failed to broadcast transaction', sendResult.error);
       return new Response(
-        JSON.stringify({ ok: false, code: 'tx_failed', error: 'Failed to broadcast transaction', detail: sendResult.error }),
+        JSON.stringify({ ok: false, code: 'tx_failed', message: 'Failed to broadcast transaction', detail: sendResult.error }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -295,7 +358,7 @@ Deno.serve(async (req) => {
         JSON.stringify({ 
           ok: false, 
           code: 'timeout', 
-          error: 'Transaction timeout or failed', 
+          message: 'Transaction timeout or failed', 
           detail: receiptResult.error, 
           txHash 
         }),
@@ -350,7 +413,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('ensure_weth.wrap.error: unexpected', error);
     return new Response(
-      JSON.stringify({ ok: false, code: 'unexpected', error: String(error) }),
+      JSON.stringify({ ok: false, code: 'unexpected', message: String(error) }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

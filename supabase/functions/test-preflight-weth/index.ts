@@ -146,9 +146,9 @@ Deno.serve(async (req) => {
         'Authorization': `Bearer ${ANON_KEY}`,
       },
       body: JSON.stringify({
-        address: '0x2C779B78175d4069CcF2C8d79268957F5a06CF68',
-        minWethNeeded: '10000000000000000', // 0.01 WETH
-        autoWrap: false,
+        action: 'plan',
+        owner: '0x2C779B78175d4069CcF2C8d79268957F5a06CF68',
+        minWethNeededWei: '10000000000000000', // 0.01 WETH
       }),
     });
 
@@ -194,9 +194,9 @@ Deno.serve(async (req) => {
         'Authorization': `Bearer ${ANON_KEY}`,
       },
       body: JSON.stringify({
-        address: '0x2C779B78175d4069CcF2C8d79268957F5a06CF68', // Not BOT_ADDRESS
-        minWethNeeded: '10000000000000000',
-        autoWrap: true, // Request auto-wrap
+        action: 'submit',
+        owner: '0x2C779B78175d4069CcF2C8d79268957F5a06CF68', // Not BOT_ADDRESS
+        minWethNeededWei: '10000000000000000',
       }),
     });
 
