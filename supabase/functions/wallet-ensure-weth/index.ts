@@ -44,10 +44,11 @@ Deno.serve(async (req) => {
   cleanupStaleEntries();
   
   try {
-    // Validate JSON parsing
-    let body;
+    // Read body exactly once with robust error handling
+    let body: any;
     try {
-      body = await req.json();
+      const rawBody = await req.text();
+      body = JSON.parse(rawBody);
     } catch (error) {
       console.error('ensure_weth.error.bad_json:', error);
       return new Response(
@@ -56,61 +57,99 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Parse and normalize input schema
-    let { action, owner, address, minWethNeededWei, amountWei, minWethNeeded, maxWaitMs = 8000 } = body;
+    // Flexible input source merging with aliases
+    let owner = body.owner || body.address;
+    let minWethNeededWei = body.minWethNeededWei || body.amountWei || body.minWethNeeded;
+    let action = body.action;
+    const maxWaitMs = body.maxWaitMs || 8000;
     
-    // Backward compatibility: support 'address' as alias for 'owner'
-    if (!owner && address) {
-      owner = address;
+    // Log alias usage for observability
+    if (!body.owner && body.address) {
+      console.log('input.alias_used', { field: 'address', normalizedTo: 'owner' });
     }
-    
-    // Backward compatibility: support legacy field names
-    if (!minWethNeededWei) {
-      if (amountWei) {
-        console.log('input.alias_used', { field: 'amountWei', normalizedTo: 'minWethNeededWei' });
-        minWethNeededWei = amountWei;
-      } else if (minWethNeeded) {
-        console.log('input.alias_used', { field: 'minWethNeeded', normalizedTo: 'minWethNeededWei' });
-        minWethNeededWei = minWethNeeded;
-      }
+    if (!body.minWethNeededWei && body.amountWei) {
+      console.log('input.alias_used', { field: 'amountWei', normalizedTo: 'minWethNeededWei' });
+    } else if (!body.minWethNeededWei && body.minWethNeeded) {
+      console.log('input.alias_used', { field: 'minWethNeeded', normalizedTo: 'minWethNeededWei' });
     }
     
     // Backward compatibility: infer action from autoWrap if not specified
-    if (!action) {
-      const { autoWrap } = body;
-      action = autoWrap === true ? 'submit' : 'plan';
+    if (!action && body.autoWrap !== undefined) {
+      action = body.autoWrap === true ? 'submit' : 'plan';
+      console.log('input.alias_used', { field: 'autoWrap', normalizedTo: 'action', value: action });
     }
 
-    // Validate owner address
+    // Validate and normalize owner address
     if (!owner || typeof owner !== 'string') {
       console.error('exec.error', { code: 'bad_request', message: 'owner is required', field: 'owner' });
       return new Response(
-        JSON.stringify({ ok: false, code: 'bad_request', message: 'owner is required' }),
+        JSON.stringify({ 
+          ok: false, 
+          code: 'bad_request', 
+          field: 'owner',
+          message: 'owner is required' 
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     
+    // Strict hex address validation with normalization
     if (!/^0x[0-9a-fA-F]{40}$/.test(owner)) {
-      console.error('exec.error', { code: 'bad_request', message: 'owner must be a valid 0x-prefixed address', field: 'owner' });
+      console.error('exec.error', { 
+        code: 'bad_request', 
+        message: 'owner must be 0x-prefixed 20-byte hex', 
+        field: 'owner',
+        value: owner 
+      });
       return new Response(
-        JSON.stringify({ ok: false, code: 'bad_request', message: 'owner must be a valid 0x-prefixed address' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Validate minWethNeededWei
-    if (!minWethNeededWei || typeof minWethNeededWei !== 'string') {
-      console.error('exec.error', { code: 'bad_request', message: 'minWethNeededWei must be a string', field: 'minWethNeededWei' });
-      return new Response(
-        JSON.stringify({ ok: false, code: 'bad_request', message: 'minWethNeededWei must be a decimal string' }),
+        JSON.stringify({ 
+          ok: false, 
+          code: 'bad_request', 
+          field: 'owner',
+          message: 'owner must be 0x-prefixed 20-byte hex' 
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     
-    if (!/^[0-9]+$/.test(minWethNeededWei)) {
-      console.error('exec.error', { code: 'bad_request', message: 'minWethNeededWei must match ^[0-9]+$', field: 'minWethNeededWei', value: minWethNeededWei });
+    // Normalize to lowercase for consistency
+    owner = owner.toLowerCase();
+
+    // Validate minWethNeededWei presence and type
+    if (!minWethNeededWei || typeof minWethNeededWei !== 'string') {
+      console.error('exec.error', { 
+        code: 'bad_request', 
+        message: 'minWethNeededWei must be a decimal string', 
+        field: 'minWethNeededWei',
+        value: minWethNeededWei,
+        type: typeof minWethNeededWei
+      });
       return new Response(
-        JSON.stringify({ ok: false, code: 'bad_request', message: 'minWethNeededWei must be a decimal string' }),
+        JSON.stringify({ 
+          ok: false, 
+          code: 'bad_request', 
+          field: 'minWethNeededWei',
+          message: 'minWethNeededWei must be a decimal string' 
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    // Strict decimal string validation
+    if (!/^[0-9]+$/.test(minWethNeededWei)) {
+      console.error('exec.error', { 
+        code: 'bad_request', 
+        message: 'minWethNeededWei must match ^[0-9]+$', 
+        field: 'minWethNeededWei', 
+        value: minWethNeededWei 
+      });
+      return new Response(
+        JSON.stringify({ 
+          ok: false, 
+          code: 'bad_request', 
+          field: 'minWethNeededWei',
+          message: 'minWethNeededWei must be a decimal string matching ^[0-9]+$' 
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -120,18 +159,39 @@ Deno.serve(async (req) => {
     try {
       needed = BigInt(minWethNeededWei);
     } catch (error) {
-      console.error('exec.error', { code: 'bad_request', message: 'minWethNeededWei not parseable as BigInt', field: 'minWethNeededWei', value: minWethNeededWei, error: String(error) });
+      console.error('exec.error', { 
+        code: 'bad_request', 
+        message: 'minWethNeededWei not parseable as BigInt', 
+        field: 'minWethNeededWei', 
+        value: minWethNeededWei, 
+        error: String(error) 
+      });
       return new Response(
-        JSON.stringify({ ok: false, code: 'bad_request', message: 'minWethNeededWei must be a valid decimal string' }),
+        JSON.stringify({ 
+          ok: false, 
+          code: 'bad_request', 
+          field: 'minWethNeededWei',
+          message: 'minWethNeededWei must be a valid decimal string parseable as BigInt' 
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     
     // Validate action
-    if (!['plan', 'submit'].includes(action)) {
-      console.error('exec.error', { code: 'bad_request', message: 'action must be "plan" or "submit"', field: 'action', value: action });
+    if (!action || !['plan', 'submit'].includes(action)) {
+      console.error('exec.error', { 
+        code: 'bad_request', 
+        message: 'action must be "plan" or "submit"', 
+        field: 'action', 
+        value: action 
+      });
       return new Response(
-        JSON.stringify({ ok: false, code: 'bad_request', message: 'action must be "plan" or "submit"' }),
+        JSON.stringify({ 
+          ok: false, 
+          code: 'bad_request', 
+          field: 'action',
+          message: 'action must be "plan" or "submit"' 
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
