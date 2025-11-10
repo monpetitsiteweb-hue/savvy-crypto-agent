@@ -82,7 +82,9 @@ When legacy fields are used, the function logs:
 ```json
 {
   "ok": true,
+  "mode": "submit",
   "action": "wrap",
+  "dryRun": false,
   "txHash": "0xabc123...",
   "gasUsed": 27000,
   "wethBalanceWei": "1000000000000000",
@@ -95,11 +97,27 @@ When legacy fields are used, the function logs:
 }
 ```
 
+### Success Response (Dry-Run Mode)
+```json
+{
+  "ok": true,
+  "mode": "submit",
+  "action": "wrap",
+  "dryRun": true,
+  "txHash": "0xDRY_RUN_NO_TX_SENT",
+  "wethBalanceWei": "0",
+  "balanceHuman": "0.0",
+  "note": "Dry-run mode enabled - no transaction sent"
+}
+```
+
 ### Success Response (Pending Transaction)
 ```json
 {
   "ok": true,
+  "mode": "submit",
   "action": "pending",
+  "dryRun": false,
   "txHash": "0xabc123...",
   "note": "Transaction already in progress"
 }
@@ -151,12 +169,12 @@ When legacy fields are used, the function logs:
 }
 ```
 
-### 409 Conflict
-**Address mismatch (submit mode):**
+### 403 Forbidden
+**Owner mismatch (submit mode):**
 ```json
 {
   "ok": false,
-  "code": "address_mismatch",
+  "code": "owner_mismatch",
   "message": "Only BOT_ADDRESS can use action=submit",
   "details": {
     "owner": "0x123...",
@@ -166,6 +184,19 @@ When legacy fields are used, the function logs:
 ```
 
 ### 422 Unprocessable Entity
+**Amount exceeds limit:**
+```json
+{
+  "ok": false,
+  "code": "amount_exceeds_limit",
+  "message": "Wrap amount 0.1 WETH exceeds limit 0.01 WETH",
+  "details": {
+    "requested": "100000000000000000",
+    "limit": "10000000000000000"
+  }
+}
+```
+
 **Insufficient ETH for wrap:**
 ```json
 {
@@ -187,6 +218,23 @@ When legacy fields are used, the function logs:
   "ok": false,
   "code": "missing_env",
   "message": "BOT_ADDRESS not configured"
+}
+```
+
+**Signer unavailable:**
+```json
+{
+  "ok": false,
+  "code": "signer_unavailable",
+  "message": "SERVER_SIGNER_MODE must be \"local\" or \"webhook\""
+}
+```
+```json
+{
+  "ok": false,
+  "code": "signer_unavailable",
+  "message": "Failed to sign transaction",
+  "detail": "BOT_PRIVATE_KEY not configured"
 }
 ```
 
@@ -229,26 +277,33 @@ When legacy fields are used, the function logs:
 - `input.alias_used`: Legacy field normalization
 
 ### Execution Flow
-- `ensure_weth.check.start`: Check initiated
-- `ensure_weth.check.done`: Balance check complete
-- `ensure_weth.wrap.start`: Wrap execution started
-- `ensure_weth.wrap.sign`: Transaction signing
-- `ensure_weth.wrap.sent`: Transaction broadcast
-- `ensure_weth.wrap.confirmed`: Transaction confirmed
-- `ensure_weth.wrap.pending`: Idempotent request detected
-- `ensure_weth.wrap.error`: Execution errors
+- `ensure_weth.check.start`: Check initiated with `{ owner, minWethNeededWei, action }`
+- `ensure_weth.check.done`: Balance check complete with `{ currentWethBalance, needed, sufficient }`
+- `wrap.submit.start`: Wrap execution started with `{ deficitWei, valueHuman, signerMode }`
+- `wrap.submit.sign`: Transaction signing with `{ signerType: "local"|"webhook" }`
+- `tx.broadcast`: Transaction broadcast with `{ hash }`
+- `wrap.submit.done`: Transaction confirmed with `{ txHash, gasUsed, dryRun }`
+- `wrap.submit.pending`: Idempotent request detected with `{ txHash }`
+
+### Error Logs
+- `signer.error`: Signer failures with `{ code, message }`
+- `error`: General errors with `{ code, message, txHash? }`
 
 ## Safety Controls
 
 ### Submit Mode Guards
-1. **BOT_ADDRESS enforcement**: Only the configured bot address can execute wraps
-2. **Signer validation**: Requires proper `SERVER_SIGNER_MODE` configuration
-3. **ETH balance check**: Ensures sufficient ETH for wrap + gas (0.0003 ETH buffer)
-4. **Idempotency**: Prevents duplicate transactions within 30-second window
+1. **Dry-run protection**: Defaults to `EXECUTION_DRY_RUN=true`, preventing live transactions
+2. **BOT_ADDRESS enforcement**: Only the configured bot address can execute wraps
+3. **Amount limits**: Wrap amount must not exceed `MAX_WRAP_WEI` (default: 0.01 ETH)
+4. **Signer validation**: Requires proper `SERVER_SIGNER_MODE` configuration
+5. **ETH balance check**: Ensures sufficient ETH for wrap + gas (0.0003 ETH buffer)
+6. **Idempotency**: Prevents duplicate transactions within 30-second window
 
 ### Environment Variables (Submit Mode)
+- `EXECUTION_DRY_RUN`: `"true"` (default) or `"false"` - Controls live execution
+- `MAX_WRAP_WEI`: Maximum wrap amount in wei (default: `"10000000000000000"` = 0.01 ETH)
 - `BOT_ADDRESS`: Required - Address authorized to execute wraps
-- `SERVER_SIGNER_MODE`: `"local"` or `"webhook"`
+- `SERVER_SIGNER_MODE`: Required - `"local"` or `"webhook"`
 - `BOT_PRIVATE_KEY`: Required if `SERVER_SIGNER_MODE=local`
 - `SIGNER_WEBHOOK_URL`: Required if `SERVER_SIGNER_MODE=webhook`
 - `SIGNER_WEBHOOK_AUTH`: Required if `SERVER_SIGNER_MODE=webhook`

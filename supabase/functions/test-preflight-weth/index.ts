@@ -203,8 +203,8 @@ Deno.serve(async (req) => {
     const data = await response.json();
     const duration = Date.now() - test4Start;
 
-    // Expect 409 Conflict for policy violation
-    if (response.status === 409) {
+    // Expect 403 Forbidden for owner mismatch
+    if (response.status === 403 && data.code === 'owner_mismatch') {
       results.push({
         name: 'Test 4: Auto-wrap policy enforcement',
         status: 'PASS',
@@ -218,7 +218,7 @@ Deno.serve(async (req) => {
         name: 'Test 4: Auto-wrap policy enforcement',
         status: 'FAIL',
         duration,
-        message: `Expected 409, got ${response.status}`,
+        message: `Expected 403 with owner_mismatch, got ${response.status}/${data.code}`,
         response: data,
       });
       console.log('❌ Test 4: FAIL - Policy not enforced');
@@ -233,16 +233,16 @@ Deno.serve(async (req) => {
     console.log('❌ Test 4: ERROR -', error);
   }
 
-  // Test 5: Config check - verify ENABLE_AUTO_WRAP setting
+  // Test 5: Config check - verify EXECUTION_DRY_RUN setting
   try {
-    const autoWrapEnabled = Deno.env.get('ENABLE_AUTO_WRAP') === 'true';
+    const dryRunEnabled = Deno.env.get('EXECUTION_DRY_RUN') !== 'false';
     results.push({
       name: 'Test 5: Config verification',
       status: 'PASS',
       duration: 0,
-      message: `ENABLE_AUTO_WRAP=${autoWrapEnabled}`,
+      message: `EXECUTION_DRY_RUN=${dryRunEnabled}`,
     });
-    console.log(`✅ Test 5: PASS - ENABLE_AUTO_WRAP=${autoWrapEnabled}`);
+    console.log(`✅ Test 5: PASS - EXECUTION_DRY_RUN=${dryRunEnabled}`);
   } catch (error) {
     results.push({
       name: 'Test 5: Config verification',
@@ -253,12 +253,82 @@ Deno.serve(async (req) => {
     console.log('❌ Test 5: FAIL');
   }
 
+  // Test 6: Dry-run mode check
+  const BOT_ADDRESS = Deno.env.get('BOT_ADDRESS');
+  if (BOT_ADDRESS) {
+    try {
+      const test6Start = Date.now();
+      const response = await fetch(`${PROJECT_URL}/functions/v1/wallet-ensure-weth`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          action: 'submit',
+          owner: BOT_ADDRESS,
+          minWethNeededWei: '5000000000000000', // 0.005 ETH - under MAX_WRAP_WEI
+        }),
+      });
+
+      const data = await response.json();
+      const duration = Date.now() - test6Start;
+
+      // Expect dry-run response if EXECUTION_DRY_RUN=true
+      if (response.ok && data.dryRun === true) {
+        results.push({
+          name: 'Test 6: Dry-run mode',
+          status: 'PASS',
+          duration,
+          message: 'Correctly returned dry-run response',
+          response: data,
+        });
+        console.log('✅ Test 6: PASS - Dry-run mode active');
+      } else if (response.ok && data.dryRun === false) {
+        results.push({
+          name: 'Test 6: Dry-run mode',
+          status: 'PASS',
+          duration,
+          message: 'Live execution enabled (EXECUTION_DRY_RUN=false)',
+          response: data,
+        });
+        console.log('✅ Test 6: PASS - Live mode active');
+      } else {
+        results.push({
+          name: 'Test 6: Dry-run mode',
+          status: 'FAIL',
+          duration,
+          message: `Unexpected response: ${response.status}`,
+          response: data,
+        });
+        console.log('❌ Test 6: FAIL');
+      }
+    } catch (error) {
+      results.push({
+        name: 'Test 6: Dry-run mode',
+        status: 'FAIL',
+        duration: 0,
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+      console.log('❌ Test 6: ERROR -', error);
+    }
+  } else {
+    results.push({
+      name: 'Test 6: Dry-run mode',
+      status: 'SKIP',
+      duration: 0,
+      message: 'BOT_ADDRESS not configured',
+    });
+    console.log('⏭️  Test 6: SKIP - BOT_ADDRESS not configured');
+  }
+
   const totalDuration = Date.now() - startTime;
   const passCount = results.filter((r) => r.status === 'PASS').length;
   const failCount = results.filter((r) => r.status === 'FAIL').length;
+  const skipCount = results.filter((r) => r.status === 'SKIP').length;
 
   console.log('=== Test Summary ===');
-  console.log(`Total: ${results.length}, Pass: ${passCount}, Fail: ${failCount}, Duration: ${totalDuration}ms`);
+  console.log(`Total: ${results.length}, Pass: ${passCount}, Fail: ${failCount}, Skip: ${skipCount}, Duration: ${totalDuration}ms`);
 
   return new Response(
     JSON.stringify(
@@ -267,10 +337,11 @@ Deno.serve(async (req) => {
           total: results.length,
           pass: passCount,
           fail: failCount,
+          skip: skipCount,
           duration: totalDuration,
         },
         results,
-        autoWrapEnabled: Deno.env.get('ENABLE_AUTO_WRAP') === 'true',
+        dryRunEnabled: Deno.env.get('EXECUTION_DRY_RUN') !== 'false',
         timestamp: new Date().toISOString(),
       },
       null,

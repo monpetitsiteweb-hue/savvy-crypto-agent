@@ -16,6 +16,10 @@ const BOT_PRIVATE_KEY = Deno.env.get('BOT_PRIVATE_KEY');
 const SIGNER_WEBHOOK_URL = Deno.env.get('SIGNER_WEBHOOK_URL');
 const SIGNER_WEBHOOK_AUTH = Deno.env.get('SIGNER_WEBHOOK_AUTH');
 
+// Safety controls
+const EXECUTION_DRY_RUN = Deno.env.get('EXECUTION_DRY_RUN') !== 'false'; // default: true
+const MAX_WRAP_WEI = BigInt(Deno.env.get('MAX_WRAP_WEI') || '10000000000000000'); // 0.01 ETH default
+
 // In-memory idempotency tracking for pending transactions
 const pendingWraps = new Map<string, { txHash: string; timestamp: number }>();
 const IDEMPOTENCY_WINDOW_MS = 30000; // 30 seconds
@@ -207,31 +211,39 @@ Deno.serve(async (req) => {
       }
 
       if (owner.toLowerCase() !== BOT_ADDRESS.toLowerCase()) {
-        console.error('ensure_weth.error.address_mismatch:', { owner, BOT_ADDRESS });
+        console.error('ensure_weth.error.owner_mismatch:', { owner, BOT_ADDRESS });
         return new Response(
           JSON.stringify({ 
             ok: false, 
-            code: 'address_mismatch', 
+            code: 'owner_mismatch', 
             message: 'Only BOT_ADDRESS can use action=submit',
             details: { owner, expected: BOT_ADDRESS }
           }),
-          { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
       // Validate signer environment
-      if (SERVER_SIGNER_MODE === 'local' && !BOT_PRIVATE_KEY) {
-        console.error('ensure_weth.error.missing_env: BOT_PRIVATE_KEY not configured for local signer');
+      if (!SERVER_SIGNER_MODE || !['local', 'webhook'].includes(SERVER_SIGNER_MODE)) {
+        console.error('ensure_weth.error.signer_unavailable: Invalid or missing SERVER_SIGNER_MODE');
         return new Response(
-          JSON.stringify({ ok: false, code: 'missing_env', message: 'BOT_PRIVATE_KEY not configured' }),
+          JSON.stringify({ ok: false, code: 'signer_unavailable', message: 'SERVER_SIGNER_MODE must be "local" or "webhook"' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (SERVER_SIGNER_MODE === 'local' && !BOT_PRIVATE_KEY) {
+        console.error('ensure_weth.error.signer_unavailable: BOT_PRIVATE_KEY not configured for local signer');
+        return new Response(
+          JSON.stringify({ ok: false, code: 'signer_unavailable', message: 'BOT_PRIVATE_KEY not configured' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
       if (SERVER_SIGNER_MODE === 'webhook' && (!SIGNER_WEBHOOK_URL || !SIGNER_WEBHOOK_AUTH)) {
-        console.error('ensure_weth.error.missing_env: Webhook signer not configured');
+        console.error('ensure_weth.error.signer_unavailable: Webhook signer not configured');
         return new Response(
-          JSON.stringify({ ok: false, code: 'missing_env', message: 'SIGNER_WEBHOOK_URL or SIGNER_WEBHOOK_AUTH not configured' }),
+          JSON.stringify({ ok: false, code: 'signer_unavailable', message: 'SIGNER_WEBHOOK_URL or SIGNER_WEBHOOK_AUTH not configured' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -315,7 +327,47 @@ Deno.serve(async (req) => {
       );
     }
 
-    // action=submit: Check idempotency
+    // === action=submit: Execute the wrap ===
+
+    // Validate wrap amount against MAX_WRAP_WEI
+    if (deficitWei > MAX_WRAP_WEI) {
+      console.error('ensure_weth.wrap.error: Amount exceeds MAX_WRAP_WEI', { 
+        deficitWei: deficitWei.toString(), 
+        MAX_WRAP_WEI: MAX_WRAP_WEI.toString() 
+      });
+      return new Response(
+        JSON.stringify({ 
+          ok: false, 
+          code: 'amount_exceeds_limit',
+          message: `Wrap amount ${valueHuman} exceeds limit ${formatTokenAmount(MAX_WRAP_WEI, 18)}`,
+          details: {
+            requested: deficitWei.toString(),
+            limit: MAX_WRAP_WEI.toString(),
+          }
+        }),
+        { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Check dry-run mode
+    if (EXECUTION_DRY_RUN) {
+      console.log('ensure_weth.wrap.dry_run: Would wrap', { deficitWei: deficitWei.toString(), valueHuman });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          mode: 'submit',
+          action: 'wrap',
+          dryRun: true,
+          txHash: '0xDRY_RUN_NO_TX_SENT',
+          wethBalanceWei: currentWethBalance.toString(),
+          balanceHuman: formatTokenAmount(currentWethBalance, 18),
+          note: 'Dry-run mode enabled - no transaction sent',
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Check idempotency
     const idempotencyKey = `${owner.toLowerCase()}|${deficitWei.toString()}`;
     const pending = pendingWraps.get(idempotencyKey);
     if (pending) {
@@ -323,7 +375,9 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({
           ok: true,
+          mode: 'submit',
           action: 'pending',
+          dryRun: false,
           txHash: pending.txHash,
           note: 'Transaction already in progress',
         }),
@@ -332,7 +386,11 @@ Deno.serve(async (req) => {
     }
 
     // Execute the wrap transaction
-    console.log('ensure_weth.wrap.start', { deficitWei: deficitWei.toString(), valueHuman });
+    console.log('wrap.submit.start', { 
+      deficitWei: deficitWei.toString(), 
+      valueHuman, 
+      signerMode: SERVER_SIGNER_MODE 
+    });
 
     // Check ETH balance (using the server signer address)
     const ethBalanceResponse = await fetch(RPC_URL, {
@@ -387,22 +445,42 @@ Deno.serve(async (req) => {
     };
 
     // Sign transaction
-    const signer = getSigner();
-    console.log(`ensure_weth.wrap.sign: Signing with ${signer.type} signer`);
-    const signedTx = await signer.sign(txPayload, BASE_CHAIN_ID);
+    let signedTx: string;
+    try {
+      const signer = getSigner();
+      console.log(`wrap.submit.sign: Signing with ${signer.type} signer`);
+      signedTx = await signer.sign(txPayload, BASE_CHAIN_ID);
+    } catch (signError: any) {
+      console.error('signer.error', { code: 'signing_failed', message: signError.message });
+      return new Response(
+        JSON.stringify({ 
+          ok: false, 
+          code: 'signer_unavailable', 
+          message: 'Failed to sign transaction',
+          detail: signError.message 
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Broadcast transaction
+    console.log('tx.broadcast: Sending to Base RPC');
     const sendResult = await sendRawTransaction(BASE_CHAIN_ID, signedTx);
     if (!sendResult.success || !sendResult.txHash) {
-      console.error('ensure_weth.wrap.error: Failed to broadcast transaction', sendResult.error);
+      console.error('error', { code: 'tx_failed', message: sendResult.error });
       return new Response(
-        JSON.stringify({ ok: false, code: 'tx_failed', message: 'Failed to broadcast transaction', detail: sendResult.error }),
+        JSON.stringify({ 
+          ok: false, 
+          code: 'tx_failed', 
+          message: 'Failed to broadcast transaction', 
+          detail: sendResult.error 
+        }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const txHash = sendResult.txHash;
-    console.log('ensure_weth.wrap.sent', { txHash });
+    console.log('tx.broadcast', { hash: txHash });
 
     // Track pending transaction for idempotency
     pendingWraps.set(idempotencyKey, { txHash, timestamp: Date.now() });
@@ -412,7 +490,7 @@ Deno.serve(async (req) => {
     const receiptResult = await waitForReceipt(BASE_CHAIN_ID, txHash, maxAttempts, 2000);
     
     if (!receiptResult.success || !receiptResult.receipt) {
-      console.error('ensure_weth.wrap.error: Transaction timeout or failed', receiptResult.error);
+      console.error('error', { code: 'timeout', message: receiptResult.error, txHash });
       // Keep in pending map so subsequent calls return 'pending'
       return new Response(
         JSON.stringify({ 
@@ -430,7 +508,7 @@ Deno.serve(async (req) => {
     pendingWraps.delete(idempotencyKey);
 
     const gasUsed = parseInt(receiptResult.receipt.gasUsed, 16);
-    console.log('ensure_weth.wrap.confirmed', { txHash, gasUsed });
+    console.log('wrap.submit.done', { txHash, gasUsed, dryRun: false });
 
     // Verify new WETH balance
     const newWethBalanceResponse = await fetch(RPC_URL, {
@@ -456,7 +534,9 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         ok: true,
+        mode: 'submit',
         action: 'wrap',
+        dryRun: false,
         txHash,
         gasUsed,
         wethBalanceWei: newBalance.toString(),
@@ -471,7 +551,7 @@ Deno.serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('ensure_weth.wrap.error: unexpected', error);
+    console.error('error', { code: 'unexpected', message: String(error) });
     return new Response(
       JSON.stringify({ ok: false, code: 'unexpected', message: String(error) }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
