@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  permit-signer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: permit-signer
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - PORT=8787
+      - BOT_PRIVATE_KEY=${BOT_PRIVATE_KEY}
+      - BOT_ADDRESS=${BOT_ADDRESS}
+      - WEBHOOK_AUTH=${WEBHOOK_AUTH}
+      - HMAC_ACTIVE=${HMAC_ACTIVE}
+      - HMAC_PREVIOUS=${HMAC_PREVIOUS}
+      - RPC_URL_8453=${RPC_URL_8453:-https://mainnet.base.org}
+      - MAX_TX_VALUE_WEI=${MAX_TX_VALUE_WEI:-1000000000000000000}
+      - ALLOW_CHAIN_ID=8453
+    ports:
+      - "127.0.0.1:8787:8787"
+    networks:
+      - signer-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8787/healthz', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  signer-network:
+    driver: bridge

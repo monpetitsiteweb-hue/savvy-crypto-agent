@@ -1,0 +1,42 @@
+# Systemd service file for permit-signer
+# Place in /etc/systemd/system/permit-signer.service
+
+[Unit]
+Description=Permit2 Transaction Signer Service
+Documentation=https://github.com/yourusername/permit-signer
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/permit-signer
+Environment="COMPOSE_PROJECT_NAME=permit-signer"
+
+# Load environment from secure location
+EnvironmentFile=/opt/permit-signer/.env.prod
+
+# Start command
+ExecStart=/usr/bin/docker-compose up
+
+# Stop command
+ExecStop=/usr/bin/docker-compose down
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=200
+StartLimitBurst=5
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=permit-signer
+
+[Install]
+WantedBy=multi-user.target

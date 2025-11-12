@@ -428,6 +428,30 @@ Deno.serve(async (req) => {
 
     console.log(`Received execute request: ${side} ${amount} ${base}/${quote} on chain ${chainId}, mode=${mode}, simulateOnly=${simulateOnly}`);
 
+    // ========== Safety Guards ==========
+    // Guard 1: MAX_SELL_WEI - Prevent excessively large trades
+    const MAX_SELL_WEI_STR = Deno.env.get('MAX_SELL_WEI') ?? '200000000000000000'; // 0.2 ETH default
+    const maxSellWei = BigInt(MAX_SELL_WEI_STR);
+    
+    // Guard 2: MAX_SLIPPAGE_BPS - Prevent excessive slippage
+    const MAX_SLIPPAGE_BPS = Number(Deno.env.get('MAX_SLIPPAGE_BPS') ?? '75'); // 0.75% default
+    const requestedSlippageBps = slippageBps ?? 50;
+    
+    // Validate slippage first (before calculating sellAmount)
+    if (requestedSlippageBps > MAX_SLIPPAGE_BPS) {
+      console.error('❌ Slippage too high:', { requestedSlippageBps, MAX_SLIPPAGE_BPS });
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: 'slippage_too_high',
+          message: `Requested slippage ${requestedSlippageBps} bps exceeds maximum ${MAX_SLIPPAGE_BPS} bps`,
+          maxSlippageBps: MAX_SLIPPAGE_BPS,
+          requestedSlippageBps,
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Step 1: Call /onchain-quote to get price snapshot
     const quoteUrl = new URL(`${PROJECT_URL}/functions/v1/onchain-quote`);
     const quotePayload = {
@@ -491,6 +515,39 @@ Deno.serve(async (req) => {
 
     const quoteData = await quoteResponse.json();
     console.log('Quote received:', { provider: quoteData.provider, price: quoteData.price, gasCostQuote: quoteData.gasCostQuote });
+
+    // ========== Guard: Check sellAmount against MAX_SELL_WEI ==========
+    // Extract sellAmountWei from quote (this is the atomic amount that will be sold)
+    const sellAmountWei = quoteData.raw?.sellAmount ? BigInt(quoteData.raw.sellAmount) : 0n;
+    
+    if (sellAmountWei > maxSellWei) {
+      console.error('❌ Sell amount too large:', { 
+        sellAmountWei: sellAmountWei.toString(), 
+        maxSellWei: maxSellWei.toString() 
+      });
+      
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: 'sell_amount_too_large',
+          message: `Sell amount ${sellAmountWei.toString()} wei exceeds maximum ${maxSellWei.toString()} wei`,
+          maxSellWei: MAX_SELL_WEI_STR,
+          sellAmountWei: sellAmountWei.toString(),
+          humanReadable: {
+            sellAmount: `${Number(sellAmountWei) / 1e18} ETH`,
+            maxSell: `${Number(maxSellWei) / 1e18} ETH`,
+          }
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('✅ Safety guards passed:', { 
+      sellAmountWei: sellAmountWei.toString(),
+      maxSellWei: maxSellWei.toString(),
+      slippageBps: requestedSlippageBps,
+      maxSlippageBps: MAX_SLIPPAGE_BPS,
+    });
 
     // ========== Permit2 Signing Integration ==========
     // For SELL ETH/WETH on Base with 0x provider, sign Permit2 approval

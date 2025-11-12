@@ -11,9 +11,11 @@ const PORT = process.env.PORT || 3000;
 const BOT_PRIVATE_KEY = process.env.BOT_PRIVATE_KEY;
 const BOT_ADDRESS = process.env.BOT_ADDRESS?.toLowerCase();
 const WEBHOOK_AUTH = process.env.WEBHOOK_AUTH;
+const HMAC_ACTIVE = process.env.HMAC_ACTIVE || process.env.WEBHOOK_AUTH; // Dual HMAC support
+const HMAC_PREVIOUS = process.env.HMAC_PREVIOUS || ''; // Previous HMAC during rotation
 const RPC_URL = process.env.RPC_URL_8453 || 'https://mainnet.base.org';
 const MAX_TX_VALUE_WEI = BigInt(process.env.MAX_TX_VALUE_WEI || '1000000000000000000'); // 1 ETH default
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 // Validation
 if (!BOT_PRIVATE_KEY || !BOT_ADDRESS || !WEBHOOK_AUTH) {
@@ -37,13 +39,38 @@ console.log('✅ Signer initialized:', {
   maxValueWei: MAX_TX_VALUE_WEI.toString(),
 });
 
-// Middleware: Auth check
+// Middleware: Dual HMAC auth check (supports rotation)
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
-  if (authHeader !== `Bearer ${WEBHOOK_AUTH}`) {
-    console.warn('🔒 Unauthorized request:', { ip: req.ip, path: req.path });
-    return res.status(401).json({ error: 'Unauthorized' });
+  const xHmac = req.headers['x-hmac'];
+  
+  // Support both Authorization header (legacy) and x-hmac header
+  const providedAuth = authHeader?.replace('Bearer ', '') || xHmac;
+  
+  if (!providedAuth) {
+    console.warn('🔒 No auth provided:', { ip: req.ip, path: req.path });
+    return res.status(401).json({ error: 'Unauthorized', message: 'Missing authorization' });
   }
+  
+  // Check against active HMAC first, then previous (during rotation grace period)
+  const isValid = providedAuth === HMAC_ACTIVE || 
+                  (HMAC_PREVIOUS && providedAuth === HMAC_PREVIOUS);
+  
+  if (!isValid) {
+    console.warn('🔒 Invalid HMAC:', { 
+      ip: req.ip, 
+      path: req.path,
+      providedPrefix: providedAuth.substring(0, 8)
+    });
+    return res.status(401).json({ error: 'Unauthorized', message: 'Invalid HMAC' });
+  }
+  
+  // Log which HMAC was used (for monitoring rotation)
+  const usedKey = providedAuth === HMAC_ACTIVE ? 'active' : 'previous';
+  if (usedKey === 'previous') {
+    console.info('⚠️  Using HMAC_PREVIOUS (grace period):', { path: req.path });
+  }
+  
   next();
 }
 
@@ -201,6 +228,79 @@ app.post('/sign', authMiddleware, async (req, res) => {
   } catch (error) {
     const elapsed = Date.now() - startTime;
     console.error('❌ Sign error:', {
+      error: error.message,
+      stack: error.stack?.split('\n')[0],
+      elapsedMs: elapsed,
+    });
+    res.status(500).json({
+      error: 'SIGNING_FAILED',
+      message: error.message,
+    });
+  }
+});
+
+// Permit2 signing endpoint
+app.post('/sign/permit2-single', authMiddleware, async (req, res) => {
+  const startTime = Date.now();
+  const payload = req.body;
+
+  console.log('📝 Permit2 sign request:', {
+    chainId: payload?.domain?.chainId,
+    token: payload?.message?.details?.token,
+    amount: payload?.message?.details?.amount,
+    spender: payload?.message?.spender,
+  });
+
+  try {
+    // Validate payload structure
+    if (!payload?.domain || !payload?.types || !payload?.message) {
+      return res.status(400).json({ 
+        error: 'INVALID_PAYLOAD', 
+        message: 'Missing domain, types, or message' 
+      });
+    }
+
+    // Validate chain ID
+    if (payload.domain.chainId !== base.id) {
+      return res.status(400).json({ 
+        error: 'INVALID_CHAIN', 
+        message: `Only Base (${base.id}) supported` 
+      });
+    }
+
+    // Validate Permit2 contract
+    const PERMIT2_CONTRACT = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
+    if (payload.domain.verifyingContract?.toLowerCase() !== PERMIT2_CONTRACT.toLowerCase()) {
+      return res.status(400).json({ 
+        error: 'INVALID_CONTRACT', 
+        message: 'Invalid Permit2 contract address' 
+      });
+    }
+
+    // Sign the typed data
+    console.log('✍️  Signing Permit2 typed data...');
+    const signature = await walletClient.signTypedData({
+      account,
+      domain: payload.domain,
+      types: payload.types,
+      primaryType: payload.primaryType || 'PermitSingle',
+      message: payload.message,
+    });
+
+    const elapsed = Date.now() - startTime;
+    console.log(`✅ Permit2 signed in ${elapsed}ms:`, {
+      signer: BOT_ADDRESS,
+      sigLength: signature.length,
+    });
+
+    res.json({
+      ok: true,
+      signer: BOT_ADDRESS,
+      signature,
+    });
+  } catch (error) {
+    const elapsed = Date.now() - startTime;
+    console.error('❌ Permit2 sign error:', {
       error: error.message,
       stack: error.stack?.split('\n')[0],
       elapsedMs: elapsed,
