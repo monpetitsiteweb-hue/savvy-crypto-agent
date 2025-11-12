@@ -3,6 +3,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { simulateCall, sendRawTransaction, waitForReceipt } from '../_shared/eth.ts';
 import { corsHeaders } from '../_shared/cors.ts';
 import { BASE_CHAIN_ID } from '../_shared/addresses.ts';
+import { makePermit2Payload } from '../_shared/permit2Payload.ts';
+import { signPermit2Single } from '../_shared/permit2Signer.ts';
 
 const PROJECT_URL = Deno.env.get('SB_URL')!;
 const SERVICE_ROLE = Deno.env.get('SB_SERVICE_ROLE')!;
@@ -490,6 +492,72 @@ Deno.serve(async (req) => {
     const quoteData = await quoteResponse.json();
     console.log('Quote received:', { provider: quoteData.provider, price: quoteData.price, gasCostQuote: quoteData.gasCostQuote });
 
+    // ========== Permit2 Signing Integration ==========
+    // For SELL ETH/WETH on Base with 0x provider, sign Permit2 approval
+    let permit2Data: any = null;
+    
+    const WETH_BASE = "0x4200000000000000000000000000000000000006" as const;
+    const OX_PROXY = "0xDef1C0ded9bec7F1a1670819833240f027b25EfF" as const;
+    
+    if (
+      provider === '0x' && 
+      chainId === BASE_CHAIN_ID && 
+      side === 'SELL' && 
+      (base === 'ETH' || base === 'WETH') &&
+      taker &&
+      quoteData.raw?.sellAmount
+    ) {
+      try {
+        console.log('permit2.flow.start: Generating Permit2 signature');
+        
+        const sellAmountWei = quoteData.raw.sellAmount;
+        const sigDeadlineSec = Math.floor(Date.now() / 1000) + 1800; // 30 minutes
+        
+        const permitPayload = makePermit2Payload({
+          token: WETH_BASE,
+          amountWei: sellAmountWei,
+          spender: OX_PROXY,
+          sigDeadlineSec,
+        });
+        
+        const { signer, signature } = await signPermit2Single(permitPayload);
+        
+        permit2Data = {
+          signature,
+          details: permitPayload.message.details,
+          spender: permitPayload.message.spender,
+          sigDeadline: permitPayload.message.sigDeadline,
+          signer,
+        };
+        
+        console.log('permit2.flow.complete', { 
+          signer, 
+          amount: sellAmountWei,
+          deadline: sigDeadlineSec 
+        });
+        
+        // Log successful Permit2 generation
+        await addTradeEvent(tradeId || 'pending', 'permit2', 'info', { 
+          signer,
+          amount: sellAmountWei,
+          sigDeadline: sigDeadlineSec,
+          note: 'Permit2 signature generated successfully'
+        });
+        
+        // Store permit2 data for potential use in 0x /swap/permit2/quote endpoint
+        // (Implementation note: Current 0x v2 integration uses /swap/quote which handles Permit2 internally.
+        //  If switching to /swap/permit2/quote, include permit2Data in the quote request.)
+        
+      } catch (error) {
+        console.error('permit2.flow.error', { error: String(error) });
+        await addTradeEvent(tradeId, 'permit2', 'error', { 
+          error: String(error),
+          note: 'Permit2 signing failed, continuing without it' 
+        });
+        // Continue without Permit2 - let the transaction fail naturally if approval is required
+      }
+    }
+
     // ❗ Fail-fast if quote failed or has no price
     if (quoteData?.error || !quoteData?.price || !(quoteData.price > 0)) {
       if (isDebug) {
@@ -549,7 +617,7 @@ Deno.serve(async (req) => {
       effective_price: null,
       gas_wei: null,
       total_network_fee: null,
-      notes: null,
+      notes: permit2Data ? `Permit2 signed: ${permit2Data.signer}` : null,
     };
 
     // Guard: only persist if persist !== false
@@ -704,6 +772,7 @@ Deno.serve(async (req) => {
           gasCostQuote: quoteData.gasCostQuote,
           unit: quoteData.unit,
           txPayload,
+          permit2: permit2Data, // Include Permit2 signature data if generated
           raw: quoteData.raw,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -719,6 +788,7 @@ Deno.serve(async (req) => {
             status: 'built',
             error: 'signedTx required for send mode',
             txPayload,
+            permit2: permit2Data, // Include Permit2 signature data if generated
             price: quoteData.price,
             minOut: quoteData.minOut,
             gasCostQuote: quoteData.gasCostQuote,
@@ -786,6 +856,7 @@ Deno.serve(async (req) => {
         gasCostQuote: quoteData.gasCostQuote,
         unit: quoteData.unit,
         txPayload,
+        permit2: permit2Data, // Include Permit2 signature data if generated
         raw: quoteData.raw,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
