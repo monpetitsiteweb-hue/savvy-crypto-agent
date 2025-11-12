@@ -23,12 +23,13 @@ This guide covers:
   - Ubuntu 20.04/22.04 or similar Linux
   - Docker & Docker Compose installed
   - Nginx installed
-  - Domain with DNS pointing to server
+  - **Domain**: signer.crypto.mon-petit-site-web.fr
+  - **Server IP**: 217.160.0.96 (IPv4) / 2001:8d8:100f:f000:0:0:0:29b (IPv6)
   - SSL certificate (Let's Encrypt recommended)
 
 - **Access Requirements**:
-  - Root/sudo access to server
-  - Supabase project access
+  - SSH access to server (217.160.0.96)
+  - Supabase project access (CLI authenticated)
   - Private key for bot wallet (Base chain)
 
 ---
@@ -80,16 +81,15 @@ scp -r signer-service/* user@yourserver:/opt/permit-signer/
 ```bash
 cd /opt/permit-signer
 
-# Generate HMAC secret (save this!)
-HMAC_SECRET=$(openssl rand -hex 32)
-echo "Generated HMAC: $HMAC_SECRET"
+# Production HMAC (already generated)
+HMAC_SECRET="14c0a54cca50acff0d2b03548e61d949d5f392d69ba6b60276929285085047babba615c223e180da4dc9f79b2bc900e87d9eb9cbcaee842dff9cd423f35503cb"
 
 # Create .env.prod
 cat > .env.prod <<EOF
 NODE_ENV=production
 PORT=8787
-BOT_PRIVATE_KEY=0xYOUR_PRIVATE_KEY_HERE
-BOT_ADDRESS=0xYOUR_BOT_ADDRESS_HERE
+BOT_PRIVATE_KEY=<YOUR_BOT_PRIVATE_KEY_HERE>
+BOT_ADDRESS=<YOUR_BOT_ADDRESS_HERE>
 WEBHOOK_AUTH=legacy_auth_token
 HMAC_ACTIVE=$HMAC_SECRET
 HMAC_PREVIOUS=
@@ -102,7 +102,7 @@ EOF
 chmod 600 .env.prod
 ```
 
-**⚠️ CRITICAL**: Save the `HMAC_ACTIVE` value securely. You'll need it for Supabase configuration.
+**⚠️ NOTE**: You need to provide your bot's private key and address before starting the service.
 
 ### Build and Start Container
 
@@ -127,31 +127,27 @@ curl http://127.0.0.1:8787/healthz
 
 ### Get Supabase Egress IPs
 
-Find your Supabase project's egress IPs:
+**⚠️ ACTION REQUIRED**: You need to obtain your Supabase project's egress IPs to configure the Nginx allowlist.
+
 1. Go to your Supabase project dashboard
 2. Navigate to Settings → API
 3. Note the region (e.g., `us-east-1`, `eu-west-1`)
 4. Contact Supabase support or check documentation for egress IPs
 
-**Example IPs by region** (check with Supabase for exact IPs):
-```
-us-east-1: 3.123.45.67, 18.234.56.78
-eu-west-1: 52.12.34.56, 54.76.54.32
-ap-southeast-1: 13.250.123.45, 18.140.67.89
-```
+Once you have the IPs, update lines 36-38 in `signer-service/nginx.conf`.
 
 ### Setup SSL Certificate
 
 ```bash
-# Replace with your domain
-DOMAIN="signer.yourdomain.com"
+# Production domain
+DOMAIN="signer.crypto.mon-petit-site-web.fr"
 
 # Get certificate
 sudo certbot certonly --nginx -d $DOMAIN
 
 # Certificates will be at:
-# /etc/letsencrypt/live/$DOMAIN/fullchain.pem
-# /etc/letsencrypt/live/$DOMAIN/privkey.pem
+# /etc/letsencrypt/live/signer.crypto.mon-petit-site-web.fr/fullchain.pem
+# /etc/letsencrypt/live/signer.crypto.mon-petit-site-web.fr/privkey.pem
 ```
 
 ### Install Nginx Configuration
@@ -181,10 +177,13 @@ sudo systemctl reload nginx
 ### Verify HTTPS Access
 
 ```bash
-# From Supabase allowed IP (use curl from Edge Function or allowed network):
-curl -H "Authorization: Bearer YOUR_HMAC_HERE" \
-     https://signer.yourdomain.com/version
+# Test health endpoint (public)
+curl https://signer.crypto.mon-petit-site-web.fr/healthz
+# Expected: {"ok":true,"address":"0x...","chainId":8453}
 
+# Test version endpoint (requires HMAC, only from Supabase IPs)
+curl -H "x-hmac: 14c0a54cca50acff0d2b03548e61d949d5f392d69ba6b60276929285085047babba615c223e180da4dc9f79b2bc900e87d9eb9cbcaee842dff9cd423f35503cb" \
+     https://signer.crypto.mon-petit-site-web.fr/version
 # Expected: {"version":"1.1.0","botAddress":"0x...","chainId":8453,...}
 ```
 
@@ -223,16 +222,22 @@ sudo ufw status verbose
 
 ### Production Secrets
 
+✅ **ALREADY CONFIGURED** - The following secrets have been set in your Supabase project:
+
 ```bash
-# Set permit-signer URL and HMAC
-supabase secrets set SIGNER_WEBHOOK_URL=https://signer.yourdomain.com
-supabase secrets set SIGNER_WEBHOOK_AUTH=YOUR_HMAC_ACTIVE_HERE
+# Production signer URL
+SIGNER_WEBHOOK_URL=https://signer.crypto.mon-petit-site-web.fr
 
-# Set safety guards
-supabase secrets set MAX_SELL_WEI=200000000000000000    # 0.2 ETH
-supabase secrets set MAX_SLIPPAGE_BPS=75                # 0.75%
+# Production HMAC authentication
+SIGNER_WEBHOOK_AUTH=14c0a54cca50acff0d2b03548e61d949d5f392d69ba6b60276929285085047babba615c223e180da4dc9f79b2bc900e87d9eb9cbcaee842dff9cd423f35503cb
 
-# Verify secrets
+# Safety guards
+MAX_SELL_WEI=200000000000000000    # 0.2 WETH
+MAX_SLIPPAGE_BPS=75                # 0.75%
+```
+
+Verify with:
+```bash
 supabase secrets list
 ```
 
