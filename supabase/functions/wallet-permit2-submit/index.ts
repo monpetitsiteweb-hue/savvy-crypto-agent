@@ -37,6 +37,7 @@ interface SubmitRequest {
   };
   signature: string;
   dryRun?: boolean;
+  skipSimulation?: boolean;
 }
 
 interface SubmitResponse {
@@ -80,7 +81,7 @@ Deno.serve(async (req) => {
 
     // Parse request body
     const body: SubmitRequest = await req.json();
-    const { chainId, owner, typedData, signature, dryRun } = body;
+    const { chainId, owner, typedData, signature, dryRun, skipSimulation } = body;
 
     // Validate chainId
     if (chainId !== BASE_CHAIN_ID) {
@@ -247,6 +248,21 @@ Deno.serve(async (req) => {
       dataLength: encodedData.length 
     });
 
+    // Handle skipSimulation escape hatch for debugging
+    if (dryRun && skipSimulation) {
+      logger.info('wallet_permit2_submit.skip_simulation', { skipSimulation: true });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          mode: "submit",
+          dryRun: true,
+          skipSimulation: true,
+          txPayload
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Handle dry-run simulation if requested
     let simulationResult;
     if (dryRun) {
@@ -267,10 +283,19 @@ Deno.serve(async (req) => {
         };
       } else {
         logger.warn('wallet_permit2_submit.simulate.error', { error: simResult.error });
-        simulationResult = {
-          success: false,
-          error: simResult.error,
-        };
+        // Include txPayload in error response for debugging
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: {
+              code: "SIGNING_FAILED",
+              message: "Gas estimation failed: execution reverted",
+              details: simResult.error,
+              txPayload
+            }
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
     }
 
