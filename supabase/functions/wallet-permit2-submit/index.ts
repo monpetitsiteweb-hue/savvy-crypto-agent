@@ -248,65 +248,60 @@ Deno.serve(async (req) => {
       dataLength: encodedData.length 
     });
 
-    // Handle skipSimulation escape hatch for debugging
-    if (dryRun && skipSimulation) {
-      logger.info('wallet_permit2_submit.skip_simulation', { skipSimulation: true });
+    // Early return for dry-run or skipSimulation - no RPC calls
+    if (dryRun === true || skipSimulation === true) {
+      logger.info('wallet_permit2_submit.dry_run_return', { dryRun, skipSimulation });
       return new Response(
         JSON.stringify({
           ok: true,
-          mode: "submit",
+          mode: "build",
           dryRun: true,
-          skipSimulation: true,
-          txPayload
+          chainId,
+          owner,
+          txPayload,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Handle dry-run simulation if requested
-    let simulationResult;
-    if (dryRun) {
-      logger.info('wallet_permit2_submit.simulate.start');
-      
-      const simResult = await simulateCall(BASE_CHAIN_ID, {
-        to: txPayload.to,
-        from: txPayload.from,
-        data: txPayload.data,
-        value: txPayload.value,
-      });
+    // If we reach here, perform full simulation (future path)
+    logger.info('wallet_permit2_submit.simulate.start');
+    
+    const simResult = await simulateCall(BASE_CHAIN_ID, {
+      to: txPayload.to,
+      from: txPayload.from,
+      data: txPayload.data,
+      value: txPayload.value,
+    });
 
-      if (simResult.success) {
-        logger.info('wallet_permit2_submit.simulate.ok', { result: simResult.result });
-        simulationResult = {
+    if (simResult.success) {
+      logger.info('wallet_permit2_submit.simulate.ok', { result: simResult.result });
+      const response: SubmitResponse = {
+        success: true,
+        txPayload,
+        simulation: {
           success: true,
           result: simResult.result,
-        };
-      } else {
-        logger.warn('wallet_permit2_submit.simulate.error', { error: simResult.error });
-        // Include txPayload in error response for debugging
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            error: {
-              code: "SIGNING_FAILED",
-              message: "Gas estimation failed: execution reverted",
-              details: simResult.error,
-              txPayload
-            }
-          }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
-
-    // Build success response
-    const response: SubmitResponse = {
-      success: true,
-      txPayload,
-    };
-
-    if (simulationResult) {
-      response.simulation = simulationResult;
+        },
+      };
+      return new Response(
+        JSON.stringify(response),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    } else {
+      logger.warn('wallet_permit2_submit.simulate.error', { error: simResult.error });
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: {
+            code: "SIGNING_FAILED",
+            message: "Gas estimation failed: execution reverted",
+            details: simResult.error,
+            txPayload
+          }
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(
