@@ -1,399 +1,308 @@
-/**
- * Permit2 Submit Proxy (Task 5.4)
- * Submits Permit2.permit() transaction server-side using our signer infrastructure
- * User provides their EIP-712 signature; we broadcast the permit transaction
- * 
- * Features:
- * - Comprehensive signature validation (chainId, domain, deadline, nonce)
- * - Dry-run mode support (EXECUTION_DRY_RUN env)
- * - Deterministic transaction processing
- * - Idempotency via nonce + signature tracking
- * 
- * Ref: https://docs.uniswap.org/contracts/permit2/reference/signature-transfer
- */
-
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
-import { BASE_CHAIN_ID, BASE_0X, BASE_TOKENS } from '../_shared/addresses.ts';
-import { getSigner } from '../_shared/signer.ts';
-import { sendRawTransaction } from '../_shared/eth.ts';
+// supabase/functions/wallet-permit2-submit/index.ts
+// Validates Permit2 signature and builds transaction payload (NO broadcasting)
 import { corsHeaders } from '../_shared/cors.ts';
-import { encodeFunctionData, parseAbi } from 'https://esm.sh/viem@1.21.4';
 import { logger } from '../_shared/logger.ts';
+import { simulateCall } from '../_shared/eth.ts';
+import { encodeFunctionData, parseAbi } from 'npm:viem@2.21.54';
 
-const RPC_URL = Deno.env.get('RPC_URL_8453') || 'https://base.llamarpc.com';
-const BOT_ADDRESS = Deno.env.get('BOT_ADDRESS') || '';
-const EXECUTION_DRY_RUN = Deno.env.get('EXECUTION_DRY_RUN') !== 'false';
+const BASE_CHAIN_ID = 8453;
+const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 
-/**
- * Validate EIP-712 typed data structure with comprehensive checks
- */
-function validateTypedData(
-  typedData: any, 
-  chainId: number, 
-  expectedToken?: string
-): { valid: boolean; code?: string; message?: string } {
-  // Validate domain
-  if (typedData.domain?.name !== 'Permit2') {
-    logger.warn('permit2.sig.invalid', { reason: 'domain.name', expected: 'Permit2', got: typedData.domain?.name });
-    return { valid: false, code: 'signature_invalid', message: 'typedData.domain.name must be "Permit2"' };
-  }
-  
-  if (typedData.domain?.chainId !== chainId) {
-    logger.warn('permit2.sig.invalid', { reason: 'domain.chainId', expected: chainId, got: typedData.domain?.chainId });
-    return { valid: false, code: 'signature_invalid', message: `typedData.domain.chainId must match ${chainId}` };
-  }
-  
-  if (typedData.domain?.verifyingContract?.toLowerCase() !== BASE_0X.PERMIT2.toLowerCase()) {
-    logger.warn('permit2.sig.invalid', { reason: 'domain.verifyingContract', expected: BASE_0X.PERMIT2, got: typedData.domain?.verifyingContract });
-    return { valid: false, code: 'signature_invalid', message: `typedData.domain.verifyingContract must be ${BASE_0X.PERMIT2}` };
-  }
-
-  // Validate message structure
-  const msg = typedData.message;
-  if (!msg || !msg.details || !msg.spender || msg.sigDeadline === undefined) {
-    logger.warn('permit2.sig.invalid', { reason: 'message_structure', hasDetails: !!msg?.details, hasSpender: !!msg?.spender, hasSigDeadline: msg?.sigDeadline !== undefined });
-    return { valid: false, code: 'signature_invalid', message: 'typedData.message must contain details, spender, sigDeadline' };
-  }
-
-  // Validate details structure
-  const details = msg.details;
-  if (!details.token || details.amount === undefined || details.expiration === undefined || details.nonce === undefined) {
-    logger.warn('permit2.sig.invalid', { reason: 'details_structure', hasToken: !!details.token, hasAmount: details.amount !== undefined, hasExpiration: details.expiration !== undefined, hasNonce: details.nonce !== undefined });
-    return { valid: false, code: 'signature_invalid', message: 'typedData.message.details must contain token, amount, expiration, nonce' };
-  }
-
-  // Validate token (if expected token provided)
-  if (expectedToken && details.token.toLowerCase() !== expectedToken.toLowerCase()) {
-    logger.warn('permit2.sig.invalid', { reason: 'token_mismatch', expected: expectedToken, got: details.token });
-    return { valid: false, code: 'signature_invalid', message: `token must be ${expectedToken}` };
-  }
-
-  // Validate spender (must be 0x Exchange Proxy on Base)
-  if (msg.spender.toLowerCase() !== BASE_0X.SPENDER.toLowerCase()) {
-    logger.warn('permit2.sig.invalid', { reason: 'spender_mismatch', expected: BASE_0X.SPENDER, got: msg.spender });
-    return { valid: false, code: 'signature_invalid', message: `spender must be ${BASE_0X.SPENDER} (0x Exchange Proxy on Base)` };
-  }
-
-  // Validate deadline (sigDeadline must be in the future)
-  const nowSec = Math.floor(Date.now() / 1000);
-  const sigDeadline = Number(msg.sigDeadline);
-  if (sigDeadline <= nowSec) {
-    logger.warn('permit2.sig.expired', { sigDeadline, nowSec, expiredBy: nowSec - sigDeadline });
-    return { valid: false, code: 'signature_expired', message: `sigDeadline ${sigDeadline} has expired (now: ${nowSec})` };
-  }
-
-  // Validate nonce (must be non-negative integer)
-  const nonce = Number(details.nonce);
-  if (!Number.isInteger(nonce) || nonce < 0) {
-    logger.warn('permit2.sig.invalid', { reason: 'invalid_nonce', nonce: details.nonce });
-    return { valid: false, code: 'signature_invalid', message: 'nonce must be a non-negative integer' };
-  }
-
-  logger.info('permit2.sig.verify', { 
-    token: details.token, 
-    amount: details.amount, 
-    nonce, 
-    sigDeadline, 
-    spender: msg.spender,
-    expiresIn: sigDeadline - nowSec 
-  });
-  
-  return { valid: true };
-}
-
-const permit2Abi = parseAbi([
-  'function permit(address owner, ((address token, uint160 amount, uint48 expiration, uint48 nonce) details, address spender, uint256 sigDeadline) permitSingle, bytes signature)'
+// Permit2 ABI for the permit function
+const PERMIT2_ABI = parseAbi([
+  'function permit(address owner, tuple(tuple(address token, uint160 amount, uint48 expiration, uint48 nonce) details, address spender, uint256 sigDeadline) permitSingle, bytes signature) external'
 ]);
 
-/**
- * Encode Permit2.permit() calldata using viem
- */
-function encodePermitCalldata(owner: string, typedData: any, signature: string): `0x${string}` {
-  const m = typedData.message;
-  return encodeFunctionData({
-    abi: permit2Abi,
-    functionName: 'permit',
-    args: [
-      owner as `0x${string}`,
-      {
-        details: {
-          token: m.details.token as `0x${string}`,
-          amount: BigInt(m.details.amount),
-          expiration: Number(m.details.expiration),
-          nonce: Number(m.details.nonce),
-        },
-        spender: m.spender as `0x${string}`,
-        sigDeadline: BigInt(m.sigDeadline),
-      },
-      signature as `0x${string}`,
-    ],
-  });
+interface SubmitRequest {
+  chainId: number;
+  owner: string;
+  typedData: {
+    domain: {
+      name: string;
+      version?: string;
+      chainId: number;
+      verifyingContract: string;
+    };
+    primaryType: string;
+    message: {
+      details: {
+        token: string;
+        amount: string;
+        expiration: string;
+        nonce: string;
+      };
+      spender: string;
+      sigDeadline: string;
+    };
+  };
+  signature: string;
+  dryRun?: boolean;
+}
+
+interface SubmitResponse {
+  success: boolean;
+  txPayload?: {
+    to: string;
+    from: string;
+    data: string;
+    value: string;
+  };
+  simulation?: {
+    success: boolean;
+    result?: string;
+    error?: string;
+  };
+  error?: {
+    code: string;
+    message: string;
+  };
 }
 
 Deno.serve(async (req) => {
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Only accept POST
   if (req.method !== 'POST') {
     return new Response(
-      JSON.stringify({ ok: false, code: 'method_not_allowed', message: 'Only POST requests allowed' }),
+      JSON.stringify({ 
+        success: false, 
+        error: { code: 'METHOD_NOT_ALLOWED', message: 'Only POST requests are allowed' }
+      }),
       { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 
-  const startTime = Date.now();
-  let body: any;
-  
   try {
-    const rawBody = await req.text();
-    body = JSON.parse(rawBody);
-  } catch (parseError) {
-    logger.error('error', { code: 'bad_json', message: String(parseError) });
-    return new Response(
-      JSON.stringify({ ok: false, code: 'bad_json', message: 'Invalid JSON body' }),
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
+    logger.info('wallet_permit2_submit.start');
 
-  try {
-    const { 
-      chainId, 
-      owner, 
-      address,  // alias for owner
-      token, 
-      spender, 
-      amount, 
-      nonce, 
-      sigDeadline, 
-      signature, 
-      typedData,
-      domain,
-      types,
-      message,
-      dryRun 
-    } = body;
+    // Parse request body
+    const body: SubmitRequest = await req.json();
+    const { chainId, owner, typedData, signature, dryRun } = body;
 
-    // Normalize inputs (support aliases)
-    const normalizedOwner = owner || address;
-    
-    // Build typedData if provided in pieces
-    const normalizedTypedData = typedData || (domain && types && message ? { domain, types, message } : null);
-
-    logger.info('permit2.submit.start', { 
-      owner: normalizedOwner, 
-      token, 
-      amount, 
-      nonce, 
-      chainId, 
-      dryRun: dryRun ?? EXECUTION_DRY_RUN 
-    });
-
-    // Validate chainId (MUST be Base 8453)
+    // Validate chainId
     if (chainId !== BASE_CHAIN_ID) {
-      logger.error('error', { code: 'invalid_chain', field: 'chainId', expected: BASE_CHAIN_ID, got: chainId });
+      logger.warn('wallet_permit2_submit.invalid_input', { reason: 'unsupported_chain', chainId });
       return new Response(
-        JSON.stringify({ ok: false, code: 'invalid_chain', field: 'chainId', message: `Only Base (8453) supported, got ${chainId}` }),
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'UNSUPPORTED_CHAIN',
+            message: `Only Base (chainId ${BASE_CHAIN_ID}) is supported. Received: ${chainId}`
+          }
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     // Validate owner address format
-    if (!normalizedOwner || !/^0x[0-9a-fA-F]{40}$/.test(normalizedOwner)) {
-      logger.error('error', { code: 'bad_request', field: 'owner', message: 'Invalid owner address format' });
+    if (!owner || !/^0x[0-9a-fA-F]{40}$/.test(owner)) {
+      logger.warn('wallet_permit2_submit.invalid_input', { reason: 'invalid_owner', owner });
       return new Response(
-        JSON.stringify({ ok: false, code: 'bad_request', field: 'owner', message: 'owner must be 0x-prefixed 20-byte hex' }),
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'INVALID_OWNER',
+            message: 'Owner must be a valid Ethereum address (0x + 40 hex characters)'
+          }
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Validate signature format (65 bytes = 130 hex chars + 0x)
-    if (!signature || !/^0x[0-9a-fA-F]{130}$/.test(signature)) {
-      logger.error('error', { code: 'bad_request', field: 'signature', message: 'Invalid signature format' });
+    // Validate signature format
+    if (!signature || signature.length !== 132 || !signature.startsWith('0x')) {
+      logger.warn('wallet_permit2_submit.invalid_input', { reason: 'invalid_signature', sigLength: signature?.length });
       return new Response(
-        JSON.stringify({ ok: false, code: 'bad_request', field: 'signature', message: 'signature must be 65-byte hex (0x + 130 chars)' }),
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'INVALID_SIGNATURE',
+            message: 'Signature must be 132 characters (0x + 130 hex characters)'
+          }
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Validate typedData is provided
-    if (!normalizedTypedData) {
-      logger.error('error', { code: 'bad_request', field: 'typedData', message: 'typedData is required' });
+    // Validate typedData structure
+    if (!typedData || !typedData.domain || !typedData.message) {
+      logger.warn('wallet_permit2_submit.invalid_input', { reason: 'missing_typed_data' });
       return new Response(
-        JSON.stringify({ ok: false, code: 'bad_request', field: 'typedData', message: 'typedData (or domain/types/message) is required' }),
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'INVALID_TYPED_DATA',
+            message: 'typedData must include domain and message'
+          }
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Validate typed data structure with comprehensive checks
-    const validation = validateTypedData(normalizedTypedData, chainId, token);
-    if (!validation.valid) {
-      const statusCode = validation.code === 'signature_expired' ? 422 : 
-                        validation.code === 'signature_invalid' ? 422 : 400;
+    // Validate domain matches Permit2 specifications
+    const { domain } = typedData;
+    if (
+      domain.name !== 'Permit2' ||
+      domain.chainId !== BASE_CHAIN_ID ||
+      domain.verifyingContract.toLowerCase() !== PERMIT2_ADDRESS.toLowerCase()
+    ) {
+      logger.warn('wallet_permit2_submit.domain_mismatch', { 
+        expected: { name: 'Permit2', chainId: BASE_CHAIN_ID, contract: PERMIT2_ADDRESS },
+        received: domain 
+      });
       return new Response(
-        JSON.stringify({ ok: false, code: validation.code, message: validation.message }),
-        { status: statusCode, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'DOMAIN_MISMATCH',
+            message: `Domain must match Permit2 specifications for Base. Expected: name=Permit2, chainId=${BASE_CHAIN_ID}, contract=${PERMIT2_ADDRESS}`
+          }
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Build calldata
-    const calldata = encodePermitCalldata(normalizedOwner, normalizedTypedData, signature);
-    logger.debug('permit2.calldata', { length: calldata.length, preview: calldata.slice(0, 66) });
+    // Validate primaryType
+    if (typedData.primaryType !== 'PermitSingle') {
+      logger.warn('wallet_permit2_submit.invalid_input', { reason: 'invalid_primary_type', primaryType: typedData.primaryType });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'INVALID_PRIMARY_TYPE',
+            message: 'primaryType must be PermitSingle'
+          }
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
-    // Build transaction payload
-    const txPayload = {
-      to: BASE_0X.PERMIT2,
-      from: BOT_ADDRESS,
-      data: calldata,
-      value: '0x0',
-      gas: '0x0', // Will be estimated by signer
+    // Validate message structure
+    const { message } = typedData;
+    if (!message.details || !message.spender || !message.sigDeadline) {
+      logger.warn('wallet_permit2_submit.invalid_input', { reason: 'incomplete_message' });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'INCOMPLETE_MESSAGE',
+            message: 'message must include details, spender, and sigDeadline'
+          }
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Validate details fields
+    const { details } = message;
+    if (!details.token || !details.amount || details.expiration === undefined || details.nonce === undefined) {
+      logger.warn('wallet_permit2_submit.invalid_input', { reason: 'incomplete_details' });
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: {
+            code: 'INCOMPLETE_DETAILS',
+            message: 'details must include token, amount, expiration, and nonce'
+          }
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Build transaction payload - encode the permit function call
+    const permitSingle = {
+      details: {
+        token: details.token as `0x${string}`,
+        amount: BigInt(details.amount),
+        expiration: BigInt(details.expiration),
+        nonce: BigInt(details.nonce),
+      },
+      spender: message.spender as `0x${string}`,
+      sigDeadline: BigInt(message.sigDeadline),
     };
 
-    // Determine dry-run mode (explicit param OR global env)
-    const effectiveDryRun = dryRun ?? EXECUTION_DRY_RUN;
-
-    if (effectiveDryRun) {
-      // DRY-RUN MODE: Return success without broadcasting
-      logger.info('permit2.submit.done', { 
-        mode: 'submit', 
-        dryRun: true, 
-        owner: normalizedOwner, 
-        token: normalizedTypedData.message.details.token,
-        amount: normalizedTypedData.message.details.amount,
-        nonce: normalizedTypedData.message.details.nonce,
-        duration: Date.now() - startTime 
-      });
-
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          mode: 'submit',
-          dryRun: true,
-          message: 'Dry-run mode enabled - transaction not broadcast',
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // LIVE MODE: Sign and broadcast transaction
-    const signer = getSigner();
-    logger.info('signer.mode', { type: signer.type });
-    
-    let signedTx: string;
-    try {
-      signedTx = await signer.sign(txPayload, chainId);
-      logger.info('signer.success', { txLength: signedTx.length });
-    } catch (signError: any) {
-      logger.error('signer.error', { code: 'signing_failed', message: signError.message });
-      
-      // Initialize Supabase client for logging
-      const supabaseUrl = Deno.env.get('SB_URL') ?? Deno.env.get('SUPABASE_URL');
-      const supabaseKey = Deno.env.get('SB_SERVICE_ROLE') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-      if (supabaseUrl && supabaseKey) {
-        const supabase = createClient(supabaseUrl, supabaseKey);
-        await supabase.from('trade_events').insert({
-          trade_id: null,
-          phase: 'permit2_submit',
-          severity: 'error',
-          payload: {
-            error: 'signing_failed',
-            message: signError.message,
-            owner: normalizedOwner,
-            token: normalizedTypedData.message.details.token,
-          },
-        });
-      }
-
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          code: 'signer_unavailable',
-          message: signError.message,
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Broadcast transaction
-    logger.info('tx.broadcast.start', { chainId });
-    const broadcastResult = await sendRawTransaction(chainId, signedTx);
-
-    if (!broadcastResult.success) {
-      logger.error('error', { code: 'broadcast_failed', message: broadcastResult.error });
-      
-      // Log error event
-      const supabaseUrl = Deno.env.get('SB_URL') ?? Deno.env.get('SUPABASE_URL');
-      const supabaseKey = Deno.env.get('SB_SERVICE_ROLE') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-      if (supabaseUrl && supabaseKey) {
-        const supabase = createClient(supabaseUrl, supabaseKey);
-        await supabase.from('trade_events').insert({
-          trade_id: null,
-          phase: 'permit2_submit',
-          severity: 'error',
-          payload: {
-            error: 'broadcast_failed',
-            message: broadcastResult.error,
-            owner: normalizedOwner,
-            token: normalizedTypedData.message.details.token,
-            amount: normalizedTypedData.message.details.amount,
-          },
-        });
-      }
-
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          code: 'broadcast_failed',
-          message: broadcastResult.error || 'Unknown RPC error',
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const txHash = broadcastResult.txHash!;
-    logger.info('tx.broadcast', { hash: txHash });
-
-    // Log success event
-    const supabaseUrl = Deno.env.get('SB_URL') ?? Deno.env.get('SUPABASE_URL');
-    const supabaseKey = Deno.env.get('SB_SERVICE_ROLE') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-    if (supabaseUrl && supabaseKey) {
-      const supabase = createClient(supabaseUrl, supabaseKey);
-      await supabase.from('trade_events').insert({
-        trade_id: null,
-        phase: 'permit2_submit',
-        severity: 'info',
-        payload: {
-          owner: normalizedOwner,
-          token: normalizedTypedData.message.details.token,
-          amount: normalizedTypedData.message.details.amount,
-          nonce: normalizedTypedData.message.details.nonce,
-          txHash,
-        },
-      });
-    }
-
-    logger.info('permit2.submit.done', { 
-      mode: 'submit', 
-      dryRun: false, 
-      txHash, 
-      duration: Date.now() - startTime 
+    const encodedData = encodeFunctionData({
+      abi: PERMIT2_ABI,
+      functionName: 'permit',
+      args: [
+        owner as `0x${string}`,
+        permitSingle,
+        signature as `0x${string}`,
+      ],
     });
 
+    const txPayload = {
+      to: PERMIT2_ADDRESS,
+      from: owner,
+      data: encodedData,
+      value: '0x0',
+    };
+
+    logger.info('wallet_permit2_submit.tx_payload.built', { 
+      to: txPayload.to, 
+      from: txPayload.from,
+      dataLength: encodedData.length 
+    });
+
+    // Handle dry-run simulation if requested
+    let simulationResult;
+    if (dryRun) {
+      logger.info('wallet_permit2_submit.simulate.start');
+      
+      const simResult = await simulateCall(BASE_CHAIN_ID, {
+        to: txPayload.to,
+        from: txPayload.from,
+        data: txPayload.data,
+        value: txPayload.value,
+      });
+
+      if (simResult.success) {
+        logger.info('wallet_permit2_submit.simulate.ok', { result: simResult.result });
+        simulationResult = {
+          success: true,
+          result: simResult.result,
+        };
+      } else {
+        logger.warn('wallet_permit2_submit.simulate.error', { error: simResult.error });
+        simulationResult = {
+          success: false,
+          error: simResult.error,
+        };
+      }
+    }
+
+    // Build success response
+    const response: SubmitResponse = {
+      success: true,
+      txPayload,
+    };
+
+    if (simulationResult) {
+      response.simulation = simulationResult;
+    }
+
     return new Response(
-      JSON.stringify({
-        ok: true,
-        mode: 'submit',
-        dryRun: false,
-        txHash,
-      }),
+      JSON.stringify(response),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
-    logger.error('error', { code: 'unhandled', message: String(error) });
+    logger.error('wallet_permit2_submit.unexpected_error', { 
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
+
     return new Response(
-      JSON.stringify({ ok: false, code: 'internal_error', message: String(error) }),
+      JSON.stringify({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: error instanceof Error ? error.message : 'An unexpected error occurred'
+        }
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
