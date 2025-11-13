@@ -366,7 +366,7 @@ Deno.serve(async (req) => {
   try {
     const { chainId, base, quote, side, amount, slippageBps, provider = '0x', from, taker } = await req.json();
 
-    console.log('Received quote request:', { chainId, base, quote, side, amount, slippageBps, provider });
+    console.log('swap.quote.start', { chainId, base, quote, side, amount, slippageBps, provider });
 
     // Validate provider and chainId support
     if (!['0x', '1inch', 'cow', 'uniswap'].includes(provider)) {
@@ -426,9 +426,14 @@ Deno.serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Error in onchain-quote function:', error);
+    console.error('swap.error', { code: 'quote_failed', error: error instanceof Error ? error.message : 'Unknown error' });
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    return new Response(JSON.stringify({ error: errorMessage, provider: 'unknown' }), {
+    return new Response(JSON.stringify({ 
+      ok: false,
+      code: 'quote_failed',
+      error: errorMessage, 
+      provider: 'unknown' 
+    }), {
       status: 502,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -679,6 +684,8 @@ async function build0xPriceResponse(priceData: any, side: string, amount: number
   // Normalize transaction field for execute endpoint
   const txObj = extractZeroXTransaction(priceData);
   if (txObj) raw.transaction = txObj;
+
+  console.log('swap.quote.done', { provider: '0x', price: priceHuman, gasCostQuote, effectiveBpsCost: gasBps });
 
   return new Response(JSON.stringify({
     provider: '0x' as const,
