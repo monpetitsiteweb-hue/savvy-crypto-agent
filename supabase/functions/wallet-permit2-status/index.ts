@@ -1,5 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { BASE_CHAIN_ID, BASE_TOKENS, BASE_0X, BASE_DECIMALS, formatTokenAmount } from '../_shared/addresses.ts';
+import { logger } from '../_shared/logger.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -77,6 +78,8 @@ Deno.serve(async (req) => {
 
   try {
     const { address, token, minAllowance } = await req.json();
+    
+    logger.info('wallet_permit2_status.start', { address, token, minAllowance });
 
     if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
       return new Response(
@@ -156,13 +159,15 @@ Deno.serve(async (req) => {
     const needed = BigInt(minAllowance);
 
     if (currentAmount >= needed) {
+      const result = {
+        ok: true,
+        action: 'none',
+        allowance: currentAmount.toString(),
+        allowanceHuman: formatTokenAmount(currentAmount, decimals),
+      };
+      logger.info('wallet_permit2_status.result', { action: 'none', allowance: currentAmount.toString() });
       return new Response(
-        JSON.stringify({
-          ok: true,
-          action: 'none',
-          allowance: currentAmount.toString(),
-          allowanceHuman: formatTokenAmount(currentAmount, decimals),
-        }),
+        JSON.stringify(result),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -170,22 +175,30 @@ Deno.serve(async (req) => {
     // Need to sign Permit2 approval
     const typedData = buildTypedData(BASE_CHAIN_ID, tokenAddress, BASE_0X.SPENDER);
 
+    const result = {
+      ok: true,
+      action: 'permit2-sign',
+      allowance: currentAmount.toString(),
+      allowanceHuman: formatTokenAmount(currentAmount, decimals),
+      typedData,
+      permit2Contract: PERMIT2,
+      spender: BASE_0X.SPENDER,
+      note: 'Sign this EIP-712 data with your wallet, then call Permit2.permit() with signature',
+    };
+    
+    logger.info('wallet_permit2_status.result', { 
+      action: 'permit2-sign', 
+      currentAllowance: currentAmount.toString(),
+      needed: needed.toString() 
+    });
+    
     return new Response(
-      JSON.stringify({
-        ok: true,
-        action: 'permit2-sign',
-        allowance: currentAmount.toString(),
-        allowanceHuman: formatTokenAmount(currentAmount, decimals),
-        typedData,
-        permit2Contract: PERMIT2,
-        spender: BASE_0X.SPENDER,
-        note: 'Sign this EIP-712 data with your wallet, then call Permit2.permit() with signature',
-      }),
+      JSON.stringify(result),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
-    console.error('wallet-permit2-status error:', error);
+    logger.error('wallet_permit2_status.error', { error: String(error) });
     return new Response(
       JSON.stringify({ error: String(error) }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

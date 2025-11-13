@@ -5,6 +5,7 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { BASE_CHAIN_ID } from '../_shared/addresses.ts';
 import { makePermit2Payload } from '../_shared/permit2Payload.ts';
 import { signPermit2Single } from '../_shared/permit2Signer.ts';
+import { logger } from '../_shared/logger.ts';
 
 const PROJECT_URL = Deno.env.get('SB_URL')!;
 const SERVICE_ROLE = Deno.env.get('SB_SERVICE_ROLE')!;
@@ -426,7 +427,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Received execute request: ${side} ${amount} ${base}/${quote} on chain ${chainId}, mode=${mode}, simulateOnly=${simulateOnly}`);
+    logger.info('onchain_execute.start', { 
+      side, 
+      amount, 
+      base, 
+      quote, 
+      chainId, 
+      mode, 
+      simulateOnly,
+      provider 
+    });
 
     // ========== Safety Guards ==========
     // Guard 1: MAX_SELL_WEI - Prevent excessively large trades
@@ -565,7 +575,7 @@ Deno.serve(async (req) => {
       quoteData.raw?.sellAmount
     ) {
       try {
-        console.log('permit2.flow.start: Generating Permit2 signature');
+        logger.info('onchain_execute.permit2_status', { tradeId, action: 'signing' });
         
         const sellAmountWei = quoteData.raw.sellAmount;
         const sigDeadlineSec = Math.floor(Date.now() / 1000) + 1800; // 30 minutes
@@ -587,7 +597,9 @@ Deno.serve(async (req) => {
           signer,
         };
         
-        console.log('permit2.flow.complete', { 
+        logger.info('onchain_execute.permit2_status', { 
+          tradeId,
+          action: 'complete',
           signer, 
           amount: sellAmountWei,
           deadline: sigDeadlineSec 
@@ -606,8 +618,12 @@ Deno.serve(async (req) => {
         //  If switching to /swap/permit2/quote, include permit2Data in the quote request.)
         
       } catch (error) {
-        console.error('permit2.flow.error', { error: String(error) });
-        await addTradeEvent(tradeId, 'permit2', 'error', { 
+        logger.error('onchain_execute.permit2_status', { 
+          tradeId,
+          action: 'error',
+          error: String(error) 
+        });
+        await addTradeEvent(tradeId, 'permit2', 'error', {
           error: String(error),
           note: 'Permit2 signing failed, continuing without it' 
         });
@@ -855,7 +871,7 @@ Deno.serve(async (req) => {
         );
       }
 
-      console.log('Sending signed transaction...');
+      logger.info('onchain_execute.broadcast', { tradeId, mode: 'send' });
       const sendResult = await sendRawTransaction(chainId, signedTx);
 
       if (!sendResult.success) {
@@ -919,7 +935,10 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('Execute error:', error);
+    logger.error('onchain_execute.error', { 
+      error: String(error), 
+      stack: error instanceof Error ? error.stack : undefined 
+    });
     return new Response(
       JSON.stringify({ error: String(error) }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
