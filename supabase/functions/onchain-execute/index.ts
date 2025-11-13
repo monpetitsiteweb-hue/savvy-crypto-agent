@@ -1,3 +1,35 @@
+/**
+ * On-Chain Swap Execution API (Base 8453 - WETH→USDC via 0x v2)
+ * 
+ * Safety Controls:
+ * - EXECUTION_DRY_RUN: Default true (safe by default). Set to 'false' for live execution.
+ * - MAX_SELL_WEI: Maximum sell amount per trade (default 0.2 ETH)
+ * - MAX_SLIPPAGE_BPS: Maximum allowed slippage (default 75 bps / 0.75%)
+ * - Request-level dryRun flag: Can be set per-request for testing
+ * 
+ * Modes:
+ * - build: Returns txPayload without broadcasting (for client-side signing)
+ * - send: Broadcasts a pre-signed transaction (requires signedTx)
+ * 
+ * Dry-Run Behavior:
+ * - When EXECUTION_DRY_RUN=true OR body.dryRun=true:
+ *   - Quote is fetched and validated
+ *   - Transaction payload is built
+ *   - Simulation may run (if requested)
+ *   - NO BROADCAST to blockchain
+ *   - Returns txPayload for inspection
+ * 
+ * Live Execution:
+ * - Requires EXECUTION_DRY_RUN='false' in environment
+ * - Mode must be 'send' with a valid signedTx
+ * - All safety guards enforced
+ * 
+ * Logging Keys:
+ * - swap.execute.start
+ * - swap.execute.done
+ * - swap.execute.broadcast
+ * - swap.error (with code: quote_failed, execution_blocked, execution_failed)
+ */
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { simulateCall, sendRawTransaction, waitForReceipt } from '../_shared/eth.ts';
@@ -12,6 +44,9 @@ const SERVICE_ROLE = Deno.env.get('SB_SERVICE_ROLE')!;
 
 // Service role client (bypasses RLS)
 const supabase = createClient(PROJECT_URL, SERVICE_ROLE);
+
+// Safety controls - EXECUTION_DRY_RUN default: true (safe by default)
+const EXECUTION_DRY_RUN = Deno.env.get('EXECUTION_DRY_RUN') !== 'false';
 
 interface ExecuteRequest {
   chainId: number;
@@ -427,7 +462,11 @@ Deno.serve(async (req) => {
       );
     }
 
-    logger.info('onchain_execute.start', { 
+    // Calculate effective dry-run mode
+    const requestDryRun = body.dryRun === true;
+    const effectiveDryRun = EXECUTION_DRY_RUN || requestDryRun;
+    
+    logger.info('swap.execute.start', { 
       side, 
       amount, 
       base, 
@@ -435,7 +474,10 @@ Deno.serve(async (req) => {
       chainId, 
       mode, 
       simulateOnly,
-      provider 
+      provider,
+      EXECUTION_DRY_RUN,
+      requestDryRun,
+      effectiveDryRun
     });
 
     // ========== Safety Guards ==========
@@ -491,10 +533,17 @@ Deno.serve(async (req) => {
       const errorText = await quoteResponse.text();
       const upstreamBody = errorText.substring(0, isDebug ? 2000 : 500);
       
+      logger.error('swap.error', { 
+        code: 'quote_failed', 
+        status: quoteResponse.status,
+        message: 'Failed to fetch quote'
+      });
+      
       if (isDebug) {
         return new Response(
           JSON.stringify({
             ok: false,
+            code: 'quote_failed',
             phase: 'quote',
             upstream: {
               status: quoteResponse.status,
@@ -834,12 +883,20 @@ Deno.serve(async (req) => {
       console.log('Simulation successful');
     }
 
-    // If simulateOnly, return here
-    if (simulateOnly) {
+    // If simulateOnly or effectiveDryRun, return here without broadcasting
+    if (simulateOnly || effectiveDryRun) {
+      logger.info('swap.execute.done', { 
+        tradeId, 
+        status: 'built', 
+        dryRun: effectiveDryRun,
+        simulateOnly 
+      });
+      
       return new Response(
         JSON.stringify({
           tradeId,
           status: 'built',
+          dryRun: effectiveDryRun,
           price: quoteData.price,
           minOut: quoteData.minOut,
           gasCostQuote: quoteData.gasCostQuote,
@@ -847,6 +904,7 @@ Deno.serve(async (req) => {
           txPayload,
           permit2: permit2Data, // Include Permit2 signature data if generated
           raw: quoteData.raw,
+          message: effectiveDryRun ? 'Dry-run mode active - no transaction broadcast' : 'Simulation only',
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -854,6 +912,29 @@ Deno.serve(async (req) => {
 
     // Step 5: Send transaction (if mode=send and signedTx provided)
     if (mode === 'send') {
+      // Block broadcast if dry-run mode is active
+      if (effectiveDryRun) {
+        logger.warn('swap.error', { 
+          code: 'execution_blocked',
+          message: 'Live execution blocked by EXECUTION_DRY_RUN or dryRun flag',
+          EXECUTION_DRY_RUN,
+          requestDryRun
+        });
+        
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            code: 'execution_blocked',
+            message: 'Live execution blocked - EXECUTION_DRY_RUN must be set to false for real swaps',
+            tradeId,
+            dryRun: effectiveDryRun,
+            EXECUTION_DRY_RUN,
+            txPayload,
+          }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       if (!signedTx) {
         return new Response(
           JSON.stringify({
@@ -871,7 +952,7 @@ Deno.serve(async (req) => {
         );
       }
 
-      logger.info('onchain_execute.broadcast', { tradeId, mode: 'send' });
+      logger.info('swap.execute.broadcast', { tradeId, mode: 'send' });
       const sendResult = await sendRawTransaction(chainId, signedTx);
 
       if (!sendResult.success) {
@@ -904,6 +985,8 @@ Deno.serve(async (req) => {
       // For now, return immediately with submitted status
       // In production, you might poll in background or let client poll
 
+      logger.info('swap.execute.done', { tradeId, status: 'submitted', txHash });
+
       return new Response(
         JSON.stringify({
           tradeId,
@@ -935,12 +1018,18 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    logger.error('onchain_execute.error', { 
-      error: String(error), 
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('swap.error', { 
+      error: errorMessage,
       stack: error instanceof Error ? error.stack : undefined 
     });
+    
     return new Response(
-      JSON.stringify({ error: String(error) }),
+      JSON.stringify({ 
+        ok: false,
+        code: 'execution_failed',
+        error: errorMessage
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
