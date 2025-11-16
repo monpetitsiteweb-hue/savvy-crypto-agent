@@ -155,28 +155,35 @@ async function evaluateDecision(
   
   const evaluationEnd = new Date(decisionTime.getTime() + horizonMs);
   
-  // Get price data for the evaluation period
+  // Map symbol format: "ETH" -> "ETH-EUR", "BTC" -> "BTC-EUR", etc.
+  const symbolWithPair = decision.symbol.includes('-') ? decision.symbol : `${decision.symbol}-EUR`;
+  
+  console.log(`🔍 EVALUATOR.price.query: table=market_ohlcv_raw, symbol=${symbolWithPair}, window=${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
+  
+  // Get price data from market_ohlcv_raw (the actual OHLCV table)
   const { data: priceData, error: priceError } = await supabase
-    .from('price_snapshots')
-    .select('price, ts')
-    .eq('symbol', decision.symbol)
-    .gte('ts', decision.decision_ts)
-    .lte('ts', evaluationEnd.toISOString())
-    .order('ts', { ascending: true });
+    .from('market_ohlcv_raw')
+    .select('close, ts_utc')
+    .eq('symbol', symbolWithPair)
+    .gte('ts_utc', decision.decision_ts)
+    .lte('ts_utc', evaluationEnd.toISOString())
+    .order('ts_utc', { ascending: true });
 
   if (priceError) {
-    console.error(`❌ EVALUATOR: Price data error for ${decision.symbol}:`, priceError);
+    console.error(`❌ EVALUATOR: Price data error for ${symbolWithPair}:`, priceError);
     return false;
   }
 
+  console.log(`📊 EVALUATOR.price.rows_found: ${priceData?.length || 0} rows for ${symbolWithPair}`);
+
   if (!priceData || priceData.length === 0) {
-    console.log(`⚠️ EVALUATOR: No price data found for ${decision.symbol} in period`);
+    console.log(`⚠️ EVALUATOR: No price data found for ${symbolWithPair} in period ${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
     return false;
   }
 
   // Calculate metrics
   const entryPrice = decision.entry_price;
-  const prices = priceData.map(p => p.price);
+  const prices = priceData.map(p => p.close); // Use 'close' field from market_ohlcv_raw
   
   // Maximum Favorable Excursion (MFE)
   const maxPrice = Math.max(...prices);
