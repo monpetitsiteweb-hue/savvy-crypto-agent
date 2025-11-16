@@ -116,3 +116,12 @@ verify_jwt = false
 
 [functions.test-live-sell]
 verify_jwt = false
+
+[functions.learning-status]
+verify_jwt = true
+
+[functions.decision-evaluator]
+verify_jwt = true
+
+[functions.calibration-aggregator]
+verify_jwt = true
