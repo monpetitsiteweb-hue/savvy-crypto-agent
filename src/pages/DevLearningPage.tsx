@@ -113,23 +113,28 @@ export function DevLearningPage() {
   }
 
   useEffect(() => {
-    if (user) {
+    if (user && !roleLoading && isAdmin) {
+      console.log('[DevLearningPage] User is admin, fetching data...');
       fetchData();
       fetchLearningStatus();
     }
-  }, [user]);
+  }, [user, roleLoading, isAdmin]);
 
   const fetchLearningStatus = async () => {
     try {
+      console.log('[DevLearningPage] Fetching learning status...');
       const { data, error } = await supabase.functions.invoke('learning-status');
       
       if (error) {
-        console.error('Error fetching learning status:', error);
+        console.error('[DevLearningPage] Error fetching learning status:', error);
+        setLearningStatus(null);
       } else {
+        console.log('[DevLearningPage] Learning status received:', data);
         setLearningStatus(data);
       }
     } catch (err) {
-      console.error('Failed to fetch learning status:', err);
+      console.error('[DevLearningPage] Failed to fetch learning status:', err);
+      setLearningStatus(null);
     }
   };
 
