@@ -76,7 +76,7 @@ interface LearningStatus {
 
 export function DevLearningPage() {
   const { user } = useAuth();
-  const { role } = useUserRole();
+  const { role, loading: roleLoading } = useUserRole();
   const [decisionEvents, setDecisionEvents] = useState<DecisionEvent[]>([]);
   const [decisionOutcomes, setDecisionOutcomes] = useState<DecisionOutcome[]>([]);
   const [calibrationMetrics, setCalibrationMetrics] = useState<CalibrationMetric[]>([]);
@@ -91,6 +91,15 @@ export function DevLearningPage() {
   });
 
   const isAdmin = role === 'admin';
+
+  // Show loading while checking role
+  if (roleLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="text-white">Checking permissions...</div>
+      </div>
+    );
+  }
 
   if (!isAdmin) {
     return (
