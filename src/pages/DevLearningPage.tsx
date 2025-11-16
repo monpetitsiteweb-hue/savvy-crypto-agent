@@ -63,12 +63,24 @@ interface CalibrationMetric {
   created_at: string;
 }
 
+interface LearningStatus {
+  decisions_7d: number;
+  events_7d: number;
+  outcomes_7d: number;
+  metrics_7d: number;
+  last_evaluator_run: string | null;
+  last_aggregator_run: string | null;
+  loop_active: boolean;
+  timestamp: string;
+}
+
 export function DevLearningPage() {
   const { user } = useAuth();
   const { role } = useUserRole();
   const [decisionEvents, setDecisionEvents] = useState<DecisionEvent[]>([]);
   const [decisionOutcomes, setDecisionOutcomes] = useState<DecisionOutcome[]>([]);
   const [calibrationMetrics, setCalibrationMetrics] = useState<CalibrationMetric[]>([]);
+  const [learningStatus, setLearningStatus] = useState<LearningStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [calibrationLoading, setCalibrationLoading] = useState(false);
   const [selectedHorizon, setSelectedHorizon] = useState<string>('1h');
@@ -94,8 +106,23 @@ export function DevLearningPage() {
   useEffect(() => {
     if (user) {
       fetchData();
+      fetchLearningStatus();
     }
   }, [user]);
+
+  const fetchLearningStatus = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke('learning-status');
+      
+      if (error) {
+        console.error('Error fetching learning status:', error);
+      } else {
+        setLearningStatus(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch learning status:', err);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -152,16 +179,22 @@ export function DevLearningPage() {
 
   const triggerEvaluator = async () => {
     try {
+      setCalibrationLoading(true);
       const { data, error } = await supabase.functions.invoke('decision-evaluator');
       if (error) {
         console.error('Error triggering evaluator:', error);
       } else {
-        console.log('Evaluator triggered:', data);
-        // Refresh data after evaluation
-        setTimeout(fetchData, 2000);
+        console.log('✅ Evaluator response:', data);
+        // Refresh data and status after a short delay
+        setTimeout(() => {
+          fetchData();
+          fetchLearningStatus();
+        }, 2000);
       }
     } catch (error) {
       console.error('Error triggering evaluator:', error);
+    } finally {
+      setCalibrationLoading(false);
     }
   };
 
@@ -172,9 +205,12 @@ export function DevLearningPage() {
       if (error) {
         console.error('Error triggering calibration aggregator:', error);
       } else {
-        console.log('Calibration aggregator triggered:', data);
-        // Refresh data after aggregation
-        setTimeout(fetchData, 3000);
+        console.log('✅ Calibration aggregator response:', data);
+        // Refresh data and status after a short delay
+        setTimeout(() => {
+          fetchData();
+          fetchLearningStatus();
+        }, 2000);
       }
     } catch (error) {
       console.error('Error triggering calibration aggregator:', error);
@@ -231,12 +267,87 @@ export function DevLearningPage() {
           <h1 className="text-3xl font-bold text-white mb-2">Learning Loop - Phase 1</h1>
           <p className="text-slate-400">Decision events, outcomes, and performance analysis</p>
           
+          {/* Learning Loop Status Widget */}
+          {learningStatus && (
+            <Card className="my-6 border-primary/20 bg-slate-800/50">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-white">
+                    {learningStatus.loop_active ? (
+                      <CheckCircle className="h-5 w-5 text-green-500" />
+                    ) : (
+                      <AlertTriangle className="h-5 w-5 text-yellow-500" />
+                    )}
+                    Learning Loop Status
+                  </CardTitle>
+                  <Badge variant={learningStatus.loop_active ? "default" : "secondary"}>
+                    {learningStatus.loop_active ? 'Active' : 'Inactive'}
+                  </Badge>
+                </div>
+                <CardDescription className="text-slate-400">
+                  Last 7 days • Test mode only
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <div className="text-2xl font-bold text-white">{learningStatus.decisions_7d}</div>
+                    <div className="text-sm text-slate-400">Decisions</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-white">{learningStatus.events_7d}</div>
+                    <div className="text-sm text-slate-400">Events</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-white">{learningStatus.outcomes_7d}</div>
+                    <div className="text-sm text-slate-400">Outcomes</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-white">{learningStatus.metrics_7d}</div>
+                    <div className="text-sm text-slate-400">Metrics</div>
+                  </div>
+                </div>
+                <Separator className="my-4 bg-slate-700" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-slate-400" />
+                    <span className="text-slate-400">Last Evaluator:</span>
+                    <span className="font-mono text-slate-300">
+                      {learningStatus.last_evaluator_run 
+                        ? new Date(learningStatus.last_evaluator_run).toLocaleString()
+                        : 'Never'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-slate-400" />
+                    <span className="text-slate-400">Last Aggregator:</span>
+                    <span className="font-mono text-slate-300">
+                      {learningStatus.last_aggregator_run 
+                        ? new Date(learningStatus.last_aggregator_run).toLocaleString()
+                        : 'Never'}
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
           <div className="flex gap-4 mt-4">
-            <Button onClick={fetchData} variant="outline">
+            <Button 
+              onClick={() => {
+                fetchData();
+                fetchLearningStatus();
+              }} 
+              variant="outline"
+            >
               Refresh Data
             </Button>
-            <Button onClick={triggerEvaluator} variant="default">
-              Trigger Evaluator
+            <Button 
+              onClick={triggerEvaluator} 
+              variant="default"
+              disabled={calibrationLoading}
+            >
+              {calibrationLoading ? 'Running...' : 'Trigger Evaluator'}
             </Button>
             <Button 
               onClick={triggerCalibrationAggregator} 
