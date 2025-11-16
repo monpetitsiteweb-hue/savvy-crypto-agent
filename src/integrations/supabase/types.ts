@@ -1556,7 +1556,7 @@ export type Database = {
           action_type: string
           created_at: string | null
           id: string
-          ip_address: unknown | null
+          ip_address: unknown
           new_values: Json | null
           old_values: Json | null
           record_id: string | null
@@ -1568,7 +1568,7 @@ export type Database = {
           action_type: string
           created_at?: string | null
           id?: string
-          ip_address?: unknown | null
+          ip_address?: unknown
           new_values?: Json | null
           old_values?: Json | null
           record_id?: string | null
@@ -1580,7 +1580,7 @@ export type Database = {
           action_type?: string
           created_at?: string | null
           id?: string
-          ip_address?: unknown | null
+          ip_address?: unknown
           new_values?: Json | null
           old_values?: Json | null
           record_id?: string | null
@@ -2416,14 +2416,7 @@ export type Database = {
           user_id: string
         }[]
       }
-      armor: {
-        Args: { "": string }
-        Returns: string
-      }
-      dearmor: {
-        Args: { "": string }
-        Returns: string
-      }
+      dearmor: { Args: { "": string }; Returns: string }
       debug_decision_logs: {
         Args: { minutes_back?: number; my_user: string }
         Returns: {
@@ -2439,20 +2432,10 @@ export type Database = {
         Args: { connection_id: string }
         Returns: string
       }
-      gen_random_bytes: {
-        Args: { "": number }
-        Returns: string
-      }
-      gen_random_uuid: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      gen_salt: {
-        Args: { "": string }
-        Returns: string
-      }
+      gen_random_uuid: { Args: never; Returns: string }
+      gen_salt: { Args: { "": string }; Returns: string }
       get_active_oauth_credentials: {
-        Args: Record<PropertyKey, never>
+        Args: never
         Returns: {
           client_id_encrypted: string
           is_sandbox: boolean
@@ -2499,26 +2482,13 @@ export type Database = {
         Args: { access_type?: string; connection_id: string }
         Returns: undefined
       }
-      pg_advisory_unlock: {
-        Args: { key: number }
-        Returns: boolean
-      }
-      pg_try_advisory_lock: {
-        Args: { key: number }
-        Returns: boolean
-      }
+      pg_advisory_unlock: { Args: { key: number }; Returns: boolean }
+      pg_try_advisory_lock: { Args: { key: number }; Returns: boolean }
       pgp_armor_headers: {
         Args: { "": string }
         Returns: Record<string, unknown>[]
       }
-      pgp_key_id: {
-        Args: { "": string }
-        Returns: string
-      }
-      refresh_data_health_metrics: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
+      refresh_data_health_metrics: { Args: never; Returns: undefined }
       reset_breaker: {
         Args: {
           p_breaker: string
