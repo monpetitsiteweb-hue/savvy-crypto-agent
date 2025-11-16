@@ -92,34 +92,6 @@ export function DevLearningPage() {
 
   const isAdmin = role === 'admin';
 
-  // Show loading while checking role
-  if (roleLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
-        <div className="text-white">Checking permissions...</div>
-      </div>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Access Restricted</h1>
-          <p className="text-muted-foreground">This page is currently in development and restricted to administrators.</p>
-        </div>
-      </div>
-    );
-  }
-
-  useEffect(() => {
-    if (user && !roleLoading && isAdmin) {
-      console.log('[DevLearningPage] User is admin, fetching data...');
-      fetchData();
-      fetchLearningStatus();
-    }
-  }, [user, roleLoading, isAdmin]);
-
   const fetchLearningStatus = async () => {
     try {
       console.log('[DevLearningPage] Fetching learning status...');
@@ -190,6 +162,14 @@ export function DevLearningPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (user && !roleLoading && isAdmin) {
+      console.log('[DevLearningPage] User is admin, fetching data...');
+      fetchData();
+      fetchLearningStatus();
+    }
+  }, [user, roleLoading, isAdmin]);
 
   const triggerEvaluator = async () => {
     try {
@@ -265,6 +245,27 @@ export function DevLearningPage() {
     if (price == null) return 'N/A';
     return `€${price.toLocaleString()}`;
   };
+
+  // Show loading while checking role
+  if (roleLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="text-white">Checking permissions...</div>
+      </div>
+    );
+  }
+
+  // Check admin access
+  if (!isAdmin) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-4">Access Restricted</h1>
+          <p className="text-muted-foreground">This page is currently in development and restricted to administrators.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
