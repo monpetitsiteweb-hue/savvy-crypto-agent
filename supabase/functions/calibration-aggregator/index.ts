@@ -55,6 +55,7 @@ serve(async (req) => {
     // Query last 30 days from decision_outcomes
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    console.log(`📅 AGGREGATOR: Reading outcomes from 30-day window (since ${thirtyDaysAgo.toISOString()})`);
 
     const { data: outcomes, error: outcomesError } = await supabase
       .from('decision_outcomes')
@@ -70,11 +71,13 @@ serve(async (req) => {
     const decisionIds = [...new Set((outcomes || []).map(o => o.decision_id).filter(Boolean))];
     
     if (decisionIds.length === 0) {
-      console.log('No decision outcomes found in the last 30 days');
+      console.log('⚠️ AGGREGATOR: No decision outcomes found in the last 30 days');
+      console.log('   This is expected if the decision-evaluator has not run yet');
       return new Response(JSON.stringify({ 
         ok: true, 
         scheduled: isScheduled,
-        processed: 0 
+        processed: 0,
+        message: 'No outcomes to aggregate'
       }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -90,6 +93,8 @@ serve(async (req) => {
     if (eventsError) {
       throw new Error(`Failed to fetch decision events: ${eventsError.message}`);
     }
+
+    console.log(`📊 AGGREGATOR: Found ${outcomes?.length || 0} outcomes and ${events?.length || 0} events`);
 
     // Create a map from decision_id to event data
     const eventMap = new Map<string, { strategy_id: string; confidence: number }>();

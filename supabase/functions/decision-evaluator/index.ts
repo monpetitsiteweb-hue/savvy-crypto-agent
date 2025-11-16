@@ -63,10 +63,16 @@ serve(async (req) => {
 
   try {
     console.log('📊 EVALUATOR: Starting decision evaluation cycle');
+    
+    // Get date range for selection
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    console.log(`📅 EVALUATOR: Selecting decisions from last 7 days (since ${sevenDaysAgo.toISOString()})`);
 
     // Process each horizon
     const horizons = ['15m', '1h', '4h', '24h'];
     let totalOutcomes = 0;
+    let totalPending = 0;
     
     for (const horizon of horizons) {
       console.log(`📋 EVALUATOR: Processing ${horizon} horizon`);
@@ -86,6 +92,7 @@ serve(async (req) => {
       }
 
       console.log(`📋 EVALUATOR: Found ${pendingDecisions.length} pending decisions for ${horizon}`);
+      totalPending += pendingDecisions.length;
 
       // Process each decision
       for (const decision of pendingDecisions as DecisionEvent[]) {
@@ -101,10 +108,14 @@ serve(async (req) => {
       }
     }
 
-    console.log(`📊 EVALUATOR: Completed cycle - created ${totalOutcomes} outcomes`);
+    console.log(`📊 EVALUATOR: Completed cycle`);
+    console.log(`   - Total pending decisions: ${totalPending}`);
+    console.log(`   - Outcomes created: ${totalOutcomes}`);
+    console.log(`   - Success rate: ${totalPending > 0 ? ((totalOutcomes / totalPending) * 100).toFixed(1) : 0}%`);
 
     return new Response(JSON.stringify({
       success: true,
+      pending_decisions: totalPending,
       outcomes_created: totalOutcomes,
       horizons_processed: horizons.length,
       timestamp: new Date().toISOString()
