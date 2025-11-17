@@ -1314,24 +1314,33 @@ async function executeWithMinimalLock(
       }
     }
     
-    // Try to acquire lock with 300ms timeout
-    console.log(`🔒 COORDINATOR: Acquiring minimal lock for atomic section: ${lockKey}`);
+    // Check if this is a position_management intent with entry_price (no lock needed)
+    const isPositionManagement = intent.metadata?.position_management === true;
+    const hasEntryPrice = typeof intent.metadata?.entry_price === 'number';
+    const needsLock = !(isPositionManagement && hasEntryPrice);
     
-    const { data: lockResult } = await supabaseClient.rpc('pg_try_advisory_lock', {
-      key: lockKey
-    });
-
-    if (!lockResult) {
-      // Lock contention in atomic section - defer briefly
-      metrics.blockedByLockCount++;
-      console.log(`🎯 UD_MODE=ON → DEFER: reason=atomic_section_busy_defer symbol=${intent.symbol} retry=${Math.round(200 + Math.random() * 300)}ms`);
+    if (needsLock) {
+      // Try to acquire lock with 300ms timeout for non-position-management intents
+      console.log(`🔒 COORDINATOR: Acquiring minimal lock for atomic section: ${lockKey}`);
       
-      const retryMs = Math.round(200 + Math.random() * 300);
-      return { action: 'DEFER', reason: 'atomic_section_busy_defer', request_id: requestId, retry_in_ms: retryMs };
-    }
+      const { data: lockResult } = await supabaseClient.rpc('pg_try_advisory_lock', {
+        key: lockKey
+      });
 
-    lockAcquired = true;
-    console.log(`🔒 COORDINATOR: Minimal lock acquired - executing atomic section`);
+      if (!lockResult) {
+        // Lock contention in atomic section - defer briefly
+        metrics.blockedByLockCount++;
+        console.log(`🎯 UD_MODE=ON → DEFER: reason=atomic_section_busy_defer symbol=${intent.symbol} retry=${Math.round(200 + Math.random() * 300)}ms`);
+        
+        const retryMs = Math.round(200 + Math.random() * 300);
+        return { action: 'DEFER', reason: 'atomic_section_busy_defer', request_id: requestId, retry_in_ms: retryMs };
+      }
+
+      lockAcquired = true;
+      console.log(`🔒 COORDINATOR: Minimal lock acquired - executing atomic section`);
+    } else {
+      console.log(`✅ POSITION MANAGEMENT: Skipping lock for ${intent.symbol} SELL with entry_price=${intent.metadata.entry_price}`);
+    }
 
     // PHASE 3.1: Capture decision timestamp for latency tracking
     const decision_at = new Date().toISOString();
