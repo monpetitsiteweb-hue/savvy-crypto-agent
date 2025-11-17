@@ -1563,7 +1563,12 @@ async function executeTradeOrder(
         }
 
         if (!fifoAmount || fifoAmount <= 0) {
-          console.log(`🚫 COORDINATOR: SELL blocked - no remaining position to sell`);
+          console.log(`🚫 COORDINATOR: SELL blocked - insufficient_position_size`);
+          // Log BLOCK decision before returning
+          await logDecisionAsync(
+            supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
+            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice
+          );
           return { success: false, error: 'insufficient_position_size' };
         }
 
@@ -1583,6 +1588,11 @@ async function executeTradeOrder(
         };
       } else {
         console.log(`🚫 COORDINATOR: SELL blocked - no buy history found`);
+        // Log BLOCK decision before returning
+        await logDecisionAsync(
+          supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
+          { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice
+        );
         return { success: false, error: 'insufficient_position_size' };
       }
     }
