@@ -948,10 +948,10 @@ async function logDecisionAsync(
             }
           },
           raw_intent: intent as any
-      });
+        });
 
-    console.log(`📋 LEARNING: Logged decision event - ${action} ${baseSymbol} (${reason})`);
-      
+      console.log(`📋 LEARNING: Logged decision event - ${action} ${baseSymbol} (${reason})`);
+    }
   } catch (error) {
     console.error('❌ COORDINATOR: Failed to log decision:', error.message);
   }
@@ -1780,62 +1780,6 @@ async function tripBreaker(
     console.log(`🚨 BREAKER TRIPPED: ${breaker_type} for ${baseSymbol} - ${reason}`);
   } catch (error) {
     console.error('❌ BREAKER TRIP: Failed to trip breaker:', error);
-  }
-}
-
-// Log execution quality metrics
-async function logExecutionQuality(
-  supabaseClient: any,
-  intent: TradeIntent,
-  executionResult: any,
-  decision_at: string,
-  priceData: any
-): Promise<void> {
-  try {
-    const executed_at = executionResult.executed_at || new Date().toISOString();
-    const execution_latency_ms = new Date(executed_at).getTime() - new Date(decision_at).getTime();
-    const decision_price = priceData?.price || executionResult.decision_price;
-    const executed_price = executionResult.executed_price;
-    const slippage_bps = ((executed_price - decision_price) / decision_price) * 10000;
-    const decision_qty = intent.qtySuggested || 0;
-    const executed_qty = executionResult.qty || 0;
-    const partial_fill = executed_qty < decision_qty;
-    
-    // Optional context fields - best effort
-    const spread_bps = priceData?.spreadBps || null;
-    const market_depth = null; // Could be enhanced later
-    const volatility_regime = null; // Could be enhanced later
-
-    const qualityLog = {
-      user_id: intent.userId,
-      strategy_id: intent.strategyId,
-      symbol: toBaseSymbol(intent.symbol),
-      side: intent.side.toLowerCase(),
-      decision_at,
-      executed_at,
-      execution_latency_ms,
-      decision_price,
-      executed_price,
-      decision_qty,
-      executed_qty,
-      partial_fill,
-      slippage_bps,
-      spread_bps,
-      market_depth,
-      volatility_regime,
-      trade_id: executionResult.tradeId
-    };
-
-    await supabaseClient.from('execution_quality_log').insert([qualityLog]);
-    console.log('📊 EXECUTION QUALITY: Logged execution metrics', {
-      symbol: qualityLog.symbol,
-      side: qualityLog.side,
-      slippage_bps: qualityLog.slippage_bps,
-      execution_latency_ms: qualityLog.execution_latency_ms,
-      partial_fill: qualityLog.partial_fill
-    });
-  } catch (error) {
-    console.error('❌ EXECUTION QUALITY: Failed to log metrics:', error);
   }
 }
 
