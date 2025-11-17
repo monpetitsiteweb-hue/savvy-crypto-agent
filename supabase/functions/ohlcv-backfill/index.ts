@@ -101,11 +101,15 @@ async function fetchCoinbaseCandlesPaginated(
 
       const url = `https://api.exchange.coinbase.com/products/${symbol}/candles?start=${currentStart.toISOString()}&end=${currentEnd.toISOString()}&granularity=${granularitySeconds}`;
       
+      logger.info(`📡 Fetching Coinbase: ${url.substring(0, 100)}...`);
+      
       const response = await fetch(url, {
         headers: {
           'User-Agent': 'ScalpSmart/1.0',
         },
       });
+
+      logger.info(`📊 Coinbase response: ${symbol} ${granularity} - Status: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
         if (response.status === 429) {
@@ -118,6 +122,9 @@ async function fetchCoinbaseCandlesPaginated(
           // Reset window start to retry this exact same request
           continue;
         }
+        
+        const errorBody = await response.text().catch(() => 'Unable to read body');
+        logger.error(`❌ Coinbase API error ${response.status} for ${symbol}: ${errorBody}`);
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
@@ -249,10 +256,14 @@ async function upsertCandles(
     .select();
 
   if (error) {
+    logger.error(`❌ Failed to upsert candles for ${symbol} ${granularity}: ${error.message}`);
     throw new Error(`Failed to upsert candles: ${error.message}`);
   }
 
-  return data?.length || 0;
+  const rowsWritten = data?.length || 0;
+  logger.info(`✅ Upserted ${rowsWritten} candles for ${symbol} ${granularity} (${startTs} to ${endTs})`);
+  
+  return rowsWritten;
 }
 
 async function updateHealthMetrics(
@@ -293,6 +304,12 @@ Deno.serve(async (req) => {
   try {
     const cronHeader = (req.headers.get("x-cron-secret") ?? "").trim();
     const cronEnv = (Deno.env.get("CRON_SECRET") ?? "").trim();
+    const hasAuth = !!req.headers.get("authorization");
+    const hasApiKey = !!req.headers.get("apikey");
+
+    // DEBUG: Log function entry
+    logger.info(`🔍 OHLCV Backfill invoked - Method: ${req.method}, Has x-cron-secret: ${!!cronHeader}, Has auth: ${hasAuth}, Has apikey: ${hasApiKey}`);
+    logger.info(`🔍 CRON_SECRET present in env: ${!!cronEnv}, Lengths: header=${cronHeader.length}, env=${cronEnv.length}`);
 
     // Diagnostic probe (only when DEBUG_PROBE=1)
     if (Deno.env.get("DEBUG_PROBE") === "1") {
@@ -313,11 +330,15 @@ Deno.serve(async (req) => {
 
     // Cron secret authentication
     if (!cronEnv || cronHeader !== cronEnv) {
+      logger.error(`❌ Authentication failed - cronEnv present: ${!!cronEnv}, secrets match: ${cronHeader === cronEnv}`);
       return new Response(JSON.stringify({ error: "Unauthorized" }), { 
         status: 403, 
         headers: corsHeaders 
       });
     }
+
+    logger.info(`✅ Authentication successful`);
+
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -404,6 +425,7 @@ Deno.serve(async (req) => {
             logger.info(`✓ ${symbol} ${granularity}: ${synthetic4hCount} synthesized from 1h`);
           } else {
             // Native granularities (1h, 24h)
+            logger.info(`🔄 Processing ${symbol} ${granularity} from ${startTime.toISOString()} to ${endTime.toISOString()}`);
             logger.info(`Backfilling ${symbol} ${granularity} with pagination`);
             
             const candles = await fetchCoinbaseCandlesPaginated(
@@ -414,7 +436,10 @@ Deno.serve(async (req) => {
               rateLimiter
             );
 
+            logger.info(`📦 Fetched ${candles.length} candles for ${symbol} ${granularity}`);
             const upsertedCount = await upsertCandles(supabase, symbol, granularity, candles);
+            logger.info(`💾 Upserted ${upsertedCount} rows for ${symbol} ${granularity}`);
+
             
             // Get latest candle timestamp from fetched data  
             if (candles.length > 0) {
