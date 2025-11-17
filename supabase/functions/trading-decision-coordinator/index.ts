@@ -927,14 +927,16 @@ async function logDecisionAsync(
       });
 
     // PHASE 1 ENHANCEMENT: Log to decision_events for learning loop
-    // Only log EXECUTE decisions (BUY/SELL) that have an entry price
-    if ((action === 'BUY' || action === 'SELL') && executionPrice) {
+    // Log EXECUTE decisions (BUY/SELL) with entry price, OR BLOCK/DEFER decisions with profit analysis
+    const hasEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price;
+    if ((action === 'BUY' || action === 'SELL' || action === 'BLOCK' || action === 'DEFER') && hasEntryPrice) {
       const defaultTpPct = unifiedConfig.confidenceOverrideThreshold * 0.5;
       const defaultSlPct = unifiedConfig.confidenceOverrideThreshold * 0.3;
       const tpPct = intent.metadata?.takeProfitPercentage || defaultTpPct;
       const slPct = intent.metadata?.stopLossPercentage || defaultSlPct;
+      const finalEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price;
 
-      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${action}, entry_price=${executionPrice}, tp_pct=${tpPct}, sl_pct=${slPct}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
+      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${action}, entry_price=${finalEntryPrice}, tp_pct=${tpPct}, sl_pct=${slPct}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
 
       await supabaseClient
         .from('decision_events')
@@ -949,7 +951,7 @@ async function logDecisionAsync(
           expected_pnl_pct: intent.metadata?.expectedPnL || null,
           tp_pct: tpPct,
           sl_pct: slPct,
-          entry_price: executionPrice,
+          entry_price: finalEntryPrice,
           qty_suggested: intent.qtySuggested,
           decision_ts: new Date().toISOString(),
           trade_id: tradeId,
@@ -966,7 +968,7 @@ async function logDecisionAsync(
           raw_intent: intent as any
         });
 
-      console.log(`✅ LEARNING: Successfully logged decision event - ${action} ${baseSymbol} @ ${executionPrice} (reason: ${reason})`);
+      console.log(`✅ LEARNING: Successfully logged decision event - ${action} ${baseSymbol} @ ${finalEntryPrice} (reason: ${reason})`);
     }
   } catch (error) {
     console.error('❌ COORDINATOR: Failed to log decision:', error.message);
@@ -1497,7 +1499,7 @@ async function executeTradeOrder(
           
           // Log decision with profit metadata and current price
           await logDecisionAsync(
-            supabaseClient, intent, 'DEFER', 'blocked_by_insufficient_profit',
+            supabaseClient, intent, 'BLOCK', 'blocked_by_insufficient_profit',
             { enableUnifiedDecisions: true } as UnifiedConfig, requestId, profitGateResult.metadata, undefined, profitGateResult.metadata?.currentPrice
           );
           
