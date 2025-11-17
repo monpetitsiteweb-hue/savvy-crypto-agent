@@ -346,8 +346,9 @@ serve(async (req) => {
         console.log('[coordinator] defer', guardReport);
         
         console.error(`❌ UD_MODE=OFF → DIRECT EXECUTION FAILED: ${executionResult.error}`);
-        // Log decision for audit (async, non-blocking)
-        logDecisionAsync(supabaseClient, intent, 'DEFER', 'direct_execution_failed', unifiedConfig, requestId, undefined);
+        // Log decision for audit (async, non-blocking) - pass price even for DEFER
+        const priceForLog = intent.metadata?._coordinator_price || null;
+        logDecisionAsync(supabaseClient, intent, 'DEFER', 'direct_execution_failed', unifiedConfig, requestId, undefined, undefined, priceForLog);
         
         return new Response(JSON.stringify({
           ok: true,
@@ -408,7 +409,11 @@ serve(async (req) => {
       const guardReport = { circuitBreakerActive: true };
       console.log('[coordinator] defer', guardReport);
       
-      logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_circuit_breaker', unifiedConfig, requestId, { breaker_types: breakerCheck.breaker_types });
+      // Get current price for context
+      const baseSymbol = toBaseSymbol(intent.symbol);
+      const priceData = await getMarketPrice(baseSymbol, 15000);
+      
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_circuit_breaker', unifiedConfig, requestId, { breaker_types: breakerCheck.breaker_types }, undefined, priceData.price);
       return new Response(JSON.stringify({
         ok: true,
         decision: { 
@@ -479,7 +484,12 @@ serve(async (req) => {
         
         console.log(`🎯 UD_MODE=ON → DEFER: reason=${conflictResult.reason} symbol=${intent.symbol}`);
         cacheDecision(idempotencyKey, { action: 'DEFER', reason: conflictResult.reason as Reason, request_id: requestId, retry_in_ms: 0 });
-        logDecisionAsync(supabaseClient, intent, 'DEFER', conflictResult.reason as Reason, unifiedConfig, requestId, undefined);
+        
+        // Get current price for context
+        const baseSymbol = toBaseSymbol(intent.symbol);
+        const priceData = await getMarketPrice(baseSymbol, 15000);
+        
+        logDecisionAsync(supabaseClient, intent, 'DEFER', conflictResult.reason as Reason, unifiedConfig, requestId, undefined, undefined, priceData.price);
         
         return new Response(JSON.stringify({
           ok: true,
@@ -924,6 +934,8 @@ async function logDecisionAsync(
       const tpPct = intent.metadata?.takeProfitPercentage || defaultTpPct;
       const slPct = intent.metadata?.stopLossPercentage || defaultSlPct;
 
+      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${action}, entry_price=${executionPrice}, tp_pct=${tpPct}, sl_pct=${slPct}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
+
       await supabaseClient
         .from('decision_events')
         .insert({
@@ -954,7 +966,7 @@ async function logDecisionAsync(
           raw_intent: intent as any
         });
 
-      console.log(`📋 LEARNING: Logged decision event - ${action} ${baseSymbol} (${reason})`);
+      console.log(`✅ LEARNING: Successfully logged decision event - ${action} ${baseSymbol} @ ${executionPrice} (reason: ${reason})`);
     }
   } catch (error) {
     console.error('❌ COORDINATOR: Failed to log decision:', error.message);
