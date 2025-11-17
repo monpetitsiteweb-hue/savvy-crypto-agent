@@ -261,7 +261,14 @@ async function upsertCandles(
   }
 
   const rowsWritten = data?.length || 0;
-  logger.info(`✅ Upserted ${rowsWritten} candles for ${symbol} ${granularity} (${startTs} to ${endTs})`);
+  
+  if (rowsWritten > 0 && candles.length > 0) {
+    const firstTs = new Date(candles[0][0] * 1000).toISOString();
+    const lastTs = new Date(candles[candles.length - 1][0] * 1000).toISOString();
+    logger.info(`✅ Upserted ${rowsWritten} candles for ${symbol} ${granularity} (${firstTs} to ${lastTs})`);
+  } else {
+    logger.info(`✅ Upserted ${rowsWritten} candles for ${symbol} ${granularity}`);
+  }
   
   return rowsWritten;
 }
