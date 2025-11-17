@@ -1159,19 +1159,26 @@ async function detectConflicts(
   }
 
   // UNIVERSAL HOLD PERIOD CHECK - All SELL intents (first in order)
+  // Skip for position management intents that already have entry_price
   if (intent.side === 'SELL') {
-    const lastBuy = trades.find(t => t.trade_type === 'buy');
-    if (lastBuy) {
-      const timeSinceBuy = Date.now() - new Date(lastBuy.executed_at).getTime();
-      const minHoldPeriodMs = config.minHoldPeriodMs || 300000; // 5 minutes default
-      
-      if (timeSinceBuy < minHoldPeriodMs) {
-        guardReport.holdPeriodNotMet = true;
-        return { hasConflict: true, reason: 'hold_min_period_not_met', guardReport };
+    const isPositionManagement = intent.metadata?.position_management === true && intent.metadata?.entry_price != null;
+    
+    if (!isPositionManagement) {
+      const lastBuy = trades.find(t => t.trade_type === 'buy');
+      if (lastBuy) {
+        const timeSinceBuy = Date.now() - new Date(lastBuy.executed_at).getTime();
+        const minHoldPeriodMs = config.minHoldPeriodMs || 300000; // 5 minutes default
+        
+        if (timeSinceBuy < minHoldPeriodMs) {
+          guardReport.holdPeriodNotMet = true;
+          return { hasConflict: true, reason: 'hold_min_period_not_met', guardReport };
+        }
+      } else {
+        guardReport.positionNotFound = true;
+        return { hasConflict: true, reason: 'no_position_found', guardReport };
       }
     } else {
-      guardReport.positionNotFound = true;
-      return { hasConflict: true, reason: 'no_position_found', guardReport };
+      console.log(`✅ POSITION MANAGEMENT: Skipping FIFO validation for ${intent.symbol} SELL with entry_price=${intent.metadata.entry_price}`);
     }
   }
 
@@ -1466,8 +1473,14 @@ async function executeTradeOrder(
     } else {
       // SELL GATE: Profit-aware logic
       if (intent.side === 'SELL') {
+        // Pass entry_price from metadata if available (position management)
+        const entryPriceOverride = intent.metadata?.entry_price;
+        if (entryPriceOverride) {
+          console.log(`📍 Using entry_price from metadata: ${entryPriceOverride} for profit gate evaluation`);
+        }
+        
         const profitGateResult = await evaluateProfitGate(
-          supabaseClient, intent, strategyConfig, realMarketPrice, requestId
+          supabaseClient, intent, strategyConfig, realMarketPrice, requestId, entryPriceOverride
         );
         
         if (!profitGateResult.allowed) {
@@ -1807,7 +1820,8 @@ async function evaluateProfitGate(
   intent: TradeIntent,
   strategyConfig: any,
   currentPrice: number,
-  requestId: string
+  requestId: string,
+  entryPriceOverride?: number
 ): Promise<{ allowed: boolean; reason?: string; metadata: any }> {
   
   try {
@@ -1822,32 +1836,45 @@ async function evaluateProfitGate(
       confidenceThresholdForExit: strategyConfig?.confidenceThresholdForExit || 0.60
     };
 
-    // Get recent BUY trades to calculate FIFO position cost basis
-    const { data: buyTrades } = await supabaseClient
-      .from('mock_trades')
-      .select('amount, price, executed_at')
-      .eq('user_id', intent.userId)
-      .eq('strategy_id', intent.strategyId)  
-      .eq('cryptocurrency', baseSymbol)
-      .eq('trade_type', 'buy')
-      .order('executed_at', { ascending: true }); // FIFO order
-
-    // Get existing SELL trades to calculate what's already been sold
-    const { data: sellTrades } = await supabaseClient
-      .from('mock_trades')
-      .select('original_purchase_amount, original_purchase_value')
-      .eq('user_id', intent.userId)
-      .eq('strategy_id', intent.strategyId)
-      .eq('cryptocurrency', baseSymbol) 
-      .eq('trade_type', 'sell')
-      .not('original_purchase_amount', 'is', null);
-
-    if (!buyTrades || buyTrades.length === 0) {
-      return {
-        allowed: false,
-        reason: 'no_position_to_sell',
-        metadata: { error: 'No BUY trades found for position' }
-      };
+    // Get recent BUY trades to calculate FIFO position cost basis (skip if using override)
+    let buyTrades: any[] | null = null;
+    let sellTrades: any[] | null = null;
+    
+    if (!entryPriceOverride) {
+      const buyResult = await supabaseClient
+        .from('mock_trades')
+        .select('amount, price, executed_at')
+        .eq('user_id', intent.userId)
+        .eq('strategy_id', intent.strategyId)  
+        .eq('cryptocurrency', baseSymbol)
+        .eq('trade_type', 'buy')
+        .order('executed_at', { ascending: true }); // FIFO order
+      
+      buyTrades = buyResult.data;
+      
+      // Get existing SELL trades to calculate what's already been sold
+      const sellResult = await supabaseClient
+        .from('mock_trades')
+        .select('original_purchase_amount, original_purchase_value')
+        .eq('user_id', intent.userId)
+        .eq('strategy_id', intent.strategyId)
+        .eq('cryptocurrency', baseSymbol) 
+        .eq('trade_type', 'sell')
+        .not('original_purchase_amount', 'is', null);
+      
+      sellTrades = sellResult.data;
+      
+      if (!buyTrades || buyTrades.length === 0) {
+        return {
+          allowed: false,
+          reason: 'no_position_to_sell',
+          metadata: { error: 'No BUY trades found for position' }
+        };
+      }
+    } else {
+      console.log(`📍 Skipping FIFO queries - using entry price override: ${entryPriceOverride}`);
+      buyTrades = [];
+      sellTrades = [];
     }
 
     // Calculate remaining position using FIFO
@@ -1901,15 +1928,23 @@ async function evaluateProfitGate(
       totalSold -= (buyAmount - availableFromThisBuy);
     }
 
-    if (totalPurchaseAmount === 0) {
-      return {
-        allowed: false,
-        reason: 'insufficient_position_size',
-        metadata: { error: 'No remaining position to sell' }
-      };
+    // Use override entry price if provided (from position management metadata)
+    let avgPurchasePrice: number;
+    if (entryPriceOverride != null) {
+      avgPurchasePrice = entryPriceOverride;
+      totalPurchaseAmount = intent.qtySuggested || 0.001; // Use suggested qty for position management
+      totalPurchaseValue = avgPurchasePrice * totalPurchaseAmount;
+      console.log(`📍 Using entry price override: ${avgPurchasePrice} for P&L calculation`);
+    } else {
+      if (totalPurchaseAmount === 0) {
+        return {
+          allowed: false,
+          reason: 'insufficient_position_size',
+          metadata: { error: 'No remaining position to sell' }
+        };
+      }
+      avgPurchasePrice = totalPurchaseValue / totalPurchaseAmount;
     }
-
-    const avgPurchasePrice = totalPurchaseValue / totalPurchaseAmount;
     const sellAmount = intent.qtySuggested || 0.001;
     const sellValue = sellAmount * currentPrice;
     const pnlEur = sellValue - totalPurchaseValue;
