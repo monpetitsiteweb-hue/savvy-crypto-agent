@@ -120,6 +120,9 @@ verify_jwt = false
 [functions.learning-status]
 verify_jwt = true
 
+[functions.learning-debug]
+verify_jwt = true
+
 [functions.decision-evaluator]
 verify_jwt = true
 
