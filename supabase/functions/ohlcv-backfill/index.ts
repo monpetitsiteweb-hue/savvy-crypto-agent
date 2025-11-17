@@ -328,16 +328,21 @@ Deno.serve(async (req) => {
       }));
     }
 
-    // Cron secret authentication
-    if (!cronEnv || cronHeader !== cronEnv) {
-      logger.error(`❌ Authentication failed - cronEnv present: ${!!cronEnv}, secrets match: ${cronHeader === cronEnv}`);
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { 
+    // Flexible authentication: Accept EITHER cron secret OR JWT
+    // - If CRON_SECRET is configured AND x-cron-secret header is provided, validate them
+    // - Otherwise, rely on JWT authentication (verify_jwt=true enforced by Supabase)
+    // This allows both scheduled runs (GitHub with cron secret) and manual runs (JWT auth)
+    const useCronAuth = cronEnv && cronHeader;
+    
+    if (useCronAuth && cronHeader !== cronEnv) {
+      logger.error(`❌ Cron secret mismatch - authentication failed`);
+      return new Response(JSON.stringify({ error: "Unauthorized: Invalid cron secret" }), { 
         status: 403, 
         headers: corsHeaders 
       });
     }
 
-    logger.info(`✅ Authentication successful`);
+    logger.info(`✅ Authentication successful (mode: ${useCronAuth ? 'cron-secret' : 'jwt'})`);
 
 
     const supabase = createClient(
