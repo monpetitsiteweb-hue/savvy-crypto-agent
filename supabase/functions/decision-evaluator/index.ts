@@ -94,6 +94,12 @@ serve(async (req) => {
     let totalSkippedOld = 0;
     let totalSkippedNoData = 0;
     
+    // Detailed skip reason tracking
+    let skippedMissingEntryPrice = 0;
+    let skippedNoOhlcvData = 0;
+    let skippedOhlcvInsufficient = 0;
+    let skippedOther = 0;
+    
     for (const horizon of horizons) {
       console.log(`📋 EVALUATOR: Processing ${horizon} horizon`);
       
@@ -147,14 +153,26 @@ serve(async (req) => {
           // For backfill mode, pass a very old date to disable any date filtering
           const dateParam = isBackfillMode ? new Date(0) : (thirtyDaysAgo || new Date(0));
           const result = await evaluateDecision(supabase, decision, horizon, dateParam);
+          
           if (result === 'success') {
             totalOutcomes++;
             console.log(`✅ EVALUATOR: Created outcome for decision ${decision.id} (${horizon})`);
+          } else if (result === 'missing_entry_price') {
+            skippedMissingEntryPrice++;
+            totalSkippedNoData++;
+          } else if (result === 'no_ohlcv_data') {
+            skippedNoOhlcvData++;
+            totalSkippedNoData++;
+          } else if (result === 'ohlcv_insufficient') {
+            skippedOhlcvInsufficient++;
+            totalSkippedNoData++;
           } else if (result === 'no_data') {
+            skippedOther++;
             totalSkippedNoData++;
           }
         } catch (error) {
           console.error(`❌ EVALUATOR: Failed to evaluate decision ${decision.id}:`, error);
+          skippedOther++;
         }
       }
     }
@@ -164,6 +182,11 @@ serve(async (req) => {
     console.log(`   Skipped (old): ${totalSkippedOld}`);
     console.log(`   Skipped (no data): ${totalSkippedNoData}`);
     console.log(`   Outcomes created: ${totalOutcomes}`);
+    console.log(`📊 EVALUATOR SKIP DETAILS:`);
+    console.log(`  - Missing entry_price/tp/sl: ${skippedMissingEntryPrice}`);
+    console.log(`  - No OHLCV data found: ${skippedNoOhlcvData}`);
+    console.log(`  - OHLCV insufficient (<2 rows): ${skippedOhlcvInsufficient}`);
+    console.log(`  - Other reasons: ${skippedOther}`);
     
     if (isBackfillMode) {
       console.log(`🔄 BACKFILL SUMMARY: Evaluated ${totalPending} historical decisions, created ${totalOutcomes} outcomes`);
@@ -179,7 +202,13 @@ serve(async (req) => {
       pending_decisions_skipped_no_data: totalSkippedNoData,
       outcomes_created: totalOutcomes,
       horizons_processed: horizons.length,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      skip_details: {
+        missing_entry_price: skippedMissingEntryPrice,
+        no_ohlcv_data: skippedNoOhlcvData,
+        ohlcv_insufficient: skippedOhlcvInsufficient,
+        other: skippedOther
+      }
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
@@ -202,7 +231,18 @@ async function evaluateDecision(
   decision: DecisionEvent, 
   horizon: string,
   dataStartDate: Date
-): Promise<'success' | 'no_data' | 'skipped'> {
+): Promise<'success' | 'no_data' | 'skipped' | 'missing_entry_price' | 'no_ohlcv_data' | 'ohlcv_insufficient'> {
+  
+  // Validate required fields
+  if (!decision.entry_price || decision.entry_price <= 0) {
+    console.log(`⚠️ EVALUATOR: Decision ${decision.id} has no valid entry_price`);
+    return 'missing_entry_price';
+  }
+  
+  if (!decision.tp_pct || !decision.sl_pct) {
+    console.log(`⚠️ EVALUATOR: Decision ${decision.id} missing tp_pct or sl_pct`);
+    return 'missing_entry_price'; // Group with missing data
+  }
   
   const now = new Date();
   const decisionTime = new Date(decision.decision_ts);
@@ -221,10 +261,11 @@ async function evaluateDecision(
   const symbolWithPair = decision.symbol.includes('-') ? decision.symbol : `${decision.symbol}-EUR`;
   
   // Map horizon to appropriate granularity
+  // CRITICAL FIX: Use 1h for 4h horizon since user only has 1h and 24h data
   const granularity = {
     '15m': '1h',  // Use 1h data for 15m horizon
     '1h': '1h',
-    '4h': '4h',
+    '4h': '1h',   // FIX: Use 1h instead of 4h (user only has 1h and 24h OHLCV)
     '24h': '24h'
   }[horizon] || '1h';
   
@@ -242,20 +283,20 @@ async function evaluateDecision(
 
   if (priceError) {
     console.error(`❌ EVALUATOR: Price data error for ${symbolWithPair}:`, priceError);
-    return 'no_data';
+    return 'no_ohlcv_data';
   }
 
   console.log(`📊 EVALUATOR.price.rows_found: ${priceData?.length || 0} rows for ${symbolWithPair} (granularity: ${granularity})`);
 
   if (!priceData || priceData.length === 0) {
-    console.log(`⚠️ EVALUATOR: No price data found for ${symbolWithPair} (${granularity}) in period ${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
-    return 'no_data';
+    console.log(`⚠️ EVALUATOR: No OHLCV data found for ${symbolWithPair} (${granularity}) in period ${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
+    return 'no_ohlcv_data';
   }
   
   // Additional check: Ensure we have enough data points for meaningful calculation
   if (priceData.length < 2) {
-    console.log(`⚠️ EVALUATOR: Insufficient price data (${priceData.length} rows) for ${symbolWithPair}`);
-    return 'no_data';
+    console.log(`⚠️ EVALUATOR: Insufficient OHLCV data (${priceData.length} rows) for ${symbolWithPair}`);
+    return 'ohlcv_insufficient';
   }
 
   // Calculate metrics
@@ -319,8 +360,9 @@ async function evaluateDecision(
 
   if (insertError) {
     console.error(`❌ EVALUATOR: Failed to insert outcome for ${decision.id}:`, insertError);
-    return 'no_data';
+    return 'no_ohlcv_data';
   }
 
+  console.log(`✅ EVALUATOR: Created outcome for decision ${decision.id} (${symbolWithPair}, ${horizon}): realized_pnl=${realized_pnl_pct.toFixed(2)}%, hit_tp=${hit_tp}, hit_sl=${hit_sl}`);
   return 'success';
 }
