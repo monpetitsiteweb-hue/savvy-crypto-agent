@@ -607,10 +607,14 @@ async function executeTradeDirectly(
     const priceStaleMaxMs = sc.priceStaleMaxMs || 15000;
     const spreadThresholdBps = sc.spreadThresholdBps || 15;
     
-    const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
-    const realMarketPrice = priceData.price;
-    
-    // Phase 2: Hold period enforcement for ALL SELLs
+      const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
+      const realMarketPrice = priceData.price;
+      
+      // Store price for decision logging
+      intent.metadata = intent.metadata || {};
+      intent.metadata._coordinator_price = realMarketPrice;
+      
+      // Phase 2: Hold period enforcement for ALL SELLs
     if (intent.side === 'SELL') {
       // Fetch the most recent BUY for the same user/strategy/symbol
       const { data: recentBuys } = await supabaseClient
@@ -639,7 +643,7 @@ async function executeTradeDirectly(
             confidenceOverrideThreshold: 0.70
           };
           
-          await logDecisionAsync(supabaseClient, intent, 'DEFER', 'hold_min_period_not_met', pseudoUnifiedConfig, requestId, undefined);
+          await logDecisionAsync(supabaseClient, intent, 'DEFER', 'hold_min_period_not_met', pseudoUnifiedConfig, requestId, undefined, undefined, realMarketPrice);
           
           return { success: false, error: 'hold_min_period_not_met' };
         }
@@ -1206,14 +1210,14 @@ async function executeWithMinimalLock(
     // Price freshness gate
     if (priceData.tickAgeMs > priceStaleMaxMs) {
       console.log(`🚫 COORDINATOR: Trade blocked - insufficient price freshness (${priceData.tickAgeMs}ms > ${priceStaleMaxMs}ms)`);
-      logDecisionAsync(supabaseClient, intent, 'DEFER', 'insufficient_price_freshness', config, requestId, undefined);
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'insufficient_price_freshness', config, requestId, undefined, undefined, priceData.price);
       return { action: 'DEFER', reason: 'insufficient_price_freshness', request_id: requestId, retry_in_ms: 0 };
     }
     
     // Spread gate
     if (priceData.spreadBps > spreadThresholdBps) {
       console.log(`🚫 COORDINATOR: Trade blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
-      logDecisionAsync(supabaseClient, intent, 'DEFER', 'spread_too_wide', config, requestId, undefined);
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'spread_too_wide', config, requestId, undefined, undefined, priceData.price);
       return { action: 'DEFER', reason: 'spread_too_wide', request_id: requestId, retry_in_ms: 0 };
     }
     
@@ -1221,7 +1225,7 @@ async function executeWithMinimalLock(
     const breakerCheck = await checkCircuitBreakers(supabaseClient, intent);
     if (breakerCheck.blocked) {
       console.log(`🚫 COORDINATOR: Blocked by circuit breaker - ${breakerCheck.reason}`);
-      logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_circuit_breaker', config, requestId, { breaker_types: breakerCheck.breaker_types });
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_circuit_breaker', config, requestId, { breaker_types: breakerCheck.breaker_types }, undefined, priceData.price);
       return { action: 'DEFER', reason: 'blocked_by_circuit_breaker', request_id: requestId, retry_in_ms: 0 };
     }
     
@@ -1457,10 +1461,10 @@ async function executeTradeOrder(
         if (!profitGateResult.allowed) {
           console.log(`🚫 COORDINATOR: SELL blocked - ${profitGateResult.reason}`);
           
-          // Log decision with profit metadata
+          // Log decision with profit metadata and current price
           await logDecisionAsync(
-            supabaseClient, intent, 'DEFER', 'blocked_by_insufficient_profit', 
-            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, profitGateResult.metadata
+            supabaseClient, intent, 'DEFER', 'blocked_by_insufficient_profit',
+            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, profitGateResult.metadata, undefined, profitGateResult.metadata?.currentPrice
           );
           
           return { 
