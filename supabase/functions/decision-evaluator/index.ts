@@ -64,15 +64,17 @@ serve(async (req) => {
   try {
     console.log('📊 EVALUATOR: Starting decision evaluation cycle');
     
-    // Get date range for selection
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    console.log(`📅 EVALUATOR: Selecting decisions from last 7 days (since ${sevenDaysAgo.toISOString()})`);
+    // Only evaluate decisions from last 30 days where we likely have OHLCV data
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    console.log(`📅 EVALUATOR: Will only evaluate decisions from last 30 days (since ${thirtyDaysAgo.toISOString()})`);
 
     // Process each horizon
     const horizons = ['15m', '1h', '4h', '24h'];
     let totalOutcomes = 0;
     let totalPending = 0;
+    let totalSkippedOld = 0;
+    let totalSkippedNoData = 0;
     
     for (const horizon of horizons) {
       console.log(`📋 EVALUATOR: Processing ${horizon} horizon`);
@@ -92,15 +94,34 @@ serve(async (req) => {
       }
 
       console.log(`📋 EVALUATOR: Found ${pendingDecisions.length} pending decisions for ${horizon}`);
-      totalPending += pendingDecisions.length;
+      
+      // Filter for recent decisions only (last 30 days)
+      const recentDecisions = (pendingDecisions as DecisionEvent[]).filter(d => {
+        const decisionDate = new Date(d.decision_ts);
+        return decisionDate >= thirtyDaysAgo;
+      });
+      
+      const skippedOld = pendingDecisions.length - recentDecisions.length;
+      totalSkippedOld += skippedOld;
+      totalPending += recentDecisions.length;
 
-      // Process each decision
-      for (const decision of pendingDecisions as DecisionEvent[]) {
+      console.log(`📋 EVALUATOR: Processing ${recentDecisions.length} recent decisions (skipped ${skippedOld} older than 30 days)`);
+
+      // Log sample of what we're processing
+      if (recentDecisions.length > 0) {
+        const sample = recentDecisions[0];
+        console.log(`   Sample: ${sample.symbol} at ${sample.decision_ts} (${Math.floor((Date.now() - new Date(sample.decision_ts).getTime()) / (1000 * 60 * 60 * 24))} days old)`);
+      }
+
+      // Process each recent decision
+      for (const decision of recentDecisions) {
         try {
-          const outcome = await evaluateDecision(supabase, decision, horizon);
-          if (outcome) {
+          const result = await evaluateDecision(supabase, decision, horizon, thirtyDaysAgo);
+          if (result === 'success') {
             totalOutcomes++;
             console.log(`✅ EVALUATOR: Created outcome for decision ${decision.id} (${horizon})`);
+          } else if (result === 'no_data') {
+            totalSkippedNoData++;
           }
         } catch (error) {
           console.error(`❌ EVALUATOR: Failed to evaluate decision ${decision.id}:`, error);
@@ -109,13 +130,17 @@ serve(async (req) => {
     }
 
     console.log(`📊 EVALUATOR: Completed cycle`);
-    console.log(`   - Total pending decisions: ${totalPending}`);
+    console.log(`   - Recent pending decisions: ${totalPending}`);
+    console.log(`   - Skipped (too old): ${totalSkippedOld}`);
+    console.log(`   - Skipped (no OHLCV data): ${totalSkippedNoData}`);
     console.log(`   - Outcomes created: ${totalOutcomes}`);
     console.log(`   - Success rate: ${totalPending > 0 ? ((totalOutcomes / totalPending) * 100).toFixed(1) : 0}%`);
 
     return new Response(JSON.stringify({
       success: true,
-      pending_decisions: totalPending,
+      pending_decisions_recent: totalPending,
+      pending_decisions_skipped_old: totalSkippedOld,
+      pending_decisions_skipped_no_data: totalSkippedNoData,
       outcomes_created: totalOutcomes,
       horizons_processed: horizons.length,
       timestamp: new Date().toISOString()
@@ -139,8 +164,9 @@ serve(async (req) => {
 async function evaluateDecision(
   supabase: any, 
   decision: DecisionEvent, 
-  horizon: string
-): Promise<boolean> {
+  horizon: string,
+  dataStartDate: Date
+): Promise<'success' | 'no_data' | 'skipped'> {
   
   const now = new Date();
   const decisionTime = new Date(decision.decision_ts);
@@ -158,27 +184,42 @@ async function evaluateDecision(
   // Map symbol format: "ETH" -> "ETH-EUR", "BTC" -> "BTC-EUR", etc.
   const symbolWithPair = decision.symbol.includes('-') ? decision.symbol : `${decision.symbol}-EUR`;
   
-  console.log(`🔍 EVALUATOR.price.query: table=market_ohlcv_raw, symbol=${symbolWithPair}, window=${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
+  // Map horizon to appropriate granularity
+  const granularity = {
+    '15m': '1h',  // Use 1h data for 15m horizon
+    '1h': '1h',
+    '4h': '4h',
+    '24h': '24h'
+  }[horizon] || '1h';
   
-  // Get price data from market_ohlcv_raw (the actual OHLCV table)
+  console.log(`🔍 EVALUATOR.price.query: table=market_ohlcv_raw, symbol=${symbolWithPair}, granularity=${granularity}, window=${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
+  
+  // Get price data from market_ohlcv_raw with granularity filter
   const { data: priceData, error: priceError } = await supabase
     .from('market_ohlcv_raw')
-    .select('close, ts_utc')
+    .select('close, ts_utc, granularity')
     .eq('symbol', symbolWithPair)
+    .eq('granularity', granularity)
     .gte('ts_utc', decision.decision_ts)
     .lte('ts_utc', evaluationEnd.toISOString())
     .order('ts_utc', { ascending: true });
 
   if (priceError) {
     console.error(`❌ EVALUATOR: Price data error for ${symbolWithPair}:`, priceError);
-    return false;
+    return 'no_data';
   }
 
-  console.log(`📊 EVALUATOR.price.rows_found: ${priceData?.length || 0} rows for ${symbolWithPair}`);
+  console.log(`📊 EVALUATOR.price.rows_found: ${priceData?.length || 0} rows for ${symbolWithPair} (granularity: ${granularity})`);
 
   if (!priceData || priceData.length === 0) {
-    console.log(`⚠️ EVALUATOR: No price data found for ${symbolWithPair} in period ${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
-    return false;
+    console.log(`⚠️ EVALUATOR: No price data found for ${symbolWithPair} (${granularity}) in period ${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
+    return 'no_data';
+  }
+  
+  // Additional check: Ensure we have enough data points for meaningful calculation
+  if (priceData.length < 2) {
+    console.log(`⚠️ EVALUATOR: Insufficient price data (${priceData.length} rows) for ${symbolWithPair}`);
+    return 'no_data';
   }
 
   // Calculate metrics
@@ -241,9 +282,9 @@ async function evaluateDecision(
     });
 
   if (insertError) {
-    console.error(`❌ EVALUATOR: Failed to insert outcome:`, insertError);
-    return false;
+    console.error(`❌ EVALUATOR: Failed to insert outcome for ${decision.id}:`, insertError);
+    return 'no_data';
   }
 
-  return true;
+  return 'success';
 }
