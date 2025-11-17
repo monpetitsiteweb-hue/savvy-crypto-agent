@@ -1608,10 +1608,6 @@ async function executeTradeOrder(
       is_test_mode: true,
       notes: `Coordinator: UD=ON`,
       strategy_trigger: intent.source === 'coordinator_tp' ? `coord_tp|req:${requestId}` : `coord_${intent.source}|req:${requestId}`,
-      // PHASE 3.1: Add execution quality quick fields
-      execution_latency_ms,
-      slippage_bps,
-      partial_fill,
       ...fifoFields
     };
 
@@ -1634,11 +1630,9 @@ async function executeTradeOrder(
       amount: mockTrade.amount,
       price: mockTrade.price,
       total_value: mockTrade.total_value,
-      execution_latency_ms,
-      slippage_bps,
-      partial_fill,
       fifo_fields: fifoFields
     }, null, 2));
+    console.log(`📊 Execution metrics: latency=${execution_latency_ms}ms, slippage=${slippage_bps}bps, partial_fill=${partial_fill}`);
 
     console.log('✅ COORDINATOR: Trade executed successfully');
     return { 
