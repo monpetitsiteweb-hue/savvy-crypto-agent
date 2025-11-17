@@ -279,7 +279,7 @@ serve(async (req) => {
       const priceData = await getMarketPrice(base, 15000);
       const exec = await executeTradeOrder(supabaseClient, { ...intent, symbol: base, qtySuggested: qty }, {}, requestId, priceData);
       return exec.success
-        ? (logDecisionAsync(supabaseClient, intent, 'SELL', 'manual_override_precedence', { enableUnifiedDecisions: false } as UnifiedConfig, requestId, undefined, exec.tradeId),
+        ? (logDecisionAsync(supabaseClient, intent, 'SELL', 'manual_override_precedence', { enableUnifiedDecisions: false } as UnifiedConfig, requestId, undefined, exec.tradeId, priceData?.price),
            respond('SELL', 'manual_override_precedence', requestId, 0, { qty: exec.qty }))
         : new Response(JSON.stringify({
             ok: true,
@@ -329,8 +329,8 @@ serve(async (req) => {
       
       if (executionResult.success) {
         console.log(`🎯 UD_MODE=OFF → DIRECT EXECUTION: action=${intent.side} symbol=${intent.symbol} lock=NONE`);
-        // Log decision for audit (async, non-blocking)
-        logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId, undefined, executionResult.tradeId);
+        // Log decision for audit (async, non-blocking) with execution price
+        logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId, undefined, executionResult.tradeId, executionResult.executed_price);
         return respond(intent.side, 'unified_decisions_disabled_direct_path', requestId, 0, { qty: executionResult.qty });
       } else {
         const guardReport = {
@@ -878,7 +878,8 @@ async function logDecisionAsync(
   unifiedConfig: UnifiedConfig,
   requestId: string,
   profitMetadata?: any,
-  tradeId?: string
+  tradeId?: string,
+  executionPrice?: number
 ): Promise<void> {
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
@@ -912,42 +913,41 @@ async function logDecisionAsync(
       });
 
     // PHASE 1 ENHANCEMENT: Log to decision_events for learning loop
-    const currentPrice = profitMetadata?.position?.current_price;
-    
-    // Prefer strategy config for TP/SL, fallback to confidence-derived values
-    const defaultTpPct = unifiedConfig.confidenceOverrideThreshold * 0.5;
-    const defaultSlPct = unifiedConfig.confidenceOverrideThreshold * 0.3;
-    const tpPct = intent.metadata?.takeProfitPercentage || defaultTpPct;
-    const slPct = intent.metadata?.stopLossPercentage || defaultSlPct;
+    // Only log EXECUTE decisions (BUY/SELL) that have an entry price
+    if ((action === 'BUY' || action === 'SELL') && executionPrice) {
+      const defaultTpPct = unifiedConfig.confidenceOverrideThreshold * 0.5;
+      const defaultSlPct = unifiedConfig.confidenceOverrideThreshold * 0.3;
+      const tpPct = intent.metadata?.takeProfitPercentage || defaultTpPct;
+      const slPct = intent.metadata?.stopLossPercentage || defaultSlPct;
 
-    await supabaseClient
-      .from('decision_events')
-      .insert({
-        user_id: intent.userId,
-        strategy_id: intent.strategyId,
-        symbol: baseSymbol,
-        side: action,
-        source: intent.source,
-        confidence: intent.confidence,
-        reason: `${reason}: ${intent.reason || 'No additional details'}`,
-        expected_pnl_pct: intent.metadata?.expectedPnL || null,
-        tp_pct: tpPct,
-        sl_pct: slPct,
-        entry_price: currentPrice || intent.metadata?.currentPrice || null,
-        qty_suggested: intent.qtySuggested,
-        decision_ts: new Date().toISOString(),
-        trade_id: tradeId,
-        metadata: {
-          request_id: requestId,
-          unifiedConfig,
-          profitAnalysis: profitMetadata,
-          rawIntent: {
-            symbol: intent.symbol,
-            idempotencyKey: intent.idempotencyKey,
-            ts: intent.ts
-          }
-        },
-        raw_intent: intent as any
+      await supabaseClient
+        .from('decision_events')
+        .insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          symbol: baseSymbol,
+          side: action,
+          source: intent.source,
+          confidence: intent.confidence,
+          reason: `${reason}: ${intent.reason || 'No additional details'}`,
+          expected_pnl_pct: intent.metadata?.expectedPnL || null,
+          tp_pct: tpPct,
+          sl_pct: slPct,
+          entry_price: executionPrice,
+          qty_suggested: intent.qtySuggested,
+          decision_ts: new Date().toISOString(),
+          trade_id: tradeId,
+          metadata: {
+            request_id: requestId,
+            unifiedConfig,
+            profitAnalysis: profitMetadata,
+            rawIntent: {
+              symbol: intent.symbol,
+              idempotencyKey: intent.idempotencyKey,
+              ts: intent.ts
+            }
+          },
+          raw_intent: intent as any
       });
 
     console.log(`📋 LEARNING: Logged decision event - ${action} ${baseSymbol} (${reason})`);
@@ -1323,8 +1323,8 @@ async function executeWithMinimalLock(
       await logExecutionQuality(supabaseClient, intent, executionResult, decision_at, priceData);
       await evaluateCircuitBreakers(supabaseClient, intent);
       
-      // Log ENTER/EXIT on successful execution with trade_id
-      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined, executionResult.tradeId);
+      // Log ENTER/EXIT on successful execution with trade_id and execution price
+      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined, executionResult.tradeId, executionResult.executed_price);
       
       return { action: intent.side as DecisionAction, reason: 'no_conflicts_detected', request_id: requestId, retry_in_ms: 0, qty: executionResult.qty };
     } else {
@@ -2128,7 +2128,7 @@ async function executeTPSell(
     if (executionResult.success) {
       console.log(`✅ COORDINATOR: TP SELL executed successfully`);
       
-      // Log TP decision with detailed metadata
+      // Log TP decision with detailed metadata and execution price
       await logDecisionAsync(
         supabaseClient, 
         intent, 
@@ -2137,7 +2137,8 @@ async function executeTPSell(
         config, 
         requestId, 
         tpEvaluation.metadata,
-        executionResult.tradeId
+        executionResult.tradeId,
+        executionResult.executed_price
       );
       
       return { 
@@ -2206,7 +2207,7 @@ async function executeTPSellWithLock(
     if (executionResult.success) {
       console.log(`✅ COORDINATOR: TP SELL executed successfully under lock`);
       
-      // Log TP decision with detailed metadata
+      // Log TP decision with detailed metadata and execution price
       await logDecisionAsync(
         supabaseClient, 
         intent, 
@@ -2215,7 +2216,8 @@ async function executeTPSellWithLock(
         config, 
         requestId, 
         tpEvaluation.metadata,
-        executionResult.tradeId
+        executionResult.tradeId,
+        executionResult.executed_price
       );
       
       return { 
