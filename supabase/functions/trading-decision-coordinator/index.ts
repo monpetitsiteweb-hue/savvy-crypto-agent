@@ -944,7 +944,7 @@ async function logDecisionAsync(
           user_id: intent.userId,
           strategy_id: intent.strategyId,
           symbol: baseSymbol,
-          side: action,
+          side: intent.side, // Use intent.side (BUY/SELL), not action
           source: intent.source,
           confidence: intent.confidence,
           reason: `${reason}: ${intent.reason || 'No additional details'}`,
@@ -956,6 +956,7 @@ async function logDecisionAsync(
           decision_ts: new Date().toISOString(),
           trade_id: tradeId,
           metadata: {
+            action: action, // Store action (BUY/SELL/BLOCK/DEFER) in metadata
             request_id: requestId,
             unifiedConfig,
             profitAnalysis: profitMetadata,
