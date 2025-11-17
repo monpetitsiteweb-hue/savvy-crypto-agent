@@ -36,13 +36,19 @@ serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   );
 
-  // Security check for scheduled calls
-  const hdrSecret = req.headers.get('x-cron-secret');
+  // Parse request body to check for backfill mode
+  let mode = 'default';
   let isScheduled = false;
   try {
-    const b = await req.clone().json();
-    isScheduled = b?.scheduled === true;
+    const body = await req.clone().json();
+    mode = body?.mode || 'default';
+    isScheduled = body?.scheduled === true;
   } catch { /* non-scheduled/manual call */ }
+  
+  const isBackfillMode = mode === 'backfill';
+  
+  // Security check for scheduled calls
+  const hdrSecret = req.headers.get('x-cron-secret');
   
   if (isScheduled) {
     const { data, error } = await supabase
@@ -62,12 +68,24 @@ serve(async (req) => {
   }
 
   try {
-    console.log('📊 EVALUATOR: Starting decision evaluation cycle');
+    console.log(`📊 EVALUATOR: Starting decision evaluation cycle (mode: ${mode})`);
     
-    // Only evaluate decisions from last 30 days where we likely have OHLCV data
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    console.log(`📅 EVALUATOR: Will only evaluate decisions from last 30 days (since ${thirtyDaysAgo.toISOString()})`);
+    // Define time cutoff based on mode
+    let timeFilterMessage = '';
+    let shouldApplyTimeFilter = false;
+    let thirtyDaysAgo: Date | null = null;
+    
+    if (isBackfillMode) {
+      console.log('🔄 BACKFILL MODE: Will evaluate ALL historical decisions with valid OHLCV coverage');
+      timeFilterMessage = 'backfill mode (no time cutoff)';
+    } else {
+      // Default: only evaluate decisions from last 30 days
+      thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      shouldApplyTimeFilter = true;
+      timeFilterMessage = `recent only (last 30 days, since ${thirtyDaysAgo.toISOString()})`;
+      console.log(`📅 EVALUATOR: Will only evaluate decisions from last 30 days (since ${thirtyDaysAgo.toISOString()})`);
+    }
 
     // Process each horizon
     const horizons = ['15m', '1h', '4h', '24h'];
@@ -95,28 +113,40 @@ serve(async (req) => {
 
       console.log(`📋 EVALUATOR: Found ${pendingDecisions.length} pending decisions for ${horizon}`);
       
-      // Filter for recent decisions only (last 30 days)
-      const recentDecisions = (pendingDecisions as DecisionEvent[]).filter(d => {
-        const decisionDate = new Date(d.decision_ts);
-        return decisionDate >= thirtyDaysAgo;
-      });
+      // Filter decisions based on mode
+      let decisionsToProcess: DecisionEvent[];
       
-      const skippedOld = pendingDecisions.length - recentDecisions.length;
-      totalSkippedOld += skippedOld;
-      totalPending += recentDecisions.length;
-
-      console.log(`📋 EVALUATOR: Processing ${recentDecisions.length} recent decisions (skipped ${skippedOld} older than 30 days)`);
+      if (shouldApplyTimeFilter && thirtyDaysAgo) {
+        // Default mode: filter for recent decisions only
+        decisionsToProcess = (pendingDecisions as DecisionEvent[]).filter(d => {
+          const decisionDate = new Date(d.decision_ts);
+          return decisionDate >= thirtyDaysAgo;
+        });
+        
+        const skippedOld = pendingDecisions.length - decisionsToProcess.length;
+        totalSkippedOld += skippedOld;
+        console.log(`📋 EVALUATOR: Processing ${decisionsToProcess.length} recent decisions (skipped ${skippedOld} older than 30 days)`);
+      } else {
+        // Backfill mode: process all pending decisions with valid data
+        decisionsToProcess = pendingDecisions as DecisionEvent[];
+        console.log(`🔄 BACKFILL: Processing ALL ${decisionsToProcess.length} pending decisions (no time filter)`);
+      }
+      
+      totalPending += decisionsToProcess.length;
 
       // Log sample of what we're processing
-      if (recentDecisions.length > 0) {
-        const sample = recentDecisions[0];
-        console.log(`   Sample: ${sample.symbol} at ${sample.decision_ts} (${Math.floor((Date.now() - new Date(sample.decision_ts).getTime()) / (1000 * 60 * 60 * 24))} days old)`);
+      if (decisionsToProcess.length > 0) {
+        const sample = decisionsToProcess[0];
+        const daysOld = Math.floor((Date.now() - new Date(sample.decision_ts).getTime()) / (1000 * 60 * 60 * 24));
+        console.log(`   Sample: ${sample.symbol} ${sample.side} at ${sample.decision_ts} (${daysOld} days old, entry: ${sample.entry_price})`);
       }
 
-      // Process each recent decision
-      for (const decision of recentDecisions) {
+      // Process each decision
+      for (const decision of decisionsToProcess) {
         try {
-          const result = await evaluateDecision(supabase, decision, horizon, thirtyDaysAgo);
+          // For backfill mode, pass a very old date to disable any date filtering
+          const dateParam = isBackfillMode ? new Date(0) : (thirtyDaysAgo || new Date(0));
+          const result = await evaluateDecision(supabase, decision, horizon, dateParam);
           if (result === 'success') {
             totalOutcomes++;
             console.log(`✅ EVALUATOR: Created outcome for decision ${decision.id} (${horizon})`);
@@ -129,15 +159,21 @@ serve(async (req) => {
       }
     }
 
-    console.log(`📊 EVALUATOR: Completed cycle`);
-    console.log(`   - Recent pending decisions: ${totalPending}`);
-    console.log(`   - Skipped (too old): ${totalSkippedOld}`);
-    console.log(`   - Skipped (no OHLCV data): ${totalSkippedNoData}`);
-    console.log(`   - Outcomes created: ${totalOutcomes}`);
-    console.log(`   - Success rate: ${totalPending > 0 ? ((totalOutcomes / totalPending) * 100).toFixed(1) : 0}%`);
+    console.log(`\n✅ EVALUATOR: Evaluation cycle complete (mode: ${mode})`);
+    console.log(`   Total pending: ${totalPending}`);
+    console.log(`   Skipped (old): ${totalSkippedOld}`);
+    console.log(`   Skipped (no data): ${totalSkippedNoData}`);
+    console.log(`   Outcomes created: ${totalOutcomes}`);
+    
+    if (isBackfillMode) {
+      console.log(`🔄 BACKFILL SUMMARY: Evaluated ${totalPending} historical decisions, created ${totalOutcomes} outcomes`);
+    } else {
+      console.log(`   Success rate: ${totalPending > 0 ? ((totalOutcomes / totalPending) * 100).toFixed(1) : 0}%`);
+    }
 
     return new Response(JSON.stringify({
       success: true,
+      mode: mode,
       pending_decisions_recent: totalPending,
       pending_decisions_skipped_old: totalSkippedOld,
       pending_decisions_skipped_no_data: totalSkippedNoData,
