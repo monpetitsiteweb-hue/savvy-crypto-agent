@@ -279,7 +279,7 @@ serve(async (req) => {
       const priceData = await getMarketPrice(base, 15000);
       const exec = await executeTradeOrder(supabaseClient, { ...intent, symbol: base, qtySuggested: qty }, {}, requestId, priceData);
       return exec.success
-        ? (logDecisionAsync(supabaseClient, intent, 'SELL', 'manual_override_precedence', { enableUnifiedDecisions: false } as UnifiedConfig, requestId, undefined, exec.tradeId, priceData?.price),
+        ? (logDecisionAsync(supabaseClient, intent, 'SELL', 'manual_override_precedence', { enableUnifiedDecisions: false } as UnifiedConfig, requestId, undefined, exec.tradeId, priceData?.price, {}),
            respond('SELL', 'manual_override_precedence', requestId, 0, { qty: exec.qty }))
         : new Response(JSON.stringify({
             ok: true,
@@ -330,7 +330,7 @@ serve(async (req) => {
       if (executionResult.success) {
         console.log(`🎯 UD_MODE=OFF → DIRECT EXECUTION: action=${intent.side} symbol=${intent.symbol} lock=NONE`);
         // Log decision for audit (async, non-blocking) with execution price
-        logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId, undefined, executionResult.tradeId, executionResult.executed_price);
+        logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId, undefined, executionResult.tradeId, executionResult.executed_price, strategy.configuration);
         return respond(intent.side, 'unified_decisions_disabled_direct_path', requestId, 0, { qty: executionResult.qty });
       } else {
         const guardReport = {
@@ -348,7 +348,7 @@ serve(async (req) => {
         console.error(`❌ UD_MODE=OFF → DIRECT EXECUTION FAILED: ${executionResult.error}`);
         // Log decision for audit (async, non-blocking) - pass price even for DEFER
         const priceForLog = intent.metadata?._coordinator_price || null;
-        logDecisionAsync(supabaseClient, intent, 'DEFER', 'direct_execution_failed', unifiedConfig, requestId, undefined, undefined, priceForLog);
+        logDecisionAsync(supabaseClient, intent, 'DEFER', 'direct_execution_failed', unifiedConfig, requestId, undefined, undefined, priceForLog, strategy.configuration);
         
         return new Response(JSON.stringify({
           ok: true,
@@ -413,7 +413,7 @@ serve(async (req) => {
       const baseSymbol = toBaseSymbol(intent.symbol);
       const priceData = await getMarketPrice(baseSymbol, 15000);
       
-      logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_circuit_breaker', unifiedConfig, requestId, { breaker_types: breakerCheck.breaker_types }, undefined, priceData.price);
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_circuit_breaker', unifiedConfig, requestId, { breaker_types: breakerCheck.breaker_types }, undefined, priceData.price, strategy.configuration);
       return new Response(JSON.stringify({
         ok: true,
         decision: { 
@@ -489,7 +489,7 @@ serve(async (req) => {
         const baseSymbol = toBaseSymbol(intent.symbol);
         const priceData = await getMarketPrice(baseSymbol, 15000);
         
-        logDecisionAsync(supabaseClient, intent, 'DEFER', conflictResult.reason as Reason, unifiedConfig, requestId, undefined, undefined, priceData.price);
+        logDecisionAsync(supabaseClient, intent, 'DEFER', conflictResult.reason as Reason, unifiedConfig, requestId, undefined, undefined, priceData.price, strategy.configuration);
         
         return new Response(JSON.stringify({
           ok: true,
@@ -653,7 +653,7 @@ async function executeTradeDirectly(
             confidenceOverrideThreshold: 0.70
           };
           
-          await logDecisionAsync(supabaseClient, intent, 'DEFER', 'hold_min_period_not_met', pseudoUnifiedConfig, requestId, undefined, undefined, realMarketPrice);
+          await logDecisionAsync(supabaseClient, intent, 'DEFER', 'hold_min_period_not_met', pseudoUnifiedConfig, requestId, undefined, undefined, realMarketPrice, strategyConfig);
           
           return { success: false, error: 'hold_min_period_not_met' };
         }
@@ -893,7 +893,8 @@ async function logDecisionAsync(
   requestId: string,
   profitMetadata?: any,
   tradeId?: string,
-  executionPrice?: number
+  executionPrice?: number,
+  strategyConfig?: any
 ): Promise<void> {
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
@@ -930,13 +931,12 @@ async function logDecisionAsync(
     // Log EXECUTE decisions (BUY/SELL) with entry price, OR BLOCK/DEFER decisions with profit analysis
     const hasEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price;
     if ((action === 'BUY' || action === 'SELL' || action === 'BLOCK' || action === 'DEFER') && hasEntryPrice) {
-      const defaultTpPct = unifiedConfig.confidenceOverrideThreshold * 0.5;
-      const defaultSlPct = unifiedConfig.confidenceOverrideThreshold * 0.3;
-      const tpPct = intent.metadata?.takeProfitPercentage || defaultTpPct;
-      const slPct = intent.metadata?.stopLossPercentage || defaultSlPct;
+      // Extract TP/SL from strategy config (same defaults as profit gate evaluation)
+      const tpPct = strategyConfig?.takeProfitPercentage || strategyConfig?.configuration?.takeProfitPercentage || 1.5;
+      const slPct = strategyConfig?.stopLossPercentage || strategyConfig?.configuration?.stopLossPercentage || 0.8;
       const finalEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price;
 
-      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${action}, entry_price=${finalEntryPrice}, tp_pct=${tpPct}, sl_pct=${slPct}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
+      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, entry_price=${finalEntryPrice}, tp_pct=${tpPct}, sl_pct=${slPct}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
 
       await supabaseClient
         .from('decision_events')
@@ -1232,14 +1232,14 @@ async function executeWithMinimalLock(
     // Price freshness gate
     if (priceData.tickAgeMs > priceStaleMaxMs) {
       console.log(`🚫 COORDINATOR: Trade blocked - insufficient price freshness (${priceData.tickAgeMs}ms > ${priceStaleMaxMs}ms)`);
-      logDecisionAsync(supabaseClient, intent, 'DEFER', 'insufficient_price_freshness', config, requestId, undefined, undefined, priceData.price);
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'insufficient_price_freshness', config, requestId, undefined, undefined, priceData.price, strategyConfig);
       return { action: 'DEFER', reason: 'insufficient_price_freshness', request_id: requestId, retry_in_ms: 0 };
     }
     
     // Spread gate
     if (priceData.spreadBps > spreadThresholdBps) {
       console.log(`🚫 COORDINATOR: Trade blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
-      logDecisionAsync(supabaseClient, intent, 'DEFER', 'spread_too_wide', config, requestId, undefined, undefined, priceData.price);
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'spread_too_wide', config, requestId, undefined, undefined, priceData.price, strategyConfig);
       return { action: 'DEFER', reason: 'spread_too_wide', request_id: requestId, retry_in_ms: 0 };
     }
     
@@ -1247,7 +1247,7 @@ async function executeWithMinimalLock(
     const breakerCheck = await checkCircuitBreakers(supabaseClient, intent);
     if (breakerCheck.blocked) {
       console.log(`🚫 COORDINATOR: Blocked by circuit breaker - ${breakerCheck.reason}`);
-      logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_circuit_breaker', config, requestId, { breaker_types: breakerCheck.breaker_types }, undefined, priceData.price);
+      logDecisionAsync(supabaseClient, intent, 'DEFER', 'blocked_by_circuit_breaker', config, requestId, { breaker_types: breakerCheck.breaker_types }, undefined, priceData.price, strategyConfig);
       return { action: 'DEFER', reason: 'blocked_by_circuit_breaker', request_id: requestId, retry_in_ms: 0 };
     }
     
@@ -1288,13 +1288,13 @@ async function executeWithMinimalLock(
                 if (timeSinceBuy < cooldownMs) {
                 // TP SELL: Skip cooldown check - TP exits should be fast
                 console.log(`🎯 COORDINATOR: TP SELL bypassing cooldown - taking profit at ${tpEvaluation.pnlPct}%`);
-                return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey);
+                return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey, strategyConfig);
                 }
               }
             }
             
             // TP override is allowed, proceed with locked TP SELL
-            return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey);
+            return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey, strategyConfig);
           }
         }
       } else {
@@ -1307,13 +1307,13 @@ async function executeWithMinimalLock(
             if (timeSinceBuy < cooldownMs) {
             // TP SELL: Skip cooldown check - TP exits should be fast
             console.log(`🎯 COORDINATOR: TP SELL bypassing cooldown - taking profit at ${tpEvaluation.pnlPct}%`);
-            return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey);
+            return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey, strategyConfig);
             }
           }
         }
         
         // No restrictions, proceed with locked TP SELL
-        return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey);
+        return await executeTPSellWithLock(supabaseClient, intent, tpEvaluation, config, requestId, lockKey, strategyConfig);
       }
     }
     
@@ -1359,7 +1359,7 @@ async function executeWithMinimalLock(
       await evaluateCircuitBreakers(supabaseClient, intent);
       
       // Log ENTER/EXIT on successful execution with trade_id and execution price
-      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined, executionResult.tradeId, executionResult.executed_price);
+      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined, executionResult.tradeId, executionResult.executed_price, strategyConfig);
       
       return { action: intent.side as DecisionAction, reason: 'no_conflicts_detected', request_id: requestId, retry_in_ms: 0, qty: executionResult.qty };
     } else {
@@ -1501,7 +1501,7 @@ async function executeTradeOrder(
           // Log decision with profit metadata and current price
           await logDecisionAsync(
             supabaseClient, intent, 'BLOCK', 'blocked_by_insufficient_profit',
-            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, profitGateResult.metadata, undefined, profitGateResult.metadata?.currentPrice
+            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, profitGateResult.metadata, undefined, profitGateResult.metadata?.currentPrice, strategyConfig
           );
           
           return { 
@@ -1570,7 +1570,7 @@ async function executeTradeOrder(
           // Log BLOCK decision before returning
           await logDecisionAsync(
             supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
-            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice
+            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, strategyConfig
           );
           return { success: false, error: 'insufficient_position_size' };
         }
@@ -1594,7 +1594,7 @@ async function executeTradeOrder(
         // Log BLOCK decision before returning
         await logDecisionAsync(
           supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
-          { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice
+          { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, strategyConfig
         );
         return { success: false, error: 'insufficient_position_size' };
       }
@@ -2046,7 +2046,8 @@ async function executeTPSell(
   intent: TradeIntent,
   tpEvaluation: any,
   config: UnifiedConfig,
-  requestId: string
+  requestId: string,
+  strategyConfig: any
 ): Promise<TradeDecision> {
   
   try {
@@ -2065,7 +2066,7 @@ async function executeTPSell(
     const priceData = await getMarketPrice(baseSymbol);
     
     // Execute the TP SELL
-    const executionResult = await executeTradeOrder(supabaseClient, tpSellIntent, {}, requestId, priceData);
+    const executionResult = await executeTradeOrder(supabaseClient, tpSellIntent, strategyConfig, requestId, priceData);
     
     if (executionResult.success) {
       console.log(`✅ COORDINATOR: TP SELL executed successfully`);
@@ -2080,7 +2081,8 @@ async function executeTPSell(
         requestId, 
         tpEvaluation.metadata,
         executionResult.tradeId,
-        executionResult.executed_price
+        executionResult.executed_price,
+        strategyConfig
       );
       
       return { 
@@ -2108,7 +2110,8 @@ async function executeTPSellWithLock(
   tpEvaluation: any,
   config: UnifiedConfig,
   requestId: string,
-  lockKey: number
+  lockKey: number,
+  strategyConfig: any
 ): Promise<TradeDecision> {
   
   let lockAcquired = false;
@@ -2144,7 +2147,7 @@ async function executeTPSellWithLock(
     const priceData = await getMarketPrice(baseSymbol);
     
     // Execute the TP SELL
-    const executionResult = await executeTradeOrder(supabaseClient, tpSellIntent, {}, requestId, priceData);
+    const executionResult = await executeTradeOrder(supabaseClient, tpSellIntent, strategyConfig, requestId, priceData);
     
     if (executionResult.success) {
       console.log(`✅ COORDINATOR: TP SELL executed successfully under lock`);
@@ -2159,7 +2162,9 @@ async function executeTPSellWithLock(
         requestId, 
         tpEvaluation.metadata,
         executionResult.tradeId,
-        executionResult.executed_price
+        executionResult.executed_price,
+        strategyConfig
+      );
       );
       
       return { 
