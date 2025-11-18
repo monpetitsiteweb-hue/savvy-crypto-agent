@@ -2165,9 +2165,8 @@ async function executeTPSellWithLock(
         executionResult.executed_price,
         strategyConfig
       );
-      );
       
-      return { 
+      return {
         action: 'SELL', 
         reason: 'tp_hit', 
         request_id: requestId, 
