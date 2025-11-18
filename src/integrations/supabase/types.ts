@@ -2448,6 +2448,8 @@ export type Database = {
           entry_price: number
           expected_pnl_pct: number
           id: string
+          metadata: Json
+          raw_intent: Json
           side: string
           sl_pct: number
           symbol: string
