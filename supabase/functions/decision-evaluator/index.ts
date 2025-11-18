@@ -17,6 +17,8 @@ interface DecisionEvent {
   tp_pct: number;
   sl_pct: number;
   expected_pnl_pct: number;
+  metadata?: any;  // May contain profitAnalysis.entry_price for old rows
+  raw_intent?: any;  // Legacy: may contain metadata.entry_price
 }
 
 interface PriceSnapshot {
@@ -154,6 +156,11 @@ serve(async (req) => {
 
       // Process each decision
       for (const decision of decisionsToProcess) {
+        console.log(
+          `🔄 EVALUATOR: Processing decision ${decision.id} for horizon ${horizon} ` +
+          `(symbol=${decision.symbol}, side=${decision.side}, ` +
+          `entry_price_col=${decision.entry_price}, tp_pct=${decision.tp_pct}, sl_pct=${decision.sl_pct})`
+        );
         try {
           // For backfill mode, pass a very old date to disable any date filtering
           const dateParam = isBackfillMode ? new Date(0) : (thirtyDaysAgo || new Date(0));
@@ -238,16 +245,51 @@ async function evaluateDecision(
   dataStartDate: Date
 ): Promise<'success' | 'no_data' | 'skipped' | 'missing_entry_price' | 'no_ohlcv_data' | 'ohlcv_insufficient'> {
   
-  // Validate required fields
-  if (!decision.entry_price || decision.entry_price <= 0) {
-    console.log(`⚠️ EVALUATOR: Decision ${decision.id} has no valid entry_price`);
+  // Derive entry price with fallbacks for older data (stored in metadata)
+  const entryPrice =
+    decision.entry_price ??
+    // Old style: profitAnalysis.entry_price
+    decision.metadata?.profitAnalysis?.entry_price ??
+    // Some earlier versions might have put it directly in metadata
+    decision.metadata?.entry_price ??
+    // Very old: inside raw_intent.metadata.entry_price
+    decision.raw_intent?.metadata?.entry_price;
+
+  if (!entryPrice || entryPrice <= 0) {
+    console.log(
+      `⚠️ EVALUATOR: Decision ${decision.id} has no valid entry_price ` +
+      `(column=${decision.entry_price}, ` +
+      `profitAnalysis=${decision.metadata?.profitAnalysis?.entry_price}, ` +
+      `metadata=${decision.metadata?.entry_price}, ` +
+      `raw_intent=${decision.raw_intent?.metadata?.entry_price})`
+    );
     return 'missing_entry_price';
   }
-  
-  if (!decision.tp_pct || !decision.sl_pct) {
-    console.log(`⚠️ EVALUATOR: Decision ${decision.id} missing tp_pct or sl_pct`);
-    return 'missing_entry_price'; // Group with missing data
+
+  // Derive TP/SL similarly, with defaults if needed
+  const tpPct =
+    decision.tp_pct ??
+    decision.metadata?.tp_pct ??
+    decision.metadata?.profitAnalysis?.tp_pct ??
+    null;
+  const slPct =
+    decision.sl_pct ??
+    decision.metadata?.sl_pct ??
+    decision.metadata?.profitAnalysis?.sl_pct ??
+    null;
+
+  if (!tpPct || !slPct) {
+    console.log(
+      `⚠️ EVALUATOR: Decision ${decision.id} missing tp_pct or sl_pct ` +
+      `(tp_pct=${tpPct}, sl_pct=${slPct})`
+    );
+    return 'missing_entry_price';
   }
+
+  console.log(
+    `🔍 EVALUATOR: Decision ${decision.id} derived values: ` +
+    `entry_price=${entryPrice}, tp_pct=${tpPct}, sl_pct=${slPct}`
+  );
   
   const now = new Date();
   const decisionTime = new Date(decision.decision_ts);
@@ -304,8 +346,7 @@ async function evaluateDecision(
     return 'ohlcv_insufficient';
   }
 
-  // Calculate metrics
-  const entryPrice = decision.entry_price;
+  // Calculate metrics - use derived entryPrice from above
   const prices = priceData.map(p => p.close); // Use 'close' field from market_ohlcv_raw
   
   // Maximum Favorable Excursion (MFE)
@@ -331,9 +372,9 @@ async function evaluateDecision(
     ? ((finalPrice - entryPrice) / entryPrice) * 100
     : ((entryPrice - finalPrice) / entryPrice) * 100;
 
-  // Check TP/SL hits
-  const hit_tp = decision.tp_pct && Math.abs(mfe_pct) >= decision.tp_pct;
-  const hit_sl = decision.sl_pct && Math.abs(mae_pct) >= decision.sl_pct;
+  // Check TP/SL hits - use derived tp_pct/sl_pct
+  const hit_tp = tpPct && Math.abs(mfe_pct) >= tpPct;
+  const hit_sl = slPct && Math.abs(mae_pct) >= slPct;
 
   // Missed opportunity (price moved favorably but we didn't capture it)
   const missed_opportunity = Math.abs(mfe_pct) > 2 && Math.abs(realized_pnl_pct) < Math.abs(mfe_pct) * 0.5;
