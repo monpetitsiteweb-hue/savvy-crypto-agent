@@ -39,11 +39,16 @@ serve(async (req) => {
   // Parse request body to check for backfill mode
   let mode = 'default';
   let isScheduled = false;
+  let requestBody = null;
   try {
-    const body = await req.clone().json();
-    mode = body?.mode || 'default';
-    isScheduled = body?.scheduled === true;
-  } catch { /* non-scheduled/manual call */ }
+    requestBody = await req.clone().json();
+    mode = requestBody?.mode || 'default';
+    isScheduled = requestBody?.scheduled === true;
+    console.log(`🔍 EVALUATOR: Received request body:`, JSON.stringify(requestBody));
+    console.log(`🔍 EVALUATOR: Parsed mode="${mode}", scheduled=${isScheduled}`);
+  } catch (e) {
+    console.log(`⚠️ EVALUATOR: Failed to parse request body, defaulting to mode="default"`, e);
+  }
   
   const isBackfillMode = mode === 'backfill';
   
