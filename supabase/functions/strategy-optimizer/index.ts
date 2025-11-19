@@ -106,70 +106,20 @@ serve(async (req) => {
 async function handleEvaluate(supabase: any, userId: string, strategyId: string, symbol?: string) {
   console.log(`[optimizer] EVALUATE: userId=${userId}, strategyId=${strategyId}, symbol=${symbol || 'ALL'}`);
 
-  // Step 1: Get TEST-mode decision symbols
-  let decisionsQuery = supabase
-    .from('decision_events')
-    .select('symbol')
-    .eq('user_id', userId)
-    .eq('strategy_id', strategyId)
-    .contains('metadata', { execution_mode: 'TEST' });
+  // NOTE: At this stage all calibration_metrics are effectively TEST-mode,
+  // because the live execution path is not enabled. We therefore read all
+  // metrics for this user/strategy (optionally filtered by symbol) without
+  // trying to infer execution_mode from decision_events.
 
-  if (symbol) {
-    decisionsQuery = decisionsQuery.eq('symbol', symbol);
-  }
-
-  const { data: testDecisions, error: decisionsError } = await decisionsQuery;
-
-  if (decisionsError) {
-    throw new Error(`Failed to fetch TEST decisions: ${decisionsError.message}`);
-  }
-
-  let testSymbols = [...new Set(testDecisions?.map((d: any) => d.symbol) || [])];
-
-  // Fallback: if no explicit TEST-mode decisions exist, use all decisions for this strategy
-  if (testSymbols.length === 0) {
-    console.log('[optimizer] No explicit TEST-mode decisions found, falling back to all decisions for this strategy');
-
-    let fallbackQuery = supabase
-      .from('decision_events')
-      .select('symbol')
-      .eq('user_id', userId)
-      .eq('strategy_id', strategyId);
-
-    if (symbol) {
-      fallbackQuery = fallbackQuery.eq('symbol', symbol);
-    }
-
-    const { data: fallbackDecisions, error: fallbackError } = await fallbackQuery;
-
-    if (fallbackError) {
-      throw new Error(`Failed to fetch fallback decisions: ${fallbackError.message}`);
-    }
-
-    testSymbols = [...new Set(fallbackDecisions?.map((d: any) => d.symbol) || [])];
-  }
-
-  console.log(`[optimizer] Found ${testSymbols.length} symbols with TEST (or fallback) decisions`);
-
-  if (testSymbols.length === 0) {
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        metrics: [],
-        count: 0,
-        message: 'No decisions found for this strategy'
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
-
-  // Step 2: Query calibration_metrics for these TEST symbols
   let metricsQuery = supabase
     .from('calibration_metrics')
     .select('*')
     .eq('user_id', userId)
-    .eq('strategy_id', strategyId)
-    .in('symbol', testSymbols);
+    .eq('strategy_id', strategyId);
+
+  if (symbol) {
+    metricsQuery = metricsQuery.eq('symbol', symbol);
+  }
 
   const { data: metrics, error: metricsError } = await metricsQuery;
 
@@ -177,7 +127,7 @@ async function handleEvaluate(supabase: any, userId: string, strategyId: string,
     throw new Error(`Failed to fetch calibration metrics: ${metricsError.message}`);
   }
 
-  console.log(`[optimizer] EVALUATE: Found ${metrics?.length || 0} TEST-mode calibration metrics`);
+  console.log(`[optimizer] EVALUATE: Found ${metrics?.length || 0} calibration metrics`);
 
   return new Response(
     JSON.stringify({ 
