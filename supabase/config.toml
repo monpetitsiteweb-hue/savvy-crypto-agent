@@ -128,3 +128,6 @@ verify_jwt = true
 
 [functions.calibration-aggregator]
 verify_jwt = true
+
+[functions.strategy-optimizer]
+verify_jwt = true
