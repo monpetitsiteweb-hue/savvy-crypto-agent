@@ -124,9 +124,32 @@ async function handleEvaluate(supabase: any, userId: string, strategyId: string,
     throw new Error(`Failed to fetch TEST decisions: ${decisionsError.message}`);
   }
 
-  // Get unique symbols from TEST decisions
-  const testSymbols = [...new Set(testDecisions?.map(d => d.symbol) || [])];
-  console.log(`[optimizer] Found ${testSymbols.length} symbols with TEST decisions`);
+  let testSymbols = [...new Set(testDecisions?.map((d: any) => d.symbol) || [])];
+
+  // Fallback: if no explicit TEST-mode decisions exist, use all decisions for this strategy
+  if (testSymbols.length === 0) {
+    console.log('[optimizer] No explicit TEST-mode decisions found, falling back to all decisions for this strategy');
+
+    let fallbackQuery = supabase
+      .from('decision_events')
+      .select('symbol')
+      .eq('user_id', userId)
+      .eq('strategy_id', strategyId);
+
+    if (symbol) {
+      fallbackQuery = fallbackQuery.eq('symbol', symbol);
+    }
+
+    const { data: fallbackDecisions, error: fallbackError } = await fallbackQuery;
+
+    if (fallbackError) {
+      throw new Error(`Failed to fetch fallback decisions: ${fallbackError.message}`);
+    }
+
+    testSymbols = [...new Set(fallbackDecisions?.map((d: any) => d.symbol) || [])];
+  }
+
+  console.log(`[optimizer] Found ${testSymbols.length} symbols with TEST (or fallback) decisions`);
 
   if (testSymbols.length === 0) {
     return new Response(
@@ -134,7 +157,7 @@ async function handleEvaluate(supabase: any, userId: string, strategyId: string,
         success: true, 
         metrics: [],
         count: 0,
-        message: 'No TEST-mode decisions found for this strategy'
+        message: 'No decisions found for this strategy'
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
