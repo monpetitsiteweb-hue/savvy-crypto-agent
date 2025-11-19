@@ -59,16 +59,34 @@ serve(async (req) => {
 
     const { action, userId, strategyId, symbol, proposal }: OptimizationRequest = await req.json();
 
-    console.log(`[strategy-optimizer] action=${action}, userId=${userId}, strategyId=${strategyId}, symbol=${symbol}`);
+    // Derive userId from JWT if not explicitly provided
+    let effectiveUserId = userId;
+    if (!effectiveUserId) {
+      const authHeader = req.headers.get('authorization') || '';
+      const token = authHeader.startsWith('Bearer ')
+        ? authHeader.slice(7)
+        : authHeader;
+
+      if (token) {
+        const { data, error } = await supabase.auth.getUser(token);
+        if (error) {
+          console.warn('[strategy-optimizer] auth.getUser error:', error.message);
+        } else if (data?.user?.id) {
+          effectiveUserId = data.user.id;
+        }
+      }
+    }
+
+    console.log(`[strategy-optimizer] action=${action}, userId=${effectiveUserId}, strategyId=${strategyId}, symbol=${symbol}`);
 
     // Route to action handler
     switch (action) {
       case 'evaluate':
-        return await handleEvaluate(supabase, userId, strategyId, symbol);
+        return await handleEvaluate(supabase, effectiveUserId, strategyId, symbol);
       case 'propose':
-        return await handlePropose(supabase, userId, strategyId, symbol);
+        return await handlePropose(supabase, effectiveUserId, strategyId, symbol);
       case 'apply':
-        return await handleApply(supabase, userId, strategyId, proposal!);
+        return await handleApply(supabase, effectiveUserId, strategyId, proposal!);
       default:
         throw new Error(`Unknown action: ${action}`);
     }
