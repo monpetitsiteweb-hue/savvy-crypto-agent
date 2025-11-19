@@ -88,38 +88,61 @@ serve(async (req) => {
 async function handleEvaluate(supabase: any, userId: string, strategyId: string, symbol?: string) {
   console.log(`[optimizer] EVALUATE: userId=${userId}, strategyId=${strategyId}, symbol=${symbol || 'ALL'}`);
 
-  // Query calibration_metrics filtered by TEST mode via decision_events
-  let query = supabase
-    .from('calibration_metrics')
-    .select(`
-      *,
-      decision_events!inner(metadata)
-    `)
+  // Step 1: Get TEST-mode decision symbols
+  let decisionsQuery = supabase
+    .from('decision_events')
+    .select('symbol')
     .eq('user_id', userId)
-    .eq('strategy_id', strategyId);
+    .eq('strategy_id', strategyId)
+    .contains('metadata', { execution_mode: 'TEST' });
 
   if (symbol) {
-    query = query.eq('symbol', symbol);
+    decisionsQuery = decisionsQuery.eq('symbol', symbol);
   }
 
-  const { data: metrics, error } = await query;
+  const { data: testDecisions, error: decisionsError } = await decisionsQuery;
 
-  if (error) {
-    throw new Error(`Failed to fetch calibration metrics: ${error.message}`);
+  if (decisionsError) {
+    throw new Error(`Failed to fetch TEST decisions: ${decisionsError.message}`);
   }
 
-  // Filter TEST-only metrics (execution_mode = 'TEST')
-  const testMetrics = metrics?.filter((m: any) => 
-    m.decision_events?.metadata?.execution_mode === 'TEST'
-  ) || [];
+  // Get unique symbols from TEST decisions
+  const testSymbols = [...new Set(testDecisions?.map(d => d.symbol) || [])];
+  console.log(`[optimizer] Found ${testSymbols.length} symbols with TEST decisions`);
 
-  console.log(`[optimizer] EVALUATE: Found ${testMetrics.length} TEST-mode metrics`);
+  if (testSymbols.length === 0) {
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        metrics: [],
+        count: 0,
+        message: 'No TEST-mode decisions found for this strategy'
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // Step 2: Query calibration_metrics for these TEST symbols
+  let metricsQuery = supabase
+    .from('calibration_metrics')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('strategy_id', strategyId)
+    .in('symbol', testSymbols);
+
+  const { data: metrics, error: metricsError } = await metricsQuery;
+
+  if (metricsError) {
+    throw new Error(`Failed to fetch calibration metrics: ${metricsError.message}`);
+  }
+
+  console.log(`[optimizer] EVALUATE: Found ${metrics?.length || 0} TEST-mode calibration metrics`);
 
   return new Response(
     JSON.stringify({ 
       success: true, 
-      metrics: testMetrics,
-      count: testMetrics.length
+      metrics: metrics || [],
+      count: metrics?.length || 0
     }),
     { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
   );
