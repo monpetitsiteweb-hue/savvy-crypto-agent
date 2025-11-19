@@ -59,7 +59,20 @@ serve(async (req) => {
 
     const { data: outcomes, error: outcomesError } = await supabase
       .from('decision_outcomes')
-      .select('decision_id, user_id, symbol, horizon, realized_pnl_pct, hit_tp, hit_sl, evaluated_at')
+      .select(`
+        decision_id,
+        user_id,
+        symbol,
+        horizon,
+        realized_pnl_pct,
+        hit_tp,
+        hit_sl,
+        evaluated_at,
+        decision_events!inner(
+          strategy_id,
+          confidence
+        )
+      `)
       .gte('evaluated_at', thirtyDaysAgo.toISOString())
       .order('evaluated_at', { ascending: false });
 
@@ -67,10 +80,7 @@ serve(async (req) => {
       throw new Error(`Failed to fetch decision outcomes: ${outcomesError.message}`);
     }
 
-    // Extract unique decision_ids to fetch corresponding events
-    const decisionIds = [...new Set((outcomes || []).map(o => o.decision_id).filter(Boolean))];
-    
-    if (decisionIds.length === 0) {
+    if (!outcomes || outcomes.length === 0) {
       console.log('⚠️ AGGREGATOR: No decision outcomes found in the last 30 days');
       console.log('   This is expected if the decision-evaluator has not run yet');
       return new Response(JSON.stringify({ 
@@ -84,26 +94,7 @@ serve(async (req) => {
       });
     }
 
-    // Fetch decision events for the decision_ids
-    const { data: events, error: eventsError } = await supabase
-      .from('decision_events')
-      .select('id, strategy_id, confidence')
-      .in('id', decisionIds);
-
-    if (eventsError) {
-      throw new Error(`Failed to fetch decision events: ${eventsError.message}`);
-    }
-
-    console.log(`📊 AGGREGATOR: Found ${outcomes?.length || 0} outcomes and ${events?.length || 0} events`);
-
-    // Create a map from decision_id to event data
-    const eventMap = new Map<string, { strategy_id: string; confidence: number }>();
-    for (const event of events || []) {
-      eventMap.set(event.id, {
-        strategy_id: event.strategy_id,
-        confidence: event.confidence
-      });
-    }
+    console.log(`📊 AGGREGATOR: Found ${outcomes.length} joined outcomes with events`);
 
     // Function to map confidence to confidence band
     const getConfidenceBand = (confidence: number): string => {
@@ -131,7 +122,7 @@ serve(async (req) => {
         continue;
       }
 
-      const eventData = eventMap.get(outcome.decision_id);
+      const eventData = (outcome as any).decision_events;
       if (!eventData || !eventData.strategy_id || eventData.confidence == null) {
         continue;
       }
