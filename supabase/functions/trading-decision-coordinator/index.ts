@@ -927,6 +927,9 @@ async function logDecisionAsync(
         }
       });
 
+    // PHASE 2: Read execution mode (default TEST)
+    const executionMode = Deno.env.get("EXECUTION_MODE") || "TEST";
+
     // PHASE 1 ENHANCEMENT: Log to decision_events for learning loop
     // Log EXECUTE decisions (BUY/SELL) with entry price, OR BLOCK/DEFER decisions with profit analysis
     const hasEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price;
@@ -936,7 +939,7 @@ async function logDecisionAsync(
       const slPct = strategyConfig?.stopLossPercentage || strategyConfig?.configuration?.stopLossPercentage || 0.8;
       const finalEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price;
 
-      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, entry_price=${finalEntryPrice}, tp_pct=${tpPct}, sl_pct=${slPct}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
+      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, execution_mode=${executionMode}, entry_price=${finalEntryPrice}, tp_pct=${tpPct}, sl_pct=${slPct}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
 
       await supabaseClient
         .from('decision_events')
@@ -1408,6 +1411,27 @@ async function getRecentTrades(supabaseClient: any, userId: string, strategyId: 
   return trades || [];
 }
 
+// PHASE 4: Load strategy parameters from DB
+async function loadStrategyParameters(
+  supabaseClient: any,
+  strategyId: string,
+  symbol: string
+): Promise<any | null> {
+  const { data, error } = await supabaseClient
+    .from('strategy_parameters')
+    .select('*')
+    .eq('strategy_id', strategyId)
+    .eq('symbol', symbol)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(`[coordinator] Failed to load strategy_parameters: ${error.message}`);
+    return null;
+  }
+
+  return data;
+}
+
 // Execute trade (reused by both paths)
 async function executeTradeOrder(
   supabaseClient: any,
@@ -1419,6 +1443,24 @@ async function executeTradeOrder(
 ): Promise<{ success: boolean; error?: string; qty?: number; tradeId?: string; executed_at?: string; decision_price?: number; executed_price?: number; partial_fill?: boolean }> {
   
   try {
+    // PHASE 4: Load optimized parameters (override hard-coded config)
+    const baseSymbol = toBaseSymbol(intent.symbol);
+    const params = await loadStrategyParameters(supabaseClient, intent.strategyId, baseSymbol);
+    
+    // Apply parameters (override strategy config if available)
+    if (params) {
+      console.log(`[coordinator] Using optimized parameters for ${baseSymbol}: TP=${params.tp_pct}%, SL=${params.sl_pct}%, confidence=${params.min_confidence}`);
+      strategyConfig = {
+        ...strategyConfig,
+        takeProfitPercentage: params.tp_pct,
+        stopLossPercentage: params.sl_pct,
+        minConfidence: params.min_confidence
+      };
+    }
+
+    // PHASE 5: Read execution mode for branching
+    const executionMode = Deno.env.get("EXECUTION_MODE") || "TEST";
+    console.log(`[coordinator] EXECUTION_MODE=${executionMode} for ${intent.side} ${baseSymbol}`);
     const baseSymbol = toBaseSymbol(intent.symbol); // Define at top to avoid scope issues
     console.log(`💱 COORDINATOR: Executing ${intent.side} order for ${intent.symbol}`);
     
@@ -1608,55 +1650,79 @@ async function executeTradeOrder(
     const slippage_bps = ((executed_price - decision_price) / decision_price) * 10000;
     const partial_fill = false; // Mock trades are always full fills
     
-    // Execute trade - store base symbol only
-    const mockTrade = {
-      user_id: intent.userId,
-      strategy_id: intent.strategyId,
-      trade_type: intent.side.toLowerCase(),
-      cryptocurrency: baseSymbol, // Store base symbol only
-      amount: qty,
-      price: realMarketPrice,
-      total_value: totalValue,
-      executed_at,
-      is_test_mode: true,
-      notes: `Coordinator: UD=ON`,
-      strategy_trigger: intent.source === 'coordinator_tp' ? `coord_tp|req:${requestId}` : `coord_${intent.source}|req:${requestId}`,
-      ...fifoFields
-    };
+    // PHASE 5: Branch execution based on mode
+    if (executionMode === "TEST") {
+      // TEST mode → mock_trades with is_test_mode=true
+      console.log(`[coordinator] TEST MODE: Writing to mock_trades (is_test_mode=true)`);
+      
+      const mockTrade = {
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        trade_type: intent.side.toLowerCase(),
+        cryptocurrency: baseSymbol,
+        amount: qty,
+        price: realMarketPrice,
+        total_value: totalValue,
+        executed_at,
+        is_test_mode: true,  // SECONDARY source
+        notes: `Coordinator: UD=ON (TEST)`,
+        strategy_trigger: intent.source === 'coordinator_tp' ? `coord_tp|req:${requestId}` : `coord_${intent.source}|req:${requestId}`,
+        market_conditions: { execution_mode: executionMode, decision_at, executed_at, latency_ms: execution_latency_ms, request_id: requestId },
+        ...fifoFields
+      };
 
-    const { data: insertResult, error } = await supabaseClient
-      .from('mock_trades')
-      .insert(mockTrade)
-      .select('id');
+      const { data: insertResult, error } = await supabaseClient
+        .from('mock_trades')
+        .insert(mockTrade)
+        .select('id');
 
-    if (error) {
-      console.error('❌ COORDINATOR: Trade execution failed:', error);
-      return { success: false, error: error.message };
+      if (error) {
+        console.error('❌ COORDINATOR: Mock trade insert failed:', error);
+        return { success: false, error: error.message };
+      }
+
+      // STEP 4: PROVE THE WRITE - log successful insert
+      console.log('============ STEP 4: WRITE SUCCESSFUL (TEST MODE) ============');
+      console.log('Inserted row ID:', insertResult?.[0]?.id || 'ID_NOT_RETURNED');
+      console.log('Inserted trade data:', JSON.stringify({
+        symbol: mockTrade.cryptocurrency,
+        side: mockTrade.trade_type,
+        amount: mockTrade.amount,
+        price: mockTrade.price,
+        total_value: mockTrade.total_value,
+        is_test_mode: mockTrade.is_test_mode,
+        fifo_fields: fifoFields
+      }, null, 2));
+      console.log(`📊 Execution metrics: latency=${execution_latency_ms}ms, slippage=${slippage_bps}bps, partial_fill=${partial_fill}`);
+
+      console.log('✅ COORDINATOR TEST: Trade executed successfully');
+      return { 
+        success: true, 
+        qty, 
+        tradeId: insertResult?.[0]?.id,
+        executed_at,
+        decision_price,
+        executed_price,
+        partial_fill
+      };
+
+    } else if (executionMode === "LIVE") {
+      // LIVE mode → trades table (or exchange API)
+      console.log(`[coordinator] LIVE MODE: Would execute real trade (currently disabled for safety)`);
+      
+      // TODO: Integrate with real exchange API
+      // const exchangeResult = await exchangeAPI.executeTrade({...});
+      
+      // For now, return error to prevent accidental LIVE execution
+      return { 
+        success: false, 
+        error: 'LIVE mode execution not yet implemented - manual control required' 
+      };
     }
 
-    // STEP 4: PROVE THE WRITE - log successful insert
-    console.log('============ STEP 4: WRITE SUCCESSFUL ============');
-    console.log('Inserted row ID:', insertResult?.[0]?.id || 'ID_NOT_RETURNED');
-    console.log('Inserted trade data:', JSON.stringify({
-      symbol: mockTrade.cryptocurrency,
-      side: mockTrade.trade_type,
-      amount: mockTrade.amount,
-      price: mockTrade.price,
-      total_value: mockTrade.total_value,
-      fifo_fields: fifoFields
-    }, null, 2));
-    console.log(`📊 Execution metrics: latency=${execution_latency_ms}ms, slippage=${slippage_bps}bps, partial_fill=${partial_fill}`);
-
-    console.log('✅ COORDINATOR: Trade executed successfully');
-    return { 
-      success: true, 
-      qty, 
-      tradeId: insertResult?.[0]?.id,
-      executed_at,
-      decision_price,
-      executed_price,
-      partial_fill
-    };
+    // Fallback (should never reach)
+    console.error('[coordinator] Unknown EXECUTION_MODE:', executionMode);
+    return { success: false, error: `Unknown execution mode: ${executionMode}` };
 
   } catch (error) {
     console.error('❌ COORDINATOR: Trade execution error:', error.message);

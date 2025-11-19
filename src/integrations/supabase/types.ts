@@ -1653,6 +1653,68 @@ export type Database = {
         }
         Relationships: []
       }
+      strategy_parameters: {
+        Row: {
+          ai_weight: number
+          created_at: string
+          id: string
+          last_optimizer_run_at: string | null
+          last_updated_by: string
+          metadata: Json
+          min_confidence: number
+          optimization_iteration: number
+          sl_pct: number
+          strategy_id: string
+          symbol: string
+          technical_weight: number
+          tp_pct: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ai_weight?: number
+          created_at?: string
+          id?: string
+          last_optimizer_run_at?: string | null
+          last_updated_by?: string
+          metadata?: Json
+          min_confidence?: number
+          optimization_iteration?: number
+          sl_pct?: number
+          strategy_id: string
+          symbol: string
+          technical_weight?: number
+          tp_pct?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ai_weight?: number
+          created_at?: string
+          id?: string
+          last_optimizer_run_at?: string | null
+          last_updated_by?: string
+          metadata?: Json
+          min_confidence?: number
+          optimization_iteration?: number
+          sl_pct?: number
+          strategy_id?: string
+          symbol?: string
+          technical_weight?: number
+          tp_pct?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "strategy_parameters_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       strategy_performance: {
         Row: {
           average_gain: number | null
