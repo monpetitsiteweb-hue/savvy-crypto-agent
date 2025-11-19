@@ -192,7 +192,7 @@ async function synthesize4hCandles(
   // Synthesize 4h candles
   const synthetic4h = [];
   for (const [bucketTime, candles] of grouped) {
-    if (candles.length === 4) { // Only complete 4h periods
+    if (candles.length >= 1) { // Allow synthesis with at least 1 candle
       const sortedCandles = candles.sort((a, b) => new Date(a.ts_utc).getTime() - new Date(b.ts_utc).getTime());
       
       synthetic4h.push({
@@ -202,8 +202,8 @@ async function synthesize4hCandles(
         open: sortedCandles[0].open,
         high: Math.max(...sortedCandles.map(c => c.high)),
         low: Math.min(...sortedCandles.map(c => c.low)),
-        close: sortedCandles[3].close,
-        volume: sortedCandles.reduce((sum, c) => sum + c.volume, 0),
+        close: sortedCandles[sortedCandles.length - 1].close,
+        volume: sortedCandles.reduce((sum, c) => sum + (c.volume || 0), 0),
       });
     }
   }
