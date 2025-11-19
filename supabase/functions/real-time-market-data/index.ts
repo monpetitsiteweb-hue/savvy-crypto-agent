@@ -168,7 +168,7 @@ serve(async (req) => {
     if (req.method === 'GET') {
       console.log(`🔄 Starting automated price data collection`)
       
-      const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'LTC-EUR', 'ADA-EUR', 'DOT-EUR', 'LINK-EUR', 'BCH-EUR', 'SOL-EUR', 'MATIC-EUR', 'AVAX-EUR']
+      const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'LTC-EUR', 'ADA-EUR', 'DOT-EUR', 'LINK-EUR', 'BCH-EUR', 'SOL-EUR', 'AVAX-EUR']
       const results = []
       
       // Get or create data source

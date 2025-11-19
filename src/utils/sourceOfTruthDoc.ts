@@ -27,7 +27,7 @@ export const SOURCE_OF_TRUTH_CONFIG = {
     // Pair mappings - ALL calculations use EUR as base
     supported_pairs: [
       'BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR',
-      'DOT-EUR', 'MATIC-EUR', 'AVAX-EUR', 'LINK-EUR', 'LTC-EUR'
+      'DOT-EUR', 'AVAX-EUR', 'LINK-EUR', 'LTC-EUR'
     ],
     
     // Fallback behavior on feed outage
