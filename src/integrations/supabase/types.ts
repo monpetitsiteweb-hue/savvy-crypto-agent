@@ -702,6 +702,69 @@ export type Database = {
         }
         Relationships: []
       }
+      decision_events_legacy: {
+        Row: {
+          confidence: number | null
+          created_at: string | null
+          decision_ts: string | null
+          entry_price: number | null
+          expected_pnl_pct: number | null
+          id: string | null
+          metadata: Json | null
+          qty_suggested: number | null
+          raw_intent: Json | null
+          reason: string | null
+          side: string | null
+          sl_pct: number | null
+          source: string | null
+          strategy_id: string | null
+          symbol: string | null
+          tp_pct: number | null
+          trade_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          confidence?: number | null
+          created_at?: string | null
+          decision_ts?: string | null
+          entry_price?: number | null
+          expected_pnl_pct?: number | null
+          id?: string | null
+          metadata?: Json | null
+          qty_suggested?: number | null
+          raw_intent?: Json | null
+          reason?: string | null
+          side?: string | null
+          sl_pct?: number | null
+          source?: string | null
+          strategy_id?: string | null
+          symbol?: string | null
+          tp_pct?: number | null
+          trade_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string | null
+          decision_ts?: string | null
+          entry_price?: number | null
+          expected_pnl_pct?: number | null
+          id?: string | null
+          metadata?: Json | null
+          qty_suggested?: number | null
+          raw_intent?: Json | null
+          reason?: string | null
+          side?: string | null
+          sl_pct?: number | null
+          source?: string | null
+          strategy_id?: string | null
+          symbol?: string | null
+          tp_pct?: number | null
+          trade_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       decision_outcomes: {
         Row: {
           created_at: string
