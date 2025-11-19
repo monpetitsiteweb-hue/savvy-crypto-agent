@@ -26,7 +26,7 @@ serve(async (req) => {
     let corruptedCount = 0;
 
     // Get current prices for validation
-    const symbols = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'MATIC', 'AVAX', 'LINK', 'LTC'];
+    const symbols = ['BTC', 'ETH', 'XRP', 'ADA', 'SOL', 'DOT', 'AVAX', 'LINK', 'LTC'];
     const currentPrices: Record<string, number> = {};
     
     for (const symbol of symbols) {

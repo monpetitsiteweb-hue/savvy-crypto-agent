@@ -16,7 +16,6 @@ const COINBASE_COINS = [
   { symbol: 'ADA', name: 'Cardano', category: 'altcoin', tradingPair: 'ADA-EUR' },
   { symbol: 'SOL', name: 'Solana', category: 'altcoin', tradingPair: 'SOL-EUR' },
   { symbol: 'DOT', name: 'Polkadot', category: 'altcoin', tradingPair: 'DOT-EUR' },
-  { symbol: 'MATIC', name: 'Polygon', category: 'altcoin', tradingPair: 'MATIC-EUR' },
   { symbol: 'AVAX', name: 'Avalanche', category: 'altcoin', tradingPair: 'AVAX-EUR' },
   { symbol: 'LINK', name: 'Chainlink', category: 'altcoin', tradingPair: 'LINK-EUR' },
   { symbol: 'UNI', name: 'Uniswap', category: 'defi', tradingPair: 'UNI-EUR' },

@@ -8,7 +8,6 @@ export const SUPPORTED_EUR_PAIRS = [
   'ADA-EUR',
   'SOL-EUR',
   'DOT-EUR',
-  'MATIC-EUR',
   'AVAX-EUR',
   'LINK-EUR',
   'UNI-EUR',
@@ -28,7 +27,8 @@ export const SUPPORTED_EUR_PAIRS = [
 export const UNSUPPORTED_EUR_PAIRS = [
   'DAI-EUR',    // 404 - Delisted
   'COMP-EUR',   // 404 - Delisted  
-  'SUSHI-EUR'   // 400 - Not available
+  'SUSHI-EUR',  // 400 - Not available
+  'MATIC-EUR'   // 400 - Delisted
 ];
 
 export interface MarketAvailabilityCheck {
