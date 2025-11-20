@@ -241,6 +241,7 @@ serve(async (req) => {
     }
 
     console.log('[ai-strategy-optimizer] Built AI input with', entries.length, 'entries');
+    console.log('[ai-strategy-optimizer] Debug entries:', JSON.stringify(entries));
 
     if (entries.length === 0) {
       console.log('[ai-strategy-optimizer] No entries to optimize');
@@ -279,18 +280,20 @@ serve(async (req) => {
 
     const systemPrompt = `You are an AI strategy optimizer for a crypto trading engine. You receive aggregated performance metrics for different (strategy_id, symbol) pairs and their current min_confidence thresholds. Your job is to propose new min_confidence values within strict numeric bounds.
 
-Constraints:
+HARD RULES (you MUST follow these exactly):
 - You may only change min_confidence.
 - For each entry, new_min_confidence must satisfy: ${CONF_MIN} ≤ value ≤ ${CONF_MAX}.
 - You must not change min_confidence by more than ${MAX_STEP} (absolute difference) per run.
-- If performance is acceptable or you are unsure, keep the current value.
-- Prefer small, incremental adjustments.
+- If avg_win_rate_pct < 40, you MUST INCREASE min_confidence by at least 0.05 and at most ${MAX_STEP}, unless it is already at ${CONF_MAX}. Choose a value in [current_min_confidence + 0.05, current_min_confidence + ${MAX_STEP}] clamped to [${CONF_MIN}, ${CONF_MAX}].
+- If avg_win_rate_pct > 60, you MUST DECREASE min_confidence by at least 0.05 and at most ${MAX_STEP}, unless it is already at ${CONF_MIN}. Choose a value in [current_min_confidence - ${MAX_STEP}, current_min_confidence - 0.05] clamped to [${CONF_MIN}, ${CONF_MAX}].
+- If 40 ≤ avg_win_rate_pct ≤ 60, you MAY either keep min_confidence unchanged or adjust it slightly, but small changes are preferred.
+- You MUST output at least one suggestion for every entry in the input.
 
 Output strictly valid JSON with this shape:
 { "suggestions": [ { "strategy_id": string, "symbol": string, "new_min_confidence": number, "rationale": string } ] }
 
 Do not include comments or extra keys. Do not wrap JSON in markdown.
-If you decide not to change any entry, return { "suggestions": [] }.`;
+If you decide not to change a given entry, still include it in suggestions with new_min_confidence equal to the current value and an appropriate rationale.`;
 
     console.log('[ai-strategy-optimizer] Calling OpenAI...');
 
