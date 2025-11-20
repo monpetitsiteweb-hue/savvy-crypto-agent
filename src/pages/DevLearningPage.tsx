@@ -92,6 +92,7 @@ interface StrategyHealthRow {
   tp_pct: number | null;
   sl_pct: number | null;
   min_confidence: number | null;
+  param_source: 'override' | 'default';
   sample_count: number | null;
   win_rate_pct: number | null;
   pnl_pct: number | null;
@@ -259,10 +260,10 @@ export function DevLearningPage() {
       setHealthLoading(true);
       console.log('[DevLearningPage] Fetching strategy health data...');
       
-      // Get user's active strategy (assuming the same one used for decisions)
+      // Get user's active strategy with full configuration
       const { data: strategies, error: stratError } = await supabase
         .from('trading_strategies')
-        .select('id')
+        .select('id, configuration')
         .eq('user_id', user.id)
         .eq('is_active', true)
         .limit(1);
@@ -272,12 +273,15 @@ export function DevLearningPage() {
         return;
       }
       
-      const strategyId = strategies?.[0]?.id;
-      if (!strategyId) {
+      const strategy = strategies?.[0];
+      if (!strategy) {
         console.log('[DevLearningPage] No active strategy found');
         setStrategyHealthData([]);
         return;
       }
+      
+      const strategyId = strategy.id;
+      const config = strategy.configuration as any;
       
       console.log(`[DevLearningPage] Using strategy: ${strategyId}, horizon: ${healthHorizon}`);
       
@@ -331,16 +335,30 @@ export function DevLearningPage() {
         ...Array.from(latestMetricsBySymbol.keys())
       ]);
       
-      // Build health rows
+      // Extract base strategy defaults
+      const baseTpPct = (config?.takeProfitPercentage ?? 0.5) / 100; // Convert to decimal
+      const baseSlPct = (config?.stopLossPercentage ?? 0.8) / 100;
+      const baseMinConf = (config?.aiIntelligenceConfig?.aiConfidenceThreshold ?? 50) / 100;
+      
+      console.log(`[DevLearningPage] Base strategy defaults: TP=${baseTpPct}, SL=${baseSlPct}, MinConf=${baseMinConf}`);
+      
+      // Build health rows with effective parameters
       const healthRows: StrategyHealthRow[] = Array.from(allSymbols).map((symbol) => {
         const param = paramsBySymbol.get(symbol);
         const metric = latestMetricsBySymbol.get(symbol);
         
+        // Compute effective parameters (override or default)
+        const hasOverride = param !== undefined && param !== null;
+        const effectiveTpPct = hasOverride ? param.tp_pct : baseTpPct;
+        const effectiveSlPct = hasOverride ? param.sl_pct : baseSlPct;
+        const effectiveMinConf = hasOverride ? param.min_confidence : baseMinConf;
+        
         return {
           symbol,
-          tp_pct: param?.tp_pct ?? null,
-          sl_pct: param?.sl_pct ?? null,
-          min_confidence: param?.min_confidence ?? null,
+          tp_pct: effectiveTpPct,
+          sl_pct: effectiveSlPct,
+          min_confidence: effectiveMinConf,
+          param_source: hasOverride ? 'override' : 'default',
           sample_count: metric?.sample_count ?? null,
           win_rate_pct: metric?.win_rate_pct ?? null,
           pnl_pct: metric?.median_realized_pnl_pct ?? metric?.mean_realized_pnl_pct ?? null,
@@ -881,6 +899,7 @@ export function DevLearningPage() {
                           <th className="text-right py-3 px-2 text-slate-300 font-medium">TP %</th>
                           <th className="text-right py-3 px-2 text-slate-300 font-medium">SL %</th>
                           <th className="text-right py-3 px-2 text-slate-300 font-medium">Min Conf</th>
+                          <th className="text-center py-3 px-2 text-slate-300 font-medium">Source</th>
                           <th className="text-right py-3 px-2 text-slate-300 font-medium">Samples</th>
                           <th className="text-right py-3 px-2 text-slate-300 font-medium">Win Rate %</th>
                           <th className="text-right py-3 px-2 text-slate-300 font-medium">PnL %</th>
@@ -902,6 +921,14 @@ export function DevLearningPage() {
                             </td>
                             <td className="text-right py-3 px-2 text-white">
                               {row.min_confidence !== null ? (row.min_confidence * 100).toFixed(0) : '–'}
+                            </td>
+                            <td className="text-center py-3 px-2">
+                              <Badge 
+                                variant={row.param_source === 'override' ? 'default' : 'outline'}
+                                className="text-xs"
+                              >
+                                {row.param_source === 'override' ? 'Override' : 'Default'}
+                              </Badge>
                             </td>
                             <td className="text-right py-3 px-2 text-slate-300">
                               {row.sample_count !== null ? row.sample_count : '–'}
