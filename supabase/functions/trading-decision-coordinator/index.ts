@@ -433,40 +433,62 @@ serve(async (req) => {
 
     // ============= CONFIDENCE GATE =============
     // Extract and apply confidence threshold
-    const rawThreshold = strategy.configuration?.aiIntelligenceConfig?.aiConfidenceThreshold ?? 60;
-    const confidenceThreshold = rawThreshold / 100;
-    const effectiveConfidence = normalizeConfidence(intent.confidence);
-    
-    console.log('[coordinator] Confidence gate threshold (fraction):', confidenceThreshold);
-    console.log('[coordinator] Effective confidence (fraction):', effectiveConfidence);
-    
-    // Apply confidence gate (unless confidence is null)
-    if (effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
-      console.log('[coordinator] 🚫 Decision blocked by confidence gate', {
+    try {
+      const rawThreshold = strategy.configuration?.aiIntelligenceConfig?.aiConfidenceThreshold ?? 60;
+      const confidenceThreshold = rawThreshold / 100;
+      const effectiveConfidence = normalizeConfidence(intent.confidence);
+      
+      console.log('[coordinator] Confidence gate threshold (fraction):', confidenceThreshold);
+      console.log('[coordinator] Effective confidence (fraction):', effectiveConfidence);
+      
+      // Apply confidence gate (unless confidence is null)
+      if (effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
+        console.log('[coordinator] 🚫 Decision blocked by confidence gate', {
+          symbol: intent.symbol,
+          side: intent.side,
+          effectiveConfidence,
+          threshold: confidenceThreshold,
+        });
+        
+        // Get current price for context
+        const baseSymbol = toBaseSymbol(intent.symbol);
+        const priceData = await getMarketPrice(baseSymbol, 15000);
+        
+        // Log decision event with confidence_below_threshold reason
+        await logDecisionAsync(
+          supabaseClient,
+          intent,
+          'HOLD',
+          'signal_too_weak',
+          unifiedConfig,
+          requestId,
+          { effectiveConfidence, confidenceThreshold },
+          undefined,
+          priceData.price,
+          strategy.configuration
+        );
+        
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: {
+            action: 'HOLD',
+            reason: 'confidence_below_threshold',
+            request_id: requestId,
+            retry_in_ms: 0,
+          }
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    } catch (err) {
+      console.error('[coordinator] ⚠️ Confidence gate failure:', {
         symbol: intent.symbol,
         side: intent.side,
-        effectiveConfidence,
-        threshold: confidenceThreshold,
+        error: err?.message || String(err),
       });
       
-      // Get current price for context
-      const baseSymbol = toBaseSymbol(intent.symbol);
-      const priceData = await getMarketPrice(baseSymbol, 15000);
-      
-      // Log decision event with confidence_below_threshold reason
-      await logDecisionAsync(
-        supabaseClient,
-        intent,
-        'HOLD',
-        'signal_too_weak',
-        unifiedConfig,
-        requestId,
-        { effectiveConfidence, confidenceThreshold },
-        undefined,
-        priceData.price,
-        strategy.configuration
-      );
-      
+      // Return HOLD response without throwing (skip logging on error)
       return new Response(JSON.stringify({
         ok: true,
         decision: {
