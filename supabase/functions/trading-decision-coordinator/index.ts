@@ -432,16 +432,31 @@ serve(async (req) => {
     }
 
     // ============= CONFIDENCE GATE =============
-    // Extract and apply confidence threshold
+    // Extract base confidence threshold from config
+    const rawThreshold = strategy.configuration?.aiIntelligenceConfig?.aiConfidenceThreshold ?? 60;
+    const baseMinConfidence = rawThreshold / 100;
+    
+    // Get dynamic min_confidence from strategy_parameters
+    const confidenceConfig = await getEffectiveMinConfidenceForDecision({
+      supabaseClient,
+      userId: intent.userId,
+      strategyId: intent.strategyId,
+      symbol: resolvedSymbol,
+      baseMinConfidence
+    });
+    
+    const confidenceThreshold = confidenceConfig.effectiveMinConfidence;
+    const effectiveConfidence = normalizeConfidence(intent.confidence);
+    
+    console.log('[coordinator] Confidence gate:', {
+      threshold: confidenceThreshold,
+      effectiveConfidence,
+      source: confidenceConfig.source,
+      optimizer: confidenceConfig.optimizer
+    });
+    
+    // Apply confidence gate (unless confidence is null)
     try {
-      const rawThreshold = strategy.configuration?.aiIntelligenceConfig?.aiConfidenceThreshold ?? 60;
-      const confidenceThreshold = rawThreshold / 100;
-      const effectiveConfidence = normalizeConfidence(intent.confidence);
-      
-      console.log('[coordinator] Confidence gate threshold (fraction):', confidenceThreshold);
-      console.log('[coordinator] Effective confidence (fraction):', effectiveConfidence);
-      
-      // Apply confidence gate (unless confidence is null)
       if (effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
         console.log('[coordinator] 🚫 Decision blocked by confidence gate', {
           symbol: intent.symbol,
@@ -465,7 +480,8 @@ serve(async (req) => {
           { effectiveConfidence, confidenceThreshold },
           undefined,
           priceData.price,
-          strategy.configuration
+          strategy.configuration,
+          confidenceConfig  // Pass confidence source/optimizer info
         );
         
         return new Response(JSON.stringify({
@@ -980,7 +996,12 @@ async function logDecisionAsync(
   profitMetadata?: any,
   tradeId?: string,
   executionPrice?: number,
-  strategyConfig?: any
+  strategyConfig?: any,
+  confidenceConfig?: {
+    source: 'default' | 'strategy_parameters';
+    optimizer: string | null;
+    optimizerMetadata: any | null;
+  }
 ): Promise<void> {
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
@@ -1067,7 +1088,12 @@ async function logDecisionAsync(
               idempotencyKey: intent.idempotencyKey,
               ts: intent.ts
             },
-            effective_min_confidence: effectiveMinConf  // Store effective min_confidence for reference
+            effective_min_confidence: effectiveMinConf,  // Store effective min_confidence for reference
+            confidence_source: confidenceConfig?.source || 'default',  // Dynamic or default
+            confidence_optimizer: confidenceConfig?.optimizer || null,  // Which optimizer (if any)
+            confidence_optimizer_metadata: confidenceConfig?.optimizerMetadata 
+              ? { run_id: confidenceConfig.optimizerMetadata.run_id, run_at: confidenceConfig.optimizerMetadata.run_at }
+              : null  // Trimmed metadata for audit trail
           },
           raw_intent: intent as any
         });
@@ -1530,6 +1556,100 @@ async function loadStrategyParameters(
   }
 
   return data;
+}
+
+// Helper to get effective min_confidence with dynamic overrides
+async function getEffectiveMinConfidenceForDecision(args: {
+  supabaseClient: any;
+  userId: string;
+  strategyId: string;
+  symbol: string;
+  baseMinConfidence: number;
+}): Promise<{
+  effectiveMinConfidence: number;
+  source: 'default' | 'strategy_parameters';
+  optimizer: string | null;
+  optimizerMetadata: any | null;
+}> {
+  const CONF_MIN = 0.30;
+  const CONF_MAX = 0.90;
+  
+  try {
+    // Query strategy_parameters for this (userId, strategyId, symbol)
+    const { data: paramRow, error } = await args.supabaseClient
+      .from('strategy_parameters')
+      .select('min_confidence, last_updated_by, optimization_iteration, metadata')
+      .eq('user_id', args.userId)
+      .eq('strategy_id', args.strategyId)
+      .eq('symbol', args.symbol)
+      .maybeSingle();
+
+    if (error) {
+      console.warn(`[coordinator] Failed to query strategy_parameters for confidence: ${error.message}`);
+      return {
+        effectiveMinConfidence: args.baseMinConfidence,
+        source: 'default',
+        optimizer: null,
+        optimizerMetadata: null
+      };
+    }
+
+    if (!paramRow || paramRow.min_confidence === null || paramRow.min_confidence === undefined) {
+      console.log(`[coordinator] No strategy_parameters row or null min_confidence for ${args.symbol}, using base: ${args.baseMinConfidence}`);
+      return {
+        effectiveMinConfidence: args.baseMinConfidence,
+        source: 'default',
+        optimizer: null,
+        optimizerMetadata: null
+      };
+    }
+
+    // Parse and clamp min_confidence
+    const parsedConf = typeof paramRow.min_confidence === 'string' 
+      ? parseFloat(paramRow.min_confidence) 
+      : paramRow.min_confidence;
+    
+    if (isNaN(parsedConf)) {
+      console.warn(`[coordinator] Invalid min_confidence value for ${args.symbol}: ${paramRow.min_confidence}, using base`);
+      return {
+        effectiveMinConfidence: args.baseMinConfidence,
+        source: 'default',
+        optimizer: null,
+        optimizerMetadata: null
+      };
+    }
+
+    const clampedConf = Math.max(CONF_MIN, Math.min(CONF_MAX, parsedConf));
+    
+    // Extract optimizer info from metadata
+    let optimizerMetadata = null;
+    if (paramRow.metadata) {
+      // Prefer AI optimizer metadata, else rule optimizer
+      if (paramRow.metadata.last_ai_optimizer_v1) {
+        optimizerMetadata = paramRow.metadata.last_ai_optimizer_v1;
+      } else if (paramRow.metadata.last_rule_optimizer_v1) {
+        optimizerMetadata = paramRow.metadata.last_rule_optimizer_v1;
+      }
+    }
+
+    console.log(`[coordinator] Using dynamic min_confidence for ${args.symbol}: ${clampedConf} (source: strategy_parameters, optimizer: ${paramRow.last_updated_by || 'unknown'})`);
+    
+    return {
+      effectiveMinConfidence: clampedConf,
+      source: 'strategy_parameters',
+      optimizer: paramRow.last_updated_by || null,
+      optimizerMetadata: optimizerMetadata
+    };
+
+  } catch (err) {
+    console.error(`[coordinator] Error in getEffectiveMinConfidenceForDecision: ${err?.message || String(err)}`);
+    return {
+      effectiveMinConfidence: args.baseMinConfidence,
+      source: 'default',
+      optimizer: null,
+      optimizerMetadata: null
+    };
+  }
 }
 
 // Execute trade (reused by both paths)
