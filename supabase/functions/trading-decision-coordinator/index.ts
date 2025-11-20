@@ -116,7 +116,15 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { intent } = await req.json() as { intent: TradeIntent };
+    // Parse request body - support both wrapped and direct intent formats
+    const body = await req.json();
+    const intent: TradeIntent = body.intent || body;
+    
+    // Log if no 'mode' field present - default to normal DECIDE flow
+    const mode = (intent as any).mode || intent?.metadata?.mode;
+    if (!mode) {
+      console.log('[coordinator] No "mode" field, defaulting to DECIDE flow');
+    }
     
     // STRUCTURED LOGGING
     console.log('[coordinator] intent', JSON.stringify({
@@ -125,7 +133,7 @@ serve(async (req) => {
       symbol: intent?.symbol,
       side: intent?.side,
       source: intent?.source,
-      mode: (intent as any).mode || intent.metadata?.mode,
+      mode: mode || 'decide',
       qtySuggested: intent?.qtySuggested,
       flags: intent?.metadata?.flags || null,
       force: intent?.metadata?.force === true,
@@ -138,10 +146,7 @@ serve(async (req) => {
     
     const resolvedSymbol = toBaseSymbol(intent.symbol); // symbol for DB lookups
     console.log('resolvedSymbol (for DB lookups):', resolvedSymbol);
-    
-    // Read mode from root level (client moved it there)
-    const mode = (intent as any).mode || intent.metadata?.mode || 'live';
-    console.log('mode (mock vs real wallet):', mode);
+    console.log('mode (mock vs real wallet):', mode || 'decide');
     
     // Generate request ID and idempotency key
     const requestId = generateRequestId();
