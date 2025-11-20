@@ -284,7 +284,7 @@ serve(async (req) => {
       const priceData = await getMarketPrice(base, 15000);
       const exec = await executeTradeOrder(supabaseClient, { ...intent, symbol: base, qtySuggested: qty }, {}, requestId, priceData);
       return exec.success
-        ? (logDecisionAsync(supabaseClient, intent, 'SELL', 'manual_override_precedence', { enableUnifiedDecisions: false } as UnifiedConfig, requestId, undefined, exec.tradeId, priceData?.price, {}),
+        ? (logDecisionAsync(supabaseClient, intent, 'SELL', 'manual_override_precedence', { enableUnifiedDecisions: false } as UnifiedConfig, requestId, undefined, exec.tradeId, priceData?.price, exec.effectiveConfig || {}),
            respond('SELL', 'manual_override_precedence', requestId, 0, { qty: exec.qty }))
         : new Response(JSON.stringify({
             ok: true,
@@ -939,12 +939,21 @@ async function logDecisionAsync(
     // Log EXECUTE decisions (BUY/SELL) with entry price, OR BLOCK/DEFER decisions with profit analysis
     const hasEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price;
     if ((action === 'BUY' || action === 'SELL' || action === 'BLOCK' || action === 'DEFER') && hasEntryPrice) {
-      // Extract TP/SL from strategy config (same defaults as profit gate evaluation)
-      const tpPct = strategyConfig?.takeProfitPercentage || strategyConfig?.configuration?.takeProfitPercentage || 1.5;
-      const slPct = strategyConfig?.stopLossPercentage || strategyConfig?.configuration?.stopLossPercentage || 0.8;
+      // Extract EFFECTIVE TP/SL/min_confidence from strategy config (after overrides)
+      // These values should be the actual parameters used for the decision, not the base strategy defaults
+      const effectiveTpPct = strategyConfig?.takeProfitPercentage || strategyConfig?.configuration?.takeProfitPercentage || 1.5;
+      const effectiveSlPct = strategyConfig?.stopLossPercentage || strategyConfig?.configuration?.stopLossPercentage || 0.8;
+      const effectiveMinConf = strategyConfig?.minConfidence || strategyConfig?.configuration?.aiConfidenceThreshold ? (strategyConfig.configuration.aiConfidenceThreshold / 100) : 0.5;
       const finalEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price;
 
-      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, execution_mode=${executionMode}, entry_price=${finalEntryPrice}, tp_pct=${tpPct}, sl_pct=${slPct}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
+      console.log(`[coordinator] logging decision with effective params`, {
+        symbol: baseSymbol,
+        tp_pct: effectiveTpPct,
+        sl_pct: effectiveSlPct,
+        min_confidence: effectiveMinConf,
+      });
+
+      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, execution_mode=${executionMode}, entry_price=${finalEntryPrice}, tp_pct=${effectiveTpPct}, sl_pct=${effectiveSlPct}, min_confidence=${effectiveMinConf}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
 
       await supabaseClient
         .from('decision_events')
@@ -957,8 +966,8 @@ async function logDecisionAsync(
           confidence: intent.confidence,
           reason: `${reason}: ${intent.reason || 'No additional details'}`,
           expected_pnl_pct: intent.metadata?.expectedPnL || null,
-          tp_pct: tpPct,
-          sl_pct: slPct,
+          tp_pct: effectiveTpPct,  // Use effective TP after overrides
+          sl_pct: effectiveSlPct,  // Use effective SL after overrides
           entry_price: finalEntryPrice,
           qty_suggested: intent.qtySuggested,
           decision_ts: new Date().toISOString(),
@@ -972,12 +981,13 @@ async function logDecisionAsync(
               symbol: intent.symbol,
               idempotencyKey: intent.idempotencyKey,
               ts: intent.ts
-            }
+            },
+            effective_min_confidence: effectiveMinConf  // Store effective min_confidence for reference
           },
           raw_intent: intent as any
         });
 
-      console.log(`✅ LEARNING: Successfully logged decision event - ${action} ${baseSymbol} @ ${finalEntryPrice} (reason: ${reason})`);
+      console.log(`✅ LEARNING: Successfully logged decision event - ${action} ${baseSymbol} @ ${finalEntryPrice} (TP=${effectiveTpPct}%, SL=${effectiveSlPct}%, reason: ${reason})`);
     }
   } catch (error) {
     console.error('❌ COORDINATOR: Failed to log decision:', error.message);
@@ -1366,8 +1376,8 @@ async function executeWithMinimalLock(
       await logExecutionQuality(supabaseClient, intent, executionResult, decision_at, priceData);
       await evaluateCircuitBreakers(supabaseClient, intent);
       
-      // Log ENTER/EXIT on successful execution with trade_id and execution price
-      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined, executionResult.tradeId, executionResult.executed_price, strategyConfig);
+      // Log ENTER/EXIT on successful execution with trade_id, execution price, and EFFECTIVE config (with overrides)
+      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined, executionResult.tradeId, executionResult.executed_price, executionResult.effectiveConfig || strategyConfig);
       
       return { action: intent.side as DecisionAction, reason: 'no_conflicts_detected', request_id: requestId, retry_in_ms: 0, qty: executionResult.qty };
     } else {
@@ -1445,17 +1455,30 @@ async function executeTradeOrder(
   requestId: string,
   priceData?: { price: number; tickAgeMs: number; spreadBps: number },
   decision_at?: string
-): Promise<{ success: boolean; error?: string; qty?: number; tradeId?: string; executed_at?: string; decision_price?: number; executed_price?: number; partial_fill?: boolean }> {
+): Promise<{ 
+  success: boolean; 
+  error?: string; 
+  qty?: number; 
+  tradeId?: string; 
+  executed_at?: string; 
+  decision_price?: number; 
+  executed_price?: number; 
+  partial_fill?: boolean;
+  effectiveConfig?: any;  // Return the effective config with overrides applied
+}> {
   
   try {
     // PHASE 4: Load optimized parameters (override hard-coded config)
     const baseSymbol = toBaseSymbol(intent.symbol);
     const params = await loadStrategyParameters(supabaseClient, intent.strategyId, baseSymbol);
     
+    // Create effective config by merging overrides
+    let effectiveConfig = { ...strategyConfig };
+    
     // Apply parameters (override strategy config if available)
     if (params) {
       console.log(`[coordinator] Using optimized parameters for ${baseSymbol}: TP=${params.tp_pct}%, SL=${params.sl_pct}%, confidence=${params.min_confidence}`);
-      strategyConfig = {
+      effectiveConfig = {
         ...strategyConfig,
         takeProfitPercentage: params.tp_pct,
         stopLossPercentage: params.sl_pct,
@@ -1481,7 +1504,7 @@ async function executeTradeOrder(
     
     // CRITICAL FIX: Check available EUR balance BEFORE executing BUY trades
     let qty: number;
-    const tradeAllocation = strategyConfig?.perTradeAllocation || 50; // match app defaults
+    const tradeAllocation = effectiveConfig?.perTradeAllocation || 50; // match app defaults
     
     if (intent.side === 'BUY') {
       // Calculate current EUR balance from all trades
@@ -1507,7 +1530,7 @@ async function executeTradeOrder(
       console.log(`💰 COORDINATOR: Available EUR balance: €${availableEur.toFixed(2)}`);
       
       // TEST MODE: Bypass balance check for test mode trades
-      const isTestMode = intent.metadata?.mode === 'mock' || strategyConfig?.is_test_mode;
+      const isTestMode = intent.metadata?.mode === 'mock' || effectiveConfig?.is_test_mode;
       if (isTestMode) {
         console.log(`🧪 TEST MODE: Bypassing balance check - using virtual paper trading`);
         qty = intent.qtySuggested || (tradeAllocation / realMarketPrice);
@@ -1538,7 +1561,7 @@ async function executeTradeOrder(
         }
         
         const profitGateResult = await evaluateProfitGate(
-          supabaseClient, intent, strategyConfig, realMarketPrice, requestId, entryPriceOverride
+          supabaseClient, intent, effectiveConfig, realMarketPrice, requestId, entryPriceOverride
         );
         
         if (!profitGateResult.allowed) {
@@ -1547,12 +1570,13 @@ async function executeTradeOrder(
           // Log decision with profit metadata and current price
           await logDecisionAsync(
             supabaseClient, intent, 'BLOCK', 'blocked_by_insufficient_profit',
-            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, profitGateResult.metadata, undefined, profitGateResult.metadata?.currentPrice, strategyConfig
+            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, profitGateResult.metadata, undefined, profitGateResult.metadata?.currentPrice, effectiveConfig
           );
           
           return { 
             success: false, 
-            error: `blocked_by_insufficient_profit: ${profitGateResult.reason}` 
+            error: `blocked_by_insufficient_profit: ${profitGateResult.reason}`,
+            effectiveConfig  // Return effective config even on error
           };
         }
         
@@ -1616,9 +1640,9 @@ async function executeTradeOrder(
           // Log BLOCK decision before returning
           await logDecisionAsync(
             supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
-            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, strategyConfig
+            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, effectiveConfig
           );
-          return { success: false, error: 'insufficient_position_size' };
+          return { success: false, error: 'insufficient_position_size', effectiveConfig };
         }
 
         // Cap the sell size to what's actually available under FIFO
@@ -1640,9 +1664,9 @@ async function executeTradeOrder(
         // Log BLOCK decision before returning
         await logDecisionAsync(
           supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
-          { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, strategyConfig
+          { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, effectiveConfig
         );
-        return { success: false, error: 'insufficient_position_size' };
+        return { success: false, error: 'insufficient_position_size', effectiveConfig };
       }
     }
 
@@ -1707,7 +1731,8 @@ async function executeTradeOrder(
         executed_at,
         decision_price,
         executed_price,
-        partial_fill
+        partial_fill,
+        effectiveConfig  // Return the effective config with overrides
       };
 
     } else if (executionMode === "LIVE") {
@@ -1720,17 +1745,18 @@ async function executeTradeOrder(
       // For now, return error to prevent accidental LIVE execution
       return { 
         success: false, 
-        error: 'LIVE mode execution not yet implemented - manual control required' 
+        error: 'LIVE mode execution not yet implemented - manual control required',
+        effectiveConfig  // Return effective config even on error
       };
     }
 
     // Fallback (should never reach)
     console.error('[coordinator] Unknown EXECUTION_MODE:', executionMode);
-    return { success: false, error: `Unknown execution mode: ${executionMode}` };
+    return { success: false, error: `Unknown execution mode: ${executionMode}`, effectiveConfig };
 
   } catch (error) {
     console.error('❌ COORDINATOR: Trade execution error:', error.message);
-    return { success: false, error: error.message };
+    return { success: false, error: error.message, effectiveConfig: strategyConfig };  // Return original config on error
   }
 }
 
@@ -2141,7 +2167,7 @@ async function executeTPSell(
     if (executionResult.success) {
       console.log(`✅ COORDINATOR: TP SELL executed successfully`);
       
-      // Log TP decision with detailed metadata and execution price
+      // Log TP decision with detailed metadata and execution price and EFFECTIVE config (with overrides)
       await logDecisionAsync(
         supabaseClient, 
         intent, 
@@ -2152,7 +2178,7 @@ async function executeTPSell(
         tpEvaluation.metadata,
         executionResult.tradeId,
         executionResult.executed_price,
-        strategyConfig
+        executionResult.effectiveConfig || strategyConfig
       );
       
       return { 
@@ -2222,7 +2248,7 @@ async function executeTPSellWithLock(
     if (executionResult.success) {
       console.log(`✅ COORDINATOR: TP SELL executed successfully under lock`);
       
-      // Log TP decision with detailed metadata and execution price
+      // Log TP decision with detailed metadata and execution price and EFFECTIVE config (with overrides)
       await logDecisionAsync(
         supabaseClient, 
         intent, 
@@ -2233,7 +2259,7 @@ async function executeTPSellWithLock(
         tpEvaluation.metadata,
         executionResult.tradeId,
         executionResult.executed_price,
-        strategyConfig
+        executionResult.effectiveConfig || strategyConfig
       );
       
       return {
