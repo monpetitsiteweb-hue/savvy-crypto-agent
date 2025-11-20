@@ -431,9 +431,59 @@ serve(async (req) => {
       });
     }
 
+    // ============= CONFIDENCE GATE =============
+    // Extract and apply confidence threshold
+    const rawThreshold = strategy.configuration?.aiIntelligenceConfig?.aiConfidenceThreshold ?? 60;
+    const confidenceThreshold = rawThreshold / 100;
+    const effectiveConfidence = normalizeConfidence(intent.confidence);
+    
+    console.log('[coordinator] Confidence gate threshold (fraction):', confidenceThreshold);
+    console.log('[coordinator] Effective confidence (fraction):', effectiveConfidence);
+    
+    // Apply confidence gate (unless confidence is null)
+    if (effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
+      console.log('[coordinator] 🚫 Decision blocked by confidence gate', {
+        symbol: intent.symbol,
+        side: intent.side,
+        effectiveConfidence,
+        threshold: confidenceThreshold,
+      });
+      
+      // Get current price for context
+      const baseSymbol = toBaseSymbol(intent.symbol);
+      const priceData = await getMarketPrice(baseSymbol, 15000);
+      
+      // Log decision event with confidence_below_threshold reason
+      await logDecisionAsync(
+        supabaseClient,
+        intent,
+        'HOLD',
+        'signal_too_weak',
+        unifiedConfig,
+        requestId,
+        { effectiveConfidence, confidenceThreshold },
+        undefined,
+        priceData.price,
+        strategy.configuration
+      );
+      
+      return new Response(JSON.stringify({
+        ok: true,
+        decision: {
+          action: 'HOLD',
+          reason: 'confidence_below_threshold',
+          request_id: requestId,
+          retry_in_ms: 0,
+        }
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     // Unified Decisions ON - Use conflict detection approach
     console.log('🎯 UD_MODE=ON → CONFLICT DETECTION: checking for holds and conflicts');
-    
+
     const symbolKey = `${intent.userId}_${intent.strategyId}_${intent.symbol}`;
     
     // Check micro-queue for this symbol
@@ -533,6 +583,15 @@ serve(async (req) => {
 });
 
 // ============= HELPER FUNCTIONS =============
+
+// Normalize confidence values (handles both 0-1 and 0-100 formats)
+function normalizeConfidence(input: number | undefined | null): number | null {
+  if (input == null || Number.isNaN(input)) return null;
+  // If it looks like 0-100, convert to 0-1
+  if (input > 1.0) return Math.min(100, Math.max(0, input)) / 100;
+  // Already in 0-1 range
+  return Math.min(1, Math.max(0, input));
+}
 
 // Generate unique request ID
 function generateRequestId(): string {
@@ -904,6 +963,9 @@ async function logDecisionAsync(
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
     
+    // Normalize confidence to [0,1] fraction for logging
+    const normalizedConfidence = normalizeConfidence(intent.confidence);
+    
     // Map executed decisions to semantic actions
     const actionToLog = 
       action === 'BUY' ? 'ENTER' :
@@ -919,7 +981,7 @@ async function logDecisionAsync(
         symbol: baseSymbol, // Store base symbol only
         intent_side: intent.side,
         intent_source: intent.source,
-        confidence: intent.confidence,
+        confidence: normalizedConfidence,  // Store as fraction
         decision_action: actionToLog,
         decision_reason: reason,
         metadata: {
@@ -936,24 +998,25 @@ async function logDecisionAsync(
     const executionMode = Deno.env.get("EXECUTION_MODE") || "TEST";
 
     // PHASE 1 ENHANCEMENT: Log to decision_events for learning loop
-    // Log EXECUTE decisions (BUY/SELL) with entry price, OR BLOCK/DEFER decisions with profit analysis
+    // Log EXECUTE decisions (BUY/SELL) with entry price, OR BLOCK/DEFER/HOLD decisions with profit analysis or confidence gate
     const hasEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price;
-    if ((action === 'BUY' || action === 'SELL' || action === 'BLOCK' || action === 'DEFER') && hasEntryPrice) {
+    if ((action === 'BUY' || action === 'SELL' || action === 'BLOCK' || action === 'DEFER' || action === 'HOLD') && (hasEntryPrice || normalizedConfidence !== null)) {
       // Extract EFFECTIVE TP/SL/min_confidence from strategy config (after overrides)
       // These values should be the actual parameters used for the decision, not the base strategy defaults
       const effectiveTpPct = strategyConfig?.takeProfitPercentage || strategyConfig?.configuration?.takeProfitPercentage || 1.5;
       const effectiveSlPct = strategyConfig?.stopLossPercentage || strategyConfig?.configuration?.stopLossPercentage || 0.8;
-      const effectiveMinConf = strategyConfig?.minConfidence || strategyConfig?.configuration?.aiConfidenceThreshold ? (strategyConfig.configuration.aiConfidenceThreshold / 100) : 0.5;
-      const finalEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price;
+      const effectiveMinConf = strategyConfig?.minConfidence || (strategyConfig?.configuration?.aiConfidenceThreshold ? (strategyConfig.configuration.aiConfidenceThreshold / 100) : 0.5);
+      const finalEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price || profitMetadata?.currentPrice;
 
       console.log(`[coordinator] logging decision with effective params`, {
         symbol: baseSymbol,
         tp_pct: effectiveTpPct,
         sl_pct: effectiveSlPct,
         min_confidence: effectiveMinConf,
+        confidence: normalizedConfidence,
       });
 
-      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, execution_mode=${executionMode}, entry_price=${finalEntryPrice}, tp_pct=${effectiveTpPct}, sl_pct=${effectiveSlPct}, min_confidence=${effectiveMinConf}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
+      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, execution_mode=${executionMode}, entry_price=${finalEntryPrice}, tp_pct=${effectiveTpPct}, sl_pct=${effectiveSlPct}, min_confidence=${effectiveMinConf}, confidence=${normalizedConfidence}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
 
       await supabaseClient
         .from('decision_events')
@@ -963,7 +1026,7 @@ async function logDecisionAsync(
           symbol: baseSymbol,
           side: intent.side, // Use intent.side (BUY/SELL), not action
           source: intent.source,
-          confidence: intent.confidence,
+          confidence: normalizedConfidence,  // Store as fraction [0,1]
           reason: `${reason}: ${intent.reason || 'No additional details'}`,
           expected_pnl_pct: intent.metadata?.expectedPnL || null,
           tp_pct: effectiveTpPct,  // Use effective TP after overrides
@@ -973,7 +1036,7 @@ async function logDecisionAsync(
           decision_ts: new Date().toISOString(),
           trade_id: tradeId,
           metadata: {
-            action: action, // Store action (BUY/SELL/BLOCK/DEFER) in metadata
+            action: action, // Store action (BUY/SELL/BLOCK/DEFER/HOLD) in metadata
             request_id: requestId,
             unifiedConfig,
             profitAnalysis: profitMetadata,
@@ -987,7 +1050,7 @@ async function logDecisionAsync(
           raw_intent: intent as any
         });
 
-      console.log(`✅ LEARNING: Successfully logged decision event - ${action} ${baseSymbol} @ ${finalEntryPrice} (TP=${effectiveTpPct}%, SL=${effectiveSlPct}%, reason: ${reason})`);
+      console.log(`✅ LEARNING: Successfully logged decision event - ${action} ${baseSymbol} @ ${finalEntryPrice || 'N/A'} (TP=${effectiveTpPct}%, SL=${effectiveSlPct}%, confidence=${normalizedConfidence}, reason: ${reason})`);
     }
   } catch (error) {
     console.error('❌ COORDINATOR: Failed to log decision:', error.message);
