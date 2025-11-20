@@ -1461,7 +1461,6 @@ async function executeTradeOrder(
     // PHASE 5: Read execution mode for branching
     const executionMode = Deno.env.get("EXECUTION_MODE") || "TEST";
     console.log(`[coordinator] EXECUTION_MODE=${executionMode} for ${intent.side} ${baseSymbol}`);
-    const baseSymbol = toBaseSymbol(intent.symbol); // Define at top to avoid scope issues
     console.log(`💱 COORDINATOR: Executing ${intent.side} order for ${intent.symbol}`);
     
     // Use provided price data or fetch new price
