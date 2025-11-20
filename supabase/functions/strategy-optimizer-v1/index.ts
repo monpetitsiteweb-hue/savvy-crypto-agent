@@ -55,21 +55,29 @@ serve(async (req) => {
   }
 
   try {
+    // Extract JWT from Authorization header ("Bearer <token>")
+    const authHeader = req.headers.get('Authorization') || '';
+    const jwt = authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : authHeader.trim();
+
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       {
         global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
+          // Keep passing the Authorization header for RLS, but
+          // use the explicit JWT when calling auth.getUser(jwt)
+          headers: { Authorization: authHeader },
         },
       }
     );
 
-    // Authenticate user
+    // Authenticate user using the provided JWT
     const {
       data: { user },
       error: userError,
-    } = await supabaseClient.auth.getUser();
+    } = await supabaseClient.auth.getUser(jwt);
 
     if (userError || !user) {
       console.error('[strategy-optimizer-v1] Auth failed:', userError);
