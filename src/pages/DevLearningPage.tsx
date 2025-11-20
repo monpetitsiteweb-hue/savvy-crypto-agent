@@ -335,10 +335,10 @@ export function DevLearningPage() {
         ...Array.from(latestMetricsBySymbol.keys())
       ]);
       
-      // Extract base strategy defaults
-      const baseTpPct = (config?.takeProfitPercentage ?? 0.5) / 100; // Convert to decimal
-      const baseSlPct = (config?.stopLossPercentage ?? 0.8) / 100;
-      const baseMinConf = (config?.aiIntelligenceConfig?.aiConfidenceThreshold ?? 50) / 100;
+      // Extract base strategy defaults (already in decimal format)
+      const baseTpPct = config?.takeProfitPercentage ?? 0.005;
+      const baseSlPct = config?.stopLossPercentage ?? 0.008;
+      const baseMinConf = (config?.aiIntelligenceConfig?.aiConfidenceThreshold ?? 60) / 100;
       
       console.log(`[DevLearningPage] Base strategy defaults: TP=${baseTpPct}, SL=${baseSlPct}, MinConf=${baseMinConf}`);
       
