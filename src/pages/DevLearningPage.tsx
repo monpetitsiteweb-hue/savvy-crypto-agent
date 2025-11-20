@@ -260,12 +260,12 @@ export function DevLearningPage() {
       setHealthLoading(true);
       console.log('[DevLearningPage] Fetching strategy health data...');
       
-      // Get user's active strategy with full configuration
+      // Get user's strategy with full configuration (include inactive for learning data)
       const { data: strategies, error: stratError } = await supabase
         .from('trading_strategies')
         .select('id, configuration')
         .eq('user_id', user.id)
-        .eq('is_active', true)
+        .order('created_at', { ascending: false })
         .limit(1);
       
       if (stratError) {
@@ -275,7 +275,7 @@ export function DevLearningPage() {
       
       const strategy = strategies?.[0];
       if (!strategy) {
-        console.log('[DevLearningPage] No active strategy found');
+        console.log('[DevLearningPage] No strategy found');
         setStrategyHealthData([]);
         return;
       }
