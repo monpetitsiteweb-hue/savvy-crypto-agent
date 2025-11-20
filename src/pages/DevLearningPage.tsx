@@ -348,10 +348,12 @@ export function DevLearningPage() {
         const metric = latestMetricsBySymbol.get(symbol);
         
         // Compute effective parameters (override or default)
-        const hasOverride = param !== undefined && param !== null;
-        const effectiveTpPct = hasOverride ? param.tp_pct : baseTpPct;
-        const effectiveSlPct = hasOverride ? param.sl_pct : baseSlPct;
-        const effectiveMinConf = hasOverride ? param.min_confidence : baseMinConf;
+      const hasOverride = param !== undefined && param !== null;
+      // Override values are stored as percent points (e.g., 2.5 = 2.5%), convert to fractions
+      const effectiveTpPct = hasOverride ? param.tp_pct / 100 : baseTpPct;
+      const effectiveSlPct = hasOverride ? param.sl_pct / 100 : baseSlPct;
+      // min_confidence is already stored as a fraction (e.g., 0.65 = 65%)
+      const effectiveMinConf = hasOverride ? param.min_confidence : baseMinConf;
         
         return {
           symbol,
