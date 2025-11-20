@@ -74,6 +74,34 @@ interface LearningStatus {
   timestamp: string;
 }
 
+interface StrategyParameter {
+  id: string;
+  user_id: string;
+  strategy_id: string;
+  symbol: string;
+  tp_pct: number;
+  sl_pct: number;
+  min_confidence: number;
+  last_updated_by: string | null;
+  updated_at: string;
+  created_at: string;
+}
+
+interface StrategyHealthRow {
+  symbol: string;
+  tp_pct: number | null;
+  sl_pct: number | null;
+  min_confidence: number | null;
+  sample_count: number | null;
+  win_rate_pct: number | null;
+  pnl_pct: number | null;
+  tp_hit_rate_pct: number | null;
+  sl_hit_rate_pct: number | null;
+  params_updated_at: string | null;
+  metrics_computed_at: string | null;
+  last_updated_by: string | null;
+}
+
 export function DevLearningPage() {
   const { user } = useAuth();
   const { role, loading: roleLoading } = useUserRole();
@@ -89,6 +117,9 @@ export function DevLearningPage() {
     symbol: '',
     strategy: ''
   });
+  const [strategyHealthData, setStrategyHealthData] = useState<StrategyHealthRow[]>([]);
+  const [healthHorizon, setHealthHorizon] = useState<string>('4h');
+  const [healthLoading, setHealthLoading] = useState(false);
 
   const isAdmin = role === 'admin';
 
@@ -168,8 +199,15 @@ export function DevLearningPage() {
       console.log('[DevLearningPage] User is admin, fetching data...');
       fetchData();
       fetchLearningStatus();
+      fetchStrategyHealth();
     }
   }, [user, roleLoading, isAdmin]);
+
+  useEffect(() => {
+    if (user && isAdmin) {
+      fetchStrategyHealth();
+    }
+  }, [healthHorizon, user, isAdmin]);
 
   const triggerEvaluator = async () => {
     try {
@@ -204,12 +242,124 @@ export function DevLearningPage() {
         setTimeout(() => {
           fetchData();
           fetchLearningStatus();
+          fetchStrategyHealth();
         }, 2000);
       }
     } catch (error) {
       console.error('Error triggering calibration aggregator:', error);
     } finally {
       setCalibrationLoading(false);
+    }
+  };
+
+  const fetchStrategyHealth = async () => {
+    if (!user) return;
+    
+    try {
+      setHealthLoading(true);
+      console.log('[DevLearningPage] Fetching strategy health data...');
+      
+      // Get user's active strategy (assuming the same one used for decisions)
+      const { data: strategies, error: stratError } = await supabase
+        .from('trading_strategies')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .limit(1);
+      
+      if (stratError) {
+        console.error('Error fetching strategy:', stratError);
+        return;
+      }
+      
+      const strategyId = strategies?.[0]?.id;
+      if (!strategyId) {
+        console.log('[DevLearningPage] No active strategy found');
+        setStrategyHealthData([]);
+        return;
+      }
+      
+      console.log(`[DevLearningPage] Using strategy: ${strategyId}, horizon: ${healthHorizon}`);
+      
+      // Fetch strategy parameters
+      const { data: params, error: paramsError } = await (supabase as any)
+        .from('strategy_parameters')
+        .select('*')
+        .eq('strategy_id', strategyId);
+      
+      if (paramsError) {
+        console.error('Error fetching strategy parameters:', paramsError);
+      }
+      
+      console.log(`[DevLearningPage] Fetched ${params?.length || 0} strategy parameters`);
+      
+      // Fetch calibration metrics (last 30 days, for selected horizon)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      const { data: metrics, error: metricsError } = await supabase
+        .from('calibration_metrics')
+        .select('*')
+        .eq('strategy_id', strategyId)
+        .eq('horizon', healthHorizon)
+        .gte('computed_at', thirtyDaysAgo.toISOString())
+        .order('computed_at', { ascending: false });
+      
+      if (metricsError) {
+        console.error('Error fetching calibration metrics:', metricsError);
+      }
+      
+      console.log(`[DevLearningPage] Fetched ${metrics?.length || 0} calibration metrics for horizon ${healthHorizon}`);
+      
+      // Get latest metric per symbol
+      const latestMetricsBySymbol = new Map<string, any>();
+      metrics?.forEach((metric: any) => {
+        if (!latestMetricsBySymbol.has(metric.symbol)) {
+          latestMetricsBySymbol.set(metric.symbol, metric);
+        }
+      });
+      
+      // Build params map by symbol
+      const paramsBySymbol = new Map<string, any>();
+      params?.forEach((param: any) => {
+        paramsBySymbol.set(param.symbol, param);
+      });
+      
+      // Get all unique symbols from both params and metrics
+      const allSymbols = new Set([
+        ...(params?.map((p: any) => p.symbol) || []),
+        ...Array.from(latestMetricsBySymbol.keys())
+      ]);
+      
+      // Build health rows
+      const healthRows: StrategyHealthRow[] = Array.from(allSymbols).map((symbol) => {
+        const param = paramsBySymbol.get(symbol);
+        const metric = latestMetricsBySymbol.get(symbol);
+        
+        return {
+          symbol,
+          tp_pct: param?.tp_pct ?? null,
+          sl_pct: param?.sl_pct ?? null,
+          min_confidence: param?.min_confidence ?? null,
+          sample_count: metric?.sample_count ?? null,
+          win_rate_pct: metric?.win_rate_pct ?? null,
+          pnl_pct: metric?.median_realized_pnl_pct ?? metric?.mean_realized_pnl_pct ?? null,
+          tp_hit_rate_pct: metric?.tp_hit_rate_pct ?? null,
+          sl_hit_rate_pct: metric?.sl_hit_rate_pct ?? null,
+          params_updated_at: param?.updated_at ?? null,
+          metrics_computed_at: metric?.computed_at ?? null,
+          last_updated_by: param?.last_updated_by ?? null
+        };
+      });
+      
+      console.log('[DevLearningPage] Strategy Health Rows:', healthRows);
+      setStrategyHealthData(healthRows);
+      
+    } catch (error) {
+      console.error('Error fetching strategy health:', error);
+      setStrategyHealthData([]);
+    } finally {
+      setHealthLoading(false);
     }
   };
 
@@ -379,6 +529,7 @@ export function DevLearningPage() {
             <TabsTrigger value="events">Decision Events ({decisionEvents.length})</TabsTrigger>
             <TabsTrigger value="outcomes">Outcomes ({decisionOutcomes.length})</TabsTrigger>
             <TabsTrigger value="calibration">Calibration</TabsTrigger>
+            <TabsTrigger value="strategy-health">Strategy Health</TabsTrigger>
             <TabsTrigger value="data-health">Data Health</TabsTrigger>
             <TabsTrigger value="analysis">Analysis</TabsTrigger>
           </TabsList>
@@ -684,6 +835,113 @@ export function DevLearningPage() {
                     </div>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="strategy-health" className="space-y-4">
+            <Card className="bg-slate-800/80 border-slate-700">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Target className="w-5 h-5 text-blue-400" />
+                  Strategy Health (per symbol)
+                </CardTitle>
+                <CardDescription>
+                  Current TP/SL/confidence vs recent performance metrics
+                </CardDescription>
+                
+                <div className="flex gap-2 mt-4">
+                  <span className="text-sm text-slate-400 flex items-center">Horizon:</span>
+                  {['1h', '4h', '24h'].map((horizon) => (
+                    <Button
+                      key={horizon}
+                      size="sm"
+                      variant={healthHorizon === horizon ? 'default' : 'outline'}
+                      onClick={() => setHealthHorizon(horizon)}
+                    >
+                      {horizon}
+                    </Button>
+                  ))}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {healthLoading ? (
+                  <div className="text-center py-8 text-slate-400">Loading strategy health data...</div>
+                ) : strategyHealthData.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400">
+                    <p className="mb-2">No strategy health data yet.</p>
+                    <p className="text-sm">Run evaluator + aggregator and open some trades in TEST mode first.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-700">
+                          <th className="text-left py-3 px-2 text-slate-300 font-medium">Symbol</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">TP %</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">SL %</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">Min Conf</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">Samples</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">Win Rate %</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">PnL %</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">TP Hit %</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">SL Hit %</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">Params Updated</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">Metrics Updated</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {strategyHealthData.map((row) => (
+                          <tr key={row.symbol} className="border-b border-slate-700/50 hover:bg-slate-700/30">
+                            <td className="py-3 px-2 text-white font-medium">{row.symbol}</td>
+                            <td className="text-right py-3 px-2 text-white">
+                              {row.tp_pct !== null ? (row.tp_pct * 100).toFixed(2) : '–'}
+                            </td>
+                            <td className="text-right py-3 px-2 text-white">
+                              {row.sl_pct !== null ? (row.sl_pct * 100).toFixed(2) : '–'}
+                            </td>
+                            <td className="text-right py-3 px-2 text-white">
+                              {row.min_confidence !== null ? (row.min_confidence * 100).toFixed(0) : '–'}
+                            </td>
+                            <td className="text-right py-3 px-2 text-slate-300">
+                              {row.sample_count !== null ? row.sample_count : '–'}
+                            </td>
+                            <td className="text-right py-3 px-2">
+                              <span className={row.win_rate_pct !== null && row.win_rate_pct >= 50 ? 'text-green-400' : 'text-slate-300'}>
+                                {row.win_rate_pct !== null ? row.win_rate_pct.toFixed(1) : '–'}
+                              </span>
+                            </td>
+                            <td className="text-right py-3 px-2">
+                              <span className={
+                                row.pnl_pct !== null 
+                                  ? (row.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400')
+                                  : 'text-slate-300'
+                              }>
+                                {row.pnl_pct !== null ? formatPct(row.pnl_pct) : '–'}
+                              </span>
+                            </td>
+                            <td className="text-right py-3 px-2 text-slate-300">
+                              {row.tp_hit_rate_pct !== null ? row.tp_hit_rate_pct.toFixed(1) : '–'}
+                            </td>
+                            <td className="text-right py-3 px-2 text-slate-300">
+                              {row.sl_hit_rate_pct !== null ? row.sl_hit_rate_pct.toFixed(1) : '–'}
+                            </td>
+                            <td className="text-right py-3 px-2 text-xs text-slate-400">
+                              {row.params_updated_at 
+                                ? new Date(row.params_updated_at).toLocaleDateString()
+                                : '–'}
+                            </td>
+                            <td className="text-right py-3 px-2 text-xs text-slate-400">
+                              {row.metrics_computed_at 
+                                ? new Date(row.metrics_computed_at).toLocaleDateString()
+                                : '–'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
