@@ -1037,16 +1037,6 @@ async function logDecisionAsync(
         }
       });
 
-    // Also log to decision_events for strict logging
-    await supabaseClient
-      .from('decision_events')
-      .insert({
-        symbol: baseSymbol,
-        side: intent.side,
-        confidence: normalizedConfidence,
-        reason: reason,
-      });
-
     // PHASE 2: Read execution mode (default TEST)
     const executionMode = Deno.env.get("EXECUTION_MODE") || "TEST";
 
