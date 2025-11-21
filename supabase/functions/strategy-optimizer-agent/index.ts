@@ -290,6 +290,41 @@ async function applyHeuristics(
     });
   }
 
+  // Fallback rule: Create baseline min_confidence suggestion if no other rules fired
+  if (results.length === 0 && sample_count >= 30) {
+    const winRate = win_rate_pct;
+    // Target between 0.4 and 0.9 based on win rate
+    const targetFromWinRate = Math.min(0.9, Math.max(0.4, winRate / 100));
+    const suggested_confidence = Math.min(
+      0.95,
+      Math.max(0.1, (min_confidence + targetFromWinRate) / 2)
+    );
+    const confidence = calculateConfidence(sample_count, reliability_correlation);
+
+    const result = await upsertSuggestion(supabase, {
+      user_id,
+      strategy_id,
+      symbol,
+      horizon,
+      suggestion_type: 'min_confidence',
+      current_value: min_confidence,
+      suggested_value: suggested_confidence,
+      expected_impact_pct: 3,
+      reason: `Fallback baseline suggestion based on win_rate_pct=${win_rate_pct.toFixed(1)} and sample_count=${sample_count}. Aligning min_confidence closer to observed performance.`,
+      confidence_score: confidence,
+      sample_size: sample_count,
+      based_on_window: time_window,
+    });
+
+    results.push({
+      suggestion_type: 'min_confidence',
+      symbol,
+      horizon,
+      action: result.action,
+      reason: result.reason
+    });
+  }
+
   return results;
 }
 
