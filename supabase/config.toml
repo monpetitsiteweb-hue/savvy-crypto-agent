@@ -131,3 +131,6 @@ verify_jwt = true
 
 [functions.strategy-optimizer]
 verify_jwt = true
+
+[functions.strategy-optimizer-agent]
+verify_jwt = true
