@@ -159,6 +159,10 @@ serve(async (req) => {
     }
 
     // FAST PATH FOR MANUAL/MOCK/FORCE
+    // MANUAL SELL semantics:
+    // - If metadata.originalTradeId is provided, we close THAT specific BUY.
+    // - We pre-fill original_purchase_* from that BUY.
+    // - mt_on_sell_snapshot will treat this as a targeted close, not global FIFO.
     if (intent.source === 'manual' && (intent.metadata?.force === true || mode === 'mock')) {
       console.log('[coordinator] fast-path triggered for manual/mock/force');
       
@@ -173,49 +177,91 @@ serve(async (req) => {
       // FIFO snapshot calculation for manual SELL
       const baseSymbol = toBaseSymbol(intent.symbol);
       const sellAmount = intent.qtySuggested || 0;
-      
-      // Get all BUY trades for this user/strategy/symbol to calculate FIFO
-      const { data: buyTrades } = await supabaseClient
-        .from('mock_trades')
-        .select('*')
-        .eq('user_id', intent.userId)
-        .eq('strategy_id', intent.strategyId)  
-        .eq('cryptocurrency', baseSymbol)
-        .eq('trade_type', 'buy')
-        .eq('is_test_mode', true)
-        .order('executed_at', { ascending: true });
+      const originalTradeId = intent.metadata?.originalTradeId;
 
-      // Get existing SELL trades to calculate remaining amounts in each BUY
-      const { data: sellTrades } = await supabaseClient
-        .from('mock_trades')
-        .select('original_purchase_amount, executed_at')
-        .eq('user_id', intent.userId)
-        .eq('strategy_id', intent.strategyId)
-        .eq('cryptocurrency', baseSymbol) 
-        .eq('trade_type', 'sell')
-        .eq('is_test_mode', true)
-        .not('original_purchase_amount', 'is', null);
+      // TARGETED MANUAL SELL: Fetch the specific BUY trade if originalTradeId is provided
+      let originalBuy = null;
+      if (originalTradeId) {
+        console.log(`[coordinator] TARGETED MANUAL SELL: Fetching original BUY with id=${originalTradeId}`);
+        const { data: buyData, error: buyError } = await supabaseClient
+          .from('mock_trades')
+          .select('*')
+          .eq('id', originalTradeId)
+          .eq('user_id', intent.userId)
+          .eq('strategy_id', intent.strategyId)
+          .eq('cryptocurrency', baseSymbol)
+          .eq('trade_type', 'buy')
+          .eq('is_test_mode', true)
+          .maybeSingle();
 
-      // Calculate FIFO snapshot fields
-      let totalPurchaseAmount = 0;
-      let totalPurchaseValue = 0;
-      let needAmount = sellAmount;
+        if (buyError) {
+          console.error('[coordinator] Failed to fetch original BUY:', buyError);
+        } else if (buyData) {
+          originalBuy = buyData;
+          console.log(`[coordinator] Found original BUY: amount=${originalBuy.amount}, price=${originalBuy.price}`);
+        } else {
+          console.warn('[coordinator] Original BUY not found with id:', originalTradeId);
+        }
+      }
 
-      for (const buyTrade of buyTrades || []) {
-        if (needAmount <= 0) break;
+      let totalPurchaseAmount: number;
+      let totalPurchaseValue: number;
+      let originalTradeIdToStore: string | null = null;
+
+      // If we found the target BUY, use its snapshot directly (targeted close)
+      if (originalBuy) {
+        // Close the exact BUY that was clicked
+        totalPurchaseAmount = originalBuy.amount;
+        totalPurchaseValue = originalBuy.amount * originalBuy.price;
+        originalTradeIdToStore = originalBuy.id;
+        console.log(`[coordinator] TARGETED CLOSE: Closing BUY id=${originalBuy.id}, amount=${totalPurchaseAmount}, value=${totalPurchaseValue}`);
+      } else {
+        // Fallback to global FIFO if original BUY not found or not provided
+        console.log('[coordinator] FALLBACK TO GLOBAL FIFO (originalTradeId not found or not provided)');
         
-        // Calculate how much of this BUY has been consumed by previous SELLs
-        const consumedByPreviousSells = (sellTrades || [])
-          .filter(sell => new Date(sell.executed_at) >= new Date(buyTrade.executed_at))
-          .reduce((sum, sell) => sum + (sell.original_purchase_amount || 0), 0);
-        
-        const remainingAmount = buyTrade.amount - consumedByPreviousSells;
-        
-        if (remainingAmount > 0) {
-          const takeAmount = Math.min(needAmount, remainingAmount);
-          totalPurchaseAmount += takeAmount;
-          totalPurchaseValue += takeAmount * buyTrade.price;
-          needAmount -= takeAmount;
+        // Get all BUY trades for this user/strategy/symbol to calculate FIFO
+        const { data: buyTrades } = await supabaseClient
+          .from('mock_trades')
+          .select('*')
+          .eq('user_id', intent.userId)
+          .eq('strategy_id', intent.strategyId)  
+          .eq('cryptocurrency', baseSymbol)
+          .eq('trade_type', 'buy')
+          .eq('is_test_mode', true)
+          .order('executed_at', { ascending: true });
+
+        // Get existing SELL trades to calculate remaining amounts in each BUY
+        const { data: sellTrades } = await supabaseClient
+          .from('mock_trades')
+          .select('original_purchase_amount, executed_at')
+          .eq('user_id', intent.userId)
+          .eq('strategy_id', intent.strategyId)
+          .eq('cryptocurrency', baseSymbol) 
+          .eq('trade_type', 'sell')
+          .eq('is_test_mode', true)
+          .not('original_purchase_amount', 'is', null);
+
+        // Calculate FIFO snapshot fields
+        totalPurchaseAmount = 0;
+        totalPurchaseValue = 0;
+        let needAmount = sellAmount;
+
+        for (const buyTrade of buyTrades || []) {
+          if (needAmount <= 0) break;
+          
+          // Calculate how much of this BUY has been consumed by previous SELLs
+          const consumedByPreviousSells = (sellTrades || [])
+            .filter(sell => new Date(sell.executed_at) >= new Date(buyTrade.executed_at))
+            .reduce((sum, sell) => sum + (sell.original_purchase_amount || 0), 0);
+          
+          const remainingAmount = buyTrade.amount - consumedByPreviousSells;
+          
+          if (remainingAmount > 0) {
+            const takeAmount = Math.min(needAmount, remainingAmount);
+            totalPurchaseAmount += takeAmount;
+            totalPurchaseValue += takeAmount * buyTrade.price;
+            needAmount -= takeAmount;
+          }
         }
       }
 
@@ -224,7 +270,7 @@ serve(async (req) => {
       const realizedPnL = exitValue - totalPurchaseValue;
       const realizedPnLPct = totalPurchaseValue > 0 ? (realizedPnL / totalPurchaseValue) * 100 : 0;
 
-      // Insert mock SELL with FIFO snapshot fields  
+      // Insert mock SELL with snapshot fields and original_trade_id
       const payload = {
         user_id: intent.userId,
         strategy_id: intent.strategyId,
@@ -234,6 +280,7 @@ serve(async (req) => {
         price: exitPrice,
         total_value: exitValue,
         executed_at: new Date().toISOString(),
+        original_trade_id: originalTradeIdToStore, // Link to specific BUY if targeted
         original_purchase_amount: totalPurchaseAmount,
         original_purchase_price: avgPurchasePrice,
         original_purchase_value: totalPurchaseValue,
@@ -242,7 +289,9 @@ serve(async (req) => {
         realized_pnl_pct: realizedPnLPct,
         buy_fees: 0,
         sell_fees: 0,
-        notes: 'Manual mock SELL via force override (coordinator fast-path)',
+        notes: originalTradeIdToStore 
+          ? `Manual mock SELL via force override (coordinator fast-path) | original_trade_id=${originalTradeIdToStore}`
+          : 'Manual mock SELL via force override (coordinator fast-path)',
         is_test_mode: true,
       };
 

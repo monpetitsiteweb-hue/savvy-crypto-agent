@@ -111,6 +111,7 @@ interface Trade {
   strategy_trigger?: string;
   is_test_mode?: boolean;
   profit_loss?: number;
+  original_trade_id?: string; // Link to the specific BUY this SELL closes
   original_purchase_amount?: number;
   original_purchase_price?: number;
   original_purchase_value?: number;
@@ -271,7 +272,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   };
 
-  // FIFO helper functions - FIXED to match database logic
+  // FIFO helper functions - FIXED to match database logic with targeted manual SELL support
   const buildFifoLots = (allTrades: Trade[]) => {
     const sorted = [...allTrades].sort((a,b)=> new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
     const lotsBySymbol = new Map<string, { trade: Trade; remaining: number }[]>();
@@ -281,14 +282,40 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       if (t.trade_type === 'buy') {
         lotsBySymbol.get(sym)!.push({ trade: t, remaining: t.amount });
       } else if (t.trade_type === 'sell' && t.original_purchase_amount) {
-        // Use original_purchase_amount which reflects actual FIFO consumption in database
-        let sellRemaining = t.original_purchase_amount;
         const lots = lotsBySymbol.get(sym)!;
-        for (let i = 0; i < lots.length && sellRemaining > 1e-12; i++) {
-          const lot = lots[i];
-          const used = Math.min(lot.remaining, sellRemaining);
-          lot.remaining -= used;
-          sellRemaining -= used;
+        let sellRemaining = t.original_purchase_amount;
+
+        // TARGETED MANUAL SELL: Match to specific BUY if original_trade_id is present
+        if (t.original_trade_id) {
+          const targetLot = lots.find(l => l.trade.id === t.original_trade_id);
+          if (targetLot) {
+            const used = Math.min(targetLot.remaining, sellRemaining);
+            targetLot.remaining -= used;
+            sellRemaining -= used;
+          }
+          // If something is still remaining (edge case), fall back to FIFO
+          if (sellRemaining > 1e-12) {
+            console.warn('[TH v14.1] manual SELL had leftover amount after targeted match, falling back to FIFO', {
+              sym,
+              original_trade_id: t.original_trade_id,
+              sellRemaining,
+            });
+            // Fallback FIFO for remaining amount
+            for (let i = 0; i < lots.length && sellRemaining > 1e-12; i++) {
+              const lot = lots[i];
+              const used = Math.min(lot.remaining, sellRemaining);
+              lot.remaining -= used;
+              sellRemaining -= used;
+            }
+          }
+        } else {
+          // STANDARD FIFO: No original_trade_id, use global FIFO
+          for (let i = 0; i < lots.length && sellRemaining > 1e-12; i++) {
+            const lot = lots[i];
+            const used = Math.min(lot.remaining, sellRemaining);
+            lot.remaining -= used;
+            sellRemaining -= used;
+          }
         }
       }
     }
