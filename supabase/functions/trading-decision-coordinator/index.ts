@@ -1060,12 +1060,19 @@ async function logDecisionAsync(
 
       console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, execution_mode=${executionMode}, entry_price=${finalEntryPrice}, tp_pct=${effectiveTpPct}, sl_pct=${effectiveSlPct}, min_confidence=${effectiveMinConf}, confidence=${normalizedConfidence}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
 
+      // Validate and normalize source for decision_events constraint
+      // Allowed values: 'automated', 'manual', 'system', 'intelligent'
+      const allowedSources = ['automated', 'manual', 'system', 'intelligent'];
+      const normalizedSource = allowedSources.includes(intent.source) 
+        ? intent.source 
+        : (intent.source === 'pool' || intent.source === 'news' || intent.source === 'whale' ? 'system' : 'manual');
+
       const eventPayload = {
         user_id: intent.userId,
         strategy_id: intent.strategyId,
-        symbol: baseSymbol,
+        symbol: baseSymbol,  // Always use extracted base symbol (e.g., "SOL" from "SOL-EUR")
         side: intent.side, // Use intent.side (BUY/SELL), not action
-        source: intent.source,
+        source: normalizedSource,  // Validated source - one of: automated, manual, system, intelligent
         confidence: normalizedConfidence,  // Store as fraction [0,1]
         reason: `${reason}: ${intent.reason || 'No additional details'}`,
         expected_pnl_pct: intent.metadata?.expectedPnL || null,
