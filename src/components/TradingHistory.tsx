@@ -276,7 +276,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     const sorted = [...allTrades].sort((a,b)=> new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
     const lotsBySymbol = new Map<string, { trade: Trade; remaining: number }[]>();
     for (const t of sorted) {
-      const sym = t.cryptocurrency;
+      const sym = toBaseSymbol(t.cryptocurrency); // Normalize symbol to match database trigger logic
       if (!lotsBySymbol.has(sym)) lotsBySymbol.set(sym, []);
       if (t.trade_type === 'buy') {
         lotsBySymbol.get(sym)!.push({ trade: t, remaining: t.amount });
