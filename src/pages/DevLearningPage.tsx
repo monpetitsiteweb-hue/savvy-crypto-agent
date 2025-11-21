@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { ArrowUp, ArrowDown, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, CheckCircle } from "lucide-react";
+import { ArrowUp, ArrowDown, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, CheckCircle, Loader2 } from "lucide-react";
 import { DataHealthPanel } from "@/components/market/DataHealthPanel";
+import { useToast } from "@/hooks/use-toast";
 
 interface DecisionEvent {
   id: string;
@@ -115,12 +116,37 @@ interface StrategyHealthRow {
   last_updated_by: string | null;
 }
 
+interface CalibrationSuggestion {
+  id: string;
+  user_id: string;
+  strategy_id: string;
+  symbol: string;
+  horizon: string;
+  suggestion_type: string;
+  current_value: number | null;
+  suggested_value: number | null;
+  expected_impact_pct: number | null;
+  reason: string;
+  confidence_score: number;
+  sample_size: number;
+  status: string;
+  applied_by: string | null;
+  applied_at: string | null;
+  dismissed_by: string | null;
+  dismissed_at: string | null;
+  based_on_window: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export function DevLearningPage() {
   const { user } = useAuth();
   const { role, loading: roleLoading } = useUserRole();
+  const { toast } = useToast();
   const [decisionEvents, setDecisionEvents] = useState<DecisionEvent[]>([]);
   const [decisionOutcomes, setDecisionOutcomes] = useState<DecisionOutcome[]>([]);
   const [calibrationMetrics, setCalibrationMetrics] = useState<CalibrationMetric[]>([]);
+  const [calibrationSuggestions, setCalibrationSuggestions] = useState<CalibrationSuggestion[]>([]);
   const [learningStatus, setLearningStatus] = useState<LearningStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [calibrationLoading, setCalibrationLoading] = useState(false);
@@ -133,6 +159,7 @@ export function DevLearningPage() {
   const [strategyHealthData, setStrategyHealthData] = useState<StrategyHealthRow[]>([]);
   const [healthHorizon, setHealthHorizon] = useState<string>("4h");
   const [healthLoading, setHealthLoading] = useState(false);
+  const [applyingIds, setApplyingIds] = useState<Set<string>>(new Set());
 
   const isAdmin = role === "admin";
 
@@ -199,10 +226,86 @@ export function DevLearningPage() {
       } else {
         setCalibrationMetrics(calibration || []);
       }
+
+      // Fetch calibration suggestions
+      await fetchSuggestions();
     } catch (error) {
       console.error("Error fetching learning data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchSuggestions = async () => {
+    if (!user) return;
+
+    try {
+      const { data: suggestions, error: suggestionsError } = await supabase
+        .from("calibration_suggestions")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      if (suggestionsError) {
+        console.error("Error fetching calibration suggestions:", suggestionsError);
+      } else {
+        setCalibrationSuggestions(suggestions || []);
+      }
+    } catch (error) {
+      console.error("Error fetching suggestions:", error);
+    }
+  };
+
+  const handleApplyOrDismiss = async (suggestionId: string, action: "apply" | "dismiss") => {
+    if (applyingIds.has(suggestionId)) return;
+
+    try {
+      setApplyingIds((prev) => new Set(prev).add(suggestionId));
+
+      const { data, error } = await supabase.functions.invoke("strategy-optimizer-apply", {
+        body: { suggestion_id: suggestionId, action },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data || !data.ok) {
+        throw new Error(data?.error || "Unknown error occurred");
+      }
+
+      // Update local state with the updated suggestion
+      if (data.updated_suggestion) {
+        setCalibrationSuggestions((prev) =>
+          prev.map((s) => (s.id === suggestionId ? { ...s, ...data.updated_suggestion } : s))
+        );
+      }
+
+      // Show success toast
+      toast({
+        title: action === "apply" ? "✅ Suggestion applied" : "✅ Suggestion dismissed",
+        description:
+          action === "apply"
+            ? "Parameters updated successfully"
+            : "Suggestion dismissed without changes",
+      });
+
+      // Optionally refresh suggestions to get latest state
+      await fetchSuggestions();
+    } catch (error: any) {
+      console.error(`Error ${action}ing suggestion:`, error);
+      toast({
+        title: "Error",
+        description: error.message || `Failed to ${action} suggestion`,
+        variant: "destructive",
+      });
+    } finally {
+      setApplyingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(suggestionId);
+        return next;
+      });
     }
   };
 
@@ -556,6 +659,7 @@ export function DevLearningPage() {
             <TabsTrigger value="events">Decision Events ({decisionEvents.length})</TabsTrigger>
             <TabsTrigger value="outcomes">Outcomes ({decisionOutcomes.length})</TabsTrigger>
             <TabsTrigger value="calibration">Calibration</TabsTrigger>
+            <TabsTrigger value="suggestions">Suggestions ({calibrationSuggestions.length})</TabsTrigger>
             <TabsTrigger value="strategy-health">Strategy Health</TabsTrigger>
             <TabsTrigger value="data-health">Data Health</TabsTrigger>
             <TabsTrigger value="analysis">Analysis</TabsTrigger>
@@ -864,6 +968,156 @@ export function DevLearningPage() {
                       <div className="text-center py-8 text-slate-400">No metrics match the current filters.</div>
                     )}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="suggestions" className="space-y-4">
+            <Card className="bg-slate-800/80 border-slate-700">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Target className="w-5 h-5 text-purple-400" />
+                  Calibration Suggestions
+                </CardTitle>
+                <CardDescription>AI-generated suggestions for parameter optimization</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {calibrationSuggestions.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400">
+                    <p className="mb-2">No suggestions found.</p>
+                    <p className="text-sm">Run strategy-optimizer-agent to generate suggestions.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-700">
+                          <th className="text-left py-3 px-2 text-slate-300 font-medium">Symbol</th>
+                          <th className="text-left py-3 px-2 text-slate-300 font-medium">Horizon</th>
+                          <th className="text-left py-3 px-2 text-slate-300 font-medium">Type</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">Current</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">Suggested</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">Impact %</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">Confidence</th>
+                          <th className="text-right py-3 px-2 text-slate-300 font-medium">Samples</th>
+                          <th className="text-center py-3 px-2 text-slate-300 font-medium">Status</th>
+                          <th className="text-center py-3 px-2 text-slate-300 font-medium">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {calibrationSuggestions.map((suggestion) => {
+                          const isPending = suggestion.status === "pending";
+                          const isApplying = applyingIds.has(suggestion.id);
+                          const canApply =
+                            isPending &&
+                            ["confidence_threshold", "tp_adjustment", "sl_adjustment"].includes(
+                              suggestion.suggestion_type
+                            );
+
+                          return (
+                            <tr key={suggestion.id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
+                              <td className="py-3 px-2 text-white font-medium">{suggestion.symbol}</td>
+                              <td className="py-3 px-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {suggestion.horizon}
+                                </Badge>
+                              </td>
+                              <td className="py-3 px-2 text-slate-300 text-xs">
+                                {suggestion.suggestion_type.replace(/_/g, " ")}
+                              </td>
+                              <td className="text-right py-3 px-2 text-slate-300">
+                                {suggestion.current_value !== null
+                                  ? (suggestion.current_value * 100).toFixed(2)
+                                  : "–"}
+                              </td>
+                              <td className="text-right py-3 px-2 text-white font-medium">
+                                {suggestion.suggested_value !== null
+                                  ? (suggestion.suggested_value * 100).toFixed(2)
+                                  : "–"}
+                              </td>
+                              <td className="text-right py-3 px-2">
+                                <span
+                                  className={
+                                    suggestion.expected_impact_pct !== null && suggestion.expected_impact_pct > 0
+                                      ? "text-green-400"
+                                      : "text-slate-300"
+                                  }
+                                >
+                                  {suggestion.expected_impact_pct !== null
+                                    ? formatPct(suggestion.expected_impact_pct)
+                                    : "–"}
+                                </span>
+                              </td>
+                              <td className="text-right py-3 px-2 text-slate-300">
+                                {(suggestion.confidence_score * 100).toFixed(0)}%
+                              </td>
+                              <td className="text-right py-3 px-2 text-slate-300">{suggestion.sample_size}</td>
+                              <td className="text-center py-3 px-2">
+                                <Badge
+                                  variant={
+                                    suggestion.status === "applied"
+                                      ? "default"
+                                      : suggestion.status === "dismissed"
+                                        ? "secondary"
+                                        : "outline"
+                                  }
+                                  className="text-xs"
+                                >
+                                  {suggestion.status}
+                                </Badge>
+                              </td>
+                              <td className="text-center py-3 px-2">
+                                {isPending ? (
+                                  <div className="flex gap-2 justify-center">
+                                    <Button
+                                      size="sm"
+                                      variant="default"
+                                      onClick={() => handleApplyOrDismiss(suggestion.id, "apply")}
+                                      disabled={!canApply || isApplying}
+                                      title={
+                                        !canApply
+                                          ? "Apply not supported for this suggestion type yet"
+                                          : undefined
+                                      }
+                                    >
+                                      {isApplying ? (
+                                        <>
+                                          <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                          Applying...
+                                        </>
+                                      ) : (
+                                        "Apply"
+                                      )}
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleApplyOrDismiss(suggestion.id, "dismiss")}
+                                      disabled={isApplying}
+                                    >
+                                      {isApplying ? (
+                                        <>
+                                          <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                          Dismissing...
+                                        </>
+                                      ) : (
+                                        "Dismiss"
+                                      )}
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-slate-500">
+                                    {suggestion.status === "applied" ? "Applied" : "Dismissed"}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
