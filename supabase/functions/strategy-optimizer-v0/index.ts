@@ -153,7 +153,7 @@ serve(async (req) => {
       strategy_id,
       symbol,
       horizon,
-      suggestion_type: 'review_performance',
+      suggestion_type: 'confidence_threshold',
       current_value: null,
       suggested_value: null,
       expected_impact_pct: null,
