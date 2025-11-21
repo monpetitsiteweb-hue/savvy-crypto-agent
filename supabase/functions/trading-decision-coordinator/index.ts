@@ -1613,12 +1613,14 @@ async function getRecentTrades(supabaseClient: any, userId: string, strategyId: 
 // PHASE 4: Load strategy parameters from DB
 async function loadStrategyParameters(
   supabaseClient: any,
+  userId: string,
   strategyId: string,
   symbol: string
 ): Promise<any | null> {
   const { data, error } = await supabaseClient
     .from('strategy_parameters')
     .select('*')
+    .eq('user_id', userId)
     .eq('strategy_id', strategyId)
     .eq('symbol', symbol)
     .maybeSingle();
@@ -1748,14 +1750,20 @@ async function executeTradeOrder(
   try {
     // PHASE 4: Load optimized parameters (override hard-coded config)
     const baseSymbol = toBaseSymbol(intent.symbol);
-    const params = await loadStrategyParameters(supabaseClient, intent.strategyId, baseSymbol);
+    const params = await loadStrategyParameters(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
+    
+    // Extract base config values for logging
+    const baseConfig = {
+      tp_pct: strategyConfig?.takeProfitPercentage || strategyConfig?.configuration?.takeProfitPercentage || 1.5,
+      sl_pct: strategyConfig?.stopLossPercentage || strategyConfig?.configuration?.stopLossPercentage || 0.8,
+      min_confidence: strategyConfig?.minConfidence || (strategyConfig?.configuration?.aiConfidenceThreshold ? (strategyConfig.configuration.aiConfidenceThreshold / 100) : 0.5)
+    };
     
     // Create effective config by merging overrides
     let effectiveConfig = { ...strategyConfig };
     
     // Apply parameters (override strategy config if available)
     if (params) {
-      console.log(`[coordinator] Using optimized parameters for ${baseSymbol}: TP=${params.tp_pct}%, SL=${params.sl_pct}%, confidence=${params.min_confidence}`);
       effectiveConfig = {
         ...strategyConfig,
         takeProfitPercentage: params.tp_pct,
@@ -1763,6 +1771,22 @@ async function executeTradeOrder(
         minConfidence: params.min_confidence
       };
     }
+    
+    // Log parameter override status
+    console.log('STRATEGY_PARAMS_OVERRIDE', {
+      symbol: baseSymbol,
+      baseConfig,
+      params: params ? {
+        min_confidence: params.min_confidence,
+        tp_pct: params.tp_pct,
+        sl_pct: params.sl_pct
+      } : null,
+      effective: {
+        min_confidence: effectiveConfig.minConfidence,
+        tp_pct: effectiveConfig.takeProfitPercentage,
+        sl_pct: effectiveConfig.stopLossPercentage
+      }
+    });
 
     // PHASE 5: Read execution mode for branching
     const executionMode = Deno.env.get("EXECUTION_MODE") || "TEST";
