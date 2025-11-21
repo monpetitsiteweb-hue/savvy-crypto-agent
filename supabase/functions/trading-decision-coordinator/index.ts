@@ -1041,15 +1041,14 @@ async function logDecisionAsync(
     const executionMode = Deno.env.get("EXECUTION_MODE") || "TEST";
 
     // PHASE 1 ENHANCEMENT: Log to decision_events for learning loop
-    // Log EXECUTE decisions (BUY/SELL) with entry price, OR BLOCK/DEFER/HOLD decisions with profit analysis or confidence gate
-    const hasEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price;
-    if ((action === 'BUY' || action === 'SELL' || action === 'BLOCK' || action === 'DEFER' || action === 'HOLD') && (hasEntryPrice || normalizedConfidence !== null)) {
+    // Log ALL decisions unconditionally (BUY/SELL/BLOCK/DEFER/HOLD) for complete audit trail
+    if (action === 'BUY' || action === 'SELL' || action === 'BLOCK' || action === 'DEFER' || action === 'HOLD') {
       // Extract EFFECTIVE TP/SL/min_confidence from strategy config (after overrides)
       // These values should be the actual parameters used for the decision, not the base strategy defaults
       const effectiveTpPct = strategyConfig?.takeProfitPercentage || strategyConfig?.configuration?.takeProfitPercentage || 1.5;
       const effectiveSlPct = strategyConfig?.stopLossPercentage || strategyConfig?.configuration?.stopLossPercentage || 0.8;
       const effectiveMinConf = strategyConfig?.minConfidence || (strategyConfig?.configuration?.aiConfidenceThreshold ? (strategyConfig.configuration.aiConfidenceThreshold / 100) : 0.5);
-      const finalEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price || profitMetadata?.currentPrice;
+      const finalEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price || profitMetadata?.currentPrice || null;
 
       console.log(`[coordinator] logging decision with effective params`, {
         symbol: baseSymbol,
