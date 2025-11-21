@@ -1061,44 +1061,62 @@ async function logDecisionAsync(
 
       console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, execution_mode=${executionMode}, entry_price=${finalEntryPrice}, tp_pct=${effectiveTpPct}, sl_pct=${effectiveSlPct}, min_confidence=${effectiveMinConf}, confidence=${normalizedConfidence}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
 
-      await supabaseClient
-        .from('decision_events')
-        .insert({
-          user_id: intent.userId,
-          strategy_id: intent.strategyId,
-          symbol: baseSymbol,
-          side: intent.side, // Use intent.side (BUY/SELL), not action
-          source: intent.source,
-          confidence: normalizedConfidence,  // Store as fraction [0,1]
-          reason: `${reason}: ${intent.reason || 'No additional details'}`,
-          expected_pnl_pct: intent.metadata?.expectedPnL || null,
-          tp_pct: effectiveTpPct,  // Use effective TP after overrides
-          sl_pct: effectiveSlPct,  // Use effective SL after overrides
-          entry_price: finalEntryPrice,
-          qty_suggested: intent.qtySuggested,
-          decision_ts: new Date().toISOString(),
-          trade_id: tradeId,
-          metadata: {
-            action: action, // Store action (BUY/SELL/BLOCK/DEFER/HOLD) in metadata
-            request_id: requestId,
-            unifiedConfig,
-            profitAnalysis: profitMetadata,
-            rawIntent: {
-              symbol: intent.symbol,
-              idempotencyKey: intent.idempotencyKey,
-              ts: intent.ts
-            },
-            effective_min_confidence: effectiveMinConf,  // Store effective min_confidence for reference
-            confidence_source: confidenceConfig?.source || 'default',  // Dynamic or default
-            confidence_optimizer: confidenceConfig?.optimizer || null,  // Which optimizer (if any)
-            confidence_optimizer_metadata: confidenceConfig?.optimizerMetadata 
-              ? { run_id: confidenceConfig.optimizerMetadata.run_id, run_at: confidenceConfig.optimizerMetadata.run_at }
-              : null  // Trimmed metadata for audit trail
+      const eventPayload = {
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        symbol: baseSymbol,
+        side: intent.side, // Use intent.side (BUY/SELL), not action
+        source: intent.source,
+        confidence: normalizedConfidence,  // Store as fraction [0,1]
+        reason: `${reason}: ${intent.reason || 'No additional details'}`,
+        expected_pnl_pct: intent.metadata?.expectedPnL || null,
+        tp_pct: effectiveTpPct,  // Use effective TP after overrides
+        sl_pct: effectiveSlPct,  // Use effective SL after overrides
+        entry_price: finalEntryPrice,
+        qty_suggested: intent.qtySuggested,
+        decision_ts: new Date().toISOString(),
+        trade_id: tradeId,
+        metadata: {
+          action: action, // Store action (BUY/SELL/BLOCK/DEFER/HOLD) in metadata
+          request_id: requestId,
+          unifiedConfig,
+          profitAnalysis: profitMetadata,
+          rawIntent: {
+            symbol: intent.symbol,
+            idempotencyKey: intent.idempotencyKey,
+            ts: intent.ts
           },
-          raw_intent: intent as any
-        });
+          effective_min_confidence: effectiveMinConf,  // Store effective min_confidence for reference
+          confidence_source: confidenceConfig?.source || 'default',  // Dynamic or default
+          confidence_optimizer: confidenceConfig?.optimizer || null,  // Which optimizer (if any)
+          confidence_optimizer_metadata: confidenceConfig?.optimizerMetadata 
+            ? { run_id: confidenceConfig.optimizerMetadata.run_id, run_at: confidenceConfig.optimizerMetadata.run_at }
+            : null  // Trimmed metadata for audit trail
+        },
+        raw_intent: intent as any
+      };
 
-      console.log(`✅ LEARNING: Successfully logged decision event - ${action} ${baseSymbol} @ ${finalEntryPrice || 'N/A'} (TP=${effectiveTpPct}%, SL=${effectiveSlPct}%, confidence=${normalizedConfidence}, reason: ${reason})`);
+      console.log('📌 LEARNING: decision_events payload', eventPayload);
+
+      const { data: decisionInsertResult, error: decisionInsertError } = await supabaseClient
+        .from('decision_events')
+        .insert([eventPayload])
+        .select('id');
+
+      if (decisionInsertError) {
+        console.error('❌ LEARNING: decision_events insert failed', {
+          message: decisionInsertError.message,
+          details: decisionInsertError.details,
+          hint: decisionInsertError.hint
+        });
+      } else {
+        console.log('✅ LEARNING: Successfully logged decision event row', {
+          id: decisionInsertResult?.[0]?.id || null,
+          symbol: baseSymbol,
+          side: intent.side,
+          reason
+        });
+      }
     }
   } catch (error) {
     console.error('❌ COORDINATOR: Failed to log decision:', error.message);
