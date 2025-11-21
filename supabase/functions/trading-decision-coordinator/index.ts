@@ -1824,48 +1824,134 @@ async function executeTradeOrder(
     // For SELL orders, compute FIFO accounting fields and cap quantity
     let fifoFields = {};
     if (intent.side === 'SELL') {
-      // Recompute FIFO for this specific SELL quantity (already computed in profit gate)
-      const { data: buyTrades } = await supabaseClient
-        .from('mock_trades')
-        .select('amount, price, executed_at')
-        .eq('user_id', intent.userId)
-        .eq('strategy_id', intent.strategyId)
-        .eq('cryptocurrency', baseSymbol)
-        .eq('trade_type', 'buy')
-        .order('executed_at', { ascending: true });
+      // ✅ MANUAL SELL BYPASS: Skip coverage gate for manual SELLs from UI with originalTradeId
+      const isManualSell = intent.metadata?.context === 'MANUAL' && intent.metadata?.originalTradeId;
+      
+      if (isManualSell) {
+        console.log(`🔓 COORDINATOR: Manual SELL with originalTradeId detected - BYPASSING coverage gate`);
+        console.log(`   Context: ${intent.metadata.context}, OriginalTradeId: ${intent.metadata.originalTradeId}`);
+        
+        // For manual SELLs, still compute FIFO fields for P&L tracking but don't enforce coverage
+        const { data: buyTrades } = await supabaseClient
+          .from('mock_trades')
+          .select('amount, price, executed_at')
+          .eq('user_id', intent.userId)
+          .eq('strategy_id', intent.strategyId)
+          .eq('cryptocurrency', baseSymbol)
+          .eq('trade_type', 'buy')
+          .order('executed_at', { ascending: true });
 
-      const { data: sellTrades } = await supabaseClient
-        .from('mock_trades')
-        .select('original_purchase_amount')
-        .eq('user_id', intent.userId)
-        .eq('strategy_id', intent.strategyId)
-        .eq('cryptocurrency', baseSymbol)
-        .eq('trade_type', 'sell')
-        .not('original_purchase_amount', 'is', null);
+        const { data: sellTrades } = await supabaseClient
+          .from('mock_trades')
+          .select('original_purchase_amount')
+          .eq('user_id', intent.userId)
+          .eq('strategy_id', intent.strategyId)
+          .eq('cryptocurrency', baseSymbol)
+          .eq('trade_type', 'sell')
+          .not('original_purchase_amount', 'is', null);
 
-      if (buyTrades && buyTrades.length > 0) {
-        let totalSold = sellTrades ? sellTrades.reduce((sum, sell) => sum + parseFloat(sell.original_purchase_amount), 0) : 0;
-        let remainingQty = qty;
-        let fifoValue = 0;
-        let fifoAmount = 0;
+        if (buyTrades && buyTrades.length > 0) {
+          let totalSold = sellTrades ? sellTrades.reduce((sum, sell) => sum + parseFloat(sell.original_purchase_amount), 0) : 0;
+          let remainingQty = qty;
+          let fifoValue = 0;
+          let fifoAmount = 0;
 
-        for (const buy of buyTrades) {
-          if (remainingQty <= 0) break;
-          const buyAmount = parseFloat(buy.amount);
-          const buyPrice = parseFloat(buy.price);
-          const availableFromBuy = Math.max(0, buyAmount - totalSold);
-          
-          if (availableFromBuy > 0) {
-            const takeAmount = Math.min(remainingQty, availableFromBuy);
-            fifoAmount += takeAmount;
-            fifoValue += takeAmount * buyPrice;
-            remainingQty -= takeAmount;
+          for (const buy of buyTrades) {
+            if (remainingQty <= 0) break;
+            const buyAmount = parseFloat(buy.amount);
+            const buyPrice = parseFloat(buy.price);
+            const availableFromBuy = Math.max(0, buyAmount - totalSold);
+            
+            if (availableFromBuy > 0) {
+              const takeAmount = Math.min(remainingQty, availableFromBuy);
+              fifoAmount += takeAmount;
+              fifoValue += takeAmount * buyPrice;
+              remainingQty -= takeAmount;
+            }
+            totalSold -= Math.min(totalSold, buyAmount);
           }
-          totalSold -= Math.min(totalSold, buyAmount);
-        }
 
-        if (!fifoAmount || fifoAmount <= 0) {
-          console.log(`🚫 COORDINATOR: SELL blocked - insufficient_position_size`);
+          // Manual SELL: Use computed FIFO fields even if partial/zero coverage (for P&L tracking)
+          fifoFields = fifoAmount > 0 ? {
+            original_purchase_amount: fifoAmount,
+            original_purchase_value: fifoValue,
+            original_purchase_price: fifoValue / fifoAmount
+          } : {};
+          
+          console.log(`   Manual SELL FIFO: amount=${fifoAmount}, value=${fifoValue}, avgPrice=${fifoAmount > 0 ? fifoValue / fifoAmount : 0}`);
+        }
+        
+        // Skip coverage enforcement - allow manual SELL to proceed
+      } else {
+        // Standard SELL: Enforce coverage gate for automated/engine SELLs
+        console.log(`🔒 COORDINATOR: Standard SELL - ENFORCING coverage gate`);
+        
+        // Recompute FIFO for this specific SELL quantity (already computed in profit gate)
+        const { data: buyTrades } = await supabaseClient
+          .from('mock_trades')
+          .select('amount, price, executed_at')
+          .eq('user_id', intent.userId)
+          .eq('strategy_id', intent.strategyId)
+          .eq('cryptocurrency', baseSymbol)
+          .eq('trade_type', 'buy')
+          .order('executed_at', { ascending: true });
+
+        const { data: sellTrades } = await supabaseClient
+          .from('mock_trades')
+          .select('original_purchase_amount')
+          .eq('user_id', intent.userId)
+          .eq('strategy_id', intent.strategyId)
+          .eq('cryptocurrency', baseSymbol)
+          .eq('trade_type', 'sell')
+          .not('original_purchase_amount', 'is', null);
+
+        if (buyTrades && buyTrades.length > 0) {
+          let totalSold = sellTrades ? sellTrades.reduce((sum, sell) => sum + parseFloat(sell.original_purchase_amount), 0) : 0;
+          let remainingQty = qty;
+          let fifoValue = 0;
+          let fifoAmount = 0;
+
+          for (const buy of buyTrades) {
+            if (remainingQty <= 0) break;
+            const buyAmount = parseFloat(buy.amount);
+            const buyPrice = parseFloat(buy.price);
+            const availableFromBuy = Math.max(0, buyAmount - totalSold);
+            
+            if (availableFromBuy > 0) {
+              const takeAmount = Math.min(remainingQty, availableFromBuy);
+              fifoAmount += takeAmount;
+              fifoValue += takeAmount * buyPrice;
+              remainingQty -= takeAmount;
+            }
+            totalSold -= Math.min(totalSold, buyAmount);
+          }
+
+          if (!fifoAmount || fifoAmount <= 0) {
+            console.log(`🚫 COORDINATOR: SELL blocked - insufficient_position_size`);
+            // Log BLOCK decision before returning
+            await logDecisionAsync(
+              supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
+              { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, effectiveConfig
+            );
+            return { success: false, error: 'insufficient_position_size', effectiveConfig };
+          }
+
+          // Cap the sell size to what's actually available under FIFO
+          if (qty > fifoAmount) {
+            console.log(`⚠️ COORDINATOR: Capping SELL qty from ${qty} to ${fifoAmount} (FIFO remaining)`);
+            qty = fifoAmount;
+          }
+
+          // Recompute totalValue after any cap
+          totalValue = qty * realMarketPrice;
+
+          fifoFields = {
+            original_purchase_amount: fifoAmount,
+            original_purchase_value: fifoValue,
+            original_purchase_price: fifoValue / fifoAmount
+          };
+        } else {
+          console.log(`🚫 COORDINATOR: SELL blocked - no buy history found`);
           // Log BLOCK decision before returning
           await logDecisionAsync(
             supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
@@ -1873,29 +1959,6 @@ async function executeTradeOrder(
           );
           return { success: false, error: 'insufficient_position_size', effectiveConfig };
         }
-
-        // Cap the sell size to what's actually available under FIFO
-        if (qty > fifoAmount) {
-          console.log(`⚠️ COORDINATOR: Capping SELL qty from ${qty} to ${fifoAmount} (FIFO remaining)`);
-          qty = fifoAmount;
-        }
-
-        // Recompute totalValue after any cap
-        totalValue = qty * realMarketPrice;
-
-        fifoFields = {
-          original_purchase_amount: fifoAmount,
-          original_purchase_value: fifoValue,
-          original_purchase_price: fifoValue / fifoAmount
-        };
-      } else {
-        console.log(`🚫 COORDINATOR: SELL blocked - no buy history found`);
-        // Log BLOCK decision before returning
-        await logDecisionAsync(
-          supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
-          { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, effectiveConfig
-        );
-        return { success: false, error: 'insufficient_position_size', effectiveConfig };
       }
     }
 
