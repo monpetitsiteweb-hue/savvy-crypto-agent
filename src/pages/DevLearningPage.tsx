@@ -55,12 +55,24 @@ interface CalibrationMetric {
   time_window: string;
   confidence_band: string;
   sample_count: number;
+  coverage_pct: number;
   win_rate_pct: number;
-  mean_realized_pnl_pct: number;
+  median_realized_pnl_pct: number | null;
+  mean_realized_pnl_pct: number | null;
+  median_mfe_pct: number | null;
+  median_mae_pct: number | null;
   tp_hit_rate_pct: number;
   sl_hit_rate_pct: number;
+  missed_opportunity_pct: number;
+  mean_expectation_error_pct: number | null;
+  reliability_correlation: number | null;
+  volatility_regime: string | null;
+  window_start_ts: string;
+  window_end_ts: string;
+  window_days: number;
   computed_at: string;
   created_at: string;
+  updated_at: string;
 }
 
 interface LearningStatus {
@@ -174,12 +186,12 @@ export function DevLearningPage() {
         setDecisionOutcomes(outcomes || []);
       }
 
-      // Fetch calibration metrics
+      // Fetch calibration metrics - order by window_end_ts (period end) for timeline
       const { data: calibration, error: calibrationError } = await supabase
         .from("calibration_metrics")
         .select("*")
         .eq("user_id", user!.id)
-        .order("computed_at", { ascending: false })
+        .order("window_end_ts", { ascending: false })
         .limit(200);
 
       if (calibrationError) {
@@ -825,12 +837,9 @@ export function DevLearningPage() {
                             <td className="py-2 text-right text-slate-300">{metric.sl_hit_rate_pct.toFixed(1)}%</td>
                             <td className="py-2 text-slate-400 text-xs">
                               <div className="flex flex-col">
-                                <span>{new Date(metric.computed_at).toLocaleDateString()}</span>
+                                <span className="text-slate-300">{new Date(metric.window_end_ts).toLocaleDateString()}</span>
                                 <span className="text-xs text-slate-500">
-                                  {new Date(metric.computed_at).toLocaleTimeString([], {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
+                                  Computed: {new Date(metric.computed_at).toLocaleDateString()}
                                 </span>
                               </div>
                             </td>
