@@ -271,7 +271,7 @@ async function applyHeuristics(
       strategy_id,
       symbol,
       horizon,
-      suggestion_type: 'min_confidence',
+      suggestion_type: 'confidence_threshold',
       current_value: min_confidence,
       suggested_value: suggested_confidence,
       expected_impact_pct: 5,
@@ -282,7 +282,7 @@ async function applyHeuristics(
     });
 
     results.push({
-      suggestion_type: 'min_confidence',
+      suggestion_type: 'confidence_threshold',
       symbol,
       horizon,
       action: result.action,
@@ -306,7 +306,7 @@ async function applyHeuristics(
       strategy_id,
       symbol,
       horizon,
-      suggestion_type: 'min_confidence',
+      suggestion_type: 'confidence_threshold',
       current_value: min_confidence,
       suggested_value: suggested_confidence,
       expected_impact_pct: 3,
@@ -317,7 +317,7 @@ async function applyHeuristics(
     });
 
     results.push({
-      suggestion_type: 'min_confidence',
+      suggestion_type: 'confidence_threshold',
       symbol,
       horizon,
       action: result.action,
