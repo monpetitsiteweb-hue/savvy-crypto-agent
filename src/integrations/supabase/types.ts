@@ -1306,6 +1306,7 @@ export type Database = {
           original_purchase_amount: number | null
           original_purchase_price: number | null
           original_purchase_value: number | null
+          original_trade_id: string | null
           price: number
           price_impact_bps: number | null
           price_quoted: number | null
@@ -1354,6 +1355,7 @@ export type Database = {
           original_purchase_amount?: number | null
           original_purchase_price?: number | null
           original_purchase_value?: number | null
+          original_trade_id?: string | null
           price: number
           price_impact_bps?: number | null
           price_quoted?: number | null
@@ -1402,6 +1404,7 @@ export type Database = {
           original_purchase_amount?: number | null
           original_purchase_price?: number | null
           original_purchase_value?: number | null
+          original_trade_id?: string | null
           price?: number
           price_impact_bps?: number | null
           price_quoted?: number | null
