@@ -2017,6 +2017,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                       isTestStrategy={existingStrategy?.test_mode ?? true}
                       isActive={existingStrategy?.is_active ?? false}
                       executionModeFromDb={(existingStrategy as any)?.execution_mode}
+                      selectedCoins={formData.selectedCoins}
+                      defaultTpPct={formData.takeProfitPercentage}
+                      defaultSlPct={formData.stopLossPercentage}
+                      defaultMinConfidence={formData.aiIntelligenceConfig.aiConfidenceThreshold ? formData.aiIntelligenceConfig.aiConfidenceThreshold / 100 : 0.70}
                     />
                   )}
                 </form>
