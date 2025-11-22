@@ -37,6 +37,7 @@ interface EditableRow {
   min_confidence: number;
   isOverride: boolean; // true if exists in DB, false if using defaults
   hasChanges: boolean; // true if user modified values
+  updated_at?: string | null; // last updated timestamp from DB (for dev diagnostics)
 }
 
 export const AdvancedSymbolOverridesPanel = ({
@@ -56,6 +57,7 @@ export const AdvancedSymbolOverridesPanel = ({
   const [holds, setHolds] = useState<ExecutionHold[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const isDev = import.meta.env.MODE === "development";
 
   useEffect(() => {
     if (strategyId && user) {
@@ -68,6 +70,14 @@ export const AdvancedSymbolOverridesPanel = ({
 
     setLoading(true);
     try {
+      if (isDev) {
+        console.log("[AdvancedSymbolOverrides] loadData start", {
+          strategyId,
+          userId: user.id,
+          selectedCoins,
+        });
+      }
+
       // Load strategy parameters
       const { data: paramsData, error: paramsError } = await fromTable("strategy_parameters")
         .select("*")
@@ -76,6 +86,13 @@ export const AdvancedSymbolOverridesPanel = ({
         .order("updated_at", { ascending: true });
 
       if (paramsError) throw paramsError;
+
+      if (isDev) {
+        console.log("[AdvancedSymbolOverrides] loadData paramsData", {
+          rowCount: (paramsData as any)?.length ?? 0,
+          symbols: ((paramsData as any) || []).map((p: any) => p.symbol),
+        });
+      }
 
       // Create a map of existing overrides
       const overridesMap = new Map<string, StrategyParameter>();
@@ -95,8 +112,13 @@ export const AdvancedSymbolOverridesPanel = ({
           min_confidence: override?.min_confidence ?? defaultMinConfidence,
           isOverride: !!override,
           hasChanges: false,
+          updated_at: override?.updated_at ?? null,
         };
       });
+
+      if (isDev) {
+        console.log("[AdvancedSymbolOverrides] loadData built editableRows", rows);
+      }
 
       setEditableRows(rows);
 
@@ -159,7 +181,16 @@ export const AdvancedSymbolOverridesPanel = ({
   const handleSaveAll = async () => {
     if (!strategyId || !user) return;
 
+    if (isDev) {
+      console.log("[AdvancedSymbolOverrides] handleSaveAll editableRows", editableRows);
+    }
+
     const changedRows = editableRows.filter((row) => row.hasChanges);
+
+    if (isDev) {
+      console.log("[AdvancedSymbolOverrides] handleSaveAll changedRows", changedRows);
+    }
+
     if (changedRows.length === 0) {
       toast({
         title: "No Changes",
@@ -181,11 +212,13 @@ export const AdvancedSymbolOverridesPanel = ({
         last_updated_by: "ui",
       }));
 
-      console.log("[AdvancedSymbolOverrides] Saving overrides", {
-        strategyId,
-        userId: user.id,
-        upsertData,
-      });
+      if (isDev) {
+        console.log("[AdvancedSymbolOverrides] Saving overrides", {
+          strategyId,
+          userId: user.id,
+          upsertData,
+        });
+      }
 
       const { data, error } = await fromTable("strategy_parameters")
         .upsert(
@@ -193,6 +226,10 @@ export const AdvancedSymbolOverridesPanel = ({
             ...row,
             updated_at: new Date().toISOString(),
           })),
+          {
+            onConflict: "strategy_id,symbol",
+            ignoreDuplicates: false,
+          },
         )
         .select("*");
 
@@ -201,11 +238,13 @@ export const AdvancedSymbolOverridesPanel = ({
         throw error;
       }
 
-      console.log("[AdvancedSymbolOverrides] Upsert result", data);
+      if (isDev) {
+        console.log("[AdvancedSymbolOverrides] Upsert result", data);
+      }
 
       toast({
         title: "Overrides Saved",
-        description: `Updated parameters for ${changedRows.length} symbol(s)`,
+        description: `Updated parameters for ${changedRows.length} symbol(s)` ,
       });
 
       // Reload to reflect DB state
@@ -353,6 +392,12 @@ export const AdvancedSymbolOverridesPanel = ({
                           <Badge variant="secondary" className="text-xs">
                             Modified
                           </Badge>
+                        )}
+                        {isDev && (
+                          <span className="text-[10px] text-muted-foreground">
+                            {row.isOverride ? "Override from DB" : "Default (no DB row)"}
+                            {row.updated_at && ` · updated_at: ${new Date(row.updated_at).toLocaleString()}`}
+                          </span>
                         )}
                       </div>
                       <Button
