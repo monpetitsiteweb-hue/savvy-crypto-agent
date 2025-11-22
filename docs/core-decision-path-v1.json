@@ -1,0 +1,297 @@
+{
+  "title": "Core Decision Path v1",
+  "version": "1.0",
+  "description": "Locked, minimal, trusted path from market data and strategy config to trading decisions, learning loop, and strategy parameter updates. Everything outside this file is considered experimental or out-of-scope.",
+  "scope": {
+    "includes": [
+      "Decision routing via trading-decision-coordinator",
+      "BUY/SELL decisions (including HOLD/DEFER) for the current Coinbase-based engine",
+      "Logging into decision_events with confidence, TP/SL and entry context",
+      "Learning loop from decision_events → decision_outcomes → calibration_metrics",
+      "Strategy parameter updates via calibration_suggestions + strategy_parameters",
+      "Manual application/dismissal of suggestions via strategy-optimizer-apply"
+    ],
+    "excludes": [
+      "Whale-based gates and signals",
+      "News/sentiment-based gates and signals",
+      "Liquidity depth–based gates",
+      "Circuit breakers beyond what is actually implemented today",
+      "On-chain execution (0x, 1inch, CoW, etc.) and gas/risk layers",
+      "Any strategy-optimizer-* version that is not currently wired into cron or UI"
+    ]
+  },
+  "trusted_tables": [
+    "decision_events",
+    "decision_outcomes",
+    "calibration_metrics",
+    "calibration_suggestions",
+    "strategy_parameters"
+  ],
+  "trusted_edge_functions": [
+    "trading-decision-coordinator",
+    "automated-trading-engine",
+    "decision-evaluator",
+    "calibration-aggregator",
+    "learning-status",
+    "strategy-optimizer-apply"
+  ],
+  "core_flow": {
+    "ingress": {
+      "price_feed": {
+        "description": "Real-time market data (currently Coinbase ticker / stats / candles) used to compute entry_price, TP/SL levels, and expected_pnl_pct.",
+        "status": "confirmed"
+      },
+      "strategy_config": {
+        "description": "Base TP/SL and confidence thresholds from trading strategy configuration JSON, combined with per-symbol overrides from strategy_parameters.",
+        "status": "confirmed"
+      }
+    },
+    "decision_making": {
+      "function": "trading-decision-coordinator",
+      "inputs": [
+        "current price and spread",
+        "symbol & side (BUY/SELL/TP/SL context)",
+        "strategy base TP/SL and min_confidence",
+        "per-symbol overrides in strategy_parameters",
+        "time since last action (cooldown / hold period)",
+        "current open positions and profit context (for SELL/TP)"
+      ],
+      "outputs": [
+        "action: BUY | SELL | HOLD | DEFER",
+        "reason: one of the core gate reasons or 'no_conflicts_detected'",
+        "decision snapshot logged into decision_events"
+      ],
+      "status": "confirmed"
+    },
+    "logging": {
+      "table": "decision_events",
+      "description": "Every coordinator decision (manual + automated + TP/SL exits) is logged with the key signals needed for later evaluation.",
+      "required_fields": [
+        "id",
+        "user_id",
+        "strategy_id",
+        "symbol",
+        "side",
+        "source",
+        "confidence",
+        "expected_pnl_pct",
+        "tp_pct",
+        "sl_pct",
+        "entry_price",
+        "qty_suggested",
+        "reason",
+        "decision_ts",
+        "created_at",
+        "trade_id"
+      ],
+      "status": "confirmed"
+    },
+    "evaluation": {
+      "function": "decision-evaluator",
+      "reads": [
+        "decision_events",
+        "market_ohlcv_raw",
+        "price_snapshots"
+      ],
+      "writes": [
+        "decision_outcomes"
+      ],
+      "description": "For each logged decision, compute MFE/MAE, realized P&L, TP/SL hits and missed opportunities for the defined horizons (15m, 1h, 4h, 24h).",
+      "status": "confirmed"
+    },
+    "calibration": {
+      "function": "calibration-aggregator",
+      "reads": [
+        "decision_outcomes",
+        "decision_events"
+      ],
+      "writes": [
+        "calibration_metrics"
+      ],
+      "description": "Aggregate outcomes into calibration_metrics grouped by symbol, horizon, confidence_band, and 30d window with sample_count, win_rate_pct, mean_realized_pnl_pct, tp_hit_rate_pct, sl_hit_rate_pct.",
+      "status": "confirmed"
+    },
+    "optimization": {
+      "functions": [
+        "strategy-optimizer-agent-v1 (suggestions)",
+        "strategy-optimizer-apply (apply/dismiss)"
+      ],
+      "reads": [
+        "calibration_metrics",
+        "strategy_parameters",
+        "calibration_suggestions"
+      ],
+      "writes": [
+        "calibration_suggestions",
+        "strategy_parameters"
+      ],
+      "description": "Use calibration_metrics to generate calibration_suggestions (proposed min_confidence / TP / SL changes), then apply/dismiss them via strategy-optimizer-apply, which updates strategy_parameters and appends optimizer_history in metadata.",
+      "status": "partially_confirmed"
+    }
+  },
+  "decision_sources": {
+    "primary": [
+      "manual",
+      "automated",
+      "coordinator_tp",
+      "system"
+    ],
+    "other_allowed": [
+      "intelligent",
+      "pool",
+      "news",
+      "whale"
+    ],
+    "notes": "All values must be consistent with existing decision_events.source usage. Core v1 semantics are only guaranteed for the 'primary' sources; others are allowed as labels but are not yet wired to special gates or policies."
+  },
+  "signals": [
+    {
+      "name": "confidence",
+      "description": "Model or engine confidence (0–1) for the BUY/SELL direction at decision time.",
+      "status": "confirmed"
+    },
+    {
+      "name": "expected_pnl_pct",
+      "description": "Expected percentage P&L for the proposed trade over its main horizon.",
+      "status": "confirmed"
+    },
+    {
+      "name": "tp_pct",
+      "description": "Take-profit target in percent, derived from strategy config or per-symbol overrides.",
+      "status": "confirmed"
+    },
+    {
+      "name": "sl_pct",
+      "description": "Stop-loss threshold in percent, derived from strategy config or per-symbol overrides.",
+      "status": "confirmed"
+    },
+    {
+      "name": "min_confidence",
+      "description": "Effective minimum confidence after combining base strategy threshold and per-symbol overrides.",
+      "status": "confirmed"
+    },
+    {
+      "name": "entry_price",
+      "description": "Price used to compute TP/SL and P&L at the time of decision.",
+      "status": "confirmed"
+    },
+    {
+      "name": "qty_suggested",
+      "description": "Suggested position size (in base units) for the decision, used by the execution layer.",
+      "status": "confirmed"
+    }
+  ],
+  "gates": [
+    {
+      "name": "hold_period_gate",
+      "type": "time",
+      "reasons": [
+        "min_hold_period_not_met",
+        "hold_min_period_not_met"
+      ],
+      "description": "Blocks exits if the minimum hold period for an open position has not elapsed.",
+      "status": "confirmed"
+    },
+    {
+      "name": "cooldown_gate",
+      "type": "time",
+      "reasons": [
+        "blocked_by_cooldown"
+      ],
+      "description": "Prevents rapid flip-flopping between BUY and SELL on the same symbol within a short window.",
+      "status": "confirmed"
+    },
+    {
+      "name": "precedence_gate",
+      "type": "policy",
+      "reasons": [
+        "blocked_by_precedence:POOL_EXIT"
+      ],
+      "description": "Ensures certain actions (e.g. pool exit / position management) take precedence over new entries.",
+      "status": "confirmed"
+    },
+    {
+      "name": "queue_overload_gate",
+      "type": "load_shedding",
+      "reasons": [
+        "queue_overload_defer"
+      ],
+      "description": "Defers decisions when the engine is under too much load or backlog.",
+      "status": "confirmed"
+    },
+    {
+      "name": "atomic_lock_gate",
+      "type": "concurrency",
+      "reasons": [
+        "atomic_section_busy_defer"
+      ],
+      "description": "Prevents concurrent conflicting decisions for the same symbol during critical sections.",
+      "status": "confirmed"
+    },
+    {
+      "name": "price_freshness_gate",
+      "type": "market_quality",
+      "reasons": [
+        "insufficient_price_freshness"
+      ],
+      "description": "Blocks decisions when the cached price is too old.",
+      "status": "confirmed"
+    },
+    {
+      "name": "spread_gate",
+      "type": "market_quality",
+      "reasons": [
+        "spread_too_wide"
+      ],
+      "description": "Blocks or defers entries/exits when the bid/ask spread is wider than the configured threshold.",
+      "status": "confirmed"
+    },
+    {
+      "name": "profit_gate",
+      "type": "risk_reward",
+      "reasons": [
+        "blocked_by_insufficient_profit"
+      ],
+      "description": "Blocks exits when realized or potential profit does not satisfy the minimum criteria (e.g. in your XRP TP case).",
+      "status": "confirmed"
+    },
+    {
+      "name": "execution_gate",
+      "type": "execution",
+      "reasons": [
+        "direct_execution_failed"
+      ],
+      "description": "Captures failures from the downstream execution layer.",
+      "status": "confirmed"
+    },
+    {
+      "name": "system_gate",
+      "type": "system",
+      "reasons": [
+        "internal_error"
+      ],
+      "description": "Fallback when the coordinator encounters unexpected errors.",
+      "status": "confirmed"
+    }
+  ],
+  "out_of_scope_v1": {
+    "gates": [
+      "liquidity_gate",
+      "whale_conflict_gate",
+      "circuit_breaker_gate"
+    ],
+    "notes": [
+      "These gate names/strings may appear in comments or legacy code but are not part of Core Decision Path v1.",
+      "They must not be used as justification for current coordinator behavior until reintroduced with explicit design and tests."
+    ]
+  },
+  "testing": {
+    "smoke_tests": [
+      "Trigger manual and automated BUY/SELL via trading-decision-coordinator and verify decision_events rows with correct signals and reasons.",
+      "Run decision-evaluator manually (edge function) and confirm decision_outcomes are created for all recent decisions.",
+      "Run calibration-aggregator and confirm calibration_metrics entries appear for expected horizons and symbols.",
+      "Generate calibration_suggestions via the current optimizer agent, then apply/dismiss some entries via strategy-optimizer-apply and verify strategy_parameters updates + optimizer_history metadata."
+    ],
+    "status": "these tests have been manually run at least once and should be kept as a regression checklist"
+  }
+}
