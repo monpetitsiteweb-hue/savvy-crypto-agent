@@ -2012,7 +2012,12 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                   {/* Advanced Symbol Overrides Panel */}
                   {activeSection === 'advanced-overrides' && (
-                    <AdvancedSymbolOverridesPanel strategyId={existingStrategy?.id || null} />
+                    <AdvancedSymbolOverridesPanel 
+                      strategyId={existingStrategy?.id || null}
+                      isTestStrategy={existingStrategy?.test_mode ?? true}
+                      isActive={existingStrategy?.is_active ?? false}
+                      executionModeFromDb={(existingStrategy as any)?.execution_mode}
+                    />
                   )}
                 </form>
               </div>
