@@ -73,7 +73,7 @@ export const AdvancedSymbolOverridesPanel = ({
         .select('*')
         .eq('strategy_id', strategyId)
         .eq('user_id', user.id)
-        .order('updated_at', { ascending: false });
+        .order('updated_at', { ascending: true });
 
       if (paramsError) throw paramsError;
       
