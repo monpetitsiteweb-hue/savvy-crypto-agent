@@ -72,7 +72,8 @@ export const AdvancedSymbolOverridesPanel = ({
       const { data: paramsData, error: paramsError } = await fromTable('strategy_parameters')
         .select('*')
         .eq('strategy_id', strategyId)
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false });
 
       if (paramsError) throw paramsError;
       
@@ -181,11 +182,25 @@ export const AdvancedSymbolOverridesPanel = ({
         last_updated_by: 'ui'
       }));
 
-      const { error } = await (supabase as any)
-        .from('strategy_parameters')
-        .upsert(upsertData);
+      console.log('[AdvancedSymbolOverrides] Saving overrides', {
+        strategyId,
+        userId: user.id,
+        upsertData,
+      });
 
-      if (error) throw error;
+      const { data, error } = await (fromTable('strategy_parameters') as any)
+        .upsert(upsertData, {
+          onConflict: 'user_id,strategy_id,symbol',
+          ignoreDuplicates: false,
+        })
+        .select('*');
+
+      if (error) {
+        console.error('[AdvancedSymbolOverrides] Upsert error', error);
+        throw error;
+      }
+
+      console.log('[AdvancedSymbolOverrides] Upsert result', data);
 
       toast({
         title: 'Overrides Saved',
