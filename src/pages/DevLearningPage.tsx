@@ -1008,11 +1008,7 @@ export function DevLearningPage() {
                         {calibrationSuggestions.map((suggestion) => {
                           const isPending = suggestion.status === "pending";
                           const isApplying = applyingIds.has(suggestion.id);
-                          const canApply =
-                            isPending &&
-                            ["confidence_threshold", "tp_adjustment", "sl_adjustment"].includes(
-                              suggestion.suggestion_type
-                            );
+                          const canApply = isPending && suggestion.suggestion_type === "confidence_threshold";
 
                           return (
                             <tr key={suggestion.id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
