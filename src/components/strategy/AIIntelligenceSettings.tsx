@@ -410,7 +410,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 <Label className="text-base font-medium">Context Gates (Market Filters)</Label>
                 
                 <div className="space-y-2">
-                  <Label>Max Spread (BPS): {config.features.contextGates.spreadThresholdBps}</Label>
+                  <Label>Max Spread (BPS): {config.features.contextGates.spreadThresholdBps.toFixed(1)}</Label>
                   <Slider
                     value={[config.features.contextGates.spreadThresholdBps]}
                     onValueChange={([value]) => updateConfig({
@@ -419,9 +419,9 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                         contextGates: { ...config.features.contextGates, spreadThresholdBps: value }
                       }
                     })}
-                    min={5}
+                    min={0.1}
                     max={50}
-                    step={1}
+                    step={0.1}
                     className="w-full"
                   />
                 </div>
