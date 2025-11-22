@@ -123,18 +123,22 @@ serve(async (req) => {
       });
     }
 
-    // Handle apply action - determine column mapping
+    // Handle apply action - determine column mapping and parameter name
     let columnName: string | null = null;
+    let parameterName: string | null = null;
     
     switch (suggestion.suggestion_type) {
       case 'confidence_threshold':
         columnName = 'min_confidence';
+        parameterName = 'min_confidence';
         break;
       case 'tp_adjustment':
         columnName = 'tp_pct';
+        parameterName = 'tp_pct';
         break;
       case 'sl_adjustment':
         columnName = 'sl_pct';
+        parameterName = 'sl_pct';
         break;
       case 'hold_period':
       case 'cooldown':
@@ -155,9 +159,62 @@ serve(async (req) => {
         });
     }
 
-    // Update strategy_parameters
-    const updatePayload: any = {};
-    updatePayload[columnName] = suggestion.suggested_value;
+    // First, load the existing strategy_parameters row to get the old value
+    const { data: existingParams, error: fetchError } = await supabase
+      .from('strategy_parameters')
+      .select('*')
+      .eq('user_id', suggestion.user_id)
+      .eq('strategy_id', suggestion.strategy_id)
+      .eq('symbol', suggestion.symbol)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('Error fetching strategy_parameters:', fetchError);
+      return new Response(JSON.stringify({ ok: false, error: 'Failed to fetch strategy parameters' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!existingParams) {
+      return new Response(JSON.stringify({ 
+        ok: false, 
+        error: 'no_strategy_parameters_row' 
+      }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Get the old value
+    const oldValue = existingParams[columnName];
+
+    // Build the new optimizer_history entry
+    const newHistoryEntry = {
+      parameter: parameterName,
+      old: oldValue,
+      new: suggestion.suggested_value,
+      horizon: suggestion.horizon,
+      timestamp: new Date().toISOString(),
+      suggestion_id: suggestion.id,
+      expected_impact: suggestion.expected_impact_pct ?? null,
+    };
+
+    // Update metadata with new history entry
+    const currentMetadata = existingParams.metadata || {};
+    const optimizerHistory = currentMetadata.optimizer_history || [];
+    const updatedMetadata = {
+      ...currentMetadata,
+      optimizer_history: [...optimizerHistory, newHistoryEntry],
+    };
+
+    // Update strategy_parameters with new value and metadata
+    const updatePayload: any = {
+      [columnName]: suggestion.suggested_value,
+      metadata: updatedMetadata,
+      last_updated_by: 'optimizer-v3',
+      updated_at: new Date().toISOString(),
+    };
 
     const { data: updatedParams, error: paramsError } = await supabase
       .from('strategy_parameters')
@@ -179,9 +236,9 @@ serve(async (req) => {
     if (!updatedParams) {
       return new Response(JSON.stringify({ 
         ok: false, 
-        error: 'strategy_parameters row not found for this suggestion' 
+        error: 'Failed to update strategy_parameters' 
       }), {
-        status: 404,
+        status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
@@ -207,7 +264,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`✅ Applied suggestion ${suggestion_id}: ${columnName} = ${suggestion.suggested_value}`);
+    console.log(`✅ Applied suggestion ${suggestion_id}: ${columnName} ${oldValue} → ${suggestion.suggested_value}`);
 
     return new Response(JSON.stringify({
       ok: true,
