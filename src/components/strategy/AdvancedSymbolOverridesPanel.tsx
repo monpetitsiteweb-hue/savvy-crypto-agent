@@ -188,11 +188,13 @@ export const AdvancedSymbolOverridesPanel = ({
         upsertData,
       });
 
-      const { data, error } = await (fromTable('strategy_parameters') as any)
-        .upsert(upsertData, {
-          onConflict: 'user_id,strategy_id,symbol',
-          ignoreDuplicates: false,
-        })
+      const { data, error } = await fromTable('strategy_parameters')
+        .upsert(
+          upsertData.map(row => ({
+            ...row,
+            updated_at: new Date().toISOString(),
+          }))
+        )
         .select('*');
 
       if (error) {
