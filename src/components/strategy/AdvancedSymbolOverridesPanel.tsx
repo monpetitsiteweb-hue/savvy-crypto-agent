@@ -11,67 +11,31 @@ import { supabase } from '@/integrations/supabase/client';
 import { fromTable } from '@/utils/supa';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import type { Database } from '@/integrations/supabase/types';
 
-// Use explicit types matching database schema
-interface StrategyParameter {
-  id: string;
-  user_id: string;
-  strategy_id: string;
-  symbol: string;
-  tp_pct: number;
-  sl_pct: number;
-  min_confidence: number;
-  ai_weight: number;
-  technical_weight: number;
-  optimization_iteration: number;
-  last_updated_by: string;
-  last_optimizer_run_at: string | null;
-  metadata: any;
-  created_at: string;
-  updated_at: string;
-}
-
-interface CircuitBreaker {
-  id: string;
-  user_id: string;
-  strategy_id: string;
-  symbol: string;
-  breaker: string;
-  tripped: boolean;
-  tripped_at: string | null;
-  current_value: number;
-  threshold_value: number;
-  trip_count: number;
-  trip_reason: string | null;
-  last_reason: string | null;
-  is_active: boolean;
-  thresholds: any;
-  activated_at: string | null;
-  cleared_at: string | null;
-  last_reset_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface ExecutionHold {
-  user_id: string;
-  symbol: string;
-  hold_until: string;
-  reason: string | null;
-  created_at: string | null;
-}
+// Use DB types directly
+type StrategyParameter = Database['public']['Tables']['strategy_parameters']['Row'];
+type CircuitBreaker = Database['public']['Tables']['execution_circuit_breakers']['Row'];
+type ExecutionHold = Database['public']['Tables']['execution_holds']['Row'];
 
 interface AdvancedSymbolOverridesPanelProps {
   strategyId: string | null;
+  isTestStrategy?: boolean;
+  isActive?: boolean;
+  executionModeFromDb?: string;
 }
 
-export const AdvancedSymbolOverridesPanel = ({ strategyId }: AdvancedSymbolOverridesPanelProps) => {
+export const AdvancedSymbolOverridesPanel = ({ 
+  strategyId, 
+  isTestStrategy = true, 
+  isActive = false, 
+  executionModeFromDb 
+}: AdvancedSymbolOverridesPanelProps) => {
   const { toast } = useToast();
   const { user } = useAuth();
   const [parameters, setParameters] = useState<StrategyParameter[]>([]);
   const [breakers, setBreakers] = useState<CircuitBreaker[]>([]);
   const [holds, setHolds] = useState<ExecutionHold[]>([]);
-  const [executionMode, setExecutionMode] = useState<string>('UNKNOWN');
   const [loading, setLoading] = useState(true);
   const [editingSymbol, setEditingSymbol] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<{ tp_pct: number; sl_pct: number; min_confidence: number } | null>(null);
@@ -114,10 +78,6 @@ export const AdvancedSymbolOverridesPanel = ({ strategyId }: AdvancedSymbolOverr
 
       if (holdsError) throw holdsError;
       setHolds((holdsData as any) || []);
-
-      // Check execution mode (read from environment via edge function or assume based on strategy)
-      // For now, we'll show it as a placeholder - real implementation would call an edge function
-      setExecutionMode('DRY_RUN'); // Default assumption
 
     } catch (error: any) {
       console.error('Error loading advanced overrides data:', error);
@@ -185,12 +145,19 @@ export const AdvancedSymbolOverridesPanel = ({ strategyId }: AdvancedSymbolOverr
     if (!user || !strategyId) return;
 
     try {
-      const { error } = await supabase.rpc('reset_breaker', {
-        p_user: user.id,
-        p_strategy: strategyId,
-        p_symbol: breaker.symbol,
-        p_type: breaker.breaker
-      });
+      const nowIso = new Date().toISOString();
+
+      const { error } = await fromTable('execution_circuit_breakers')
+        .update({
+          tripped: false,
+          tripped_at: null,
+          cleared_at: nowIso,
+          last_reset_at: nowIso,
+          last_reason: 'reset-from-ui'
+        })
+        .eq('id', breaker.id)
+        .eq('user_id', user.id)
+        .eq('strategy_id', strategyId);
 
       if (error) throw error;
 
@@ -237,21 +204,34 @@ export const AdvancedSymbolOverridesPanel = ({ strategyId }: AdvancedSymbolOverr
   return (
     <TooltipProvider>
       <div className="space-y-6">
-        {/* Execution Mode Indicator */}
+        {/* Strategy Mode & Safety */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Settings className="h-4 w-4" />
-              Execution Mode
+              Strategy Mode & Safety
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Badge variant={executionMode === 'LIVE' ? 'default' : 'secondary'} className="text-sm">
-              {executionMode === 'LIVE' ? '🟢 LIVE' : '🟡 DRY RUN (no real trades)'}
-            </Badge>
-            <p className="text-xs text-muted-foreground mt-2">
-              This is determined by environment configuration and cannot be changed from the UI.
-            </p>
+            <div className="flex flex-col gap-2">
+              <div>
+                <Badge
+                  variant={isTestStrategy ? 'secondary' : 'default'}
+                  className="text-sm"
+                >
+                  {isTestStrategy ? '🧪 TEST STRATEGY' : '✅ LIVE-CAPABLE STRATEGY'}
+                </Badge>
+              </div>
+              {executionModeFromDb && (
+                <p className="text-xs text-muted-foreground">
+                  Execution mode (from DB): <strong>{executionModeFromDb}</strong>
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Global engine behavior (like <code className="px-1 py-0.5 bg-muted rounded text-xs">EXECUTION_DRY_RUN</code>) is controlled on the server.
+                This UI only reflects strategy flags (<code className="px-1 py-0.5 bg-muted rounded text-xs">test_mode</code> / <code className="px-1 py-0.5 bg-muted rounded text-xs">is_active</code>) and stored execution_mode.
+              </p>
+            </div>
           </CardContent>
         </Card>
 
@@ -336,15 +316,15 @@ export const AdvancedSymbolOverridesPanel = ({ strategyId }: AdvancedSymbolOverr
                       <div className="grid grid-cols-3 gap-4 text-sm">
                         <div>
                           <span className="text-muted-foreground">TP:</span>{' '}
-                          <span className="font-medium">{param.tp_pct.toFixed(2)}%</span>
+                          <span className="font-medium">{(param.tp_pct ?? 0).toFixed(2)}%</span>
                         </div>
                         <div>
                           <span className="text-muted-foreground">SL:</span>{' '}
-                          <span className="font-medium">{param.sl_pct.toFixed(2)}%</span>
+                          <span className="font-medium">{(param.sl_pct ?? 0).toFixed(2)}%</span>
                         </div>
                         <div>
                           <span className="text-muted-foreground">Min Conf:</span>{' '}
-                          <span className="font-medium">{(param.min_confidence * 100).toFixed(0)}%</span>
+                          <span className="font-medium">{((param.min_confidence ?? 0) * 100).toFixed(0)}%</span>
                         </div>
                       </div>
                     )}
@@ -390,7 +370,7 @@ export const AdvancedSymbolOverridesPanel = ({ strategyId }: AdvancedSymbolOverr
                         </p>
                       )}
                       <p className="text-xs text-muted-foreground">
-                        Current: {breaker.current_value.toFixed(2)} / Threshold: {breaker.threshold_value.toFixed(2)}
+                        Current: {(breaker.current_value ?? 0).toFixed(2)} / Threshold: {(breaker.threshold_value ?? 0).toFixed(2)}
                       </p>
                     </div>
                     <Button
