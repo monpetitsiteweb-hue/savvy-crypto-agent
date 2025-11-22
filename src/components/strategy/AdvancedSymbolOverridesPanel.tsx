@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Shield, Settings, AlertCircle, RefreshCw, Clock, Info } from 'lucide-react';
+import { Shield, Settings, AlertCircle, RefreshCw, Clock, Info, Save } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { fromTable } from '@/utils/supa';
 import { useToast } from '@/hooks/use-toast';
@@ -23,22 +23,39 @@ interface AdvancedSymbolOverridesPanelProps {
   isTestStrategy?: boolean;
   isActive?: boolean;
   executionModeFromDb?: string;
+  selectedCoins?: string[];
+  defaultTpPct?: number;
+  defaultSlPct?: number;
+  defaultMinConfidence?: number;
+}
+
+// Editable row state
+interface EditableRow {
+  symbol: string;
+  tp_pct: number;
+  sl_pct: number;
+  min_confidence: number;
+  isOverride: boolean; // true if exists in DB, false if using defaults
+  hasChanges: boolean; // true if user modified values
 }
 
 export const AdvancedSymbolOverridesPanel = ({ 
   strategyId, 
   isTestStrategy = true, 
   isActive = false, 
-  executionModeFromDb 
+  executionModeFromDb,
+  selectedCoins = [],
+  defaultTpPct = 2.5,
+  defaultSlPct = 3.0,
+  defaultMinConfidence = 0.70
 }: AdvancedSymbolOverridesPanelProps) => {
   const { toast } = useToast();
   const { user } = useAuth();
-  const [parameters, setParameters] = useState<StrategyParameter[]>([]);
+  const [editableRows, setEditableRows] = useState<EditableRow[]>([]);
   const [breakers, setBreakers] = useState<CircuitBreaker[]>([]);
   const [holds, setHolds] = useState<ExecutionHold[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingSymbol, setEditingSymbol] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<{ tp_pct: number; sl_pct: number; min_confidence: number } | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (strategyId && user) {
@@ -58,7 +75,29 @@ export const AdvancedSymbolOverridesPanel = ({
         .eq('user_id', user.id);
 
       if (paramsError) throw paramsError;
-      setParameters((paramsData as any) || []);
+      
+      // Create a map of existing overrides
+      const overridesMap = new Map<string, StrategyParameter>();
+      ((paramsData as any) || []).forEach((param: StrategyParameter) => {
+        overridesMap.set(param.symbol, param);
+      });
+
+      // Merge selectedCoins with existing overrides
+      const allSymbols = new Set([...selectedCoins, ...overridesMap.keys()]);
+      
+      const rows: EditableRow[] = Array.from(allSymbols).map(symbol => {
+        const override = overridesMap.get(symbol);
+        return {
+          symbol,
+          tp_pct: override?.tp_pct ?? defaultTpPct,
+          sl_pct: override?.sl_pct ?? defaultSlPct,
+          min_confidence: override?.min_confidence ?? defaultMinConfidence,
+          isOverride: !!override,
+          hasChanges: false
+        };
+      });
+
+      setEditableRows(rows);
 
       // Load circuit breakers
       const { data: breakersData, error: breakersError } = await fromTable('execution_circuit_breakers')
@@ -91,53 +130,79 @@ export const AdvancedSymbolOverridesPanel = ({
     }
   };
 
-  const handleEditStart = (param: StrategyParameter) => {
-    setEditingSymbol(param.symbol);
-    setEditValues({
-      tp_pct: param.tp_pct,
-      sl_pct: param.sl_pct,
-      min_confidence: param.min_confidence
-    });
+  const handleRowChange = (symbol: string, field: 'tp_pct' | 'sl_pct' | 'min_confidence', value: number) => {
+    setEditableRows(prev => prev.map(row => 
+      row.symbol === symbol 
+        ? { ...row, [field]: value, hasChanges: true }
+        : row
+    ));
   };
 
-  const handleEditCancel = () => {
-    setEditingSymbol(null);
-    setEditValues(null);
+  const handleResetRow = (symbol: string) => {
+    const original = editableRows.find(r => r.symbol === symbol);
+    if (!original) return;
+    
+    // Reset to DB values or defaults
+    setEditableRows(prev => prev.map(row => 
+      row.symbol === symbol 
+        ? {
+            ...row,
+            tp_pct: original.isOverride ? original.tp_pct : defaultTpPct,
+            sl_pct: original.isOverride ? original.sl_pct : defaultSlPct,
+            min_confidence: original.isOverride ? original.min_confidence : defaultMinConfidence,
+            hasChanges: false
+          }
+        : row
+    ));
   };
 
-  const handleEditSave = async (symbol: string) => {
-    if (!editValues || !strategyId || !user) return;
+  const handleSaveAll = async () => {
+    if (!strategyId || !user) return;
 
+    const changedRows = editableRows.filter(row => row.hasChanges);
+    if (changedRows.length === 0) {
+      toast({
+        title: 'No Changes',
+        description: 'No parameters have been modified.'
+      });
+      return;
+    }
+
+    setSaving(true);
     try {
+      // Prepare upsert data
+      const upsertData = changedRows.map(row => ({
+        user_id: user.id,
+        strategy_id: strategyId,
+        symbol: row.symbol,
+        tp_pct: row.tp_pct,
+        sl_pct: row.sl_pct,
+        min_confidence: row.min_confidence,
+        last_updated_by: 'ui'
+      }));
+
       const { error } = await (supabase as any)
         .from('strategy_parameters')
-        .upsert({
-          user_id: user.id,
-          strategy_id: strategyId,
-          symbol: symbol,
-          tp_pct: editValues.tp_pct,
-          sl_pct: editValues.sl_pct,
-          min_confidence: editValues.min_confidence,
-          last_updated_by: 'ui'
-        });
+        .upsert(upsertData);
 
       if (error) throw error;
 
       toast({
-        title: 'Override Saved',
-        description: `Updated parameters for ${symbol}`
+        title: 'Overrides Saved',
+        description: `Updated parameters for ${changedRows.length} symbol(s)`
       });
 
-      setEditingSymbol(null);
-      setEditValues(null);
-      loadData();
+      // Reload to reflect DB state
+      await loadData();
     } catch (error: any) {
-      console.error('Error saving override:', error);
+      console.error('Error saving overrides:', error);
       toast({
-        title: 'Error Saving Override',
+        title: 'Error Saving Overrides',
         description: error.message,
         variant: 'destructive'
       });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -237,97 +302,116 @@ export const AdvancedSymbolOverridesPanel = ({
 
         {/* Per-Symbol Parameter Overrides */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Shield className="h-5 w-5" />
-              Per-Symbol Parameter Overrides
-            </CardTitle>
-            <CardDescription>
-              Override TP%, SL%, and Min Confidence for specific symbols
-            </CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" />
+                Per-Symbol Parameter Overrides
+              </CardTitle>
+              <CardDescription>
+                Override TP%, SL%, and Min Confidence for specific symbols. Changes are shown inline.
+              </CardDescription>
+            </div>
+            <Button 
+              onClick={handleSaveAll} 
+              disabled={saving || !editableRows.some(r => r.hasChanges)}
+              size="sm"
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {saving ? 'Saving...' : 'Save All'}
+            </Button>
           </CardHeader>
           <CardContent>
-            {parameters.length === 0 ? (
+            {editableRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No per-symbol overrides configured. The strategy optimizer may create these automatically.
+                No symbols configured. Add coins in "Coins and amounts" to see them here.
               </p>
             ) : (
-              <div className="space-y-4">
-                {parameters.map((param) => (
-                  <div key={param.id} className="border rounded-lg p-4 space-y-3">
+              <div className="space-y-3">
+                {editableRows.map((row) => (
+                  <div 
+                    key={row.symbol} 
+                    className={`border rounded-lg p-4 space-y-3 ${row.hasChanges ? 'border-primary bg-primary/5' : ''}`}
+                  >
                     <div className="flex items-center justify-between">
-                      <h4 className="font-medium">{param.symbol}</h4>
-                      {editingSymbol === param.symbol ? (
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline" onClick={handleEditCancel}>
-                            Cancel
-                          </Button>
-                          <Button size="sm" onClick={() => handleEditSave(param.symbol)}>
-                            Save
-                          </Button>
-                        </div>
-                      ) : (
-                        <Button size="sm" variant="outline" onClick={() => handleEditStart(param)}>
-                          Edit
-                        </Button>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-medium">{row.symbol}</h4>
+                        <Badge 
+                          variant={row.isOverride ? 'default' : 'outline'}
+                          className="text-xs"
+                        >
+                          {row.isOverride ? 'Override' : 'Default'}
+                        </Badge>
+                        {row.hasChanges && (
+                          <Badge variant="secondary" className="text-xs">
+                            Modified
+                          </Badge>
+                        )}
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        onClick={() => handleResetRow(row.symbol)}
+                        disabled={!row.hasChanges}
+                      >
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                        Reset
+                      </Button>
                     </div>
 
-                    {editingSymbol === param.symbol && editValues ? (
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor={`tp-${param.symbol}`}>TP %</Label>
-                          <Input
-                            id={`tp-${param.symbol}`}
-                            type="number"
-                            value={editValues.tp_pct}
-                            onChange={(e) => setEditValues({ ...editValues, tp_pct: parseFloat(e.target.value) })}
-                            min={0}
-                            max={100}
-                            step={0.1}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`sl-${param.symbol}`}>SL %</Label>
-                          <Input
-                            id={`sl-${param.symbol}`}
-                            type="number"
-                            value={editValues.sl_pct}
-                            onChange={(e) => setEditValues({ ...editValues, sl_pct: parseFloat(e.target.value) })}
-                            min={0}
-                            max={100}
-                            step={0.1}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor={`conf-${param.symbol}`}>Min Confidence</Label>
-                          <Input
-                            id={`conf-${param.symbol}`}
-                            type="number"
-                            value={editValues.min_confidence}
-                            onChange={(e) => setEditValues({ ...editValues, min_confidence: parseFloat(e.target.value) })}
-                            min={0}
-                            max={1}
-                            step={0.01}
-                          />
-                        </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label 
+                          htmlFor={`tp-${row.symbol}`}
+                          className={!row.isOverride ? 'text-muted-foreground' : ''}
+                        >
+                          TP %
+                        </Label>
+                        <Input
+                          id={`tp-${row.symbol}`}
+                          type="number"
+                          value={row.tp_pct}
+                          onChange={(e) => handleRowChange(row.symbol, 'tp_pct', parseFloat(e.target.value) || 0)}
+                          min={0}
+                          max={100}
+                          step={0.1}
+                        />
                       </div>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-4 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">TP:</span>{' '}
-                          <span className="font-medium">{(param.tp_pct ?? 0).toFixed(2)}%</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">SL:</span>{' '}
-                          <span className="font-medium">{(param.sl_pct ?? 0).toFixed(2)}%</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Min Conf:</span>{' '}
-                          <span className="font-medium">{((param.min_confidence ?? 0) * 100).toFixed(0)}%</span>
-                        </div>
+                      <div className="space-y-2">
+                        <Label 
+                          htmlFor={`sl-${row.symbol}`}
+                          className={!row.isOverride ? 'text-muted-foreground' : ''}
+                        >
+                          SL %
+                        </Label>
+                        <Input
+                          id={`sl-${row.symbol}`}
+                          type="number"
+                          value={row.sl_pct}
+                          onChange={(e) => handleRowChange(row.symbol, 'sl_pct', parseFloat(e.target.value) || 0)}
+                          min={0}
+                          max={100}
+                          step={0.1}
+                        />
                       </div>
-                    )}
+                      <div className="space-y-2">
+                        <Label 
+                          htmlFor={`conf-${row.symbol}`}
+                          className={!row.isOverride ? 'text-muted-foreground' : ''}
+                        >
+                          Min Confidence
+                        </Label>
+                        <Input
+                          id={`conf-${row.symbol}`}
+                          type="number"
+                          value={row.min_confidence}
+                          onChange={(e) => handleRowChange(row.symbol, 'min_confidence', parseFloat(e.target.value) || 0)}
+                          min={0}
+                          max={1}
+                          step={0.01}
+                        />
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
