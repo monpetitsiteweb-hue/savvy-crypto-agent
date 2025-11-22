@@ -46,7 +46,6 @@ type Reason =
   | "atomic_section_busy_defer"
   | "insufficient_price_freshness"
   | "spread_too_wide"
-  | "blocked_by_spread"
   | "blocked_by_liquidity"
   | "blocked_by_whale_conflict"
   | "blocked_by_insufficient_profit"

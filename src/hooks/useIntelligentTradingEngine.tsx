@@ -455,7 +455,7 @@ export const useIntelligentTradingEngine = () => {
         // Gate 1: Spread check (always enforced)
         const spread = await checkSpreadGate(symbol, effectiveConfigWithSources.spreadThresholdBps);
         if (spread.blocked) {
-          gateBlocks.push('blocked_by_spread');
+          gateBlocks.push('spread_too_wide');
         }
         
         // Gate 2: Liquidity/Depth check - BYPASS for TP exits
