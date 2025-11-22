@@ -17,6 +17,7 @@ import { UnifiedDecisionsConfig } from './UnifiedDecisionsConfig';
 import { CoinsAmountsPanel } from './CoinsAmountsPanel';
 import { PerformancePanel } from './PerformancePanel';
 import { SellSettingsPanel } from './SellSettingsPanel';
+import { AdvancedSymbolOverridesPanel } from './AdvancedSymbolOverridesPanel';
 import { 
   Save, 
   ArrowLeft, 
@@ -286,6 +287,13 @@ const MENU_SECTIONS = [
       title: 'EXECUTION',
       items: [
         { id: 'execution-settings', label: 'Execution Settings', icon: Settings }
+      ]
+    },
+    {
+      id: 'advanced',
+      title: 'ADVANCED',
+      items: [
+        { id: 'advanced-overrides', label: 'Per-Symbol Overrides & Safety', icon: Shield }
       ]
     }
 ];
@@ -1996,10 +2004,15 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                   {/* Execution Settings Panel */}
                   {activeSection === 'execution-settings' && (
-                    <ExecutionSettingsPanel 
+                    <ExecutionSettingsPanel
                       settings={formData.executionSettings}
                       onChange={(executionSettings) => updateFormData('executionSettings', executionSettings)}
                     />
+                  )}
+
+                  {/* Advanced Symbol Overrides Panel */}
+                  {activeSection === 'advanced-overrides' && (
+                    <AdvancedSymbolOverridesPanel strategyId={existingStrategy?.id || null} />
                   )}
                 </form>
               </div>

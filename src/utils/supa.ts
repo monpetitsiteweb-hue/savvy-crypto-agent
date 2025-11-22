@@ -5,7 +5,11 @@ import type { Database } from '@/types/supabase';
  * Minimal typed shim that allows querying known public tables
  * PLUS a small set of optional/legacy tables (e.g., whale_signal_events).
  */
-type KnownTables = keyof Database['public']['Tables'] | 'whale_signal_events';
+type KnownTables = keyof Database['public']['Tables'] 
+  | 'whale_signal_events' 
+  | 'strategy_parameters' 
+  | 'execution_circuit_breakers' 
+  | 'execution_holds';
 
 export function fromTable<T extends KnownTables>(name: T) {
   // At runtime, supabase-js will accept any relation string;
