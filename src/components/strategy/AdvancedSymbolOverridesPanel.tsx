@@ -158,6 +158,12 @@ export const AdvancedSymbolOverridesPanel = ({
   };
 
   const handleSaveAll = async () => {
+    // Test scenario:
+    // 1) Open this panel for a known strategy.
+    // 2) Change min_confidence for 2–3 symbols and click "Save All".
+    // 3) Verify updated rows in strategy_parameters for this user_id/strategy_id.
+    // 4) Click "Update Strategy" in the main config, then reopen this panel.
+    // 5) Confirm overrides still match strategy_parameters and did not reset.
     if (!strategyId || !user) return;
 
     const changedRows = editableRows.filter(row => row.hasChanges);
@@ -188,7 +194,8 @@ export const AdvancedSymbolOverridesPanel = ({
         upsertData,
       });
 
-      const { data, error } = await fromTable('strategy_parameters')
+      const { data, error } = await (supabase as any)
+        .from('strategy_parameters')
         .upsert(
           upsertData.map(row => ({
             ...row,
