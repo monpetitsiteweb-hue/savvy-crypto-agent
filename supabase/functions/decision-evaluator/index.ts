@@ -304,96 +304,50 @@ async function evaluateDecision(
   
   const evaluationEnd = new Date(decisionTime.getTime() + horizonMs);
   
-  // Map symbol format: "ETH" -> "ETH-EUR", "BTC" -> "BTC-EUR", etc.
-  const symbolWithPair = decision.symbol.includes('-') ? decision.symbol : `${decision.symbol}-EUR`;
-  
-  // Map horizon to appropriate granularity
-  // CRITICAL FIX: Use 1h for 4h horizon since user only has 1h and 24h data
-  const granularity = {
-    '15m': '1h',  // Use 1h data for 15m horizon
+  // Map horizon → OHLCV granularity
+  const granularityMap: Record<string, string> = {
+    '15m': '1h',   // we only have 1h/4h/24h in market_ohlcv_raw
     '1h': '1h',
-    '4h': '1h',   // FIX: Use 1h instead of 4h (user only has 1h and 24h OHLCV)
-    '24h': '24h'
-  }[horizon] || '1h';
-  
-  // Check if this is a mock/test mode decision
-  const isMockMode = 
-    decision.metadata?.mode === 'mock' ||
-    decision.metadata?.is_test_mode === true ||
-    decision.metadata?.is_test_mode === 'true' ||
-    decision.raw_intent?.metadata?.mode === 'mock' ||
-    decision.raw_intent?.metadata?.is_test_mode === true ||
-    decision.raw_intent?.metadata?.is_test_mode === 'true';
+    '4h': '4h',
+    '24h': '24h',
+  };
+  const granularity = granularityMap[horizon] ?? '1h';
 
-  console.log(`🔍 EVALUATOR: Decision ${decision.id} is ${isMockMode ? 'MOCK/TEST' : 'LIVE'} mode`);
+  // Try both base symbol (BTC) and quote symbol (BTC-EUR)
+  const candidateSymbols = [decision.symbol, `${decision.symbol}-EUR`];
 
-  let priceData: any[] | null = null;
-  let priceError: any = null;
+  let ohlcvRows: any[] = [];
+  let lastError: any = null;
 
-  // For mock/test mode, try price_data table first
-  if (isMockMode) {
-    console.log(`🔍 EVALUATOR.price.query: table=price_data, symbol=${decision.symbol}, interval_type=${granularity}, user_id=${decision.user_id}`);
-    
-    const { data: mockPriceData, error: mockPriceError } = await supabase
-      .from('price_data')
-      .select('close_price, timestamp, interval_type')
-      .eq('symbol', decision.symbol)
-      .eq('user_id', decision.user_id)
-      .eq('interval_type', granularity)
-      .lte('timestamp', evaluationEnd.toISOString())
-      .order('timestamp', { ascending: true })
-      .limit(100);
-
-    if (!mockPriceError && mockPriceData && mockPriceData.length > 0) {
-      console.log(`✅ EVALUATOR: Found ${mockPriceData.length} rows in price_data for ${decision.symbol}`);
-      // Transform price_data format to match market_ohlcv_raw format
-      priceData = mockPriceData.map(p => ({
-        close: p.close_price,
-        ts_utc: p.timestamp,
-        granularity: p.interval_type
-      }));
-    } else {
-      console.log(`⚠️ EVALUATOR: No price_data found for mock mode, will try market_ohlcv_raw as fallback`);
-    }
-  }
-
-  // Fallback to market_ohlcv_raw if not mock mode OR if price_data had no results
-  if (!priceData || priceData.length === 0) {
-    console.log(`🔍 EVALUATOR.price.query: table=market_ohlcv_raw, symbol=${symbolWithPair}, granularity=${granularity}, window=${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
-    
-    const { data: ohlcvData, error: ohlcvError } = await supabase
+  for (const sym of candidateSymbols) {
+    const { data, error } = await supabase
       .from('market_ohlcv_raw')
-      .select('close, ts_utc, granularity')
-      .eq('symbol', symbolWithPair)
+      .select('close, ts_utc')
+      .eq('symbol', sym)
       .eq('granularity', granularity)
       .gte('ts_utc', decision.decision_ts)
       .lte('ts_utc', evaluationEnd.toISOString())
       .order('ts_utc', { ascending: true });
 
-    priceData = ohlcvData;
-    priceError = ohlcvError;
+    if (error) {
+      lastError = error;
+      continue;
+    }
+    if (data && data.length > 0) {
+      ohlcvRows = data;
+      break;
+    }
   }
 
-  if (priceError) {
-    console.error(`❌ EVALUATOR: Price data error for ${symbolWithPair}:`, priceError);
+  if (!ohlcvRows || ohlcvRows.length === 0) {
+    if (lastError) {
+      console.error(`❌ EVALUATOR: OHLCV error for ${decision.symbol}:`, lastError);
+    }
+    console.log(`⚠️ EVALUATOR: No OHLCV data found for ${decision.symbol} (${horizon})`);
     return 'no_ohlcv_data';
   }
 
-  console.log(`📊 EVALUATOR.price.rows_found: ${priceData?.length || 0} rows for ${symbolWithPair} (granularity: ${granularity})`);
-
-  if (!priceData || priceData.length === 0) {
-    console.log(`⚠️ EVALUATOR: No OHLCV/price data found for ${symbolWithPair} (${granularity}) in period ${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
-    return 'no_ohlcv_data';
-  }
-  
-  // Additional check: Ensure we have enough data points for meaningful calculation
-  if (priceData.length < 2) {
-    console.log(`⚠️ EVALUATOR: Insufficient OHLCV data (${priceData.length} rows) for ${symbolWithPair}`);
-    return 'ohlcv_insufficient';
-  }
-
-  // Calculate metrics - use derived entryPrice from above
-  const prices = priceData.map(p => p.close); // Use 'close' field from market_ohlcv_raw
+  const prices = ohlcvRows.map(r => Number(r.close));
   
   // Maximum Favorable Excursion (MFE)
   const maxPrice = Math.max(...prices);
