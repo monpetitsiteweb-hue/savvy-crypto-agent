@@ -10,6 +10,9 @@ import { Separator } from "@/components/ui/separator";
 import { ArrowUp, ArrowDown, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, CheckCircle, Loader2 } from "lucide-react";
 import { DataHealthPanel } from "@/components/market/DataHealthPanel";
 import { useToast } from "@/hooks/use-toast";
+import { TestBuyModal } from "@/components/strategy/TestBuyModal";
+import { useActiveStrategy } from "@/hooks/useActiveStrategy";
+import { Plus } from "lucide-react";
 
 interface DecisionEvent {
   id: string;
@@ -160,6 +163,8 @@ export function DevLearningPage() {
   const [healthHorizon, setHealthHorizon] = useState<string>("4h");
   const [healthLoading, setHealthLoading] = useState(false);
   const [applyingIds, setApplyingIds] = useState<Set<string>>(new Set());
+  const [testBuyModalOpen, setTestBuyModalOpen] = useState(false);
+  const { activeStrategy } = useActiveStrategy();
 
   const isAdmin = role === "admin";
 
@@ -571,6 +576,31 @@ export function DevLearningPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-white mb-2">Learning Loop - Phase 1</h1>
           <p className="text-slate-400">Decision events, outcomes, and performance analysis</p>
+
+          {/* Test Portfolio Tools */}
+          <Card className="my-6 border-orange-500/20 bg-slate-800/50">
+            <CardHeader>
+              <CardTitle className="text-white">Test Portfolio Tools</CardTitle>
+              <CardDescription className="text-slate-400">Create test trades for position-managed testing</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setTestBuyModalOpen(true)}
+                  disabled={!activeStrategy}
+                  className="text-green-400 border-green-400/50 hover:bg-green-400/10"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Create test BUY
+                </Button>
+                {!activeStrategy && (
+                  <span className="text-xs text-slate-400 self-center">No active strategy</span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Learning Loop Status Widget */}
           {learningStatus && (
@@ -1366,6 +1396,17 @@ export function DevLearningPage() {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Test BUY Modal */}
+        <TestBuyModal
+          open={testBuyModalOpen}
+          onOpenChange={setTestBuyModalOpen}
+          strategyId={activeStrategy?.id || null}
+          onSuccess={() => {
+            fetchData();
+            fetchLearningStatus();
+          }}
+        />
       </div>
     </div>
   );

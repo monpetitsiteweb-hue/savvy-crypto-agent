@@ -148,7 +148,83 @@ serve(async (req) => {
       return respond('HOLD', 'internal_error', requestId);
     }
 
-    // FAST PATH FOR MANUAL/MOCK/FORCE
+    // FAST PATH FOR MANUAL TEST BUY (UI-seeded test trades)
+    if (intent.side === 'BUY' && intent.source === 'manual' && intent.metadata?.is_test_mode === true && intent.metadata?.ui_seed === true) {
+      console.log('[coordinator] FAST PATH: Manual test BUY from UI');
+      
+      const baseSymbol = toBaseSymbol(intent.symbol);
+      const qty = intent.qtySuggested || 0;
+      const price = intent.metadata?.price_used;
+      
+      if (!qty || !price || qty <= 0 || price <= 0) {
+        return new Response(JSON.stringify({ 
+          ok: false, 
+          error: 'Invalid quantity or price for manual test BUY' 
+        }), { 
+          status: 400,
+          headers: corsHeaders 
+        });
+      }
+      
+      const totalValue = qty * price;
+      
+      console.log(`💱 UI TEST BUY: ${qty} ${baseSymbol} at €${price} = €${totalValue}`);
+      
+      // Insert BUY mock trade
+      const mockTrade = {
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        trade_type: 'buy',
+        cryptocurrency: baseSymbol,
+        amount: qty,
+        price: price,
+        total_value: totalValue,
+        executed_at: new Date().toISOString(),
+        is_test_mode: true,
+        notes: 'Manual test BUY via UI',
+        strategy_trigger: `ui_manual_test_buy|req:${requestId}`
+      };
+      
+      const { data: insertResult, error: insertError } = await supabaseClient
+        .from('mock_trades')
+        .insert(mockTrade)
+        .select('id');
+      
+      if (insertError) {
+        console.error('❌ UI TEST BUY: Insert failed:', insertError);
+        return new Response(JSON.stringify({ 
+          ok: true,
+          decision: {
+            action: 'DEFER',
+            reason: 'direct_execution_failed',
+            request_id: requestId,
+            retry_in_ms: 5000,
+            error: insertError.message
+          }
+        }), { 
+          headers: corsHeaders 
+        });
+      }
+      
+      const tradeId = insertResult?.[0]?.id;
+      console.log('✅ UI TEST BUY: Trade inserted with id:', tradeId);
+      
+      return new Response(JSON.stringify({ 
+        ok: true,
+        decision: {
+          action: 'EXECUTE',
+          reason: 'ui_manual_test_buy',
+          request_id: requestId,
+          retry_in_ms: 0,
+          qty: qty,
+          trade_id: tradeId
+        }
+      }), { 
+        headers: corsHeaders 
+      });
+    }
+
+    // FAST PATH FOR MANUAL/MOCK/FORCE SELL
     // MANUAL SELL semantics:
     // - If metadata.originalTradeId is provided, we close THAT specific BUY.
     // - We pre-fill original_purchase_* from that BUY.
@@ -841,12 +917,15 @@ async function executeTradeDirectly(
       
       console.log(`💰 DIRECT: Available EUR balance: €${availableEur.toFixed(2)}`);
       
-      // TEST MODE: Bypass balance check for test mode trades  
-    const isTestMode = intent.metadata?.mode === 'mock' || sc?.is_test_mode;
-      if (isTestMode) {
-        console.log(`🧪 TEST MODE: Bypassing balance check - using virtual paper trading`);
-        qty = intent.qtySuggested || (tradeAllocation / realMarketPrice);
-      } else {
+    // TEST MODE: Bypass balance check for test mode trades (including UI-seeded test BUYs)
+    const isTestMode = intent.metadata?.mode === 'mock' 
+      || sc?.is_test_mode 
+      || intent.metadata?.is_test_mode === true;
+    
+    if (isTestMode) {
+      console.log(`🧪 TEST MODE: Bypassing balance check - using virtual paper trading`);
+      qty = intent.qtySuggested || (tradeAllocation / realMarketPrice);
+    } else {
         // Check if we have sufficient balance
         if (availableEur < tradeAllocation) {
           const adjustedAllocation = Math.max(0, availableEur);
