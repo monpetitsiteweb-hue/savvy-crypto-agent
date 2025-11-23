@@ -304,6 +304,9 @@ async function evaluateDecision(
   
   const evaluationEnd = new Date(decisionTime.getTime() + horizonMs);
   
+  // Allow data a bit before the decision_ts to account for bar timing
+  const windowStart = new Date(decisionTime.getTime() - 5 * 60 * 1000); // 5 minutes before
+  
   // Map horizon → OHLCV granularity
   const granularityMap: Record<string, string> = {
     '15m': '1h',   // we only have 1h/4h/24h in market_ohlcv_raw
@@ -325,7 +328,7 @@ async function evaluateDecision(
       .select('close, ts_utc')
       .eq('symbol', sym)
       .eq('granularity', granularity)
-      .gte('ts_utc', decision.decision_ts)
+      .gte('ts_utc', windowStart.toISOString())
       .lte('ts_utc', evaluationEnd.toISOString())
       .order('ts_utc', { ascending: true });
 
