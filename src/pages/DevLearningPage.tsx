@@ -203,6 +203,11 @@ export function DevLearningPage() {
 
       if (eventsError) {
         console.error("Error fetching decision events:", eventsError);
+        toast({
+          title: "❌ Failed to load decision events",
+          description: eventsError.message,
+          variant: "destructive"
+        });
       } else {
         setDecisionEvents(events || []);
       }
@@ -217,6 +222,11 @@ export function DevLearningPage() {
 
       if (outcomesError) {
         console.error("Error fetching decision outcomes:", outcomesError);
+        toast({
+          title: "❌ Failed to load outcomes",
+          description: outcomesError.message,
+          variant: "destructive"
+        });
       } else {
         setDecisionOutcomes(outcomes || []);
       }
@@ -231,14 +241,24 @@ export function DevLearningPage() {
 
       if (calibrationError) {
         console.error("Error fetching calibration metrics:", calibrationError);
+        toast({
+          title: "❌ Failed to load calibration",
+          description: calibrationError.message,
+          variant: "destructive"
+        });
       } else {
         setCalibrationMetrics(calibration || []);
       }
 
       // Fetch calibration suggestions
       await fetchSuggestions();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching learning data:", error);
+      toast({
+        title: "❌ Failed to load data",
+        description: error.message || "Unknown error",
+        variant: "destructive"
+      });
     } finally {
       setLoading(false);
     }
@@ -335,19 +355,35 @@ export function DevLearningPage() {
   const triggerEvaluator = async () => {
     try {
       setCalibrationLoading(true);
-      const { data, error } = await supabase.functions.invoke("decision-evaluator");
+      const { data, error } = await supabase.functions.invoke("decision-evaluator", {
+        body: { mode: "backfill" }
+      });
       if (error) {
         console.error("Error triggering evaluator:", error);
+        toast({
+          title: "❌ Evaluator error",
+          description: error.message || "Failed to trigger evaluator",
+          variant: "destructive"
+        });
       } else {
         console.log("✅ Evaluator response:", data);
+        toast({
+          title: "✅ Evaluator complete",
+          description: `Processed: ${data?.summary?.total_processed || 0} decisions, Created: ${data?.summary?.outcomes_created || 0} outcomes`,
+        });
         // Refresh data and status after a short delay
         setTimeout(() => {
           fetchData();
           fetchLearningStatus();
         }, 2000);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error triggering evaluator:", error);
+      toast({
+        title: "❌ Evaluator failed",
+        description: error.message || "Unknown error",
+        variant: "destructive"
+      });
     } finally {
       setCalibrationLoading(false);
     }
@@ -359,8 +395,17 @@ export function DevLearningPage() {
       const { data, error } = await supabase.functions.invoke("calibration-aggregator");
       if (error) {
         console.error("Error triggering calibration aggregator:", error);
+        toast({
+          title: "❌ Calibration error",
+          description: error.message || "Failed to trigger calibration",
+          variant: "destructive"
+        });
       } else {
         console.log("✅ Calibration aggregator response:", data);
+        toast({
+          title: "✅ Calibration complete",
+          description: `Processed: ${data?.processed || 0} metrics, Created: ${data?.rows_upserted || 0} rows`,
+        });
         // Refresh data and status after a short delay
         setTimeout(() => {
           fetchData();
@@ -368,8 +413,13 @@ export function DevLearningPage() {
           fetchStrategyHealth();
         }, 2000);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error triggering calibration aggregator:", error);
+      toast({
+        title: "❌ Calibration failed",
+        description: error.message || "Unknown error",
+        variant: "destructive"
+      });
     } finally {
       setCalibrationLoading(false);
     }
