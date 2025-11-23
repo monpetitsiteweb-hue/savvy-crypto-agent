@@ -2644,6 +2644,7 @@ export type Database = {
           symbol: string
         }[]
       }
+      admin_reset_learning_loop: { Args: { p_user_id: string }; Returns: Json }
       admin_seed_sequence: {
         Args: {
           p_account_type: string
