@@ -1718,6 +1718,98 @@ async function getEffectiveMinConfidenceForDecision(args: {
 }
 
 // Execute trade (reused by both paths)
+// ============= POSITION-AWARE HELPERS =============
+
+// Get remaining quantity for a specific position ID
+async function getPositionRemainingForId(
+  supabaseClient: any,
+  userId: string,
+  strategyId: string,
+  positionId: string,
+  baseSymbol: string
+): Promise<{ remainingQty: number; isOpen: boolean; originalAmount: number; originalValue: number; originalPrice: number }> {
+  try {
+    // Fetch the original BUY trade
+    const { data: buyTrade, error: buyError } = await supabaseClient
+      .from('mock_trades')
+      .select('*')
+      .eq('id', positionId)
+      .eq('user_id', userId)
+      .eq('strategy_id', strategyId)
+      .eq('cryptocurrency', baseSymbol)
+      .eq('trade_type', 'buy')
+      .maybeSingle();
+    
+    if (buyError) {
+      console.error('[Coordinator][Position] Error fetching position:', buyError);
+      return { remainingQty: 0, isOpen: false, originalAmount: 0, originalValue: 0, originalPrice: 0 };
+    }
+    
+    if (!buyTrade) {
+      console.log('[Coordinator][Position] Position not found:', positionId);
+      return { remainingQty: 0, isOpen: false, originalAmount: 0, originalValue: 0, originalPrice: 0 };
+    }
+    
+    const originalAmount = parseFloat(buyTrade.amount);
+    const originalPrice = parseFloat(buyTrade.price);
+    const originalValue = originalAmount * originalPrice;
+    
+    // Calculate how much has been sold from this specific position
+    // by looking for SELLs that reference this position_id
+    const { data: sellTrades, error: sellError } = await supabaseClient
+      .from('mock_trades')
+      .select('amount, original_trade_id')
+      .eq('user_id', userId)
+      .eq('strategy_id', strategyId)
+      .eq('cryptocurrency', baseSymbol)
+      .eq('trade_type', 'sell')
+      .eq('original_trade_id', positionId);
+    
+    if (sellError) {
+      console.error('[Coordinator][Position] Error fetching sell history:', sellError);
+      // Conservative: if we can't determine sells, assume position is fully available
+      return { 
+        remainingQty: originalAmount, 
+        isOpen: true, 
+        originalAmount,
+        originalValue,
+        originalPrice
+      };
+    }
+    
+    // Sum up all sells that targeted this position
+    let totalSold = 0;
+    if (sellTrades && sellTrades.length > 0) {
+      totalSold = sellTrades.reduce((sum, sell) => sum + parseFloat(sell.amount), 0);
+    }
+    
+    const remainingQty = Math.max(0, originalAmount - totalSold);
+    const isOpen = remainingQty > 0.0001; // Use small epsilon for float comparison
+    
+    console.log('[Coordinator][Position] Position info', {
+      positionId,
+      originalAmount,
+      totalSold,
+      remainingQty,
+      isOpen
+    });
+    
+    return {
+      remainingQty,
+      isOpen,
+      originalAmount,
+      originalValue,
+      originalPrice
+    };
+    
+  } catch (error) {
+    console.error('[Coordinator][Position] Unexpected error:', error);
+    return { remainingQty: 0, isOpen: false, originalAmount: 0, originalValue: 0, originalPrice: 0 };
+  }
+}
+
+// ============= TRADE EXECUTION =============
+
 async function executeTradeOrder(
   supabaseClient: any,
   intent: TradeIntent,
@@ -1855,10 +1947,170 @@ async function executeTradeOrder(
     // For SELL orders, compute FIFO accounting fields and cap quantity
     let fifoFields = {};
     if (intent.side === 'SELL') {
-      // ✅ MANUAL SELL BYPASS: Skip coverage gate for manual SELLs from UI with originalTradeId
+      // ========= SELL BRANCHING LOGIC =========
+      // Detect intent type for routing
+      const isPoolExit = intent.source === 'pool';
+      const isPositionManaged = !!intent.metadata?.position_management && !!intent.metadata?.position_id;
       const isManualSell = intent.metadata?.context === 'MANUAL' && intent.metadata?.originalTradeId;
       
-      if (isManualSell) {
+      console.log('[Coordinator][SELL] Incoming intent', {
+        userId: intent.userId,
+        strategyId: intent.strategyId,
+        symbol: intent.symbol,
+        side: intent.side,
+        source: intent.source,
+        position_management: intent.metadata?.position_management ?? false,
+        position_id: intent.metadata?.position_id ?? null,
+        originalTradeId: intent.metadata?.originalTradeId ?? null,
+        context: intent.metadata?.context ?? null,
+      });
+      
+      console.log('[Coordinator][SELL] Branch selection', {
+        isPositionManaged,
+        isPoolExit,
+        isManualSell,
+        branch: isPositionManaged ? 'position' : isPoolExit ? 'pool' : isManualSell ? 'manual' : 'symbol',
+      });
+      
+      // ========= BRANCH A: POSITION-MANAGED SELL (per position_id) =========
+      if (isPositionManaged) {
+        console.log('[Coordinator][SELL][Position] Processing position-managed SELL');
+        const positionId = intent.metadata.position_id;
+        
+        // Get position-specific remaining quantity
+        const positionInfo = await getPositionRemainingForId(
+          supabaseClient,
+          intent.userId,
+          intent.strategyId,
+          positionId,
+          baseSymbol
+        );
+        
+        console.log('[Coordinator][SELL][Position] Position check', {
+          position_id: positionId,
+          requestedQty: qty,
+          remainingQty: positionInfo.remainingQty,
+          isOpen: positionInfo.isOpen,
+        });
+        
+        // Check if position is open
+        if (!positionInfo.isOpen || positionInfo.remainingQty <= 0) {
+          console.log(`🚫 COORDINATOR: Position ${positionId} is not open or fully closed`);
+          // Log BLOCK decision
+          await logDecisionAsync(
+            supabaseClient, intent, 'BLOCK', 'no_position_found',
+            { enableUnifiedDecisions: true } as UnifiedConfig, 
+            requestId, 
+            {
+              positionExit: {
+                isPositionManaged: true,
+                position_id: positionId,
+                requested_qty: qty,
+                remaining_position_qty: positionInfo.remainingQty,
+                is_open: positionInfo.isOpen
+              }
+            },
+            undefined,
+            realMarketPrice,
+            effectiveConfig
+          );
+          return { success: false, error: 'blocked_no_open_position_for_position_id', effectiveConfig };
+        }
+        
+        // Check if requested quantity exceeds position size
+        const epsilon = 0.0001; // Small tolerance for float comparison
+        if (qty > positionInfo.remainingQty + epsilon) {
+          console.log(`🚫 COORDINATOR: Requested qty ${qty} exceeds position size ${positionInfo.remainingQty}`);
+          // Log BLOCK decision
+          await logDecisionAsync(
+            supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
+            { enableUnifiedDecisions: true } as UnifiedConfig,
+            requestId,
+            {
+              positionExit: {
+                isPositionManaged: true,
+                position_id: positionId,
+                requested_qty: qty,
+                remaining_position_qty: positionInfo.remainingQty,
+                is_open: positionInfo.isOpen
+              }
+            },
+            undefined,
+            realMarketPrice,
+            effectiveConfig
+          );
+          return { success: false, error: 'blocked_quantity_exceeds_position_size', effectiveConfig };
+        }
+        
+        // Position is valid, use position-specific FIFO fields
+        fifoFields = {
+          original_purchase_amount: positionInfo.originalAmount,
+          original_purchase_value: positionInfo.originalValue,
+          original_purchase_price: positionInfo.originalPrice,
+          original_trade_id: positionId // Link back to original trade
+        };
+        
+        console.log('[Coordinator][SELL][Position] Using position FIFO fields', fifoFields);
+        
+      // ========= BRANCH B: POOL EXIT (source === "pool") =========
+      } else if (isPoolExit) {
+        console.log('[Coordinator][SELL][Pool] Processing pool exit SELL');
+        // Pool logic uses symbol-level aggregation as designed
+        // Pool manager handles its own quantity logic, but we still compute FIFO fields for P&L tracking
+        
+        const { data: buyTrades } = await supabaseClient
+          .from('mock_trades')
+          .select('amount, price, executed_at')
+          .eq('user_id', intent.userId)
+          .eq('strategy_id', intent.strategyId)
+          .eq('cryptocurrency', baseSymbol)
+          .eq('trade_type', 'buy')
+          .order('executed_at', { ascending: true });
+
+        const { data: sellTrades } = await supabaseClient
+          .from('mock_trades')
+          .select('original_purchase_amount')
+          .eq('user_id', intent.userId)
+          .eq('strategy_id', intent.strategyId)
+          .eq('cryptocurrency', baseSymbol)
+          .eq('trade_type', 'sell')
+          .not('original_purchase_amount', 'is', null);
+
+        if (buyTrades && buyTrades.length > 0) {
+          let totalSold = sellTrades ? sellTrades.reduce((sum, sell) => sum + parseFloat(sell.original_purchase_amount), 0) : 0;
+          let remainingQty = qty;
+          let fifoValue = 0;
+          let fifoAmount = 0;
+
+          for (const buy of buyTrades) {
+            if (remainingQty <= 0) break;
+            const buyAmount = parseFloat(buy.amount);
+            const buyPrice = parseFloat(buy.price);
+            const availableFromBuy = Math.max(0, buyAmount - totalSold);
+            
+            if (availableFromBuy > 0) {
+              const takeAmount = Math.min(remainingQty, availableFromBuy);
+              fifoAmount += takeAmount;
+              fifoValue += takeAmount * buyPrice;
+              remainingQty -= takeAmount;
+            }
+            totalSold -= Math.min(totalSold, buyAmount);
+          }
+
+          // Pool EXIT: Use computed FIFO fields (pool manager already validated quantity)
+          fifoFields = fifoAmount > 0 ? {
+            original_purchase_amount: fifoAmount,
+            original_purchase_value: fifoValue,
+            original_purchase_price: fifoValue / fifoAmount
+          } : {};
+          
+          console.log(`   Pool SELL FIFO: amount=${fifoAmount}, value=${fifoValue}, avgPrice=${fifoAmount > 0 ? fifoValue / fifoAmount : 0}`);
+        }
+        
+        // Pool exits bypass coverage enforcement - pool manager handles quantity validation
+        
+      // ========= BRANCH C: MANUAL SELL BYPASS =========
+      } else if (isManualSell) {
         console.log(`🔓 COORDINATOR: Manual SELL with originalTradeId detected - BYPASSING coverage gate`);
         console.log(`   Context: ${intent.metadata.context}, OriginalTradeId: ${intent.metadata.originalTradeId}`);
         
@@ -1913,9 +2165,11 @@ async function executeTradeOrder(
         }
         
         // Skip coverage enforcement - allow manual SELL to proceed
+        
+      // ========= BRANCH D: LEGACY SYMBOL-LEVEL LOGIC =========
       } else {
         // Standard SELL: Enforce coverage gate for automated/engine SELLs
-        console.log(`🔒 COORDINATOR: Standard SELL - ENFORCING coverage gate`);
+        console.log(`🔒 COORDINATOR: Standard SELL - ENFORCING symbol-level coverage gate`);
         
         // Recompute FIFO for this specific SELL quantity (already computed in profit gate)
         const { data: buyTrades } = await supabaseClient
