@@ -165,6 +165,9 @@ export function DevLearningPage() {
   const [applyingIds, setApplyingIds] = useState<Set<string>>(new Set());
   const [testBuyModalOpen, setTestBuyModalOpen] = useState(false);
   const { activeStrategy } = useActiveStrategy();
+  const [resetResult, setResetResult] = useState<any>(null);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   const isAdmin = role === "admin";
 
@@ -369,6 +372,46 @@ export function DevLearningPage() {
       console.error("Error triggering calibration aggregator:", error);
     } finally {
       setCalibrationLoading(false);
+    }
+  };
+
+  const handleResetLearningLoop = async () => {
+    if (!user) {
+      setResetError("No user logged in");
+      return;
+    }
+
+    try {
+      setResetLoading(true);
+      setResetError(null);
+      setResetResult(null);
+
+      const { data, error } = await (supabase as any).rpc("admin_reset_learning_loop", {
+        p_user_id: user.id,
+      });
+
+      if (error) {
+        setResetError(error.message || "Unknown error occurred");
+        console.error("Error resetting learning loop:", error);
+      } else {
+        setResetResult(data);
+        console.log("✅ Learning loop reset result:", data);
+        toast({
+          title: "✅ Learning loop reset complete",
+          description: "All learning loop data has been cleared",
+        });
+        // Refresh data after reset
+        setTimeout(() => {
+          fetchData();
+          fetchLearningStatus();
+          fetchStrategyHealth();
+        }, 1000);
+      }
+    } catch (error: any) {
+      setResetError(error.message || "Failed to reset learning loop");
+      console.error("Failed to reset learning loop:", error);
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -599,6 +642,49 @@ export function DevLearningPage() {
                   <span className="text-xs text-slate-400 self-center">No active strategy</span>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Admin - Reset Learning Loop */}
+          <Card className="my-6 border-red-500/20 bg-slate-800/50">
+            <CardHeader>
+              <CardTitle className="text-white">Admin – Reset Learning Loop (current user)</CardTitle>
+              <CardDescription className="text-slate-400">
+                Delete all learning loop data (decision_events, decision_outcomes, calibration_metrics, calibration_suggestions, trade_decisions_log)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleResetLearningLoop}
+                disabled={resetLoading}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {resetLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Resetting...
+                  </>
+                ) : (
+                  "Reset learning data for my account"
+                )}
+              </Button>
+
+              {resetError && (
+                <div className="p-3 bg-red-900/20 border border-red-500/30 rounded text-red-400 text-sm">
+                  <strong>Error:</strong> {resetError}
+                </div>
+              )}
+
+              {resetResult && (
+                <div className="space-y-2">
+                  <div className="text-sm text-slate-400">Reset Result:</div>
+                  <pre className="p-3 bg-slate-900/50 border border-slate-700 rounded text-xs text-slate-300 overflow-auto max-h-48">
+                    {JSON.stringify(resetResult, null, 2)}
+                  </pre>
+                </div>
+              )}
             </CardContent>
           </Card>
 
