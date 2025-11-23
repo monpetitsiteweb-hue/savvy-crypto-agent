@@ -369,7 +369,7 @@ export function DevLearningPage() {
         console.log("✅ Evaluator response:", data);
         toast({
           title: "✅ Evaluator complete",
-          description: `Processed: ${data?.summary?.total_processed || 0} decisions, Created: ${data?.summary?.outcomes_created || 0} outcomes`,
+          description: `Processed: ${data?.pending_decisions_recent || 0} decisions, Created: ${data?.outcomes_created || 0} outcomes`,
         });
         // Refresh data and status after a short delay
         setTimeout(() => {
@@ -803,6 +803,7 @@ export function DevLearningPage() {
 
           <div className="flex gap-4 mt-4">
             <Button
+              type="button"
               onClick={() => {
                 fetchData();
                 fetchLearningStatus();
@@ -811,10 +812,10 @@ export function DevLearningPage() {
             >
               Refresh Data
             </Button>
-            <Button onClick={triggerEvaluator} variant="default" disabled={calibrationLoading}>
+            <Button type="button" onClick={triggerEvaluator} variant="default" disabled={calibrationLoading}>
               {calibrationLoading ? "Running..." : "Trigger Evaluator"}
             </Button>
-            <Button onClick={triggerCalibrationAggregator} variant="secondary" disabled={calibrationLoading}>
+            <Button type="button" onClick={triggerCalibrationAggregator} variant="secondary" disabled={calibrationLoading}>
               {calibrationLoading ? "Running..." : "Run Calibration"}
             </Button>
           </div>
