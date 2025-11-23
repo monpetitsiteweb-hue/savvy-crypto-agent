@@ -316,17 +316,63 @@ async function evaluateDecision(
     '24h': '24h'
   }[horizon] || '1h';
   
-  console.log(`🔍 EVALUATOR.price.query: table=market_ohlcv_raw, symbol=${symbolWithPair}, granularity=${granularity}, window=${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
-  
-  // Get price data from market_ohlcv_raw with granularity filter
-  const { data: priceData, error: priceError } = await supabase
-    .from('market_ohlcv_raw')
-    .select('close, ts_utc, granularity')
-    .eq('symbol', symbolWithPair)
-    .eq('granularity', granularity)
-    .gte('ts_utc', decision.decision_ts)
-    .lte('ts_utc', evaluationEnd.toISOString())
-    .order('ts_utc', { ascending: true });
+  // Check if this is a mock/test mode decision
+  const isMockMode = 
+    decision.metadata?.mode === 'mock' ||
+    decision.metadata?.is_test_mode === true ||
+    decision.metadata?.is_test_mode === 'true' ||
+    decision.raw_intent?.metadata?.mode === 'mock' ||
+    decision.raw_intent?.metadata?.is_test_mode === true ||
+    decision.raw_intent?.metadata?.is_test_mode === 'true';
+
+  console.log(`🔍 EVALUATOR: Decision ${decision.id} is ${isMockMode ? 'MOCK/TEST' : 'LIVE'} mode`);
+
+  let priceData: any[] | null = null;
+  let priceError: any = null;
+
+  // For mock/test mode, try price_data table first
+  if (isMockMode) {
+    console.log(`🔍 EVALUATOR.price.query: table=price_data, symbol=${decision.symbol}, interval_type=${granularity}, user_id=${decision.user_id}`);
+    
+    const { data: mockPriceData, error: mockPriceError } = await supabase
+      .from('price_data')
+      .select('close_price, timestamp, interval_type')
+      .eq('symbol', decision.symbol)
+      .eq('user_id', decision.user_id)
+      .eq('interval_type', granularity)
+      .lte('timestamp', evaluationEnd.toISOString())
+      .order('timestamp', { ascending: true })
+      .limit(100);
+
+    if (!mockPriceError && mockPriceData && mockPriceData.length > 0) {
+      console.log(`✅ EVALUATOR: Found ${mockPriceData.length} rows in price_data for ${decision.symbol}`);
+      // Transform price_data format to match market_ohlcv_raw format
+      priceData = mockPriceData.map(p => ({
+        close: p.close_price,
+        ts_utc: p.timestamp,
+        granularity: p.interval_type
+      }));
+    } else {
+      console.log(`⚠️ EVALUATOR: No price_data found for mock mode, will try market_ohlcv_raw as fallback`);
+    }
+  }
+
+  // Fallback to market_ohlcv_raw if not mock mode OR if price_data had no results
+  if (!priceData || priceData.length === 0) {
+    console.log(`🔍 EVALUATOR.price.query: table=market_ohlcv_raw, symbol=${symbolWithPair}, granularity=${granularity}, window=${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
+    
+    const { data: ohlcvData, error: ohlcvError } = await supabase
+      .from('market_ohlcv_raw')
+      .select('close, ts_utc, granularity')
+      .eq('symbol', symbolWithPair)
+      .eq('granularity', granularity)
+      .gte('ts_utc', decision.decision_ts)
+      .lte('ts_utc', evaluationEnd.toISOString())
+      .order('ts_utc', { ascending: true });
+
+    priceData = ohlcvData;
+    priceError = ohlcvError;
+  }
 
   if (priceError) {
     console.error(`❌ EVALUATOR: Price data error for ${symbolWithPair}:`, priceError);
@@ -336,7 +382,7 @@ async function evaluateDecision(
   console.log(`📊 EVALUATOR.price.rows_found: ${priceData?.length || 0} rows for ${symbolWithPair} (granularity: ${granularity})`);
 
   if (!priceData || priceData.length === 0) {
-    console.log(`⚠️ EVALUATOR: No OHLCV data found for ${symbolWithPair} (${granularity}) in period ${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
+    console.log(`⚠️ EVALUATOR: No OHLCV/price data found for ${symbolWithPair} (${granularity}) in period ${decision.decision_ts} to ${evaluationEnd.toISOString()}`);
     return 'no_ohlcv_data';
   }
   
