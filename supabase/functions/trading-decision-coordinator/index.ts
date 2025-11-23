@@ -209,6 +209,44 @@ serve(async (req) => {
       const tradeId = insertResult?.[0]?.id;
       console.log('✅ UI TEST BUY: Trade inserted with id:', tradeId);
       
+      // CRITICAL: Log decision to decision_events for learning loop
+      // Fetch strategy config for TP/SL defaults
+      const { data: strategyConfig } = await supabaseClient
+        .from('trading_strategies')
+        .select('configuration')
+        .eq('id', intent.strategyId)
+        .single();
+      
+      const config = strategyConfig?.configuration || {};
+      const effectiveTpPct = config.takeProfitPercentage || 1.5;
+      const effectiveSlPct = config.stopLossPercentage || 0.8;
+      
+      // Log the BUY decision
+      await logDecisionAsync(
+        supabaseClient,
+        intent,
+        'BUY', // action
+        'no_conflicts_detected', // reason
+        { 
+          enableUnifiedDecisions: false,
+          minHoldPeriodMs: config.minHoldPeriodMs || 300000,
+          cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs || 180000,
+          confidenceOverrideThreshold: 0.70
+        }, // unifiedConfig
+        requestId,
+        undefined, // profitMetadata
+        tradeId, // tradeId
+        price, // executionPrice
+        { // strategyConfig
+          takeProfitPercentage: effectiveTpPct,
+          stopLossPercentage: effectiveSlPct,
+          minConfidence: (config.aiConfidenceThreshold || 60) / 100,
+          configuration: config
+        }
+      );
+      
+      console.log('✅ UI TEST BUY: Decision logged to decision_events');
+      
       return new Response(JSON.stringify({ 
         ok: true,
         decision: {
@@ -381,6 +419,51 @@ serve(async (req) => {
         });
 
       console.log('[coordinator] mock sell inserted', payload);
+      
+      // CRITICAL: Log SELL decision to decision_events for learning loop
+      // Fetch strategy config for TP/SL defaults
+      const { data: strategyConfig } = await supabaseClient
+        .from('trading_strategies')
+        .select('configuration')
+        .eq('id', intent.strategyId)
+        .single();
+      
+      const config = strategyConfig?.configuration || {};
+      const effectiveTpPct = config.takeProfitPercentage || 1.5;
+      const effectiveSlPct = config.stopLossPercentage || 0.8;
+      
+      // Log the SELL decision
+      await logDecisionAsync(
+        supabaseClient,
+        intent,
+        'SELL', // action
+        'no_conflicts_detected', // reason
+        { 
+          enableUnifiedDecisions: false,
+          minHoldPeriodMs: config.minHoldPeriodMs || 300000,
+          cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs || 180000,
+          confidenceOverrideThreshold: 0.70
+        }, // unifiedConfig
+        requestId,
+        { // profitMetadata
+          entry_price: avgPurchasePrice,
+          exit_price: exitPrice,
+          profit_loss_fiat: realizedPnL,
+          profit_loss_pct: realizedPnLPct,
+          currentPrice: exitPrice
+        },
+        undefined, // tradeId
+        exitPrice, // executionPrice
+        { // strategyConfig
+          takeProfitPercentage: effectiveTpPct,
+          stopLossPercentage: effectiveSlPct,
+          minConfidence: (config.aiConfidenceThreshold || 60) / 100,
+          configuration: config
+        }
+      );
+      
+      console.log('✅ MANUAL SELL: Decision logged to decision_events');
+      
       return new Response(JSON.stringify({ 
         ok:true, 
         decision:{ action:'SELL', reason:'manual_fast_path' } 
