@@ -201,9 +201,11 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
 }
 
 function isSignalFusionEnabled(strategyConfig: any): boolean {
-  const isTestMode = strategyConfig?.is_test_mode === true || 
-                    strategyConfig?.execution_mode === 'TEST';
-  const fusionEnabled = strategyConfig?.enableSignalFusion === true;
+  // PHASE 1B: Signal Fusion requires is_test_mode = true in strategy config
+  const isTestMode = strategyConfig?.configuration?.is_test_mode === true || 
+                    strategyConfig?.is_test_mode === true;
+  const fusionEnabled = strategyConfig?.configuration?.enableSignalFusion === true ||
+                       strategyConfig?.enableSignalFusion === true;
   return isTestMode && fusionEnabled;
 }
 
@@ -1458,15 +1460,23 @@ async function logDecisionAsync(
       const effectiveMinConf = strategyConfig?.minConfidence || (strategyConfig?.configuration?.aiConfidenceThreshold ? (strategyConfig.configuration.aiConfidenceThreshold / 100) : 0.5);
       const finalEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price || profitMetadata?.currentPrice || null;
 
+      // PHASE 1B: Extract isTestMode from strategy config (primary source) and intent metadata (fallback)
+      const isTestMode = 
+        strategyConfig?.configuration?.is_test_mode === true ||
+        strategyConfig?.is_test_mode === true ||
+        intent.metadata?.is_test_mode === true ||
+        intent.metadata?.mode === 'mock';
+
       console.log(`[coordinator] logging decision with effective params`, {
         symbol: baseSymbol,
         tp_pct: effectiveTpPct,
         sl_pct: effectiveSlPct,
         min_confidence: effectiveMinConf,
         confidence: normalizedConfidence,
+        is_test_mode: isTestMode,
       });
 
-      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, execution_mode=${executionMode}, entry_price=${finalEntryPrice}, tp_pct=${effectiveTpPct}, sl_pct=${effectiveSlPct}, min_confidence=${effectiveMinConf}, confidence=${normalizedConfidence}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
+      console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, execution_mode=${executionMode}, is_test_mode=${isTestMode}, entry_price=${finalEntryPrice}, tp_pct=${effectiveTpPct}, sl_pct=${effectiveSlPct}, min_confidence=${effectiveMinConf}, confidence=${normalizedConfidence}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
 
       // Validate and normalize source for decision_events constraint
       // Allowed values: 'automated', 'manual', 'system', 'intelligent'
@@ -1526,6 +1536,7 @@ async function logDecisionAsync(
         trade_id: tradeId,
         metadata: {
           action: action, // Store action (BUY/SELL/BLOCK/DEFER/HOLD) in metadata
+          is_test_mode: isTestMode,  // CRITICAL: Record test vs real mode for learning loop
           request_id: requestId,
           unifiedConfig,
           profitAnalysis: profitMetadata,
@@ -2319,9 +2330,20 @@ async function executeTradeOrder(
       console.log(`💰 COORDINATOR: Available EUR balance: €${availableEur.toFixed(2)}`);
       
       // TEST MODE: Bypass balance check for test mode trades
-      const isTestMode = intent.metadata?.mode === 'mock' || effectiveConfig?.is_test_mode;
+      // Extract from strategy config (primary) or intent metadata (fallback)
+      const isTestMode = effectiveConfig?.configuration?.is_test_mode === true ||
+                        effectiveConfig?.is_test_mode === true ||
+                        intent.metadata?.is_test_mode === true ||
+                        intent.metadata?.mode === 'mock';
+                        
       if (isTestMode) {
         console.log(`🧪 TEST MODE: Bypassing balance check - using virtual paper trading`);
+        console.log(`🧪 TEST MODE source: ${
+          effectiveConfig?.configuration?.is_test_mode === true ? 'strategy.configuration.is_test_mode' :
+          effectiveConfig?.is_test_mode === true ? 'strategy.is_test_mode' :
+          intent.metadata?.is_test_mode === true ? 'intent.metadata.is_test_mode' :
+          'intent.metadata.mode=mock'
+        }`);
         qty = intent.qtySuggested || (tradeAllocation / realMarketPrice);
       } else {
         // Check if we have sufficient balance

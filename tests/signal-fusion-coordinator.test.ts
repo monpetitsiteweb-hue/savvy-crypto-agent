@@ -45,7 +45,7 @@ beforeAll(async () => {
 describe('Signal Fusion Coordinator Integration - Phase 1B', () => {
   it('should NOT call fusion when enableSignalFusion is false', async () => {
     // This test verifies that fusion is OFF by default
-    // First, ensure strategy config has enableSignalFusion: false
+    // First, ensure strategy config has enableSignalFusion: false and is_test_mode: true
     await supabase
       .from('trading_strategies')
       .update({

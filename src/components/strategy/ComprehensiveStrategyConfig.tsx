@@ -141,6 +141,8 @@ interface StrategyFormData {
   technicalIndicatorConfig: TechnicalIndicatorConfig;
   // Signal Fusion (Phase 1B telemetry)
   enableSignalFusion?: boolean;
+  // Test Mode (per-strategy)
+  is_test_mode?: boolean;
   // ScalpSmart settings
   signalFusion?: {
     enabled: boolean;
@@ -1392,6 +1394,30 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                               />
                             </div>
                           )}
+                          
+                          {/* Test Mode Toggle */}
+                          <div className="mt-6 pt-6 border-t border-border">
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <Label htmlFor="enable-test-mode">Test Mode (No Real Orders)</Label>
+                                  <Badge variant="outline" className="text-xs bg-orange-500/10 text-orange-500 border-orange-500/30">Test Only</Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                  When enabled, this strategy runs in TEST mode: only mock trades / simulated orders, no live execution.
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Decisions are logged to decision_events with metadata.is_test_mode = true for learning loop analysis.
+                                </p>
+                              </div>
+                              <Switch
+                                id="enable-test-mode"
+                                checked={formData.is_test_mode === true}
+                                onCheckedChange={(value) => updateFormData('is_test_mode', value)}
+                                className="data-[state=checked]:bg-orange-500"
+                              />
+                            </div>
+                          </div>
                           
                           {/* Signal Fusion Toggle (Phase 1B) */}
                           <div className="mt-6 pt-6 border-t border-border">
