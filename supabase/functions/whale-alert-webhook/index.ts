@@ -94,6 +94,30 @@ serve(async (req) => {
           continue;
         }
 
+        // Determine transaction type and signal type based on from/to addresses
+        const fromOwner = tx.from?.owner || '';
+        const toOwner = tx.to?.owner || '';
+        const isExchangeInflow = toOwner && !fromOwner;
+        const isExchangeOutflow = fromOwner && !toOwner;
+        const isStablecoin = ['USDT', 'USDC', 'DAI', 'BUSD'].includes(tx.symbol?.toUpperCase());
+        
+        let transactionType = 'transfer';
+        let signalType = 'whale_transfer';
+        
+        if (isExchangeInflow) {
+          transactionType = 'inflow';
+          signalType = isStablecoin ? 'whale_usdt_injection' : 'whale_exchange_inflow';
+        } else if (isExchangeOutflow) {
+          transactionType = 'outflow';
+          signalType = 'whale_exchange_outflow';
+        } else if (isStablecoin && fromOwner === 'Tether Treasury') {
+          transactionType = 'mint';
+          signalType = 'whale_stablecoin_mint';
+        } else if (isStablecoin && toOwner === 'Tether Treasury') {
+          transactionType = 'burn';
+          signalType = 'whale_stablecoin_burn';
+        }
+
         const whaleEvent = {
           source_id: sourceId,
           user_id: userId,
@@ -111,23 +135,30 @@ serve(async (req) => {
 
         whaleEvents.push(whaleEvent);
 
-        // Also create a live signal for this whale movement
+        // Create live signal with specific signal type and tracked entity metadata
+        const amountUsd = tx.amount_usd || 0;
         const signal = {
           source_id: sourceId,
           user_id: userId,
           timestamp: whaleEvent.timestamp,
           symbol: whaleEvent.token_symbol,
-          signal_type: 'whale_movement',
-          signal_strength: Math.min(100, (tx.amount_usd || 0) / 1000000 * 100), // Scale based on USD amount
-          source: 'whale_alert',
+          signal_type: signalType,
+          signal_strength: Math.min(100, amountUsd / 1000000 * 100),
+          source: 'whale_alert_tracked', // Tracked wallets via webhook
           data: {
-            amount_usd: tx.amount_usd,
-            blockchain: tx.blockchain,
-            from_address: tx.from?.address,
-            to_address: tx.to?.address,
-            transaction_hash: tx.hash,
-            exchange_from: tx.from?.owner,
-            exchange_to: tx.to?.owner
+            hash: tx.hash,
+            from: tx.from?.address,
+            to: tx.to?.address,
+            amount: parseFloat(tx.amount || 0),
+            amount_usd: amountUsd,
+            asset: tx.symbol || 'ETH',
+            blockchain: tx.blockchain || 'ethereum',
+            timestamp: tx.timestamp,
+            transaction_type: transactionType,
+            exchange: toOwner || fromOwner || null,
+            tracked_entity: fromOwner || toOwner || null, 
+            tracked_entity_type: (fromOwner || toOwner) ? 'exchange' : 'other',
+            tracked_entity_id: null // Will be enhanced with specific IDs in future
           },
           processed: false
         };
@@ -141,11 +172,34 @@ serve(async (req) => {
           console.error('❌ Error inserting whale signal:', signalError);
         }
       }
-    } else if (payload.amount_usd) {
       // Handle single transaction format
       const tx = payload;
       
       if (tx.amount_usd >= thresholdAmount) {
+        // Determine transaction type and signal type
+        const fromOwner = tx.from?.owner || '';
+        const toOwner = tx.to?.owner || '';
+        const isExchangeInflow = toOwner && !fromOwner;
+        const isExchangeOutflow = fromOwner && !toOwner;
+        const isStablecoin = ['USDT', 'USDC', 'DAI', 'BUSD'].includes(tx.symbol?.toUpperCase());
+        
+        let transactionType = 'transfer';
+        let signalType = 'whale_transfer';
+        
+        if (isExchangeInflow) {
+          transactionType = 'inflow';
+          signalType = isStablecoin ? 'whale_usdt_injection' : 'whale_exchange_inflow';
+        } else if (isExchangeOutflow) {
+          transactionType = 'outflow';
+          signalType = 'whale_exchange_outflow';
+        } else if (isStablecoin && fromOwner === 'Tether Treasury') {
+          transactionType = 'mint';
+          signalType = 'whale_stablecoin_mint';
+        } else if (isStablecoin && toOwner === 'Tether Treasury') {
+          transactionType = 'burn';
+          signalType = 'whale_stablecoin_burn';
+        }
+
         const whaleEvent = {
           source_id: sourceId,
           user_id: userId,
@@ -163,23 +217,30 @@ serve(async (req) => {
 
         whaleEvents.push(whaleEvent);
 
-        // Create live signal
+        // Create live signal with specific signal type and tracked entity metadata
+        const amountUsd = tx.amount_usd || 0;
         const signal = {
           source_id: sourceId,
           user_id: userId,
           timestamp: whaleEvent.timestamp,
           symbol: whaleEvent.token_symbol,
-          signal_type: 'whale_movement',
-          signal_strength: Math.min(100, (tx.amount_usd || 0) / 1000000 * 100),
-          source: 'whale_alert',
+          signal_type: signalType,
+          signal_strength: Math.min(100, amountUsd / 1000000 * 100),
+          source: 'whale_alert_tracked',
           data: {
-            amount_usd: tx.amount_usd,
-            blockchain: tx.blockchain,
-            from_address: tx.from?.address,
-            to_address: tx.to?.address,
-            transaction_hash: tx.hash,
-            exchange_from: tx.from?.owner,
-            exchange_to: tx.to?.owner
+            hash: tx.hash,
+            from: tx.from?.address,
+            to: tx.to?.address,
+            amount: parseFloat(tx.amount || 0),
+            amount_usd: amountUsd,
+            asset: tx.symbol || 'ETH',
+            blockchain: tx.blockchain || 'ethereum',
+            timestamp: tx.timestamp,
+            transaction_type: transactionType,
+            exchange: toOwner || fromOwner || null,
+            tracked_entity: fromOwner || toOwner || null,
+            tracked_entity_type: (fromOwner || toOwner) ? 'exchange' : 'other',
+            tracked_entity_id: null
           },
           processed: false
         };
@@ -304,22 +365,32 @@ async function processQuickNodeWebhook(supabaseClient: any, payload: any) {
       
       whaleEvents.push(whaleEvent);
       
-      // Create live signal for large transactions
+      // Create live signal for large QuickNode transactions
+      const estimatedUsd = valueInEth * 3200; // Approximate
+      const signalType = valueInEth > 100 ? 'whale_exchange_inflow' : 'whale_transfer';
+      
       const signal = {
         source_id: source.id,
         user_id: source.user_id,
         timestamp: whaleEvent.timestamp,
         symbol: 'ETH',
-        signal_type: valueInEth > 100 ? 'whale_large_movement' : 'whale_movement',
-        signal_strength: Math.min(100, valueInEth / 10), // Scale based on ETH amount
-        source: 'quicknode',
+        signal_type: signalType,
+        signal_strength: Math.min(100, valueInEth / 10),
+        source: 'whale_alert_tracked', // QuickNode tracked wallets
         data: {
-          amount_eth: valueInEth,
-          amount_usd: valueInEth * 3200, // Approximate USD value
+          hash: transaction.hash,
+          from: transaction.from,
+          to: transaction.to,
+          amount: valueInEth,
+          amount_usd: estimatedUsd,
+          asset: 'ETH',
           blockchain: blockchain,
-          from_address: transaction.from,
-          to_address: transaction.to,
-          transaction_hash: transaction.hash
+          timestamp: Math.floor(Date.now() / 1000),
+          transaction_type: 'transfer',
+          exchange: null,
+          tracked_entity: null, // Can be enhanced with wallet labels
+          tracked_entity_type: null,
+          tracked_entity_id: null
         },
         processed: false
       };
