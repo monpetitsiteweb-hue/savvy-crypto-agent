@@ -11,9 +11,6 @@
  * 5. Return fused score (-100 to +100) and detailed breakdown
  */
 
-import { supabase } from '@/integrations/supabase/client';
-import { fromTable } from '@/utils/supa';
-
 // Type definitions for new tables
 interface SignalRegistryEntry {
   id: string;
@@ -59,9 +56,11 @@ export interface FusedSignalResult {
 }
 
 export interface ComputeFusedSignalParams {
+  supabaseClient: any; // Supabase client instance
   userId: string;
   strategyId: string;
   symbol: string;
+  side: 'BUY' | 'SELL'; // Added for future directional weighting
   horizon: '15m' | '1h' | '4h' | '24h';
   now?: Date;
 }
@@ -109,7 +108,7 @@ function getDirectionMultiplier(directionHint: string): number {
 export async function computeFusedSignalScore(
   params: ComputeFusedSignalParams
 ): Promise<FusedSignalResult> {
-  const { userId, strategyId, symbol, horizon, now = new Date() } = params;
+  const { supabaseClient, userId, strategyId, symbol, side, horizon, now = new Date() } = params;
   
   try {
     // Calculate lookback window
@@ -117,7 +116,7 @@ export async function computeFusedSignalScore(
     const cutoffTime = new Date(now.getTime() - windowMs).toISOString();
 
     // Query recent signals for this symbol AND market-wide signals (symbol = 'ALL')
-    const { data: signals, error: signalsError } = await supabase
+    const { data: signals, error: signalsError } = await supabaseClient
       .from('live_signals')
       .select('id, signal_type, source, signal_strength, timestamp, symbol')
       .in('symbol', [symbol, 'ALL'])
@@ -142,7 +141,8 @@ export async function computeFusedSignalScore(
     console.log(`[SignalFusion] Found ${signals.length} raw signals for ${symbol}/${horizon}`);
 
     // Get signal registry entries
-    const { data: registryEntries, error: registryError } = await fromTable('signal_registry')
+    const { data: registryEntries, error: registryError } = await supabaseClient
+      .from('signal_registry')
       .select('*')
       .in('key', [...new Set(signals.map(s => s.signal_type))]);
 
@@ -152,7 +152,8 @@ export async function computeFusedSignalScore(
     }
 
     // Get per-strategy weight overrides
-    const { data: strategyWeights, error: weightsError } = await fromTable('strategy_signal_weights')
+    const { data: strategyWeights, error: weightsError } = await supabaseClient
+      .from('strategy_signal_weights')
       .select('*')
       .eq('strategy_id', strategyId);
 

@@ -2,6 +2,213 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// ============= SIGNAL FUSION INTEGRATION =============
+// Import signal fusion module for Phase 1B READ-ONLY integration
+// Inlined from src/engine/signalFusion.ts for Deno compatibility
+
+interface SignalRegistryEntry {
+  id: string;
+  key: string;
+  category: string;
+  description: string | null;
+  default_weight: number;
+  min_weight: number;
+  max_weight: number;
+  direction_hint: string;
+  timeframe_hint: string;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface StrategySignalWeight {
+  id: string;
+  strategy_id: string;
+  signal_key: string;
+  weight: number | null;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface SignalDetail {
+  signalId: string;
+  signalType: string;
+  source: string;
+  rawStrength: number;
+  normalizedStrength: number;
+  appliedWeight: number;
+  contribution: number;
+  timestamp: string;
+}
+
+interface FusedSignalResult {
+  fusedScore: number;
+  details: SignalDetail[];
+  totalSignals: number;
+  enabledSignals: number;
+}
+
+interface ComputeFusedSignalParams {
+  supabaseClient: any;
+  userId: string;
+  strategyId: string;
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  horizon: '15m' | '1h' | '4h' | '24h';
+  now?: Date;
+}
+
+const LOOKBACK_WINDOWS: Record<string, number> = {
+  '15m': 30 * 60 * 1000,
+  '1h': 2 * 60 * 60 * 1000,
+  '4h': 8 * 60 * 60 * 1000,
+  '24h': 48 * 60 * 60 * 1000
+};
+
+function normalizeSignalStrength(rawStrength: number): number {
+  if (rawStrength <= 1) {
+    return Math.max(0, Math.min(1, rawStrength));
+  }
+  return Math.max(0, Math.min(1, rawStrength / 100));
+}
+
+function getDirectionMultiplier(directionHint: string): number {
+  switch (directionHint.toLowerCase()) {
+    case 'bullish':
+      return 1;
+    case 'bearish':
+      return -1;
+    case 'symmetric':
+    case 'contextual':
+    default:
+      return 1;
+  }
+}
+
+async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promise<FusedSignalResult> {
+  const { supabaseClient, userId, strategyId, symbol, side, horizon, now = new Date() } = params;
+  
+  try {
+    const windowMs = LOOKBACK_WINDOWS[horizon] || LOOKBACK_WINDOWS['1h'];
+    const cutoffTime = new Date(now.getTime() - windowMs).toISOString();
+
+    const { data: signals, error: signalsError } = await supabaseClient
+      .from('live_signals')
+      .select('id, signal_type, source, signal_strength, timestamp, symbol')
+      .in('symbol', [symbol, 'ALL'])
+      .gte('timestamp', cutoffTime)
+      .order('timestamp', { ascending: false });
+
+    if (signalsError) {
+      console.error('[SignalFusion] Error fetching signals:', signalsError);
+      throw signalsError;
+    }
+
+    if (!signals || signals.length === 0) {
+      console.log(`[SignalFusion] No signals found for ${symbol}/${horizon}`);
+      return { fusedScore: 0, details: [], totalSignals: 0, enabledSignals: 0 };
+    }
+
+    console.log(`[SignalFusion] Found ${signals.length} signals for ${symbol}/${horizon}`);
+
+    const { data: registryEntries, error: registryError } = await supabaseClient
+      .from('signal_registry')
+      .select('*')
+      .in('key', [...new Set(signals.map((s: any) => s.signal_type))]);
+
+    if (registryError) {
+      console.error('[SignalFusion] Error fetching registry:', registryError);
+      throw registryError;
+    }
+
+    const { data: strategyWeights, error: weightsError } = await supabaseClient
+      .from('strategy_signal_weights')
+      .select('*')
+      .eq('strategy_id', strategyId);
+
+    if (weightsError) {
+      console.error('[SignalFusion] Error fetching strategy weights:', weightsError);
+    }
+
+    const weightOverrides = new Map<string, { weight?: number; is_enabled: boolean }>();
+    if (strategyWeights) {
+      (strategyWeights as StrategySignalWeight[]).forEach(sw => {
+        weightOverrides.set(sw.signal_key, {
+          weight: sw.weight ?? undefined,
+          is_enabled: sw.is_enabled
+        });
+      });
+    }
+
+    const registryMap = new Map(
+      (registryEntries as SignalRegistryEntry[])?.map(r => [r.key, r]) || []
+    );
+
+    const details: SignalDetail[] = [];
+    let totalContribution = 0;
+    let enabledCount = 0;
+
+    for (const signal of signals) {
+      const registryEntry = registryMap.get(signal.signal_type);
+      
+      if (!registryEntry) {
+        console.warn(`[SignalFusion] No registry entry for: ${signal.signal_type}`);
+        continue;
+      }
+
+      if (!registryEntry.is_enabled) {
+        console.log(`[SignalFusion] Signal ${signal.signal_type} disabled in registry`);
+        continue;
+      }
+
+      const override = weightOverrides.get(signal.signal_type);
+      if (override && !override.is_enabled) {
+        console.log(`[SignalFusion] Signal ${signal.signal_type} disabled for strategy`);
+        continue;
+      }
+
+      const effectiveWeight = override?.weight ?? registryEntry.default_weight;
+      const normalizedStrength = normalizeSignalStrength(signal.signal_strength);
+      const directionMultiplier = getDirectionMultiplier(registryEntry.direction_hint);
+      const contribution = normalizedStrength * effectiveWeight * directionMultiplier;
+
+      details.push({
+        signalId: signal.id,
+        signalType: signal.signal_type,
+        source: signal.source,
+        rawStrength: signal.signal_strength,
+        normalizedStrength,
+        appliedWeight: effectiveWeight,
+        contribution,
+        timestamp: signal.timestamp
+      });
+
+      totalContribution += contribution;
+      enabledCount++;
+    }
+
+    const fusedScore = Math.max(-100, Math.min(100, totalContribution * 20));
+
+    console.log(`[SignalFusion] Fused score for ${symbol}/${horizon}: ${fusedScore.toFixed(2)} from ${enabledCount} signals`);
+
+    return { fusedScore, details, totalSignals: signals.length, enabledSignals: enabledCount };
+
+  } catch (error) {
+    console.error('[SignalFusion] Error computing fused signal:', error);
+    return { fusedScore: 0, details: [], totalSignals: 0, enabledSignals: 0 };
+  }
+}
+
+function isSignalFusionEnabled(strategyConfig: any): boolean {
+  const isTestMode = strategyConfig?.is_test_mode === true || 
+                    strategyConfig?.execution_mode === 'TEST';
+  const fusionEnabled = strategyConfig?.enableSignalFusion === true;
+  return isTestMode && fusionEnabled;
+}
+
+// ============= END SIGNAL FUSION INTEGRATION =============
+
 // Symbol normalization utilities (inlined for Deno)
 type BaseSymbol = string;        // e.g., "BTC"
 type PairSymbol = `${string}-EUR`; // e.g., "BTC-EUR"
@@ -1268,6 +1475,40 @@ async function logDecisionAsync(
         ? intent.source 
         : (intent.source === 'pool' || intent.source === 'news' || intent.source === 'whale' ? 'system' : 'manual');
 
+      // PHASE 1B: Compute fused signal score (READ-ONLY, no behavior change)
+      let fusedSignalData = null;
+      if (isSignalFusionEnabled(strategyConfig)) {
+        try {
+          const fusionResult = await computeFusedSignalScore({
+            supabaseClient,
+            userId: intent.userId,
+            strategyId: intent.strategyId,
+            symbol: baseSymbol,
+            side: intent.side,
+            horizon: (intent.metadata?.horizon || '1h') as '15m' | '1h' | '4h' | '24h',
+            now: new Date()
+          });
+          
+          fusedSignalData = {
+            score: fusionResult.fusedScore,
+            totalSignals: fusionResult.totalSignals,
+            enabledSignals: fusionResult.enabledSignals,
+            topSignals: fusionResult.details
+              .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution))
+              .slice(0, 5)
+              .map(d => ({
+                type: d.signalType,
+                contribution: Number(d.contribution.toFixed(2))
+              }))
+          };
+          
+          console.log(`[SignalFusion] Computed score for ${baseSymbol}: ${fusionResult.fusedScore.toFixed(2)} from ${fusionResult.enabledSignals}/${fusionResult.totalSignals} signals`);
+        } catch (err) {
+          console.error('[SignalFusion] Failed to compute signal fusion, continuing without it:', err);
+          // Fail soft: fusion errors must NEVER block decisions
+        }
+      }
+
       const eventPayload = {
         user_id: intent.userId,
         strategy_id: intent.strategyId,
@@ -1298,7 +1539,9 @@ async function logDecisionAsync(
           confidence_optimizer: confidenceConfig?.optimizer || null,  // Which optimizer (if any)
           confidence_optimizer_metadata: confidenceConfig?.optimizerMetadata 
             ? { run_id: confidenceConfig.optimizerMetadata.run_id, run_at: confidenceConfig.optimizerMetadata.run_at }
-            : null  // Trimmed metadata for audit trail
+            : null,  // Trimmed metadata for audit trail
+          // PHASE 1B: Attach fused signal data (READ-ONLY)
+          signalFusion: fusedSignalData
         },
         raw_intent: intent as any
       };
