@@ -139,6 +139,8 @@ interface StrategyFormData {
   aiIntelligenceConfig: AIIntelligenceConfig;
   // Technical Indicators settings
   technicalIndicatorConfig: TechnicalIndicatorConfig;
+  // Signal Fusion (Phase 1B telemetry)
+  enableSignalFusion?: boolean;
   // ScalpSmart settings
   signalFusion?: {
     enabled: boolean;
@@ -466,6 +468,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       price_tick: 0.01, // default price precision
       min_order_notional: 10 // minimum order size in EUR
     },
+    enableSignalFusion: false, // Phase 1B: Signal fusion telemetry (read-only, no behavior change)
     technicalIndicatorConfig: {
       rsi: {
         enabled: true,
@@ -1389,6 +1392,29 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                               />
                             </div>
                           )}
+                          
+                          {/* Signal Fusion Toggle (Phase 1B) */}
+                          <div className="mt-6 pt-6 border-t border-border">
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <Label htmlFor="enable-signal-fusion">Enable Signal Fusion Telemetry</Label>
+                                  <Badge variant="outline" className="text-xs">Beta</Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                  When enabled, the engine logs a fused score of all active signals for this strategy (for Dev/Learning and analysis). <strong>It does NOT change trading decisions yet.</strong>
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Only active in Test Mode. Fusion data appears in decision_events.metadata.signalFusion.
+                                </p>
+                              </div>
+                              <Switch
+                                id="enable-signal-fusion"
+                                checked={formData.enableSignalFusion === true}
+                                onCheckedChange={(value) => updateFormData('enableSignalFusion', value)}
+                              />
+                            </div>
+                          </div>
                         </CardContent>
                       </Card>
                     </div>

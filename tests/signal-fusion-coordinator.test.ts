@@ -45,6 +45,17 @@ beforeAll(async () => {
 describe('Signal Fusion Coordinator Integration - Phase 1B', () => {
   it('should NOT call fusion when enableSignalFusion is false', async () => {
     // This test verifies that fusion is OFF by default
+    // First, ensure strategy config has enableSignalFusion: false
+    await supabase
+      .from('trading_strategies')
+      .update({
+        configuration: {
+          enableSignalFusion: false,
+          is_test_mode: true
+        }
+      })
+      .eq('id', testStrategyId);
+
     const tradeIntent = {
       userId: testUserId,
       strategyId: testStrategyId,
@@ -54,8 +65,7 @@ describe('Signal Fusion Coordinator Integration - Phase 1B', () => {
       confidence: 0.75,
       qtySuggested: 0.001,
       metadata: {
-        is_test_mode: true,
-        enableSignalFusion: false // Explicitly disabled
+        is_test_mode: true
       }
     };
 
@@ -72,6 +82,17 @@ describe('Signal Fusion Coordinator Integration - Phase 1B', () => {
   });
 
   it('should call fusion when enableSignalFusion is true in TEST mode', async () => {
+    // Update strategy config to enable fusion
+    await supabase
+      .from('trading_strategies')
+      .update({
+        configuration: {
+          enableSignalFusion: true,
+          is_test_mode: true
+        }
+      })
+      .eq('id', testStrategyId);
+
     // Insert a test signal
     const { error: insertError } = await supabase
       .from('live_signals')
@@ -97,7 +118,6 @@ describe('Signal Fusion Coordinator Integration - Phase 1B', () => {
       qtySuggested: 0.001,
       metadata: {
         is_test_mode: true,
-        enableSignalFusion: true, // Enabled
         horizon: '1h'
       }
     };
@@ -135,18 +155,30 @@ describe('Signal Fusion Coordinator Integration - Phase 1B', () => {
   });
 
   it('should fail soft when fusion errors occur', async () => {
-    // Use an invalid strategy ID to trigger fusion error
+    // Create a temporary strategy with fusion enabled but invalid signal_registry references
+    const { data: tempStrategy } = await supabase
+      .from('trading_strategies')
+      .insert({
+        user_id: testUserId,
+        strategy_name: 'Test Fusion Error Strategy',
+        configuration: {
+          enableSignalFusion: true,
+          is_test_mode: true
+        }
+      })
+      .select('id')
+      .single();
+
     const tradeIntent = {
       userId: testUserId,
-      strategyId: '00000000-0000-0000-0000-000000000000', // Non-existent
+      strategyId: tempStrategy!.id,
       symbol: 'BTC',
       side: 'BUY',
       source: 'automated',
       confidence: 0.75,
       qtySuggested: 0.001,
       metadata: {
-        is_test_mode: true,
-        enableSignalFusion: true
+        is_test_mode: true
       }
     };
 
@@ -174,11 +206,20 @@ describe('Signal Fusion Coordinator Integration - Phase 1B', () => {
     };
 
     // Decision 1: Fusion OFF
+    await supabase
+      .from('trading_strategies')
+      .update({
+        configuration: {
+          enableSignalFusion: false,
+          is_test_mode: true
+        }
+      })
+      .eq('id', testStrategyId);
+
     const intent1 = {
       ...baseIntent,
       metadata: {
-        is_test_mode: true,
-        enableSignalFusion: false
+        is_test_mode: true
       }
     };
 
@@ -187,11 +228,20 @@ describe('Signal Fusion Coordinator Integration - Phase 1B', () => {
     });
 
     // Decision 2: Fusion ON
+    await supabase
+      .from('trading_strategies')
+      .update({
+        configuration: {
+          enableSignalFusion: true,
+          is_test_mode: true
+        }
+      })
+      .eq('id', testStrategyId);
+
     const intent2 = {
       ...baseIntent,
       metadata: {
         is_test_mode: true,
-        enableSignalFusion: true,
         horizon: '1h'
       }
     };
