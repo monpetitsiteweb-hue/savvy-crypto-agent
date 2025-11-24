@@ -16,5 +16,5 @@ jobs:
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
-            -d '{"symbols":["BTC-EUR","ETH-EUR","XRP-EUR","ADA-EUR","SOL-EUR","AVAX-EUR","DOT-EUR"],"granularities":["1h","24h","4h"],"lookback_days":30}' \
+            -d '{"symbols":["BTC-EUR","ETH-EUR","XRP-EUR","ADA-EUR","SOL-EUR","AVAX-EUR","DOT-EUR"],"granularities":["1h","24h","4h"],"lookback_days":5}' \
             https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/ohlcv-backfill
