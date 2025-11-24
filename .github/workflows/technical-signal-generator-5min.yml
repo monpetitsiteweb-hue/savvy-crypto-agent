@@ -1,0 +1,20 @@
+name: Technical Signal Generator (5 min)
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # Every 5 minutes
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  run-signal-generator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Technical Signal Generator
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"scheduled": true}' \
+            https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/technical-signal-generator
