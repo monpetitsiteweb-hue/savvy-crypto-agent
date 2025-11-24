@@ -307,7 +307,11 @@ export function DataSourcesPanel() {
       return;
     }
 
-    const template = DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES];
+      const template = DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES];
+      
+      // Filter out technical_analysis template to reduce noise
+      const displayTemplates = Object.entries(DATA_SOURCE_TEMPLATES)
+        .filter(([key]) => key !== 'technical_analysis');
     
     // Validate required fields
     const requiredFields = template.fields.filter(field => field !== 'document_file');

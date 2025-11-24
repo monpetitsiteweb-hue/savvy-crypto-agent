@@ -1,5 +1,6 @@
 
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { CoinbaseOAuthPanel } from '@/components/admin/CoinbaseOAuthPanel';
 import { CoinbaseSandboxPanel } from '@/components/admin/CoinbaseSandboxPanel';
@@ -8,14 +9,16 @@ import { DataSourcesPanel } from '@/components/admin/DataSourcesPanel';
 import { DataSourceStatusPanel } from '@/components/admin/DataSourceStatusPanel';
 import { WhaleSignalPanel } from '@/components/admin/WhaleSignalPanel';
 import { CustomerManagementPanel } from '@/components/admin/CustomerManagementPanel';
+import { SignalRegistryPanel } from '@/components/admin/SignalRegistryPanel';
 import { useUserRole } from '@/hooks/useUserRole';
-import { Settings, Bot, Database, Shield, TrendingUp, ExternalLink, Key, Activity, Users } from 'lucide-react';
+import { Settings, Bot, Database, Shield, TrendingUp, ExternalLink, Key, Activity, Users, BarChart3, FlaskConical } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 
 const AdminPage = () => {
   const [activeTab, setActiveTab] = useState('customers');
   const { isAdmin, loading } = useUserRole();
+  const navigate = useNavigate();
 
   if (loading) {
     return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
@@ -29,9 +32,8 @@ const AdminPage = () => {
     { id: 'oauth-setup', label: 'OAuth Setup', icon: <Settings className="w-4 h-4" /> },
     { id: 'llm-config', label: 'AI Configuration', icon: <Bot className="w-4 h-4" /> },
     { id: 'data-sources', label: 'Data Sources', icon: <Database className="w-4 h-4" /> },
-    { id: 'whale-signals', label: 'Whale Signals', icon: <Activity className="w-4 h-4" /> },
-    { id: 'data-status', label: 'Setup Guide', icon: <TrendingUp className="w-4 h-4" /> },
-    { id: 'sandbox-api', label: 'Sandbox API', icon: <Key className="w-4 h-4" /> },
+    { id: 'signal-registry', label: 'Signal Registry', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'dev-learning', label: 'Dev / Learning', icon: <FlaskConical className="w-4 h-4" /> },
   ];
 
   // Redirect non-admins to main page
@@ -82,9 +84,23 @@ const AdminPage = () => {
             {activeTab === 'oauth-setup' && <CoinbaseOAuthPanel />}
             {activeTab === 'llm-config' && <LLMConfigPanel />}
             {activeTab === 'data-sources' && <DataSourcesPanel />}
-            {activeTab === 'whale-signals' && <WhaleSignalPanel />}
-            {activeTab === 'data-status' && <DataSourceStatusPanel />}
-            {activeTab === 'sandbox-api' && <CoinbaseSandboxPanel />}
+            {activeTab === 'signal-registry' && <SignalRegistryPanel />}
+            {activeTab === 'dev-learning' && (
+              <div className="space-y-4">
+                <Alert className="bg-slate-800 border-slate-700">
+                  <AlertDescription className="text-slate-300">
+                    Dev / Learning page provides access to calibration metrics, decision evaluation, and learning loop diagnostics.
+                  </AlertDescription>
+                </Alert>
+                <Button 
+                  onClick={() => navigate('/dev-learning')} 
+                  className="w-full bg-green-600 hover:bg-green-700"
+                >
+                  <FlaskConical className="w-4 h-4 mr-2" />
+                  Open Dev / Learning Page
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </div>

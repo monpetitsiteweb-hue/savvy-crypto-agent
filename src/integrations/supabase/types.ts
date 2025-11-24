@@ -1782,6 +1782,51 @@ export type Database = {
         }
         Relationships: []
       }
+      signal_registry: {
+        Row: {
+          category: string
+          created_at: string
+          default_weight: number
+          description: string | null
+          direction_hint: string
+          id: string
+          is_enabled: boolean
+          key: string
+          max_weight: number
+          min_weight: number
+          timeframe_hint: string
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          default_weight?: number
+          description?: string | null
+          direction_hint?: string
+          id?: string
+          is_enabled?: boolean
+          key: string
+          max_weight?: number
+          min_weight?: number
+          timeframe_hint?: string
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          default_weight?: number
+          description?: string | null
+          direction_hint?: string
+          id?: string
+          is_enabled?: boolean
+          key?: string
+          max_weight?: number
+          min_weight?: number
+          timeframe_hint?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       strategy_parameters: {
         Row: {
           ai_weight: number
@@ -1905,6 +1950,51 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "strategy_performance_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      strategy_signal_weights: {
+        Row: {
+          created_at: string
+          id: string
+          is_enabled: boolean
+          signal_key: string
+          strategy_id: string
+          updated_at: string
+          weight: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          signal_key: string
+          strategy_id: string
+          updated_at?: string
+          weight?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          signal_key?: string
+          strategy_id?: string
+          updated_at?: string
+          weight?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "strategy_signal_weights_signal_key_fkey"
+            columns: ["signal_key"]
+            isOneToOne: false
+            referencedRelation: "signal_registry"
+            referencedColumns: ["key"]
+          },
+          {
+            foreignKeyName: "strategy_signal_weights_strategy_id_fkey"
             columns: ["strategy_id"]
             isOneToOne: false
             referencedRelation: "trading_strategies"
