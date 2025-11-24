@@ -86,6 +86,67 @@ This document describes how external signals are ingested and stored in the syst
 
 **Data JSON**: Contains fundamental data, price history context
 
+### 6. Whale Alert - Tracked Wallets (whale-alert-webhook)
+**Source**: `whale_alert_tracked`
+**Signal Types**:
+- `whale_exchange_inflow`: Large transfer INTO an exchange (bearish signal)
+- `whale_exchange_outflow`: Large transfer OUT OF an exchange (bullish signal)
+- `whale_transfer`: Generic whale-to-whale transfer (symmetric)
+- `whale_usdt_injection`: USDT moved to exchange (bullish liquidity signal)
+- `whale_usdc_injection`: USDC moved to exchange (bullish liquidity signal)
+- `whale_stablecoin_mint`: New stablecoin minting (bullish liquidity)
+- `whale_stablecoin_burn`: Stablecoin burning (bearish liquidity)
+- `whale_unusual_activity_spike`: Unusual volume spike (symmetric, high attention)
+- `whale_chain_anomaly`: Unusual on-chain pattern (symmetric)
+
+**Signal Strength**: 0-100 scale based on USD value
+- > $10M: 90-100 (very strong)
+- $1M-$10M: 60-89 (strong)
+- $50k-$1M: 30-59 (moderate)
+
+**Data JSON**: Contains tracked entity information (for curated wallets like BlackRock, Trump, etc.)
+```json
+{
+  "hash": "<tx hash>",
+  "from": "<address>",
+  "to": "<address>",
+  "amount": 1250,
+  "amount_usd": 2480000,
+  "asset": "BTC",
+  "blockchain": "BTC",
+  "timestamp": 1764021309,
+  "transaction_type": "inflow",
+  "exchange": "Binance",
+  "tracked_entity": "BlackRock",
+  "tracked_entity_type": "fund",
+  "tracked_entity_id": "blackrock_main_1"
+}
+```
+
+### 7. Whale Alert - Global API (whale-alert-api-collector)
+**Source**: `whale_alert_api`
+**Signal Types**: Same as tracked wallets (whale_exchange_inflow, whale_exchange_outflow, etc.)
+
+**Signal Strength**: Same 0-100 scale as tracked wallets
+
+**Data JSON**: Similar structure but WITHOUT tracked_entity fields (generic market-wide whales)
+```json
+{
+  "hash": "<tx hash>",
+  "from": "<address>",
+  "to": "<address>",
+  "amount": 650,
+  "amount_usd": 12000000,
+  "asset": "ETH",
+  "blockchain": "ETH",
+  "timestamp": 1764021309,
+  "transaction_type": "outflow",
+  "exchange": "Coinbase",
+  "tracked_entity": null,
+  "tracked_entity_type": null
+}
+```
+
 ### 6. BigQuery (bigquery-signal-generator)
 **Source**: `bigquery`
 **Signal Types**:
