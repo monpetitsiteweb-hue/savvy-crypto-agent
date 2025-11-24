@@ -12,7 +12,9 @@ jobs:
       - name: Call ohlcv-live-ingest
         run: |
           curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
-            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -d '{"scheduled": true}' \
-            "$SUPABASE_URL/functions/v1/ohlcv-live-ingest"
+            https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/ohlcv-live-ingest
