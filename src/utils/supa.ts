@@ -9,7 +9,9 @@ type KnownTables = keyof Database['public']['Tables']
   | 'whale_signal_events' 
   | 'strategy_parameters' 
   | 'execution_circuit_breakers' 
-  | 'execution_holds';
+  | 'execution_holds'
+  | 'signal_registry'
+  | 'strategy_signal_weights';
 
 export function fromTable<T extends KnownTables>(name: T) {
   // At runtime, supabase-js will accept any relation string;
