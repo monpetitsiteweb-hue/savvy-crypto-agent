@@ -54,7 +54,61 @@ Returns:
 
 ## Integration with Trading Coordinator
 
-### Phase 1: Feature Flag (TEST mode only)
+### Phase 1B: Strategy-Level Toggle (READ-ONLY MODE)
+
+Signal Fusion is controlled via a **per-strategy toggle** in the Strategy Configuration UI. When enabled, the coordinator computes and logs fusion scores WITHOUT changing trading behavior.
+
+#### User Toggle Location
+**Strategy Page** → **Configuration Tab** → **AI Intelligence Settings** → **Enable Signal Fusion Telemetry**
+
+#### Configuration Storage
+```json
+// trading_strategies.configuration
+{
+  "enableSignalFusion": true,
+  // ... other strategy settings
+}
+```
+
+#### Coordinator Check
+The coordinator uses `isSignalFusionEnabled()` to determine if fusion should run:
+```typescript
+function isSignalFusionEnabled(strategyConfig: any): boolean {
+  const isTestMode = strategyConfig?.is_test_mode === true || 
+                    strategyConfig?.execution_mode === 'TEST';
+  const fusionEnabled = strategyConfig?.enableSignalFusion === true;
+  return isTestMode && fusionEnabled;
+}
+```
+
+**Requirements**:
+1. `enableSignalFusion: true` in strategy configuration
+2. Strategy in test mode
+
+**Default**: Fusion OFF (undefined or false)
+
+#### Data Flow
+1. User enables toggle in Strategy UI
+2. Configuration saved to `trading_strategies.configuration.enableSignalFusion`
+3. Coordinator reads strategy config when processing intents
+4. If enabled: computes fusion score, logs to `decision_events.metadata.signalFusion`
+5. If disabled: skips fusion entirely (no DB calls, no metadata)
+
+#### Logged Data Structure
+When fusion is enabled, `decision_events.metadata.signalFusion` contains:
+```json
+{
+  "fusedScore": 42.5,
+  "totalSignals": 8,
+  "enabledSignals": 5,
+  "topSignals": [
+    { "type": "ma_cross_bullish", "contribution": "12.5" },
+    { "type": "rsi_oversold_bullish", "contribution": "8.2" }
+  ]
+}
+```
+
+### Phase 1: Feature Flag (DEPRECATED - use strategy toggle instead)
 Add to strategy configuration:
 ```json
 {
@@ -63,7 +117,7 @@ Add to strategy configuration:
 }
 ```
 
-### Phase 2: Coordinator Integration
+### Phase 2: Coordinator Integration (REFERENCE - already implemented)
 In `supabase/functions/trading-decision-coordinator/index.ts`:
 
 ```typescript

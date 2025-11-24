@@ -260,12 +260,18 @@ export async function computeFusedSignalScore(
 }
 
 /**
- * Check if signal fusion is enabled via configuration
- * Reads from unified config or environment
+ * Check if signal fusion is enabled via strategy configuration
+ * Reads from strategy config (user-level, not admin)
+ * 
+ * Requirements:
+ * 1. enableSignalFusion flag must be true
+ * 2. Strategy must be in test mode
+ * 
+ * Default: Fusion is OFF (undefined or false)
  */
 export function isSignalFusionEnabled(strategyConfig: any): boolean {
   // Check if enableSignalFusion flag is present and true
-  // Initially only enable in TEST mode
+  // Only enable when strategy is in test mode
   const isTestMode = strategyConfig?.is_test_mode === true || 
                     strategyConfig?.execution_mode === 'TEST';
   
