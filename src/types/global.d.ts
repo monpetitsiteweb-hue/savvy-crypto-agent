@@ -1,6 +1,5 @@
-/// <reference types="vite/client" />
+// Global type augmentations
 
-// Global NotificationSink for silent logging
 declare global {
   interface Window {
     NotificationSink?: {

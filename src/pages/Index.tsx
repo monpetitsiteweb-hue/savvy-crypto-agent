@@ -299,13 +299,13 @@ function IndexComponent() {
   
   
   // Silent log for index auth state
-  window.NotificationSink?.log({ 
+  (window as any).NotificationSink?.log({ 
     message: 'INDEX: AUTH STATE CHECK', 
     data: { user: !!user, loading, testMode, roleLoading, role, activeTab }
   });
   
   // Silent log for portfolio rendering conditions
-  window.NotificationSink?.log({
+  (window as any).NotificationSink?.log({
     message: 'INDEX: PORTFOLIO RENDERING CONDITIONS',
     data: { activeTab, isDashboard: activeTab === 'dashboard', hasActiveStrategy }
   });

@@ -55,8 +55,8 @@ if (typeof window !== 'undefined') {
     const pairSymbol = toPairSymbol(baseSymbol);
     console.log(`[DEBUG] Pair symbol: ${pairSymbol}`);
     
-    const price = sharedPriceCache.getPrice(pairSymbol);
-    console.log(`[DEBUG] Current price: ${price}`);
+    const cached = sharedPriceCache.get(pairSymbol);
+    console.log(`[DEBUG] Current price: ${cached?.price}`);
     
     console.log('[DEBUG] To test manual sell: navigate to Trading History and use the UI button');
   };

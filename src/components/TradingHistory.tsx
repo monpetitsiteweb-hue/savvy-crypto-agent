@@ -44,13 +44,13 @@ async function withTimeout<T>(promise: Promise<T>, label: string, ms = 8000): Pr
 function startWatchdog(userId: string, trade: Trade, pair: string) {
   const stop = setTimeout(async () => {
     console.error('[TH v14] watchdog fired – coordinator timeout');
-    const price = sharedPriceCache.getPrice(pair);
-    if (!price) { 
+    const cached = sharedPriceCache.get(pair);
+    if (!cached) { 
       console.error('[TH v14] watchdog: no price – aborting fallback'); 
       return; 
     }
     try {
-      await emergencyMockSellInsert(userId, trade, price);
+      await emergencyMockSellInsert(userId, trade, cached.price);
       (window as any).__THv14_watchdogFired = true;
       console.log('[TH v14] watchdog: emergency mock SELL inserted');
     } catch (e:any) {
@@ -189,25 +189,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     if (debugMode) console.log('[HistoryPerf] priceCache=on intervalMs=30000');
     
     return () => {
-      sharedPriceCache.cleanup();
+      sharedPriceCache.clear();
     };
   }, []);
 
-  // Update price cache symbols when trades change
-  useEffect(() => {
-    if (trades.length > 0) {
-      const symbols = [...new Set(trades.map(trade => {
-        const baseSymbol = toBaseSymbol(trade.cryptocurrency);
-        return toPairSymbol(baseSymbol);
-      }))];
-      
-      sharedPriceCache.updateSymbols(symbols);
-      
-      if (symbols.length > 0 && !sharedPriceCache.getAllPrices().size) {
-        sharedPriceCache.initialize(symbols);
-      }
-    }
-  }, [trades]);
+  // Price cache is now managed by MarketDataContext
+  // TradingHistory just reads from it - no symbol management needed
 
   // Calculate trade performance using shared cache
   const calculateTradePerformance = (trade: Trade): TradePerformance => {
@@ -249,7 +236,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     // Open positions - use shared price cache
     const baseSymbol = toBaseSymbol(trade.cryptocurrency);
     const pairSymbol = toPairSymbol(baseSymbol);
-    const currentPrice = sharedPriceCache.getPrice(pairSymbol);
+    const cached = sharedPriceCache.get(pairSymbol);
+    const currentPrice = cached?.price || 0;
     
     const openPositionInputs = {
       symbol: baseSymbol,
@@ -407,7 +395,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       }
     } catch (error) {
       // Silent error handling - no UI toasts
-      window.NotificationSink?.log({ message: 'Error fetching trading history', error });
+      (window as any).NotificationSink?.log({ message: 'Error fetching trading history', error });
     } finally {
       setLoading(false);
     }
@@ -539,7 +527,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       console.log(`[TH ${TH_VERSION}] symbols ok → base=${base} pair=${pair}`);
       mark('symbols-ok');
 
-      const price = sharedPriceCache.getPrice(pair);
+      const cached = sharedPriceCache.get(pair);
+      const price = cached?.price;
       console.log(`[TH ${TH_VERSION}] price check → ${pair}=${price}`);
       if (!price) {
         toast({ title: 'Sell Failed', description: `Current price not available for ${pair}`, variant: 'destructive' });
@@ -630,9 +619,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       try {
         const base = toBaseSymbol(trade.cryptocurrency);
         const pair = toPairSymbol(base);
-        const price = sharedPriceCache.getPrice(pair);
-        if (price) {
-          await emergencyMockSellInsert(user!.id, trade, price);
+        const cached = sharedPriceCache.get(pair);
+        if (cached) {
+          await emergencyMockSellInsert(user!.id, trade, cached.price);
           mark('fallback-sell-inserted');
           toast({ title: 'Emergency Mock Sell', description: `Inserted SELL for ${trade.cryptocurrency}`, variant: 'default' });
           fetchTradingHistory();
@@ -675,7 +664,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           const perf = calculateTradePerformance(trade);
           setPerformance(perf);
         } catch (error) {
-          window.NotificationSink?.log({ message: 'Error calculating trade performance', error });
+          (window as any).NotificationSink?.log({ message: 'Error calculating trade performance', error });
         } finally {
           setCardLoading(false);
         }
@@ -1198,8 +1187,8 @@ if (typeof window !== 'undefined') {
         console.log(`[DEBUG] Pair symbol: ${pairSymbol}`);
         
         if (sharedPriceCache) {
-          const price = sharedPriceCache.getPrice(pairSymbol);
-          console.log(`[DEBUG] Current price: ${price}`);
+          const cached = sharedPriceCache.get(pairSymbol);
+          console.log(`[DEBUG] Current price: ${cached?.price}`);
         }
       }
     }

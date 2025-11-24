@@ -2,7 +2,7 @@
 export const silentLog = {
   log: (message: string, data?: any) => {
     // Route to silent background logging only
-    window.NotificationSink?.log({ message, data });
+    (window as any).NotificationSink?.log({ message, data });
   }
 };
 
@@ -12,6 +12,6 @@ export const engineLog = (message: string, ...args: any[]) => {
   if (message.includes('[HistoryPerf]')) {
     console.log(message, ...args);
   } else {
-    window.NotificationSink?.log({ message: message.replace(/🚨|🔄|🔍|🧮|🐋|🤖|📊|💸|🎯|🛑/g, '').trim(), data: args });
+    (window as any).NotificationSink?.log({ message: message.replace(/🚨|🔄|🔍|🧮|🐋|🤖|📊|💸|🎯|🛑/g, '').trim(), data: args });
   }
 };

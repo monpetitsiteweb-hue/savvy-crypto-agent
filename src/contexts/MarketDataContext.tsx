@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { toPairSymbol, BaseSymbol } from '@/utils/symbols';
 import { getAllSymbols, getAllTradingPairs } from '@/data/coinbaseCoins';
 import { filterSupportedSymbols } from '@/utils/marketAvailability';
+import { sharedPriceCache } from '@/utils/SharedPriceCache';
 
 interface MarketData {
   symbol: string;
@@ -40,14 +41,22 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contextVersion, setContextVersion] = useState(0);
+  const backoffUntilRef = useRef<number>(0); // Track 429 backoff
 
   const getCurrentData = useCallback(async (symbols: BaseSymbol[]): Promise<Record<string, MarketData>> => {
+    // Check if we're in 429 backoff period
+    const now = Date.now();
+    if (backoffUntilRef.current > now) {
+      console.warn(`⚠️  In 429 backoff, skipping fetch (${Math.ceil((backoffUntilRef.current - now) / 1000)}s remaining)`);
+      return {};
+    }
+
     try {
       // Convert base symbols to pairs using the central util
       const pairSymbols = symbols.map(base => toPairSymbol(base));
       
       // Silent log for symbol conversion
-      window.NotificationSink?.log({ message: 'SYMBOLS: base→pair conversion', data: symbols.map((base, i) => `${base}→${pairSymbols[i]}`) });
+      (window as any).NotificationSink?.log({ message: 'SYMBOLS: base→pair conversion', data: symbols.map((base, i) => `${base}→${pairSymbols[i]}`) });
 
       // Use market availability registry to filter out unsupported EUR pairs
       const validSymbols = filterSupportedSymbols(pairSymbols);
@@ -58,7 +67,9 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       // Silent log for market data fetch
-      window.NotificationSink?.log({ message: 'SINGLETON: Fetching market data for valid symbols', symbols: validSymbols });
+      (window as any).NotificationSink?.log({ message: 'SINGLETON: Fetching market data for valid symbols', symbols: validSymbols });
+      
+      let hit429 = false;
       
       // Add delay between requests to avoid rate limiting
       const promises = validSymbols.map(async (symbol, index) => {
@@ -71,12 +82,19 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
           if (response.ok) {
             const data = await response.json();
+            const price = parseFloat(data.price || '0');
+            const bid = parseFloat(data.bid || '0');
+            const ask = parseFloat(data.ask || '0');
+            
+            // Write to shared cache
+            sharedPriceCache.set(symbol, price, bid, ask);
+            
             return {
               [symbol]: {
                 symbol,
-                price: parseFloat(data.price || '0'),
-                bid: parseFloat(data.bid || '0'),
-                ask: parseFloat(data.ask || '0'),
+                price,
+                bid,
+                ask,
                 volume: parseFloat(data.volume || '0'),
                 change_24h: '0',
                 change_percentage_24h: '0',
@@ -87,7 +105,8 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               }
             };
           } else if (response.status === 429) {
-            console.warn(`⚠️  Rate limited for ${symbol}, using cached data`);
+            hit429 = true;
+            console.warn(`⚠️  Rate limited (429) for ${symbol}, entering 30s backoff`);
             return { [symbol]: null };
           }
           console.warn(`API error for ${symbol}: ${response.status}`);
@@ -99,6 +118,13 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
 
       const results = await Promise.all(promises);
+      
+      // If we hit 429, enter backoff
+      if (hit429) {
+        backoffUntilRef.current = Date.now() + 30000; // 30 seconds
+        console.warn('⚠️  Entering 30s backoff due to 429 rate limit');
+      }
+      
       const marketDataMap = results.reduce((acc, result) => {
         const [symbol, data] = Object.entries(result)[0];
         if (data) {
