@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { useTestMode } from './useTestMode';
 import { useAuth } from './useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { sharedPriceCache } from '@/utils/SharedPriceCache';
 
 interface WalletBalance {
   currency: string;
@@ -35,39 +36,31 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     EUR: 1
   });
 
-  // Fetch real market prices using shared cache (no infinite loops)
+  // Fetch real market prices from shared cache (no polling)
   useEffect(() => {
-    const updatePrices = async () => {
+    const updatePrices = () => {
       if (!testMode) return;
       
-      try {
-        const newPrices: {[key: string]: number} = { EUR: 1 };
-        
-        // Use fetch directly to avoid infinite loops
-        const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
-        for (const symbol of symbols) {
-          try {
-            const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
-            if (response.ok) {
-              const data = await response.json();
-              const baseSymbol = symbol.split('-')[0];
-              newPrices[baseSymbol] = parseFloat(data.price || '0');
-            }
-          } catch (error) {
-            // Silent error - no console spam
-            window.NotificationSink?.log({ message: `Price fetch error for ${symbol}`, error });
-          }
+      const newPrices: {[key: string]: number} = { EUR: 1 };
+      
+      // Read from shared cache instead of polling
+      const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
+      for (const symbol of symbols) {
+        const cached = sharedPriceCache.get(symbol);
+        if (cached) {
+          const baseSymbol = symbol.split('-')[0];
+          newPrices[baseSymbol] = cached.price;
         }
-        
-        setRealPrices(prev => ({ ...prev, ...newPrices }));
-      } catch (error) {
-        // Silent error handling
-        window.NotificationSink?.log({ message: 'Price update error', error });
       }
+      
+      setRealPrices(prev => ({ ...prev, ...newPrices }));
     };
 
     if (testMode) {
       updatePrices();
+      // Update from cache every 5 seconds
+      const interval = setInterval(updatePrices, 5000);
+      return () => clearInterval(interval);
     }
   }, [testMode]);
 

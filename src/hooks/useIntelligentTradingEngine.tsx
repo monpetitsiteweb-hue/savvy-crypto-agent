@@ -13,6 +13,7 @@ import { engineLog } from '@/utils/silentLogger';
 import { logger } from '@/utils/logger';
 import { getAllSymbols } from '@/data/coinbaseCoins';
 import { checkMarketAvailability, filterSupportedSymbols } from '@/utils/marketAvailability';
+import { sharedPriceCache } from '@/utils/SharedPriceCache';
 
 interface Position {
   cryptocurrency: string;
@@ -44,21 +45,21 @@ export const useIntelligentTradingEngine = () => {
   });
   
   // Silent log for intelligent engine debug
-  window.NotificationSink?.log({ 
+  (window as any).NotificationSink?.log({ 
     message: 'INTELLIGENT_ENGINE: Hook called', 
     data: { testMode, user: !!user, loading }
   });
 
   useEffect(() => {
     // Silent log for auth state change
-    window.NotificationSink?.log({ 
+    (window as any).NotificationSink?.log({ 
       message: 'INTELLIGENT_ENGINE: Auth state changed', 
       data: { user: !!user, loading, testMode }
     });
     
     if (!loading && user && testMode) {
       // Silent log for auth conditions met
-      window.NotificationSink?.log({
+      (window as any).NotificationSink?.log({
         message: 'INTELLIGENT_ENGINE: Auth conditions check - starting engine',
         data: { user: !!user, loading, testMode }
       });
@@ -71,7 +72,7 @@ export const useIntelligentTradingEngine = () => {
       return () => clearTimeout(timer);
     } else {
       // Silent log for auth waiting
-      window.NotificationSink?.log({ 
+      (window as any).NotificationSink?.log({ 
         message: 'INTELLIGENT_ENGINE: Waiting for auth', 
         data: { loading, user: !!user, testMode }
       });
@@ -89,7 +90,7 @@ export const useIntelligentTradingEngine = () => {
 
   const checkStrategiesAndExecute = async () => {
     // Silent log for engine state
-    window.NotificationSink?.log({
+    (window as any).NotificationSink?.log({
       message: 'ENGINE: checkStrategiesAndExecute called',
       data: { testMode, user: !!user, loading }
     });
@@ -127,7 +128,7 @@ export const useIntelligentTradingEngine = () => {
         return;
       }
 
-      // Get market data for all coins
+      // Get market data from shared cache (no polling)
       const allCoins = new Set<string>();
       strategies.forEach(strategy => {
         const config = strategy.configuration as any;
@@ -139,11 +140,31 @@ export const useIntelligentTradingEngine = () => {
       });
       
       const symbolsToFetch = Array.from(allCoins);
-      const currentMarketData = Object.keys(marketData).length > 0 ? marketData : await getCurrentData(symbolsToFetch);
+      
+      // Read from shared cache instead of polling
+      const currentMarketData: any = {};
+      symbolsToFetch.forEach(symbol => {
+        const cached = sharedPriceCache.get(symbol);
+        if (cached) {
+          currentMarketData[symbol] = {
+            symbol,
+            price: cached.price,
+            bid: cached.bid,
+            ask: cached.ask,
+            timestamp: new Date(cached.timestamp).toISOString(),
+            source: 'shared_cache'
+          };
+        }
+      });
+      
+      // Fallback to context data if cache is empty
+      const finalMarketData = Object.keys(currentMarketData).length > 0 
+        ? currentMarketData 
+        : (Object.keys(marketData).length > 0 ? marketData : await getCurrentData(symbolsToFetch));
       
       // Process each strategy with comprehensive logic
       for (const strategy of activeTestStrategies) {
-        await processStrategyComprehensively(strategy, currentMarketData);
+        await processStrategyComprehensively(strategy, finalMarketData);
       }
     } catch (error) {
       console.error('❌ ENGINE: Error in comprehensive strategy check:', error);
