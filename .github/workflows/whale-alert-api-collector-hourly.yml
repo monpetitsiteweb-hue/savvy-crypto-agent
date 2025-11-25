@@ -1,0 +1,18 @@
+name: Whale Alert API Collector (Hourly)
+
+on:
+  schedule:
+    - cron: '15 * * * *'  # Every hour at :15 past
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  collect-whale-signals:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect Whale Alert API Data
+        run: |
+          curl -X POST "${{ secrets.SUPABASE_URL }}/functions/v1/whale-alert-api-collector" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{}'

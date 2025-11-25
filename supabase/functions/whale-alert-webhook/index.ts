@@ -170,6 +170,8 @@ serve(async (req) => {
 
         if (signalError) {
           console.error('❌ Error inserting whale signal:', signalError);
+        } else {
+          console.log(`[WhaleSignals] Inserted signal into live_signals for ${signal.symbol} (${signalType})`);
         }
       }
       // Handle single transaction format
@@ -251,23 +253,14 @@ serve(async (req) => {
 
         if (signalError) {
           console.error('❌ Error inserting whale signal:', signalError);
+        } else {
+          console.log(`[WhaleSignals] Inserted signal into live_signals for ${signal.symbol} (${signalType})`);
         }
       }
     }
 
-    // Insert whale events if any
-    if (whaleEvents.length > 0) {
-      const { data, error } = await supabaseClient
-        .from('whale_signal_events')
-        .insert(whaleEvents);
-
-      if (error) {
-        console.error('❌ Error inserting whale events:', error);
-        throw error;
-      }
-
-      console.log(`✅ Successfully inserted ${whaleEvents.length} whale events`);
-    }
+    // Legacy whale_signal_events table insert removed - now using live_signals only
+    console.log(`[WhaleSignals] Processed ${whaleEvents.length} whale transactions into live_signals (source: whale_alert_tracked)`);
 
     // Update last_sync timestamp
     await supabaseClient
@@ -396,28 +389,22 @@ async function processQuickNodeWebhook(supabaseClient: any, payload: any) {
       };
       
       // Insert live signal
-      await supabaseClient
+      const { error: signalError } = await supabaseClient
         .from('live_signals')
         .insert([signal]);
         
-      console.log(`🐋 Created signal for ${valueInEth.toFixed(4)} ETH transaction on ${blockchain}`);
+      if (signalError) {
+        console.error('❌ Error inserting QuickNode signal:', signalError);
+      } else {
+        console.log(`[WhaleSignals] Inserted QuickNode signal for ${valueInEth.toFixed(4)} ETH on ${blockchain}`);
+      }
     } catch (error) {
       console.error('❌ Error processing QuickNode transaction:', error);
     }
   }
   
-  // Insert whale events if any
-  if (whaleEvents.length > 0) {
-    const { error } = await supabaseClient
-      .from('whale_signal_events')
-      .insert(whaleEvents);
-      
-    if (error) {
-      console.error('❌ Error inserting QuickNode whale events:', error);
-    } else {
-      console.log(`✅ Successfully inserted ${whaleEvents.length} QuickNode whale events`);
-    }
-  }
+  // Legacy whale_signal_events table insert removed - now using live_signals only
+  console.log(`[WhaleSignals] Processed ${whaleEvents.length} QuickNode transactions into live_signals (source: whale_alert_tracked)`);
   
   // Update last_sync timestamp
   await supabaseClient
