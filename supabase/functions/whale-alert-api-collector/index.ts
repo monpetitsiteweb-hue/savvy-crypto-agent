@@ -131,6 +131,7 @@ serve(async (req) => {
           console.error('❌ Error inserting whale signal:', signalError);
         } else {
           totalSignalsCreated++;
+          console.log(`[WhaleSignals] Inserted API signal into live_signals for ${signal.symbol} (${signalType})`);
         }
       }
 
@@ -141,7 +142,7 @@ serve(async (req) => {
         .eq('id', source.id);
     }
 
-    console.log(`✅ Created ${totalSignalsCreated} global whale signals`);
+    console.log(`[WhaleSignals] Inserted ${totalSignalsCreated} signals into live_signals (source: whale_alert_api)`);
 
     return new Response(JSON.stringify({ 
       success: true, 
