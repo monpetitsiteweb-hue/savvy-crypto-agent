@@ -183,12 +183,12 @@ async function handleStaticSource(
   let metadata: any = {};
   
   // Determine source type and fetch content
-  // Check source_name first to avoid PDF being treated as website
-  if (source.source_name === 'pdf_upload') {
-    // PDF Upload (static)
+  // Check source_name first to handle specific types
+  if (source.source_name === 'document_upload' || source.source_name === 'pdf_upload') {
+    // Document/PDF Upload (static) - support both names for backward compatibility
     // TODO: Implement PDF text extraction from Supabase Storage
-    title = config.title || 'PDF Document';
-    content = 'PDF text extraction placeholder. Will be implemented with PDF parsing library.';
+    title = config.title || 'Document';
+    content = 'Document text extraction placeholder. Will be implemented with document parsing library.';
     metadata = { storage_path: config.url || '', tags: config.tags || [] };
   } else if (config.video_url) {
     // YouTube Video (static)
@@ -197,7 +197,7 @@ async function handleStaticSource(
     content = result.content;
     metadata = { video_url: config.video_url, tags: config.tags || [] };
   } else if (config.url) {
-    // Website Page (static)
+    // Website Page or Custom Website (static)
     const result = await scrapeWebsite(config.url);
     title = config.custom_name || result.title;
     content = result.content;
@@ -237,7 +237,7 @@ async function handleFeedSource(
   
   // Fetch new items based on source type
   if (config.channel_url) {
-    // YouTube Channel (feed)
+    // YouTube Channels (feed) - support both youtube_channels and youtube_channel
     items = await fetchYouTubeChannelFeed(config.channel_url, config.youtube_api_key, source.last_sync);
   } else if (config.handle) {
     // X/Twitter Account (feed)
@@ -245,6 +245,14 @@ async function handleFeedSource(
   } else if (config.subreddit) {
     // Reddit Community (feed)
     items = await fetchRedditFeed(config.subreddit, source.last_sync);
+  } else if (config.project_id && config.dataset_id) {
+    // BigQuery (feed) - placeholder for now
+    // TODO: Implement BigQuery integration
+    items = [];
+  } else if (config.url && (source.source_name === 'custom_website')) {
+    // Custom Website (feed) - regular scraping with custom config
+    // TODO: Implement recurring website scraping with filters
+    items = [];
   } else {
     throw new Error(`Unknown feed source configuration for ${source.source_name}`);
   }
