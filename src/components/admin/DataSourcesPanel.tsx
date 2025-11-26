@@ -49,9 +49,11 @@ const KNOWLEDGE_BASE_SOURCE_NAMES = [
 ] as const;
 
 // CANONICAL SIGNAL SOURCE NAMES (from backend)
+// Note: 'eodhd' is canonical; 'eodhd_api' exists for backward compatibility
 const SIGNAL_SOURCE_NAMES = [
   'coinbase_institutional',
   'eodhd',
+  'eodhd_api', // Legacy - external-data-collector redirects to eodhd
   'cryptonews_api',
   'fear_greed_index',
   'whale_alert_api',
@@ -154,6 +156,16 @@ export function DataSourcesPanel() {
       const filtered = (data || []).filter(
         source => !HIDDEN_INTERNAL_SOURCES.includes(source.source_name)
       );
+      
+      // Debug logging to verify what sources are loaded
+      console.log('[DataSourcesPanel] Loaded sources:', filtered.map(s => ({
+        id: s.id,
+        source_name: s.source_name,
+        source_type: s.source_type,
+        user_id: (s as any).user_id,
+        is_active: s.is_active,
+      })));
+      
       setDataSources(filtered);
     } catch (error) {
       console.error('Error loading data sources:', error);
