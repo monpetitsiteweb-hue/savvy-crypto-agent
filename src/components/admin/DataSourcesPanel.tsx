@@ -612,12 +612,11 @@ export function DataSourcesPanel() {
               typeBadge = 'Knowledge (static)';
             } else if (isKnowledge && refreshMode === 'feed') {
               typeBadge = 'Knowledge (feed)';
-            } else if (source.source_type === 'api') {
-              typeBadge = 'API';
-            } else if (source.source_type === 'webhook') {
+            } else if (source.source_type === 'webhook' || source.source_name.includes('webhook')) {
               typeBadge = 'Webhook';
             } else {
-              typeBadge = source.source_type || 'Unknown';
+              // All non-KB sources that aren't webhooks are API pollers
+              typeBadge = 'API';
             }
 
             return (
