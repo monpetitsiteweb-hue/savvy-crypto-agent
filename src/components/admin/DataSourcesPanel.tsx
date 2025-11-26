@@ -95,7 +95,7 @@ const KNOWLEDGE_SOURCE_TEMPLATES: Record<string, SourceTemplate> = {
   }
 };
 
-const HIDDEN_INTERNAL_SOURCES = ['technical_analysis'];
+const HIDDEN_INTERNAL_SOURCES = ['technical_analysis', 'coinbase_realtime'];
 
 export function DataSourcesPanel() {
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
