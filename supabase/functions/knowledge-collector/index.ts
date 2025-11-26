@@ -195,7 +195,7 @@ async function handleStaticSource(
     title = config.custom_name || result.title;
     content = result.content;
     metadata = { url: config.url, tags: config.tags || [] };
-  } else if (source.source_name === 'pdf_document') {
+  } else if (source.source_name === 'pdf_upload') {
     // PDF Upload (static)
     // TODO: Implement PDF text extraction from Supabase Storage
     title = config.title || 'PDF Document';
