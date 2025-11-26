@@ -95,22 +95,7 @@ const KNOWLEDGE_SOURCE_TEMPLATES: Record<string, SourceTemplate> = {
   }
 };
 
-const HIDDEN_INTERNAL_SOURCES = [
-  'technical_analysis',
-  'crypto_news',
-  'fear_greed_index',
-  'whale_alert_api',
-  'whale_alert_tracked',
-  'eodhd',
-  'eodhd_api',
-  'bigquery',
-  'arkham_intelligence',
-  'coinbase_institutional',
-  'cryptonews_api',
-  'cryptocurrency_alerting',
-  'bitquery_api',
-  'quicknode_webhooks'
-];
+const HIDDEN_INTERNAL_SOURCES = ['technical_analysis'];
 
 export function DataSourcesPanel() {
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
@@ -132,7 +117,6 @@ export function DataSourcesPanel() {
       const { data, error } = await supabase
         .from('ai_data_sources')
         .select('*')
-        .in('source_type', ['knowledge_base', 'external_feed'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -157,29 +141,33 @@ export function DataSourcesPanel() {
 
   const getSourceStatus = (source: DataSource): SourceStatus => {
     const config = source.configuration || {};
-    const refreshMode = config.refresh_mode as RefreshMode || 'static';
+    const template = KNOWLEDGE_SOURCE_TEMPLATES[source.source_name];
+    const refreshMode = template ? (config.refresh_mode as RefreshMode || template.refresh_mode) : null;
     
-    // RED: Configuration invalid or sync very stale
+    // RED: Inactive
     if (!source.is_active) {
       return { color: 'red', label: 'Inactive' };
     }
     
-    const requiredFields = KNOWLEDGE_SOURCE_TEMPLATES[source.source_name]?.fields.filter(
-      f => !['title', 'tags', 'custom_name', 'filters'].includes(f)
-    ) || [];
-    const missingFields = requiredFields.filter(field => !config[field]);
-    
-    if (missingFields.length > 0) {
-      return { color: 'red', label: 'Missing Config' };
+    // For KB sources: check required fields
+    if (template) {
+      const requiredFields = template.fields.filter(
+        f => !['title', 'tags', 'custom_name', 'filters'].includes(f)
+      );
+      const missingFields = requiredFields.filter(field => !config[field]);
+      
+      if (missingFields.length > 0) {
+        return { color: 'red', label: 'Missing Config' };
+      }
     }
     
-    // YELLOW: Pending first sync or no documents yet
+    // YELLOW: Pending first sync
     if (!source.last_sync) {
       return { color: 'yellow', label: 'Pending Sync' };
     }
     
-    // For feeds: check staleness based on update_frequency
-    if (refreshMode === 'feed' && source.last_sync) {
+    // Check staleness for feeds or API/webhook sources with update_frequency
+    if (source.last_sync && source.update_frequency) {
       const lastSync = new Date(source.last_sync).getTime();
       const now = Date.now();
       const frequencyMs = getFrequencyMs(source.update_frequency);
@@ -261,7 +249,7 @@ export function DataSourcesPanel() {
 
       // Trigger initial sync for new source
       if (newSource) {
-        await syncDataSource(newSource.id, template.name);
+        await syncDataSource(newSource);
       }
 
       setShowAddDialog(false);
@@ -278,24 +266,35 @@ export function DataSourcesPanel() {
     }
   };
 
-  const syncDataSource = async (sourceId: string, sourceName: string) => {
-    setSyncingSource(sourceId);
+  const syncDataSource = async (source: DataSource) => {
+    setSyncingSource(source.id);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const { error } = await supabase.functions.invoke('knowledge-collector', {
-        body: { 
-          sourceId,
-          userId: user.id
-        }
-      });
+      const config = source.configuration || {};
+      const template = KNOWLEDGE_SOURCE_TEMPLATES[source.source_name];
+      let error;
+
+      if (template) {
+        // Knowledge Base → knowledge-collector
+        const { error: fnError } = await supabase.functions.invoke('knowledge-collector', {
+          body: { sourceId: source.id }
+        });
+        error = fnError;
+      } else {
+        // API/Webhook → external-data-collector
+        const { error: fnError } = await supabase.functions.invoke('external-data-collector', {
+          body: { action: 'sync_source', sourceId: source.id }
+        });
+        error = fnError;
+      }
 
       if (error) throw error;
 
       toast({
         title: "✅ Synced",
-        description: `${sourceName} synced successfully`,
+        description: `${source.source_name} synced successfully`,
       });
 
       loadDataSources();
@@ -303,7 +302,7 @@ export function DataSourcesPanel() {
       console.error('Error syncing source:', error);
       toast({
         title: "Error",
-        description: `Failed to sync ${sourceName}`,
+        description: `Failed to sync ${source.source_name}`,
         variant: "destructive",
       });
     } finally {
@@ -548,11 +547,32 @@ export function DataSourcesPanel() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {dataSources.map((source) => {
-            const template = KNOWLEDGE_SOURCE_TEMPLATES[source.source_name];
-            const status = getSourceStatus(source);
             const config = source.configuration || {};
-            const refreshMode = config.refresh_mode || 'static';
+            const template = KNOWLEDGE_SOURCE_TEMPLATES[source.source_name];
+            const isKnowledge = !!template;
+            const refreshMode = isKnowledge ? (config.refresh_mode || template.refresh_mode) : null;
+            const status = getSourceStatus(source);
             const Icon = template?.icon || Globe;
+
+            // Determine display title
+            const displayTitle = template?.name || 
+              (source.source_name === 'pdf_upload' 
+                ? config.title || 'PDF Upload' 
+                : source.source_name);
+
+            // Determine type badge
+            let typeBadge: string;
+            if (isKnowledge && refreshMode === 'static') {
+              typeBadge = 'Knowledge (static)';
+            } else if (isKnowledge && refreshMode === 'feed') {
+              typeBadge = 'Knowledge (feed)';
+            } else if (source.source_type === 'api') {
+              typeBadge = 'API';
+            } else if (source.source_type === 'webhook') {
+              typeBadge = 'Webhook';
+            } else {
+              typeBadge = source.source_type || 'Unknown';
+            }
 
             return (
               <Card key={source.id}>
@@ -561,7 +581,7 @@ export function DataSourcesPanel() {
                     <div className="flex items-center gap-2">
                       <Icon className="h-5 w-5" />
                       <CardTitle className="text-lg">
-                        {template?.name || source.source_name}
+                        {displayTitle}
                       </CardTitle>
                     </div>
                     <Circle 
@@ -575,7 +595,7 @@ export function DataSourcesPanel() {
                   <CardDescription className="space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <Badge variant="outline" className="text-xs">
-                        {refreshMode}
+                        {typeBadge}
                       </Badge>
                       <Badge variant={status.color === 'green' ? 'default' : 'secondary'} className="text-xs">
                         {status.label}
@@ -586,7 +606,7 @@ export function DataSourcesPanel() {
                         Last sync: {new Date(source.last_sync).toLocaleString()}
                       </div>
                     )}
-                    {refreshMode === 'feed' && (
+                    {source.update_frequency && (
                       <div className="text-xs text-muted-foreground">
                         Updates: {source.update_frequency}
                       </div>
@@ -598,7 +618,7 @@ export function DataSourcesPanel() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => syncDataSource(source.id, template?.name || source.source_name)}
+                      onClick={() => syncDataSource(source)}
                       disabled={syncingSource === source.id}
                     >
                       <RefreshCw className={`h-4 w-4 mr-1 ${syncingSource === source.id ? 'animate-spin' : ''}`} />
@@ -617,7 +637,7 @@ export function DataSourcesPanel() {
                       </DialogTrigger>
                       <DialogContent>
                         <DialogHeader>
-                          <DialogTitle>Edit {template?.name || source.source_name}</DialogTitle>
+                          <DialogTitle>Edit {displayTitle}</DialogTitle>
                         </DialogHeader>
                         {editingSource?.id === source.id && (
                           <>
