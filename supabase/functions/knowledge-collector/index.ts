@@ -183,7 +183,14 @@ async function handleStaticSource(
   let metadata: any = {};
   
   // Determine source type and fetch content
-  if (config.video_url) {
+  // Check source_name first to avoid PDF being treated as website
+  if (source.source_name === 'pdf_upload') {
+    // PDF Upload (static)
+    // TODO: Implement PDF text extraction from Supabase Storage
+    title = config.title || 'PDF Document';
+    content = 'PDF text extraction placeholder. Will be implemented with PDF parsing library.';
+    metadata = { storage_path: config.url || '', tags: config.tags || [] };
+  } else if (config.video_url) {
     // YouTube Video (static)
     const result = await fetchYouTubeVideo(config.video_url);
     title = config.title || result.title;
@@ -195,12 +202,6 @@ async function handleStaticSource(
     title = config.custom_name || result.title;
     content = result.content;
     metadata = { url: config.url, tags: config.tags || [] };
-  } else if (source.source_name === 'pdf_upload') {
-    // PDF Upload (static)
-    // TODO: Implement PDF text extraction from Supabase Storage
-    title = config.title || 'PDF Document';
-    content = 'PDF text extraction placeholder. Will be implemented with PDF parsing library.';
-    metadata = { storage_path: config.url || '', tags: config.tags || [] };
   } else {
     throw new Error(`Unknown static source configuration for ${source.source_name}`);
   }
