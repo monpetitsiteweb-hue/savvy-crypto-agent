@@ -39,33 +39,36 @@ interface SourceTemplate {
   default_frequency?: string;
 }
 
+// CANONICAL KNOWLEDGE BASE SOURCE NAMES (from backend)
+const KNOWLEDGE_BASE_SOURCE_NAMES = [
+  'bigquery',
+  'youtube_channels',
+  'custom_website',
+  'document_upload',
+  'website_page'
+] as const;
+
+// CANONICAL SIGNAL SOURCE NAMES (from backend)
+const SIGNAL_SOURCE_NAMES = [
+  'coinbase_institutional',
+  'eodhd',
+  'cryptonews_api',
+  'fear_greed_index',
+  'whale_alert_api',
+  'whale_alert',
+  'quicknode_webhooks'
+] as const;
+
+// Knowledge Base templates (aligned with actual source_name values in backend)
 const KNOWLEDGE_SOURCE_TEMPLATES: Record<string, SourceTemplate> = {
-  youtube_video: {
-    name: "YouTube Video",
+  youtube_channels: {
+    name: "YouTube Channels",
     type: "knowledge_base",
-    description: "📺 Single YouTube video for one-time knowledge extraction",
-    refresh_mode: "static",
-    icon: Youtube,
-    fields: ["video_url", "title", "tags"],
-    default_frequency: "manual"
-  },
-  youtube_channel: {
-    name: "YouTube Channel",
-    type: "knowledge_base",
-    description: "📺 YouTube channel for recurring new video updates",
+    description: "📺 Monitor YouTube channels for recurring new video updates",
     refresh_mode: "feed",
     icon: Youtube,
     fields: ["channel_url", "youtube_api_key", "update_frequency", "tags"],
     default_frequency: "daily"
-  },
-  x_account: {
-    name: "X/Twitter Account",
-    type: "knowledge_base",
-    description: "🐦 Monitor X/Twitter account for market insights",
-    refresh_mode: "feed",
-    icon: Twitter,
-    fields: ["handle", "update_frequency", "filters"],
-    default_frequency: "hourly"
   },
   website_page: {
     name: "Website Page",
@@ -76,39 +79,51 @@ const KNOWLEDGE_SOURCE_TEMPLATES: Record<string, SourceTemplate> = {
     fields: ["url", "custom_name"],
     default_frequency: "manual"
   },
-  pdf_upload: {
-    name: "PDF Upload",
+  document_upload: {
+    name: "Document Upload",
     type: "knowledge_base",
-    description: "📄 Upload PDF document for knowledge extraction",
+    description: "📄 Upload documents (PDF, etc.) for knowledge extraction",
     refresh_mode: "static",
     icon: FileText,
     fields: ["title", "tags"],
     default_frequency: "manual"
   },
-  reddit_community: {
-    name: "Reddit Community",
+  bigquery: {
+    name: "BigQuery",
     type: "knowledge_base",
-    description: "💬 Monitor Reddit community for discussions",
+    description: "🗄️ Query BigQuery datasets for structured data",
     refresh_mode: "feed",
-    icon: MessageSquare,
-    fields: ["subreddit", "update_frequency", "filters"],
-    default_frequency: "hourly"
+    icon: Globe,
+    fields: ["project_id", "dataset_id", "query", "update_frequency"],
+    default_frequency: "daily"
+  },
+  custom_website: {
+    name: "Custom Website",
+    type: "knowledge_base",
+    description: "🌐 Custom website scraping configuration",
+    refresh_mode: "feed",
+    icon: Globe,
+    fields: ["url", "custom_name", "update_frequency", "filters"],
+    default_frequency: "daily"
   }
 };
 
+// API source templates (aligned with external-data-collector)
 const API_SOURCE_TEMPLATES = {
-  eodhd: { name: "EODHD API", type: "api", description: "Stock & crypto data", fields: ["api_key"], default_frequency: "5min" as const },
-  whale_alert_api: { name: "Whale Alert API", type: "api", description: "Whale transactions", fields: ["api_key"], default_frequency: "5min" as const },
-  cryptonews_api: { name: "Crypto News API", type: "api", description: "News & sentiment", fields: ["api_key"], default_frequency: "15min" as const },
-  fear_greed_index: { name: "Fear & Greed Index", type: "api", description: "Sentiment", fields: [] as string[], default_frequency: "1h" as const }
+  eodhd: { name: "EODHD API", type: "api", description: "Stock & crypto intraday data", fields: ["api_key"], default_frequency: "5min" as const },
+  whale_alert_api: { name: "Whale Alert API", type: "api", description: "Whale transactions via API", fields: ["api_key"], default_frequency: "30min" as const },
+  cryptonews_api: { name: "Crypto News API", type: "api", description: "News & sentiment analysis", fields: ["api_key"], default_frequency: "15min" as const },
+  fear_greed_index: { name: "Fear & Greed Index", type: "api", description: "Market sentiment index", fields: [] as string[], default_frequency: "1h" as const },
+  coinbase_institutional: { name: "Coinbase Institutional", type: "api", description: "Institutional flow analysis", fields: [] as string[], default_frequency: "1h" as const }
 };
 
+// Webhook source templates (aligned with external-data-collector)
 const WEBHOOK_SOURCE_TEMPLATES = {
-  whale_alert: { name: "Whale Alert Webhook", type: "webhook", description: "Real-time whale events", fields: ["webhook_url"], default_frequency: "manual" as const },
-  quicknode_webhooks: { name: "QuickNode Webhooks", type: "webhook", description: "On-chain events", fields: ["webhook_url"], default_frequency: "manual" as const }
+  whale_alert: { name: "Whale Alert Webhook", type: "webhook", description: "Real-time tracked wallet events", fields: ["webhook_url"], default_frequency: "manual" as const },
+  quicknode_webhooks: { name: "QuickNode Webhooks", type: "webhook", description: "On-chain event webhooks", fields: ["webhook_url"], default_frequency: "manual" as const }
 };
 
-// Hidden internal sources that should not appear in the UI
+// Hidden internal sources that should NEVER appear in the UI
 const HIDDEN_INTERNAL_SOURCES = ['coinbase_realtime', 'technical_analysis'];
 
 export function DataSourcesPanel() {
@@ -547,12 +562,12 @@ export function DataSourcesPanel() {
     );
   }
 
-  // Partition sources into Knowledge Base and Signals
+  // Partition sources using canonical classification
   const knowledgeBaseSources = dataSources.filter(source =>
-    Object.keys(KNOWLEDGE_SOURCE_TEMPLATES).includes(source.source_name)
+    KNOWLEDGE_BASE_SOURCE_NAMES.includes(source.source_name as any)
   );
   const signalSources = dataSources.filter(source =>
-    !Object.keys(KNOWLEDGE_SOURCE_TEMPLATES).includes(source.source_name)
+    SIGNAL_SOURCE_NAMES.includes(source.source_name as any)
   );
 
   const renderSourceCard = (source: DataSource) => {

@@ -184,7 +184,9 @@ async function syncDataSource(supabaseClient: any, sourceId: string) {
     case 'cryptonews_api':
       await syncCryptoNewsAPI(supabaseClient, source);
       break;
+    case 'eodhd':
     case 'eodhd_api':
+      // Support both 'eodhd' (from migration) and 'eodhd_api' (legacy) for backward compatibility
       await syncEODHDAPI(supabaseClient, source);
       break;
     case 'bigquery':
