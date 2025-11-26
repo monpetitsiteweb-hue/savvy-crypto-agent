@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Youtube, Twitter, Globe, FileText, MessageSquare, Plus, Edit, RefreshCw, Trash2, Circle } from "lucide-react";
@@ -107,6 +108,9 @@ const WEBHOOK_SOURCE_TEMPLATES = {
   quicknode_webhooks: { name: "QuickNode Webhooks", type: "webhook", description: "On-chain events", fields: ["webhook_url"], default_frequency: "manual" as const }
 };
 
+// Hidden internal sources that should not appear in the UI
+const HIDDEN_INTERNAL_SOURCES = ['coinbase_realtime', 'technical_analysis'];
+
 export function DataSourcesPanel() {
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,7 +135,11 @@ export function DataSourcesPanel() {
 
       if (error) throw error;
       
-      setDataSources(data || []);
+      // Filter out hidden internal sources
+      const filtered = (data || []).filter(
+        source => !HIDDEN_INTERNAL_SOURCES.includes(source.source_name)
+      );
+      setDataSources(filtered);
     } catch (error) {
       console.error('Error loading data sources:', error);
       toast({
@@ -539,12 +547,144 @@ export function DataSourcesPanel() {
     );
   }
 
+  // Partition sources into Knowledge Base and Signals
+  const knowledgeBaseSources = dataSources.filter(source =>
+    Object.keys(KNOWLEDGE_SOURCE_TEMPLATES).includes(source.source_name)
+  );
+  const signalSources = dataSources.filter(source =>
+    !Object.keys(KNOWLEDGE_SOURCE_TEMPLATES).includes(source.source_name)
+  );
+
+  const renderSourceCard = (source: DataSource) => {
+    const config = source.configuration || {};
+    const template = KNOWLEDGE_SOURCE_TEMPLATES[source.source_name];
+    const apiTemplate = API_SOURCE_TEMPLATES[source.source_name as keyof typeof API_SOURCE_TEMPLATES];
+    const webhookTemplate = WEBHOOK_SOURCE_TEMPLATES[source.source_name as keyof typeof WEBHOOK_SOURCE_TEMPLATES];
+    const isKnowledge = !!template;
+    const refreshMode = isKnowledge ? (config.refresh_mode || template.refresh_mode) : null;
+    const status = getSourceStatus(source);
+    const Icon = template?.icon || Globe;
+
+    // Determine display title
+    let displayTitle = template?.name || apiTemplate?.name || webhookTemplate?.name;
+    if (!displayTitle && source.source_name === 'pdf_upload') {
+      displayTitle = config.title || 'PDF Upload';
+    }
+    if (!displayTitle) {
+      displayTitle = source.source_name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+
+    // Determine type badge
+    let typeBadge: string;
+    if (isKnowledge && refreshMode === 'static') {
+      typeBadge = 'Knowledge (static)';
+    } else if (isKnowledge && refreshMode === 'feed') {
+      typeBadge = 'Knowledge (feed)';
+    } else if (source.source_type === 'webhook' || source.source_name.includes('webhook')) {
+      typeBadge = 'Webhook';
+    } else {
+      typeBadge = 'API';
+    }
+
+    return (
+      <Card key={source.id}>
+        <CardHeader>
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-2">
+              <Icon className="h-5 w-5" />
+              <CardTitle className="text-lg">
+                {displayTitle}
+              </CardTitle>
+            </div>
+            <Circle 
+              className={`h-3 w-3 fill-current ${
+                status.color === 'green' ? 'text-green-500' :
+                status.color === 'yellow' ? 'text-yellow-500' :
+                'text-red-500'
+              }`}
+            />
+          </div>
+          <CardDescription className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="outline" className="text-xs">
+                {typeBadge}
+              </Badge>
+              <Badge variant={status.color === 'green' ? 'default' : 'secondary'} className="text-xs">
+                {status.label}
+              </Badge>
+            </div>
+            {source.last_sync && (
+              <div className="text-xs text-muted-foreground">
+                Last sync: {new Date(source.last_sync).toLocaleString()}
+              </div>
+            )}
+            {source.update_frequency && (
+              <div className="text-xs text-muted-foreground">
+                Updates: {source.update_frequency}
+              </div>
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => syncDataSource(source)}
+              disabled={syncingSource === source.id || source.source_type === 'webhook' || source.source_name.includes('webhook')}
+            >
+              <RefreshCw className={`h-4 w-4 mr-1 ${syncingSource === source.id ? 'animate-spin' : ''}`} />
+              Sync Now
+            </Button>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openEditDialog(source)}
+                >
+                  <Edit className="h-4 w-4 mr-1" />
+                  Edit
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit {displayTitle}</DialogTitle>
+                </DialogHeader>
+                {editingSource?.id === source.id && (
+                  <>
+                    {renderSourceFields(source.source_name, true)}
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setEditingSource(null)}>
+                        Cancel
+                      </Button>
+                      <Button onClick={updateDataSource}>
+                        Save Changes
+                      </Button>
+                    </DialogFooter>
+                  </>
+                )}
+              </DialogContent>
+            </Dialog>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => deleteDataSource(source.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">External Data Sources</h2>
-          <p className="text-muted-foreground">Manage knowledge sources for AI enhancement</p>
+          <p className="text-muted-foreground">Manage signals and knowledge sources</p>
         </div>
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
           <DialogTrigger asChild>
@@ -558,10 +698,11 @@ export function DataSourcesPanel() {
               <DialogTitle>Add Data Source</DialogTitle>
             </DialogHeader>
             <div className="space-y-6">
+              {/* Signals Section */}
               <div>
-                <h3 className="text-lg font-semibold mb-4">API Sources</h3>
+                <h3 className="text-lg font-semibold mb-2">Signals (API & Webhook)</h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Polling-based data sources that fetch data on a schedule
+                  Real-time and scheduled data sources for market signals
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {Object.entries(API_SOURCE_TEMPLATES).map(([key, template]) => (
@@ -584,15 +725,6 @@ export function DataSourcesPanel() {
                       </CardContent>
                     </Card>
                   ))}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-4">Webhook Sources</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Real-time event-driven sources that receive data via webhooks
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {Object.entries(WEBHOOK_SOURCE_TEMPLATES).map(([key, template]) => (
                     <Card
                       key={key}
@@ -614,10 +746,25 @@ export function DataSourcesPanel() {
                     </Card>
                   ))}
                 </div>
+
+                {/* Show config form for selected signal sources */}
+                {selectedTemplate && (API_SOURCE_TEMPLATES[selectedTemplate as keyof typeof API_SOURCE_TEMPLATES] || 
+                                      WEBHOOK_SOURCE_TEMPLATES[selectedTemplate as keyof typeof WEBHOOK_SOURCE_TEMPLATES]) && (
+                  <div className="mt-4 border-t pt-4">
+                    <h4 className="font-medium mb-4">
+                      Configure {
+                        API_SOURCE_TEMPLATES[selectedTemplate as keyof typeof API_SOURCE_TEMPLATES]?.name ||
+                        WEBHOOK_SOURCE_TEMPLATES[selectedTemplate as keyof typeof WEBHOOK_SOURCE_TEMPLATES]?.name
+                      }
+                    </h4>
+                    {renderSourceFields(selectedTemplate)}
+                  </div>
+                )}
               </div>
 
+              {/* Knowledge Base Section */}
               <div>
-                <h3 className="text-lg font-semibold mb-4">Knowledge Base Sources</h3>
+                <h3 className="text-lg font-semibold mb-2">Knowledge Base Sources</h3>
                 <p className="text-sm text-muted-foreground mb-4">
                   Document and content sources for AI knowledge retrieval
                 </p>
@@ -648,20 +795,17 @@ export function DataSourcesPanel() {
                     );
                   })}
                 </div>
-              </div>
 
-              {selectedTemplate && (
-                <div className="border-t pt-4">
-                  <h4 className="font-medium mb-4">
-                    Configure {
-                      KNOWLEDGE_SOURCE_TEMPLATES[selectedTemplate]?.name ||
-                      API_SOURCE_TEMPLATES[selectedTemplate as keyof typeof API_SOURCE_TEMPLATES]?.name ||
-                      WEBHOOK_SOURCE_TEMPLATES[selectedTemplate as keyof typeof WEBHOOK_SOURCE_TEMPLATES]?.name
-                    }
-                  </h4>
-                  {renderSourceFields(selectedTemplate)}
-                </div>
-              )}
+                {/* Show config form for selected KB sources */}
+                {selectedTemplate && KNOWLEDGE_SOURCE_TEMPLATES[selectedTemplate] && (
+                  <div className="mt-4 border-t pt-4">
+                    <h4 className="font-medium mb-4">
+                      Configure {KNOWLEDGE_SOURCE_TEMPLATES[selectedTemplate].name}
+                    </h4>
+                    {renderSourceFields(selectedTemplate)}
+                  </div>
+                )}
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => {
@@ -689,127 +833,40 @@ export function DataSourcesPanel() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {dataSources.map((source) => {
-            const config = source.configuration || {};
-            const template = KNOWLEDGE_SOURCE_TEMPLATES[source.source_name];
-            const isKnowledge = !!template;
-            const refreshMode = isKnowledge ? (config.refresh_mode || template.refresh_mode) : null;
-            const status = getSourceStatus(source);
-            const Icon = template?.icon || Globe;
-
-            // Determine display title
-            const displayTitle = template?.name || 
-              (source.source_name === 'pdf_upload' 
-                ? config.title || 'PDF Upload' 
-                : source.source_name);
-
-            // Determine type badge
-            let typeBadge: string;
-            if (isKnowledge && refreshMode === 'static') {
-              typeBadge = 'Knowledge (static)';
-            } else if (isKnowledge && refreshMode === 'feed') {
-              typeBadge = 'Knowledge (feed)';
-            } else if (source.source_type === 'webhook' || source.source_name.includes('webhook')) {
-              typeBadge = 'Webhook';
-            } else {
-              // All non-KB sources that aren't webhooks are API pollers
-              typeBadge = 'API';
-            }
-
-            return (
-              <Card key={source.id}>
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <Icon className="h-5 w-5" />
-                      <CardTitle className="text-lg">
-                        {displayTitle}
-                      </CardTitle>
-                    </div>
-                    <Circle 
-                      className={`h-3 w-3 fill-current ${
-                        status.color === 'green' ? 'text-green-500' :
-                        status.color === 'yellow' ? 'text-yellow-500' :
-                        'text-red-500'
-                      }`}
-                    />
-                  </div>
-                  <CardDescription className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant="outline" className="text-xs">
-                        {typeBadge}
-                      </Badge>
-                      <Badge variant={status.color === 'green' ? 'default' : 'secondary'} className="text-xs">
-                        {status.label}
-                      </Badge>
-                    </div>
-                    {source.last_sync && (
-                      <div className="text-xs text-muted-foreground">
-                        Last sync: {new Date(source.last_sync).toLocaleString()}
-                      </div>
-                    )}
-                    {source.update_frequency && (
-                      <div className="text-xs text-muted-foreground">
-                        Updates: {source.update_frequency}
-                      </div>
-                    )}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => syncDataSource(source)}
-                      disabled={syncingSource === source.id || source.source_type === 'webhook' || source.source_name.includes('webhook')}
-                    >
-                      <RefreshCw className={`h-4 w-4 mr-1 ${syncingSource === source.id ? 'animate-spin' : ''}`} />
-                      Sync Now
-                    </Button>
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openEditDialog(source)}
-                        >
-                          <Edit className="h-4 w-4 mr-1" />
-                          Edit
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Edit {displayTitle}</DialogTitle>
-                        </DialogHeader>
-                        {editingSource?.id === source.id && (
-                          <>
-                            {renderSourceFields(source.source_name, true)}
-                            <DialogFooter>
-                              <Button variant="outline" onClick={() => setEditingSource(null)}>
-                                Cancel
-                              </Button>
-                              <Button onClick={updateDataSource}>
-                                Save Changes
-                              </Button>
-                            </DialogFooter>
-                          </>
-                        )}
-                      </DialogContent>
-                    </Dialog>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => deleteDataSource(source.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+        <Tabs defaultValue="signals" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="signals">Signals (API / Webhook)</TabsTrigger>
+            <TabsTrigger value="knowledge">Knowledge Base</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="signals" className="space-y-4">
+            {signalSources.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center">
+                  <p className="text-muted-foreground">No signal sources configured yet.</p>
                 </CardContent>
               </Card>
-            );
-          })}
-        </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {signalSources.map(renderSourceCard)}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="knowledge" className="space-y-4">
+            {knowledgeBaseSources.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center">
+                  <p className="text-muted-foreground">No knowledge base sources configured yet.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {knowledgeBaseSources.map(renderSourceCard)}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
