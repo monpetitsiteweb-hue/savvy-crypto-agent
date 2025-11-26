@@ -5,19 +5,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Database, ExternalLink, Plus, Settings, Trash2, Activity, TrendingUp, Shield, BarChart3, AlertTriangle, Zap, CheckCircle, XCircle, Clock, ExternalLinkIcon, Wrench, Edit, RefreshCw, Newspaper, HelpCircle, Info } from "lucide-react";
-import { WhaleAlertIntegration } from "./WhaleAlertIntegration";
+import { Youtube, Twitter, Globe, FileText, MessageSquare, Plus, Edit, RefreshCw, Trash2, Circle } from "lucide-react";
 
 interface DataSource {
   id: string;
   source_name: string;
   source_type: string;
-  api_endpoint?: string;
   is_active: boolean;
   update_frequency: string;
   configuration: any;
@@ -25,251 +21,106 @@ interface DataSource {
   created_at: string;
 }
 
-  const DATA_SOURCE_TEMPLATES = {
-  // Existing sources with potential premium upgrades
-  arkham_intelligence: {
-    name: "Arkham Intelligence",
-    type: "blockchain_analytics",
-    endpoint: "https://api.arkhamintelligence.com",
-    description: "🐋 Track whale movements and institutional flows from BlackRock, Trump, MicroStrategy (Premium: $99+/month)",
-    fields: ["api_key", "threshold_amount", "entities"],
-    entities: ["blackrock", "microstrategy", "tesla", "trump", "biden"],
-    icon: Shield,
-    needsApiKey: true,
-    cost: "Premium ($99+/month)",
-    setupUrl: "https://app.arkhamintelligence.com/api",
-    priority: "critical",
-    supportsWebhooks: false,
-    premiumUpgrade: true
-  },
-  fear_greed_index: {
-    name: "Fear & Greed Index",
-    type: "sentiment",
-    endpoint: "https://api.alternative.me/fng",
-    description: "📊 Market sentiment analysis (0-100 scale) - FREE, no API key required ✅",
-    fields: [],
-    entities: ["market_sentiment"],
-    icon: TrendingUp,
-    needsApiKey: false,
-    cost: "Free",
-    setupUrl: "https://alternative.me/crypto/fear-and-greed-index/",
-    priority: "ready",
-    supportsWebhooks: false,
-    premiumUpgrade: false
-  },
-  coinbase_institutional: {
-    name: "Coinbase Institutional Flows",
-    type: "institutional_tracking",
-    endpoint: "https://api.exchange.coinbase.com/products",
-    description: "💼 Track real institutional trading volumes and large transactions using your existing Coinbase API credentials ✅",
-    fields: [],
-    entities: ["institutional_flows"],
-    icon: BarChart3,
-    needsApiKey: false,
-    cost: "Uses existing Coinbase API",
-    setupUrl: "https://docs.cloud.coinbase.com/exchange/docs",
-    priority: "ready",
-    supportsWebhooks: false,
-    premiumUpgrade: false
-  },
-  whale_alert_api: {
-    name: "Whale Alert",
-    type: "whale_signals", 
-    endpoint: "wss://api.whale-alert.io/v1/streaming",
-    description: "🚨 Enter your Whale Alert API Key to receive real-time whale transaction data via WebSocket.",
-    fields: ["api_key"],
-    entities: ["whale_transactions"],
-    icon: AlertTriangle,
-    needsApiKey: true,
-    cost: "Premium",
-    setupUrl: "https://whale-alert.io/api",
-    priority: "high",
-    supportsWebhooks: true,
-    premiumUpgrade: false
-  },
-  eodhd_api: {
-    name: "EODHD Financial Data",
-    type: "market_data",
-    endpoint: "https://eodhd.com/api",
-    description: "📈 Historical and real-time financial market data for crypto, stocks, ETFs, and indices",
-    fields: ["api_key"],
-    entities: ["historical_prices", "real_time_data", "fundamental_data"],
-    icon: BarChart3,
-    needsApiKey: true,
-    cost: "Premium ($79.99+/month)",
-    setupUrl: "https://eodhd.com/financial-apis/",
-    priority: "high",
-    supportsWebhooks: false,
-    premiumUpgrade: false
-  },
-  cryptonews_api: {
-    name: "CryptoNews API",
-    type: "news_sentiment",
-    endpoint: "https://cryptonews-api.com/api/v1",
-    description: "📰 Real-time cryptocurrency news and sentiment analysis from multiple sources",
-    fields: ["api_key"],
-    entities: ["news_articles", "sentiment_analysis", "market_events"],
-    icon: Newspaper,
-    needsApiKey: true,
-    cost: "Premium ($29+/month)",
-    setupUrl: "https://cryptonews-api.com/",
-    priority: "high",
-    supportsWebhooks: false,
-    premiumUpgrade: false
-  },
-  bigquery: {
-    name: "Google BigQuery",
-    type: "data_warehouse",
-    endpoint: "https://bigquery.googleapis.com/bigquery/v2",
-    description: "🗄️ Access Google's public crypto datasets for large-scale blockchain analysis (Demo mode: generates sample data)",
-    fields: ["project_id", "credentials_json"],
-    entities: ["blockchain_data", "market_analytics", "on_chain_metrics"],
-    icon: Database,
-    needsApiKey: false,
-    cost: "Demo mode (free)",
-    setupUrl: "https://cloud.google.com/bigquery/docs/quickstarts",
-    priority: "ready",
-    supportsWebhooks: false,
-    premiumUpgrade: false
-  },
-  
-  // New Whale Signal Providers
-  cryptocurrency_alerting: {
-    name: "Cryptocurrency Alerting",
-    type: "whale_signals",
-    endpoint: "https://cryptocurrencyalerting.com/api",
-    description: "🔔 Webhook-based whale alerts with custom thresholds (Free tier + Premium features)",
-    fields: ["webhook_url", "threshold_amount", "blockchain_networks", "api_key"],
-    entities: ["whale_webhooks", "threshold_alerts"],
-    icon: AlertTriangle,
-    needsApiKey: true,
-    cost: "Free tier available",
-    setupUrl: "https://cryptocurrencyalerting.com/webhook-setup",
-    priority: "high",
-    supportsWebhooks: true,
-    premiumUpgrade: false
-  },
-  
-  bitquery_api: {
-    name: "Bitquery API",
-    type: "whale_signals",
-    endpoint: "https://graphql.bitquery.io",
-    description: "📊 Advanced blockchain data queries with whale detection (Free tier: 1000 queries/month)",
-    fields: ["api_key", "threshold_amount", "blockchain_networks", "query_config"],
-    entities: ["blockchain_queries", "whale_data"],
-    icon: BarChart3,
-    needsApiKey: true,
-    cost: "Free tier (1000 queries/month)",
-    setupUrl: "https://bitquery.io/docs/start/",
-    priority: "high",
-    supportsWebhooks: false,
-    premiumUpgrade: false
-  },
-  
-  quicknode_webhooks: {
-    name: "QuickNode Webhooks",
-    type: "whale_signals", 
-    endpoint: "https://api.quicknode.com",
-    description: "⚡ Real-time blockchain webhooks with expression filters (Pay-per-use pricing)",
-    fields: ["webhook_url", "webhook_secret"],
-    entities: ["realtime_webhooks", "expression_alerts"],
-    icon: Zap,
-    needsApiKey: false,
-    cost: "Pay-per-use",
-    setupUrl: "https://www.quicknode.com/guides/quicknode-streams/how-to-use-quicknode-streams",
-    priority: "high", 
-    supportsWebhooks: true,
-    premiumUpgrade: false
-  },
-  twitter_sentiment: {
-    name: "Twitter/X Account",
-    type: "social_sentiment",
-    endpoint: "https://api.twitter.com/2",
-    description: "🐦 Monitor crypto sentiment from key influencers (X API Premium: $100+/month)",
-    fields: ["account_username", "api_key", "bearer_token"],
-    entities: ["social_sentiment", "influencer_activity"],
-    icon: TrendingUp,
-    needsApiKey: true,
-    cost: "Premium",
-    setupUrl: "https://developer.twitter.com/en/portal/dashboard",
-    priority: "medium",
-    supportsWebhooks: false,
-    premiumUpgrade: true
-  },
-  youtube_channels: {
-    name: "YouTube Channel",
-    type: "social_sentiment",
-    endpoint: "https://www.googleapis.com/youtube/v3",
-    description: "📺 Track crypto analysis videos and sentiment (YouTube Data API v3 required)",
-    fields: ["channel_url", "channel_name", "youtube_api_key"],
-    entities: ["video_content", "channel_sentiment"],
-    icon: Activity,
-    needsApiKey: true,
-    cost: "Free tier available",
-    setupUrl: "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
-    priority: "medium",
-    supportsWebhooks: false,
-    premiumUpgrade: false
-  },
-  reddit_crypto: {
-    name: "Reddit Community",
-    type: "social_sentiment",
-    endpoint: "https://www.reddit.com/api/v1",
-    description: "💬 Monitor r/cryptocurrency, r/bitcoin sentiment (Reddit API credentials required)",
-    fields: ["subreddit_name", "reddit_client_id", "reddit_client_secret"],
-    entities: ["reddit_sentiment", "community_discussions"],
-    icon: TrendingUp,
-    needsApiKey: true,
-    cost: "Free tier available",
-    setupUrl: "https://www.reddit.com/prefs/apps",
-    priority: "medium",
-    supportsWebhooks: false,
-    premiumUpgrade: false
-  },
-  custom_website: {
-    name: "Custom Website",
-    type: "custom_content",
-    endpoint: "",
-    description: "🌐 Monitor any website for trading insights and market news - FREE ✅",
-    fields: ["website_url", "website_name"],
-    entities: ["custom_content"],
-    icon: ExternalLink,
-    needsApiKey: false,
-    cost: "Free",
-    setupUrl: "",
-    priority: "ready",
-    supportsWebhooks: false,
-    premiumUpgrade: false
-  },
-  document_upload: {
-    name: "Document Upload",
+interface SourceStatus {
+  color: 'green' | 'yellow' | 'red';
+  label: string;
+}
+
+type RefreshMode = 'static' | 'feed';
+
+interface SourceTemplate {
+  name: string;
+  type: string;
+  description: string;
+  refresh_mode: RefreshMode;
+  icon: any;
+  fields: string[];
+  default_frequency?: string;
+}
+
+const KNOWLEDGE_SOURCE_TEMPLATES: Record<string, SourceTemplate> = {
+  youtube_video: {
+    name: "YouTube Video",
     type: "knowledge_base",
-    endpoint: "local",
-    description: "📄 Upload trading strategies, market analysis PDFs for AI knowledge - FREE ✅",
-    fields: ["document_file"],
-    entities: ["document_content"],
-    icon: Database,
-    needsApiKey: false,
-    cost: "Free",
-    setupUrl: "",
-    priority: "ready",
-    supportsWebhooks: false,
-    premiumUpgrade: false
+    description: "📺 Single YouTube video for one-time knowledge extraction",
+    refresh_mode: "static",
+    icon: Youtube,
+    fields: ["video_url", "title", "tags"],
+    default_frequency: "manual"
+  },
+  youtube_channel: {
+    name: "YouTube Channel",
+    type: "knowledge_base",
+    description: "📺 YouTube channel for recurring new video updates",
+    refresh_mode: "feed",
+    icon: Youtube,
+    fields: ["channel_url", "youtube_api_key", "update_frequency", "tags"],
+    default_frequency: "daily"
+  },
+  x_account: {
+    name: "X/Twitter Account",
+    type: "knowledge_base",
+    description: "🐦 Monitor X/Twitter account for market insights",
+    refresh_mode: "feed",
+    icon: Twitter,
+    fields: ["handle", "update_frequency", "filters"],
+    default_frequency: "hourly"
+  },
+  website_page: {
+    name: "Website Page",
+    type: "knowledge_base",
+    description: "🌐 Single website page for static content extraction",
+    refresh_mode: "static",
+    icon: Globe,
+    fields: ["url", "custom_name"],
+    default_frequency: "manual"
+  },
+  pdf_upload: {
+    name: "PDF Upload",
+    type: "knowledge_base",
+    description: "📄 Upload PDF document for knowledge extraction",
+    refresh_mode: "static",
+    icon: FileText,
+    fields: ["title", "tags"],
+    default_frequency: "manual"
+  },
+  reddit_community: {
+    name: "Reddit Community",
+    type: "knowledge_base",
+    description: "💬 Monitor Reddit community for discussions",
+    refresh_mode: "feed",
+    icon: MessageSquare,
+    fields: ["subreddit", "update_frequency", "filters"],
+    default_frequency: "hourly"
   }
 };
+
+const HIDDEN_INTERNAL_SOURCES = [
+  'technical_analysis',
+  'crypto_news',
+  'fear_greed_index',
+  'whale_alert_api',
+  'whale_alert_tracked',
+  'eodhd',
+  'eodhd_api',
+  'bigquery',
+  'arkham_intelligence',
+  'coinbase_institutional',
+  'cryptonews_api',
+  'cryptocurrency_alerting',
+  'bitquery_api',
+  'quicknode_webhooks'
+];
 
 export function DataSourcesPanel() {
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddForm, setShowAddForm] = useState(false);
+  const [showAddDialog, setShowAddDialog] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [formData, setFormData] = useState<any>({});
   const [syncingSource, setSyncingSource] = useState<string | null>(null);
   const [editingSource, setEditingSource] = useState<DataSource | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
-  const [showSetupStatus, setShowSetupStatus] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [showHelpDialog, setShowHelpDialog] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -281,10 +132,17 @@ export function DataSourcesPanel() {
       const { data, error } = await supabase
         .from('ai_data_sources')
         .select('*')
+        .in('source_type', ['knowledge_base', 'external_feed'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setDataSources(data || []);
+      
+      // Filter out hidden internal sources
+      const filtered = (data || []).filter(
+        s => !HIDDEN_INTERNAL_SOURCES.includes(s.source_name)
+      );
+      
+      setDataSources(filtered);
     } catch (error) {
       console.error('Error loading data sources:', error);
       toast({
@@ -297,30 +155,76 @@ export function DataSourcesPanel() {
     }
   };
 
+  const getSourceStatus = (source: DataSource): SourceStatus => {
+    const config = source.configuration || {};
+    const refreshMode = config.refresh_mode as RefreshMode || 'static';
+    
+    // RED: Configuration invalid or sync very stale
+    if (!source.is_active) {
+      return { color: 'red', label: 'Inactive' };
+    }
+    
+    const requiredFields = KNOWLEDGE_SOURCE_TEMPLATES[source.source_name]?.fields.filter(
+      f => !['title', 'tags', 'custom_name', 'filters'].includes(f)
+    ) || [];
+    const missingFields = requiredFields.filter(field => !config[field]);
+    
+    if (missingFields.length > 0) {
+      return { color: 'red', label: 'Missing Config' };
+    }
+    
+    // YELLOW: Pending first sync or no documents yet
+    if (!source.last_sync) {
+      return { color: 'yellow', label: 'Pending Sync' };
+    }
+    
+    // For feeds: check staleness based on update_frequency
+    if (refreshMode === 'feed' && source.last_sync) {
+      const lastSync = new Date(source.last_sync).getTime();
+      const now = Date.now();
+      const frequencyMs = getFrequencyMs(source.update_frequency);
+      const staleThreshold = frequencyMs * 3;
+      
+      if (now - lastSync > staleThreshold) {
+        return { color: 'red', label: 'Sync Overdue' };
+      }
+    }
+    
+    // GREEN: All good
+    return { color: 'green', label: 'Healthy' };
+  };
+
+  const getFrequencyMs = (frequency: string): number => {
+    const map: Record<string, number> = {
+      'manual': Infinity,
+      'hourly': 60 * 60 * 1000,
+      'daily': 24 * 60 * 60 * 1000,
+      'weekly': 7 * 24 * 60 * 60 * 1000
+    };
+    return map[frequency] || map['daily'];
+  };
+
   const addDataSource = async () => {
     if (!selectedTemplate) {
       toast({
         title: "Error",
-        description: "Please select a data source template",
+        description: "Please select a source type",
         variant: "destructive",
       });
       return;
     }
 
-      const template = DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES];
-      
-      // Filter out technical_analysis template to reduce noise
-      const displayTemplates = Object.entries(DATA_SOURCE_TEMPLATES)
-        .filter(([key]) => key !== 'technical_analysis');
+    const template = KNOWLEDGE_SOURCE_TEMPLATES[selectedTemplate];
+    const requiredFields = template.fields.filter(
+      f => !['title', 'tags', 'custom_name', 'filters'].includes(f)
+    );
     
-    // Validate required fields
-    const requiredFields = template.fields.filter(field => field !== 'document_file');
-    const missingFields = requiredFields.filter(field => !formData[field]?.trim());
+    const missingFields = requiredFields.filter(field => !formData[field]?.trim?.());
     
     if (missingFields.length > 0) {
       toast({
         title: "Error",
-        description: `Please fill in: ${missingFields.join(', ')}`,
+        description: `Missing required fields: ${missingFields.join(', ')}`,
         variant: "destructive",
       });
       return;
@@ -330,27 +234,23 @@ export function DataSourcesPanel() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const config = { ...formData };
-      
-      // Auto-generate name if not provided
-      if (selectedTemplate === 'youtube_channels' && !config.channel_name && config.channel_url) {
-        config.channel_name = `Channel from ${config.channel_url}`;
-      }
-      if (selectedTemplate === 'custom_website' && !config.website_name && config.website_url) {
-        config.website_name = new URL(config.website_url).hostname;
-      }
+      const config = {
+        ...formData,
+        refresh_mode: template.refresh_mode
+      };
 
-      const { error } = await supabase
+      const { data: newSource, error } = await supabase
         .from('ai_data_sources')
         .insert({
           user_id: user.id,
           source_name: selectedTemplate,
           source_type: template.type,
-          api_endpoint: template.endpoint,
-          update_frequency: 'daily',
+          update_frequency: formData.update_frequency || template.default_frequency || 'manual',
           configuration: config,
           is_active: true
-        });
+        })
+        .select()
+        .single();
 
       if (error) throw error;
 
@@ -359,7 +259,12 @@ export function DataSourcesPanel() {
         description: `${template.name} added successfully`,
       });
 
-      setShowAddForm(false);
+      // Trigger initial sync for new source
+      if (newSource) {
+        await syncDataSource(newSource.id, template.name);
+      }
+
+      setShowAddDialog(false);
       setSelectedTemplate('');
       setFormData({});
       loadDataSources();
@@ -373,113 +278,15 @@ export function DataSourcesPanel() {
     }
   };
 
-  const toggleDataSource = async (id: string, isActive: boolean) => {
-    try {
-      const { error } = await supabase
-        .from('ai_data_sources')
-        .update({ is_active: isActive })
-        .eq('id', id);
-
-      if (error) throw error;
-
-      toast({
-        title: "Success",
-        description: `Data source ${isActive ? 'enabled' : 'disabled'}`,
-      });
-
-      loadDataSources();
-    } catch (error) {
-      console.error('Error updating data source:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update data source",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const deleteDataSource = async (id: string) => {
-    try {
-      const { error } = await supabase
-        .from('ai_data_sources')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-
-      toast({
-        title: "Success",
-        description: "Data source deleted",
-      });
-
-      loadDataSources();
-    } catch (error) {
-      console.error('Error deleting data source:', error);
-      toast({
-        title: "Error",
-        description: "Failed to delete data source",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const openEditDialog = (source: DataSource) => {
-    setEditingSource(source);
-    setEditFormData({ 
-      ...source.configuration,
-      is_active: source.is_active,
-      update_frequency: source.update_frequency 
-    });
-  };
-
-  const updateDataSource = async () => {
-    if (!editingSource) return;
-
-    setIsUpdating(true);
-    try {
-      const { is_active, update_frequency, ...configuration } = editFormData;
-      
-      const { error } = await supabase
-        .from('ai_data_sources')
-        .update({
-          configuration: configuration,
-          is_active: is_active ?? editingSource.is_active,
-          update_frequency: update_frequency ?? editingSource.update_frequency,
-        })
-        .eq('id', editingSource.id);
-
-      if (error) throw error;
-
-      toast({
-        title: "Success",
-        description: "Data source updated successfully",
-      });
-
-      setEditingSource(null);
-      setEditFormData({});
-      loadDataSources();
-    } catch (error) {
-      console.error('Error updating source:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update data source",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
   const syncDataSource = async (sourceId: string, sourceName: string) => {
     setSyncingSource(sourceId);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const { error } = await supabase.functions.invoke('external-data-collector', {
+      const { error } = await supabase.functions.invoke('knowledge-collector', {
         body: { 
-          action: 'sync_source', 
-          sourceId: sourceId,
+          sourceId,
           userId: user.id
         }
       });
@@ -487,7 +294,7 @@ export function DataSourcesPanel() {
       if (error) throw error;
 
       toast({
-        title: "✅ Synchronized",
+        title: "✅ Synced",
         description: `${sourceName} synced successfully`,
       });
 
@@ -504,56 +311,149 @@ export function DataSourcesPanel() {
     }
   };
 
-  const getUnconfiguredSources = () => {
-    return dataSources.filter(s => {
-      const template = getSourceTemplate(s.source_name);
-      if (!template) return false;
-      
-      // Skip sources that don't need configuration
-      if (['fear_greed_index', 'coinbase_institutional', 'custom_website', 'document_upload'].includes(s.source_name)) {
-        return false;
-      }
-      
-      // Check if any required fields are missing or empty
-      const requiredFields = template.fields.filter(field => field !== 'document_file');
-      const config = s.configuration || {};
-      const missingFields = requiredFields.filter(field => !config[field]?.trim?.() && !config[field]);
-      
-      return missingFields.length > 0;
+  const openEditDialog = (source: DataSource) => {
+    setEditingSource(source);
+    setEditFormData({
+      ...source.configuration,
+      is_active: source.is_active,
+      update_frequency: source.update_frequency
     });
   };
 
-  const getSourceTemplate = (sourceName: string) => {
-    return DATA_SOURCE_TEMPLATES[sourceName as keyof typeof DATA_SOURCE_TEMPLATES];
-  };
+  const updateDataSource = async () => {
+    if (!editingSource) return;
 
-  const getSourceIcon = (sourceName: string) => {
-    const template = getSourceTemplate(sourceName);
-    const IconComponent = template?.icon || Database;
-    return <IconComponent className="h-4 w-4 text-slate-300" />;
-  };
+    try {
+      const { is_active, update_frequency, ...configuration } = editFormData;
 
-  const getSourceColor = (sourceType: string) => {
-    switch (sourceType) {
-      case 'blockchain_analytics': return 'bg-blue-500/10 text-blue-700';
-      case 'sentiment': return 'bg-green-500/10 text-green-700';
-      case 'institutional_tracking': return 'bg-purple-500/10 text-purple-700';
-      case 'social_sentiment': return 'bg-orange-500/10 text-orange-700';
-      case 'custom_content': return 'bg-indigo-500/10 text-indigo-700';
-      case 'knowledge_base': return 'bg-blue-500/10 text-blue-700';
-      case 'whale_signals': return 'bg-purple-500/10 text-purple-700';
-      default: return 'bg-gray-500/10 text-gray-700';
+      const { error } = await supabase
+        .from('ai_data_sources')
+        .update({
+          configuration,
+          is_active: is_active ?? editingSource.is_active,
+          update_frequency: update_frequency ?? editingSource.update_frequency,
+        })
+        .eq('id', editingSource.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Source updated successfully",
+      });
+
+      setEditingSource(null);
+      setEditFormData({});
+      loadDataSources();
+    } catch (error) {
+      console.error('Error updating source:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update source",
+        variant: "destructive",
+      });
     }
+  };
+
+  const deleteDataSource = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this data source?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('ai_data_sources')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Data source deleted",
+      });
+
+      loadDataSources();
+    } catch (error) {
+      console.error('Error deleting source:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete source",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const renderSourceFields = (templateKey: string, isEdit: boolean = false) => {
+    const template = KNOWLEDGE_SOURCE_TEMPLATES[templateKey];
+    const data = isEdit ? editFormData : formData;
+    const setData = isEdit ? setEditFormData : setFormData;
+
+    return (
+      <div className="space-y-4">
+        {template.fields.map(field => {
+          if (field === 'update_frequency' && template.refresh_mode === 'feed') {
+            return (
+              <div key={field}>
+                <Label>Update Frequency</Label>
+                <Select
+                  value={data[field] || template.default_frequency}
+                  onValueChange={(value) => setData((prev: any) => ({ ...prev, [field]: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="hourly">Hourly</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          }
+
+          return (
+            <div key={field}>
+              <Label htmlFor={field}>
+                {field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                {!['title', 'tags', 'custom_name', 'filters'].includes(field) && ' *'}
+              </Label>
+              <Input
+                id={field}
+                type={field.includes('key') || field.includes('secret') ? 'password' : 'text'}
+                placeholder={`Enter ${field.replace(/_/g, ' ')}`}
+                value={data[field] || ''}
+                onChange={(e) => setData((prev: any) => ({ ...prev, [field]: e.target.value }))}
+              />
+            </div>
+          );
+        })}
+
+        {isEdit && (
+          <div>
+            <Label>Status</Label>
+            <Select
+              value={data.is_active ? 'active' : 'inactive'}
+              onValueChange={(value) => setData((prev: any) => ({ ...prev, is_active: value === 'active' }))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+    );
   };
 
   if (loading) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Database className="h-5 w-5" />
-            External Data Sources
-          </CardTitle>
+          <CardTitle>External Data Sources</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-center py-8">
@@ -566,990 +466,187 @@ export function DataSourcesPanel() {
 
   return (
     <div className="space-y-6">
-      {/* Add Source Section - Moved to top when active */}
-      {showAddForm && (
-        <Card className="border-2 border-primary/20">
-          <CardHeader>
-            <CardTitle className="text-white">External Data Sources</CardTitle>
-            <CardDescription className="text-white/80">Connect to external APIs to enhance AI learning with market intelligence</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Card-style source selection */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {Object.entries(DATA_SOURCE_TEMPLATES).map(([key, template]) => (
-                <Card 
-                  key={key} 
-                  className={`cursor-pointer transition-colors hover:border-primary/50 ${
-                    selectedTemplate === key ? 'border-primary bg-primary/5' : ''
-                  }`}
-                  onClick={() => setSelectedTemplate(key)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-3">
-                      <template.icon className="h-5 w-5 mt-1 text-slate-300" />
-                      <div className="flex-1">
-                        <h3 className="font-medium mb-1">{template.name}</h3>
-                        <p className="text-sm text-muted-foreground mb-2">{template.description}</p>
-                        <div className="flex flex-wrap gap-1">
-                          <Badge variant={template.cost === 'Free' ? 'default' : 'outline'} className="text-xs">
-                            {template.cost}
-                          </Badge>
-                          {template.needsApiKey && (
-                            <Badge variant="outline" className="text-xs">Requires API Key</Badge>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {selectedTemplate && (
-              <div className="space-y-4 border-t pt-4">
-                <h4 className="font-medium">Configure {DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES].name}</h4>
-                
-                {/* Special handling for BigQuery */}
-                {selectedTemplate === 'bigquery' ? (
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="project_id">Google Cloud Project ID</Label>
-                      <Input
-                        id="project_id"
-                        type="text"
-                        placeholder="Enter your Google Cloud Project ID (e.g., my-project-123)"
-                        value={formData.project_id || ''}
-                        onChange={(e) => setFormData(prev => ({ ...prev, project_id: e.target.value }))}
-                      />
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Find this in your Google Cloud Console project dashboard
-                      </p>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="credentials_json">Service Account JSON Credentials</Label>
-                      <textarea
-                        id="credentials_json"
-                        className="w-full min-h-32 p-3 rounded-md border border-input bg-background text-sm"
-                        placeholder='Paste the entire service account JSON here:
-{
-  "type": "service_account",
-  "project_id": "your-project-id",
-  "private_key_id": "...",
-  "private_key": "-----BEGIN PRIVATE KEY-----...",
-  "client_email": "...",
-  "client_id": "...",
-  ...
-}'
-                        value={formData.credentials_json || ''}
-                        onChange={(e) => setFormData(prev => ({ ...prev, credentials_json: e.target.value }))}
-                      />
-                      <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-md">
-                        <p className="text-sm text-blue-700 dark:text-blue-300 font-medium mb-2">
-                          📋 How to get BigQuery credentials:
-                        </p>
-                        <ol className="text-sm text-blue-600 dark:text-blue-400 space-y-1 list-decimal list-inside">
-                          <li>Go to Google Cloud Console → IAM & Admin → Service Accounts</li>
-                          <li>Create a new service account or select an existing one</li>
-                          <li>Grant "BigQuery Data Viewer" and "BigQuery Job User" roles</li>
-                          <li>Click "Add Key" → "Create new key" → JSON format</li>
-                          <li>Copy the entire JSON content and paste it above</li>
-                        </ol>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* Standard field handling for other data sources */
-                  DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES].fields.map((field) => (
-                    <div key={field}>
-                      <Label htmlFor={field}>{field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
-                      <Input
-                        id={field}
-                        type={field.includes('secret') || field.includes('token') || field.includes('key') ? 'password' : 'text'}
-                        placeholder={`Enter ${field.replace(/_/g, ' ')}`}
-                        value={formData[field] || ''}
-                        onChange={(e) => setFormData(prev => ({ ...prev, [field]: e.target.value }))}
-                      />
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            <div className="flex gap-2 pt-4">
-              <Button onClick={addDataSource} disabled={!selectedTemplate}>
-                Add Data Source
-              </Button>
-              <Button variant="outline" onClick={() => {
-                setShowAddForm(false);
-                setSelectedTemplate('');
-                setFormData({});
-              }}>
-                Cancel
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Header with Status Overview - Only show when not adding */}
-      {!showAddForm && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div>
-                <h2 className="text-2xl font-bold text-white">External Data Sources</h2>
-                <p className="text-white/80">Connect to external APIs to enhance AI learning with market intelligence</p>
-              </div>
-              <Dialog open={showHelpDialog} onOpenChange={setShowHelpDialog}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <HelpCircle className="h-4 w-4" />
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                      <Info className="h-5 w-5" />
-                      How Data Sources Work
-                    </DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="grid gap-4">
-                      <div className="border rounded-lg p-4">
-                        <h3 className="font-semibold flex items-center gap-2 mb-2">
-                          <RefreshCw className="h-4 w-4" />
-                          Sync Now Button
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          Triggers immediate data collection from your configured APIs. This fetches the latest news, market data, or blockchain information based on the source type.
-                        </p>
-                      </div>
-                      
-                      <div className="border rounded-lg p-4">
-                        <h3 className="font-semibold flex items-center gap-2 mb-2">
-                          <Clock className="h-4 w-4" />
-                          Update Frequency
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          Controls automatic syncing intervals (hourly, daily, weekly). The system will automatically collect data at these intervals when the source is active.
-                        </p>
-                      </div>
-                      
-                      <div className="border rounded-lg p-4">
-                        <h3 className="font-semibold flex items-center gap-2 mb-2">
-                          <Newspaper className="h-4 w-4" />
-                          CryptoNews API
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          Fetches cryptocurrency news articles and performs sentiment analysis. Requires API key from cryptonews-api.com. Generates trading signals based on news sentiment.
-                        </p>
-                      </div>
-                      
-                      <div className="border rounded-lg p-4">
-                        <h3 className="font-semibold flex items-center gap-2 mb-2">
-                          <BarChart3 className="h-4 w-4" />
-                          EODHD Financial Data
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          Collects real-time and historical market data for crypto and stocks. Requires API key from eodhd.com. Provides price signals and technical analysis data.
-                        </p>
-                      </div>
-                      
-                      <div className="border rounded-lg p-4">
-                        <h3 className="font-semibold flex items-center gap-2 mb-2">
-                          <Database className="h-4 w-4" />
-                          Google BigQuery
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          Currently in demo mode - generates sample blockchain data. In production, connects to Google's public crypto datasets using service account credentials JSON for large-scale analysis.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-            <Button onClick={() => setShowAddForm(true)}>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold">External Data Sources</h2>
+          <p className="text-muted-foreground">Manage knowledge sources for AI enhancement</p>
+        </div>
+        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+          <DialogTrigger asChild>
+            <Button>
               <Plus className="h-4 w-4 mr-2" />
               Add Source
             </Button>
-          </div>
-
-
-          {/* Data Source Status Dashboard */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card className="p-4">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-500" />
-                <div>
-                  <div className="text-2xl font-bold text-green-600">
-                    {dataSources.filter(s => ['fear_greed_index', 'coinbase_institutional', 'custom_website', 'document_upload'].includes(s.source_name) && s.is_active).length}
-                  </div>
-                  <div className="text-sm text-muted-foreground">Ready Sources</div>
-                </div>
-              </div>
-            </Card>
-            
-            <Card 
-              className="p-4 cursor-pointer hover:bg-accent/50" 
-              onClick={() => setShowSetupStatus(!showSetupStatus)}
-            >
-              <div className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-orange-500" />
-                <div>
-                  <div className="text-2xl font-bold text-orange-600">
-                    {getUnconfiguredSources().length}
-                  </div>
-                  <div className="text-sm text-muted-foreground">Need Setup</div>
-                </div>
-              </div>
-            </Card>
-            
-            <Card className="p-4">
-              <div className="flex items-center gap-2">
-                <XCircle className="h-5 w-5 text-red-500" />
-                <div>
-                  <div className="text-2xl font-bold text-red-600">
-                    {dataSources.filter(s => !s.is_active).length}
-                  </div>
-                  <div className="text-sm text-muted-foreground">Inactive</div>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-4">
-              <div className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-blue-500" />
-                <div>
-                  <div className="text-2xl font-bold text-blue-600">{dataSources.length}</div>
-                  <div className="text-sm text-muted-foreground">Total Sources</div>
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          {/* Expandable setup status details */}
-          {showSetupStatus && getUnconfiguredSources().length > 0 && (
-            <Card className="border-border bg-card">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-foreground">
-                  <Wrench className="h-5 w-5" />
-                  Sources Needing Setup
-                </CardTitle>
-                <CardDescription>The following sources require configuration to become active</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {getUnconfiguredSources().map((source) => {
-                    const template = getSourceTemplate(source.source_name);
-                    const config = source.configuration || {};
-                    const requiredFields = template?.fields.filter(field => field !== 'document_file') || [];
-                    const missingFields = requiredFields.filter(field => !config[field]?.trim?.() && !config[field]);
-                    
-                    return (
-                      <div key={source.id} className="flex items-center justify-between p-4 bg-slate-800/40 rounded-lg border border-slate-600/50 hover:bg-slate-700/50 transition-colors">
-                        <div className="flex items-center gap-3">
-                          {getSourceIcon(source.source_name)}
-                          <div>
-                            <div className="font-medium text-foreground">{template?.name || source.source_name}</div>
-                            <div className="text-sm text-muted-foreground">
-                              Missing: {missingFields.join(', ') || 'API configuration'}
-                            </div>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Add Data Source</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                {Object.entries(KNOWLEDGE_SOURCE_TEMPLATES).map(([key, template]) => {
+                  const Icon = template.icon;
+                  return (
+                    <Card
+                      key={key}
+                      className={`cursor-pointer transition-colors hover:border-primary/50 ${
+                        selectedTemplate === key ? 'border-primary bg-primary/5' : ''
+                      }`}
+                      onClick={() => setSelectedTemplate(key)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <Icon className="h-5 w-5 mt-1" />
+                          <div className="flex-1">
+                            <h3 className="font-medium mb-1">{template.name}</h3>
+                            <p className="text-sm text-muted-foreground mb-2">{template.description}</p>
+                            <Badge variant="outline" className="text-xs">
+                              {template.refresh_mode}
+                            </Badge>
                           </div>
                         </div>
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openEditDialog(source)}
-                              className="border-slate-600 text-slate-300 hover:bg-slate-600 hover:text-white hover:border-slate-500 transition-colors"
-                            >
-                              <Settings className="h-4 w-4 mr-1" />
-                              Configure
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-2xl">
-                            <DialogHeader>
-                              <DialogTitle>Edit: {template?.name || source.source_name}</DialogTitle>
-                            </DialogHeader>
-                            {editingSource && (
-                              <div className="space-y-4">
-                                {template?.fields?.map((field) => (
-                                  <div key={field.name} className="space-y-2">
-                                    <Label htmlFor={field.name}>{field.label}</Label>
-                                    <Input
-                                      id={field.name}
-                                      type={field.type === 'password' ? 'password' : 'text'}
-                                      value={editFormData[field.name] || ''}
-                                      onChange={(e) => setEditFormData({ ...editFormData, [field.name]: e.target.value })}
-                                      placeholder={field.placeholder}
-                                    />
-                                    {field.description && (
-                                      <p className="text-sm text-muted-foreground">{field.description}</p>
-                                    )}
-                                  </div>
-                                ))}
-                                <div className="space-y-2">
-                                  <Label htmlFor="is_active">Active</Label>
-                                  <div className="flex items-center space-x-2">
-                                    <Switch
-                                      id="is_active"
-                                      checked={editFormData.is_active || false}
-                                      onCheckedChange={(checked) => setEditFormData({ ...editFormData, is_active: checked })}
-                                    />
-                                    <span className="text-sm">{editFormData.is_active ? 'Active' : 'Inactive'}</span>
-                                  </div>
-                                </div>
-                                <div className="space-y-2">
-                                  <Label htmlFor="update_frequency">Update Frequency (hours)</Label>
-                                  <Input
-                                    id="update_frequency"
-                                    type="number"
-                                    min="1"
-                                    value={editFormData.update_frequency || 24}
-                                    onChange={(e) => setEditFormData({ ...editFormData, update_frequency: parseInt(e.target.value) })}
-                                  />
-                                </div>
-                                <DialogFooter>
-                                  <Button
-                                    variant="outline"
-                                    onClick={() => setEditingSource(null)}
-                                  >
-                                    Cancel
-                                  </Button>
-                                  <Button
-                                    onClick={updateDataSource}
-                                    disabled={isUpdating}
-                                  >
-                                    {isUpdating ? 'Updating...' : 'Update'}
-                                  </Button>
-                                </DialogFooter>
-                              </div>
-                            )}
-                          </DialogContent>
-                        </Dialog>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {/* Tabs for Knowledge Base Organization */}
-      <Tabs defaultValue="sources" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="sources">Data Sources</TabsTrigger>
-          <TabsTrigger value="knowledge">Knowledge Base</TabsTrigger>
-          <TabsTrigger value="all">All Items</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="sources" className="space-y-4">
-          {dataSources.filter(s => s.source_type !== 'knowledge_base').length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {dataSources.filter(s => s.source_type !== 'knowledge_base').map((source) => {
-                const template = getSourceTemplate(source.source_name);
-                return (
-                  <Card key={source.id} className="p-4">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        {getSourceIcon(source.source_name)}
-                        <h3 className="font-semibold">{template?.name || source.source_name}</h3>
-                        {template?.priority === 'ready' && <CheckCircle className="h-4 w-4 text-green-500" />}
-                        {template?.priority === 'critical' && <AlertTriangle className="h-4 w-4 text-red-500" />}
-                        {template?.priority === 'high' && <Clock className="h-4 w-4 text-orange-500" />}
-                        {template?.supportsWebhooks && <Zap className="h-4 w-4 text-purple-500" />}
-                        {template?.needsApiKey && !template?.priority?.includes('ready') && <Wrench className="h-4 w-4 text-blue-500" />}
-                      </div>
-                      <Switch
-                        checked={source.is_active}
-                        onCheckedChange={(checked) => toggleDataSource(source.id, checked)}
-                      />
-                    </div>
-
-                    <div className="space-y-2 mb-4">
-                      <div className="flex flex-wrap gap-2">
-                        <Badge 
-                          variant="secondary" 
-                          className={getSourceColor(source.source_type)}
-                        >
-                          {source.source_type.replace('_', ' ')}
-                        </Badge>
-                        {template?.cost && (
-                          <Badge variant={template.cost === 'Free' ? 'default' : 'outline'}>
-                            {template.cost}
-                          </Badge>
-                        )}
-                        {template?.setupUrl && (
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="h-6 px-2"
-                            onClick={() => window.open(template.setupUrl, '_blank')}
-                          >
-                            <ExternalLinkIcon className="h-3 w-3 text-slate-300" />
-                            Setup
-                          </Button>
-                        )}
-                      </div>
-                      
-                      <p className="text-sm text-muted-foreground">
-                        {template?.description || 'External data source'}
-                      </p>
-                      
-                      {source.configuration?.channel_name && (
-                        <p className="text-xs font-medium">
-                          {source.configuration.channel_name}
-                        </p>
-                      )}
-                      
-                      {source.configuration?.website_name && (
-                        <p className="text-xs font-medium">
-                          {source.configuration.website_name}
-                        </p>
-                      )}
-                      
-                      {source.configuration?.website_url && (
-                        <p className="text-xs text-muted-foreground">
-                          {source.configuration.website_url}
-                        </p>
-                      )}
-                      
-                      {source.configuration?.account_username && (
-                        <p className="text-xs font-medium">
-                          @{source.configuration.account_username}
-                        </p>
-                      )}
-                      
-                      {/* Hide frequency for webhook sources */}
-                      {!template?.supportsWebhooks && (
-                        <p className="text-xs text-muted-foreground">
-                          Updates: {source.update_frequency}
-                        </p>
-                      )}
-                      
-                      {source.last_sync && (
-                        <p className="text-xs text-muted-foreground">
-                          Last sync: {new Date(source.last_sync).toLocaleString()}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => syncDataSource(source.id, template?.name || source.source_name)}
-                        disabled={syncingSource === source.id}
-                        className="flex-1"
-                      >
-                        {syncingSource === source.id ? (
-                          <>
-                            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary mr-2"></div>
-                            Syncing...
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="h-3 w-3 mr-1" />
-                            Sync Now
-                          </>
-                        )}
-                      </Button>
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openEditDialog(source)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-2xl">
-                          <DialogHeader>
-                            <DialogTitle>Edit: {template?.name || source.source_name}</DialogTitle>
-                          </DialogHeader>
-                          {editingSource && (
-                            <div className="space-y-4">
-                              <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                  <Label htmlFor="is_active">Active</Label>
-                                  <Switch
-                                    id="is_active"
-                                    checked={editFormData.is_active ?? editingSource.is_active}
-                                    onCheckedChange={(checked) => 
-                                      setEditFormData({ ...editFormData, is_active: checked })
-                                    }
-                                  />
-                                </div>
-                                <div>
-                                  <Label htmlFor="update_frequency">Update Frequency</Label>
-                                  <Select
-                                    value={editFormData.update_frequency ?? editingSource.update_frequency}
-                                    onValueChange={(value) => 
-                                      setEditFormData({ ...editFormData, update_frequency: value })
-                                    }
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="realtime">Real-time</SelectItem>
-                                      <SelectItem value="hourly">Hourly</SelectItem>
-                                      <SelectItem value="daily">Daily</SelectItem>
-                                      <SelectItem value="weekly">Weekly</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              </div>
-
-                              {/* Dynamic form fields based on source configuration */}
-                              <div className="space-y-3">
-                                {Object.entries(editingSource.configuration || {}).map(([key, value]) => (
-                                  <div key={key}>
-                                    <Label htmlFor={key}>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
-                                    <Input
-                                      id={key}
-                                      type={key.includes('secret') || key.includes('token') ? 'password' : 'text'}
-                                      value={editFormData[key] ?? value}
-                                      onChange={(e) => 
-                                        setEditFormData({ ...editFormData, [key]: e.target.value })
-                                      }
-                                      placeholder={`Enter ${key.replace(/_/g, ' ')}`}
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  variant="outline"
-                                  onClick={() => {
-                                    setEditingSource(null);
-                                    setEditFormData({});
-                                  }}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button onClick={updateDataSource}>
-                                  Save Changes
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                        </DialogContent>
-                      </Dialog>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => deleteDataSource(source.id)}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="text-center py-12">
-                <Database className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Data Sources Connected</h3>
-                <p className="text-muted-foreground mb-4">
-                  Connect to external APIs to give your AI agent access to market intelligence
-                </p>
-                <Button onClick={() => setShowAddForm(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Your First Source
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-        
-        <TabsContent value="knowledge" className="space-y-4">
-          {dataSources.filter(s => s.source_type === 'knowledge_base').length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {dataSources.filter(s => s.source_type === 'knowledge_base').map((source) => (
-                <Card key={source.id} className="p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <Database className="h-4 w-4" />
-                      <h3 className="font-semibold">{source.configuration?.document_name || source.source_name}</h3>
-                    </div>
-                    <Switch
-                      checked={source.is_active}
-                      onCheckedChange={(checked) => toggleDataSource(source.id, checked)}
-                    />
-                  </div>
-
-                  <div className="space-y-2 mb-4">
-                    <Badge variant="secondary" className="bg-blue-500/10 text-blue-700">
-                      Document
-                    </Badge>
-                    
-                    <p className="text-sm text-muted-foreground">
-                      Uploaded document for AI knowledge base
-                    </p>
-                    
-                    <p className="text-xs text-muted-foreground">
-                      Added: {new Date(source.created_at).toLocaleDateString()}
-                    </p>
-                  </div>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => deleteDataSource(source.id)}
-                    className="w-full text-red-600 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Remove Document
-                  </Button>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="text-center py-12">
-                <Database className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Documents in Knowledge Base</h3>
-                <p className="text-muted-foreground mb-4">
-                  Upload documents to enhance your AI agent's knowledge
-                </p>
-                <Button onClick={() => setShowAddForm(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Upload Document
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-        
-        <TabsContent value="all" className="space-y-4">
-          {dataSources.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {dataSources.map((source) => {
-                const template = getSourceTemplate(source.source_name);
-                const isDocument = source.source_type === 'knowledge_base';
-                return (
-                  <Card key={source.id} className="p-4">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        {isDocument ? <Database className="h-4 w-4" /> : getSourceIcon(source.source_name)}
-                        <h3 className="font-semibold">
-                          {isDocument 
-                            ? (source.configuration?.document_name || source.source_name)
-                            : (template?.name || source.source_name)
-                          }
-                        </h3>
-                      </div>
-                      <Switch
-                        checked={source.is_active}
-                        onCheckedChange={(checked) => toggleDataSource(source.id, checked)}
-                      />
-                    </div>
-
-                    <div className="space-y-2 mb-4">
-                      <Badge 
-                        variant="secondary" 
-                        className={getSourceColor(source.source_type)}
-                      >
-                        {isDocument ? "Document" : source.source_type.replace('_', ' ')}
-                      </Badge>
-                      
-                      <p className="text-sm text-muted-foreground">
-                        {isDocument ? "Uploaded document for AI knowledge base" : (template?.description || 'External data source')}
-                      </p>
-                      
-                      {source.configuration?.channel_name && (
-                        <p className="text-xs font-medium">
-                          {source.configuration.channel_name}
-                        </p>
-                      )}
-                      
-                      {source.configuration?.website_name && (
-                        <p className="text-xs font-medium">
-                          {source.configuration.website_name}
-                        </p>
-                      )}
-                      
-                      {source.configuration?.account_username && (
-                        <p className="text-xs font-medium">
-                          @{source.configuration.account_username}
-                        </p>
-                      )}
-                      
-                      <p className="text-xs text-muted-foreground">
-                        {isDocument ? `Added: ${new Date(source.created_at).toLocaleDateString()}` : `Updates: ${source.update_frequency}`}
-                      </p>
-                      
-                      {source.last_sync && !isDocument && (
-                        <p className="text-xs text-muted-foreground">
-                          Last sync: {new Date(source.last_sync).toLocaleString()}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2">
-                      {!isDocument && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => syncDataSource(source.id, template?.name || source.source_name)}
-                          disabled={syncingSource === source.id}
-                          className="flex-1"
-                        >
-                          {syncingSource === source.id ? (
-                            <>
-                              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary mr-2"></div>
-                              Syncing...
-                            </>
-                          ) : (
-                            <>
-                              <RefreshCw className="h-3 w-3 mr-1" />
-                              Sync Now
-                            </>
-                          )}
-                        </Button>
-                      )}
-                      {!isDocument && (
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openEditDialog(source)}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-2xl">
-                            <DialogHeader>
-                              <DialogTitle>Edit: {template?.name || source.source_name}</DialogTitle>
-                            </DialogHeader>
-                            {editingSource && (
-                              <div className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                    <Label htmlFor="is_active">Active</Label>
-                                    <Switch
-                                      id="is_active"
-                                      checked={editFormData.is_active ?? editingSource.is_active}
-                                      onCheckedChange={(checked) => 
-                                        setEditFormData({ ...editFormData, is_active: checked })
-                                      }
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label htmlFor="update_frequency">Update Frequency</Label>
-                                    <Select
-                                      value={editFormData.update_frequency ?? editingSource.update_frequency}
-                                      onValueChange={(value) => 
-                                        setEditFormData({ ...editFormData, update_frequency: value })
-                                      }
-                                    >
-                                      <SelectTrigger>
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="realtime">Real-time</SelectItem>
-                                        <SelectItem value="hourly">Hourly</SelectItem>
-                                        <SelectItem value="daily">Daily</SelectItem>
-                                        <SelectItem value="weekly">Weekly</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                </div>
-
-                                {/* Dynamic form fields based on source configuration */}
-                                <div className="space-y-3">
-                                  {Object.entries(editingSource.configuration || {}).map(([key, value]) => (
-                                    <div key={key}>
-                                      <Label htmlFor={key}>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
-                                      <Input
-                                        id={key}
-                                        type={key.includes('secret') || key.includes('token') ? 'password' : 'text'}
-                                        value={editFormData[key] ?? value}
-                                        onChange={(e) => 
-                                          setEditFormData({ ...editFormData, [key]: e.target.value })
-                                        }
-                                        placeholder={`Enter ${key.replace(/_/g, ' ')}`}
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
-
-                                <div className="flex justify-end gap-2">
-                                  <Button
-                                    variant="outline"
-                                    onClick={() => {
-                                      setEditingSource(null);
-                                      setEditFormData({});
-                                    }}
-                                  >
-                                    Cancel
-                                  </Button>
-                                  <Button onClick={updateDataSource}>
-                                    Save Changes
-                                  </Button>
-                                </div>
-                              </div>
-                            )}
-                          </DialogContent>
-                        </Dialog>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => deleteDataSource(source.id)}
-                        className={`${isDocument ? 'w-full' : ''} text-red-600 hover:text-red-700`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="text-center py-12">
-                <Database className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No Items Added</h3>
-                <p className="text-muted-foreground mb-4">
-                  Add data sources or upload documents to enhance your AI agent
-                </p>
-                <Button onClick={() => setShowAddForm(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Items
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-      </Tabs>
-
-      {/* Add New Source Modal/Form */}
-      {showAddForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Add External Data Source</CardTitle>
-            <CardDescription>
-              Connect to external APIs to enhance your AI agent's market knowledge
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Templates */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.entries(DATA_SOURCE_TEMPLATES).map(([key, template]) => {
-                const IconComponent = template.icon;
-                return (
-                  <div
-                    key={key}
-                    className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                      selectedTemplate === key 
-                        ? 'border-primary bg-primary/5' 
-                        : 'border-border hover:border-primary/50'
-                    }`}
-                    onClick={() => {
-                      setSelectedTemplate(key);
-                      setFormData({});
-                    }}
-                  >
-                    <div className="flex items-start gap-3">
-                      <IconComponent className="h-6 w-6 text-slate-300 mt-1" />
-                      <div>
-                        <h4 className="font-semibold">{template.name}</h4>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {template.description}
-                        </p>
-                        <div className="flex items-center gap-2 mt-2">
-                          <Badge variant="outline" className={getSourceColor(template.type)}>
-                            {template.type.replace('_', ' ')}
-                          </Badge>
-                          {template.needsApiKey && (
-                            <Badge variant="outline" className="text-orange-600">
-                              Requires API Key
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Dynamic Input Fields */}
-            {selectedTemplate && (
-              <div className="space-y-4">
-                {DATA_SOURCE_TEMPLATES[selectedTemplate as keyof typeof DATA_SOURCE_TEMPLATES]?.fields.map((field) => (
-                  <div key={field} className="space-y-2">
-                    <Label>{field.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</Label>
-                    {field === 'document_file' ? (
-                      <Input
-                        type="file"
-                        accept=".pdf,.doc,.docx,.txt"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            setFormData({ ...formData, document_name: file.name });
-                          }
-                        }}
-                      />
-                    ) : (
-                      <Input
-                        type={field.includes('password') || field.includes('secret') || field.includes('key') ? 'password' : 'text'}
-                        value={formData[field] || ''}
-                        onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
-                        placeholder={
-                          field === 'account_username' ? '@username' :
-                          field === 'channel_url' ? 'https://youtube.com/channel/...' :
-                          field === 'channel_name' ? 'Channel Name' :
-                          field === 'subreddit_name' ? 'cryptocurrency' :
-                          field === 'website_url' ? 'https://example.com' :
-                          field === 'website_name' ? 'Website Name' :
-                          `Enter ${field.replace('_', ' ')}`
-                        }
-                      />
-                    )}
-                    <p className="text-sm text-muted-foreground">
-                      {field === 'account_username' && 'Twitter/X username without the @ symbol'}
-                      {field === 'channel_url' && 'Full YouTube channel URL'}
-                      {field === 'channel_name' && 'Name for this channel (editable)'}
-                      {field === 'subreddit_name' && 'Subreddit name without r/'}
-                      {field === 'website_url' && 'Complete website URL including https://'}
-                      {field === 'website_name' && 'Custom name for this website (editable)'}
-                      {field === 'document_file' && 'Upload PDF, DOC, or TXT files for AI analysis'}
-                      {field.includes('api_key') && 'Get your API key from the provider\'s dashboard'}
-                    </p>
-                  </div>
-                ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
-            )}
 
-            {/* Actions */}
-            <div className="flex justify-end gap-2">
+              {selectedTemplate && (
+                <div className="border-t pt-4">
+                  <h4 className="font-medium mb-4">
+                    Configure {KNOWLEDGE_SOURCE_TEMPLATES[selectedTemplate].name}
+                  </h4>
+                  {renderSourceFields(selectedTemplate)}
+                </div>
+              )}
+            </div>
+            <DialogFooter>
               <Button variant="outline" onClick={() => {
-                setShowAddForm(false);
+                setShowAddDialog(false);
                 setSelectedTemplate('');
                 setFormData({});
               }}>
                 Cancel
               </Button>
               <Button onClick={addDataSource} disabled={!selectedTemplate}>
-                Add Data Source
+                Add Source
               </Button>
-            </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {dataSources.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <p className="text-muted-foreground">No data sources configured yet.</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Click "Add Source" to get started.
+            </p>
           </CardContent>
         </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {dataSources.map((source) => {
+            const template = KNOWLEDGE_SOURCE_TEMPLATES[source.source_name];
+            const status = getSourceStatus(source);
+            const config = source.configuration || {};
+            const refreshMode = config.refresh_mode || 'static';
+            const Icon = template?.icon || Globe;
+
+            return (
+              <Card key={source.id}>
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon className="h-5 w-5" />
+                      <CardTitle className="text-lg">
+                        {template?.name || source.source_name}
+                      </CardTitle>
+                    </div>
+                    <Circle 
+                      className={`h-3 w-3 fill-current ${
+                        status.color === 'green' ? 'text-green-500' :
+                        status.color === 'yellow' ? 'text-yellow-500' :
+                        'text-red-500'
+                      }`}
+                    />
+                  </div>
+                  <CardDescription className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="outline" className="text-xs">
+                        {refreshMode}
+                      </Badge>
+                      <Badge variant={status.color === 'green' ? 'default' : 'secondary'} className="text-xs">
+                        {status.label}
+                      </Badge>
+                    </div>
+                    {source.last_sync && (
+                      <div className="text-xs text-muted-foreground">
+                        Last sync: {new Date(source.last_sync).toLocaleString()}
+                      </div>
+                    )}
+                    {refreshMode === 'feed' && (
+                      <div className="text-xs text-muted-foreground">
+                        Updates: {source.update_frequency}
+                      </div>
+                    )}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => syncDataSource(source.id, template?.name || source.source_name)}
+                      disabled={syncingSource === source.id}
+                    >
+                      <RefreshCw className={`h-4 w-4 mr-1 ${syncingSource === source.id ? 'animate-spin' : ''}`} />
+                      Sync Now
+                    </Button>
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEditDialog(source)}
+                        >
+                          <Edit className="h-4 w-4 mr-1" />
+                          Edit
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Edit {template?.name || source.source_name}</DialogTitle>
+                        </DialogHeader>
+                        {editingSource?.id === source.id && (
+                          <>
+                            {renderSourceFields(source.source_name, true)}
+                            <DialogFooter>
+                              <Button variant="outline" onClick={() => setEditingSource(null)}>
+                                Cancel
+                              </Button>
+                              <Button onClick={updateDataSource}>
+                                Save Changes
+                              </Button>
+                            </DialogFooter>
+                          </>
+                        )}
+                      </DialogContent>
+                    </Dialog>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => deleteDataSource(source.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       )}
     </div>
   );
