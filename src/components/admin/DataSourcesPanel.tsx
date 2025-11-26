@@ -411,66 +411,34 @@ export function DataSourcesPanel() {
   };
 
   const renderSourceFields = (templateKey: string, isEdit: boolean = false) => {
-    const template = KNOWLEDGE_SOURCE_TEMPLATES[templateKey];
+    const kbTemplate = KNOWLEDGE_SOURCE_TEMPLATES[templateKey];
+    const apiTemplate = API_SOURCE_TEMPLATES[templateKey as keyof typeof API_SOURCE_TEMPLATES];
+    const webhookTemplate = WEBHOOK_SOURCE_TEMPLATES[templateKey as keyof typeof WEBHOOK_SOURCE_TEMPLATES];
+
+    const template = kbTemplate || apiTemplate || webhookTemplate;
+    if (!template) return null;
+
     const data = isEdit ? editFormData : formData;
     const setData = isEdit ? setEditFormData : setFormData;
 
-    // Generic editor for non-KB sources (e.g. whale_alert_api, eodhd, cryptonews_api)
-    if (!template) {
-      return (
-        <div className="space-y-4">
-          <div>
-            <Label>Update Frequency</Label>
-            <Select
-              value={data.update_frequency || 'daily'}
-              onValueChange={(value) =>
-                setData((prev: any) => ({ ...prev, update_frequency: value }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="hourly">Hourly</SelectItem>
-                <SelectItem value="daily">Daily</SelectItem>
-                <SelectItem value="weekly">Weekly</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {isEdit && (
-            <div>
-              <Label>Status</Label>
-              <Select
-                value={data.is_active ? 'active' : 'inactive'}
-                onValueChange={(value) =>
-                  setData((prev: any) => ({ ...prev, is_active: value === 'active' }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-        </div>
-      );
-    }
+    const isKB = !!kbTemplate;
+    const isAPI = !!apiTemplate;
+    const isWebhook = !!webhookTemplate;
 
     return (
       <div className="space-y-4">
-        {template.fields.map(field => {
-          if (field === 'update_frequency' && template.refresh_mode === 'feed') {
+        {/* Common fields for KB/API/Webhook based on template.fields */}
+        {template.fields.map((field) => {
+          // KB feed sources have a dedicated update_frequency selector
+          if (isKB && field === "update_frequency" && kbTemplate?.refresh_mode === "feed") {
             return (
               <div key={field}>
                 <Label>Update Frequency</Label>
                 <Select
-                  value={data[field] || template.default_frequency}
-                  onValueChange={(value) => setData((prev: any) => ({ ...prev, [field]: value }))}
+                  value={data[field] || kbTemplate.default_frequency}
+                  onValueChange={(value) =>
+                    setData((prev: any) => ({ ...prev, [field]: value }))
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -485,29 +453,62 @@ export function DataSourcesPanel() {
             );
           }
 
+          // API/Webhook + any other KB fields → simple text/password input
           return (
             <div key={field}>
               <Label htmlFor={field}>
-                {field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                {!['title', 'tags', 'custom_name', 'filters'].includes(field) && ' *'}
+                {field.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                {!["title", "tags", "custom_name", "filters"].includes(field) && " *"}
               </Label>
               <Input
                 id={field}
-                type={field.includes('key') || field.includes('secret') ? 'password' : 'text'}
-                placeholder={`Enter ${field.replace(/_/g, ' ')}`}
-                value={data[field] || ''}
-                onChange={(e) => setData((prev: any) => ({ ...prev, [field]: e.target.value }))}
+                type={
+                  field.includes("key") || field.includes("secret") || field.includes("token")
+                    ? "password"
+                    : "text"
+                }
+                placeholder={`Enter ${field.replace(/_/g, " ")}`}
+                value={data[field] || ""}
+                onChange={(e) =>
+                  setData((prev: any) => ({ ...prev, [field]: e.target.value }))
+                }
               />
             </div>
           );
         })}
 
+        {/* Generic update_frequency for API/Webhook if needed */}
+        {(isAPI || isWebhook) && (
+          <div>
+            <Label>Update Frequency</Label>
+            <Select
+              value={data.update_frequency || template.default_frequency || "daily"}
+              onValueChange={(value) =>
+                setData((prev: any) => ({ ...prev, update_frequency: value }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">Manual</SelectItem>
+                <SelectItem value="hourly">Hourly</SelectItem>
+                <SelectItem value="daily">Daily</SelectItem>
+                <SelectItem value="weekly">Weekly</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Status toggle in edit mode */}
         {isEdit && (
           <div>
             <Label>Status</Label>
             <Select
-              value={data.is_active ? 'active' : 'inactive'}
-              onValueChange={(value) => setData((prev: any) => ({ ...prev, is_active: value === 'active' }))}
+              value={data.is_active ? "active" : "inactive"}
+              onValueChange={(value) =>
+                setData((prev: any) => ({ ...prev, is_active: value === "active" }))
+              }
             >
               <SelectTrigger>
                 <SelectValue />
