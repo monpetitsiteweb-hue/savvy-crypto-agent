@@ -386,6 +386,52 @@ export function DataSourcesPanel() {
     const data = isEdit ? editFormData : formData;
     const setData = isEdit ? setEditFormData : setFormData;
 
+    // Generic editor for non-KB sources (e.g. whale_alert_api, eodhd, cryptonews_api)
+    if (!template) {
+      return (
+        <div className="space-y-4">
+          <div>
+            <Label>Update Frequency</Label>
+            <Select
+              value={data.update_frequency || 'daily'}
+              onValueChange={(value) =>
+                setData((prev: any) => ({ ...prev, update_frequency: value }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="hourly">Hourly</SelectItem>
+                <SelectItem value="daily">Daily</SelectItem>
+                <SelectItem value="weekly">Weekly</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {isEdit && (
+            <div>
+              <Label>Status</Label>
+              <Select
+                value={data.is_active ? 'active' : 'inactive'}
+                onValueChange={(value) =>
+                  setData((prev: any) => ({ ...prev, is_active: value === 'active' }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-4">
         {template.fields.map(field => {
