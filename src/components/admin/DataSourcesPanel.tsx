@@ -95,7 +95,17 @@ const KNOWLEDGE_SOURCE_TEMPLATES: Record<string, SourceTemplate> = {
   }
 };
 
-const HIDDEN_INTERNAL_SOURCES = ['technical_analysis', 'coinbase_realtime'];
+const API_SOURCE_TEMPLATES = {
+  eodhd: { name: "EODHD API", type: "api", description: "Stock & crypto data", fields: ["api_key"], default_frequency: "5min" as const },
+  whale_alert_api: { name: "Whale Alert API", type: "api", description: "Whale transactions", fields: ["api_key"], default_frequency: "5min" as const },
+  cryptonews_api: { name: "Crypto News API", type: "api", description: "News & sentiment", fields: ["api_key"], default_frequency: "15min" as const },
+  fear_greed_index: { name: "Fear & Greed Index", type: "api", description: "Sentiment", fields: [] as string[], default_frequency: "1h" as const }
+};
+
+const WEBHOOK_SOURCE_TEMPLATES = {
+  whale_alert: { name: "Whale Alert Webhook", type: "webhook", description: "Real-time whale events", fields: ["webhook_url"], default_frequency: "manual" as const },
+  quicknode_webhooks: { name: "QuickNode Webhooks", type: "webhook", description: "On-chain events", fields: ["webhook_url"], default_frequency: "manual" as const }
+};
 
 export function DataSourcesPanel() {
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
@@ -121,12 +131,7 @@ export function DataSourcesPanel() {
 
       if (error) throw error;
       
-      // Filter out hidden internal sources
-      const filtered = (data || []).filter(
-        s => !HIDDEN_INTERNAL_SOURCES.includes(s.source_name)
-      );
-      
-      setDataSources(filtered);
+      setDataSources(data || []);
     } catch (error) {
       console.error('Error loading data sources:', error);
       toast({
@@ -202,10 +207,23 @@ export function DataSourcesPanel() {
       return;
     }
 
-    const template = KNOWLEDGE_SOURCE_TEMPLATES[selectedTemplate];
-    const requiredFields = template.fields.filter(
+    const kbTemplate = KNOWLEDGE_SOURCE_TEMPLATES[selectedTemplate];
+    const apiTemplate = API_SOURCE_TEMPLATES[selectedTemplate as keyof typeof API_SOURCE_TEMPLATES];
+    const webhookTemplate = WEBHOOK_SOURCE_TEMPLATES[selectedTemplate as keyof typeof WEBHOOK_SOURCE_TEMPLATES];
+    const template = kbTemplate || apiTemplate || webhookTemplate;
+    
+    if (!template) {
+      toast({
+        title: "Error",
+        description: "Invalid source template",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    const requiredFields = template.fields?.filter(
       f => !['title', 'tags', 'custom_name', 'filters'].includes(f)
-    );
+    ) || [];
     
     const missingFields = requiredFields.filter(field => !formData[field]?.trim?.());
     
@@ -224,7 +242,7 @@ export function DataSourcesPanel() {
 
       const config = {
         ...formData,
-        refresh_mode: template.refresh_mode
+        ...(kbTemplate && { refresh_mode: kbTemplate.refresh_mode })
       };
 
       const { data: newSource, error } = await supabase
@@ -247,8 +265,8 @@ export function DataSourcesPanel() {
         description: `${template.name} added successfully`,
       });
 
-      // Trigger initial sync for new source
-      if (newSource) {
+      // Trigger initial sync for new source (skip for webhooks)
+      if (newSource && template.type !== 'webhook') {
         await syncDataSource(newSource);
       }
 
@@ -267,12 +285,23 @@ export function DataSourcesPanel() {
   };
 
   const syncDataSource = async (source: DataSource) => {
+    const isWebhook = source.source_type === 'webhook' || source.source_name.includes('webhook');
+    
+    // Webhooks cannot be synced manually
+    if (isWebhook) {
+      toast({
+        title: "Error",
+        description: "Webhook sources receive data in real-time and cannot be manually synced",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setSyncingSource(source.id);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const config = source.configuration || {};
       const template = KNOWLEDGE_SOURCE_TEMPLATES[source.source_name];
       let error;
 
@@ -283,7 +312,7 @@ export function DataSourcesPanel() {
         });
         error = fnError;
       } else {
-        // API/Webhook → external-data-collector
+        // API → external-data-collector
         const { error: fnError } = await supabase.functions.invoke('external-data-collector', {
           body: { action: 'sync_source', sourceId: source.id }
         });
@@ -523,15 +552,18 @@ export function DataSourcesPanel() {
               Add Source
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add Data Source</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                {Object.entries(KNOWLEDGE_SOURCE_TEMPLATES).map(([key, template]) => {
-                  const Icon = template.icon;
-                  return (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold mb-4">API Sources</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Polling-based data sources that fetch data on a schedule
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {Object.entries(API_SOURCE_TEMPLATES).map(([key, template]) => (
                     <Card
                       key={key}
                       className={`cursor-pointer transition-colors hover:border-primary/50 ${
@@ -541,25 +573,90 @@ export function DataSourcesPanel() {
                     >
                       <CardContent className="p-4">
                         <div className="flex items-start gap-3">
-                          <Icon className="h-5 w-5 mt-1" />
+                          <Globe className="h-5 w-5 mt-1" />
                           <div className="flex-1">
                             <h3 className="font-medium mb-1">{template.name}</h3>
                             <p className="text-sm text-muted-foreground mb-2">{template.description}</p>
-                            <Badge variant="outline" className="text-xs">
-                              {template.refresh_mode}
-                            </Badge>
+                            <Badge variant="outline" className="text-xs">API</Badge>
                           </div>
                         </div>
                       </CardContent>
                     </Card>
-                  );
-                })}
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Webhook Sources</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Real-time event-driven sources that receive data via webhooks
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {Object.entries(WEBHOOK_SOURCE_TEMPLATES).map(([key, template]) => (
+                    <Card
+                      key={key}
+                      className={`cursor-pointer transition-colors hover:border-primary/50 ${
+                        selectedTemplate === key ? 'border-primary bg-primary/5' : ''
+                      }`}
+                      onClick={() => setSelectedTemplate(key)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <Globe className="h-5 w-5 mt-1" />
+                          <div className="flex-1">
+                            <h3 className="font-medium mb-1">{template.name}</h3>
+                            <p className="text-sm text-muted-foreground mb-2">{template.description}</p>
+                            <Badge variant="outline" className="text-xs">Webhook</Badge>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Knowledge Base Sources</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Document and content sources for AI knowledge retrieval
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {Object.entries(KNOWLEDGE_SOURCE_TEMPLATES).map(([key, template]) => {
+                    const Icon = template.icon;
+                    return (
+                      <Card
+                        key={key}
+                        className={`cursor-pointer transition-colors hover:border-primary/50 ${
+                          selectedTemplate === key ? 'border-primary bg-primary/5' : ''
+                        }`}
+                        onClick={() => setSelectedTemplate(key)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            <Icon className="h-5 w-5 mt-1" />
+                            <div className="flex-1">
+                              <h3 className="font-medium mb-1">{template.name}</h3>
+                              <p className="text-sm text-muted-foreground mb-2">{template.description}</p>
+                              <Badge variant="outline" className="text-xs">
+                                {template.refresh_mode}
+                              </Badge>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
               </div>
 
               {selectedTemplate && (
                 <div className="border-t pt-4">
                   <h4 className="font-medium mb-4">
-                    Configure {KNOWLEDGE_SOURCE_TEMPLATES[selectedTemplate].name}
+                    Configure {
+                      KNOWLEDGE_SOURCE_TEMPLATES[selectedTemplate]?.name ||
+                      API_SOURCE_TEMPLATES[selectedTemplate as keyof typeof API_SOURCE_TEMPLATES]?.name ||
+                      WEBHOOK_SOURCE_TEMPLATES[selectedTemplate as keyof typeof WEBHOOK_SOURCE_TEMPLATES]?.name
+                    }
                   </h4>
                   {renderSourceFields(selectedTemplate)}
                 </div>
@@ -664,7 +761,7 @@ export function DataSourcesPanel() {
                       variant="outline"
                       size="sm"
                       onClick={() => syncDataSource(source)}
-                      disabled={syncingSource === source.id}
+                      disabled={syncingSource === source.id || source.source_type === 'webhook' || source.source_name.includes('webhook')}
                     >
                       <RefreshCw className={`h-4 w-4 mr-1 ${syncingSource === source.id ? 'animate-spin' : ''}`} />
                       Sync Now
