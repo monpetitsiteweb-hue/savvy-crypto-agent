@@ -122,7 +122,7 @@ export type Database = {
           threshold_amount: number | null
           update_frequency: string
           updated_at: string
-          user_id: string
+          user_id: string | null
           webhook_secret: string | null
           webhook_url: string | null
         }
@@ -141,7 +141,7 @@ export type Database = {
           threshold_amount?: number | null
           update_frequency?: string
           updated_at?: string
-          user_id: string
+          user_id?: string | null
           webhook_secret?: string | null
           webhook_url?: string | null
         }
@@ -160,7 +160,7 @@ export type Database = {
           threshold_amount?: number | null
           update_frequency?: string
           updated_at?: string
-          user_id?: string
+          user_id?: string | null
           webhook_secret?: string | null
           webhook_url?: string | null
         }
