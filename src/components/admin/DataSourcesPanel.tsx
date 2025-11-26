@@ -151,14 +151,17 @@ export function DataSourcesPanel() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+
+      // Raw rows from ai_data_sources (before any frontend filtering)
+      console.log('[DataSourcesPanel] ai_data_sources rows:', data);
       
-      // Filter out hidden internal sources
+      // Filter out hidden internal sources only (do NOT filter on user_id)
       const filtered = (data || []).filter(
-        source => !HIDDEN_INTERNAL_SOURCES.includes(source.source_name)
+        (source) => !HIDDEN_INTERNAL_SOURCES.includes(source.source_name)
       );
       
-      // Debug logging to verify what sources are loaded
-      console.log('[DataSourcesPanel] Loaded sources:', filtered.map(s => ({
+      // Debug logging to verify what sources are loaded into state
+      console.log('[DataSourcesPanel] Loaded sources after filter:', filtered.map((s) => ({
         id: s.id,
         source_name: s.source_name,
         source_type: s.source_type,
