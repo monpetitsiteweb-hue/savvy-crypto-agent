@@ -54,6 +54,9 @@ verify_jwt = false
 [functions.whale-alert-api-collector]
 verify_jwt = false
 
+[functions.eodhd-collector]
+verify_jwt = false
+
 [functions.parse-strategy]
 verify_jwt = true
 
