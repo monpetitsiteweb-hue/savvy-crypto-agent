@@ -177,12 +177,20 @@ export function DataSourcesPanel() {
   const [sources, setSources] = useState<DeduplicatedSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [selectedSourceName, setSelectedSourceName] = useState<string>('');
+  const [selectedCategory, setSelectedCategory] = useState<"" | "signals" | "knowledge_base">("");
+  const [selectedSourceName, setSelectedSourceName] = useState<string>("");
   const [formData, setFormData] = useState<any>({});
   const [syncingSource, setSyncingSource] = useState<string | null>(null);
   const [editingSource, setEditingSource] = useState<DeduplicatedSource | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const { toast } = useToast();
+
+  // Reset source when category changes
+  const handleCategoryChange = (value: "signals" | "knowledge_base") => {
+    setSelectedCategory(value);
+    setSelectedSourceName("");
+    setFormData({});
+  };
 
   useEffect(() => {
     loadSources();
@@ -322,7 +330,8 @@ export function DataSourcesPanel() {
 
       toast({ title: "Success", description: "Data source added successfully" });
       setShowAddDialog(false);
-      setSelectedSourceName('');
+      setSelectedCategory("");
+      setSelectedSourceName("");
       setFormData({});
       await loadSources();
     } catch (error) {
@@ -558,38 +567,43 @@ export function DataSourcesPanel() {
               <DialogTitle>Add Data Source</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              {/* Step 1: Select Category */}
               <div>
-                <Label>Source Type</Label>
-                <Select value={selectedSourceName} onValueChange={setSelectedSourceName}>
+                <Label>Source Category</Label>
+                <Select value={selectedCategory} onValueChange={(v) => handleCategoryChange(v as "signals" | "knowledge_base")}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a source type" />
+                    <SelectValue placeholder="Select a category" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__kb_header" disabled className="font-bold text-muted-foreground">
-                      Knowledge Base
-                    </SelectItem>
-                    {availableSourcesForAdd
-                      .filter(s => s.category === "knowledge_base")
-                      .map(s => (
-                        <SelectItem key={s.name} value={s.name}>
-                          {CANONICAL_SOURCES[s.name]?.name || s.name}
-                        </SelectItem>
-                      ))}
-                    <SelectItem value="__signal_header" disabled className="font-bold text-muted-foreground">
-                      Live Signals
-                    </SelectItem>
-                    {availableSourcesForAdd
-                      .filter(s => s.category === "signals")
-                      .map(s => (
-                        <SelectItem key={s.name} value={s.name}>
-                          {CANONICAL_SOURCES[s.name]?.name || s.name}
-                        </SelectItem>
-                      ))}
+                    <SelectItem value="signals">Live Signals</SelectItem>
+                    <SelectItem value="knowledge_base">Knowledge Base</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {selectedSourceName && selectedSourceName !== '__kb_header' && selectedSourceName !== '__signal_header' && (
+              {/* Step 2: Select Source (filtered by category) */}
+              {selectedCategory && (
+                <div>
+                  <Label>Source</Label>
+                  <Select value={selectedSourceName} onValueChange={setSelectedSourceName}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a source" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableSourcesForAdd
+                        .filter(s => s.category === selectedCategory)
+                        .map(s => (
+                          <SelectItem key={s.name} value={s.name}>
+                            {CANONICAL_SOURCES[s.name]?.name || s.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Step 3: Show description + config fields */}
+              {selectedSourceName && (
                 <>
                   <div className="p-3 bg-muted rounded-md">
                     <p className="text-sm font-medium">{getSourceMeta(selectedSourceName).name}</p>
@@ -605,12 +619,13 @@ export function DataSourcesPanel() {
             <DialogFooter>
               <Button variant="outline" onClick={() => {
                 setShowAddDialog(false);
-                setSelectedSourceName('');
+                setSelectedCategory("");
+                setSelectedSourceName("");
                 setFormData({});
               }}>
                 Cancel
               </Button>
-              <Button onClick={addDataSource} disabled={!selectedSourceName || selectedSourceName.startsWith('__')}>
+              <Button onClick={addDataSource} disabled={!selectedCategory || !selectedSourceName}>
                 Add Source
               </Button>
             </DialogFooter>
