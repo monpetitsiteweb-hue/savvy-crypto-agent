@@ -139,61 +139,27 @@ export function DataSourcesPanel() {
   const [editFormData, setEditFormData] = useState<any>({});
   const { toast } = useToast();
 
-  // Debug: Log on mount
-  console.log('[DataSourcesPanel] Component mounted');
-
   useEffect(() => {
-    console.log('[DataSourcesPanel] useEffect triggered - calling loadDataSources');
     loadDataSources();
   }, []);
 
   const loadDataSources = async () => {
-    console.log('[DataSourcesPanel] loadDataSources() called');
     try {
-      // Get current user for debugging
-      const { data: { user } } = await supabase.auth.getUser();
-      console.log('[DataSourcesPanel] Current user:', user?.id);
-
       const { data, error } = await supabase
         .from('ai_data_sources')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('[DataSourcesPanel] Supabase error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      // Raw rows from ai_data_sources (before any frontend filtering)
-      console.log('[DataSourcesPanel] ai_data_sources rows (raw from Supabase):', data);
-      console.log('[DataSourcesPanel] Row count:', data?.length);
-      
-      // Log each source_name for debugging
-      console.log('[DataSourcesPanel] All source_names:', data?.map(s => s.source_name));
-      
       // Filter out hidden internal sources only (do NOT filter on user_id)
       const filtered = (data || []).filter(
         (source) => !HIDDEN_INTERNAL_SOURCES.includes(source.source_name)
       );
       
-      console.log('[DataSourcesPanel] After filtering hidden sources:', filtered.length, 'rows');
-      console.log('[DataSourcesPanel] Filtered source_names:', filtered.map(s => s.source_name));
-      
-      // Debug: Check which sources match SIGNAL_SOURCE_NAMES
-      const matchingSignals = filtered.filter(s => 
-        SIGNAL_SOURCE_NAMES.includes(s.source_name as any)
-      );
-      console.log('[DataSourcesPanel] Sources matching SIGNAL_SOURCE_NAMES:', matchingSignals.map(s => ({
-        source_name: s.source_name,
-        source_type: s.source_type,
-        user_id: (s as any).user_id,
-        is_active: s.is_active,
-      })));
-      
       setDataSources(filtered);
-      console.log('[DataSourcesPanel] setDataSources called with', filtered.length, 'sources');
     } catch (error) {
-      console.error('[DataSourcesPanel] Error loading data sources:', error);
+      console.error('Error loading data sources:', error);
       toast({
         title: "Error",
         description: "Failed to load data sources",
@@ -201,7 +167,6 @@ export function DataSourcesPanel() {
       });
     } finally {
       setLoading(false);
-      console.log('[DataSourcesPanel] Loading complete');
     }
   };
 
@@ -608,11 +573,6 @@ export function DataSourcesPanel() {
     SIGNAL_SOURCE_NAMES.includes(source.source_name as any)
   );
 
-  // Debug: Log before render
-  console.log('[DataSourcesPanel] RENDER - dataSources.length:', dataSources.length);
-  console.log('[DataSourcesPanel] RENDER - signalSources:', signalSources.map(s => s.source_name));
-  console.log('[DataSourcesPanel] RENDER - knowledgeBaseSources:', knowledgeBaseSources.map(s => s.source_name));
-  console.log('[DataSourcesPanel] SIGNAL_SOURCE_NAMES constant:', SIGNAL_SOURCE_NAMES);
 
   const renderSourceCard = (source: DataSource) => {
     const config = source.configuration || {};
