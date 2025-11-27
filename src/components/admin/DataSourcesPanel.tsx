@@ -9,17 +9,163 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Youtube, Twitter, Globe, FileText, MessageSquare, Plus, Edit, RefreshCw, Trash2, Circle } from "lucide-react";
+import { Youtube, Twitter, Globe, FileText, MessageSquare, Plus, Edit, RefreshCw, Trash2, Circle, Database, Activity, Bell } from "lucide-react";
 
-interface DataSource {
-  id: string;
+// ============================================================================
+// CANONICAL SOURCE DEFINITIONS - SINGLE SOURCE OF TRUTH
+// ============================================================================
+
+// Fixed mapping for categorization - DO NOT USE source_type from DB
+const KNOWLEDGE_BASE_SOURCE_NAMES = [
+  "document_upload",
+  "website_page",
+  "youtube_channels",
+  "bigquery",
+];
+
+// All canonical sources with their metadata
+const CANONICAL_SOURCES: Record<string, {
+  name: string;
+  category: "knowledge_base" | "signals";
+  description: string;
+  icon: any;
+  configFields: string[];
+  defaultFrequency: string;
+}> = {
+  // Knowledge Base Sources
+  document_upload: {
+    name: "Document Upload",
+    category: "knowledge_base",
+    description: "📄 Upload documents (PDF, etc.) for knowledge extraction",
+    icon: FileText,
+    configFields: ["title", "tags"],
+    defaultFrequency: "manual",
+  },
+  website_page: {
+    name: "Website Page",
+    category: "knowledge_base",
+    description: "🌐 Single website page for static content extraction",
+    icon: Globe,
+    configFields: ["url", "custom_name"],
+    defaultFrequency: "manual",
+  },
+  youtube_channels: {
+    name: "YouTube Channels",
+    category: "knowledge_base",
+    description: "📺 Monitor YouTube channels for recurring new video updates",
+    icon: Youtube,
+    configFields: ["channel_url", "youtube_api_key", "update_frequency", "tags"],
+    defaultFrequency: "daily",
+  },
+  bigquery: {
+    name: "BigQuery",
+    category: "knowledge_base",
+    description: "🗄️ Query BigQuery datasets for structured data",
+    icon: Database,
+    configFields: ["project_id", "dataset_id", "query", "update_frequency"],
+    defaultFrequency: "daily",
+  },
+  // Signal Sources
+  coinbase_realtime: {
+    name: "Coinbase Realtime",
+    category: "signals",
+    description: "Real-time market data from Coinbase",
+    icon: Activity,
+    configFields: ["symbols"],
+    defaultFrequency: "realtime",
+  },
+  eodhd: {
+    name: "EODHD API",
+    category: "signals",
+    description: "Stock & crypto intraday data",
+    icon: Activity,
+    configFields: ["api_key", "symbols"],
+    defaultFrequency: "5min",
+  },
+  eodhd_api: {
+    name: "EODHD API (Legacy)",
+    category: "signals",
+    description: "Stock & crypto intraday data (legacy)",
+    icon: Activity,
+    configFields: ["api_key", "symbols"],
+    defaultFrequency: "5min",
+  },
+  fear_greed_index: {
+    name: "Fear & Greed Index",
+    category: "signals",
+    description: "Market sentiment index",
+    icon: Activity,
+    configFields: [],
+    defaultFrequency: "1h",
+  },
+  cryptonews_api: {
+    name: "Crypto News API",
+    category: "signals",
+    description: "News & sentiment analysis",
+    icon: MessageSquare,
+    configFields: ["api_key"],
+    defaultFrequency: "15min",
+  },
+  whale_alert: {
+    name: "Whale Alert Webhook",
+    category: "signals",
+    description: "Real-time tracked wallet events via webhook",
+    icon: Bell,
+    configFields: ["webhook_url", "webhook_secret"],
+    defaultFrequency: "realtime",
+  },
+  whale_alert_api: {
+    name: "Whale Alert API",
+    category: "signals",
+    description: "Whale transactions via API polling",
+    icon: Bell,
+    configFields: ["api_key"],
+    defaultFrequency: "30min",
+  },
+  quicknode_webhooks: {
+    name: "QuickNode Webhooks",
+    category: "signals",
+    description: "On-chain event webhooks",
+    icon: Bell,
+    configFields: ["webhook_url"],
+    defaultFrequency: "realtime",
+  },
+  technical_analysis: {
+    name: "Technical Analysis",
+    category: "signals",
+    description: "Technical indicators (RSI, MACD, etc.)",
+    icon: Activity,
+    configFields: ["symbols", "indicators"],
+    defaultFrequency: "5min",
+  },
+  x_accounts: {
+    name: "X (Twitter) Accounts",
+    category: "signals",
+    description: "Social sentiment from X/Twitter accounts",
+    icon: Twitter,
+    configFields: ["accounts", "api_key", "update_frequency", "filters"],
+    defaultFrequency: "15min",
+  },
+  coinbase_institutional: {
+    name: "Coinbase Institutional",
+    category: "signals",
+    description: "Institutional flow analysis",
+    icon: Activity,
+    configFields: [],
+    defaultFrequency: "1h",
+  },
+};
+
+// Interface for deduplicated source from DB
+interface DeduplicatedSource {
   source_name: string;
   source_type: string;
   is_active: boolean;
+  api_endpoint: string | null;
   update_frequency: string;
   configuration: any;
-  last_sync?: string;
-  created_at: string;
+  webhook_url: string | null;
+  webhook_secret: string | null;
 }
 
 interface SourceStatus {
@@ -27,113 +173,53 @@ interface SourceStatus {
   label: string;
 }
 
-type RefreshMode = 'static' | 'feed';
-
-interface SourceTemplate {
-  name: string;
-  type: string;
-  description: string;
-  refresh_mode: RefreshMode;
-  icon: any;
-  fields: string[];
-  default_frequency?: string;
-}
-
-// Knowledge Base templates (for labels/descriptions only)
-const KNOWLEDGE_SOURCE_TEMPLATES: Record<string, SourceTemplate> = {
-  youtube_channels: {
-    name: "YouTube Channels",
-    type: "knowledge_base",
-    description: "📺 Monitor YouTube channels for recurring new video updates",
-    refresh_mode: "feed",
-    icon: Youtube,
-    fields: ["channel_url", "youtube_api_key", "update_frequency", "tags"],
-    default_frequency: "daily"
-  },
-  website_page: {
-    name: "Website Page",
-    type: "knowledge_base",
-    description: "🌐 Single website page for static content extraction",
-    refresh_mode: "static",
-    icon: Globe,
-    fields: ["url", "custom_name"],
-    default_frequency: "manual"
-  },
-  document_upload: {
-    name: "Document Upload",
-    type: "knowledge_base",
-    description: "📄 Upload documents (PDF, etc.) for knowledge extraction",
-    refresh_mode: "static",
-    icon: FileText,
-    fields: ["title", "tags"],
-    default_frequency: "manual"
-  },
-  bigquery: {
-    name: "BigQuery",
-    type: "knowledge_base",
-    description: "🗄️ Query BigQuery datasets for structured data",
-    refresh_mode: "feed",
-    icon: Globe,
-    fields: ["project_id", "dataset_id", "query", "update_frequency"],
-    default_frequency: "daily"
-  },
-  custom_website: {
-    name: "Custom Website",
-    type: "knowledge_base",
-    description: "🌐 Custom website scraping configuration",
-    refresh_mode: "feed",
-    icon: Globe,
-    fields: ["url", "custom_name", "update_frequency", "filters"],
-    default_frequency: "daily"
-  }
-};
-
-// API source templates (for labels/descriptions only)
-const API_SOURCE_TEMPLATES: Record<string, { name: string; type: string; description: string; fields: string[]; default_frequency: string }> = {
-  eodhd: { name: "EODHD API", type: "api", description: "Stock & crypto intraday data", fields: ["api_key"], default_frequency: "5min" },
-  eodhd_api: { name: "EODHD API", type: "api", description: "Stock & crypto intraday data (legacy)", fields: ["api_key"], default_frequency: "5min" },
-  whale_alert_api: { name: "Whale Alert API", type: "api", description: "Whale transactions via API", fields: ["api_key"], default_frequency: "30min" },
-  cryptonews_api: { name: "Crypto News API", type: "api", description: "News & sentiment analysis", fields: ["api_key"], default_frequency: "15min" },
-  fear_greed_index: { name: "Fear & Greed Index", type: "api", description: "Market sentiment index", fields: [], default_frequency: "1h" },
-  coinbase_institutional: { name: "Coinbase Institutional", type: "api", description: "Institutional flow analysis", fields: [], default_frequency: "1h" }
-};
-
-// Webhook source templates (for labels/descriptions only)
-const WEBHOOK_SOURCE_TEMPLATES: Record<string, { name: string; type: string; description: string; fields: string[]; default_frequency: string }> = {
-  whale_alert: { name: "Whale Alert Webhook", type: "webhook", description: "Real-time tracked wallet events", fields: ["webhook_url"], default_frequency: "manual" },
-  quicknode_webhooks: { name: "QuickNode Webhooks", type: "webhook", description: "On-chain event webhooks", fields: ["webhook_url"], default_frequency: "manual" }
-};
-
 export function DataSourcesPanel() {
-  const [dataSources, setDataSources] = useState<DataSource[]>([]);
+  const [sources, setSources] = useState<DeduplicatedSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+  const [selectedSourceName, setSelectedSourceName] = useState<string>('');
   const [formData, setFormData] = useState<any>({});
   const [syncingSource, setSyncingSource] = useState<string | null>(null);
-  const [editingSource, setEditingSource] = useState<DataSource | null>(null);
+  const [editingSource, setEditingSource] = useState<DeduplicatedSource | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const { toast } = useToast();
 
   useEffect(() => {
-    loadDataSources();
+    loadSources();
   }, []);
 
-  const loadDataSources = async () => {
+  const loadSources = async () => {
     try {
-      const { data, error } = await supabase
+      // Fetch all rows and deduplicate client-side by source_name (keeping latest)
+      const { data: rawData, error } = await supabase
         .from("ai_data_sources")
-        .select("*")
-        .order("created_at", { ascending: false });
+        .select("source_name, source_type, is_active, api_endpoint, update_frequency, configuration, webhook_url, webhook_secret, updated_at")
+        .order("updated_at", { ascending: false });
 
       if (error) throw error;
 
-      // Store ALL rows from Supabase - no frontend filtering
-      const loaded = data || [];
-      console.log("[DataSourcesPanel] Loaded ai_data_sources:", loaded);
-      setDataSources(loaded);
+      // Client-side DISTINCT ON simulation - one row per source_name
+      const seen = new Set<string>();
+      const dedupedData: DeduplicatedSource[] = [];
+      for (const row of rawData || []) {
+        if (!seen.has(row.source_name)) {
+          seen.add(row.source_name);
+          dedupedData.push({
+            source_name: row.source_name,
+            source_type: row.source_type,
+            is_active: row.is_active,
+            api_endpoint: row.api_endpoint,
+            update_frequency: row.update_frequency,
+            configuration: row.configuration,
+            webhook_url: row.webhook_url,
+            webhook_secret: row.webhook_secret,
+          });
+        }
+      }
+      console.log("[DataSourcesPanel] Loaded deduplicated sources:", dedupedData.map(s => s.source_name));
+      setSources(dedupedData);
     } catch (error) {
-      console.error("[DataSourcesPanel] Error:", error);
+      console.error("[DataSourcesPanel] Error loading sources:", error);
       toast({
         title: "Error",
         description: "Failed to load data sources",
@@ -144,52 +230,70 @@ export function DataSourcesPanel() {
     }
   };
 
-  // SIMPLE FILTERING: Signals = everything that is NOT knowledge_base
+  // Categorize using FIXED MAPPING (not source_type from DB)
   const signalSources = useMemo(() => {
-    if (!dataSources) return [];
-    return dataSources.filter((s) => s.source_type !== "knowledge_base");
-  }, [dataSources]);
+    return sources.filter((s) => !KNOWLEDGE_BASE_SOURCE_NAMES.includes(s.source_name));
+  }, [sources]);
 
-  // SIMPLE FILTERING: Knowledge Base = source_type === "knowledge_base"
   const knowledgeBaseSources = useMemo(() => {
-    if (!dataSources) return [];
-    return dataSources.filter((s) => s.source_type === "knowledge_base");
-  }, [dataSources]);
+    return sources.filter((s) => KNOWLEDGE_BASE_SOURCE_NAMES.includes(s.source_name));
+  }, [sources]);
 
-  const getSourceStatus = (source: DataSource): SourceStatus => {
+  const getSourceStatus = (source: DeduplicatedSource): SourceStatus => {
     if (!source.is_active) {
       return { color: 'red', label: 'Inactive' };
-    }
-    if (!source.last_sync) {
-      return { color: 'yellow', label: 'Pending' };
     }
     return { color: 'green', label: 'Active' };
   };
 
-  const syncSource = async (sourceId: string, sourceName: string) => {
-    setSyncingSource(sourceId);
-    try {
-      const isKnowledgeBase = knowledgeBaseSources.some(s => s.id === sourceId);
-      const functionName = isKnowledgeBase ? 'knowledge-collector' : 'external-data-collector';
-      const body = isKnowledgeBase 
-        ? { sourceId } 
-        : { action: 'sync_source', sourceId };
+  const getSourceMeta = (sourceName: string) => {
+    return CANONICAL_SOURCES[sourceName] || {
+      name: sourceName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+      category: KNOWLEDGE_BASE_SOURCE_NAMES.includes(sourceName) ? "knowledge_base" : "signals",
+      description: `Data source: ${sourceName}`,
+      icon: Globe,
+      configFields: [],
+      defaultFrequency: "daily",
+    };
+  };
 
-      const { data, error } = await supabase.functions.invoke(functionName, { body });
+  const syncSource = async (sourceName: string) => {
+    setSyncingSource(sourceName);
+    try {
+      const isKnowledgeBase = KNOWLEDGE_BASE_SOURCE_NAMES.includes(sourceName);
+      const functionName = isKnowledgeBase ? 'knowledge-collector' : 'external-data-collector';
+      
+      // Find source ID for the sync
+      const { data: sourceData } = await supabase
+        .from("ai_data_sources")
+        .select("id")
+        .eq("source_name", sourceName)
+        .limit(1)
+        .single();
+
+      if (!sourceData) {
+        throw new Error("Source not found");
+      }
+
+      const body = isKnowledgeBase 
+        ? { sourceId: sourceData.id } 
+        : { action: 'sync_source', sourceId: sourceData.id };
+
+      const { error } = await supabase.functions.invoke(functionName, { body });
 
       if (error) throw error;
 
       toast({
         title: "Sync triggered",
-        description: `${sourceName} sync has been initiated.`,
+        description: `${getSourceMeta(sourceName).name} sync has been initiated.`,
       });
       
-      await loadDataSources();
+      await loadSources();
     } catch (error) {
       console.error('Sync error:', error);
       toast({
         title: "Sync failed",
-        description: `Failed to sync ${sourceName}`,
+        description: `Failed to sync ${getSourceMeta(sourceName).name}`,
         variant: "destructive",
       });
     } finally {
@@ -199,30 +303,28 @@ export function DataSourcesPanel() {
 
   const addDataSource = async () => {
     try {
-      const template = KNOWLEDGE_SOURCE_TEMPLATES[selectedTemplate] || 
-                       API_SOURCE_TEMPLATES[selectedTemplate] || 
-                       WEBHOOK_SOURCE_TEMPLATES[selectedTemplate];
+      const meta = getSourceMeta(selectedSourceName);
       
-      if (!template) {
+      if (!selectedSourceName) {
         toast({ title: "Error", description: "Please select a source type", variant: "destructive" });
         return;
       }
 
       const { error } = await supabase.from('ai_data_sources').insert({
-        source_name: selectedTemplate,
-        source_type: template.type,
+        source_name: selectedSourceName,
+        source_type: meta.category === "knowledge_base" ? "knowledge_base" : "api",
         is_active: true,
-        update_frequency: formData.update_frequency || template.default_frequency || 'daily',
-        configuration: formData
+        update_frequency: formData.update_frequency || meta.defaultFrequency,
+        configuration: formData,
       } as any);
 
       if (error) throw error;
 
       toast({ title: "Success", description: "Data source added successfully" });
       setShowAddDialog(false);
-      setSelectedTemplate('');
+      setSelectedSourceName('');
       setFormData({});
-      await loadDataSources();
+      await loadSources();
     } catch (error) {
       console.error('Add error:', error);
       toast({ title: "Error", description: "Failed to add data source", variant: "destructive" });
@@ -240,96 +342,82 @@ export function DataSourcesPanel() {
           update_frequency: editFormData.update_frequency || editingSource.update_frequency,
           is_active: editFormData.is_active !== undefined ? editFormData.is_active : editingSource.is_active
         })
-        .eq('id', editingSource.id);
+        .eq('source_name', editingSource.source_name);
 
       if (error) throw error;
 
       toast({ title: "Success", description: "Data source updated" });
       setEditingSource(null);
       setEditFormData({});
-      await loadDataSources();
+      await loadSources();
     } catch (error) {
       console.error('Update error:', error);
       toast({ title: "Error", description: "Failed to update", variant: "destructive" });
     }
   };
 
-  const deleteDataSource = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this data source?')) return;
+  const deleteDataSource = async (sourceName: string) => {
+    if (!confirm('Are you sure you want to delete this data source? This will delete ALL entries for this source.')) return;
     
     try {
-      const { error } = await supabase.from('ai_data_sources').delete().eq('id', id);
+      const { error } = await supabase.from('ai_data_sources').delete().eq('source_name', sourceName);
       if (error) throw error;
       toast({ title: "Deleted", description: "Data source removed" });
-      await loadDataSources();
+      await loadSources();
     } catch (error) {
       console.error('Delete error:', error);
       toast({ title: "Error", description: "Failed to delete", variant: "destructive" });
     }
   };
 
-  const openEditDialog = (source: DataSource) => {
+  const openEditDialog = (source: DeduplicatedSource) => {
     setEditingSource(source);
     setEditFormData({ ...source.configuration, is_active: source.is_active });
   };
 
-  const renderSourceCard = (source: DataSource) => {
-    const template = KNOWLEDGE_SOURCE_TEMPLATES[source.source_name];
-    const apiTemplate = API_SOURCE_TEMPLATES[source.source_name];
-    const webhookTemplate = WEBHOOK_SOURCE_TEMPLATES[source.source_name];
+  const isWebhookSource = (sourceName: string) => {
+    return sourceName.includes('webhook') || sourceName === 'whale_alert' || sourceName === 'quicknode_webhooks';
+  };
+
+  const renderSourceCard = (source: DeduplicatedSource) => {
+    const meta = getSourceMeta(source.source_name);
     const status = getSourceStatus(source);
-    const Icon = template?.icon || Globe;
-
-    // Get display name from templates or format source_name
-    const displayTitle = template?.name || apiTemplate?.name || webhookTemplate?.name ||
-      source.source_name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-
-    // Type badge
-    let typeBadge = source.source_type;
-    if (source.source_type === 'webhook' || source.source_name.includes('webhook')) {
-      typeBadge = 'Webhook';
-    } else if (source.source_type === 'knowledge_base') {
-      typeBadge = 'Knowledge';
-    } else {
-      typeBadge = 'API';
-    }
-
-    const isWebhook = source.source_type === 'webhook' || source.source_name.includes('webhook');
+    const Icon = meta.icon;
+    const isWebhook = isWebhookSource(source.source_name);
 
     return (
-      <Card key={source.id}>
+      <Card key={source.source_name}>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Icon className="h-5 w-5" />
-              <CardTitle className="text-base">{displayTitle}</CardTitle>
+              <CardTitle className="text-base">{meta.name}</CardTitle>
             </div>
             <div className="flex items-center gap-2">
               <Circle className={`h-2 w-2 fill-current ${
                 status.color === 'green' ? 'text-green-500' :
                 status.color === 'yellow' ? 'text-yellow-500' : 'text-red-500'
               }`} />
-              <Badge variant="outline" className="text-xs">{typeBadge}</Badge>
+              <Badge variant="outline" className="text-xs">
+                {meta.category === "knowledge_base" ? "Knowledge" : isWebhook ? "Webhook" : "API"}
+              </Badge>
             </div>
           </div>
-          <CardDescription className="text-xs">
-            {template?.description || apiTemplate?.description || webhookTemplate?.description || source.source_type}
-          </CardDescription>
+          <CardDescription className="text-xs">{meta.description}</CardDescription>
         </CardHeader>
         <CardContent className="pt-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
-            <span>Frequency: {source.update_frequency || 'N/A'}</span>
-            <span>Last sync: {source.last_sync ? new Date(source.last_sync).toLocaleDateString() : 'Never'}</span>
+            <span>Frequency: {source.update_frequency || meta.defaultFrequency}</span>
           </div>
           <div className="flex gap-2">
             <Button
               variant="outline"
               size="sm"
-              onClick={() => syncSource(source.id, displayTitle)}
-              disabled={syncingSource === source.id || isWebhook}
+              onClick={() => syncSource(source.source_name)}
+              disabled={syncingSource === source.source_name || isWebhook}
               title={isWebhook ? "Webhook sources receive data in real time" : "Sync now"}
             >
-              <RefreshCw className={`h-4 w-4 mr-1 ${syncingSource === source.id ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 mr-1 ${syncingSource === source.source_name ? 'animate-spin' : ''}`} />
               Sync
             </Button>
             <Dialog>
@@ -341,9 +429,9 @@ export function DataSourcesPanel() {
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Edit {displayTitle}</DialogTitle>
+                  <DialogTitle>Edit {meta.name}</DialogTitle>
                 </DialogHeader>
-                {editingSource?.id === source.id && (
+                {editingSource?.source_name === source.source_name && (
                   <>
                     <div className="space-y-4">
                       <div>
@@ -375,6 +463,7 @@ export function DataSourcesPanel() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
+                            <SelectItem value="realtime">Realtime</SelectItem>
                             <SelectItem value="manual">Manual</SelectItem>
                             <SelectItem value="5min">Every 5 minutes</SelectItem>
                             <SelectItem value="15min">Every 15 minutes</SelectItem>
@@ -398,7 +487,7 @@ export function DataSourcesPanel() {
                 )}
               </DialogContent>
             </Dialog>
-            <Button variant="ghost" size="sm" onClick={() => deleteDataSource(source.id)}>
+            <Button variant="ghost" size="sm" onClick={() => deleteDataSource(source.source_name)}>
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
@@ -406,6 +495,34 @@ export function DataSourcesPanel() {
       </Card>
     );
   };
+
+  const renderConfigFields = (sourceName: string) => {
+    const meta = getSourceMeta(sourceName);
+    if (!meta.configFields.length) return null;
+
+    return (
+      <div className="space-y-4 mt-4">
+        {meta.configFields.map((field) => (
+          <div key={field}>
+            <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
+            <Input
+              value={formData[field] || ''}
+              onChange={(e) => setFormData((prev: any) => ({ ...prev, [field]: e.target.value }))}
+              placeholder={`Enter ${field.replace(/_/g, ' ')}`}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Get list of sources that can be added (not already in the list)
+  const availableSourcesForAdd = useMemo(() => {
+    const existingNames = new Set(sources.map(s => s.source_name));
+    return Object.entries(CANONICAL_SOURCES)
+      .filter(([name]) => !existingNames.has(name))
+      .map(([name, meta]) => ({ name, ...meta }));
+  }, [sources]);
 
   if (loading) {
     return (
@@ -427,7 +544,7 @@ export function DataSourcesPanel() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">External Data Sources</h2>
-          <p className="text-muted-foreground">Manage signals and knowledge sources</p>
+          <p className="text-muted-foreground">Manage signals and knowledge sources ({sources.length} unique sources)</p>
         </div>
         <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
           <DialogTrigger asChild>
@@ -436,81 +553,64 @@ export function DataSourcesPanel() {
               Add Source
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Add Data Source</DialogTitle>
             </DialogHeader>
-            <div className="space-y-6">
-              {/* API Sources */}
+            <div className="space-y-4">
               <div>
-                <h3 className="text-lg font-semibold mb-2">API Sources</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {Object.entries(API_SOURCE_TEMPLATES).filter(([key]) => key !== 'eodhd_api').map(([key, template]) => (
-                    <Card
-                      key={key}
-                      className={`cursor-pointer transition-colors hover:border-primary/50 ${
-                        selectedTemplate === key ? 'border-primary bg-primary/5' : ''
-                      }`}
-                      onClick={() => setSelectedTemplate(key)}
-                    >
-                      <CardContent className="p-4">
-                        <h4 className="font-medium">{template.name}</h4>
-                        <p className="text-sm text-muted-foreground">{template.description}</p>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
+                <Label>Source Type</Label>
+                <Select value={selectedSourceName} onValueChange={setSelectedSourceName}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a source type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__kb_header" disabled className="font-bold text-muted-foreground">
+                      Knowledge Base
+                    </SelectItem>
+                    {availableSourcesForAdd
+                      .filter(s => s.category === "knowledge_base")
+                      .map(s => (
+                        <SelectItem key={s.name} value={s.name}>
+                          {CANONICAL_SOURCES[s.name]?.name || s.name}
+                        </SelectItem>
+                      ))}
+                    <SelectItem value="__signal_header" disabled className="font-bold text-muted-foreground">
+                      Live Signals
+                    </SelectItem>
+                    {availableSourcesForAdd
+                      .filter(s => s.category === "signals")
+                      .map(s => (
+                        <SelectItem key={s.name} value={s.name}>
+                          {CANONICAL_SOURCES[s.name]?.name || s.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
               </div>
-              {/* Webhook Sources */}
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Webhook Sources</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {Object.entries(WEBHOOK_SOURCE_TEMPLATES).map(([key, template]) => (
-                    <Card
-                      key={key}
-                      className={`cursor-pointer transition-colors hover:border-primary/50 ${
-                        selectedTemplate === key ? 'border-primary bg-primary/5' : ''
-                      }`}
-                      onClick={() => setSelectedTemplate(key)}
-                    >
-                      <CardContent className="p-4">
-                        <h4 className="font-medium">{template.name}</h4>
-                        <p className="text-sm text-muted-foreground">{template.description}</p>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-              {/* Knowledge Base Sources */}
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Knowledge Base</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {Object.entries(KNOWLEDGE_SOURCE_TEMPLATES).map(([key, template]) => (
-                    <Card
-                      key={key}
-                      className={`cursor-pointer transition-colors hover:border-primary/50 ${
-                        selectedTemplate === key ? 'border-primary bg-primary/5' : ''
-                      }`}
-                      onClick={() => setSelectedTemplate(key)}
-                    >
-                      <CardContent className="p-4">
-                        <h4 className="font-medium">{template.name}</h4>
-                        <p className="text-sm text-muted-foreground">{template.description}</p>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </div>
+
+              {selectedSourceName && selectedSourceName !== '__kb_header' && selectedSourceName !== '__signal_header' && (
+                <>
+                  <div className="p-3 bg-muted rounded-md">
+                    <p className="text-sm font-medium">{getSourceMeta(selectedSourceName).name}</p>
+                    <p className="text-xs text-muted-foreground">{getSourceMeta(selectedSourceName).description}</p>
+                    <Badge variant="outline" className="mt-2 text-xs">
+                      Category: {getSourceMeta(selectedSourceName).category === "knowledge_base" ? "Knowledge Base" : "Live Signals"}
+                    </Badge>
+                  </div>
+                  {renderConfigFields(selectedSourceName)}
+                </>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => {
                 setShowAddDialog(false);
-                setSelectedTemplate('');
+                setSelectedSourceName('');
                 setFormData({});
               }}>
                 Cancel
               </Button>
-              <Button onClick={addDataSource} disabled={!selectedTemplate}>
+              <Button onClick={addDataSource} disabled={!selectedSourceName || selectedSourceName.startsWith('__')}>
                 Add Source
               </Button>
             </DialogFooter>
@@ -518,7 +618,7 @@ export function DataSourcesPanel() {
         </Dialog>
       </div>
 
-      {dataSources.length === 0 ? (
+      {sources.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <p className="text-muted-foreground">No data sources configured yet.</p>
@@ -530,18 +630,18 @@ export function DataSourcesPanel() {
       ) : (
         <Tabs defaultValue="signals" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="signals">Signals (API / Webhook) ({signalSources.length})</TabsTrigger>
+            <TabsTrigger value="signals">Live Signals ({signalSources.length})</TabsTrigger>
             <TabsTrigger value="knowledge">Knowledge Base ({knowledgeBaseSources.length})</TabsTrigger>
           </TabsList>
           
           <TabsContent value="signals" className="space-y-4">
-            {/* Debug: raw ai_data_sources rows */}
+            {/* Debug panel */}
             <details className="mb-4">
               <summary className="cursor-pointer text-xs text-muted-foreground">
-                Debug: raw ai_data_sources rows ({dataSources.length} total, {signalSources.length} signals)
+                Debug: deduplicated sources ({sources.length} total, {signalSources.length} signals)
               </summary>
               <pre className="mt-2 max-h-64 overflow-auto rounded bg-muted p-2 text-[10px] leading-tight">
-                {JSON.stringify(signalSources, null, 2)}
+                {JSON.stringify(signalSources.map(s => s.source_name), null, 2)}
               </pre>
             </details>
 
