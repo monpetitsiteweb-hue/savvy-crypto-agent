@@ -141,7 +141,17 @@ serve(async (req) => {
             continue;
           }
 
-          const data = await response.json();
+          // Safe JSON parsing - avoid crash on invalid response body
+          let data;
+          try {
+            data = await response.json();
+          } catch (jsonErr) {
+            console.error(`❌ Invalid JSON from EODHD for ${localSymbol} (remote: ${eodhdSymbol}).`);
+            const text = await response.text().catch(() => "<unreadable>");
+            console.error("Raw response:", text.slice(0, 500));
+            continue;
+          }
+
           if (!Array.isArray(data) || data.length === 0) {
             console.log(`⚠️ No data returned for ${localSymbol} (remote: ${eodhdSymbol})`);
             continue;
