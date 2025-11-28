@@ -2,33 +2,49 @@
 // Maintains definitive list of tradable BASE-EUR markets on Coinbase
 
 export const SUPPORTED_EUR_PAIRS = [
-  'BTC-EUR',
-  'ETH-EUR', 
-  'XRP-EUR',
-  'ADA-EUR',
-  'SOL-EUR',
-  'DOT-EUR',
-  'AVAX-EUR',
-  'LINK-EUR',
-  'UNI-EUR',
+  // Major & Original coins
   'AAVE-EUR',
-  'CRV-EUR',
-  'USDC-EUR',
-  'USDT-EUR',
-  'LTC-EUR',
-  'BCH-EUR',
-  'XLM-EUR',
+  'ADA-EUR',
   'ALGO-EUR',
   'ATOM-EUR',
+  'AVAX-EUR',
+  'BCH-EUR',
+  'BTC-EUR',
+  'CRV-EUR',
+  'DOT-EUR',
+  'ETH-EUR',
+  'FIL-EUR',
   'ICP-EUR',
-  'FIL-EUR'
+  'LINK-EUR',
+  'LTC-EUR',
+  'SOL-EUR',
+  'UNI-EUR',
+  'USDC-EUR',
+  'USDT-EUR',
+  'XLM-EUR',
+  'XRP-EUR',
+  // Extended coins (Coinbase + EODHD supported)
+  'APT-EUR',
+  'ARB-EUR',
+  'DOGE-EUR',
+  'EOS-EUR',
+  'FLOW-EUR',
+  'GRT-EUR',
+  'HBAR-EUR',
+  'IMX-EUR',
+  'MATIC-EUR',
+  'NEAR-EUR',
+  'OP-EUR',
+  'SHIB-EUR',
+  'SUI-EUR',
+  'VET-EUR',
+  'XTZ-EUR',
 ];
 
 export const UNSUPPORTED_EUR_PAIRS = [
   'DAI-EUR',    // 404 - Delisted
   'COMP-EUR',   // 404 - Delisted  
   'SUSHI-EUR',  // 400 - Not available
-  'MATIC-EUR'   // 400 - Delisted
 ];
 
 export interface MarketAvailabilityCheck {
