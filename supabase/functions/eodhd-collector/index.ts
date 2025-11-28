@@ -152,6 +152,12 @@ serve(async (req) => {
             continue;
           }
 
+          // Limit number of candles to reduce memory
+          const MAX_CANDLES = 300;
+          if (Array.isArray(data) && data.length > MAX_CANDLES) {
+            data = data.slice(-MAX_CANDLES);
+          }
+
           if (!Array.isArray(data) || data.length === 0) {
             console.log(`⚠️ No data returned for ${localSymbol} (remote: ${eodhdSymbol})`);
             continue;
@@ -179,21 +185,19 @@ serve(async (req) => {
             volume: parseFloat(candle.volume || 0),
           }));
 
-          // Upsert OHLCV data (idempotent - no duplicates)
-          const { data: upsertedOhlcv, error: ohlcvError } = await supabaseClient
+          // Upsert OHLCV data (idempotent - no duplicates, no .select() to reduce memory)
+          const { error: ohlcvError } = await supabaseClient
             .from('market_ohlcv_raw')
             .upsert(ohlcvRows, {
               onConflict: 'symbol,granularity,ts_utc',
               ignoreDuplicates: true
-            })
-            .select();
+            });
 
           if (ohlcvError) {
             console.error(`❌ Error upserting OHLCV for ${localSymbol}:`, ohlcvError.message);
           } else {
-            const insertedCount = upsertedOhlcv?.length || 0;
-            totalOhlcvRowsInserted += insertedCount;
-            console.log(`✅ Upserted ${insertedCount} OHLCV rows for ${localSymbol} (${granularity})`);
+            totalOhlcvRowsInserted += ohlcvRows.length;
+            console.log(`✅ Upserted ${ohlcvRows.length} OHLCV rows for ${localSymbol} (${granularity})`);
           }
 
           // ============================================================
