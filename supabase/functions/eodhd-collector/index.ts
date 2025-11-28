@@ -7,6 +7,48 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
 };
 
+// ============================================================================
+// SYMBOL MAPPING: Local symbols (EUR-based) → EODHD crypto symbols (USD-based)
+// NOTE: EODHD only provides USD-based crypto pairs with .CC suffix.
+// We map our local symbols for the API call but store the original local symbol
+// in market_ohlcv_raw. FX conversion will be handled in a later iteration.
+// ============================================================================
+const EODHD_CRYPTO_SYMBOL_MAP: Record<string, string> = {
+  'BTC-EUR': 'BTC-USD.CC',
+  'ETH-EUR': 'ETH-USD.CC',
+  'XRP-EUR': 'XRP-USD.CC',
+  'ADA-EUR': 'ADA-USD.CC',
+  'SOL-EUR': 'SOL-USD.CC',
+  'DOT-EUR': 'DOT-USD.CC',
+  'AVAX-EUR': 'AVAX-USD.CC',
+  'LINK-EUR': 'LINK-USD.CC',
+  'LTC-EUR': 'LTC-USD.CC',
+  'BCH-EUR': 'BCH-USD.CC',
+  'ATOM-EUR': 'ATOM-USD.CC',
+  'UNI-EUR': 'UNI-USD.CC',
+  'AAVE-EUR': 'AAVE-USD.CC',
+  'ALGO-EUR': 'ALGO-USD.CC',
+  'XLM-EUR': 'XLM-USD.CC',
+  'FIL-EUR': 'FIL-USD.CC',
+  'ICP-EUR': 'ICP-USD.CC',
+  'CRV-EUR': 'CRV-USD.CC',
+  'USDC-EUR': 'USDC-USD.CC',
+  'USDT-EUR': 'USDT-USD.CC',
+};
+
+/**
+ * Maps a local symbol (e.g. "BTC-EUR") to an EODHD crypto symbol (e.g. "BTC-USD.CC").
+ * If no mapping exists, falls back to appending .CC to the symbol.
+ */
+function toEodhdCryptoSymbol(localSymbol: string): string {
+  if (EODHD_CRYPTO_SYMBOL_MAP[localSymbol]) {
+    return EODHD_CRYPTO_SYMBOL_MAP[localSymbol];
+  }
+  // Fallback: extract base asset and append -USD.CC
+  const base = localSymbol.split('-')[0];
+  return `${base}-USD.CC`;
+}
+
 // Granularity mapping for EODHD intervals
 const GRANULARITY_MAP: Record<string, string> = {
   '1m': '1h',   // Map 1min to 1h granularity bucket
@@ -78,42 +120,46 @@ serve(async (req) => {
       processedSources.push(source.id);
 
       for (const symbol of symbols) {
+        // symbol here is the "local" symbol from config (e.g. "BTC-EUR")
+        const localSymbol = symbol;
+        
         try {
-          // Convert symbol format for EODHD API
-          // BTC-EUR -> BTC-EUR.CC, BTC-USD -> BTC-USD.CC, BTC -> BTC.CC
-          let eodhSymbol: string;
-          if (symbol.includes('-')) {
-            eodhSymbol = `${symbol}.CC`;
-          } else {
-            eodhSymbol = `${symbol}.CC`;
-          }
+          // Map local symbol to EODHD crypto symbol for API call
+          // e.g. "BTC-EUR" → "BTC-USD.CC" (EODHD only has USD-based crypto pairs)
+          const eodhdSymbol = toEodhdCryptoSymbol(localSymbol);
           
-          const url = `https://eodhd.com/api/intraday/${eodhSymbol}?api_token=${apiKey}&interval=${interval}&fmt=json`;
+          // Build EODHD intraday URL
+          const baseUrl = (source.configuration?.base_url ?? 'https://eodhd.com/api/').replace(/\/$/, '');
+          const url = `${baseUrl}/intraday/${encodeURIComponent(eodhdSymbol)}?api_token=${encodeURIComponent(apiKey)}&interval=${encodeURIComponent(interval)}&fmt=json`;
           
-          console.log(`📡 Fetching ${symbol} from EODHD...`);
+          console.log(`📡 Fetching ${localSymbol} (EODHD: ${eodhdSymbol}) from EODHD...`);
           const response = await fetch(url);
           
           if (!response.ok) {
-            console.error(`❌ EODHD API error for ${symbol}: ${response.status} ${response.statusText}`);
+            // Log both local and remote symbols for debugging, hide API key
+            console.error(`❌ EODHD API error for ${localSymbol} (remote: ${eodhdSymbol}) – status ${response.status} ${response.statusText} – path: /intraday/${eodhdSymbol}`);
             continue;
           }
 
           const data = await response.json();
           if (!Array.isArray(data) || data.length === 0) {
-            console.log(`⚠️ No data returned for ${symbol}`);
+            console.log(`⚠️ No data returned for ${localSymbol} (remote: ${eodhdSymbol})`);
             continue;
           }
 
-          console.log(`📈 Received ${data.length} candles for ${symbol}`);
+          console.log(`📈 Received ${data.length} candles for ${localSymbol}`);
 
           // ============================================================
           // PART 1: Store OHLCV data into market_ohlcv_raw
+          // NOTE: We store the LOCAL symbol (e.g. "BTC-EUR") in the DB,
+          // even though the actual price data is USD-based from EODHD.
+          // FX conversion will be handled in a later iteration.
           // ============================================================
           const granularity = GRANULARITY_MAP[interval] || '1h';
           
           // Map EODHD response to market_ohlcv_raw format
           const ohlcvRows = data.map((candle: any) => ({
-            symbol: symbol, // Keep original symbol format (e.g., BTC-EUR)
+            symbol: localSymbol, // Keep original local symbol (e.g., BTC-EUR)
             granularity: granularity,
             ts_utc: new Date(candle.datetime || candle.timestamp * 1000).toISOString(),
             open: parseFloat(candle.open),
@@ -133,11 +179,11 @@ serve(async (req) => {
             .select();
 
           if (ohlcvError) {
-            console.error(`❌ Error upserting OHLCV for ${symbol}:`, ohlcvError.message);
+            console.error(`❌ Error upserting OHLCV for ${localSymbol}:`, ohlcvError.message);
           } else {
             const insertedCount = upsertedOhlcv?.length || 0;
             totalOhlcvRowsInserted += insertedCount;
-            console.log(`✅ Upserted ${insertedCount} OHLCV rows for ${symbol} (${granularity})`);
+            console.log(`✅ Upserted ${insertedCount} OHLCV rows for ${localSymbol} (${granularity})`);
           }
 
           // ============================================================
@@ -169,7 +215,7 @@ serve(async (req) => {
                 source_id: source.id,
                 user_id: source.user_id,
                 timestamp: new Date(latest.datetime || latest.timestamp * 1000).toISOString(),
-                symbol: symbol,
+                symbol: localSymbol,
                 signal_type: 'eodhd_intraday_volume_spike',
                 signal_strength: Math.min(100, (latestVolume / avgVolume - 1) * 50),
                 source: 'eodhd',
@@ -190,7 +236,7 @@ serve(async (req) => {
                 source_id: source.id,
                 user_id: source.user_id,
                 timestamp: new Date(latest.datetime || latest.timestamp * 1000).toISOString(),
-                symbol: symbol,
+                symbol: localSymbol,
                 signal_type: 'eodhd_unusual_volatility',
                 signal_strength: Math.min(100, volatility * 5000),
                 source: 'eodhd',
@@ -210,7 +256,7 @@ serve(async (req) => {
                 source_id: source.id,
                 user_id: source.user_id,
                 timestamp: new Date(latest.datetime || latest.timestamp * 1000).toISOString(),
-                symbol: symbol,
+                symbol: localSymbol,
                 signal_type: 'eodhd_price_breakout_bullish',
                 signal_strength: Math.min(100, Math.abs(priceChangePct) * 10),
                 source: 'eodhd',
@@ -227,7 +273,7 @@ serve(async (req) => {
                 source_id: source.id,
                 user_id: source.user_id,
                 timestamp: new Date(latest.datetime || latest.timestamp * 1000).toISOString(),
-                symbol: symbol,
+                symbol: localSymbol,
                 signal_type: 'eodhd_price_breakdown_bearish',
                 signal_strength: Math.min(100, Math.abs(priceChangePct) * 10),
                 source: 'eodhd',
@@ -251,13 +297,13 @@ serve(async (req) => {
                 console.error('❌ Error inserting EODHD signals:', signalError);
               } else {
                 totalSignalsCreated += signals.length;
-                console.log(`✅ Inserted ${signals.length} signals for ${symbol}`);
+                console.log(`✅ Inserted ${signals.length} signals for ${localSymbol}`);
               }
             }
           }
 
         } catch (error) {
-          console.error(`❌ Error processing ${symbol}:`, error);
+          console.error(`❌ Error processing ${localSymbol}:`, error);
         }
       }
 
