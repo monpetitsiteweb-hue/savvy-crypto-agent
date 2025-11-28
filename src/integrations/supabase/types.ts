@@ -1406,13 +1406,21 @@ export type Database = {
       market_features_v0: {
         Row: {
           created_at: string | null
+          ema_20: number | null
+          ema_200: number | null
+          ema_50: number | null
           granularity: string
+          macd_hist: number | null
+          macd_line: number | null
+          macd_signal: number | null
           ret_1h: number | null
           ret_24h: number | null
           ret_4h: number | null
           ret_7d: number | null
+          rsi_14: number | null
           symbol: string
           ts_utc: string
+          updated_at: string | null
           vol_1h: number | null
           vol_24h: number | null
           vol_4h: number | null
@@ -1420,13 +1428,21 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          ema_20?: number | null
+          ema_200?: number | null
+          ema_50?: number | null
           granularity: string
+          macd_hist?: number | null
+          macd_line?: number | null
+          macd_signal?: number | null
           ret_1h?: number | null
           ret_24h?: number | null
           ret_4h?: number | null
           ret_7d?: number | null
+          rsi_14?: number | null
           symbol: string
           ts_utc: string
+          updated_at?: string | null
           vol_1h?: number | null
           vol_24h?: number | null
           vol_4h?: number | null
@@ -1434,13 +1450,21 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          ema_20?: number | null
+          ema_200?: number | null
+          ema_50?: number | null
           granularity?: string
+          macd_hist?: number | null
+          macd_line?: number | null
+          macd_signal?: number | null
           ret_1h?: number | null
           ret_24h?: number | null
           ret_4h?: number | null
           ret_7d?: number | null
+          rsi_14?: number | null
           symbol?: string
           ts_utc?: string
+          updated_at?: string | null
           vol_1h?: number | null
           vol_24h?: number | null
           vol_4h?: number | null
