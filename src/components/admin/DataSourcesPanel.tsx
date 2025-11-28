@@ -168,21 +168,6 @@ interface DeduplicatedSource {
   webhook_secret: string | null;
 }
 
-// Interface for individual instance
-interface SourceInstance {
-  id: string;
-  source_name: string;
-  source_type: string;
-  is_active: boolean;
-  api_endpoint: string | null;
-  update_frequency: string;
-  configuration: any;
-  webhook_url: string | null;
-  webhook_secret: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
 interface SourceStatus {
   color: 'green' | 'yellow' | 'red';
   label: string;
@@ -190,7 +175,6 @@ interface SourceStatus {
 
 export function DataSourcesPanel() {
   const [sources, setSources] = useState<DeduplicatedSource[]>([]);
-  const [allInstances, setAllInstances] = useState<SourceInstance[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<"" | "signals" | "knowledge_base">("");
@@ -214,18 +198,15 @@ export function DataSourcesPanel() {
 
   const loadSources = async () => {
     try {
-      // Fetch all rows (including all instances)
+      // Fetch all rows and deduplicate client-side by source_name (keeping latest)
       const { data: rawData, error } = await supabase
         .from("ai_data_sources")
-        .select("id, source_name, source_type, is_active, api_endpoint, update_frequency, configuration, webhook_url, webhook_secret, created_at, updated_at")
+        .select("source_name, source_type, is_active, api_endpoint, update_frequency, configuration, webhook_url, webhook_secret, updated_at")
         .order("updated_at", { ascending: false });
 
       if (error) throw error;
 
-      // Store all instances
-      setAllInstances(rawData || []);
-
-      // Client-side DISTINCT ON simulation - one row per source_name (for card display)
+      // Client-side DISTINCT ON simulation - one row per source_name
       const seen = new Set<string>();
       const dedupedData: DeduplicatedSource[] = [];
       for (const row of rawData || []) {
@@ -244,7 +225,6 @@ export function DataSourcesPanel() {
         }
       }
       console.log("[DataSourcesPanel] Loaded deduplicated sources:", dedupedData.map(s => s.source_name));
-      console.log("[DataSourcesPanel] Total instances:", rawData?.length);
       setSources(dedupedData);
     } catch (error) {
       console.error("[DataSourcesPanel] Error loading sources:", error);
@@ -408,51 +388,11 @@ export function DataSourcesPanel() {
     return sourceName.includes('webhook') || sourceName === 'whale_alert' || sourceName === 'quicknode_webhooks';
   };
 
-  // Get display text for an instance
-  const getInstanceDisplayText = (instance: SourceInstance): string => {
-    const meta = getSourceMeta(instance.source_name);
-    const config = instance.configuration || {};
-    
-    // Knowledge base sources
-    if (instance.source_name === 'website_page' && config.url) {
-      return config.url;
-    }
-    if (instance.source_name === 'youtube_channels' && config.channel_url) {
-      return config.channel_url;
-    }
-    if (instance.source_name === 'document_upload' && config.title) {
-      return config.title;
-    }
-    if (instance.source_name === 'bigquery' && config.dataset_id) {
-      return `${config.project_id || 'project'}/${config.dataset_id}`;
-    }
-    
-    // Signal sources
-    if (instance.source_name === 'x_accounts' && config.accounts) {
-      return Array.isArray(config.accounts) ? config.accounts.join(', ') : config.accounts;
-    }
-    if (config.symbols) {
-      return `Symbols: ${Array.isArray(config.symbols) ? config.symbols.join(', ') : config.symbols}`;
-    }
-    if (instance.api_endpoint) {
-      return instance.api_endpoint;
-    }
-    if (config.api_key) {
-      return `API Key: ${config.api_key.substring(0, 8)}...`;
-    }
-    
-    // Fallback
-    return `Instance #${instance.id.substring(0, 8)}`;
-  };
-
   const renderSourceCard = (source: DeduplicatedSource) => {
     const meta = getSourceMeta(source.source_name);
     const status = getSourceStatus(source);
     const Icon = meta.icon;
     const isWebhook = isWebhookSource(source.source_name);
-    
-    // Get all instances for this source
-    const instances = allInstances.filter(i => i.source_name === source.source_name);
 
     return (
       <Card key={source.source_name}>
@@ -475,22 +415,6 @@ export function DataSourcesPanel() {
           <CardDescription className="text-xs">{meta.description}</CardDescription>
         </CardHeader>
         <CardContent className="pt-2">
-          {/* Instances section */}
-          <div className="mb-3 p-2 bg-muted/50 rounded-md">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium">Instances: {instances.length}</span>
-            </div>
-            {instances.length > 0 && (
-              <div className="space-y-1 mt-2 max-h-32 overflow-y-auto">
-                {instances.map((instance) => (
-                  <div key={instance.id} className="text-xs text-muted-foreground truncate">
-                    • {getInstanceDisplayText(instance)}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
             <span>Frequency: {source.update_frequency || meta.defaultFrequency}</span>
           </div>
@@ -601,11 +525,13 @@ export function DataSourcesPanel() {
     );
   };
 
-  // Get ALL canonical sources (allow multiple instances)
+  // Get list of sources that can be added (not already in the list)
   const availableSourcesForAdd = useMemo(() => {
+    const existingNames = new Set(sources.map(s => s.source_name));
     return Object.entries(CANONICAL_SOURCES)
+      .filter(([name]) => !existingNames.has(name))
       .map(([name, meta]) => ({ name, ...meta }));
-  }, []);
+  }, [sources]);
 
   if (loading) {
     return (
