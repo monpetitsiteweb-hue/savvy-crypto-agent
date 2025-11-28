@@ -41,6 +41,23 @@ export const COINBASE_COINS: CoinInfo[] = [
   { symbol: 'ATOM', name: 'Cosmos', category: 'altcoin', tradingPair: 'ATOM-EUR' },
   { symbol: 'ICP', name: 'Internet Computer', category: 'altcoin', tradingPair: 'ICP-EUR' },
   { symbol: 'FIL', name: 'Filecoin', category: 'altcoin', tradingPair: 'FIL-EUR' },
+  
+  // Extended Altcoins (Coinbase + EODHD supported)
+  { symbol: 'APT', name: 'Aptos', category: 'altcoin', tradingPair: 'APT-EUR' },
+  { symbol: 'ARB', name: 'Arbitrum', category: 'altcoin', tradingPair: 'ARB-EUR' },
+  { symbol: 'DOGE', name: 'Dogecoin', category: 'altcoin', tradingPair: 'DOGE-EUR' },
+  { symbol: 'EOS', name: 'EOS', category: 'altcoin', tradingPair: 'EOS-EUR' },
+  { symbol: 'FLOW', name: 'Flow', category: 'altcoin', tradingPair: 'FLOW-EUR' },
+  { symbol: 'GRT', name: 'The Graph', category: 'defi', tradingPair: 'GRT-EUR' },
+  { symbol: 'HBAR', name: 'Hedera', category: 'altcoin', tradingPair: 'HBAR-EUR' },
+  { symbol: 'IMX', name: 'Immutable X', category: 'altcoin', tradingPair: 'IMX-EUR' },
+  { symbol: 'MATIC', name: 'Polygon', category: 'altcoin', tradingPair: 'MATIC-EUR' },
+  { symbol: 'NEAR', name: 'NEAR Protocol', category: 'altcoin', tradingPair: 'NEAR-EUR' },
+  { symbol: 'OP', name: 'Optimism', category: 'altcoin', tradingPair: 'OP-EUR' },
+  { symbol: 'SHIB', name: 'Shiba Inu', category: 'altcoin', tradingPair: 'SHIB-EUR' },
+  { symbol: 'SUI', name: 'Sui', category: 'altcoin', tradingPair: 'SUI-EUR' },
+  { symbol: 'VET', name: 'VeChain', category: 'altcoin', tradingPair: 'VET-EUR' },
+  { symbol: 'XTZ', name: 'Tezos', category: 'altcoin', tradingPair: 'XTZ-EUR' },
 ];
 
 export const getCoinsByCategory = (category: CoinInfo['category']) => {
