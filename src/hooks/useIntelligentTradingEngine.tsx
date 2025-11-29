@@ -16,6 +16,31 @@ import { checkMarketAvailability, filterSupportedSymbols } from '@/utils/marketA
 import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { getFeaturesForEngine } from '@/lib/api/features';
 
+// Global debug object declaration
+declare global {
+  interface Window {
+    __INTELLIGENT?: {
+      checkStrategiesAndExecute?: () => Promise<void>;
+    };
+    __INTELLIGENT_DEBUG?: {
+      stage: string;
+      timestamp: string;
+      details?: any;
+    };
+  }
+}
+
+// Initialize debug object at module load
+if (typeof window !== 'undefined') {
+  if (!window.__INTELLIGENT_DEBUG) {
+    window.__INTELLIGENT_DEBUG = {
+      stage: 'init',
+      timestamp: new Date().toISOString(),
+      details: null,
+    };
+  }
+}
+
 interface Position {
   cryptocurrency: string;
   total_amount: number;
@@ -116,6 +141,15 @@ export const useIntelligentTradingEngine = () => {
   }, [user, loading, testMode]);
 
   const checkStrategiesAndExecute = async () => {
+    // DEBUG STAGE: start
+    if (typeof window !== 'undefined') {
+      window.__INTELLIGENT_DEBUG = {
+        stage: 'start',
+        timestamp: new Date().toISOString(),
+        details: { testMode, userPresent: !!user, loading },
+      };
+    }
+    
     // Explicit debug log for acceptance test
     console.log('🧪 ENGINE: checkStrategiesAndExecute called', {
       testMode,
@@ -130,12 +164,28 @@ export const useIntelligentTradingEngine = () => {
     });
     
     if (!user || loading) {
+      // DEBUG STAGE: early_exit_user_or_loading
+      if (typeof window !== 'undefined') {
+        window.__INTELLIGENT_DEBUG = {
+          stage: 'early_exit_user_or_loading',
+          timestamp: new Date().toISOString(),
+          details: { testMode, userPresent: !!user, loading },
+        };
+      }
       Toast.info(`INTELLIGENT ENGINE: early exit – missing user or still loading | user=${!!user}, loading=${loading}, testMode=${testMode}`);
       engineLog('ENGINE: Skipping - user: ' + !!user + ' loading: ' + loading);
       return;
     }
     
     if (!testMode) {
+      // DEBUG STAGE: early_exit_testmode_off
+      if (typeof window !== 'undefined') {
+        window.__INTELLIGENT_DEBUG = {
+          stage: 'early_exit_testmode_off',
+          timestamp: new Date().toISOString(),
+          details: { testMode, userPresent: !!user, loading },
+        };
+      }
       Toast.info(`INTELLIGENT ENGINE: early exit – testMode is OFF | user=${!!user}, loading=${loading}, testMode=${testMode}`);
       engineLog('TEST MODE IS OFF! You need to enable Test Mode to use the trading engine!');
       return;
@@ -152,6 +202,18 @@ export const useIntelligentTradingEngine = () => {
         .select('*')
         .eq('user_id', user.id)
         .eq('is_active', true);
+
+      // DEBUG STAGE: after_fetch_strategies
+      if (typeof window !== 'undefined') {
+        window.__INTELLIGENT_DEBUG = {
+          stage: 'after_fetch_strategies',
+          timestamp: new Date().toISOString(),
+          details: {
+            rowCount: strategyRows?.length ?? 0,
+            hasError: !!error,
+          },
+        };
+      }
 
       if (error || !strategyRows?.length) {
         engineLog('ENGINE: No active strategies found:', error);
@@ -227,13 +289,48 @@ export const useIntelligentTradingEngine = () => {
         return match;
       });
 
+      // DEBUG STAGE: after_test_filter
+      if (typeof window !== 'undefined') {
+        window.__INTELLIGENT_DEBUG = {
+          stage: 'after_test_filter',
+          timestamp: new Date().toISOString(),
+          details: {
+            normalizedCount: strategies.length,
+            testStrategiesCount: activeTestStrategies.length,
+            testStrategyIds: activeTestStrategies.map(s => s.id),
+          },
+        };
+      }
+
       engineLog(`ENGINE: testStrategies.length = ${activeTestStrategies.length}`);
       Toast.info(`ENGINE: ${strategies.length} total, ${activeTestStrategies.length} test strategies`);
 
       if (!activeTestStrategies?.length) {
+        // DEBUG STAGE: early_exit_no_test_strategies
+        if (typeof window !== 'undefined') {
+          window.__INTELLIGENT_DEBUG = {
+            stage: 'early_exit_no_test_strategies',
+            timestamp: new Date().toISOString(),
+            details: {
+              normalizedCount: strategies.length,
+            },
+          };
+        }
         engineLog('ENGINE: No active test strategies found');
         Toast.warn(`INTELLIGENT ENGINE: No test strategies found | Check DB flags (test_mode, is_active_test) or config (is_test_mode, enableTestTrading)`);
         return;
+      }
+      
+      // DEBUG STAGE: before_process_strategies
+      if (typeof window !== 'undefined') {
+        window.__INTELLIGENT_DEBUG = {
+          stage: 'before_process_strategies',
+          timestamp: new Date().toISOString(),
+          details: {
+            testStrategiesCount: activeTestStrategies.length,
+            testStrategyIds: activeTestStrategies.map(s => s.id),
+          },
+        };
       }
       
       Toast.success(`INTELLIGENT ENGINE: Processing ${activeTestStrategies.length} test strategies...`);
@@ -282,6 +379,18 @@ export const useIntelligentTradingEngine = () => {
   };
 
   const processStrategyComprehensively = async (strategy: any, marketData: any) => {
+    // DEBUG STAGE: process_strategy_start
+    if (typeof window !== 'undefined') {
+      window.__INTELLIGENT_DEBUG = {
+        stage: 'process_strategy_start',
+        timestamp: new Date().toISOString(),
+        details: {
+          strategyId: strategy.id,
+          strategyName: strategy.strategyName ?? strategy.configuration?.strategyName,
+        },
+      };
+    }
+    
     const config = strategy.configuration;
     engineLog('ENGINE: Processing strategy with full config:', config);
 
@@ -1699,6 +1808,21 @@ export const useIntelligentTradingEngine = () => {
     // INTELLIGENT ENGINE: Always use coordinator path to produce source: 'intelligent'
     // This ensures all intelligent engine decisions are routed through the coordinator
     // with proper metadata (engine, engineFeatures, etc.) for learning loop visibility.
+    
+    // DEBUG STAGE: before_emit_trade_intent
+    if (typeof window !== 'undefined') {
+      window.__INTELLIGENT_DEBUG = {
+        stage: 'before_emit_trade_intent',
+        timestamp: new Date().toISOString(),
+        details: {
+          side: action,
+          reason: trigger || `Intelligent engine ${action}`,
+          symbol: cryptocurrency,
+          strategyId: strategy.id,
+        },
+      };
+    }
+    
     console.log('🎯 INTELLIGENT ENGINE: Using coordinator path (source: intelligent)');
     return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger);
   };
@@ -1995,7 +2119,17 @@ export const useIntelligentTradingEngine = () => {
   if (typeof window !== 'undefined') {
     (window as any).__INTELLIGENT = {
       ...(window as any).__INTELLIGENT,
-      checkStrategiesAndExecute,
+      checkStrategiesAndExecute: async () => {
+        // DEBUG STAGE: manual_trigger_from_console
+        if (typeof window !== 'undefined') {
+          window.__INTELLIGENT_DEBUG = {
+            stage: 'manual_trigger_from_console',
+            timestamp: new Date().toISOString(),
+            details: null,
+          };
+        }
+        await checkStrategiesAndExecute();
+      },
     };
   }
 
