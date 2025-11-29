@@ -16,6 +16,9 @@ import { checkMarketAvailability, filterSupportedSymbols } from '@/utils/marketA
 import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { getFeaturesForEngine } from '@/lib/api/features';
 
+// 🔥🔥🔥 VERSION MARKER - IF YOU SEE THIS, THE REAL FILE IS LOADED 🔥🔥🔥
+console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOString());
+
 // Global debug object declaration
 declare global {
   interface Window {
@@ -1443,7 +1446,9 @@ export const useIntelligentTradingEngine = () => {
         .order('timestamp', { ascending: false })
         .limit(20);
 
-      
+// 🔥🔥🔥 VERSION MARKER - IF YOU SEE THIS, THE REAL FILE IS LOADED 🔥🔥🔥
+console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOString());
+
 
       if (newsSignals?.length) {
         // Calculate average sentiment from REAL signals
