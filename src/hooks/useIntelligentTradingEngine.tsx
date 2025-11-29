@@ -14,6 +14,7 @@ import { logger } from '@/utils/logger';
 import { getAllSymbols } from '@/data/coinbaseCoins';
 import { checkMarketAvailability, filterSupportedSymbols } from '@/utils/marketAvailability';
 import { sharedPriceCache } from '@/utils/SharedPriceCache';
+import { getFeaturesForEngine } from '@/lib/api/features';
 
 interface Position {
   cryptocurrency: string;
@@ -1613,10 +1614,24 @@ export const useIntelligentTradingEngine = () => {
     trigger?: string
   ) => {
     try {
+      // Fetch latest technical features for this symbol (hardcode 1h granularity for now)
+      const normalizedSymbol = cryptocurrency.includes('-EUR') ? cryptocurrency : `${cryptocurrency}-EUR`;
+      let engineFeatures = null;
+      try {
+        engineFeatures = await getFeaturesForEngine(normalizedSymbol, '1h');
+        if (engineFeatures) {
+          console.log('[Engine] Features attached for', normalizedSymbol, '| RSI:', engineFeatures.rsi_14, '| granularity: 1h');
+        } else {
+          console.log('[Engine] No features found for', normalizedSymbol, '/ 1h');
+        }
+      } catch (featErr) {
+        console.warn('[Engine] Failed to fetch features for', normalizedSymbol, featErr);
+      }
+
       const intent = {
         userId: user!.id,
         strategyId: strategy.id,
-        symbol: cryptocurrency.includes('-EUR') ? cryptocurrency : `${cryptocurrency}-EUR`,
+        symbol: normalizedSymbol,
         side: action.toUpperCase() as 'BUY' | 'SELL',
         source: trigger?.includes('whale') ? 'whale' : 
                trigger?.includes('news') ? 'news' : 
@@ -1628,7 +1643,8 @@ export const useIntelligentTradingEngine = () => {
           engine: 'intelligent',
           price: price,
           symbol_normalized: cryptocurrency.replace('-EUR', ''),
-          trigger: trigger
+          trigger: trigger,
+          engineFeatures: engineFeatures // can be null if fetch failed
         },
         ts: new Date().toISOString(),
         idempotencyKey: `idem_${Math.floor(Date.now() / 1000)}_${Math.random().toString(36).substr(2, 9)}`
