@@ -1552,7 +1552,13 @@ async function logDecisionAsync(
             ? { run_id: confidenceConfig.optimizerMetadata.run_id, run_at: confidenceConfig.optimizerMetadata.run_at }
             : null,  // Trimmed metadata for audit trail
           // PHASE 1B: Attach fused signal data (READ-ONLY)
-          signalFusion: fusedSignalData
+          signalFusion: fusedSignalData,
+          // Intelligent Engine metadata (merged from intent.metadata)
+          engine: intent.metadata?.engine ?? null,
+          engineFeatures: intent.metadata?.engineFeatures ?? null,
+          price: intent.metadata?.price ?? null,
+          symbol_normalized: intent.metadata?.symbol_normalized ?? baseSymbol,
+          trigger: intent.metadata?.trigger ?? null
         },
         raw_intent: intent as any
       };
