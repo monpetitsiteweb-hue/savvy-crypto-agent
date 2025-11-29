@@ -51,6 +51,9 @@ export const useIntelligentTradingEngine = () => {
     data: { testMode, user: !!user, loading }
   });
 
+  // INTELLIGENT ENGINE MONITORING INTERVAL (30 seconds)
+  const MONITORING_INTERVAL_MS = 30000;
+
   useEffect(() => {
     // Silent log for auth state change
     (window as any).NotificationSink?.log({ 
@@ -61,20 +64,45 @@ export const useIntelligentTradingEngine = () => {
     if (!loading && user && testMode) {
       // Silent log for auth conditions met
       (window as any).NotificationSink?.log({
-        message: 'INTELLIGENT_ENGINE: Auth conditions check - starting engine',
-        data: { user: !!user, loading, testMode }
+        message: 'INTELLIGENT_ENGINE: Auth conditions check - starting engine with recurring loop',
+        data: { user: !!user, loading, testMode, intervalMs: MONITORING_INTERVAL_MS }
       });
-      // Small delay to ensure all hooks are initialized
-      const timer = setTimeout(() => {
+      
+      console.log('🚀 INTELLIGENT ENGINE: Starting recurring monitoring loop (interval:', MONITORING_INTERVAL_MS, 'ms)');
+      
+      // Initial run after short delay
+      const initialTimer = setTimeout(() => {
         checkStrategiesAndExecute();
       }, 1000);
       
-      // Cleanup timer on unmount or dependency change
-      return () => clearTimeout(timer);
+      // Set up recurring monitoring interval
+      if (marketMonitorRef.current) {
+        clearInterval(marketMonitorRef.current);
+      }
+      marketMonitorRef.current = setInterval(() => {
+        console.log('🔄 INTELLIGENT ENGINE: Recurring check triggered');
+        checkStrategiesAndExecute();
+      }, MONITORING_INTERVAL_MS);
+      
+      // Cleanup on unmount or dependency change
+      return () => {
+        clearTimeout(initialTimer);
+        if (marketMonitorRef.current) {
+          clearInterval(marketMonitorRef.current);
+          marketMonitorRef.current = null;
+          console.log('🛑 INTELLIGENT ENGINE: Monitoring loop stopped');
+        }
+      };
     } else {
+      // Stop monitoring if conditions not met
+      if (marketMonitorRef.current) {
+        clearInterval(marketMonitorRef.current);
+        marketMonitorRef.current = null;
+        console.log('🛑 INTELLIGENT ENGINE: Monitoring loop stopped (conditions not met)');
+      }
       // Silent log for auth waiting
       (window as any).NotificationSink?.log({ 
-        message: 'INTELLIGENT_ENGINE: Waiting for auth', 
+        message: 'INTELLIGENT_ENGINE: Waiting for auth or testMode', 
         data: { loading, user: !!user, testMode }
       });
     }
@@ -1582,26 +1610,16 @@ export const useIntelligentTradingEngine = () => {
       console.log('✅ SCALPSMART: Signal fusion approved -', fusionResult.reason, 'Score:', fusionResult.sTotalScore);
     }
     
-    // Use coordinator if unified decisions enabled, otherwise direct execution
-    const shouldUseCoordinator = strategy?.unified_config?.enableUnifiedDecisions;
-    
     if (!user?.id) {
       console.error('❌ ENGINE: Cannot execute trade - no authenticated user');
       return;
     }
 
-    // Check if strategy has unified decisions enabled
-    const unifiedConfig = strategy?.configuration?.unifiedConfig || { enableUnifiedDecisions: false };
-    
-    if (unifiedConfig.enableUnifiedDecisions) {
-      // NEW: Emit intent to coordinator
-      console.log('🎯 INTELLIGENT: Using unified decision system');
-      return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger);
-    } else {
-      // Legacy direct execution (backward compatibility)
-      console.log('🔄 INTELLIGENT: Unified decisions disabled, executing trade directly');
-      return await executeTradeDirectly(strategy, action, cryptocurrency, price, customAmount, trigger);
-    }
+    // INTELLIGENT ENGINE: Always use coordinator path to produce source: 'intelligent'
+    // This ensures all intelligent engine decisions are routed through the coordinator
+    // with proper metadata (engine, engineFeatures, etc.) for learning loop visibility.
+    console.log('🎯 INTELLIGENT ENGINE: Using coordinator path (source: intelligent)');
+    return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger);
   };
 
   // NEW: Emit trade intent to coordinator
@@ -1633,9 +1651,7 @@ export const useIntelligentTradingEngine = () => {
         strategyId: strategy.id,
         symbol: normalizedSymbol,
         side: action.toUpperCase() as 'BUY' | 'SELL',
-        source: trigger?.includes('whale') ? 'whale' : 
-               trigger?.includes('news') ? 'news' : 
-               trigger?.includes('ai') ? 'intelligent' : 'intelligent',
+        source: 'intelligent' as const, // Always 'intelligent' for frontend engine decisions
         confidence: 0.75, // Default confidence for intelligent engine
         reason: trigger || `Intelligent engine ${action}`,
         qtySuggested: customAmount || Math.max(10, (strategy.configuration?.perTradeAllocation || 50)) / price,
@@ -1644,7 +1660,8 @@ export const useIntelligentTradingEngine = () => {
           price: price,
           symbol_normalized: cryptocurrency.replace('-EUR', ''),
           trigger: trigger,
-          engineFeatures: engineFeatures // can be null if fetch failed
+          engineFeatures: engineFeatures, // can be null if fetch failed
+          is_test_mode: testMode // Include test mode flag in metadata
         },
         ts: new Date().toISOString(),
         idempotencyKey: `idem_${Math.floor(Date.now() / 1000)}_${Math.random().toString(36).substr(2, 9)}`
