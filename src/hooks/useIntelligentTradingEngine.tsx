@@ -159,40 +159,45 @@ export const useIntelligentTradingEngine = () => {
         return;
       }
 
-      // Debug: Log raw strategy rows with CORRECT fields
+      // Debug: Log raw strategy rows with CORRECT DB fields
       engineLog(`ENGINE: Found ${strategyRows.length} active strategy rows`);
       strategyRows.forEach(r => {
         console.log("STRATEGY DEBUG", {
           id: r.id,
+          strategy_name: r.strategy_name,
           is_active: r.is_active,
-          is_test_mode: r.is_test_mode,
-          name: r.strategy_name
+          test_mode: (r as any).test_mode,
+          is_active_test: (r as any).is_active_test,
+          is_active_live: (r as any).is_active_live
         });
       });
       Toast.info(`ENGINE: ${strategyRows.length} active strategies fetched`);
 
       const strategies: StrategyData[] = (strategyRows || []).map(normalizeStrategy);
       
-      // CORRECT FIX: Use is_test_mode field from DB (TypeScript types confirm this field name)
-      // Filter: is_active=true (already filtered in query) AND is_test_mode=true
+      // CORRECT FIX: Use test_mode OR is_active_test from DB (actual column names)
+      // Filter: is_active=true (already filtered in query) AND (test_mode=true OR is_active_test=true)
       const activeTestStrategies = strategies.filter(s => {
         const rawRow = strategyRows.find(r => r.id === s.id);
-        const isTestModeValue = rawRow?.is_test_mode === true;
+        const testModeValue = (rawRow as any)?.test_mode === true;
+        const isActiveTestValue = (rawRow as any)?.is_active_test === true;
+        const match = testModeValue || isActiveTestValue;
         console.log("STRATEGY FILTER DEBUG", {
           id: s.id,
-          name: (s as any).strategy_name,
-          is_test_mode: rawRow?.is_test_mode,
-          match: isTestModeValue
+          strategy_name: (rawRow as any)?.strategy_name,
+          test_mode: (rawRow as any)?.test_mode,
+          is_active_test: (rawRow as any)?.is_active_test,
+          match
         });
-        return isTestModeValue;
+        return match;
       });
 
       engineLog(`ENGINE: ${strategies.length} total, ${activeTestStrategies.length} test strategies`);
       Toast.info(`ENGINE: ${activeTestStrategies.length} test strategies found`);
 
       if (!activeTestStrategies?.length) {
-        engineLog('ENGINE: No active test strategies found (is_test_mode=true required)');
-        Toast.warn(`INTELLIGENT ENGINE: No test strategies | Ensure is_test_mode=true in DB`);
+        engineLog('ENGINE: No active test strategies found (test_mode=true OR is_active_test=true required)');
+        Toast.warn(`INTELLIGENT ENGINE: No test strategies | Ensure test_mode=true in DB`);
         return;
       }
       
