@@ -45,14 +45,21 @@ export const useIntelligentTradingEngine = () => {
     testMode 
   });
   
-  // Silent log for intelligent engine debug
-  (window as any).NotificationSink?.log({ 
-    message: 'INTELLIGENT_ENGINE: Hook called', 
-    data: { testMode, user: !!user, loading }
-  });
-
   // INTELLIGENT ENGINE MONITORING INTERVAL (30 seconds)
   const MONITORING_INTERVAL_MS = 30000;
+  
+  // IMPORTANT: Declare refs BEFORE the useEffect that uses them
+  const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
+  const tradingStateRef = useRef<TradingState>({
+    dailyTrades: 0,
+    dailyPnL: 0,
+    lastTradeTime: '',
+    openPositions: [],
+    dailyResetDate: new Date().toDateString()
+  });
+  
+  // Silent log for intelligent engine debug
+  console.log('🧠 INTELLIGENT_ENGINE: Hook initialized', { testMode, user: !!user, loading });
 
   useEffect(() => {
     // Silent log for auth state change
@@ -107,15 +114,6 @@ export const useIntelligentTradingEngine = () => {
       });
     }
   }, [user, loading, testMode]);
-  
-  const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
-  const tradingStateRef = useRef<TradingState>({
-    dailyTrades: 0,
-    dailyPnL: 0,
-    lastTradeTime: '',
-    openPositions: [],
-    dailyResetDate: new Date().toDateString()
-  });
 
   const checkStrategiesAndExecute = async () => {
     // Silent log for engine state
