@@ -159,45 +159,80 @@ export const useIntelligentTradingEngine = () => {
         return;
       }
 
-      // Debug: Log raw strategy rows with CORRECT DB fields
-      engineLog(`ENGINE: Found ${strategyRows.length} active strategy rows`);
-      strategyRows.forEach(r => {
-        console.log("STRATEGY DEBUG", {
-          id: r.id,
-          strategy_name: r.strategy_name,
-          is_active: r.is_active,
-          test_mode: (r as any).test_mode,
-          is_active_test: (r as any).is_active_test,
-          is_active_live: (r as any).is_active_live
+      // DEBUG LOGGING: Log raw strategy rows with ALL relevant fields (matching Debug Panel)
+      engineLog(`ENGINE: fetched ${strategyRows.length} strategies from DB`);
+      strategyRows.forEach((row) => {
+        const rawRow = row as any;
+        console.log("ENGINE: raw strategy flags", {
+          id: rawRow.id,
+          strategy_name: rawRow.strategy_name,
+          is_active: rawRow.is_active,
+          test_mode: rawRow.test_mode,
+          is_active_test: rawRow.is_active_test,
+          is_active_live: rawRow.is_active_live,
+          config_is_test_mode: rawRow.configuration?.is_test_mode,
+          enableTestTrading: rawRow.configuration?.enableTestTrading,
         });
       });
-      Toast.info(`ENGINE: ${strategyRows.length} active strategies fetched`);
 
+      // Normalize strategies using the same normalizeStrategy() as Debug Panel
       const strategies: StrategyData[] = (strategyRows || []).map(normalizeStrategy);
       
-      // CORRECT FIX: Use test_mode OR is_active_test from DB (actual column names)
-      // Filter: is_active=true (already filtered in query) AND (test_mode=true OR is_active_test=true)
-      const activeTestStrategies = strategies.filter(s => {
-        const rawRow = strategyRows.find(r => r.id === s.id);
-        const testModeValue = (rawRow as any)?.test_mode === true;
-        const isActiveTestValue = (rawRow as any)?.is_active_test === true;
-        const match = testModeValue || isActiveTestValue;
-        console.log("STRATEGY FILTER DEBUG", {
+      // DEBUG: Log normalized strategies (same fields Debug Panel shows)
+      console.log("ENGINE: normalized strategies", strategies.map(s => ({
+        id: s.id,
+        name: s.strategy_name ?? (s as any).strategyName,
+        is_active: s.is_active,
+        test_mode: s.test_mode,
+        is_active_test: s.is_active_test,
+        is_active_live: s.is_active_live,
+        config_is_test_mode: (s.configuration as any)?.is_test_mode,
+        enableTestTrading: (s.configuration as any)?.enableTestTrading,
+      })));
+      
+      // CANONICAL FILTER: Match Debug Panel's detection logic exactly
+      // A strategy is a "test strategy" if:
+      //   1. is_active = true (already filtered in query)
+      //   2. AND (test_mode = true OR is_active_test = true OR config flags)
+      const activeTestStrategies = strategies.filter((s) => {
+        const rawRow = strategyRows.find(r => r.id === s.id) as any;
+        
+        // Check DB columns directly (same as Debug Panel)
+        const dbTestMode = rawRow?.test_mode === true;
+        const dbIsActiveTest = rawRow?.is_active_test === true;
+        
+        // Check normalized fields (from normalizeStrategy)
+        const normalizedTestMode = s.test_mode === true;
+        const normalizedIsActiveTest = s.is_active_test === true;
+        
+        // Check configuration nested flags
+        const configIsTestMode = (s.configuration as any)?.is_test_mode === true;
+        const configEnableTestTrading = (s.configuration as any)?.enableTestTrading === true;
+        
+        // Match if ANY test indicator is true
+        const match = dbTestMode || dbIsActiveTest || normalizedTestMode || normalizedIsActiveTest || configIsTestMode || configEnableTestTrading;
+        
+        console.log("ENGINE: STRATEGY FILTER", {
           id: s.id,
-          strategy_name: (rawRow as any)?.strategy_name,
-          test_mode: (rawRow as any)?.test_mode,
-          is_active_test: (rawRow as any)?.is_active_test,
-          match
+          strategy_name: rawRow?.strategy_name,
+          dbTestMode,
+          dbIsActiveTest,
+          normalizedTestMode,
+          normalizedIsActiveTest,
+          configIsTestMode,
+          configEnableTestTrading,
+          MATCH: match
         });
+        
         return match;
       });
 
-      engineLog(`ENGINE: ${strategies.length} total, ${activeTestStrategies.length} test strategies`);
-      Toast.info(`ENGINE: ${activeTestStrategies.length} test strategies found`);
+      engineLog(`ENGINE: testStrategies.length = ${activeTestStrategies.length}`);
+      Toast.info(`ENGINE: ${strategies.length} total, ${activeTestStrategies.length} test strategies`);
 
       if (!activeTestStrategies?.length) {
-        engineLog('ENGINE: No active test strategies found (test_mode=true OR is_active_test=true required)');
-        Toast.warn(`INTELLIGENT ENGINE: No test strategies | Ensure test_mode=true in DB`);
+        engineLog('ENGINE: No active test strategies found');
+        Toast.warn(`INTELLIGENT ENGINE: No test strategies found | Check DB flags (test_mode, is_active_test) or config (is_test_mode, enableTestTrading)`);
         return;
       }
       
