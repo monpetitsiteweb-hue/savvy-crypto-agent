@@ -2889,6 +2889,37 @@ export type Database = {
           is_sandbox: boolean
         }[]
       }
+      get_features_for_engine: {
+        Args: { p_granularity: string; p_symbol: string }
+        Returns: {
+          created_at: string | null
+          ema_20: number | null
+          ema_200: number | null
+          ema_50: number | null
+          granularity: string
+          macd_hist: number | null
+          macd_line: number | null
+          macd_signal: number | null
+          ret_1h: number | null
+          ret_24h: number | null
+          ret_4h: number | null
+          ret_7d: number | null
+          rsi_14: number | null
+          symbol: string
+          ts_utc: string
+          updated_at: string | null
+          vol_1h: number | null
+          vol_24h: number | null
+          vol_4h: number | null
+          vol_7d: number | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "market_features_v0"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       get_pending_decisions_for_horizon: {
         Args: { horizon_key: string }
         Returns: {
