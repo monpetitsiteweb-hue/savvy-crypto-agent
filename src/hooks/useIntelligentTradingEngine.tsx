@@ -155,16 +155,56 @@ export const useIntelligentTradingEngine = () => {
 
       if (error || !strategyRows?.length) {
         engineLog('ENGINE: No active strategies found:', error);
+        Toast.info(`INTELLIGENT ENGINE: No active strategies | error=${!!error}, count=${strategyRows?.length ?? 0}`);
         return;
       }
+
+      // Debug: Log raw strategy rows
+      engineLog(`ENGINE: Found ${strategyRows.length} active strategy rows`);
+      (window as any).NotificationSink?.log({
+        message: 'ENGINE: Raw strategy rows fetched',
+        data: { 
+          count: strategyRows.length, 
+          rows: strategyRows.map(r => ({ 
+            id: r.id, 
+            is_active: r.is_active, 
+            is_test_mode: r.is_test_mode,
+            config_is_test_mode: (r.configuration as any)?.is_test_mode 
+          }))
+        }
+      });
 
       const strategies: StrategyData[] = (strategyRows || []).map(normalizeStrategy);
-      const activeTestStrategies = strategies.filter(s => s.is_active_test);
+      
+      // FIX: Check configuration.is_test_mode (where UI stores test mode) 
+      // OR the normalized is_active_test flag
+      const activeTestStrategies = strategies.filter(s => {
+        const configTestMode = (s.configuration as any)?.is_test_mode === true;
+        const normalizedTestMode = s.is_active_test === true;
+        const match = configTestMode || normalizedTestMode;
+        engineLog(`ENGINE: Strategy ${s.id} - configTestMode=${configTestMode}, normalizedTestMode=${normalizedTestMode}, match=${match}`);
+        return match;
+      });
+
+      // Debug: Log filtered results
+      engineLog(`ENGINE: Normalized ${strategies.length} strategies, ${activeTestStrategies.length} are test strategies`);
+      (window as any).NotificationSink?.log({
+        message: 'ENGINE: Strategy filtering result',
+        data: { 
+          normalizedCount: strategies.length, 
+          testStrategyCount: activeTestStrategies.length,
+          testStrategies: activeTestStrategies.map(s => s.id)
+        }
+      });
+      Toast.info(`ENGINE: Strategies | total=${strategies.length}, testMode=${activeTestStrategies.length}`);
 
       if (!activeTestStrategies?.length) {
-        engineLog('ENGINE: No active test strategies found');
+        engineLog('ENGINE: No active test strategies found after filtering');
+        Toast.warn(`INTELLIGENT ENGINE: No test strategies found | Check configuration.is_test_mode in DB`);
         return;
       }
+      
+      Toast.success(`INTELLIGENT ENGINE: Found ${activeTestStrategies.length} test strategies, processing...`);
 
       // Get market data from shared cache (no polling)
       const allCoins = new Set<string>();
