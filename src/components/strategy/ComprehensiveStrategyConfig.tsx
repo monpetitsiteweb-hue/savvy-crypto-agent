@@ -139,6 +139,8 @@ interface StrategyFormData {
   aiIntelligenceConfig: AIIntelligenceConfig;
   // Technical Indicators settings
   technicalIndicatorConfig: TechnicalIndicatorConfig;
+  // Minimum confidence threshold for trading decisions (0-1)
+  min_confidence: number;
   // Signal Fusion (Phase 1B telemetry)
   enableSignalFusion?: boolean;
   // Test Mode (per-strategy)
@@ -470,6 +472,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       price_tick: 0.01, // default price precision
       min_order_notional: 10 // minimum order size in EUR
     },
+    min_confidence: 0.65, // Default minimum confidence threshold (0-1)
     enableSignalFusion: false, // Phase 1B: Signal fusion telemetry (read-only, no behavior change)
     technicalIndicatorConfig: {
       rsi: {
@@ -1394,6 +1397,48 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                               />
                             </div>
                           )}
+                          
+                          {/* Minimum Confidence Threshold */}
+                          <div className="mt-6 pt-6 border-t border-border">
+                            <div className="space-y-4">
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <Label htmlFor="min-confidence">Minimum Confidence Threshold</Label>
+                                  <Info className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                  Minimum confidence score (0 to 1) required before the coordinator will execute a trade.
+                                  Lower values = more trades, higher values = more selective.
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <Input
+                                  id="min-confidence"
+                                  type="number"
+                                  min={0}
+                                  max={1}
+                                  step={0.01}
+                                  value={formData.min_confidence ?? 0.65}
+                                  onChange={(e) => updateFormData('min_confidence', parseFloat(e.target.value) || 0)}
+                                  className="w-32"
+                                />
+                                <Slider
+                                  value={[formData.min_confidence ?? 0.65]}
+                                  onValueChange={([value]) => updateFormData('min_confidence', value)}
+                                  min={0}
+                                  max={1}
+                                  step={0.01}
+                                  className="flex-1"
+                                />
+                                <span className="text-sm text-muted-foreground w-16 text-right">
+                                  {((formData.min_confidence ?? 0.65) * 100).toFixed(0)}%
+                                </span>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Common values: 0 = accept all signals, 0.5 = moderate filtering, 0.7+ = high selectivity
+                              </p>
+                            </div>
+                          </div>
                           
                           {/* Test Mode Toggle */}
                           <div className="mt-6 pt-6 border-t border-border">
