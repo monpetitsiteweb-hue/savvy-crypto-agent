@@ -116,6 +116,13 @@ export const useIntelligentTradingEngine = () => {
   }, [user, loading, testMode]);
 
   const checkStrategiesAndExecute = async () => {
+    // Explicit debug log for acceptance test
+    console.log('🧪 ENGINE: checkStrategiesAndExecute called', {
+      testMode,
+      user: !!user,
+      loading,
+    });
+    
     // Silent log for engine state
     (window as any).NotificationSink?.log({
       message: 'ENGINE: checkStrategiesAndExecute called',
@@ -1908,7 +1915,13 @@ export const useIntelligentTradingEngine = () => {
     }
   };
 
-  // Hook effect
-  // Remove console spam
+  // Debugging API for manual triggering from browser console
+  if (typeof window !== 'undefined') {
+    (window as any).__INTELLIGENT = {
+      ...(window as any).__INTELLIGENT,
+      checkStrategiesAndExecute,
+    };
+  }
+
   return { checkStrategiesAndExecute };
 };
