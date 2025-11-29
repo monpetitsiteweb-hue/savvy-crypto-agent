@@ -8,12 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { ArrowUp, ArrowDown, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, CheckCircle, Loader2 } from "lucide-react";
+import { ArrowUp, ArrowDown, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, CheckCircle, Loader2, Activity } from "lucide-react";
 import { DataHealthPanel } from "@/components/market/DataHealthPanel";
 import { useToast } from "@/hooks/use-toast";
 import { TestBuyModal } from "@/components/strategy/TestBuyModal";
 import { useActiveStrategy } from "@/hooks/useActiveStrategy";
 import { Plus } from "lucide-react";
+import { getFeaturesForEngine, EngineFeatures } from "@/lib/api/features";
 
 interface DecisionEvent {
   id: string;
@@ -169,6 +170,9 @@ export function DevLearningPage() {
   const [resetResult, setResetResult] = useState<any>(null);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [featuresTestResult, setFeaturesTestResult] = useState<EngineFeatures | null>(null);
+  const [featuresTestLoading, setFeaturesTestLoading] = useState(false);
+  const [featuresTestError, setFeaturesTestError] = useState<string | null>(null);
 
   const isAdmin = role === "admin";
 
@@ -466,6 +470,39 @@ export function DevLearningPage() {
     }
   };
 
+  const testFeaturesRpc = async () => {
+    try {
+      setFeaturesTestLoading(true);
+      setFeaturesTestError(null);
+      setFeaturesTestResult(null);
+
+      console.log("[DevLearningPage] Testing getFeaturesForEngine('BTC-EUR', '1h')...");
+      const features = await getFeaturesForEngine('BTC-EUR', '1h');
+      
+      if (features) {
+        console.log("[DevLearningPage] Features received:", features);
+        setFeaturesTestResult(features);
+        toast({
+          title: "✅ Features RPC success",
+          description: `Got features for ${features.symbol} @ ${features.ts_utc}`,
+        });
+      } else {
+        console.log("[DevLearningPage] No features found for BTC-EUR / 1h");
+        setFeaturesTestError("No features found for BTC-EUR / 1h");
+      }
+    } catch (error: any) {
+      console.error("[DevLearningPage] Features RPC error:", error);
+      setFeaturesTestError(error.message || "Unknown error");
+      toast({
+        title: "❌ Features RPC failed",
+        description: error.message || "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setFeaturesTestLoading(false);
+    }
+  };
+
   const fetchStrategyHealth = async () => {
     if (!user) return;
 
@@ -735,6 +772,77 @@ export function DevLearningPage() {
                   <pre className="p-3 bg-slate-900/50 border border-slate-700 rounded text-xs text-slate-300 overflow-auto max-h-48">
                     {JSON.stringify(resetResult, null, 2)}
                   </pre>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Features RPC Test Card */}
+          <Card className="my-6 border-blue-500/20 bg-slate-800/50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-white">
+                <Activity className="h-5 w-5 text-blue-500" />
+                Test Features RPC
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Call get_features_for_engine('BTC-EUR', '1h') and display the result
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={testFeaturesRpc}
+                disabled={featuresTestLoading}
+                type="button"
+                className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10"
+              >
+                {featuresTestLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Fetching features...
+                  </>
+                ) : (
+                  <>
+                    <Activity className="h-4 w-4 mr-2" />
+                    Test getFeaturesForEngine
+                  </>
+                )}
+              </Button>
+
+              {featuresTestError && (
+                <div className="p-3 bg-red-900/20 border border-red-500/30 rounded text-red-400 text-sm">
+                  <strong>Error:</strong> {featuresTestError}
+                </div>
+              )}
+
+              {featuresTestResult && (
+                <div className="space-y-2">
+                  <div className="text-sm text-slate-400">Feature Vector (BTC-EUR / 1h):</div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                    <div className="p-2 bg-slate-900/50 border border-slate-700 rounded">
+                      <div className="text-slate-500 text-xs">RSI 14</div>
+                      <div className="text-slate-200 font-mono">{featuresTestResult.rsi_14?.toFixed(2) ?? '—'}</div>
+                    </div>
+                    <div className="p-2 bg-slate-900/50 border border-slate-700 rounded">
+                      <div className="text-slate-500 text-xs">MACD Line</div>
+                      <div className="text-slate-200 font-mono">{featuresTestResult.macd_line?.toFixed(4) ?? '—'}</div>
+                    </div>
+                    <div className="p-2 bg-slate-900/50 border border-slate-700 rounded">
+                      <div className="text-slate-500 text-xs">EMA 20</div>
+                      <div className="text-slate-200 font-mono">{featuresTestResult.ema_20?.toFixed(2) ?? '—'}</div>
+                    </div>
+                    <div className="p-2 bg-slate-900/50 border border-slate-700 rounded">
+                      <div className="text-slate-500 text-xs">Ret 1h</div>
+                      <div className="text-slate-200 font-mono">{featuresTestResult.ret_1h != null ? (featuresTestResult.ret_1h * 100).toFixed(2) + '%' : '—'}</div>
+                    </div>
+                  </div>
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-sm text-slate-400 hover:text-slate-300">Show full JSON</summary>
+                    <pre className="mt-2 p-3 bg-slate-900/50 border border-slate-700 rounded text-xs text-slate-300 overflow-auto max-h-48">
+                      {JSON.stringify(featuresTestResult, null, 2)}
+                    </pre>
+                  </details>
                 </div>
               )}
             </CardContent>
