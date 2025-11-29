@@ -130,14 +130,18 @@ export const useIntelligentTradingEngine = () => {
     });
     
     if (!user || loading) {
+      Toast.info(`INTELLIGENT ENGINE: early exit – missing user or still loading | user=${!!user}, loading=${loading}, testMode=${testMode}`);
       engineLog('ENGINE: Skipping - user: ' + !!user + ' loading: ' + loading);
       return;
     }
     
     if (!testMode) {
+      Toast.info(`INTELLIGENT ENGINE: early exit – testMode is OFF | user=${!!user}, loading=${loading}, testMode=${testMode}`);
       engineLog('TEST MODE IS OFF! You need to enable Test Mode to use the trading engine!');
       return;
     }
+
+    Toast.success(`INTELLIGENT ENGINE: passed guards, entering strategy evaluation | user=${!!user}, loading=${loading}, testMode=${testMode}`);
 
     try {
       engineLog('INTELLIGENT_ENGINE: Starting comprehensive strategy check');
