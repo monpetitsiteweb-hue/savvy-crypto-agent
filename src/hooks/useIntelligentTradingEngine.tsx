@@ -159,52 +159,44 @@ export const useIntelligentTradingEngine = () => {
         return;
       }
 
-      // Debug: Log raw strategy rows
+      // Debug: Log raw strategy rows with CORRECT fields
       engineLog(`ENGINE: Found ${strategyRows.length} active strategy rows`);
-      (window as any).NotificationSink?.log({
-        message: 'ENGINE: Raw strategy rows fetched',
-        data: { 
-          count: strategyRows.length, 
-          rows: strategyRows.map(r => ({ 
-            id: r.id, 
-            is_active: r.is_active, 
-            is_test_mode: r.is_test_mode,
-            config_is_test_mode: (r.configuration as any)?.is_test_mode 
-          }))
-        }
+      strategyRows.forEach(r => {
+        console.log("STRATEGY DEBUG", {
+          id: r.id,
+          is_active: r.is_active,
+          is_test_mode: r.is_test_mode,
+          name: r.strategy_name
+        });
       });
+      Toast.info(`ENGINE: ${strategyRows.length} active strategies fetched`);
 
       const strategies: StrategyData[] = (strategyRows || []).map(normalizeStrategy);
       
-      // FIX: Check configuration.is_test_mode (where UI stores test mode) 
-      // OR the normalized is_active_test flag
+      // CORRECT FIX: Use is_test_mode field from DB (TypeScript types confirm this field name)
+      // Filter: is_active=true (already filtered in query) AND is_test_mode=true
       const activeTestStrategies = strategies.filter(s => {
-        const configTestMode = (s.configuration as any)?.is_test_mode === true;
-        const normalizedTestMode = s.is_active_test === true;
-        const match = configTestMode || normalizedTestMode;
-        engineLog(`ENGINE: Strategy ${s.id} - configTestMode=${configTestMode}, normalizedTestMode=${normalizedTestMode}, match=${match}`);
-        return match;
+        const rawRow = strategyRows.find(r => r.id === s.id);
+        const isTestModeValue = rawRow?.is_test_mode === true;
+        console.log("STRATEGY FILTER DEBUG", {
+          id: s.id,
+          name: (s as any).strategy_name,
+          is_test_mode: rawRow?.is_test_mode,
+          match: isTestModeValue
+        });
+        return isTestModeValue;
       });
 
-      // Debug: Log filtered results
-      engineLog(`ENGINE: Normalized ${strategies.length} strategies, ${activeTestStrategies.length} are test strategies`);
-      (window as any).NotificationSink?.log({
-        message: 'ENGINE: Strategy filtering result',
-        data: { 
-          normalizedCount: strategies.length, 
-          testStrategyCount: activeTestStrategies.length,
-          testStrategies: activeTestStrategies.map(s => s.id)
-        }
-      });
-      Toast.info(`ENGINE: Strategies | total=${strategies.length}, testMode=${activeTestStrategies.length}`);
+      engineLog(`ENGINE: ${strategies.length} total, ${activeTestStrategies.length} test strategies`);
+      Toast.info(`ENGINE: ${activeTestStrategies.length} test strategies found`);
 
       if (!activeTestStrategies?.length) {
-        engineLog('ENGINE: No active test strategies found after filtering');
-        Toast.warn(`INTELLIGENT ENGINE: No test strategies found | Check configuration.is_test_mode in DB`);
+        engineLog('ENGINE: No active test strategies found (is_test_mode=true required)');
+        Toast.warn(`INTELLIGENT ENGINE: No test strategies | Ensure is_test_mode=true in DB`);
         return;
       }
       
-      Toast.success(`INTELLIGENT ENGINE: Found ${activeTestStrategies.length} test strategies, processing...`);
+      Toast.success(`INTELLIGENT ENGINE: Processing ${activeTestStrategies.length} test strategies...`);
 
       // Get market data from shared cache (no polling)
       const allCoins = new Set<string>();
