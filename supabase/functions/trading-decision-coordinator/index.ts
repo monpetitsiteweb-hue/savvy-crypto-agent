@@ -1518,6 +1518,7 @@ async function getMarketPrice(symbol: string, maxStaleMs: number = 15000): Promi
 }
 
 // Async decision logging - Enhanced for Phase 1 Learning Loop
+// Returns { logged: boolean, error?: string } to indicate success/failure
 async function logDecisionAsync(
   supabaseClient: any,
   intent: TradeIntent,
@@ -1534,7 +1535,7 @@ async function logDecisionAsync(
     optimizer: string | null;
     optimizerMetadata: any | null;
   }
-): Promise<void> {
+): Promise<{ logged: boolean; error?: string }> {
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
     
@@ -1715,6 +1716,8 @@ async function logDecisionAsync(
           source: eventPayload.source,
           debugTag: eventPayload.metadata?.debugTag,
         });
+        // Return failure so caller knows the insert did not succeed
+        return { logged: false, error: decisionInsertError.message };
       } else {
         console.log('✅ LEARNING: Successfully logged decision event row', {
           id: decisionInsertResult?.[0]?.id || null,
@@ -1724,10 +1727,14 @@ async function logDecisionAsync(
           debugTag: eventPayload.metadata?.debugTag,
           reason
         });
+        return { logged: true };
       }
     }
+    // If we didn't insert (action not in logged set), return success
+    return { logged: true };
   } catch (error) {
     console.error('❌ COORDINATOR: Failed to log decision:', error.message);
+    return { logged: false, error: error.message };
   }
 }
 
