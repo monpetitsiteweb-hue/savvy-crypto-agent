@@ -70,14 +70,6 @@ export const AdvancedSymbolOverridesPanel = ({
 
     setLoading(true);
     try {
-      if (isDev) {
-        console.log("[AdvancedSymbolOverrides] loadData start", {
-          strategyId,
-          userId: user.id,
-          selectedCoins,
-        });
-      }
-
       // Load strategy parameters
       const { data: paramsData, error: paramsError } = await fromTable("strategy_parameters")
         .select("*")
@@ -86,13 +78,6 @@ export const AdvancedSymbolOverridesPanel = ({
         .order("updated_at", { ascending: true });
 
       if (paramsError) throw paramsError;
-
-      if (isDev) {
-        console.log("[AdvancedSymbolOverrides] loadData paramsData", {
-          rowCount: (paramsData as any)?.length ?? 0,
-          symbols: ((paramsData as any) || []).map((p: any) => p.symbol),
-        });
-      }
 
       // Create a map of existing overrides
       const overridesMap = new Map<string, StrategyParameter>();
@@ -116,10 +101,6 @@ export const AdvancedSymbolOverridesPanel = ({
         };
       });
 
-      if (isDev) {
-        console.log("[AdvancedSymbolOverrides] loadData built editableRows", rows);
-      }
-
       setEditableRows(rows);
 
       // Load circuit breakers
@@ -141,7 +122,6 @@ export const AdvancedSymbolOverridesPanel = ({
       if (holdsError) throw holdsError;
       setHolds((holdsData as any) || []);
     } catch (error: any) {
-      console.error("Error loading advanced overrides data:", error);
       toast({
         title: "Error Loading Data",
         description: error.message,
@@ -181,15 +161,7 @@ export const AdvancedSymbolOverridesPanel = ({
   const handleSaveAll = async () => {
     if (!strategyId || !user) return;
 
-    if (isDev) {
-      console.log("[AdvancedSymbolOverrides] handleSaveAll editableRows", editableRows);
-    }
-
     const changedRows = editableRows.filter((row) => row.hasChanges);
-
-    if (isDev) {
-      console.log("[AdvancedSymbolOverrides] handleSaveAll changedRows", changedRows);
-    }
 
     if (changedRows.length === 0) {
       toast({
@@ -212,15 +184,7 @@ export const AdvancedSymbolOverridesPanel = ({
         last_updated_by: "ui",
       }));
 
-      if (isDev) {
-        console.log("[AdvancedSymbolOverrides] Saving overrides", {
-          strategyId,
-          userId: user.id,
-          upsertData,
-        });
-      }
-
-      const { data, error } = await fromTable("strategy_parameters")
+      const { error } = await fromTable("strategy_parameters")
         .upsert(
           upsertData.map((row) => ({
             ...row,
@@ -234,12 +198,7 @@ export const AdvancedSymbolOverridesPanel = ({
         .select("*");
 
       if (error) {
-        console.error("[AdvancedSymbolOverrides] Upsert error", error);
         throw error;
-      }
-
-      if (isDev) {
-        console.log("[AdvancedSymbolOverrides] Upsert result", data);
       }
 
       toast({
@@ -250,7 +209,6 @@ export const AdvancedSymbolOverridesPanel = ({
       // Reload to reflect DB state
       await loadData();
     } catch (error: any) {
-      console.error("Error saving overrides:", error);
       toast({
         title: "Error Saving Overrides",
         description: error.message,
@@ -288,7 +246,6 @@ export const AdvancedSymbolOverridesPanel = ({
 
       loadData();
     } catch (error: any) {
-      console.error("Error resetting breaker:", error);
       toast({
         title: "Error Resetting Breaker",
         description: error.message,

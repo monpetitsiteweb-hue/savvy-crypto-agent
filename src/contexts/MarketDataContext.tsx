@@ -41,39 +41,26 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contextVersion, setContextVersion] = useState(0);
-  const backoffUntilRef = useRef<number>(0); // Track 429 backoff
+  const backoffUntilRef = useRef<number>(0);
 
   const getCurrentData = useCallback(async (symbols: BaseSymbol[]): Promise<Record<string, MarketData>> => {
-    // Check if we're in 429 backoff period
     const now = Date.now();
     if (backoffUntilRef.current > now) {
-      // Silently skip during backoff
       return {};
     }
 
     try {
-      // Convert base symbols to pairs using the central util
       const pairSymbols = symbols.map(base => toPairSymbol(base));
-      
-      // Silent log for symbol conversion
-      (window as any).NotificationSink?.log({ message: 'SYMBOLS: base→pair conversion', data: symbols.map((base, i) => `${base}→${pairSymbols[i]}`) });
-
-      // Use market availability registry to filter out unsupported EUR pairs
       const validSymbols = filterSupportedSymbols(pairSymbols);
 
       if (validSymbols.length === 0) {
         return {};
       }
 
-      // Silent log for market data fetch
-      (window as any).NotificationSink?.log({ message: 'SINGLETON: Fetching market data for valid symbols', symbols: validSymbols });
-      
       let hit429 = false;
       
-      // Add delay between requests to avoid rate limiting
       const promises = validSymbols.map(async (symbol, index) => {
         try {
-          // Stagger requests to avoid overwhelming the API
           if (index > 0) {
             await new Promise(resolve => setTimeout(resolve, 300 * index));
           }
@@ -85,7 +72,6 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             const bid = parseFloat(data.bid || '0');
             const ask = parseFloat(data.ask || '0');
             
-            // Write to shared cache
             sharedPriceCache.set(symbol, price, bid, ask);
             
             return {
@@ -105,22 +91,18 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             };
           } else if (response.status === 429) {
             hit429 = true;
-            // Only log 429 once, not for every symbol
             return { [symbol]: null };
           }
-          // Silently ignore 404/400 for unsupported pairs - don't spam console
           return { [symbol]: null };
         } catch {
-          // Silently ignore network errors
           return { [symbol]: null };
         }
       });
 
       const results = await Promise.all(promises);
       
-      // If we hit 429, enter backoff
       if (hit429) {
-        backoffUntilRef.current = Date.now() + 30000; // 30 seconds
+        backoffUntilRef.current = Date.now() + 30000;
       }
       
       const marketDataMap = results.reduce((acc, result) => {
@@ -131,10 +113,8 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return acc;
       }, {} as Record<string, MarketData>);
 
-      // Only update state if we have new data to prevent unnecessary re-renders
       if (Object.keys(marketDataMap).length > 0) {
         setMarketData(prev => {
-          // Check if any data actually changed before updating
           let hasChanged = false;
           const newData = { ...prev };
           
@@ -145,7 +125,6 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
           });
           
-          // Only return new object if something actually changed
           if (hasChanged) {
             setContextVersion(v => v + 1);
             return newData;
@@ -163,32 +142,27 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, []);
 
-  // Get initial data on mount and update every 60 seconds (less frequent to avoid rate limiting)
   useEffect(() => {
     const commonSymbols: BaseSymbol[] = getAllSymbols() as BaseSymbol[];
     getCurrentData(commonSymbols);
     
-    // Check for debug price polling override
-    let pollInterval = 60000; // default 60s
+    let pollInterval = 60000;
     try {
       if (new URL(window.location.href).searchParams.get('debug') === 'history') {
         const pricePollMs = new URL(window.location.href).searchParams.get('pricePollMs');
         if (pricePollMs !== null) {
           const overrideMs = parseInt(pricePollMs, 10);
           if (overrideMs === 0) {
-            console.log('[HistoryBlink] price: polling stopped (pricePollMs=0)');
-            return; // No interval
+            return;
           } else if (overrideMs > 0) {
             pollInterval = overrideMs;
-            console.log(`[HistoryBlink] price: polling interval overridden to ${overrideMs} ms`);
           }
         }
       }
-    } catch (e) {
+    } catch {
       // ignore URL parsing errors
     }
     
-    // Update data with potentially overridden interval
     const intervalId = setInterval(() => {
       getCurrentData(commonSymbols);
     }, pollInterval);
@@ -202,7 +176,7 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       isConnected,
       error,
       getCurrentData,
-      version: contextVersion // Add version for change tracking
+      version: contextVersion
     }}>
       {children}
     </MarketDataContext.Provider>

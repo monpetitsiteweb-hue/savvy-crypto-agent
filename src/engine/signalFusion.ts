@@ -124,12 +124,10 @@ export async function computeFusedSignalScore(
       .order('timestamp', { ascending: false });
 
     if (signalsError) {
-      console.error('[SignalFusion] Error fetching signals:', signalsError);
       throw signalsError;
     }
 
     if (!signals || signals.length === 0) {
-      console.log(`[SignalFusion] No signals found for ${symbol}/${horizon} in lookback window`);
       return {
         fusedScore: 0,
         details: [],
@@ -138,8 +136,6 @@ export async function computeFusedSignalScore(
       };
     }
 
-    console.log(`[SignalFusion] Found ${signals.length} raw signals for ${symbol}/${horizon}`);
-
     // Get signal registry entries
     const { data: registryEntries, error: registryError } = await supabaseClient
       .from('signal_registry')
@@ -147,7 +143,6 @@ export async function computeFusedSignalScore(
       .in('key', [...new Set(signals.map(s => s.signal_type))]);
 
     if (registryError) {
-      console.error('[SignalFusion] Error fetching registry:', registryError);
       throw registryError;
     }
 
@@ -156,11 +151,6 @@ export async function computeFusedSignalScore(
       .from('strategy_signal_weights')
       .select('*')
       .eq('strategy_id', strategyId);
-
-    if (weightsError) {
-      console.error('[SignalFusion] Error fetching strategy weights:', weightsError);
-      // Continue with default weights
-    }
 
     // Build weight override map
     const weightOverrides = new Map<string, { weight?: number; is_enabled: boolean }>();
@@ -188,20 +178,17 @@ export async function computeFusedSignalScore(
       
       // Skip if no registry entry (shouldn't happen)
       if (!registryEntry) {
-        console.warn(`[SignalFusion] No registry entry for signal_type: ${signal.signal_type}`);
         continue;
       }
 
       // Check if signal is enabled globally
       if (!registryEntry.is_enabled) {
-        console.log(`[SignalFusion] Signal ${signal.signal_type} is disabled in registry`);
         continue;
       }
 
       // Check per-strategy override
       const override = weightOverrides.get(signal.signal_type);
       if (override && !override.is_enabled) {
-        console.log(`[SignalFusion] Signal ${signal.signal_type} is disabled for strategy ${strategyId}`);
         continue;
       }
 
@@ -238,8 +225,6 @@ export async function computeFusedSignalScore(
     // For multiple signals, we'll cap at ±100
     const fusedScore = Math.max(-100, Math.min(100, totalContribution * 20));
 
-    console.log(`[SignalFusion] Fused score for ${symbol}/${horizon}: ${fusedScore.toFixed(2)} from ${enabledCount} signals`);
-
     return {
       fusedScore,
       details,
@@ -248,7 +233,6 @@ export async function computeFusedSignalScore(
     };
 
   } catch (error) {
-    console.error('[SignalFusion] Error computing fused signal:', error);
     // Fail soft: return zero score
     return {
       fusedScore: 0,

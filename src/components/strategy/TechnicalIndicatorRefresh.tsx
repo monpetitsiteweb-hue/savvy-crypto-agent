@@ -23,9 +23,7 @@ export const TechnicalIndicatorRefresh = () => {
       });
       
       if (error) {
-        console.error('Error refreshing indicators:', error);
-      } else {
-        console.log('✅ Indicators refreshed successfully:', data);
+        // Silent error handling
       }
       
       // Force another cache invalidation after generation

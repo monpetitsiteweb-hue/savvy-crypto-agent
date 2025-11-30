@@ -50,10 +50,9 @@ const isAutorunDisabled = () => {
   return (window as any).__INTELLIGENT_DISABLE_AUTORUN === true;
 };
 
-// Suppressible console log for engine
-const engineConsoleLog = (...args: any[]) => {
-  if (isLogSuppressed()) return;
-  console.log(...args);
+// Suppressible console log for engine - COMPLETELY SILENT
+const engineConsoleLog = (..._args: any[]) => {
+  // All engine logs suppressed
 };
 
 // Helper to write debug stage and push to history
