@@ -393,6 +393,48 @@ serve(async (req) => {
       return respond('HOLD', 'internal_error', requestId);
     }
 
+    // ============= INTELLIGENT ENGINE ENFORCEMENT GATE =============
+    // ONLY 'intelligent' and 'manual' sources are allowed
+    // The legacy 'automated' engine has been fully deprecated
+    // All other sources are silently rejected
+    // 
+    // Allowed sources:
+    //   - 'intelligent' : from useIntelligentTradingEngine (frontend)
+    //   - 'manual'      : from UI buttons (Test BUY, manual sell, etc.)
+    // 
+    // Rejected sources (deprecated):
+    //   - 'automated'   : legacy automated-trading-engine
+    //   - 'pool'        : legacy pool exit system
+    //   - 'news'        : legacy news-based signals
+    //   - 'whale'       : legacy whale signals
+    // ==============================================================
+    const allowedSourcesToProcess = ['intelligent', 'manual'];
+    if (!allowedSourcesToProcess.includes(intent.source)) {
+      console.warn('🚫 COORDINATOR: Rejecting deprecated source', {
+        source: intent.source,
+        symbol: intent.symbol,
+        side: intent.side,
+        reason: 'source_deprecated_use_intelligent_engine',
+        allowed_sources: allowedSourcesToProcess,
+      });
+      
+      // Return success response but do NOT process or log
+      // This ensures the legacy engine doesn't retry
+      return new Response(JSON.stringify({ 
+        ok: true,
+        deprecated: true,
+        decision: {
+          action: 'HOLD',
+          reason: 'source_deprecated',
+          request_id: requestId,
+          retry_in_ms: 0,
+          message: `Source '${intent.source}' is deprecated. Only 'intelligent' engine is active.`
+        }
+      }), { 
+        headers: corsHeaders 
+      });
+    }
+
     // FAST PATH FOR MANUAL TEST BUY (UI-seeded test trades)
     if (intent.side === 'BUY' && intent.source === 'manual' && intent.metadata?.is_test_mode === true && intent.metadata?.ui_seed === true) {
       console.log('[coordinator] FAST PATH: Manual test BUY from UI');
@@ -1771,11 +1813,12 @@ async function logDecisionAsync(
       console.log(`📌 LEARNING: logDecisionAsync - symbol=${baseSymbol}, side=${intent.side}, action=${action}, execution_mode=${executionMode}, is_test_mode=${isTestMode}, entry_price=${finalEntryPrice}, tp_pct=${effectiveTpPct}, sl_pct=${effectiveSlPct}, min_confidence=${effectiveMinConf}, confidence=${normalizedConfidence}, expected_pnl_pct=${intent.metadata?.expectedPnL || null}`);
 
       // Validate and normalize source for decision_events constraint
-      // Allowed values: 'automated', 'manual', 'system', 'intelligent'
-      const allowedSources = ['automated', 'manual', 'system', 'intelligent'];
-      const normalizedSource = allowedSources.includes(intent.source) 
-        ? intent.source 
-        : (intent.source === 'pool' || intent.source === 'news' || intent.source === 'whale' ? 'system' : 'manual');
+      // INTELLIGENT ENGINE ONLY: Only 'intelligent' and 'manual' should reach here
+      // The entry gate blocks 'automated', 'pool', 'news', 'whale' sources
+      // Allowed DB values: 'manual', 'system', 'intelligent' (NOT 'automated')
+      const normalizedSource = intent.source === 'intelligent' ? 'intelligent' 
+        : intent.source === 'manual' ? 'manual'
+        : 'system'; // Fallback for any edge case (should never happen)
 
       // PHASE 1B: Compute fused signal score (READ-ONLY, no behavior change)
       let fusedSignalData = null;

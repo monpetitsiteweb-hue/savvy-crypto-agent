@@ -12,6 +12,32 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // ============= AUTOMATED ENGINE DEPRECATED =============
+  // This function has been fully deprecated in favor of the intelligent engine
+  // (useIntelligentTradingEngine in the frontend)
+  // 
+  // The intelligent engine is now the ONLY source of trading decisions.
+  // All calls to this function will return a deprecation notice.
+  // 
+  // DO NOT RE-ENABLE without explicit approval.
+  // ======================================================
+  
+  console.warn('⚠️ DEPRECATED: automated-trading-engine called but is disabled');
+  console.warn('The intelligent engine (useIntelligentTradingEngine) is now the ONLY active decision source.');
+  
+  return new Response(JSON.stringify({ 
+    deprecated: true,
+    message: 'automated-trading-engine has been deprecated. Use the intelligent engine instead.',
+    timestamp: new Date().toISOString(),
+    success: false,
+    executions: []
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+
+  // ORIGINAL CODE BELOW - KEPT FOR REFERENCE ONLY
+  // This code is unreachable due to the early return above
+  
   try {
     // Security headers and logging
     const clientIP = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown';

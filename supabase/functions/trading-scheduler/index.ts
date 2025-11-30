@@ -17,6 +17,39 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // ============= TRADING SCHEDULER DEPRECATED =============
+  // This function has been fully deprecated in favor of the intelligent engine
+  // (useIntelligentTradingEngine in the frontend)
+  // 
+  // The intelligent engine is now the ONLY source of trading decisions.
+  // All calls to this function will return a deprecation notice.
+  // 
+  // DO NOT RE-ENABLE without explicit approval.
+  // ======================================================
+  
+  console.warn('⚠️ DEPRECATED: trading-scheduler called but is disabled');
+  console.warn('The intelligent engine (useIntelligentTradingEngine) is now the ONLY active decision source.');
+  
+  return new Response(JSON.stringify({ 
+    deprecated: true,
+    message: 'trading-scheduler has been deprecated. Use the intelligent engine instead.',
+    timestamp: new Date().toISOString(),
+    summary: {
+      total_users: 0,
+      successful_executions: 0,
+      failed_executions: 0,
+      test_mode_runs: 0,
+      live_mode_runs: 0,
+      skipped_due_to_connection: 0
+    },
+    results: []
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+
+  // ORIGINAL CODE BELOW - KEPT FOR REFERENCE ONLY
+  // This code is unreachable due to the early return above
+  
   try {
     console.log('🕐 Trading scheduler triggered');
     
