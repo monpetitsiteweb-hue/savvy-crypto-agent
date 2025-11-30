@@ -19,9 +19,9 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  esbuild: mode === 'production'
-    ? { drop: ['console', 'debugger'] }
-    : {},
+  esbuild: {
+    // Console logs enabled in production for debugging
+  },
   define: {
     'import.meta.env.VITE_DEBUG': JSON.stringify(process.env.VITE_DEBUG || '')
   }
