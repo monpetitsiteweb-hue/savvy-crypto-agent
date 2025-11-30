@@ -201,53 +201,7 @@ export const useIntelligentTradingEngine = () => {
       return;
     }
 
-    // FORCED DEBUG TRADE PATH (test-mode only)
-    // Set window.__INTELLIGENT_FORCE_DEBUG_TRADE = true in console to trigger
-    if (typeof window !== 'undefined' && window.__INTELLIGENT_FORCE_DEBUG_TRADE) {
-      writeDebugStage('forced_debug_trade_entry', { userId: user.id, testMode });
-
-      try {
-        const debugIntent = {
-          userId: user.id,
-          strategyId: null,
-          symbol: 'BTC-EUR',
-          side: 'BUY' as const,
-          source: 'intelligent' as const,
-          confidence: 0.99,
-          reason: 'FORCED_DEBUG_TRADE',
-          qtySuggested: 0.001,
-          metadata: {
-            mode: 'mock',
-            debug: true,
-            debugTag: 'forced_debug_trade',
-            engine: 'intelligent',
-            is_test_mode: true,
-          },
-          ts: new Date().toISOString(),
-          idempotencyKey: `forced_debug_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-        };
-
-        console.log('🧪 FORCED DEBUG TRADE: Emitting intent to coordinator:', JSON.stringify(debugIntent, null, 2));
-
-        const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
-          body: { intent: debugIntent }
-        });
-
-        writeDebugStage('forced_debug_trade_emitted', { 
-          symbol: 'BTC-EUR', 
-          qtySuggested: 0.001,
-          coordinatorResponse: decision,
-          coordinatorError: error?.message 
-        });
-
-        console.log('🧪 FORCED DEBUG TRADE: Coordinator response:', decision, 'error:', error);
-      } catch (err) {
-        writeDebugStage('forced_debug_trade_error', { error: String(err) });
-        console.error('🧪 FORCED DEBUG TRADE: Error:', err);
-      }
-
-      return;
-    }
+    // NOTE: Forced debug trade block moved below strategy fetch - see after activeTestStrategies filter
 
     Toast.success(`INTELLIGENT ENGINE: passed guards, entering strategy evaluation | user=${!!user}, loading=${loading}, testMode=${testMode}`);
 
@@ -358,6 +312,64 @@ export const useIntelligentTradingEngine = () => {
         });
         engineLog('ENGINE: No active test strategies found');
         Toast.warn(`INTELLIGENT ENGINE: No test strategies found | Check DB flags (test_mode, is_active_test) or config (is_test_mode, enableTestTrading)`);
+        return;
+      }
+
+      // FORCED DEBUG TRADE PATH (test-mode only)
+      // Set window.__INTELLIGENT_FORCE_DEBUG_TRADE = true in console to trigger
+      // This block is placed AFTER strategy fetch so we have a valid strategyId
+      if (typeof window !== 'undefined' && window.__INTELLIGENT_FORCE_DEBUG_TRADE) {
+        const firstTestStrategy = activeTestStrategies[0];
+        writeDebugStage('forced_debug_trade_entry', { 
+          userId: user.id, 
+          testMode, 
+          strategyId: firstTestStrategy.id,
+          strategyName: firstTestStrategy.strategy_name 
+        });
+
+        try {
+          const debugIntent = {
+            userId: user.id,
+            strategyId: firstTestStrategy.id,  // Use real strategy ID from DB
+            symbol: 'BTC-EUR',
+            side: 'BUY' as const,
+            source: 'intelligent' as const,
+            confidence: 0.99,
+            reason: 'FORCED_DEBUG_TRADE',
+            qtySuggested: 0.001,
+            metadata: {
+              mode: 'mock',
+              debug: true,
+              debugTag: 'forced_debug_trade',
+              engine: 'intelligent',
+              is_test_mode: true,
+            },
+            ts: new Date().toISOString(),
+            idempotencyKey: `forced_debug_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+          };
+
+          console.log('🧪 FORCED DEBUG TRADE: Emitting intent to coordinator:', JSON.stringify(debugIntent, null, 2));
+
+          const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
+            body: { intent: debugIntent }
+          });
+
+          writeDebugStage('forced_debug_trade_emitted', { 
+            symbol: 'BTC-EUR', 
+            strategyId: firstTestStrategy.id,
+            qtySuggested: 0.001,
+            coordinatorResponse: decision,
+            coordinatorError: error?.message 
+          });
+
+          console.log('🧪 FORCED DEBUG TRADE: Coordinator response:', decision, 'error:', error);
+        } catch (err) {
+          writeDebugStage('forced_debug_trade_error', { error: String(err) });
+          console.error('🧪 FORCED DEBUG TRADE: Error:', err);
+        }
+
+        // Clear the flag after use
+        window.__INTELLIGENT_FORCE_DEBUG_TRADE = false;
         return;
       }
       
