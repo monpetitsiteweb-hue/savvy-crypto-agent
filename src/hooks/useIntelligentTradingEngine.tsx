@@ -543,13 +543,22 @@ export const useIntelligentTradingEngine = () => {
 
       // 2. MANAGE EXISTING POSITIONS (Stop Loss, Take Profit, Trailing Stops)
       writeDebugStage('process_manage_positions_start', { strategyId: strategy.id });
-      const sellActions = await manageExistingPositionsInstrumented(strategy, marketData, debugActionsPlanned);
-      writeDebugStage('process_manage_positions_complete', { 
-        sellActionsCount: sellActions,
-        debugActionsPlanned: { ...debugActionsPlanned },
-      });
+      let sellActions = 0;
+      try {
+        sellActions = await manageExistingPositionsInstrumented(strategy, marketData, debugActionsPlanned);
+        writeDebugStage('process_manage_positions_complete', { 
+          sellActionsCount: sellActions,
+          debugActionsPlanned: { ...debugActionsPlanned },
+        });
+      } catch (error: any) {
+        writeDebugStage('process_manage_positions_error', {
+          error: error?.message || String(error),
+          stack: error?.stack,
+          strategyId: strategy.id,
+        });
+      }
 
-      // 3. CHECK FOR NEW BUY OPPORTUNITIES
+      // 3. CHECK FOR NEW BUY OPPORTUNITIES - Always continue even if manage positions failed
       writeDebugStage('process_buy_opportunities_start', { strategyId: strategy.id });
       const buyActions = await checkBuyOpportunitiesInstrumented(strategy, marketData, debugActionsPlanned);
       writeDebugStage('process_buy_opportunities_complete', { 
