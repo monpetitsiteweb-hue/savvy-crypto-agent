@@ -629,6 +629,139 @@ serve(async (req) => {
       }
     }
 
+    // ============= FAST PATH FOR NORMAL INTELLIGENT ENGINE TRADES =============
+    // These are real trade intents from useIntelligentTradingEngine (not forced debug)
+    // They have source='intelligent' but NO debugTag='forced_debug_trade'
+    // We MUST log them to decision_events with source='intelligent' for learning loop
+    const isNormalIntelligentTrade = intent?.source === 'intelligent' && intent?.metadata?.debugTag !== 'forced_debug_trade';
+    if (isNormalIntelligentTrade && intent.strategyId) {
+      console.log('🧠 INTELLIGENT DECISION – normal trade path', {
+        source: intent.source,
+        symbol: intent.symbol,
+        side: intent.side,
+        strategyId: intent.strategyId,
+        engine: intent.metadata?.engine,
+        reason: intent.reason,
+        confidence: intent.confidence,
+      });
+
+      const baseSymbol = toBaseSymbol(intent.symbol);
+      
+      // Get market price for entry_price
+      let marketPrice = null;
+      try {
+        const priceData = await getMarketPrice(baseSymbol, 15000);
+        marketPrice = priceData.price;
+      } catch (err) {
+        console.warn('[coordinator] Could not fetch price for intelligent trade:', err?.message);
+        marketPrice = intent.metadata?.price || intent.metadata?.currentPrice || null;
+      }
+
+      // Fetch strategy config
+      const { data: strategyConfig, error: stratConfigError } = await supabaseClient
+        .from('trading_strategies')
+        .select('unified_config, configuration')
+        .eq('id', intent.strategyId)
+        .eq('user_id', intent.userId)
+        .single();
+
+      if (stratConfigError || !strategyConfig) {
+        console.error('❌ INTELLIGENT: Strategy not found:', stratConfigError);
+        return respond('HOLD', 'internal_error', requestId);
+      }
+
+      const unifiedConfig: UnifiedConfig = strategyConfig.unified_config || {
+        enableUnifiedDecisions: false,
+        minHoldPeriodMs: 300000,
+        cooldownBetweenOppositeActionsMs: 180000,
+        confidenceOverrideThreshold: 0.70
+      };
+
+      const config = strategyConfig.configuration || {};
+      const effectiveTpPct = config.takeProfitPercentage || 1.5;
+      const effectiveSlPct = config.stopLossPercentage || 0.8;
+
+      // Determine action based on side
+      const action = intent.side as DecisionAction;
+      const reason = 'no_conflicts_detected' as Reason;
+
+      // 🧪 INTELLIGENT INSERT – PAYLOAD (debug log)
+      console.log('🧪 INTELLIGENT INSERT – PAYLOAD', {
+        table: 'decision_events',
+        source: 'intelligent',
+        userId: intent.userId,
+        strategyId: intent.strategyId,
+        symbol: baseSymbol,
+        side: intent.side,
+        debugTag: intent.metadata?.debugTag || null,
+        engine: intent.metadata?.engine,
+        entry_price: marketPrice,
+        confidence: intent.confidence,
+      });
+
+      // Log decision to decision_events
+      const logResult = await logDecisionAsync(
+        supabaseClient,
+        intent,
+        action,
+        reason,
+        unifiedConfig,
+        requestId,
+        undefined, // profitMetadata
+        undefined, // tradeId - will be set if trade executes
+        marketPrice, // executionPrice
+        { // strategyConfig
+          takeProfitPercentage: effectiveTpPct,
+          stopLossPercentage: effectiveSlPct,
+          minConfidence: (config.aiConfidenceThreshold || 60) / 100,
+          configuration: config
+        }
+      );
+
+      // 🧪 INTELLIGENT INSERT – RESULT (debug log)
+      console.log('🧪 INTELLIGENT INSERT – RESULT', {
+        source: 'intelligent',
+        debugTag: intent.metadata?.debugTag || null,
+        engine: intent.metadata?.engine,
+        logged: logResult.logged,
+        error: logResult.error || null,
+      });
+
+      if (!logResult.logged) {
+        console.error('❌ INTELLIGENT: Failed to log decision to decision_events', {
+          error: logResult.error,
+          source: intent.source,
+          strategyId: intent.strategyId,
+        });
+        return new Response(JSON.stringify({ 
+          ok: false,
+          decision: {
+            action: 'HOLD',
+            reason: 'decision_events_insert_failed',
+            request_id: requestId,
+            retry_in_ms: 0,
+            logged_to_decision_events: false,
+            error: logResult.error
+          }
+        }), { 
+          headers: corsHeaders 
+        });
+      }
+
+      console.log('✅ INTELLIGENT: Decision logged to decision_events', {
+        source: intent.source,
+        symbol: baseSymbol,
+        side: intent.side,
+        engine: intent.metadata?.engine,
+      });
+
+      // NOTE: We log the decision but let the normal coordinator flow handle execution
+      // This ensures all gates, locks, and trading logic are still applied
+      // The decision is now recorded for learning loop regardless of execution outcome
+      // 
+      // Fall through to regular coordinator flow for actual trade execution...
+    }
+
     // FAST PATH FOR MANUAL/MOCK/FORCE SELL
     // MANUAL SELL semantics:
     // - If metadata.originalTradeId is provided, we close THAT specific BUY.
