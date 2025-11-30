@@ -25,7 +25,7 @@ jobs:
 
       - name: Link to DEV Supabase project
         run: |
-          supabase link --project-ref ${{ secrets.SB_PROJECT_REF_DEV }}
+          supabase link --project-ref fuieplftlcxdfkxyqzlt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
@@ -37,14 +37,4 @@ jobs:
 
       - name: Deployment Summary
         run: |
-          echo "✅ Edge Functions deployed to DEV project: ${{ secrets.SB_PROJECT_REF_DEV }}"
-          echo "🔗 Functions URL: https://${{ secrets.SB_PROJECT_REF_DEV }}.supabase.co/functions/v1/"
-          echo ""
-          echo "⚠️  Remember to set runtime secrets in Supabase UI:"
-          echo "  - SERVER_SIGNER_MODE=webhook"
-          echo "  - DEV_SIGNER_WEBHOOK_URL=https://your-dev-signer.railway.app/sign"
-          echo "  - DEV_SIGNER_WEBHOOK_AUTH=Bearer your-secret"
-          echo "  - RPC_URL_8453=https://mainnet.base.org"
-          echo "  - ZEROEX_API_KEY=your-api-key"
-          echo "  - SB_URL, SB_SERVICE_ROLE"
-          echo "  - Optional: MAX_TX_VALUE_WEI, NOTIFICATION_WEBHOOK_URL"
+          echo "✅ Edge Functions deployed to DEV"
