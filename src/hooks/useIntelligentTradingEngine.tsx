@@ -16,9 +16,6 @@ import { checkMarketAvailability, filterSupportedSymbols } from '@/utils/marketA
 import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { getFeaturesForEngine } from '@/lib/api/features';
 
-// 🔥🔥🔥 VERSION MARKER - IF YOU SEE THIS, THE REAL FILE IS LOADED 🔥🔥🔥
-console.log("🔥 ENGINE VERSION LOADED: v9999-KILL-SWITCHES", new Date().toISOString());
-
 // Global debug object declaration
 declare global {
   interface Window {
@@ -106,6 +103,9 @@ interface TradingState {
   dailyResetDate: string;
 }
 
+// Track if we've logged initialization (module-level to prevent re-logging on HMR)
+let hasLoggedInit = false;
+
 export const useIntelligentTradingEngine = () => {
   const { testMode } = useTestMode();
   const { user, loading } = useAuth();
@@ -123,6 +123,7 @@ export const useIntelligentTradingEngine = () => {
   
   // IMPORTANT: Declare refs BEFORE the useEffect that uses them
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
+  const hasLoggedInitRef = useRef(false);
   const tradingStateRef = useRef<TradingState>({
     dailyTrades: 0,
     dailyPnL: 0,
@@ -131,8 +132,12 @@ export const useIntelligentTradingEngine = () => {
     dailyResetDate: new Date().toDateString()
   });
   
-  // Silent log for intelligent engine debug
-  engineConsoleLog('🧠 INTELLIGENT_ENGINE: Hook initialized', { testMode, user: !!user, loading });
+  // Log initialization ONLY ONCE per mount (not on every render)
+  if (!hasLoggedInitRef.current && !hasLoggedInit) {
+    hasLoggedInitRef.current = true;
+    hasLoggedInit = true;
+    engineConsoleLog('🧠 INTELLIGENT_ENGINE: Hook initialized', { testMode, user: !!user, loading });
+  }
 
   useEffect(() => {
     // Check if autorun is disabled via kill switch
