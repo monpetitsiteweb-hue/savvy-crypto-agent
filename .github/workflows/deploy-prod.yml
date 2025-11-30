@@ -37,4 +37,4 @@ jobs:
 
       - name: Deployment Summary
         run: |
-          echo "✅ Edge Functions deployed to PROD"
+          echo "✅ Edge Functions deployed to PROD (fuieplftlcxdfkxyqzlt)"
