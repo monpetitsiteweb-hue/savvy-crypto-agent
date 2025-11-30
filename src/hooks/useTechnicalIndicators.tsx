@@ -34,10 +34,6 @@ const DEFAULT_CONFIG: IndicatorConfig = {
 };
 
 export const useTechnicalIndicators = (strategyConfig?: any) => {
-  const startTime = performance.now();
-  console.log('🔧 useTechnicalIndicators hook initialized with config:', strategyConfig, `at ${startTime}ms`);
-  
-  console.log('⏱️ Hook initialization time:', performance.now() - startTime, 'ms');
   const [indicatorConfig, setIndicatorConfig] = useState<IndicatorConfig>(DEFAULT_CONFIG);
   const [indicators, setIndicators] = useState<Record<string, IndicatorValues>>({});
   const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({});
@@ -47,15 +43,9 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
   // Bootstrap price history from existing price_data table on mount
   useEffect(() => {
     const loadHistoricalPriceData = async () => {
-      const loadStartTime = performance.now();
-      console.log('🔍 Starting historical data load at:', loadStartTime, 'ms');
-      
       try {
         setIsLoadingHistoricalData(true);
         const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
-        
-        console.log('🔍 Loading cached indicators first...');
-        const cacheQueryStart = performance.now();
         
         // Check for cached indicators first for instant loading
         const { data: existingIndicators } = await supabase
@@ -66,13 +56,8 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
           .order('timestamp', { ascending: false })
           .limit(symbols.length);
         
-        const cacheQueryEnd = performance.now();
-        console.log(`⏱️ Cache query took: ${cacheQueryEnd - cacheQueryStart}ms`);
-        
         // Load cached indicators instantly
         if (existingIndicators && existingIndicators.length > 0) {
-          const cacheProcessStart = performance.now();
-          console.log('📊 Found cached indicators, loading instantly...');
           const cachedIndicators: Record<string, any> = {};
           existingIndicators.forEach(item => {
             if (item.metadata && typeof item.metadata === 'object' && 'indicators' in item.metadata) {
@@ -82,65 +67,43 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
           
           if (Object.keys(cachedIndicators).length > 0) {
             setIndicators(cachedIndicators);
-            setIsLoadingHistoricalData(false); // Stop loading state immediately
-            const cacheProcessEnd = performance.now();
-            console.log(`✅ Loaded cached indicators for: ${Object.keys(cachedIndicators)} in ${cacheProcessEnd - cacheProcessStart}ms`);
+            setIsLoadingHistoricalData(false);
           }
-        } else {
-          console.log('⚠️ No cached indicators found');
         }
         
         // Fetch fresh price data in background for recalculation
-        const freshDataStart = performance.now();
-        console.log('🔍 Loading fresh price data for recalculation...');
         const pricePromises = symbols.map(async (symbol) => {
-          const queryStart = performance.now();
           const { data } = await supabase
             .from('price_data')
             .select('symbol, close_price, timestamp')
             .eq('symbol', symbol)
             .order('timestamp', { ascending: false })
             .limit(50);
-          const queryEnd = performance.now();
-          console.log(`⏱️ Price query for ${symbol} took: ${queryEnd - queryStart}ms, returned ${data?.length || 0} records`);
           return data || [];
         });
         
         const allPriceData = (await Promise.all(pricePromises)).flat();
-        const freshDataEnd = performance.now();
-        console.log(`📊 Fetched ${allPriceData.length} fresh price data points in ${freshDataEnd - freshDataStart}ms`);
         
         if (allPriceData.length > 0) {
-          const processingStart = performance.now();
           const historyBySymbol: Record<string, number[]> = {};
           
           // Group data by symbol and sort by timestamp
           symbols.forEach(symbol => {
-            const symbolStart = performance.now();
             const symbolData = allPriceData
               .filter(d => d.symbol === symbol)
               .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
               .map(d => parseFloat(d.close_price.toString()));
             
             if (symbolData.length > 0) {
-              historyBySymbol[symbol] = symbolData; // Use all fetched data (50 points max)
+              historyBySymbol[symbol] = symbolData;
             }
-            const symbolEnd = performance.now();
-            console.log(`⏱️ Processing ${symbol} data took: ${symbolEnd - symbolStart}ms`);
           });
           
           setPriceHistory(historyBySymbol);
-          const processingEnd = performance.now();
-          console.log(`✅ Fast-loaded indicators with data: ${Object.keys(historyBySymbol).map(s => `${s}: ${historyBySymbol[s].length} prices`)} in ${processingEnd - processingStart}ms`);
-        } else {
-          console.log('⚠️ No price data found in database');
         }
         
-        const totalLoadTime = performance.now() - loadStartTime;
-        console.log(`🏁 Total historical data load time: ${totalLoadTime}ms`);
-        
-      } catch (error) {
-        console.error('❌ Failed to load historical price data:', error);
+      } catch {
+        // Silently handle errors
       } finally {
         setIsLoadingHistoricalData(false);
       }
@@ -179,17 +142,10 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
 
   // Calculate indicators when price history updates
   useEffect(() => {
-    const calculationStart = performance.now();
-    console.log('📈 Starting indicator calculations at:', calculationStart, 'ms');
-    
     const newIndicators: Record<string, IndicatorValues> = {};
 
     Object.entries(priceHistory).forEach(([symbol, prices]) => {
-      const symbolStart = performance.now();
-      console.log(`🔍 Calculating indicators for ${symbol} with ${prices.length} price points`);
-      
       if (prices.length < 26) {
-        console.log(`⚠️ ${symbol}: Not enough data (${prices.length} < 26), skipping`);
         return; // Need minimum data for indicators
       }
 
@@ -212,8 +168,8 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
             
             symbolIndicators.RSI = { value: Number(currentRSI.toFixed(2)), signal };
           }
-        } catch (error) {
-          console.error('Error calculating RSI:', error);
+        } catch {
+          // Silently handle calculation errors
         }
       }
 
@@ -247,8 +203,8 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
               crossover
             };
           }
-        } catch (error) {
-          console.error('Error calculating MACD:', error);
+        } catch {
+          // Silently handle calculation errors
         }
       }
 
@@ -285,8 +241,8 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
               direction
             };
           }
-        } catch (error) {
-          console.error('Error calculating EMA:', error);
+        } catch {
+          // Silently handle calculation errors
         }
       }
 
@@ -303,8 +259,8 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
               value: Number(smaValues[smaValues.length - 1].toFixed(2))
             };
           }
-        } catch (error) {
-          console.error('Error calculating SMA:', error);
+        } catch {
+          // Silently handle calculation errors
         }
       }
 
@@ -340,17 +296,16 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
               width: Number(width.toFixed(2))
             };
           }
-        } catch (error) {
-          console.error('Error calculating Bollinger Bands:', error);
+        } catch {
+          // Silently handle calculation errors
         }
       }
 
       // ADX Calculation
       if (indicatorConfig.adx.enabled && prices.length >= indicatorConfig.adx.period + 14) {
         try {
-          // ADX needs high, low, close data - using price as close, estimating high/low
           const input = prices.map(price => ({
-            high: price * 1.001, // Rough estimation
+            high: price * 1.001,
             low: price * 0.999,
             close: price
           }));
@@ -363,7 +318,6 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
           });
           
           if (adxValues.length > 0) {
-            // ADX returns simple number values
             const currentADX = adxValues[adxValues.length - 1] as unknown as number;
             
             let trendStrength: 'weak' | 'moderate' | 'strong' | 'very_strong' = 'weak';
@@ -377,8 +331,8 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
               trendStrength
             };
           }
-        } catch (error) {
-          console.error('Error calculating ADX:', error);
+        } catch {
+          // Silently handle calculation errors
         }
       }
 
@@ -406,19 +360,15 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
               signal
             };
           }
-        } catch (error) {
-          console.error('Error calculating Stochastic RSI:', error);
+        } catch {
+          // Silently handle calculation errors
         }
       }
 
       newIndicators[symbol] = symbolIndicators;
-      const symbolEnd = performance.now();
-      console.log(`⏱️ Calculated indicators for ${symbol} in ${symbolEnd - symbolStart}ms`);
     });
 
     setIndicators(newIndicators);
-    const calculationEnd = performance.now();
-    console.log(`🏁 Total indicator calculation time: ${calculationEnd - calculationStart}ms for ${Object.keys(newIndicators).length} symbols`);
   }, [priceHistory, indicatorConfig]);
 
   const updateIndicatorConfig = (updates: Partial<IndicatorConfig>) => {
@@ -444,10 +394,6 @@ export const useTechnicalIndicators = (strategyConfig?: any) => {
     
     if (symbolIndicators.EMA) {
       signals.push(`EMA: ${symbolIndicators.EMA.direction} trend`);
-    }
-    
-    if (symbolIndicators.Bollinger) {
-      signals.push(`Bollinger: ${symbolIndicators.Bollinger.position}`);
     }
     
     return signals.join(', ') || 'No active indicators';

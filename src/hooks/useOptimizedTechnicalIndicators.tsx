@@ -38,11 +38,7 @@ const SYMBOLS = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
 
 // Fetch cached indicators with React Query for persistent caching
 const fetchCachedIndicators = async (): Promise<Record<string, IndicatorValues>> => {
-  const startTime = performance.now();
-  console.log('🚀 Fetching cached indicators at:', startTime, 'ms');
-
   try {
-    // Try to get cached indicators first (should be instant)
     const { data: cachedData } = await supabase
       .from('price_data')
       .select('symbol, metadata')
@@ -51,44 +47,30 @@ const fetchCachedIndicators = async (): Promise<Record<string, IndicatorValues>>
       .order('timestamp', { ascending: false })
       .limit(SYMBOLS.length);
 
-    const cacheTime = performance.now();
-    console.log(`⚡ Cache query took: ${cacheTime - startTime}ms, found ${cachedData?.length || 0} cached indicators`);
-
     const cachedIndicators: Record<string, IndicatorValues> = {};
     
     if (cachedData && cachedData.length > 0) {
       cachedData.forEach(item => {
         if (item.metadata && typeof item.metadata === 'object' && 'indicators' in item.metadata) {
           cachedIndicators[item.symbol] = (item.metadata as any).indicators;
-          console.log(`📊 Using cached indicators for ${item.symbol}`);
         }
       });
     }
 
-    // If we have cached indicators for all symbols, return them immediately
     if (Object.keys(cachedIndicators).length === SYMBOLS.length) {
-      const totalTime = performance.now() - startTime;
-      console.log(`✅ All indicators loaded from cache in ${totalTime}ms`);
       return cachedIndicators;
     }
 
-    // If cache is incomplete, fall back to calculation but don't block
-    console.log('⚠️ Cache incomplete, falling back to fresh calculation');
     return await calculateFreshIndicators(cachedIndicators);
 
-  } catch (error) {
-    console.error('❌ Error fetching cached indicators:', error);
+  } catch {
     return await calculateFreshIndicators({});
   }
 };
 
 // Calculate indicators from fresh price data (fallback)
 const calculateFreshIndicators = async (existingCache: Record<string, IndicatorValues>): Promise<Record<string, IndicatorValues>> => {
-  const startTime = performance.now();
-  console.log('🔄 Calculating fresh indicators...');
-
   try {
-    // Fetch fresh price data for symbols not in cache
     const missingSymbols = SYMBOLS.filter(symbol => !existingCache[symbol]);
     
     if (missingSymbols.length === 0) {
@@ -96,16 +78,12 @@ const calculateFreshIndicators = async (existingCache: Record<string, IndicatorV
     }
 
     const pricePromises = missingSymbols.map(async (symbol) => {
-      const queryStart = performance.now();
       const { data } = await supabase
         .from('price_data')
         .select('symbol, close_price, timestamp')
         .eq('symbol', symbol)
         .order('timestamp', { ascending: false })
         .limit(50);
-      
-      const queryEnd = performance.now();
-      console.log(`⏱️ Price query for ${symbol}: ${queryEnd - queryStart}ms`);
       return { symbol, data: data || [] };
     });
 
@@ -114,24 +92,16 @@ const calculateFreshIndicators = async (existingCache: Record<string, IndicatorV
 
     for (const { symbol, data } of priceResults) {
       if (data.length >= 26) {
-        const calcStart = performance.now();
         const prices = data
           .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
           .map(d => parseFloat(d.close_price.toString()));
 
         calculatedIndicators[symbol] = calculateIndicatorsForSymbol(prices, DEFAULT_CONFIG);
-        
-        const calcEnd = performance.now();
-        console.log(`📈 Calculated indicators for ${symbol} in ${calcEnd - calcStart}ms`);
       }
     }
-
-    const totalTime = performance.now() - startTime;
-    console.log(`🏁 Fresh indicator calculation took: ${totalTime}ms`);
     
     return calculatedIndicators;
-  } catch (error) {
-    console.error('❌ Error calculating fresh indicators:', error);
+  } catch {
     return existingCache;
   }
 };
@@ -224,19 +194,14 @@ const calculateIndicatorsForSymbol = (prices: number[], config: IndicatorConfig)
       }
     }
 
-    // Add other indicators as needed...
-
-  } catch (error) {
-    console.error('Error calculating indicators:', error);
+  } catch {
+    // Silently handle errors
   }
 
   return indicators;
 };
 
 export const useOptimizedTechnicalIndicators = (strategyConfig?: any) => {
-  const hookStart = performance.now();
-  console.log('🔧 useOptimizedTechnicalIndicators hook initialized at:', hookStart, 'ms');
-
   const [indicatorConfig, setIndicatorConfig] = useState<IndicatorConfig>(DEFAULT_CONFIG);
   const { marketData } = useRealTimeMarketData();
 
@@ -256,7 +221,6 @@ export const useOptimizedTechnicalIndicators = (strategyConfig?: any) => {
     if (marketData) {
       Object.entries(marketData).forEach(([symbol, data]: [string, any]) => {
         if (data.price && SYMBOLS.includes(symbol)) {
-          // Store minimal real-time price data
           history[symbol] = [data.price];
         }
       });
@@ -264,7 +228,7 @@ export const useOptimizedTechnicalIndicators = (strategyConfig?: any) => {
     return history;
   }, [marketData]);
 
-  // Use React Query for persistent caching across page navigation with automatic refresh
+  // Use React Query for persistent caching
   const {
     data: indicators = {},
     isLoading,
@@ -274,13 +238,13 @@ export const useOptimizedTechnicalIndicators = (strategyConfig?: any) => {
   } = useQuery({
     queryKey: ['technical-indicators', SYMBOLS],
     queryFn: fetchCachedIndicators,
-    staleTime: 30 * 1000, // Consider data fresh for 30 seconds
-    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
-    refetchOnMount: false, // Don't refetch when component mounts if data exists
+    refetchOnMount: false,
     refetchOnReconnect: false,
-    refetchInterval: 15 * 1000, // Auto-refresh every 15 seconds in background
-    refetchIntervalInBackground: true, // Continue refreshing even when tab is not active
+    refetchInterval: 15 * 1000,
+    refetchIntervalInBackground: true,
   });
 
   // Auto-refresh when new market data comes in (throttled)
@@ -290,22 +254,19 @@ export const useOptimizedTechnicalIndicators = (strategyConfig?: any) => {
     const hasSignificantPriceChange = Object.entries(marketData).some(([symbol, data]: [string, any]) => {
       if (!SYMBOLS.includes(symbol) || !data.price) return false;
       
-      // Check if price changed significantly (>0.1%) since last update
       const currentPrice = data.price;
       const lastKnownPrice = priceHistory[symbol]?.[0];
       
-      if (!lastKnownPrice) return true; // First time seeing this price
+      if (!lastKnownPrice) return true;
       
       const priceChangePercent = Math.abs((currentPrice - lastKnownPrice) / lastKnownPrice) * 100;
-      return priceChangePercent > 0.1; // Refresh if price changed by more than 0.1%
+      return priceChangePercent > 0.1;
     });
 
     if (hasSignificantPriceChange) {
-      console.log('🔄 Significant price change detected, refreshing indicators...');
-      // Debounce the refresh to avoid too many calls
       const timeoutId = setTimeout(() => {
         refetch();
-      }, 2000); // Wait 2 seconds before refreshing
+      }, 2000);
 
       return () => clearTimeout(timeoutId);
     }
@@ -338,9 +299,6 @@ export const useOptimizedTechnicalIndicators = (strategyConfig?: any) => {
     
     return signals.join(', ') || 'No active indicators';
   };
-
-  const hookEnd = performance.now();
-  console.log(`⏱️ Hook execution took: ${hookEnd - hookStart}ms, loading: ${isLoading}`);
 
   return {
     indicators,
