@@ -1,20 +1,31 @@
-name: Trading Scheduler (5 min)
+# DEPRECATED: Legacy automated trading scheduler - DISABLED
+# This workflow has been disabled in favor of the intelligent engine
+# The intelligent engine (useIntelligentTradingEngine) is now the ONLY active decision source
+# 
+# To re-enable this workflow, uncomment the schedule section below
+# WARNING: Re-enabling will create duplicate decisions alongside intelligent engine
+
+name: Trading Scheduler (5 min) - DISABLED
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'  # Every 5 minutes
-  workflow_dispatch:  # Allow manual trigger
+  # DISABLED: Automated engine deprecated
+  # schedule:
+  #   - cron: '*/5 * * * *'  # Every 5 minutes
+  workflow_dispatch:  # Allow manual trigger for debugging only
 
 jobs:
   run-scheduler:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Trading Scheduler
+      - name: DEPRECATED - Automated Engine Disabled
         run: |
-          curl -sS -X POST \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            -H "Content-Type: application/json" \
-            -d '{"scheduled": true}' \
-            https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/trading-scheduler
+          echo "⚠️ DEPRECATED: The automated trading engine has been disabled."
+          echo "The intelligent engine (useIntelligentTradingEngine) is now the ONLY active decision source."
+          echo "This workflow is kept for reference only."
+          echo ""
+          echo "To manually test (NOT RECOMMENDED):"
+          echo "  - Uncomment the schedule section in this file"
+          echo "  - Re-deploy the workflow"
+          echo ""
+          echo "Exiting without calling automated-trading-engine..."
+          exit 0

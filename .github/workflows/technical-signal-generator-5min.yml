@@ -1,20 +1,30 @@
-name: Technical Signal Generator (5 min)
+# DEPRECATED: Legacy technical signal generator - DISABLED
+# This workflow generated signals for the old automated engine
+# The intelligent engine now handles signal processing directly
+# 
+# Signal data continues to be available via features-refresh and ohlcv pipelines
+
+name: Technical Signal Generator (5 min) - DISABLED
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'  # Every 5 minutes
-  workflow_dispatch:  # Allow manual trigger
+  # DISABLED: Part of automated engine deprecation
+  # schedule:
+  #   - cron: '*/5 * * * *'  # Every 5 minutes
+  workflow_dispatch:  # Allow manual trigger for debugging only
 
 jobs:
   run-signal-generator:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Technical Signal Generator
+      - name: DEPRECATED - Signal Generator Disabled
         run: |
-          curl -sS -X POST \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            -H "Content-Type: application/json" \
-            -d '{"scheduled": true}' \
-            https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/technical-signal-generator
+          echo "⚠️ DEPRECATED: The technical signal generator has been disabled."
+          echo "The intelligent engine handles signal processing directly."
+          echo ""
+          echo "Signal data pipelines still active:"
+          echo "  - features-refresh-daily.yml"
+          echo "  - ohlcv-backfill-daily.yml"  
+          echo "  - ohlcv-live-ingest-hourly.yml"
+          echo ""
+          echo "Exiting without calling technical-signal-generator..."
+          exit 0
