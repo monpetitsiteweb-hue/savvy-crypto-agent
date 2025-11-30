@@ -47,7 +47,7 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // Check if we're in 429 backoff period
     const now = Date.now();
     if (backoffUntilRef.current > now) {
-      console.warn(`⚠️  In 429 backoff, skipping fetch (${Math.ceil((backoffUntilRef.current - now) / 1000)}s remaining)`);
+      // Silently skip during backoff
       return {};
     }
 
@@ -62,7 +62,6 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const validSymbols = filterSupportedSymbols(pairSymbols);
 
       if (validSymbols.length === 0) {
-        console.warn('No valid symbols to fetch');
         return {};
       }
 
@@ -106,13 +105,13 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             };
           } else if (response.status === 429) {
             hit429 = true;
-            console.warn(`⚠️  Rate limited (429) for ${symbol}, entering 30s backoff`);
+            // Only log 429 once, not for every symbol
             return { [symbol]: null };
           }
-          console.warn(`API error for ${symbol}: ${response.status}`);
+          // Silently ignore 404/400 for unsupported pairs - don't spam console
           return { [symbol]: null };
-        } catch (err) {
-          console.warn(`Network error for ${symbol}:`, err);
+        } catch {
+          // Silently ignore network errors
           return { [symbol]: null };
         }
       });
@@ -122,7 +121,6 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // If we hit 429, enter backoff
       if (hit429) {
         backoffUntilRef.current = Date.now() + 30000; // 30 seconds
-        console.warn('⚠️  Entering 30s backoff due to 429 rate limit');
       }
       
       const marketDataMap = results.reduce((acc, result) => {
@@ -159,8 +157,7 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       
       return marketDataMap;
-    } catch (err) {
-      console.error('Error in getCurrentData:', err);
+    } catch {
       setError('Failed to fetch market data');
       return {};
     }
