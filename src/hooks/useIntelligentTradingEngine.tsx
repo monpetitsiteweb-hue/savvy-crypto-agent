@@ -17,7 +17,7 @@ import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { getFeaturesForEngine } from '@/lib/api/features';
 
 // 🔥🔥🔥 VERSION MARKER - IF YOU SEE THIS, THE REAL FILE IS LOADED 🔥🔥🔥
-console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOString());
+console.log("🔥 ENGINE VERSION LOADED: v9999-KILL-SWITCHES", new Date().toISOString());
 
 // Global debug object declaration
 declare global {
@@ -36,8 +36,28 @@ declare global {
       details?: any;
     }>;
     __INTELLIGENT_FORCE_DEBUG_TRADE?: boolean;
+    __INTELLIGENT_SUPPRESS_LOGS?: boolean;
+    __INTELLIGENT_DISABLE_AUTORUN?: boolean;
   }
 }
+
+// Check if engine logs should be suppressed
+const isLogSuppressed = () => {
+  if (typeof window === "undefined") return false;
+  return (window as any).__INTELLIGENT_SUPPRESS_LOGS === true;
+};
+
+// Check if autorun is disabled
+const isAutorunDisabled = () => {
+  if (typeof window === "undefined") return false;
+  return (window as any).__INTELLIGENT_DISABLE_AUTORUN === true;
+};
+
+// Suppressible console log for engine
+const engineConsoleLog = (...args: any[]) => {
+  if (isLogSuppressed()) return;
+  console.log(...args);
+};
 
 // Helper to write debug stage and push to history
 const writeDebugStage = (stage: string, details?: any) => {
@@ -112,23 +132,38 @@ export const useIntelligentTradingEngine = () => {
   });
   
   // Silent log for intelligent engine debug
-  console.log('🧠 INTELLIGENT_ENGINE: Hook initialized', { testMode, user: !!user, loading });
+  engineConsoleLog('🧠 INTELLIGENT_ENGINE: Hook initialized', { testMode, user: !!user, loading });
 
   useEffect(() => {
+    // Check if autorun is disabled via kill switch
+    if (isAutorunDisabled()) {
+      engineConsoleLog('🛑 ENGINE: autorun disabled via __INTELLIGENT_DISABLE_AUTORUN');
+      // Stop any existing interval
+      if (marketMonitorRef.current) {
+        clearInterval(marketMonitorRef.current);
+        marketMonitorRef.current = null;
+      }
+      return;
+    }
+
     // Silent log for auth state change
-    (window as any).NotificationSink?.log({ 
-      message: 'INTELLIGENT_ENGINE: Auth state changed', 
-      data: { user: !!user, loading, testMode }
-    });
+    if (!isLogSuppressed()) {
+      (window as any).NotificationSink?.log({ 
+        message: 'INTELLIGENT_ENGINE: Auth state changed', 
+        data: { user: !!user, loading, testMode }
+      });
+    }
     
     if (!loading && user && testMode) {
       // Silent log for auth conditions met
-      (window as any).NotificationSink?.log({
-        message: 'INTELLIGENT_ENGINE: Auth conditions check - starting engine with recurring loop',
-        data: { user: !!user, loading, testMode, intervalMs: MONITORING_INTERVAL_MS }
-      });
+      if (!isLogSuppressed()) {
+        (window as any).NotificationSink?.log({
+          message: 'INTELLIGENT_ENGINE: Auth conditions check - starting engine with recurring loop',
+          data: { user: !!user, loading, testMode, intervalMs: MONITORING_INTERVAL_MS }
+        });
+      }
       
-      console.log('🚀 INTELLIGENT ENGINE: Starting recurring monitoring loop (interval:', MONITORING_INTERVAL_MS, 'ms)');
+      engineConsoleLog('🚀 INTELLIGENT ENGINE: Starting recurring monitoring loop (interval:', MONITORING_INTERVAL_MS, 'ms)');
       
       // Initial run after short delay
       const initialTimer = setTimeout(() => {
@@ -140,7 +175,7 @@ export const useIntelligentTradingEngine = () => {
         clearInterval(marketMonitorRef.current);
       }
       marketMonitorRef.current = setInterval(() => {
-        console.log('🔄 INTELLIGENT ENGINE: Recurring check triggered');
+        engineConsoleLog('🔄 INTELLIGENT ENGINE: Recurring check triggered');
         checkStrategiesAndExecute();
       }, MONITORING_INTERVAL_MS);
       
@@ -150,7 +185,7 @@ export const useIntelligentTradingEngine = () => {
         if (marketMonitorRef.current) {
           clearInterval(marketMonitorRef.current);
           marketMonitorRef.current = null;
-          console.log('🛑 INTELLIGENT ENGINE: Monitoring loop stopped');
+          engineConsoleLog('🛑 INTELLIGENT ENGINE: Monitoring loop stopped');
         }
       };
     } else {
@@ -158,13 +193,15 @@ export const useIntelligentTradingEngine = () => {
       if (marketMonitorRef.current) {
         clearInterval(marketMonitorRef.current);
         marketMonitorRef.current = null;
-        console.log('🛑 INTELLIGENT ENGINE: Monitoring loop stopped (conditions not met)');
+        engineConsoleLog('🛑 INTELLIGENT ENGINE: Monitoring loop stopped (conditions not met)');
       }
       // Silent log for auth waiting
-      (window as any).NotificationSink?.log({ 
-        message: 'INTELLIGENT_ENGINE: Waiting for auth or testMode', 
-        data: { loading, user: !!user, testMode }
-      });
+      if (!isLogSuppressed()) {
+        (window as any).NotificationSink?.log({ 
+          message: 'INTELLIGENT_ENGINE: Waiting for auth or testMode', 
+          data: { loading, user: !!user, testMode }
+        });
+      }
     }
   }, [user, loading, testMode]);
 
@@ -173,17 +210,19 @@ export const useIntelligentTradingEngine = () => {
     writeDebugStage('start', { testMode, userPresent: !!user, loading });
     
     // Explicit debug log for acceptance test
-    console.log('🧪 ENGINE: checkStrategiesAndExecute called', {
+    engineConsoleLog('🧪 ENGINE: checkStrategiesAndExecute called', {
       testMode,
       user: !!user,
       loading,
     });
     
     // Silent log for engine state
-    (window as any).NotificationSink?.log({
-      message: 'ENGINE: checkStrategiesAndExecute called',
-      data: { testMode, user: !!user, loading }
-    });
+    if (!isLogSuppressed()) {
+      (window as any).NotificationSink?.log({
+        message: 'ENGINE: checkStrategiesAndExecute called',
+        data: { testMode, user: !!user, loading }
+      });
+    }
     
     if (!user || loading) {
       // DEBUG STAGE: early_exit_user_or_loading
@@ -231,7 +270,7 @@ export const useIntelligentTradingEngine = () => {
       engineLog(`ENGINE: fetched ${strategyRows.length} strategies from DB`);
       strategyRows.forEach((row) => {
         const rawRow = row as any;
-        console.log("ENGINE: raw strategy flags", {
+        engineConsoleLog("ENGINE: raw strategy flags", {
           id: rawRow.id,
           strategy_name: rawRow.strategy_name,
           is_active: rawRow.is_active,
@@ -247,7 +286,7 @@ export const useIntelligentTradingEngine = () => {
       const strategies: StrategyData[] = (strategyRows || []).map(normalizeStrategy);
       
       // DEBUG: Log normalized strategies (same fields Debug Panel shows)
-      console.log("ENGINE: normalized strategies", strategies.map(s => ({
+      engineConsoleLog("ENGINE: normalized strategies", strategies.map(s => ({
         id: s.id,
         name: s.strategy_name ?? (s as any).strategyName,
         is_active: s.is_active,
@@ -280,7 +319,7 @@ export const useIntelligentTradingEngine = () => {
         // Match if ANY test indicator is true
         const match = dbTestMode || dbIsActiveTest || normalizedTestMode || normalizedIsActiveTest || configIsTestMode || configEnableTestTrading;
         
-        console.log("ENGINE: STRATEGY FILTER", {
+        engineConsoleLog("ENGINE: STRATEGY FILTER", {
           id: s.id,
           strategy_name: rawRow?.strategy_name,
           dbTestMode,
@@ -699,7 +738,7 @@ export const useIntelligentTradingEngine = () => {
       const context = sellDecision.reason === 'TAKE_PROFIT' ? 'TP' : 
                      sellDecision.reason === 'STOP_LOSS' ? 'SL' : 'MANUAL';
       
-      console.log('🎯 SELL ORDER: Executing with context:', context, 'reason:', sellDecision.reason);
+      engineConsoleLog('🎯 SELL ORDER: Executing with context:', context, 'reason:', sellDecision.reason);
       await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason, context);
     } catch (error) {
       logger.error('ENGINE: Error in executeTrade:', error);
@@ -759,10 +798,10 @@ export const useIntelligentTradingEngine = () => {
           const liquidity = await checkLiquidityGate(symbol, effectiveConfigWithSources.minDepthRatio);
           if (liquidity.blocked) {
             gateBlocks.push('blocked_by_liquidity');
-            console.log(`🚫 LIQUIDITY GATE: Blocked ${side} for ${symbol} (context: ${context}) - depth ratio: ${liquidity.depthRatio} < ${effectiveConfigWithSources.minDepthRatio}`);
+            engineConsoleLog(`🚫 LIQUIDITY GATE: Blocked ${side} for ${symbol} (context: ${context}) - depth ratio: ${liquidity.depthRatio} < ${effectiveConfigWithSources.minDepthRatio}`);
           }
         } else {
-          console.log(`✅ LIQUIDITY GATE: Bypassed for ${side} ${symbol} (context: ${context})`);
+          engineConsoleLog(`✅ LIQUIDITY GATE: Bypassed for ${side} ${symbol} (context: ${context})`);
         }
         
         // Gate 3: Whale conflict check - BYPASS for TP exits  
@@ -773,7 +812,7 @@ export const useIntelligentTradingEngine = () => {
             gateBlocks.push('blocked_by_whale_conflict');
           }
         } else {
-          console.log(`✅ WHALE GATE: Bypassed for ${side} ${symbol} (context: ${context})`);
+          engineConsoleLog(`✅ WHALE GATE: Bypassed for ${side} ${symbol} (context: ${context})`);
         }
         
         // If any gate blocks, return immediately
@@ -1214,7 +1253,7 @@ export const useIntelligentTradingEngine = () => {
         .from('trade_decisions_log')
         .insert(snapshot);
       
-      console.log('📊 DECISION SNAPSHOT:', JSON.stringify(snapshot, null, 2));
+      engineConsoleLog('📊 DECISION SNAPSHOT:', JSON.stringify(snapshot, null, 2));
       
     } catch (error) {
       console.error('❌ DECISION SNAPSHOT: Failed to log:', error);
@@ -1458,9 +1497,6 @@ export const useIntelligentTradingEngine = () => {
         .order('timestamp', { ascending: false })
         .limit(20);
 
-// 🔥🔥🔥 VERSION MARKER - IF YOU SEE THIS, THE REAL FILE IS LOADED 🔥🔥🔥
-console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOString());
-
 
       if (newsSignals?.length) {
         // Calculate average sentiment from REAL signals
@@ -1518,14 +1554,14 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
         .order('timestamp', { ascending: false })
         .limit(20);
 
-      console.log('📱 ENGINE: Checking REAL social signals for', symbol, '- found:', socialData?.length || 0);
+      engineConsoleLog('📱 ENGINE: Checking REAL social signals for', symbol, '- found:', socialData?.length || 0);
 
       if (socialData?.length) {
         const socialScores = socialData.map(data => data.data_value || 0);
         const avgSocialScore = socialScores.reduce((sum, score) => sum + score, 0) / socialScores.length;
         
         if (avgSocialScore > 0.7) {
-          console.log('📱 ENGINE: REAL strong social signal for', symbol, '- score:', avgSocialScore);
+          engineConsoleLog('📱 ENGINE: REAL strong social signal for', symbol, '- score:', avgSocialScore);
           return true;
         }
       }
@@ -1554,14 +1590,14 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
         .order('timestamp', { ascending: false })
         .limit(20);
 
-      console.log('🔍 ENGINE: Analyzing REAL technical signals for', symbol);
-      console.log('📊 ENGINE: Live technical signals count:', liveSignals?.length || 0);
+      engineConsoleLog('🔍 ENGINE: Analyzing REAL technical signals for', symbol);
+      engineConsoleLog('📊 ENGINE: Live technical signals count:', liveSignals?.length || 0);
 
       if (liveSignals?.length) {
         // Check for multiple bullish signals from REAL data
         const bullishSignals = liveSignals.filter(s => s.signal_strength > 0.3);
         if (bullishSignals.length >= 2) {
-          console.log('📊 ENGINE: Multiple REAL bullish technical signals:', bullishSignals.length);
+          engineConsoleLog('📊 ENGINE: Multiple REAL bullish technical signals:', bullishSignals.length);
           signals++;
           totalIndicators++;
         }
@@ -1569,7 +1605,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
         // Check for very strong individual signals
         const strongBullishSignals = liveSignals.filter(s => s.signal_strength > 0.6);
         if (strongBullishSignals.length >= 1) {
-          console.log('📊 ENGINE: Strong REAL bullish signal detected:', strongBullishSignals[0].signal_strength);
+          engineConsoleLog('📊 ENGINE: Strong REAL bullish signal detected:', strongBullishSignals[0].signal_strength);
           signals++;
           totalIndicators++;
         }
@@ -1585,7 +1621,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
           );
           
           if (rsiSignals.length > 0) {
-            console.log('📊 ENGINE: REAL RSI buy signal from live data');
+            engineConsoleLog('📊 ENGINE: REAL RSI buy signal from live data');
             signals++;
           }
         }
@@ -1601,7 +1637,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
           );
           
           if (macdSignals.length > 0) {
-            console.log('📊 ENGINE: REAL MACD bullish buy signal from live data');
+            engineConsoleLog('📊 ENGINE: REAL MACD bullish buy signal from live data');
             signals++;
           }
         }
@@ -1615,7 +1651,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
       if (recentSignals.length >= 3) {
         const avgRecentStrength = recentSignals.reduce((sum, s) => sum + s.signal_strength, 0) / recentSignals.length;
         if (avgRecentStrength > 0.4) {
-          console.log('📊 ENGINE: REAL technical momentum detected - avg strength:', avgRecentStrength);
+          engineConsoleLog('📊 ENGINE: REAL technical momentum detected - avg strength:', avgRecentStrength);
           signals++;
           totalIndicators++;
         }
@@ -1624,7 +1660,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
       const signalStrength = totalIndicators > 0 ? (signals / totalIndicators) : 0;
       const threshold = 0.5; // Lowered threshold for better signal detection
 
-      console.log('📊 ENGINE: REAL technical signal strength:', signalStrength, 'threshold:', threshold);
+      engineConsoleLog('📊 ENGINE: REAL technical signal strength:', signalStrength, 'threshold:', threshold);
       return signalStrength >= threshold;
 
     } catch (error) {
@@ -1678,11 +1714,11 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
       const confidenceThreshold = aiConfig.aiConfidenceThreshold || 60;
 
       if (aiConfidence >= confidenceThreshold) {
-        console.log('🤖 ENGINE: REAL AI comprehensive buy signal for', symbol, '- confidence:', aiConfidence + '%');
+        engineConsoleLog('🤖 ENGINE: REAL AI comprehensive buy signal for', symbol, '- confidence:', aiConfidence + '%');
         return true;
       }
 
-      console.log('🤖 ENGINE: AI signal below threshold for', symbol, '- confidence:', aiConfidence + '%');
+      engineConsoleLog('🤖 ENGINE: AI signal below threshold for', symbol, '- confidence:', aiConfidence + '%');
     } catch (error) {
       console.error('❌ ENGINE: Error in REAL AI buy signal analysis:', error);
     }
@@ -1690,7 +1726,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
   };
 
   const executeBuyOrder = async (strategy: any, symbol: string, marketPrice: number, reason: string) => {
-    console.log('💰 ENGINE: Executing buy order for', symbol, 'reason:', reason);
+    engineConsoleLog('💰 ENGINE: Executing buy order for', symbol, 'reason:', reason);
     await executeTrade(strategy, 'buy', symbol, marketPrice, undefined, reason);
   };
 
@@ -1719,7 +1755,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
     engineLog('POSITIONS: Sell trades found: ' + (sellTrades?.length || 0));
     
     if (buyTrades?.length) {
-      console.log('🧮 POSITIONS: Sample buy trades:', buyTrades.slice(0, 3).map(t => ({
+      engineConsoleLog('🧮 POSITIONS: Sample buy trades:', buyTrades.slice(0, 3).map(t => ({
         symbol: t.cryptocurrency,
         amount: t.amount,
         executed_at: t.executed_at
@@ -1727,7 +1763,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
     }
     
     if (sellTrades?.length) {
-      console.log('🧮 POSITIONS: Sample sell trades:', sellTrades.slice(0, 3).map(t => ({
+      engineConsoleLog('🧮 POSITIONS: Sample sell trades:', sellTrades.slice(0, 3).map(t => ({
         symbol: t.cryptocurrency,
         amount: t.amount,
         executed_at: t.executed_at
@@ -1761,26 +1797,26 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
       }
     });
 
-    console.log('🧮 POSITIONS: Positions after buy trades:', Object.keys(positions).length);
+    engineConsoleLog('🧮 POSITIONS: Positions after buy trades:', Object.keys(positions).length);
 
     // Subtract sell trades with normalized symbols
     if (sellTrades) {
       sellTrades.forEach(trade => {
         // Normalize symbol - remove -EUR suffix if present
         const symbol = trade.cryptocurrency.replace('-EUR', '');
-        console.log('🧮 POSITIONS: Processing sell trade for', symbol, 'amount:', trade.amount);
+        engineConsoleLog('🧮 POSITIONS: Processing sell trade for', symbol, 'amount:', trade.amount);
         if (positions[symbol]) {
           const beforeAmount = positions[symbol].remaining_amount;
           positions[symbol].remaining_amount -= trade.amount;
-          console.log('🧮 POSITIONS: Updated', symbol, 'from', beforeAmount, 'to', positions[symbol].remaining_amount);
+          engineConsoleLog('🧮 POSITIONS: Updated', symbol, 'from', beforeAmount, 'to', positions[symbol].remaining_amount);
           
           // Remove position if completely sold
           if (positions[symbol].remaining_amount <= 0.000001) {
-            console.log('🧮 POSITIONS: Removing position', symbol, 'due to zero balance');
+            engineConsoleLog('🧮 POSITIONS: Removing position', symbol, 'due to zero balance');
             delete positions[symbol];
           }
         } else {
-          console.log('🧮 POSITIONS: Warning - sell trade for', symbol, 'but no position found!');
+          engineConsoleLog('🧮 POSITIONS: Warning - sell trade for', symbol, 'but no position found!');
         }
       });
     }
@@ -1794,7 +1830,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
       return false;
     });
 
-    console.log('🧮 POSITIONS: Final open positions:', finalPositions.length);
+    engineConsoleLog('🧮 POSITIONS: Final open positions:', finalPositions.length);
     return finalPositions;
   };
 
@@ -1807,7 +1843,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
     trigger?: string,
     context?: 'ENTRY' | 'TP' | 'SL' | 'MANUAL'
   ) => {
-    console.log('🔧 ENGINE: executeTrade called with action:', action, 'symbol:', cryptocurrency, 'context:', context);
+    engineConsoleLog('🔧 ENGINE: executeTrade called with action:', action, 'symbol:', cryptocurrency, 'context:', context);
     
     const { isAIFusionEnabled } = await import('@/utils/aiConfigHelpers');
     const config = strategy.configuration;
@@ -1822,7 +1858,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
     
     // NEW: AI signal fusion evaluation
     if (isAIEnabled) {
-      console.log('🧠 AI-FUSION: Evaluating signal fusion for', action, cryptocurrency, 'context:', tradeContext);
+      engineConsoleLog('🧠 AI-FUSION: Evaluating signal fusion for', action, cryptocurrency, 'context:', tradeContext);
       
       const fusionResult = await evaluateSignalFusion(strategy, cryptocurrency, action.toUpperCase() as 'BUY' | 'SELL', tradeContext);
       
@@ -1843,18 +1879,18 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
       
       // Check fusion decision
       if (fusionResult.decision === 'DEFER') {
-        console.log('🚫 SCALPSMART: Trade deferred -', fusionResult.reason);
+        engineConsoleLog('🚫 SCALPSMART: Trade deferred -', fusionResult.reason);
         Toast.info(`${cryptocurrency} ${action} deferred: ${fusionResult.reason}`);
         return;
       }
       
       if (fusionResult.decision === 'HOLD') {
-        console.log('⏸️ SCALPSMART: Signal too weak -', fusionResult.reason);
+        engineConsoleLog('⏸️ SCALPSMART: Signal too weak -', fusionResult.reason);
         return;
       }
       
       // Proceed with fusion-approved trade
-      console.log('✅ SCALPSMART: Signal fusion approved -', fusionResult.reason, 'Score:', fusionResult.sTotalScore);
+      engineConsoleLog('✅ SCALPSMART: Signal fusion approved -', fusionResult.reason, 'Score:', fusionResult.sTotalScore);
     }
     
     if (!user?.id) {
@@ -1874,7 +1910,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
       strategyId: strategy.id,
     });
     
-    console.log('🎯 INTELLIGENT ENGINE: Using coordinator path (source: intelligent)');
+    engineConsoleLog('🎯 INTELLIGENT ENGINE: Using coordinator path (source: intelligent)');
     return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger);
   };
 
@@ -1894,12 +1930,12 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
       try {
         engineFeatures = await getFeaturesForEngine(normalizedSymbol, '1h');
         if (engineFeatures) {
-          console.log('[Engine] Features attached for', normalizedSymbol, '| RSI:', engineFeatures.rsi_14, '| granularity: 1h');
+          engineConsoleLog('[Engine] Features attached for', normalizedSymbol, '| RSI:', engineFeatures.rsi_14, '| granularity: 1h');
         } else {
-          console.log('[Engine] No features found for', normalizedSymbol, '/ 1h');
+          engineConsoleLog('[Engine] No features found for', normalizedSymbol, '/ 1h');
         }
       } catch (featErr) {
-        console.warn('[Engine] Failed to fetch features for', normalizedSymbol, featErr);
+        if (!isLogSuppressed()) console.warn('[Engine] Failed to fetch features for', normalizedSymbol, featErr);
       }
 
       const intent = {
@@ -1923,7 +1959,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
         idempotencyKey: `idem_${Math.floor(Date.now() / 1000)}_${Math.random().toString(36).substr(2, 9)}`
       };
 
-      console.log('🎯 INTELLIGENT: Emitting intent to coordinator:', JSON.stringify(intent, null, 2));
+      engineConsoleLog('🎯 INTELLIGENT: Emitting intent to coordinator:', JSON.stringify(intent, null, 2));
 
       const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
         body: { intent }
@@ -1943,7 +1979,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
         return;
       }
 
-      console.log('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
+      engineConsoleLog('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
 
       // STEP 1: Use standardized coordinator toast handler
       // Toast handling removed - silent mode
@@ -1976,7 +2012,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
 
     // CRITICAL FIX: Normalize symbol format - remove -EUR suffix for database storage
     const normalizedSymbol = cryptocurrency.replace('-EUR', '');
-    console.log('🔧 ENGINE: Symbol normalization:', cryptocurrency, '->', normalizedSymbol);
+    engineConsoleLog('🔧 ENGINE: Symbol normalization:', cryptocurrency, '->', normalizedSymbol);
 
     const config = strategy.configuration;
     let tradeAmount: number;
@@ -1998,10 +2034,10 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
         
         if (snapshot?.[0]?.price) {
           deterministicPrice = snapshot[0].price;
-          console.log('🎯 ENGINE: Using snapshot price:', deterministicPrice, 'for', normalizedSymbol);
+          engineConsoleLog('🎯 ENGINE: Using snapshot price:', deterministicPrice, 'for', normalizedSymbol);
         }
       } catch (error) {
-        console.warn('⚠️ ENGINE: Could not fetch price snapshot, using market price:', price);
+        if (!isLogSuppressed()) console.warn('⚠️ ENGINE: Could not fetch price snapshot, using market price:', price);
       }
 
       // Calculate buy amount with safe defaults (no more hardcoded values)
@@ -2082,7 +2118,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
   // Trade Recording
   const recordTrade = async (tradeData: any) => {
     try {
-      console.log('📝 ENGINE: Recording REAL signal trade:', tradeData);
+      engineConsoleLog('📝 ENGINE: Recording REAL signal trade:', tradeData);
       
       let mockTradeData: any = {
         strategy_id: tradeData.strategy_id,
@@ -2100,15 +2136,15 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
         executed_at: new Date().toISOString()
       };
 
-      console.log('📝 ENGINE: About to insert trade into database:', mockTradeData);
-      console.log('📝 ENGINE: Calling supabase.from(mock_trades).insert...');
+      engineConsoleLog('📝 ENGINE: About to insert trade into database:', mockTradeData);
+      engineConsoleLog('📝 ENGINE: Calling supabase.from(mock_trades).insert...');
 
       const { data, error } = await supabase
         .from('mock_trades')
         .insert(mockTradeData)
         .select();
 
-      console.log('📝 ENGINE: Supabase response - data:', data, 'error:', error);
+      engineConsoleLog('📝 ENGINE: Supabase response - data:', data, 'error:', error);
 
       if (error) {
         console.error('❌ ENGINE: Database error details:', {
@@ -2121,7 +2157,7 @@ console.log("🔥 ENGINE VERSION LOADED: v9999-FORCED-DEBUG", new Date().toISOSt
         throw error;
       }
       
-      console.log('✅ ENGINE: Successfully recorded REAL signal trade, DB ID:', data?.[0]?.id, 'Type:', tradeData.trade_type, 'Symbol:', tradeData.cryptocurrency);
+      engineConsoleLog('✅ ENGINE: Successfully recorded REAL signal trade, DB ID:', data?.[0]?.id, 'Type:', tradeData.trade_type, 'Symbol:', tradeData.cryptocurrency);
 
     } catch (error) {
       console.error('❌ ENGINE: Catch block error:', error);
