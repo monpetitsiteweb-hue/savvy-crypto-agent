@@ -7,7 +7,7 @@ import { sharedPriceCache } from '@/utils/SharedPriceCache';
 interface WalletBalance {
   currency: string;
   amount: number;
-  value_in_base: number; // EUR value
+  value_in_base: number;
 }
 
 interface MockWalletContextType {
@@ -36,14 +36,12 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     EUR: 1
   });
 
-  // Fetch real market prices from shared cache (no polling)
   useEffect(() => {
     const updatePrices = () => {
       if (!testMode) return;
       
       const newPrices: {[key: string]: number} = { EUR: 1 };
       
-      // Read from shared cache instead of polling
       const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
       for (const symbol of symbols) {
         const cached = sharedPriceCache.get(symbol);
@@ -58,7 +56,6 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
 
     if (testMode) {
       updatePrices();
-      // Update from cache every 5 seconds
       const interval = setInterval(updatePrices, 5000);
       return () => clearInterval(interval);
     }
@@ -67,12 +64,10 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
   const refreshFromDatabase = async () => {
     if (!testMode || !user) return;
     
-    // Clear localStorage first to ensure fresh start
     localStorage.removeItem(`mock-wallet-${user.id}`);
     
     setIsLoading(true);
     try {
-      // Get all mock trades for this user
       const { data: trades, error } = await supabase
         .from('mock_trades')
         .select('*')
@@ -81,45 +76,36 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
         .order('executed_at', { ascending: true });
 
       if (error) {
-        console.error('Error fetching mock trades:', error);
         return;
       }
 
-      // Calculate balances from trades
       const calculatedBalances: { [key: string]: number } = {
-        EUR: 30000, // Starting amount - €30,000
-        BTC: 0,      // Start with 0 crypto
-        ETH: 0,      // Start with 0 crypto
-        XRP: 0       // Start with 0 crypto
+        EUR: 30000,
+        BTC: 0,
+        ETH: 0,
+        XRP: 0
       };
 
-      // Process each trade to update balances
       trades?.forEach(trade => {
         const currency = trade.cryptocurrency.toUpperCase();
         const amount = parseFloat(trade.amount.toString());
         const totalValue = parseFloat(trade.total_value.toString());
 
         if (trade.trade_type === 'buy') {
-          // Buying crypto: reduce EUR, increase crypto
           calculatedBalances.EUR = Math.max(0, calculatedBalances.EUR - totalValue);
           calculatedBalances[currency] = (calculatedBalances[currency] || 0) + amount;
         } else if (trade.trade_type === 'sell') {
-          // Selling crypto: increase EUR, decrease crypto  
           calculatedBalances.EUR += totalValue;
           calculatedBalances[currency] = Math.max(0, (calculatedBalances[currency] || 0) - amount);
         }
       });
 
-      // Convert to WalletBalance format with current market values
       const walletBalances: WalletBalance[] = Object.entries(calculatedBalances)
         .filter(([currency, amount]) => {
-          // Always include EUR (even if 0), only include crypto if amount > 0.001 (to handle rounding)
           if (currency === 'EUR') return true;
-          return amount > 0.001; // Only show crypto with meaningful balance
+          return amount > 0.001;
         })
         .map(([currency, amount]) => {
-          // For EUR, value_in_base is just the amount
-          // For crypto, multiply by real-time market price
           const valueInBase = currency === 'EUR' ? amount : amount * (realPrices[currency] || 0);
           return {
             currency,
@@ -129,12 +115,10 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
         });
 
       setBalances(walletBalances);
-      
-      // Also save to localStorage for backup
       localStorage.setItem(`mock-wallet-${user.id}`, JSON.stringify(walletBalances));
       
-    } catch (error) {
-      console.error('Error refreshing wallet from database:', error);
+    } catch {
+      // Silently handle errors
     } finally {
       setIsLoading(false);
     }
@@ -177,15 +161,12 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
 
   const forceReset = () => {
     if (!user) return;
-    // Clear localStorage
     localStorage.removeItem(`mock-wallet-${user.id}`);
-    // Reset balances to starting state with €30,000
     setBalances([{
       currency: 'EUR',
       amount: 30000,
       value_in_base: 30000
     }]);
-    // Refresh from database
     refreshFromDatabase();
   };
 
@@ -194,27 +175,22 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     
     setIsLoading(true);
     try {
-      // Call the database function to delete all trades and reset portfolio
       const { error } = await supabase.rpc('reset_user_test_portfolio', {
         target_balance: 30000
       });
 
       if (error) {
-        console.error('Error resetting portfolio:', error);
         throw error;
       }
       
-      // Clear localStorage
       localStorage.removeItem(`mock-wallet-${user.id}`);
       
-      // Set balances to €30,000
       setBalances([{
         currency: 'EUR',
         amount: 30000,
         value_in_base: 30000
       }]);
       
-      // Save to localStorage
       localStorage.setItem(`mock-wallet-${user.id}`, JSON.stringify([{
         currency: 'EUR',
         amount: 30000,
@@ -222,7 +198,6 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       }]));
       
     } catch (error) {
-      console.error('Error resetting portfolio:', error);
       throw error;
     } finally {
       setIsLoading(false);
@@ -235,22 +210,19 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     if (testMode && user) {
-      // Only refresh from database once when testMode/user changes - NOT on every render
       refreshFromDatabase();
       
-      // Set up real-time subscription to mock_trades table  
       const channel = supabase
         .channel('mock-trades-changes')
         .on(
           'postgres_changes',
           {
-            event: '*', // Listen to all changes (INSERT, UPDATE, DELETE)
+            event: '*',
             schema: 'public',
             table: 'mock_trades',
             filter: `user_id=eq.${user.id}`
           },
-          (payload) => {
-            // Silent update - no console logs
+          () => {
             setTimeout(() => {
               refreshFromDatabase();
             }, 1000);
@@ -264,12 +236,10 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     } else {
       setBalances([]);
     }
-  }, [testMode, user]); // FIXED: Only runs when testMode or user changes, not on every render
+  }, [testMode, user]);
 
-  // Force immediate refresh when user changes (like after data reset)
   useEffect(() => {
     if (testMode && user) {
-      // Check if localStorage is empty (indicating a fresh reset)
       const stored = localStorage.getItem(`mock-wallet-${user.id}`);
       if (!stored) {
         forceReset();
