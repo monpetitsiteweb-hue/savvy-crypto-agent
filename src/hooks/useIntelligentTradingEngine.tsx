@@ -35,6 +35,8 @@ declare global {
     __INTELLIGENT_FORCE_DEBUG_TRADE?: boolean;
     __INTELLIGENT_SUPPRESS_LOGS?: boolean;
     __INTELLIGENT_DISABLE_AUTORUN?: boolean;
+    __INTELLIGENT_FORCE_NORMAL_INTENT?: boolean; // TEST-ONLY: force normal intelligent intent
+    __INTELLIGENT_DEBUG_LAST_INTENT?: any; // TEST-ONLY: last emitted intent for inspection
   }
 }
 
@@ -499,6 +501,59 @@ export const useIntelligentTradingEngine = () => {
 
     // 3. CHECK FOR NEW BUY OPPORTUNITIES
     await checkBuyOpportunities(strategy, marketData);
+    
+    // TEST-ONLY: Force normal intelligent intent when flag is set and no trades planned
+    if (typeof window !== 'undefined' && 
+        window.__INTELLIGENT_FORCE_NORMAL_INTENT === true &&
+        debugActionsPlanned.buy === 0 && 
+        debugActionsPlanned.sell === 0) {
+      
+      writeDebugStage('forced_normal_intent_entry', {
+        strategyId: strategy.id,
+        userId: user!.id,
+        testMode,
+      });
+      
+      const intent = {
+        userId: user!.id,
+        strategyId: strategy.id,
+        symbol: 'BTC-EUR',
+        side: 'BUY' as const,
+        source: 'intelligent' as const,
+        confidence: 0.77,
+        reason: 'INTELLIGENT_FORCE_NORMAL_INTENT',
+        qtySuggested: 0.001,
+        metadata: {
+          mode: testMode ? 'mock' : 'live',
+          engine: 'intelligent',
+          is_test_mode: testMode,
+        },
+        ts: new Date().toISOString(),
+      };
+      
+      // Store for inspection
+      (window as any).__INTELLIGENT_DEBUG_LAST_INTENT = intent;
+      
+      try {
+        const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
+          body: { intent }
+        });
+        
+        writeDebugStage('forced_normal_intent_emitted', {
+          symbol: 'BTC-EUR',
+          strategyId: strategy.id,
+          coordinatorResponse: decision,
+          coordinatorError: error?.message,
+        });
+      } catch (err) {
+        writeDebugStage('forced_normal_intent_error', { error: String(err) });
+      }
+      
+      // Clear flag after use
+      window.__INTELLIGENT_FORCE_NORMAL_INTENT = false;
+      // TEST-ONLY: forced normal intelligent intent emitted - returning early
+      return;
+    }
     
     // DEBUG STAGE: process_strategy_completed
     writeDebugStage('process_strategy_completed', {
