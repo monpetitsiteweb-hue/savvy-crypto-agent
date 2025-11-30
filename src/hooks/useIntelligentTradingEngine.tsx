@@ -498,15 +498,34 @@ export const useIntelligentTradingEngine = () => {
 
       // 1. CHECK DAILY LIMITS FIRST
       writeDebugStage('process_daily_limits_check', { before: true });
-      const dailyLimitsReached = isDailyLimitReached(config);
+      let dailyLimitsReached = isDailyLimitReached(config);
       writeDebugStage('process_daily_limits_check', { 
         after: true, 
         dailyLimitsReached,
         dailyTrades: tradingStateRef.current.dailyTrades,
         dailyPnL: tradingStateRef.current.dailyPnL,
+        maxTradesPerDay: config?.maxTradesPerDay,
       });
       
+      // TEST MODE BYPASS: Force dailyLimitsReached = false in test mode so we can debug end-to-end
+      const isTestModeEnabled = config?.is_test_mode === true || config?.enableTestTrading === true || testMode;
+      if (dailyLimitsReached && isTestModeEnabled) {
+        writeDebugStage('buy_opportunity_daily_limits_bypassed_test_mode', {
+          originalDailyLimitsReached: dailyLimitsReached,
+          dailyTrades: tradingStateRef.current.dailyTrades,
+          maxTradesPerDay: config?.maxTradesPerDay,
+          reason: 'TEST_MODE_BYPASS',
+        });
+        dailyLimitsReached = false; // BYPASS for test mode debugging
+      }
+      
       if (dailyLimitsReached) {
+        writeDebugStage('buy_opportunity_blocked_by_daily_limits', {
+          dailyTrades: tradingStateRef.current.dailyTrades,
+          maxTradesPerDay: config?.maxTradesPerDay,
+          dailyPnL: tradingStateRef.current.dailyPnL,
+          dailyLossLimit: config?.dailyLossLimit,
+        });
         writeDebugStage('process_strategy_early_exit', {
           reason: 'daily_limits_reached',
           strategyId: strategy.id,
@@ -714,10 +733,13 @@ export const useIntelligentTradingEngine = () => {
       ? selectedCoins 
       : filterSupportedSymbols(getAllSymbols()).slice(0, 3);
     
-    writeDebugStage('buy_opportunities_coins_to_analyze', { 
-      selectedCoins,
+    // TASK 1: Log exactly which symbols are analyzed
+    writeDebugStage('buy_opportunity_coins_to_analyze', { 
       coinsToAnalyze,
-      count: coinsToAnalyze.length,
+      selectedCoins: config?.selectedCoins || [],
+      fallbackUsed: selectedCoins.length === 0,
+      strategyId: strategy.id,
+      marketDataKeys: Object.keys(marketData),
     });
     
     let buysExecuted = 0;
@@ -1923,20 +1945,29 @@ export const useIntelligentTradingEngine = () => {
       ];
 
       // EXTENDED: 4 hours lookback to match signal generation frequency
-      const { data: liveSignals } = await supabase
+      const lookbackMs = 1000 * 60 * 60 * 4; // 4 hours
+      const { data: liveSignals, error: queryError } = await supabase
         .from('live_signals')
         .select('*')
         .eq('symbol', baseSymbol)
         .in('signal_type', bullishSignalTypes)
-        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString()) // Last 4 HOURS
+        .gte('timestamp', new Date(Date.now() - lookbackMs).toISOString())
         .order('timestamp', { ascending: false })
         .limit(20);
 
-      writeDebugStage('technical_signals_query', {
+      // TASK 2: Log exactly what checkTechnicalBuySignals sees from Supabase
+      writeDebugStage('buy_opportunity_technical_query_result', {
         symbol: baseSymbol,
         signalTypes: bullishSignalTypes,
-        foundCount: liveSignals?.length || 0,
-        signals: liveSignals?.slice(0, 5).map(s => ({ type: s.signal_type, strength: s.signal_strength })) || [],
+        windowMs: lookbackMs,
+        rowsCount: liveSignals?.length ?? 0,
+        rowsSample: (liveSignals || []).slice(0, 3).map(s => ({
+          signal_type: s.signal_type,
+          signal_strength: s.signal_strength,
+          timestamp: s.timestamp,
+          source: s.source,
+        })),
+        queryError: queryError?.message || null,
       });
 
       engineConsoleLog('🔍 ENGINE: Analyzing REAL technical signals for', baseSymbol);
