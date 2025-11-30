@@ -470,97 +470,334 @@ export const useIntelligentTradingEngine = () => {
   };
 
   const processStrategyComprehensively = async (strategy: any, marketData: any) => {
-    // Debug actions planned counter
+    // Debug actions planned counter - shared reference so child functions can update it
     const debugActionsPlanned = { buy: 0, sell: 0, hold: 0 };
     
     // DEBUG STAGE: process_strategy_start
     writeDebugStage('process_strategy_start', {
       strategyId: strategy.id,
       strategyName: strategy.strategyName ?? strategy.configuration?.strategyName,
+      marketDataSymbols: Object.keys(marketData),
     });
     
-    const config = strategy.configuration;
-    engineLog('ENGINE: Processing strategy with full config:', config);
-
-    // Reset daily counters if needed
-    resetDailyCountersIfNeeded();
-
-    // 1. CHECK DAILY LIMITS FIRST
-    if (isDailyLimitReached(config)) {
-      writeDebugStage('process_strategy_no_trade_early_exit', {
-        reason: 'daily_limits_reached',
+    try {
+      const config = strategy.configuration;
+      writeDebugStage('process_config_loaded', {
         strategyId: strategy.id,
-        strategyName: strategy.strategyName ?? strategy.configuration?.strategyName,
+        hasConfig: !!config,
+        configKeys: config ? Object.keys(config) : [],
+        selectedCoins: config?.selectedCoins || [],
+        maxActiveCoins: config?.maxActiveCoins,
+        maxTradesPerDay: config?.maxTradesPerDay,
       });
-      engineLog('ENGINE: Daily limits reached, skipping strategy');
-      return;
-    }
 
-    // 2. MANAGE EXISTING POSITIONS (Stop Loss, Take Profit, Trailing Stops)
-    await manageExistingPositions(strategy, marketData);
+      // Reset daily counters if needed
+      writeDebugStage('process_reset_daily_check', { before: true });
+      resetDailyCountersIfNeeded();
+      writeDebugStage('process_reset_daily_check', { after: true, dailyState: { ...tradingStateRef.current } });
 
-    // 3. CHECK FOR NEW BUY OPPORTUNITIES
-    await checkBuyOpportunities(strategy, marketData);
-    
-    // TEST-ONLY: Force normal intelligent intent when flag is set and no trades planned
-    if (typeof window !== 'undefined' && 
-        window.__INTELLIGENT_FORCE_NORMAL_INTENT === true &&
-        debugActionsPlanned.buy === 0 && 
-        debugActionsPlanned.sell === 0) {
-      
-      writeDebugStage('forced_normal_intent_entry', {
-        strategyId: strategy.id,
-        userId: user!.id,
-        testMode,
+      // 1. CHECK DAILY LIMITS FIRST
+      writeDebugStage('process_daily_limits_check', { before: true });
+      const dailyLimitsReached = isDailyLimitReached(config);
+      writeDebugStage('process_daily_limits_check', { 
+        after: true, 
+        dailyLimitsReached,
+        dailyTrades: tradingStateRef.current.dailyTrades,
+        dailyPnL: tradingStateRef.current.dailyPnL,
       });
       
-      const intent = {
-        userId: user!.id,
-        strategyId: strategy.id,
-        symbol: 'BTC-EUR',
-        side: 'BUY' as const,
-        source: 'intelligent' as const,
-        confidence: 0.77,
-        reason: 'INTELLIGENT_FORCE_NORMAL_INTENT',
-        qtySuggested: 0.001,
-        metadata: {
-          mode: testMode ? 'mock' : 'live',
-          engine: 'intelligent',
-          is_test_mode: testMode,
-        },
-        ts: new Date().toISOString(),
-      };
+      if (dailyLimitsReached) {
+        writeDebugStage('process_strategy_early_exit', {
+          reason: 'daily_limits_reached',
+          strategyId: strategy.id,
+        });
+        debugActionsPlanned.hold = 1;
+        writeDebugStage('process_strategy_actions_planned', { ...debugActionsPlanned, exitReason: 'daily_limits_reached' });
+        writeDebugStage('process_strategy_completed', {
+          strategyId: strategy.id,
+          strategyName: strategy.strategyName ?? strategy.configuration?.strategyName,
+          actionsPlanned: debugActionsPlanned,
+          exitReason: 'daily_limits_reached',
+        });
+        return;
+      }
+
+      // 2. MANAGE EXISTING POSITIONS (Stop Loss, Take Profit, Trailing Stops)
+      writeDebugStage('process_manage_positions_start', { strategyId: strategy.id });
+      const sellActions = await manageExistingPositionsInstrumented(strategy, marketData, debugActionsPlanned);
+      writeDebugStage('process_manage_positions_complete', { 
+        sellActionsCount: sellActions,
+        debugActionsPlanned: { ...debugActionsPlanned },
+      });
+
+      // 3. CHECK FOR NEW BUY OPPORTUNITIES
+      writeDebugStage('process_buy_opportunities_start', { strategyId: strategy.id });
+      const buyActions = await checkBuyOpportunitiesInstrumented(strategy, marketData, debugActionsPlanned);
+      writeDebugStage('process_buy_opportunities_complete', { 
+        buyActionsCount: buyActions,
+        debugActionsPlanned: { ...debugActionsPlanned },
+      });
       
-      // Store for inspection
-      (window as any).__INTELLIGENT_DEBUG_LAST_INTENT = intent;
-      
-      try {
-        const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
-          body: { intent }
+      // TEST-ONLY: Force normal intelligent intent when flag is set and no trades planned
+      if (typeof window !== 'undefined' && 
+          window.__INTELLIGENT_FORCE_NORMAL_INTENT === true &&
+          debugActionsPlanned.buy === 0 && 
+          debugActionsPlanned.sell === 0) {
+        
+        writeDebugStage('forced_normal_intent_entry', {
+          strategyId: strategy.id,
+          userId: user!.id,
+          testMode,
         });
         
-        writeDebugStage('forced_normal_intent_emitted', {
-          symbol: 'BTC-EUR',
+        const intent = {
+          userId: user!.id,
           strategyId: strategy.id,
-          coordinatorResponse: decision,
-          coordinatorError: error?.message,
-        });
-      } catch (err) {
-        writeDebugStage('forced_normal_intent_error', { error: String(err) });
+          symbol: 'BTC-EUR',
+          side: 'BUY' as const,
+          source: 'intelligent' as const,
+          confidence: 0.77,
+          reason: 'INTELLIGENT_FORCE_NORMAL_INTENT',
+          qtySuggested: 0.001,
+          metadata: {
+            mode: testMode ? 'mock' : 'live',
+            engine: 'intelligent',
+            is_test_mode: testMode,
+          },
+          ts: new Date().toISOString(),
+        };
+        
+        // Store for inspection
+        (window as any).__INTELLIGENT_DEBUG_LAST_INTENT = intent;
+        
+        try {
+          const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
+            body: { intent }
+          });
+          
+          writeDebugStage('forced_normal_intent_emitted', {
+            symbol: 'BTC-EUR',
+            strategyId: strategy.id,
+            coordinatorResponse: decision,
+            coordinatorError: error?.message,
+          });
+          debugActionsPlanned.buy = 1;
+        } catch (err) {
+          writeDebugStage('forced_normal_intent_error', { error: String(err) });
+        }
+        
+        // Clear flag after use
+        window.__INTELLIGENT_FORCE_NORMAL_INTENT = false;
       }
       
-      // Clear flag after use
-      window.__INTELLIGENT_FORCE_NORMAL_INTENT = false;
-      // TEST-ONLY: forced normal intelligent intent emitted - returning early
-      return;
+      // Final breadcrumb with all actions planned
+      writeDebugStage('process_strategy_actions_planned', { ...debugActionsPlanned });
+      
+      // DEBUG STAGE: process_strategy_completed
+      writeDebugStage('process_strategy_completed', {
+        strategyId: strategy.id,
+        strategyName: strategy.strategyName ?? strategy.configuration?.strategyName,
+        actionsPlanned: debugActionsPlanned,
+      });
+      
+    } catch (error: any) {
+      writeDebugStage('process_strategy_error', { 
+        error: error?.message || String(error),
+        stack: error?.stack,
+        strategyId: strategy.id,
+      });
+      throw error; // Re-throw so caller sees it
+    }
+  };
+  
+  // Instrumented version of manageExistingPositions
+  const manageExistingPositionsInstrumented = async (strategy: any, marketData: any, actionsPlanned: { buy: number; sell: number; hold: number }): Promise<number> => {
+    const config = strategy.configuration as any;
+    
+    writeDebugStage('manage_positions_fetch_start', {});
+    const positions = await calculateOpenPositions();
+    writeDebugStage('manage_positions_fetched', { 
+      positionCount: positions.length,
+      positions: positions.map(p => ({ symbol: p.cryptocurrency, amount: p.remaining_amount, avgPrice: p.average_price })),
+    });
+    
+    if (positions.length === 0) {
+      writeDebugStage('manage_positions_no_positions', { message: 'No open positions to manage' });
+      return 0;
     }
     
-    // DEBUG STAGE: process_strategy_completed
-    writeDebugStage('process_strategy_completed', {
-      strategyId: strategy.id,
-      strategyName: strategy.strategyName ?? strategy.configuration?.strategyName,
-      actionsPlanned: debugActionsPlanned,
+    let sellsExecuted = 0;
+    
+    for (const position of positions) {
+      const symbol = position.cryptocurrency;
+      const symbolWithEUR = symbol.includes('-EUR') ? symbol : `${symbol}-EUR`;
+      const symbolWithoutEUR = symbol.replace('-EUR', '');
+      
+      const currentPrice = marketData[symbol]?.price || marketData[symbolWithEUR]?.price || marketData[symbolWithoutEUR]?.price;
+      
+      writeDebugStage('manage_position_check', {
+        symbol,
+        hasPrice: !!currentPrice,
+        currentPrice,
+        avgPrice: position.average_price,
+        remainingAmount: position.remaining_amount,
+      });
+      
+      if (!currentPrice) {
+        writeDebugStage('manage_position_skip_no_price', { symbol });
+        continue;
+      }
+
+      const purchasePrice = position.average_price;
+      const pnlPercentage = ((currentPrice - purchasePrice) / purchasePrice) * 100;
+      const hoursSincePurchase = (Date.now() - new Date(position.oldest_purchase_date).getTime()) / (1000 * 60 * 60);
+
+      writeDebugStage('manage_position_analysis', {
+        symbol,
+        purchasePrice,
+        currentPrice,
+        pnlPercentage: pnlPercentage.toFixed(2),
+        hoursSincePurchase: hoursSincePurchase.toFixed(2),
+      });
+
+      writeDebugStage('manage_position_get_sell_decision', { symbol, before: true });
+      const sellDecision = await getSellDecision(config, position, currentPrice, pnlPercentage, hoursSincePurchase);
+      writeDebugStage('manage_position_get_sell_decision', { 
+        symbol, 
+        after: true, 
+        hasSellDecision: !!sellDecision,
+        sellReason: sellDecision?.reason || 'none',
+      });
+      
+      if (sellDecision) {
+        writeDebugStage('manage_position_executing_sell', { 
+          symbol, 
+          reason: sellDecision.reason,
+          orderType: sellDecision.orderType,
+        });
+        await executeSellOrder(strategy, position, currentPrice, sellDecision);
+        actionsPlanned.sell++;
+        sellsExecuted++;
+        writeDebugStage('manage_position_sell_executed', { symbol, sellsExecuted });
+      } else {
+        actionsPlanned.hold++;
+        writeDebugStage('manage_position_holding', { symbol, reason: 'no_sell_conditions_met' });
+      }
+    }
+    
+    return sellsExecuted;
+  };
+  
+  // Instrumented version of checkBuyOpportunities
+  const checkBuyOpportunitiesInstrumented = async (strategy: any, marketData: any, actionsPlanned: { buy: number; sell: number; hold: number }): Promise<number> => {
+    const config = strategy.configuration as any;
+    
+    writeDebugStage('buy_opportunities_fetch_positions', {});
+    const positions = await calculateOpenPositions();
+    writeDebugStage('buy_opportunities_positions_fetched', { 
+      positionCount: positions.length,
+      maxActiveCoins: config.maxActiveCoins,
     });
+    
+    // Check position limits
+    if (config.maxActiveCoins && positions.length >= config.maxActiveCoins) {
+      writeDebugStage('buy_opportunities_max_positions_reached', { 
+        positions: positions.length,
+        maxActiveCoins: config.maxActiveCoins,
+      });
+      return 0;
+    }
+
+    // Get coins to analyze
+    const selectedCoins = config.selectedCoins || [];
+    const coinsToAnalyze = selectedCoins.length > 0 
+      ? selectedCoins 
+      : filterSupportedSymbols(getAllSymbols()).slice(0, 3);
+    
+    writeDebugStage('buy_opportunities_coins_to_analyze', { 
+      selectedCoins,
+      coinsToAnalyze,
+      count: coinsToAnalyze.length,
+    });
+    
+    let buysExecuted = 0;
+    
+    for (const coin of coinsToAnalyze) {
+      const symbol = `${coin}-EUR`;
+      
+      writeDebugStage('buy_opportunity_check_coin', { coin, symbol });
+      
+      // MARKET AVAILABILITY PREFLIGHT CHECK
+      const availability = checkMarketAvailability(symbol);
+      writeDebugStage('buy_opportunity_market_availability', { 
+        symbol, 
+        isSupported: availability.isSupported,
+        reason: availability.reason,
+      });
+      
+      if (!availability.isSupported) {
+        writeDebugStage('buy_opportunity_skip_unavailable', { symbol, reason: availability.reason });
+        continue;
+      }
+      
+      const currentData = marketData[symbol];
+      writeDebugStage('buy_opportunity_market_data', { 
+        symbol, 
+        hasData: !!currentData,
+        price: currentData?.price,
+      });
+      
+      if (!currentData) {
+        writeDebugStage('buy_opportunity_skip_no_data', { symbol });
+        continue;
+      }
+
+      // Skip if already have position in this coin (unless DCA enabled)
+      const hasPosition = positions.some(p => p.cryptocurrency === symbol);
+      writeDebugStage('buy_opportunity_position_check', { 
+        symbol, 
+        hasPosition,
+        enableDCA: config.enableDCA,
+      });
+      
+      if (hasPosition && !config.enableDCA) {
+        writeDebugStage('buy_opportunity_skip_has_position', { symbol });
+        continue;
+      }
+
+      // Check if we should buy this coin using REAL signals
+      writeDebugStage('buy_opportunity_get_signal', { symbol, before: true });
+      const buySignal = await getBuySignal(config, symbol, marketData, hasPosition);
+      writeDebugStage('buy_opportunity_get_signal', { 
+        symbol, 
+        after: true,
+        hasBuySignal: !!buySignal,
+        signalReason: buySignal?.reason || 'none',
+      });
+      
+      if (!buySignal) {
+        writeDebugStage('buy_opportunity_no_signal', { symbol });
+        continue;
+      }
+
+      // Execute buy
+      writeDebugStage('buy_opportunity_executing', { 
+        symbol, 
+        price: currentData.price,
+        reason: buySignal.reason,
+      });
+      await executeBuyOrder(strategy, symbol, currentData.price, buySignal.reason);
+      actionsPlanned.buy++;
+      buysExecuted++;
+      writeDebugStage('buy_opportunity_executed', { symbol, buysExecuted });
+    }
+    
+    writeDebugStage('buy_opportunities_summary', { 
+      coinsAnalyzed: coinsToAnalyze.length,
+      buysExecuted,
+    });
+    
+    return buysExecuted;
   };
 
   const resetDailyCountersIfNeeded = () => {
