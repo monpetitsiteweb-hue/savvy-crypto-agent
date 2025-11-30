@@ -512,13 +512,15 @@ serve(async (req) => {
     // They may have strategyId=null but MUST be logged to decision_events for learning loop validation
     if (isIntelligentForcedDebug) {
       console.log('[coordinator] FAST PATH: Intelligent engine forced debug trade');
-      console.info('COORDINATOR: Processing intelligent forced debug trade', {
+      console.info('🧪 INTELLIGENT FAST PATH: Processing forced debug trade', {
         source: intent.source,
         debugTag: intent.metadata?.debugTag,
         symbol: intent.symbol,
         side: intent.side,
         engine: intent.metadata?.engine,
         idempotencyKey: intent.idempotencyKey,
+        strategyId: intent.strategyId,
+        userId: intent.userId,
       });
       
       const baseSymbol = toBaseSymbol(intent.symbol);
@@ -553,17 +555,21 @@ serve(async (req) => {
       const reason = 'no_conflicts_detected' as Reason;
       
       // CRITICAL: Log decision to decision_events - THIS IS THE MAIN PURPOSE OF THIS PATH
-      console.info('COORDINATOR: Logging forced debug trade to decision_events', {
+      console.info('🧪 INTELLIGENT FAST PATH: About to call logDecisionAsync', {
         userId: intent.userId,
+        strategyId: intent.strategyId,
         symbol: baseSymbol,
         side: intent.side,
         source: intent.source,
         debugTag: intent.metadata?.debugTag,
         engine: intent.metadata?.engine,
         entry_price: marketPrice,
+        action: action,
+        reason: reason,
       });
       
-      await logDecisionAsync(
+      // CRITICAL: Capture the result to know if insert actually succeeded
+      const logResult = await logDecisionAsync(
         supabaseClient,
         intent,
         action,
@@ -576,21 +582,51 @@ serve(async (req) => {
         debugStrategyConfig
       );
       
-      console.log('✅ INTELLIGENT DEBUG: Decision logged to decision_events with source=intelligent, debugTag=forced_debug_trade');
-      
-      return new Response(JSON.stringify({ 
-        ok: true,
-        decision: {
-          action: action,
-          reason: 'intelligent_forced_debug_logged',
-          request_id: requestId,
-          retry_in_ms: 0,
-          debugTag: 'forced_debug_trade',
-          logged_to_decision_events: true
-        }
-      }), { 
-        headers: corsHeaders 
-      });
+      // Check if insert actually succeeded
+      if (logResult.logged) {
+        console.log('✅ INTELLIGENT DEBUG: Decision successfully logged to decision_events', {
+          source: intent.source,
+          debugTag: intent.metadata?.debugTag,
+          engine: intent.metadata?.engine,
+        });
+        
+        return new Response(JSON.stringify({ 
+          ok: true,
+          decision: {
+            action: action,
+            reason: 'intelligent_forced_debug_logged',
+            request_id: requestId,
+            retry_in_ms: 0,
+            debugTag: 'forced_debug_trade',
+            logged_to_decision_events: true
+          }
+        }), { 
+          headers: corsHeaders 
+        });
+      } else {
+        // INSERT FAILED - log error and return honest response
+        console.error('❌ INTELLIGENT DEBUG: Failed to log decision to decision_events', {
+          error: logResult.error,
+          source: intent.source,
+          debugTag: intent.metadata?.debugTag,
+          strategyId: intent.strategyId,
+        });
+        
+        return new Response(JSON.stringify({ 
+          ok: false,
+          decision: {
+            action: 'HOLD',
+            reason: 'decision_events_insert_failed',
+            request_id: requestId,
+            retry_in_ms: 0,
+            debugTag: 'forced_debug_trade',
+            logged_to_decision_events: false,
+            error: logResult.error
+          }
+        }), { 
+          headers: corsHeaders 
+        });
+      }
     }
 
     // FAST PATH FOR MANUAL/MOCK/FORCE SELL
@@ -1701,20 +1737,47 @@ async function logDecisionAsync(
         entry_price: eventPayload.entry_price,
       });
 
-      console.log('📌 LEARNING: decision_events payload', eventPayload);
+      // 🧪 INTELLIGENT INSERT – PAYLOAD (requested debug log)
+      console.log('🧪 INTELLIGENT INSERT – PAYLOAD', {
+        table: 'decision_events',
+        source: eventPayload.source,
+        userId: eventPayload.user_id,
+        strategyId: eventPayload.strategy_id,
+        symbol: eventPayload.symbol,
+        side: eventPayload.side,
+        debugTag: eventPayload.metadata?.debugTag,
+        engine: eventPayload.metadata?.engine,
+        entry_price: eventPayload.entry_price,
+        confidence: eventPayload.confidence,
+      });
+
+      console.log('📌 LEARNING: decision_events full payload', JSON.stringify(eventPayload, null, 2));
 
       const { data: decisionInsertResult, error: decisionInsertError } = await supabaseClient
         .from('decision_events')
         .insert([eventPayload])
         .select('id');
 
+      // 🧪 INTELLIGENT INSERT – RESULT (requested debug log)
+      console.log('🧪 INTELLIGENT INSERT – RESULT', {
+        source: eventPayload.source,
+        debugTag: eventPayload.metadata?.debugTag,
+        engine: eventPayload.metadata?.engine,
+        insertedId: decisionInsertResult?.[0]?.id || null,
+        error: decisionInsertError ? decisionInsertError.message : null,
+        errorDetails: decisionInsertError ? decisionInsertError.details : null,
+        errorHint: decisionInsertError ? decisionInsertError.hint : null,
+      });
+
       if (decisionInsertError) {
         console.error('❌ LEARNING: decision_events insert failed', {
           message: decisionInsertError.message,
           details: decisionInsertError.details,
           hint: decisionInsertError.hint,
+          code: decisionInsertError.code,
           source: eventPayload.source,
           debugTag: eventPayload.metadata?.debugTag,
+          strategyId: eventPayload.strategy_id,
         });
         // Return failure so caller knows the insert did not succeed
         return { logged: false, error: decisionInsertError.message };
