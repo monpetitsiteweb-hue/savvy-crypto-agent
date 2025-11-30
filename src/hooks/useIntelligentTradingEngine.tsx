@@ -1681,31 +1681,61 @@ export const useIntelligentTradingEngine = () => {
   };
 
   const getBuySignal = async (config: any, symbol: string, marketData: any, hasPosition: boolean): Promise<{reason: string} | null> => {
+    const baseSymbol = symbol.replace('-EUR', '');
+    
+    writeDebugStage('buy_signal_evaluation_start', { 
+      symbol, 
+      baseSymbol,
+      hasPosition,
+      hasAIOverride: !!config.aiIntelligenceConfig?.enableAIOverride,
+    });
+    
     // 1. WHALE SIGNALS CHECK - REAL DATA
-    if (await checkWhaleSignals(symbol)) {
+    const whaleResult = await checkWhaleSignals(symbol);
+    writeDebugStage('buy_signal_whale_check', { symbol, result: whaleResult });
+    if (whaleResult) {
+      writeDebugStage('buy_signal_found', { symbol, reason: 'WHALE_SIGNAL' });
       return { reason: 'WHALE_SIGNAL' };
     }
 
     // 2. NEWS SENTIMENT SIGNALS - REAL DATA
-    if (await checkNewsSentimentSignals(config, symbol)) {
+    const newsResult = await checkNewsSentimentSignals(config, symbol);
+    writeDebugStage('buy_signal_news_check', { symbol, result: newsResult });
+    if (newsResult) {
+      writeDebugStage('buy_signal_found', { symbol, reason: 'NEWS_SENTIMENT_SIGNAL' });
       return { reason: 'NEWS_SENTIMENT_SIGNAL' };
     }
 
     // 3. SOCIAL SIGNALS CHECK - REAL DATA
-    if (await checkSocialSignals(config, symbol)) {
+    const socialResult = await checkSocialSignals(config, symbol);
+    writeDebugStage('buy_signal_social_check', { symbol, result: socialResult });
+    if (socialResult) {
+      writeDebugStage('buy_signal_found', { symbol, reason: 'SOCIAL_SIGNAL' });
       return { reason: 'SOCIAL_SIGNAL' };
     }
 
-    // 4. TECHNICAL INDICATOR BUY SIGNALS - REAL DATA
-    if (await checkTechnicalBuySignals(config, symbol, marketData)) {
+    // 4. TECHNICAL INDICATOR BUY SIGNALS - REAL DATA (MOST IMPORTANT!)
+    const technicalResult = await checkTechnicalBuySignals(config, symbol, marketData);
+    writeDebugStage('buy_signal_technical_check', { symbol, result: technicalResult });
+    if (technicalResult) {
+      writeDebugStage('buy_signal_found', { symbol, reason: 'TECHNICAL_SIGNAL' });
       return { reason: 'TECHNICAL_SIGNAL' };
     }
 
     // 5. AI BUY DECISION (combines all signals) - REAL DATA
-    if (config.aiIntelligenceConfig?.enableAIOverride && await checkAIBuySignal(config, symbol, marketData)) {
-      return { reason: 'AI_COMPREHENSIVE_SIGNAL' };
+    if (config.aiIntelligenceConfig?.enableAIOverride) {
+      const aiResult = await checkAIBuySignal(config, symbol, marketData);
+      writeDebugStage('buy_signal_ai_check', { symbol, result: aiResult });
+      if (aiResult) {
+        writeDebugStage('buy_signal_found', { symbol, reason: 'AI_COMPREHENSIVE_SIGNAL' });
+        return { reason: 'AI_COMPREHENSIVE_SIGNAL' };
+      }
     }
 
+    writeDebugStage('buy_signal_none_found', { 
+      symbol, 
+      checkedSources: ['whale', 'news', 'social', 'technical', config.aiIntelligenceConfig?.enableAIOverride ? 'ai' : 'ai_disabled'],
+    });
     return null;
   };
 
@@ -1868,95 +1898,120 @@ export const useIntelligentTradingEngine = () => {
   };
 
   // TECHNICAL INDICATORS - REAL IMPLEMENTATION
+  // FIXED: Query for ACTUAL signal types in live_signals table:
+  // - ma_cross_bullish, ma_cross_bearish
+  // - rsi_oversold_bullish, rsi_overbought_bearish
+  // - momentum_bullish, momentum_bearish
+  // - trend_bullish, trend_bearish
   const checkTechnicalBuySignals = async (config: any, symbol: string, marketData: any): Promise<boolean> => {
-    const techConfig = config.technicalIndicatorConfig;
-    if (!techConfig) return false;
+    // REMOVED: techConfig check - allow signals even without explicit config
+    // This was blocking all signal detection when technicalIndicatorConfig was undefined
 
     let signals = 0;
     let totalIndicators = 0;
+    const baseSymbol = symbol.replace('-EUR', '');
 
     try {
-      // Get REAL technical signals from live_signals table (this exists!)
+      // FIXED: Query for ACTUAL signal types that exist in the database
+      // The old code queried for signal_type='technical' which doesn't exist!
+      const bullishSignalTypes = [
+        'ma_cross_bullish',
+        'rsi_oversold_bullish', 
+        'momentum_bullish',
+        'trend_bullish',
+        'macd_bullish'
+      ];
+
+      // EXTENDED: 4 hours lookback to match signal generation frequency
       const { data: liveSignals } = await supabase
         .from('live_signals')
         .select('*')
-        .eq('symbol', symbol)
-        .eq('signal_type', 'technical')
-        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 10).toISOString())
+        .eq('symbol', baseSymbol)
+        .in('signal_type', bullishSignalTypes)
+        .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString()) // Last 4 HOURS
         .order('timestamp', { ascending: false })
         .limit(20);
 
-      engineConsoleLog('🔍 ENGINE: Analyzing REAL technical signals for', symbol);
-      engineConsoleLog('📊 ENGINE: Live technical signals count:', liveSignals?.length || 0);
+      writeDebugStage('technical_signals_query', {
+        symbol: baseSymbol,
+        signalTypes: bullishSignalTypes,
+        foundCount: liveSignals?.length || 0,
+        signals: liveSignals?.slice(0, 5).map(s => ({ type: s.signal_type, strength: s.signal_strength })) || [],
+      });
 
-      if (liveSignals?.length) {
-        // Check for multiple bullish signals from REAL data
-        const bullishSignals = liveSignals.filter(s => s.signal_strength > 0.3);
-        if (bullishSignals.length >= 2) {
-          engineConsoleLog('📊 ENGINE: Multiple REAL bullish technical signals:', bullishSignals.length);
+      engineConsoleLog('🔍 ENGINE: Analyzing REAL technical signals for', baseSymbol);
+      engineConsoleLog('📊 ENGINE: Live bullish signals count:', liveSignals?.length || 0);
+
+      if (liveSignals && liveSignals.length > 0) {
+        // Count bullish signals with positive strength
+        const validBullishSignals = liveSignals.filter(s => s.signal_strength > 0);
+        
+        writeDebugStage('technical_signals_analysis', {
+          symbol: baseSymbol,
+          totalBullish: liveSignals.length,
+          validBullish: validBullishSignals.length,
+        });
+
+        // ANY bullish signal with positive strength is a buy signal
+        if (validBullishSignals.length >= 1) {
+          engineConsoleLog('📊 ENGINE: Found', validBullishSignals.length, 'bullish signals for', baseSymbol);
           signals++;
           totalIndicators++;
         }
 
-        // Check for very strong individual signals
-        const strongBullishSignals = liveSignals.filter(s => s.signal_strength > 0.6);
-        if (strongBullishSignals.length >= 1) {
-          engineConsoleLog('📊 ENGINE: Strong REAL bullish signal detected:', strongBullishSignals[0].signal_strength);
+        // Check for RSI oversold specifically (strong buy signal)
+        const rsiOversold = liveSignals.filter(s => s.signal_type === 'rsi_oversold_bullish');
+        if (rsiOversold.length > 0) {
+          engineConsoleLog('📊 ENGINE: RSI oversold signal detected for', baseSymbol);
           signals++;
           totalIndicators++;
         }
 
-        // RSI Oversold Check from signal data
-        if (techConfig.rsi?.enabled) {
-          totalIndicators++;
-          const rsiSignals = liveSignals.filter(s => 
-            s.data && 
-            typeof s.data === 'object' && 
-            'RSI' in s.data &&
-            (s.data as any).RSI <= techConfig.rsi.buyThreshold
-          );
-          
-          if (rsiSignals.length > 0) {
-            engineConsoleLog('📊 ENGINE: REAL RSI buy signal from live data');
-            signals++;
-          }
-        }
-
-        // MACD Bullish signals
-        if (techConfig.macd?.enabled) {
-          totalIndicators++;
-          const macdSignals = liveSignals.filter(s => 
-            s.data && 
-            typeof s.data === 'object' && 
-            ('MACD' in s.data || 'macd' in s.data) &&
-            s.signal_strength > 0.4
-          );
-          
-          if (macdSignals.length > 0) {
-            engineConsoleLog('📊 ENGINE: REAL MACD bullish buy signal from live data');
-            signals++;
-          }
-        }
-      }
-
-      // Also check overall market momentum from technical signals
-      const recentSignals = liveSignals?.filter(s => 
-        new Date(s.timestamp).getTime() > (Date.now() - 1000 * 60 * 5)
-      ) || [];
-
-      if (recentSignals.length >= 3) {
-        const avgRecentStrength = recentSignals.reduce((sum, s) => sum + s.signal_strength, 0) / recentSignals.length;
-        if (avgRecentStrength > 0.4) {
-          engineConsoleLog('📊 ENGINE: REAL technical momentum detected - avg strength:', avgRecentStrength);
+        // Check for MA cross bullish
+        const maCrossBullish = liveSignals.filter(s => s.signal_type === 'ma_cross_bullish');
+        if (maCrossBullish.length > 0) {
+          engineConsoleLog('📊 ENGINE: MA cross bullish signal detected for', baseSymbol);
           signals++;
           totalIndicators++;
         }
       }
 
-      const signalStrength = totalIndicators > 0 ? (signals / totalIndicators) : 0;
-      const threshold = 0.5; // Lowered threshold for better signal detection
+      // If no bullish signals found, check if there are ANY recent signals at all
+      if (!liveSignals || liveSignals.length === 0) {
+        // Also query for recent signals of any type to understand signal flow
+        const { data: anySignals } = await supabase
+          .from('live_signals')
+          .select('signal_type, signal_strength, timestamp')
+          .eq('symbol', baseSymbol)
+          .gte('timestamp', new Date(Date.now() - 1000 * 60 * 60).toISOString()) // Last hour
+          .order('timestamp', { ascending: false })
+          .limit(5);
 
-      engineConsoleLog('📊 ENGINE: REAL technical signal strength:', signalStrength, 'threshold:', threshold);
+        writeDebugStage('technical_signals_fallback_query', {
+          symbol: baseSymbol,
+          anySignalsFound: anySignals?.length || 0,
+          sampleSignals: anySignals?.map(s => ({ type: s.signal_type, strength: s.signal_strength })) || [],
+        });
+      }
+
+      // Ensure we always have at least 1 indicator counted to avoid division by zero
+      if (totalIndicators === 0) {
+        totalIndicators = 1;
+      }
+
+      const signalStrength = signals / totalIndicators;
+      const threshold = 0.3; // LOWERED threshold - any bullish signal should trigger
+
+      writeDebugStage('technical_signals_decision', {
+        symbol: baseSymbol,
+        signals,
+        totalIndicators,
+        signalStrength,
+        threshold,
+        shouldBuy: signalStrength >= threshold,
+      });
+
+      engineConsoleLog('📊 ENGINE: Technical signal strength:', signalStrength, 'threshold:', threshold, 'result:', signalStrength >= threshold);
       return signalStrength >= threshold;
 
     } catch (error) {
