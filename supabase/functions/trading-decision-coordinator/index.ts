@@ -325,6 +325,19 @@ serve(async (req) => {
       console.log('[coordinator] No "mode" field, defaulting to DECIDE flow');
     }
     
+    // ============= ENTRY LOGGING FOR DEBUGGING =============
+    // CRITICAL: Log incoming source and debugTag immediately for diagnostics
+    console.info('COORDINATOR: received trade intent', {
+      source: intent?.source,
+      reason: intent?.reason,
+      debugTag: intent?.metadata?.debugTag,
+      engine: intent?.metadata?.engine,
+      symbol: intent?.symbol,
+      side: intent?.side,
+      idempotencyKey: intent?.idempotencyKey,
+      strategyId: intent?.strategyId,
+    });
+    
     // STRUCTURED LOGGING
     console.log('[coordinator] intent', JSON.stringify({
       userId: intent?.userId,
@@ -337,6 +350,8 @@ serve(async (req) => {
       flags: intent?.metadata?.flags || null,
       force: intent?.metadata?.force === true,
       currentPrice: intent?.metadata?.currentPrice ?? null,
+      debugTag: intent?.metadata?.debugTag,
+      engine: intent?.metadata?.engine,
     }, null, 2));
     
     // STEP 2: COORDINATOR ENTRY LOGS
@@ -352,8 +367,29 @@ serve(async (req) => {
     const idempotencyKey = generateIdempotencyKey(intent);
     intent.idempotencyKey = idempotencyKey;
 
-    // Validate intent
-    if (!intent?.userId || !intent?.strategyId || !intent?.symbol || !intent?.side) {
+    // Validate intent - strategyId can be null for forced debug trades from intelligent engine
+    const isIntelligentForcedDebug = intent?.source === 'intelligent' && intent?.metadata?.debugTag === 'forced_debug_trade';
+    if (!intent?.userId || !intent?.symbol || !intent?.side) {
+      console.warn('COORDINATOR: SKIPPING decision_event insert', {
+        reason: 'missing_required_fields',
+        source: intent?.source,
+        debugTag: intent?.metadata?.debugTag,
+        missingFields: {
+          userId: !intent?.userId,
+          symbol: !intent?.symbol,
+          side: !intent?.side,
+        }
+      });
+      return respond('HOLD', 'internal_error', requestId);
+    }
+    
+    // strategyId is required unless this is a forced debug trade from intelligent engine
+    if (!intent?.strategyId && !isIntelligentForcedDebug) {
+      console.warn('COORDINATOR: SKIPPING decision_event insert', {
+        reason: 'missing_strategyId_and_not_debug_trade',
+        source: intent?.source,
+        debugTag: intent?.metadata?.debugTag,
+      });
       return respond('HOLD', 'internal_error', requestId);
     }
 
@@ -465,6 +501,92 @@ serve(async (req) => {
           retry_in_ms: 0,
           qty: qty,
           trade_id: tradeId
+        }
+      }), { 
+        headers: corsHeaders 
+      });
+    }
+
+    // ============= FAST PATH FOR INTELLIGENT ENGINE FORCED DEBUG TRADES =============
+    // These are test intents from useIntelligentTradingEngine with debugTag='forced_debug_trade'
+    // They may have strategyId=null but MUST be logged to decision_events for learning loop validation
+    if (isIntelligentForcedDebug) {
+      console.log('[coordinator] FAST PATH: Intelligent engine forced debug trade');
+      console.info('COORDINATOR: Processing intelligent forced debug trade', {
+        source: intent.source,
+        debugTag: intent.metadata?.debugTag,
+        symbol: intent.symbol,
+        side: intent.side,
+        engine: intent.metadata?.engine,
+        idempotencyKey: intent.idempotencyKey,
+      });
+      
+      const baseSymbol = toBaseSymbol(intent.symbol);
+      
+      // Get market price for entry_price
+      let marketPrice = null;
+      try {
+        const priceData = await getMarketPrice(baseSymbol, 15000);
+        marketPrice = priceData.price;
+      } catch (err) {
+        console.warn('[coordinator] Could not fetch price for forced debug trade:', err?.message);
+        marketPrice = intent.metadata?.price || intent.metadata?.currentPrice || null;
+      }
+      
+      // Default config for forced debug trades (no strategy lookup since strategyId may be null)
+      const debugUnifiedConfig: UnifiedConfig = {
+        enableUnifiedDecisions: false,
+        minHoldPeriodMs: 300000,
+        cooldownBetweenOppositeActionsMs: 180000,
+        confidenceOverrideThreshold: 0.70
+      };
+      
+      const debugStrategyConfig = {
+        takeProfitPercentage: 1.5,
+        stopLossPercentage: 0.8,
+        minConfidence: 0.5,
+        configuration: { is_test_mode: true }
+      };
+      
+      // Determine action based on side
+      const action = intent.side as DecisionAction;
+      const reason = 'no_conflicts_detected' as Reason;
+      
+      // CRITICAL: Log decision to decision_events - THIS IS THE MAIN PURPOSE OF THIS PATH
+      console.info('COORDINATOR: Logging forced debug trade to decision_events', {
+        userId: intent.userId,
+        symbol: baseSymbol,
+        side: intent.side,
+        source: intent.source,
+        debugTag: intent.metadata?.debugTag,
+        engine: intent.metadata?.engine,
+        entry_price: marketPrice,
+      });
+      
+      await logDecisionAsync(
+        supabaseClient,
+        intent,
+        action,
+        reason,
+        debugUnifiedConfig,
+        requestId,
+        undefined, // profitMetadata
+        undefined, // tradeId - no trade created for debug
+        marketPrice, // executionPrice
+        debugStrategyConfig
+      );
+      
+      console.log('✅ INTELLIGENT DEBUG: Decision logged to decision_events with source=intelligent, debugTag=forced_debug_trade');
+      
+      return new Response(JSON.stringify({ 
+        ok: true,
+        decision: {
+          action: action,
+          reason: 'intelligent_forced_debug_logged',
+          request_id: requestId,
+          retry_in_ms: 0,
+          debugTag: 'forced_debug_trade',
+          logged_to_decision_events: true
         }
       }), { 
         headers: corsHeaders 
@@ -1554,14 +1676,29 @@ async function logDecisionAsync(
           // PHASE 1B: Attach fused signal data (READ-ONLY)
           signalFusion: fusedSignalData,
           // Intelligent Engine metadata (merged from intent.metadata)
+          debugTag: intent.metadata?.debugTag ?? null,  // CRITICAL: Forward debugTag for forced debug trades
           engine: intent.metadata?.engine ?? null,
           engineFeatures: intent.metadata?.engineFeatures ?? null,
           price: intent.metadata?.price ?? null,
           symbol_normalized: intent.metadata?.symbol_normalized ?? baseSymbol,
-          trigger: intent.metadata?.trigger ?? null
+          trigger: intent.metadata?.trigger ?? null,
+          idempotencyKey: intent.idempotencyKey ?? null,  // Forward idempotencyKey
         },
         raw_intent: intent as any
       };
+
+      // CRITICAL: Log exactly what will be inserted for debugging
+      console.info('COORDINATOR: inserting decision_event', {
+        userId: eventPayload.user_id,
+        symbol: eventPayload.symbol,
+        side: eventPayload.side,
+        source: eventPayload.source,
+        decisionAction: action,
+        decisionReason: reason,
+        debugTag: eventPayload.metadata?.debugTag,
+        engine: eventPayload.metadata?.engine,
+        entry_price: eventPayload.entry_price,
+      });
 
       console.log('📌 LEARNING: decision_events payload', eventPayload);
 
@@ -1574,13 +1711,17 @@ async function logDecisionAsync(
         console.error('❌ LEARNING: decision_events insert failed', {
           message: decisionInsertError.message,
           details: decisionInsertError.details,
-          hint: decisionInsertError.hint
+          hint: decisionInsertError.hint,
+          source: eventPayload.source,
+          debugTag: eventPayload.metadata?.debugTag,
         });
       } else {
         console.log('✅ LEARNING: Successfully logged decision event row', {
           id: decisionInsertResult?.[0]?.id || null,
           symbol: baseSymbol,
           side: intent.side,
+          source: eventPayload.source,
+          debugTag: eventPayload.metadata?.debugTag,
           reason
         });
       }
