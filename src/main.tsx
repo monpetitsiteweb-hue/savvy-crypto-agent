@@ -11,18 +11,14 @@ import { sharedPriceCache } from './utils/SharedPriceCache';
 
 // Check version but DON'T clear storage if user is already logged in
 const preservedAuth = localStorage.getItem('supabase.auth.token');
-const preservedTestMode = localStorage.getItem('global-test-mode');
 
 if (!preservedAuth) {
   // Only clear storage if no auth session exists
   checkAndClearLegacyStorage();
-} else {
-  console.log('🔒 PRESERVING: Found existing auth session, skipping storage clear');
 }
 
 if ('serviceWorker' in navigator && location.hostname === 'localhost') {
   navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
-  console.log('[TH v10] SW unregistered for dev');
 }
 
 const queryClient = new QueryClient({
@@ -37,35 +33,11 @@ const queryClient = new QueryClient({
   },
 });
 
-// Expose utility functions globally for debugging
+// Expose utility functions globally (silent)
 if (typeof window !== 'undefined') {
   (window as any).toBaseSymbol = toBaseSymbol;
   (window as any).toPairSymbol = toPairSymbol;
   (window as any).sharedPriceCache = sharedPriceCache;
-  
-  (window as any).debugManualSell = (symbol: string) => {
-    console.log(`[DEBUG] Manual sell triggered for symbol: ${symbol}`);
-    console.log(`[DEBUG] toBaseSymbol available: ${typeof toBaseSymbol}`);
-    console.log(`[DEBUG] toPairSymbol available: ${typeof toPairSymbol}`);
-    console.log(`[DEBUG] sharedPriceCache available: ${typeof sharedPriceCache}`);
-    
-    const baseSymbol = toBaseSymbol(symbol);
-    console.log(`[DEBUG] Base symbol: ${baseSymbol}`);
-    
-    const pairSymbol = toPairSymbol(baseSymbol);
-    console.log(`[DEBUG] Pair symbol: ${pairSymbol}`);
-    
-    const cached = sharedPriceCache.get(pairSymbol);
-    console.log(`[DEBUG] Current price: ${cached?.price}`);
-    
-    console.log('[DEBUG] To test manual sell: navigate to Trading History and use the UI button');
-  };
-  
-  console.log('[DEBUG] Trading utilities loaded globally:');
-  console.log('- toBaseSymbol("BTC-EUR") // Convert pair to base symbol');
-  console.log('- toPairSymbol("BTC") // Convert base to pair symbol'); 
-  console.log('- sharedPriceCache.getPrice("BTC-EUR") // Get cached price');
-  console.log('- debugManualSell("BTC-EUR") // Test manual sell flow');
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

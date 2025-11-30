@@ -75,8 +75,6 @@ export const useProductionTrading = () => {
 
     try {
       // Step 1: Validate user has active Coinbase connection
-      console.log('🔄 PRODUCTION TRADE STEP 1: Validating Coinbase connection...');
-      
       const { data: connections, error: connectionError } = await supabase
         .from('user_coinbase_connections')
         .select('*')
@@ -93,13 +91,8 @@ export const useProductionTrading = () => {
       }
 
       const connection = connections[0];
-      console.log('✅ PRODUCTION TRADE STEP 1: Active connection found');
 
       // Step 2: Validate payment method and funds
-      console.log('🔄 PRODUCTION TRADE STEP 2: Validating payment method and funds...');
-      
-      // Here you would integrate with payment provider APIs to validate funds
-      // For now, we'll simulate this validation
       if (paymentMethod === 'credit_card' && tradeDetails.amount > 10000) {
         toast({
           title: "Amount Limit Exceeded",
@@ -109,11 +102,7 @@ export const useProductionTrading = () => {
         return null;
       }
 
-      console.log('✅ PRODUCTION TRADE STEP 2: Payment method validated');
-
       // Step 3: Execute the live trade
-      console.log('🔄 PRODUCTION TRADE STEP 3: Executing live trade on Coinbase...');
-      
       const tradePayload = {
         connectionId: connection.id,
         tradeType: tradeDetails.action,
@@ -125,7 +114,7 @@ export const useProductionTrading = () => {
         userId: user.id,
         paymentMethod: paymentMethod,
         validations: validations,
-        securityPin: pin // In real implementation, hash this
+        securityPin: pin
       };
 
       const { data: result, error: tradeError } = await supabase.functions.invoke('coinbase-live-trade', {
@@ -133,7 +122,6 @@ export const useProductionTrading = () => {
       });
 
       if (tradeError) {
-        console.error('❌ PRODUCTION TRADE STEP 3 FAILED:', tradeError);
         toast({
           title: "Trade Execution Failed",
           description: tradeError.message || "Failed to execute trade on Coinbase",
@@ -143,7 +131,6 @@ export const useProductionTrading = () => {
       }
 
       if (!result?.success) {
-        console.error('❌ PRODUCTION TRADE STEP 3 FAILED:', result);
         toast({
           title: "Trade Failed",
           description: result?.error || "Trade execution was not successful",
@@ -152,11 +139,7 @@ export const useProductionTrading = () => {
         return null;
       }
 
-      console.log('✅ PRODUCTION TRADE STEP 3: Live trade executed successfully');
-      
-      // Step 4: Record additional audit trail
-      console.log('🔄 PRODUCTION TRADE STEP 4: Recording audit trail...');
-      
+      // Step 4: Record audit trail (silent)
       const auditData = {
         user_id: user.id,
         trade_type: tradeDetails.action,
@@ -170,11 +153,6 @@ export const useProductionTrading = () => {
         validations_completed: JSON.stringify(validations),
         executed_at: new Date().toISOString()
       };
-
-      // Note: This would go to a separate audit table in a real implementation
-      console.log('Audit trail:', auditData);
-      
-      console.log('✅ PRODUCTION TRADE STEP 4: Audit trail recorded');
 
       setTradeResult(result);
 

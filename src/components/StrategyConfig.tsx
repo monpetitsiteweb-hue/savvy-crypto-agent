@@ -80,15 +80,6 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     if (!user) return;
     
     try {
-      console.debug('🔍 Fetching strategies:', { 
-        testMode, 
-        userIdUsedInQuery: user.id, 
-        filters: { 
-          user_id: user.id, 
-          is_test_mode: testMode
-        } 
-      });
-
       const { data, error } = await (supabase as any)
         .from('trading_strategies')
         .select('*')
@@ -97,14 +88,6 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      
-      console.debug('📊 Strategy fetch results:', {
-        testMode,
-        userIdUsedInQuery: user.id,
-        filters: `user_id=${user.id}, is_test_mode=${testMode}`,
-        rowCount: data?.length || 0,
-        matchingStrategyIds: data?.map(s => s.id) || []
-      });
       
       setStrategies((data || []).map(normalizeStrategy));
       

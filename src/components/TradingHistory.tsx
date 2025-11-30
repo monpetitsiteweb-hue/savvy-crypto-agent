@@ -21,7 +21,6 @@ import { useToast } from '@/hooks/use-toast';
 
 // ✅ After imports: version beacon + WeakMap
 const TH_VERSION = 'v14.1';
-console.log(`[TH ${TH_VERSION}] module loaded`);
 (window as any).__TH_VERSION = TH_VERSION;
 
 // v13 helpers
@@ -43,19 +42,14 @@ async function withTimeout<T>(promise: Promise<T>, label: string, ms = 8000): Pr
 // 10s watchdog: if we don't reach "invoke-done", force a mock sell so you're not blocked
 function startWatchdog(userId: string, trade: Trade, pair: string) {
   const stop = setTimeout(async () => {
-    console.error('[TH v14] watchdog fired – coordinator timeout');
     const cached = sharedPriceCache.get(pair);
     if (!cached) { 
-      console.error('[TH v14] watchdog: no price – aborting fallback'); 
       return; 
     }
     try {
       await emergencyMockSellInsert(userId, trade, cached.price);
       (window as any).__THv14_watchdogFired = true;
-      console.log('[TH v14] watchdog: emergency mock SELL inserted');
-    } catch (e:any) {
-      console.error(`[TH v14] watchdog fallback failed: ${e?.message || e}`, e);
-    }
+    } catch {}
   }, 10000);
   return () => clearTimeout(stop);
 }
@@ -149,11 +143,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   // Mount beacon + global error handler
   useEffect(() => {
-    console.log(`[TH ${TH_VERSION}] mounted`);
-    const onErr = (e: ErrorEvent) => console.error(`[TH ${TH_VERSION}] window error`, e.message, e.error);
+    const onErr = (e: ErrorEvent) => {
+      // Silent error handling
+      (window as any).NotificationSink?.log({ message: 'TH window error', error: e.message });
+    };
     window.addEventListener('error', onErr);
     return () => {
-      console.log(`[TH ${TH_VERSION}] unmounted`);
       window.removeEventListener('error', onErr);
     };
   }, []);
@@ -182,12 +177,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   // Initialize shared price cache on mount
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const debugMode = urlParams.get('debug') === 'history';
-    
-    // Always log the startup message for price cache
-    if (debugMode) console.log('[HistoryPerf] priceCache=on intervalMs=30000');
-    
     return () => {
       sharedPriceCache.clear();
     };
@@ -283,11 +272,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           }
           // If something is still remaining (edge case), fall back to FIFO
           if (sellRemaining > 1e-12) {
-            console.warn('[TH v14.1] manual SELL had leftover amount after targeted match, falling back to FIFO', {
-              sym,
-              original_trade_id: t.original_trade_id,
-              sellRemaining,
-            });
             // Fallback FIFO for remaining amount
             for (let i = 0; i < lots.length && sellRemaining > 1e-12; i++) {
               const lot = lots[i];
@@ -436,15 +420,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   }, [user]);
 
-  // Mount beacon + global error handler
+  // Component mount tracking
   useEffect(() => {
-    console.log(`[TH ${TH_VERSION}] component mounted`);
-    console.log('User:', user?.id);
-    console.log('HasActiveStrategy:', hasActiveStrategy);
-    
-    return () => {
-      console.log(`[TH ${TH_VERSION}] component unmounting`);
-    };
+    // Silent mount tracking
   }, []);
 
   // Delegated SELL button handler (survives re-renders)
@@ -473,17 +451,10 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         }
       }
 
-      console.log(`[TH ${TH_VERSION}] delegate click`, {
-        id,
-        found: !!resolved,
-        via: resolved === sellBtnMap.get(btn) ? 'weakmap' : (resolved && trades.find(tr => tr.id === id) ? 'state' : 'dataset-json')
-      });
-
       // Open confirmation modal instead of calling handleDirectSell directly
       if (resolved) {
         setSellConfirmation({ open: true, trade: resolved });
       } else {
-        console.warn(`[TH ${TH_VERSION}] delegate could not resolve trade`);
         toast({
           title: "Error",
           description: "Could not resolve trade data for sell operation",
@@ -492,29 +463,16 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       }
     };
     ['pointerdown','click'].forEach(type => document.addEventListener(type, delegate, true));
-    console.log(`[TH ${TH_VERSION}] delegate ON`);
     return () => {
       ['pointerdown','click'].forEach(type => document.removeEventListener(type, delegate, true));
-      console.log(`[TH ${TH_VERSION}] delegate OFF`);
     };
   }, [trades]);
 
-  // Optional DOM sanity probe
-  useEffect(() => {
-    const t = setInterval(() => {
-      const n = document.querySelectorAll('button[data-testid="sell-now"]').length;
-      console.log(`[TH ${TH_VERSION}] SELL buttons in DOM:`, n);
-    }, 2000);
-    return () => clearInterval(t);
-  }, []);
-
   // Handle direct sell - executes manual sell
   const handleDirectSell = async (trade: Trade) => {
-    console.log(`[TH ${TH_VERSION}] entered handleDirectSell`);
     mark('entered');
 
     if (!user) {
-      console.log(`[TH ${TH_VERSION}] no user`);
       toast({ title: 'Sell Failed', description: 'User not authenticated', variant: 'destructive' });
       return;
     }
@@ -524,12 +482,10 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       mark('symbols-start');
       const base = toBaseSymbol(trade.cryptocurrency);
       const pair = toPairSymbol(base);
-      console.log(`[TH ${TH_VERSION}] symbols ok → base=${base} pair=${pair}`);
       mark('symbols-ok');
 
       const cached = sharedPriceCache.get(pair);
       const price = cached?.price;
-      console.log(`[TH ${TH_VERSION}] price check → ${pair}=${price}`);
       if (!price) {
         toast({ title: 'Sell Failed', description: `Current price not available for ${pair}`, variant: 'destructive' });
         return;
@@ -544,7 +500,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       mark('perf-ok');
 
       // === Strategy lookup (async + timeout) ===
-      console.log(`[TH ${TH_VERSION}] querying strategies…`);
       mark('strategies-start');
       const { data: strategies, error: stratError } = await supabase
         .from('trading_strategies')
@@ -552,7 +507,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         .eq('user_id', user.id);
       if (stratError) throw stratError;
       const strategyId = trade.strategy_id || (strategies && strategies[0]?.id);
-      console.log(`[TH ${TH_VERSION}] strategies ok → using ${strategyId || 'NONE'}`);
       if (!strategyId) {
         stopWatchdog();
         toast({ title: 'Sell Failed', description: 'No valid strategy found for manual sell', variant: 'destructive' });
@@ -587,7 +541,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       mark('payload-ok');
 
       // === Invoke function (async + timeout) ===
-      console.log(`[TH ${TH_VERSION}] invoking edge function… (invoke type=${typeof supabase.functions.invoke})`);
       mark('invoke-start');
       const { data: result, error } = await withTimeout(
         supabase.functions.invoke('trading-decision-coordinator', { body: { intent: sellPayload } }),
@@ -596,9 +549,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       );
       mark('invoke-done');
       stopWatchdog();
-
-      console.log(`[TH ${TH_VERSION}] invoke result → ok=${String(result?.ok)} action=${String(result?.decision?.action)}`);
-      console.log(`[TH ${TH_VERSION}] invoke result`, { error, result });
 
       if (error) throw new Error(`Network error: ${error.message}`);
 
@@ -613,7 +563,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       toast({ title: 'Sell Not Executed', description: result?.decision?.reason || 'No decision reason', variant: 'destructive' });
     } catch (err:any) {
       mark('error');
-      console.error(`[TH ${TH_VERSION}] SELL ERROR → ${err?.message || err}`, err);
 
       // Final emergency fallback (in case the watchdog didn't fire yet)
       try {
@@ -630,7 +579,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         }
       } catch (fbErr:any) {
         mark('fallback-failed');
-        console.error(`[TH ${TH_VERSION}] fallback failed → ${fbErr?.message || fbErr}`, fbErr);
         toast({ title: 'Sell Failed', description: fbErr?.message || 'Unknown error', variant: 'destructive' });
       }
     }
@@ -651,10 +599,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       const el = sellBtnRef.current;
       if (!el) return;
       sellBtnMap.set(el, trade);
-      console.log(`[TH ${TH_VERSION}] ✅ map set`, { id: trade.id, sym: trade.cryptocurrency });
       return () => {
         sellBtnMap.delete(el);
-        console.log(`[TH ${TH_VERSION}] 🧹 map delete`, { id: trade.id });
       };
     }, [trade.id]);
     
@@ -1165,53 +1111,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   );
 }
 
-// Debug helper function for DevTools console
+// Expose utilities globally for debugging (silent)
 if (typeof window !== 'undefined') {
-  // Expose utilities globally for debugging
   (window as any).toBaseSymbol = toBaseSymbol;
   (window as any).toPairSymbol = toPairSymbol;
   (window as any).sharedPriceCache = sharedPriceCache;
-  
-  (window as any).debugManualSell = (symbol: string) => {
-    console.log(`[DEBUG] Manual sell triggered for symbol: ${symbol}`);
-    console.log(`[DEBUG] toBaseSymbol available: ${typeof toBaseSymbol}`);
-    console.log(`[DEBUG] toPairSymbol available: ${typeof toPairSymbol}`);
-    console.log(`[DEBUG] sharedPriceCache available: ${typeof sharedPriceCache}`);
-    
-    if (typeof toBaseSymbol === 'function') {
-      const baseSymbol = toBaseSymbol(symbol);
-      console.log(`[DEBUG] Base symbol: ${baseSymbol}`);
-      
-      if (typeof toPairSymbol === 'function') {
-        const pairSymbol = toPairSymbol(baseSymbol);
-        console.log(`[DEBUG] Pair symbol: ${pairSymbol}`);
-        
-        if (sharedPriceCache) {
-          const cached = sharedPriceCache.get(pairSymbol);
-          console.log(`[DEBUG] Current price: ${cached?.price}`);
-        }
-      }
-    }
-    
-    const mockTrade = {
-      id: 'debug-' + Date.now(),
-      cryptocurrency: symbol,
-      amount: 1.0,
-      price: 100,
-      trade_type: 'buy',
-      strategy_id: 'debug-strategy',
-      executed_at: new Date().toISOString(),
-      total_value: 100
-    };
-    
-    console.log('[DEBUG] Mock trade object:', mockTrade);
-    console.log('[DEBUG] This would trigger the same coordinator path as the UI button');
-    console.log('[DEBUG] To test fully, use the actual UI button or implement a real position');
-  };
-  
-  console.log('[DEBUG] Utils exposed globally. Test with:');
-  console.log('- toBaseSymbol("BTC-EUR")');
-  console.log('- toPairSymbol("BTC")'); 
-  console.log('- sharedPriceCache.getPrice("BTC-EUR")');
-  console.log('- debugManualSell("BTC-EUR")');
 }

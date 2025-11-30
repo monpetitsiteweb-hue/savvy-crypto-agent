@@ -3,7 +3,7 @@ import { Plus } from 'lucide-react';
 
 export const TestStrategyConfig = () => {
   const handleClick = () => {
-    console.log('BUTTON WORKS!');
+    // Silent click handler
   };
 
   return (

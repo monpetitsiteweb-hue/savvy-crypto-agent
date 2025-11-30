@@ -50,12 +50,11 @@ export const useRealTimeMarketData = (): UseRealTimeMarketDataReturn => {
       subscribe: () => {},
       getCurrentData: async () => marketData
     };
-    console.log('[HistoryBlink] market hook bypassed (stable snapshot)');
   }
   
   const subscribe = useCallback((symbols: string[]) => {
     if (shouldBypass) return;
-    console.log('⚠️ Subscribe functionality disabled, using context provider');
+    // Subscribe disabled, using context provider
   }, [shouldBypass]);
 
   // Return snapshot if bypassing, otherwise return live data

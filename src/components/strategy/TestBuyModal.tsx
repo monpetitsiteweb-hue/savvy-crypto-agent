@@ -85,8 +85,6 @@ export function TestBuyModal({ open, onOpenChange, strategyId, onSuccess }: Test
         context: 'MANUAL',
       };
 
-      console.log('[TestBuyModal] Sending BUY intent to coordinator:', intent);
-
       const { data, error } = await supabase.functions.invoke('trading-decision-coordinator', {
         body: { intent },
       });
@@ -94,8 +92,6 @@ export function TestBuyModal({ open, onOpenChange, strategyId, onSuccess }: Test
       if (error) {
         throw error;
       }
-
-      console.log('[TestBuyModal] Coordinator response:', data);
 
       if (data?.ok && (data?.decision?.action === 'EXECUTE' || data?.decision?.action === 'BUY')) {
         toast({

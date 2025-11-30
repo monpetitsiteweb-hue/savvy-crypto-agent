@@ -224,10 +224,8 @@ export function DataSourcesPanel() {
           });
         }
       }
-      console.log("[DataSourcesPanel] Loaded deduplicated sources:", dedupedData.map(s => s.source_name));
       setSources(dedupedData);
     } catch (error) {
-      console.error("[DataSourcesPanel] Error loading sources:", error);
       toast({
         title: "Error",
         description: "Failed to load data sources",
