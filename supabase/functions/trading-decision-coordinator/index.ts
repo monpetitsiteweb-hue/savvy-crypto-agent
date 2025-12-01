@@ -2218,24 +2218,33 @@ async function logDecisionAsync(
           strategyId: eventPayload.strategy_id,
         });
         // Return failure so caller knows the insert did not succeed
-        return { logged: false, error: decisionInsertError.message };
+        return { logged: false, error: decisionInsertError.message, decisionId: null };
       } else {
+        const insertedDecisionId = decisionInsertResult?.[0]?.id || null;
         console.log('✅ LEARNING: Successfully logged decision event row', {
-          id: decisionInsertResult?.[0]?.id || null,
+          id: insertedDecisionId,
           symbol: baseSymbol,
           side: intent.side,
           source: eventPayload.source,
           debugTag: eventPayload.metadata?.debugTag,
-          reason
+          reason,
+          trade_id: tradeId || null  // Log the causal link for visibility
         });
-        return { logged: true };
+        
+        // OPTION D: Causal link - decision_events.trade_id already set above via eventPayload.trade_id
+        // Log the causal relationship for debugging
+        if (tradeId) {
+          console.log('🔗 CAUSAL_LINK: decision_events.id=' + insertedDecisionId + ' → mock_trades.id=' + tradeId);
+        }
+        
+        return { logged: true, decisionId: insertedDecisionId };
       }
     }
     // If we didn't insert (action not in logged set), return success
-    return { logged: true };
+    return { logged: true, decisionId: null };
   } catch (error) {
     console.error('❌ COORDINATOR: Failed to log decision:', error.message);
-    return { logged: false, error: error.message };
+    return { logged: false, error: error.message, decisionId: null };
   }
 }
 
@@ -2622,7 +2631,18 @@ async function executeWithMinimalLock(
       await evaluateCircuitBreakers(supabaseClient, intent);
       
       // Log ENTER/EXIT on successful execution with trade_id, execution price, and EFFECTIVE config (with overrides)
-      await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined, executionResult.tradeId, executionResult.executed_price, executionResult.effectiveConfig || strategyConfig);
+      // OPTION D: The tradeId (mock_trades.id) is passed to logDecisionAsync to create the causal link
+      const logResult = await logDecisionAsync(supabaseClient, intent, intent.side, 'no_conflicts_detected', config, requestId, undefined, executionResult.tradeId, executionResult.executed_price, executionResult.effectiveConfig || strategyConfig);
+      
+      // OPTION D: Log the causal relationship for debugging
+      console.log('🔗 CAUSAL_LINK_SUMMARY', {
+        mock_trade_id: executionResult.tradeId,
+        decision_event_id: logResult.decisionId,
+        symbol: intent.symbol,
+        side: intent.side,
+        source: intent.source,
+        link_direction: 'decision_events.trade_id → mock_trades.id'
+      });
       
       return { action: intent.side as DecisionAction, reason: 'no_conflicts_detected', request_id: requestId, retry_in_ms: 0, qty: executionResult.qty };
     } else {

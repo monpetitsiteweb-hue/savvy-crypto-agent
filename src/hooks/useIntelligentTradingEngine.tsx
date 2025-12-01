@@ -1136,11 +1136,20 @@ export const useIntelligentTradingEngine = () => {
     try {
       // Context Gates - Check blocking conditions first using effective config
       // 🚀 HOTFIX: TP exits bypass liquidity and whale conflict gates
+      // 🧪 Option B: Test mode bypasses spread gate blocking
+      const isTestModeConfig = config?.is_test_mode === true || 
+                               config?.enableTestTrading === true ||
+                               testMode === true;
+      
       if (gatesConfig) {
-        // Gate 1: Spread check (always enforced)
-        const spread = await checkSpreadGate(symbol, effectiveConfigWithSources.spreadThresholdBps);
+        // Gate 1: Spread check (bypassed in test mode via Option B)
+        const spread = await checkSpreadGate(symbol, effectiveConfigWithSources.spreadThresholdBps, isTestModeConfig);
         if (spread.blocked) {
           gateBlocks.push('spread_too_wide');
+        }
+        // Log bypass for debugging
+        if (spread.bypassed) {
+          console.log('🧪 [FUSION] Spread gate bypassed in test mode', { symbol, spreadBps: spread.spreadBps });
         }
         
         // Gate 2: Liquidity/Depth check - BYPASS for TP exits
@@ -1257,7 +1266,8 @@ export const useIntelligentTradingEngine = () => {
   };
   
   // Context Gates Implementation
-  const checkSpreadGate = async (symbol: string, maxSpreadBps: number): Promise<{ blocked: boolean; spreadBps: number }> => {
+  // NOTE: checkSpreadGate now accepts isTestMode to bypass blocking in test mode (Option B)
+  const checkSpreadGate = async (symbol: string, maxSpreadBps: number, isTestMode: boolean = false): Promise<{ blocked: boolean; spreadBps: number; bypassed?: boolean }> => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
       const pairSymbol = `${baseSymbol}-EUR`;
@@ -1271,16 +1281,39 @@ export const useIntelligentTradingEngine = () => {
         const mid = (bid + ask) / 2;
         const spreadBps = ((ask - bid) / mid) * 10000; // Convert to basis points
         
+        const wouldBeBlocked = spreadBps > maxSpreadBps;
+        
+        // TEST MODE BYPASS (Option B): In test mode, never block but log the actual spread
+        if (isTestMode && wouldBeBlocked) {
+          console.log('🧪 [SPREAD_GATE_BYPASS] fusion_spread_gate_bypassed_test_mode', {
+            symbol: pairSymbol,
+            bid,
+            ask,
+            mid,
+            spreadBps: spreadBps.toFixed(2),
+            thresholdBps: maxSpreadBps,
+            wouldHaveBlocked: true,
+            bypassed: true,
+            reason: 'test_mode_enabled'
+          });
+          return {
+            blocked: false, // BYPASSED - do not block in test mode
+            spreadBps,
+            bypassed: true
+          };
+        }
+        
         return {
-          blocked: spreadBps > maxSpreadBps,
-          spreadBps
+          blocked: wouldBeBlocked,
+          spreadBps,
+          bypassed: false
         };
       }
       
-      return { blocked: false, spreadBps: 0 }; // Default to not blocked if can't fetch
+      return { blocked: false, spreadBps: 0, bypassed: false }; // Default to not blocked if can't fetch
     } catch (error) {
       console.error('❌ SPREAD GATE: Error checking spread:', error);
-      return { blocked: false, spreadBps: 0 };
+      return { blocked: false, spreadBps: 0, bypassed: false };
     }
   };
   
