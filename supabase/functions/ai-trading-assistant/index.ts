@@ -1827,10 +1827,11 @@ Please analyze this comprehensive data and provide expert insights that referenc
       const last7days = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
       
       // 1. Whale Activity & Alerts
+      // FIXED: whale_signal_events uses token_symbol, not symbol
       const { data: whaleEvents } = await supabase
         .from('whale_signal_events')
         .select('*')
-        .in('symbol', coins)
+        .in('token_symbol', coins)
         .gte('timestamp', last24h)
         .order('timestamp', { ascending: false })
         .limit(10);
