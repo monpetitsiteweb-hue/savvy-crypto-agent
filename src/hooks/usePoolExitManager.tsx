@@ -372,9 +372,12 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
   useEffect(() => {
     if (!isEnabled || !testMode || !user) return;
 
+    // PERFORMANCE FIX: Reduced from 5s to 60s to prevent DB overload
+    const POOL_CHECK_INTERVAL_MS = 60000; // 1 minute
+
     const interval = setInterval(() => {
       processAllPools();
-    }, 5000);
+    }, POOL_CHECK_INTERVAL_MS);
 
     processAllPools();
 
