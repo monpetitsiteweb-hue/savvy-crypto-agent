@@ -366,6 +366,10 @@ export const useIntelligentTradingEngine = () => {
       // This block is placed AFTER strategy fetch so we have a valid strategyId
       if (typeof window !== 'undefined' && window.__INTELLIGENT_FORCE_DEBUG_TRADE) {
         const firstTestStrategy = activeTestStrategies[0];
+        const forcedSymbol = 'BTC-EUR';
+        const forcedBaseSymbol = 'BTC';
+        const forcedQty = 0.001;
+        
         writeDebugStage('forced_debug_trade_entry', { 
           userId: user.id, 
           testMode, 
@@ -374,21 +378,48 @@ export const useIntelligentTradingEngine = () => {
         });
 
         try {
+          // STEP 1: Get current price for BTC-EUR from shared cache or Coinbase
+          let forcedPrice = 0;
+          const cachedPrice = sharedPriceCache.get(forcedSymbol);
+          if (cachedPrice?.price) {
+            forcedPrice = cachedPrice.price;
+            console.log('🧪 FORCED DEBUG TRADE: Using cached price:', forcedPrice);
+          } else {
+            // Fallback: fetch from Coinbase ticker
+            try {
+              const tickerResponse = await fetch(`https://api.exchange.coinbase.com/products/${forcedSymbol}/ticker`);
+              const tickerData = await tickerResponse.json();
+              if (tickerResponse.ok && tickerData.price) {
+                forcedPrice = parseFloat(tickerData.price);
+                console.log('🧪 FORCED DEBUG TRADE: Fetched live price:', forcedPrice);
+              }
+            } catch (priceErr) {
+              console.error('🧪 FORCED DEBUG TRADE: Price fetch error:', priceErr);
+            }
+          }
+          
+          if (forcedPrice <= 0) {
+            console.error('🧪 FORCED DEBUG TRADE: Could not get valid price, aborting');
+            window.__INTELLIGENT_FORCE_DEBUG_TRADE = false;
+            return;
+          }
+          
           const debugIntent = {
             userId: user.id,
             strategyId: firstTestStrategy.id,  // Use real strategy ID from DB
-            symbol: 'BTC-EUR',
+            symbol: forcedSymbol,
             side: 'BUY' as const,
             source: 'intelligent' as const,
             confidence: 0.99,
             reason: 'FORCED_DEBUG_TRADE',
-            qtySuggested: 0.001,
+            qtySuggested: forcedQty,
             metadata: {
               mode: 'mock',
               debug: true,
               debugTag: 'forced_debug_trade',
               engine: 'intelligent',
               is_test_mode: true,
+              forced_price: forcedPrice,
             },
             ts: new Date().toISOString(),
             idempotencyKey: `forced_debug_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
@@ -401,14 +432,117 @@ export const useIntelligentTradingEngine = () => {
           });
 
           writeDebugStage('forced_debug_trade_emitted', { 
-            symbol: 'BTC-EUR', 
+            symbol: forcedSymbol, 
             strategyId: firstTestStrategy.id,
-            qtySuggested: 0.001,
+            qtySuggested: forcedQty,
+            price: forcedPrice,
             coordinatorResponse: decision,
             coordinatorError: error?.message 
           });
 
           console.log('🧪 FORCED DEBUG TRADE: Coordinator response:', decision, 'error:', error);
+          
+          // STEP 2: If coordinator approved the BUY, execute the trade and insert into mock_trades
+          const coordinatorAction = decision?.decision?.action || decision?.action;
+          const coordinatorReason = decision?.decision?.reason || decision?.reason;
+          const isApproved = decision?.ok === true && coordinatorAction === 'BUY';
+          
+          if (isApproved) {
+            console.log('🧪 FORCED DEBUG TRADE: Coordinator APPROVED - executing mock trade insertion');
+            
+            // Run spread/liquidity gates in test mode (they will bypass but log)
+            const config = firstTestStrategy.configuration || {};
+            const isTestModeConfig = true; // Forced debug is always test mode
+            
+            // Gate checks (will bypass in test mode)
+            const configAny = config as any;
+            const spreadThreshold = configAny?.spreadThresholdBps || 15;
+            const minDepthRatio = configAny?.minDepthRatio || 0.3;
+            
+            const spreadCheck = await checkSpreadGate(forcedSymbol, spreadThreshold, isTestModeConfig);
+            const liquidityCheck = await checkLiquidityGate(forcedSymbol, minDepthRatio, isTestModeConfig);
+            
+            console.log('🧪 FORCED DEBUG TRADE: Gates passed', { 
+              spreadBlocked: spreadCheck.blocked, 
+              spreadBypassed: spreadCheck.bypassed,
+              liquidityBlocked: liquidityCheck.blocked,
+              liquidityBypassed: liquidityCheck.bypassed
+            });
+            
+            // Calculate total value
+            const totalValue = forcedQty * forcedPrice;
+            
+            // Insert into mock_trades
+            const mockTradeData = {
+              strategy_id: firstTestStrategy.id,
+              user_id: user.id,
+              trade_type: 'buy',
+              cryptocurrency: forcedBaseSymbol, // Use base symbol without -EUR
+              amount: Math.round(forcedQty * 1e8) / 1e8,
+              price: Math.round(forcedPrice * 1e6) / 1e6,
+              total_value: Math.round(totalValue * 100) / 100,
+              fees: 0,
+              strategy_trigger: 'FORCED_DEBUG_TRADE',
+              notes: 'Forced debug trade via __INTELLIGENT_FORCE_DEBUG_TRADE',
+              is_test_mode: true,
+              profit_loss: 0,
+              executed_at: new Date().toISOString(),
+              market_conditions: {
+                debugTag: 'forced_debug_trade',
+                coordinator_request_id: decision?.decision?.request_id || decision?.request_id,
+                coordinator_reason: coordinatorReason,
+                spread_bps: spreadCheck.spreadBps,
+                depth_ratio: liquidityCheck.depthRatio,
+                gates_bypassed: {
+                  spread: spreadCheck.bypassed || false,
+                  liquidity: liquidityCheck.bypassed || false
+                }
+              }
+            };
+            
+            console.log('🧪 FORCED DEBUG TRADE: Inserting mock_trade:', mockTradeData);
+            
+            const { data: insertedTrade, error: insertError } = await supabase
+              .from('mock_trades')
+              .insert(mockTradeData)
+              .select();
+            
+            if (insertError) {
+              console.error('🧪 FORCED DEBUG TRADE: Database insert error:', insertError);
+              writeDebugStage('forced_debug_trade_insert_error', { error: insertError.message });
+            } else {
+              console.log('🧪 FORCED DEBUG TRADE: SUCCESS! mock_trade inserted:', insertedTrade?.[0]?.id);
+              writeDebugStage('forced_debug_trade_success', { 
+                tradeId: insertedTrade?.[0]?.id,
+                symbol: forcedBaseSymbol,
+                amount: forcedQty,
+                price: forcedPrice,
+                totalValue
+              });
+              
+              // Update local wallet balances (for UI consistency)
+              const eurBalance = getBalance('EUR');
+              if (eurBalance >= totalValue) {
+                updateBalance('EUR', -totalValue);
+                updateBalance(forcedBaseSymbol, forcedQty);
+                console.log('🧪 FORCED DEBUG TRADE: Updated local balances');
+              }
+              
+              Toast.success(`🧪 Debug BUY executed: ${forcedQty} ${forcedBaseSymbol} @ €${forcedPrice.toFixed(2)}`);
+            }
+          } else {
+            console.log('🧪 FORCED DEBUG TRADE: Coordinator did NOT approve BUY', { 
+              ok: decision?.ok, 
+              action: coordinatorAction, 
+              reason: coordinatorReason 
+            });
+            writeDebugStage('forced_debug_trade_not_approved', { 
+              ok: decision?.ok, 
+              action: coordinatorAction, 
+              reason: coordinatorReason 
+            });
+          }
+          
         } catch (err) {
           writeDebugStage('forced_debug_trade_error', { error: String(err) });
           console.error('🧪 FORCED DEBUG TRADE: Error:', err);
