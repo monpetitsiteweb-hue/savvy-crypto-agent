@@ -440,157 +440,36 @@ export const useIntelligentTradingEngine = () => {
             coordinatorError: error?.message 
           });
 
-          console.log('🧪 FORCED DEBUG TRADE: Coordinator response:', JSON.stringify(decision), 'error:', error);
-          
-          // STEP 2: Parse coordinator response - handle both string and object formats
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const rawAny: any = decision;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let raw: any;
-          
-          try {
-            if (typeof rawAny === 'string') {
-              raw = JSON.parse(rawAny);
-            } else {
-              raw = rawAny ?? {};
+          // Use the new helper for forced debug BUY
+          const result = await runCoordinatorApprovedMockBuy({
+            userId: user.id,
+            strategyId: firstTestStrategy.id,
+            symbol: forcedSymbol,
+            baseSymbol: forcedBaseSymbol,
+            qty: forcedQty,
+            price: forcedPrice,
+            reason: 'FORCED_DEBUG_TRADE',
+            confidence: 0.99,
+            strategyTrigger: 'FORCED_DEBUG_TRADE',
+            extraMetadata: {
+              debugTag: 'forced_debug_trade',
+              forced_price: forcedPrice
             }
-          } catch (e) {
-            console.error('🧪 FORCED DEBUG TRADE: Failed to parse coordinator response as JSON', { rawAny, error: e });
-            raw = {};
-          }
-          
-          // Debug the actual shape coming back from the Edge Function
-          console.log('🧪 FORCED DEBUG TRADE: Raw coordinator shape:', {
-            typeofRaw: typeof raw,
-            keys: typeof raw === 'object' && raw != null ? Object.keys(raw) : null,
-            nestedDecisionKeys:
-              raw && typeof raw === 'object' && raw.decision && typeof raw.decision === 'object'
-                ? Object.keys(raw.decision)
-                : null
           });
           
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const inner: any = (raw && typeof raw === 'object' && raw.decision) ? raw.decision : {};
-          
-          const coordinatorAction: string | null =
-            inner.action ?? raw.action ?? null;
-          
-          const coordinatorReason: string | null =
-            inner.reason ?? raw.reason ?? null;
-          
-          const coordinatorRequestId: string | null =
-            inner.request_id ?? raw.request_id ?? null;
-          
-          const isApproved: boolean =
-            raw.ok === true && coordinatorAction === 'BUY';
-          
-          console.log('🧪 FORCED DEBUG TRADE: Coordinator response (normalized):', {
-            ok: raw.ok,
-            action: coordinatorAction,
-            reason: coordinatorReason,
-            requestId: coordinatorRequestId,
-          });
-          
-          if (isApproved) {
-            console.log('🧪 FORCED DEBUG TRADE: Coordinator APPROVED - executing mock trade insertion');
-            
-            writeDebugStage('forced_debug_trade_approved', {
-              ok: raw.ok,
-              action: coordinatorAction,
-              reason: coordinatorReason,
-              requestId: coordinatorRequestId
+          if (result.success) {
+            writeDebugStage('forced_debug_trade_success', {
+              tradeId: result.mockTradeId,
+              symbol: forcedBaseSymbol,
+              amount: forcedQty,
+              price: forcedPrice,
+              totalValue: forcedQty * forcedPrice
             });
-            
-            // Run spread/liquidity gates in test mode (they will bypass but log)
-            const config = firstTestStrategy.configuration || {};
-            const isTestModeConfig = true; // Forced debug is always test mode
-            
-            // Gate checks (will bypass in test mode)
-            const configAny = config as any;
-            const spreadThreshold = configAny?.spreadThresholdBps || 15;
-            const minDepthRatio = configAny?.minDepthRatio || 0.3;
-            
-            const spreadCheck = await checkSpreadGate(forcedSymbol, spreadThreshold, isTestModeConfig);
-            const liquidityCheck = await checkLiquidityGate(forcedSymbol, minDepthRatio, isTestModeConfig);
-            
-            console.log('🧪 FORCED DEBUG TRADE: Gates passed', { 
-              spreadBlocked: spreadCheck.blocked, 
-              spreadBypassed: spreadCheck.bypassed,
-              liquidityBlocked: liquidityCheck.blocked,
-              liquidityBypassed: liquidityCheck.bypassed
-            });
-            
-            // Calculate total value
-            const totalValue = forcedQty * forcedPrice;
-            
-            // Insert into mock_trades
-            const mockTradeData = {
-              strategy_id: firstTestStrategy.id,
-              user_id: user.id,
-              trade_type: 'buy',
-              cryptocurrency: forcedBaseSymbol, // Use base symbol without -EUR
-              amount: Math.round(forcedQty * 1e8) / 1e8,
-              price: Math.round(forcedPrice * 1e6) / 1e6,
-              total_value: Math.round(totalValue * 100) / 100,
-              fees: 0,
-              strategy_trigger: 'FORCED_DEBUG_TRADE',
-              notes: 'Forced debug trade via __INTELLIGENT_FORCE_DEBUG_TRADE',
-              is_test_mode: true,
-              profit_loss: 0,
-              executed_at: new Date().toISOString(),
-              market_conditions: {
-                debugTag: 'forced_debug_trade',
-                coordinator_request_id: coordinatorRequestId,
-                coordinator_reason: coordinatorReason,
-                spread_bps: spreadCheck.spreadBps,
-                depth_ratio: liquidityCheck.depthRatio,
-                gates_bypassed: {
-                  spread: spreadCheck.bypassed || false,
-                  liquidity: liquidityCheck.bypassed || false
-                }
-              }
-            };
-            
-            console.log('🧪 FORCED DEBUG TRADE: Inserting mock_trade:', mockTradeData);
-            
-            const { data: insertedTrade, error: insertError } = await supabase
-              .from('mock_trades')
-              .insert(mockTradeData)
-              .select();
-            
-            if (insertError) {
-              console.error('🧪 FORCED DEBUG TRADE: Database insert error:', insertError);
-              writeDebugStage('forced_debug_trade_insert_error', { error: insertError.message });
-            } else {
-              console.log('🧪 FORCED DEBUG TRADE: SUCCESS! mock_trade inserted:', insertedTrade?.[0]?.id);
-              writeDebugStage('forced_debug_trade_success', { 
-                tradeId: insertedTrade?.[0]?.id,
-                symbol: forcedBaseSymbol,
-                amount: forcedQty,
-                price: forcedPrice,
-                totalValue
-              });
-              
-              // Update local wallet balances (for UI consistency)
-              const eurBalance = getBalance('EUR');
-              if (eurBalance >= totalValue) {
-                updateBalance('EUR', -totalValue);
-                updateBalance(forcedBaseSymbol, forcedQty);
-                console.log('🧪 FORCED DEBUG TRADE: Updated local balances');
-              }
-              
-              Toast.success(`🧪 Debug BUY executed: ${forcedQty} ${forcedBaseSymbol} @ €${forcedPrice.toFixed(2)}`);
-            }
+            Toast.success(`🧪 Debug BUY executed: ${forcedQty} ${forcedBaseSymbol} @ €${forcedPrice.toFixed(2)}`);
           } else {
-            console.log('🧪 FORCED DEBUG TRADE: Coordinator did NOT approve BUY', { 
-              ok: raw.ok, 
-              action: coordinatorAction, 
-              reason: coordinatorReason 
-            });
-            writeDebugStage('forced_debug_trade_declined', { 
-              ok: raw.ok, 
-              action: coordinatorAction, 
-              reason: coordinatorReason 
+            writeDebugStage('forced_debug_trade_declined', {
+              reason: result.reason,
+              normalizedDecision: result.normalizedDecision
             });
           }
           
@@ -2613,6 +2492,191 @@ export const useIntelligentTradingEngine = () => {
     return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger);
   };
 
+  // Helper: Run coordinator-approved mock BUY (gates + mock_trades insert)
+  const runCoordinatorApprovedMockBuy = async (params: {
+    userId: string;
+    strategyId: string;
+    symbol: string;         // e.g. 'BTC-EUR'
+    baseSymbol: string;     // e.g. 'BTC'
+    qty: number;
+    price: number;
+    reason: string;
+    confidence: number;
+    strategyTrigger: string;  // 'FORCED_DEBUG_TRADE' | 'INTELLIGENT_AUTO'
+    extraMetadata?: Record<string, any>;
+  }) => {
+    const {
+      userId,
+      strategyId,
+      symbol,
+      baseSymbol,
+      qty,
+      price,
+      reason,
+      confidence,
+      strategyTrigger,
+      extraMetadata = {}
+    } = params;
+
+    // Build coordinator intent
+    const intent = {
+      userId,
+      strategyId,
+      symbol,
+      side: 'BUY' as const,
+      source: 'intelligent' as const,
+      confidence,
+      reason,
+      qtySuggested: qty,
+      metadata: {
+        mode: 'mock',
+        engine: 'intelligent',
+        is_test_mode: true,
+        ...extraMetadata,
+      },
+      ts: new Date().toISOString(),
+      idempotencyKey: `${strategyTrigger.toLowerCase()}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    };
+
+    console.log(`[${strategyTrigger}] Emitting intent to coordinator:`, JSON.stringify(intent, null, 2));
+
+    // Call coordinator
+    const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
+      body: { intent }
+    });
+
+    console.log(`[${strategyTrigger}] Coordinator response:`, JSON.stringify(decision), 'error:', error);
+
+    // Parse response - handle both string and object formats
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawAny: any = decision;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let raw: any;
+
+    try {
+      if (typeof rawAny === 'string') {
+        raw = JSON.parse(rawAny);
+      } else {
+        raw = rawAny ?? {};
+      }
+    } catch (e) {
+      console.error(`[${strategyTrigger}] Failed to parse coordinator response as JSON`, { rawAny, error: e });
+      raw = {};
+    }
+
+    console.log(`[${strategyTrigger}] Raw coordinator shape:`, {
+      typeofRaw: typeof raw,
+      keys: typeof raw === 'object' && raw != null ? Object.keys(raw) : null,
+      nestedDecisionKeys:
+        raw && typeof raw === 'object' && raw.decision && typeof raw.decision === 'object'
+          ? Object.keys(raw.decision)
+          : null
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inner: any = (raw && typeof raw === 'object' && raw.decision) ? raw.decision : {};
+
+    const coordinatorAction: string | null = inner.action ?? raw.action ?? null;
+    const coordinatorReason: string | null = inner.reason ?? raw.reason ?? null;
+    const coordinatorRequestId: string | null = inner.request_id ?? raw.request_id ?? null;
+    const isApproved: boolean = raw.ok === true && coordinatorAction === 'BUY';
+
+    console.log(`[${strategyTrigger}] Coordinator response (normalized):`, {
+      ok: raw.ok,
+      action: coordinatorAction,
+      reason: coordinatorReason,
+      requestId: coordinatorRequestId,
+    });
+
+    if (!isApproved) {
+      console.log(`[${strategyTrigger}] Coordinator did NOT approve BUY`, {
+        ok: raw.ok,
+        action: coordinatorAction,
+        reason: coordinatorReason
+      });
+      return { success: false, reason: coordinatorReason || 'not_approved', normalizedDecision: { action: coordinatorAction, reason: coordinatorReason } };
+    }
+
+    console.log(`[${strategyTrigger}] Coordinator APPROVED - executing mock trade insertion`);
+
+    // Run spread/liquidity gates (will bypass in test mode but log)
+    const isTestModeConfig = true; // Always true for this helper
+    const spreadThreshold = 15; // Default
+    const minDepthRatio = 0.3; // Default
+
+    const spreadCheck = await checkSpreadGate(symbol, spreadThreshold, isTestModeConfig);
+    const liquidityCheck = await checkLiquidityGate(symbol, minDepthRatio, isTestModeConfig);
+
+    console.log(`[${strategyTrigger}] Gates passed`, {
+      spreadBlocked: spreadCheck.blocked,
+      spreadBypassed: spreadCheck.bypassed,
+      liquidityBlocked: liquidityCheck.blocked,
+      liquidityBypassed: liquidityCheck.bypassed
+    });
+
+    // Calculate total value
+    const totalValue = qty * price;
+
+    // Insert into mock_trades
+    const mockTradeData = {
+      strategy_id: strategyId,
+      user_id: userId,
+      trade_type: 'buy',
+      cryptocurrency: baseSymbol, // Use base symbol without -EUR
+      amount: Math.round(qty * 1e8) / 1e8,
+      price: Math.round(price * 1e6) / 1e6,
+      total_value: Math.round(totalValue * 100) / 100,
+      fees: 0,
+      strategy_trigger: strategyTrigger,
+      notes: strategyTrigger === 'FORCED_DEBUG_TRADE' 
+        ? 'Forced debug trade via __INTELLIGENT_FORCE_DEBUG_TRADE'
+        : 'Automatic intelligent engine trade via coordinator',
+      is_test_mode: true,
+      profit_loss: 0,
+      executed_at: new Date().toISOString(),
+      market_conditions: {
+        ...extraMetadata,
+        coordinator_request_id: coordinatorRequestId,
+        coordinator_reason: coordinatorReason,
+        spread_bps: spreadCheck.spreadBps,
+        depth_ratio: liquidityCheck.depthRatio,
+        gates_bypassed: {
+          spread: spreadCheck.bypassed || false,
+          liquidity: liquidityCheck.bypassed || false
+        }
+      }
+    };
+
+    console.log(`[${strategyTrigger}] Inserting mock_trade:`, mockTradeData);
+
+    const { data: insertedTrade, error: insertError } = await supabase
+      .from('mock_trades')
+      .insert(mockTradeData)
+      .select();
+
+    if (insertError) {
+      console.error(`[${strategyTrigger}] Database insert error:`, insertError);
+      return { success: false, reason: 'database_error', error: insertError.message };
+    }
+
+    const mockTradeId = insertedTrade?.[0]?.id;
+    console.log(`[${strategyTrigger}] SUCCESS! mock_trade inserted:`, mockTradeId);
+
+    // Update local wallet balances (for UI consistency)
+    const eurBalance = getBalance('EUR');
+    if (eurBalance >= totalValue) {
+      updateBalance('EUR', -totalValue);
+      updateBalance(baseSymbol, qty);
+      console.log(`[${strategyTrigger}] Updated local balances`);
+    }
+
+    return {
+      success: true,
+      mockTradeId,
+      normalizedDecision: { action: coordinatorAction, reason: coordinatorReason, requestId: coordinatorRequestId }
+    };
+  };
+
   // NEW: Emit trade intent to coordinator
   const emitTradeIntentToCoordinator = async (
     strategy: any, 
@@ -2717,6 +2781,38 @@ export const useIntelligentTradingEngine = () => {
       console.log('[DEBUG][emitTradeIntentToCoordinator] COMPLETE:', decision);
       
       engineConsoleLog('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
+
+      // NEW: For automatic intelligent BUYs in test mode, execute the mock trade if coordinator approves
+      if (testMode && action === 'buy') {
+        console.log('[INTELLIGENT_AUTO] Test mode BUY - checking coordinator approval for automatic execution');
+        
+        const baseSymbol = cryptocurrency.replace('-EUR', '');
+        const qty = intent.qtySuggested;
+        
+        const result = await runCoordinatorApprovedMockBuy({
+          userId: user!.id,
+          strategyId: strategy.id,
+          symbol: normalizedSymbol,
+          baseSymbol,
+          qty,
+          price,
+          reason: trigger || 'INTELLIGENT_AUTO',
+          confidence: intent.confidence,
+          strategyTrigger: 'INTELLIGENT_AUTO',
+          extraMetadata: {
+            fusion_source: 'intelligent_engine',
+            fusion_reason: trigger,
+            fusion_confidence: intent.confidence,
+            engineFeatures: engineFeatures
+          }
+        });
+        
+        if (result.success) {
+          Toast.success(`✅ Intelligent BUY executed: ${qty.toFixed(4)} ${baseSymbol} @ €${price.toFixed(2)}`);
+        } else {
+          console.log('[INTELLIGENT_AUTO] Coordinator declined or execution failed:', result.reason);
+        }
+      }
 
       // STEP 1: Use standardized coordinator toast handler
       // Toast handling removed - silent mode
