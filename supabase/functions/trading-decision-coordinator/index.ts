@@ -241,6 +241,66 @@ interface TradeIntent {
   idempotencyKey?: string;
 }
 
+// =============================================================================
+// MOCK_TRADES TABLE SCHEMA REFERENCE (for type safety and preventing 42703 errors)
+// -----------------------------------------------------------------------------
+// VALID COLUMNS - use ONLY these in .eq(), .select(), .insert(), etc.:
+//   - id: uuid (PK)
+//   - user_id: uuid (FK to auth.users)
+//   - strategy_id: uuid (FK to trading_strategies, nullable)
+//   - trade_type: text ('buy' | 'sell')
+//   - cryptocurrency: text (e.g., 'BTC', 'ETH', 'ADA')
+//   - amount: numeric (quantity of crypto)
+//   - price: numeric (price per unit)
+//   - total_value: numeric (amount * price)
+//   - executed_at: timestamptz
+//   - is_test_mode: boolean
+//   - notes: text (optional)
+//   - strategy_trigger: text (optional)
+//   - original_trade_id: uuid (FK for targeted SELL, optional)
+//   - original_purchase_amount: numeric (FIFO snapshot)
+//   - original_purchase_price: numeric (FIFO snapshot)
+//   - original_purchase_value: numeric (FIFO snapshot)
+//   - exit_value: numeric (for SELL trades)
+//   - realized_pnl: numeric (for SELL trades)
+//   - realized_pnl_pct: numeric (for SELL trades)
+//   - buy_fees: numeric
+//   - sell_fees: numeric
+//   - fees: numeric (legacy)
+//   - profit_loss: numeric (legacy)
+//
+// COLUMNS THAT DO **NOT** EXIST ON mock_trades (use decision_events instead):
+//   - source ❌ (exists on decision_events, NOT mock_trades)
+//   - engine ❌ (exists on decision_events, NOT mock_trades)
+//   - side ❌ (use trade_type instead)
+//   - confidence ❌ (exists on decision_events, NOT mock_trades)
+// =============================================================================
+interface MockTradeRow {
+  id: string;
+  user_id: string;
+  strategy_id: string | null;
+  trade_type: 'buy' | 'sell';
+  cryptocurrency: string;
+  amount: number;
+  price: number;
+  total_value: number;
+  executed_at: string;
+  is_test_mode: boolean;
+  notes?: string;
+  strategy_trigger?: string;
+  original_trade_id?: string;
+  original_purchase_amount?: number;
+  original_purchase_price?: number;
+  original_purchase_value?: number;
+  exit_value?: number;
+  realized_pnl?: number;
+  realized_pnl_pct?: number;
+  buy_fees?: number;
+  sell_fees?: number;
+  fees?: number;
+  profit_loss?: number;
+}
+
 // STEP 1: Standardized response types
 type DecisionAction = "BUY" | "SELL" | "HOLD" | "DEFER";
 type Reason =
@@ -317,6 +377,145 @@ serve(async (req) => {
 
     // Parse request body - support both wrapped and direct intent formats
     const body = await req.json();
+
+    // ============= DEBUG ENDPOINT: INTELLIGENT → MOCK_TRADES MAPPING TEST =============
+    // READ-ONLY: Does NOT execute trades or modify any data
+    // Usage: POST with body { "debug_mode": true, "debug_test": "intelligent_btc_mapping" }
+    // 
+    // This debug handler checks the mapping between:
+    //   - decision_events (where source='intelligent', engine='intelligent', symbol='BTC', side='BUY')
+    //   - mock_trades (where cryptocurrency='BTC', trade_type='buy', is_test_mode=true)
+    // 
+    // VALID COLUMNS FOR mock_trades queries (DO NOT USE 'source' or 'engine' on mock_trades):
+    //   - id, user_id, strategy_id, trade_type ('buy'/'sell'), cryptocurrency
+    //   - amount, price, total_value, is_test_mode, executed_at
+    //   - original_purchase_amount, original_purchase_price, original_purchase_value
+    //   - exit_value, realized_pnl, realized_pnl_pct, buy_fees, sell_fees
+    //   - notes, strategy_trigger, original_trade_id
+    // 
+    // VALID COLUMNS FOR decision_events queries:
+    //   - id, user_id, strategy_id, symbol, side, source, engine
+    //   - confidence, entry_price, tp_pct, sl_pct, expected_pnl_pct
+    //   - reason, decision_ts, created_at, trade_id, metadata, raw_intent
+    // ==============================================================================
+    if (body.debug_mode === true && body.debug_test === 'intelligent_btc_mapping') {
+      console.log('[DEBUG] intelligent_btc_mapping test requested');
+      
+      // Step 1: Fetch last N decision_events for intelligent BTC BUY decisions (last 48h)
+      const lookbackHours = 48;
+      const cutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000).toISOString();
+      
+      // Query decision_events using ONLY valid columns for that table
+      // decision_events has: source, engine, symbol, side, created_at
+      const { data: decisions, error: decisionsError } = await supabaseClient
+        .from('decision_events')
+        .select('id, user_id, strategy_id, symbol, side, source, created_at, entry_price, confidence, metadata')
+        .eq('source', 'intelligent')
+        .eq('symbol', 'BTC')
+        .eq('side', 'BUY')
+        .gte('created_at', cutoff)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      
+      if (decisionsError) {
+        console.error('[DEBUG] Failed to fetch decision_events:', decisionsError);
+        return new Response(JSON.stringify({
+          debug: 'intelligent_btc_mapping',
+          error: 'decision_events_query_failed',
+          details: decisionsError.message,
+        }), { headers: corsHeaders });
+      }
+      
+      console.log(`[DEBUG] Found ${decisions?.length || 0} intelligent BTC BUY decisions in last ${lookbackHours}h`);
+      
+      // Step 2: For each decision, look for matching mock_trades
+      // mock_trades uses: cryptocurrency, trade_type, is_test_mode, executed_at
+      // NOTE: mock_trades does NOT have 'source' or 'engine' columns!
+      const matches: Array<{
+        decision_id: string;
+        decision_created_at: string;
+        decision_user_id: string;
+        decision_strategy_id: string | null;
+        decision_entry_price: number | null;
+        decision_confidence: number | null;
+        matching_trades: Array<{
+          mock_trade_id: string;
+          executed_at: string;
+          total_value: number;
+          amount: number;
+          price: number;
+          time_diff_seconds: number;
+        }>;
+      }> = [];
+      
+      for (const decision of decisions || []) {
+        const decisionTime = new Date(decision.created_at).getTime();
+        const windowMs = 60 * 1000; // ±60 seconds
+        const windowStart = new Date(decisionTime - windowMs).toISOString();
+        const windowEnd = new Date(decisionTime + windowMs).toISOString();
+        
+        // Query mock_trades using ONLY valid columns: cryptocurrency, trade_type, is_test_mode, executed_at
+        // DO NOT use .eq('source', ...) here - mock_trades does not have that column
+        const { data: trades, error: tradesError } = await supabaseClient
+          .from('mock_trades')
+          .select('id, executed_at, total_value, amount, price, user_id, strategy_id')
+          .eq('cryptocurrency', 'BTC')
+          .eq('trade_type', 'buy')
+          .eq('is_test_mode', true)
+          .gte('executed_at', windowStart)
+          .lte('executed_at', windowEnd);
+        
+        if (tradesError) {
+          console.error('[DEBUG] Failed to fetch mock_trades for decision:', decision.id, tradesError);
+          continue;
+        }
+        
+        // Filter by user_id if decision has one
+        const filteredTrades = (trades || []).filter(t => 
+          t.user_id === decision.user_id
+        );
+        
+        matches.push({
+          decision_id: decision.id,
+          decision_created_at: decision.created_at,
+          decision_user_id: decision.user_id,
+          decision_strategy_id: decision.strategy_id,
+          decision_entry_price: decision.entry_price,
+          decision_confidence: decision.confidence,
+          matching_trades: filteredTrades.map(t => ({
+            mock_trade_id: t.id,
+            executed_at: t.executed_at,
+            total_value: t.total_value,
+            amount: t.amount,
+            price: t.price,
+            time_diff_seconds: Math.abs(new Date(t.executed_at).getTime() - decisionTime) / 1000,
+          })),
+        });
+      }
+      
+      // Summary stats
+      const decisionsWithMatches = matches.filter(m => m.matching_trades.length > 0).length;
+      const decisionsWithoutMatches = matches.filter(m => m.matching_trades.length === 0).length;
+      
+      console.log(`[DEBUG] Mapping complete: ${decisionsWithMatches} with trades, ${decisionsWithoutMatches} without`);
+      
+      return new Response(JSON.stringify({
+        debug: 'intelligent_btc_mapping',
+        lookback_hours: lookbackHours,
+        decisions_checked: decisions?.length || 0,
+        decisions_with_matches: decisionsWithMatches,
+        decisions_without_matches: decisionsWithoutMatches,
+        matches: matches,
+        // Schema documentation for reference
+        _schema_notes: {
+          decision_events_columns_used: ['id', 'user_id', 'strategy_id', 'symbol', 'side', 'source', 'created_at', 'entry_price', 'confidence', 'metadata'],
+          mock_trades_columns_used: ['id', 'executed_at', 'total_value', 'amount', 'price', 'user_id', 'strategy_id', 'cryptocurrency', 'trade_type', 'is_test_mode'],
+          warning: 'mock_trades does NOT have source or engine columns - use decision_events for those',
+        },
+      }), { headers: corsHeaders });
+    }
+    // ============= END DEBUG ENDPOINT =============
+
     const intent: TradeIntent = body.intent || body;
     
     // Log if no 'mode' field present - default to normal DECIDE flow
