@@ -79,7 +79,8 @@ export const UnifiedPortfolioDisplay = () => {
     };
 
     updateRealTimePrices();
-    const interval = setInterval(updateRealTimePrices, 30000); // Update every 30 seconds
+    // PERFORMANCE FIX: Reduced from 30s to 60s to prevent API rate limiting
+    const interval = setInterval(updateRealTimePrices, 60000); // Update every 60 seconds
     
     return () => clearInterval(interval);
   }, [getCurrentData]);

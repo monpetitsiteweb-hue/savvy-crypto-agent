@@ -119,8 +119,9 @@ export const useIntelligentTradingEngine = () => {
     testMode 
   });
   
-  // INTELLIGENT ENGINE MONITORING INTERVAL (30 seconds)
-  const MONITORING_INTERVAL_MS = 30000;
+  // INTELLIGENT ENGINE MONITORING INTERVAL
+  // PERFORMANCE FIX: Increased from 30s to 60s to reduce DB load
+  const MONITORING_INTERVAL_MS = 60000; // 1 minute
   
   // IMPORTANT: Declare refs BEFORE the useEffect that uses them
   const marketMonitorRef = useRef<NodeJS.Timeout | null>(null);
