@@ -440,46 +440,46 @@ export const useIntelligentTradingEngine = () => {
             coordinatorError: error?.message 
           });
 
-          console.log('🧪 FORCED DEBUG TRADE: Coordinator response:', decision, 'error:', error);
+          console.log('🧪 FORCED DEBUG TRADE: Coordinator response:', JSON.stringify(decision), 'error:', error);
           
-          // STEP 2: Normalize the coordinator response structure
-          // The edge function returns: { ok: boolean, decision: { action, reason, request_id, ... } }
-          // Handle both nested and flat response formats for compatibility
-          type CoordinatorInnerDecision = {
-            action: 'BUY' | 'SELL' | 'HOLD' | 'DEFER' | 'BLOCK';
-            reason: string;
-            request_id?: string;
-            retry_in_ms?: number;
-            debugTag?: string;
-            logged_to_decision_events?: boolean;
-          };
-          type CoordinatorResponse = {
-            ok?: boolean;
-            decision?: CoordinatorInnerDecision;
-            action?: string;   // legacy fallback
-            reason?: string;   // legacy fallback
-            request_id?: string; // legacy fallback
-          };
+          // STEP 2: Simple normalization - avoid complex TypeScript casts that break at runtime
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const raw: any = decision ?? {};
           
-          const response = decision as CoordinatorResponse;
-          const inner = response?.decision;
-          const coordinatorAction = inner?.action ?? response?.action ?? null;
-          const coordinatorReason = inner?.reason ?? response?.reason ?? null;
-          const coordinatorRequestId = inner?.request_id ?? response?.request_id ?? null;
-          const isApproved = response?.ok === true && coordinatorAction === 'BUY';
+          // Debug the actual shape coming back from the Edge Function
+          console.log('🧪 FORCED DEBUG TRADE: Raw coordinator shape:', {
+            typeofRaw: typeof raw,
+            keys: Object.keys(raw || {}),
+            nestedDecisionKeys: raw && raw.decision ? Object.keys(raw.decision || {}) : [],
+          });
+          
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const inner = (raw.decision ?? {}) as any;
+          
+          const coordinatorAction: string | null =
+            inner.action ?? raw.action ?? null;
+          
+          const coordinatorReason: string | null =
+            inner.reason ?? raw.reason ?? null;
+          
+          const coordinatorRequestId: string | null =
+            inner.request_id ?? raw.request_id ?? null;
+          
+          const isApproved: boolean =
+            raw.ok === true && coordinatorAction === 'BUY';
           
           console.log('🧪 FORCED DEBUG TRADE: Coordinator response (normalized):', {
-            ok: response?.ok,
+            ok: raw.ok,
             action: coordinatorAction,
             reason: coordinatorReason,
-            requestId: coordinatorRequestId
+            requestId: coordinatorRequestId,
           });
           
           if (isApproved) {
             console.log('🧪 FORCED DEBUG TRADE: Coordinator APPROVED - executing mock trade insertion');
             
             writeDebugStage('forced_debug_trade_approved', {
-              ok: response?.ok,
+              ok: raw.ok,
               action: coordinatorAction,
               reason: coordinatorReason,
               requestId: coordinatorRequestId
@@ -567,12 +567,12 @@ export const useIntelligentTradingEngine = () => {
             }
           } else {
             console.log('🧪 FORCED DEBUG TRADE: Coordinator did NOT approve BUY', { 
-              ok: response?.ok, 
+              ok: raw.ok, 
               action: coordinatorAction, 
               reason: coordinatorReason 
             });
             writeDebugStage('forced_debug_trade_declined', { 
-              ok: response?.ok, 
+              ok: raw.ok, 
               action: coordinatorAction, 
               reason: coordinatorReason 
             });
