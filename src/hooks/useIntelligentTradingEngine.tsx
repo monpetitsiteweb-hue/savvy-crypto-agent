@@ -425,22 +425,16 @@ export const useIntelligentTradingEngine = () => {
             idempotencyKey: `forced_debug_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
           };
 
-          console.log('🧪 FORCED DEBUG TRADE: Emitting intent to coordinator:', JSON.stringify(debugIntent, null, 2));
+          console.log('🧪 FORCED DEBUG TRADE: Calling runCoordinatorApprovedMockBuy with intent:', JSON.stringify(debugIntent, null, 2));
 
-          const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
-            body: { intent: debugIntent }
-          });
-
-          writeDebugStage('forced_debug_trade_emitted', { 
+          writeDebugStage('forced_debug_trade_before_helper', { 
             symbol: forcedSymbol, 
             strategyId: firstTestStrategy.id,
             qtySuggested: forcedQty,
-            price: forcedPrice,
-            coordinatorResponse: decision,
-            coordinatorError: error?.message 
+            price: forcedPrice
           });
 
-          // Use the new helper for forced debug BUY
+          // Use the helper for forced debug BUY - it will call coordinator and execute the trade
           const result = await runCoordinatorApprovedMockBuy({
             userId: user.id,
             strategyId: firstTestStrategy.id,
@@ -819,6 +813,7 @@ export const useIntelligentTradingEngine = () => {
     let buysExecuted = 0;
     
     for (const coin of coinsToAnalyze) {
+      const baseSymbol = coin; // BTC, ETH, etc.
       const symbol = `${coin}-EUR`;
       
       writeDebugStage('buy_opportunity_check_coin', { coin, symbol });
@@ -849,7 +844,8 @@ export const useIntelligentTradingEngine = () => {
       }
 
       // Skip if already have position in this coin (unless DCA enabled)
-      const hasPosition = positions.some(p => p.cryptocurrency === symbol);
+      // FIX: Compare using base symbol (BTC) not pair symbol (BTC-EUR)
+      const hasPosition = positions.some(p => p.cryptocurrency === baseSymbol);
       writeDebugStage('buy_opportunity_position_check', { 
         symbol, 
         hasPosition,
