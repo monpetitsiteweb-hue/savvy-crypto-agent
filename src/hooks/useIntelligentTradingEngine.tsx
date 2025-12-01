@@ -442,19 +442,35 @@ export const useIntelligentTradingEngine = () => {
 
           console.log('🧪 FORCED DEBUG TRADE: Coordinator response:', JSON.stringify(decision), 'error:', error);
           
-          // STEP 2: Simple normalization - avoid complex TypeScript casts that break at runtime
+          // STEP 2: Parse coordinator response - handle both string and object formats
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const raw: any = decision ?? {};
+          const rawAny: any = decision;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          let raw: any;
+          
+          try {
+            if (typeof rawAny === 'string') {
+              raw = JSON.parse(rawAny);
+            } else {
+              raw = rawAny ?? {};
+            }
+          } catch (e) {
+            console.error('🧪 FORCED DEBUG TRADE: Failed to parse coordinator response as JSON', { rawAny, error: e });
+            raw = {};
+          }
           
           // Debug the actual shape coming back from the Edge Function
           console.log('🧪 FORCED DEBUG TRADE: Raw coordinator shape:', {
             typeofRaw: typeof raw,
-            keys: Object.keys(raw || {}),
-            nestedDecisionKeys: raw && raw.decision ? Object.keys(raw.decision || {}) : [],
+            keys: typeof raw === 'object' && raw != null ? Object.keys(raw) : null,
+            nestedDecisionKeys:
+              raw && typeof raw === 'object' && raw.decision && typeof raw.decision === 'object'
+                ? Object.keys(raw.decision)
+                : null
           });
           
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const inner = (raw.decision ?? {}) as any;
+          const inner: any = (raw && typeof raw === 'object' && raw.decision) ? raw.decision : {};
           
           const coordinatorAction: string | null =
             inner.action ?? raw.action ?? null;
