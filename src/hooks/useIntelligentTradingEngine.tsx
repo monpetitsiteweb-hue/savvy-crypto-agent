@@ -823,6 +823,30 @@ export const useIntelligentTradingEngine = () => {
       writeDebugStage('buy_opportunity_executed', { symbol, buysExecuted });
     }
     
+    // --- TEST MODE: force BUY if engine reached this point and no buys executed ---
+    // This confirms the pipe to the coordinator is working even if signals fail
+    if ((config?.is_test_mode || config?.enableTestTrading) && buysExecuted === 0) {
+      const forceBuySymbol = coinsToAnalyze.length > 0 ? `${coinsToAnalyze[0]}-EUR` : 'BTC-EUR';
+      const forceBuyPrice = marketData[forceBuySymbol]?.price || marketData.currentPrice || 0;
+      writeDebugStage('test_force_buy_path_triggered', { 
+        symbol: forceBuySymbol, 
+        price: forceBuyPrice,
+        reason: 'no_normal_buys_executed_forcing_test_buy'
+      });
+      
+      await executeTrade(
+        strategy,
+        'buy',                    // action
+        forceBuySymbol,           // cryptocurrency
+        forceBuyPrice,            // price
+        undefined,                // customAmount
+        'debug_force_buy',        // trigger
+        'ENTRY'                   // context
+      );
+      buysExecuted++;
+      actionsPlanned.buy++;
+    }
+    
     writeDebugStage('buy_opportunities_summary', { 
       coinsAnalyzed: coinsToAnalyze.length,
       buysExecuted,
