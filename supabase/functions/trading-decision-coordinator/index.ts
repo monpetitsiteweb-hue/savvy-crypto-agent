@@ -875,7 +875,17 @@ serve(async (req) => {
     // They have source='intelligent' but NO debugTag='forced_debug_trade'
     // We MUST log them to decision_events with source='intelligent' for learning loop
     const isNormalIntelligentTrade = intent?.source === 'intelligent' && intent?.metadata?.debugTag !== 'forced_debug_trade';
+    
+    // DEBUG INSTRUMENTATION: Track BUY pipeline entry
+    console.log('[DEBUG][COORD] ========== INTELLIGENT TRADE PIPELINE ==========');
+    console.log('[DEBUG][COORD] isNormalIntelligentTrade:', isNormalIntelligentTrade);
+    console.log('[DEBUG][COORD] intent.strategyId:', intent.strategyId);
+    console.log('[DEBUG][COORD] intent.side:', intent.side);
+    console.log('[DEBUG][COORD] intent.source:', intent.source);
+    console.log('[DEBUG][COORD] intent.metadata?.is_test_mode:', intent.metadata?.is_test_mode);
+    
     if (isNormalIntelligentTrade && intent.strategyId) {
+      console.log('[DEBUG][COORD] ENTERED normal intelligent trade block');
       console.log('🧠 INTELLIGENT DECISION – normal trade path', {
         source: intent.source,
         symbol: intent.symbol,
@@ -1001,6 +1011,11 @@ serve(async (req) => {
       // The decision is now recorded for learning loop regardless of execution outcome
       // 
       // Fall through to regular coordinator flow for actual trade execution...
+      console.log('[DEBUG][COORD] About to fall through to regular coordinator flow for execution');
+      console.log('[DEBUG][COORD] intent.side for execution:', intent.side);
+    } else {
+      console.log('[DEBUG][COORD] SKIPPED normal intelligent trade block');
+      console.log('[DEBUG][COORD] Reason: isNormalIntelligentTrade=', isNormalIntelligentTrade, 'strategyId=', intent.strategyId);
     }
 
     // FAST PATH FOR MANUAL/MOCK/FORCE SELL
@@ -1264,19 +1279,30 @@ serve(async (req) => {
       confidenceOverrideThreshold: 0.70
     };
 
+    // DEBUG INSTRUMENTATION: Track UD mode branching
+    console.log('[DEBUG][COORD] ========== UD MODE DECISION ==========');
+    console.log('[DEBUG][COORD] enableUnifiedDecisions:', unifiedConfig.enableUnifiedDecisions);
+    console.log('[DEBUG][COORD] intent.side:', intent.side);
+    console.log('[DEBUG][COORD] strategy.configuration:', JSON.stringify(strategy.configuration || {}).substring(0, 500));
+
     // 🚨 HARD GATE: If unified decisions disabled, bypass ALL coordinator logic
     if (!unifiedConfig.enableUnifiedDecisions) {
+      console.log('[DEBUG][COORD] ENTERING UD_MODE=OFF branch (direct execution)');
       console.log('🎯 UD_MODE=OFF → DIRECT EXECUTION: bypassing all locks and conflict detection');
       
       // Execute trade directly without any coordinator gating
+      console.log('[DEBUG][COORD] Calling executeTradeDirectly...');
       const executionResult = await executeTradeDirectly(supabaseClient, intent, strategy.configuration, requestId);
+      console.log('[DEBUG][COORD] executeTradeDirectly result:', JSON.stringify(executionResult));
       
       if (executionResult.success) {
+        console.log('[DEBUG][COORD] UD_MODE=OFF SUCCESS - trade executed');
         console.log(`🎯 UD_MODE=OFF → DIRECT EXECUTION: action=${intent.side} symbol=${intent.symbol} lock=NONE`);
         // Log decision for audit (async, non-blocking) with execution price
         logDecisionAsync(supabaseClient, intent, intent.side, 'unified_decisions_disabled_direct_path', unifiedConfig, requestId, undefined, executionResult.tradeId, executionResult.executed_price, strategy.configuration);
         return respond(intent.side, 'unified_decisions_disabled_direct_path', requestId, 0, { qty: executionResult.qty });
       } else {
+        console.log('[DEBUG][COORD] UD_MODE=OFF FAILED:', executionResult.error);
         const guardReport = {
           minNotionalFail: false,
           cooldownActive: false,
@@ -1651,6 +1677,11 @@ async function executeTradeDirectly(
   strategyConfig: any,
   requestId: string
 ): Promise<{ success: boolean; error?: string; qty?: number }> {
+  console.log('[DEBUG][executeTradeDirectly] ENTERED');
+  console.log('[DEBUG][executeTradeDirectly] intent.side:', intent.side);
+  console.log('[DEBUG][executeTradeDirectly] intent.symbol:', intent.symbol);
+  console.log('[DEBUG][executeTradeDirectly] intent.metadata?.is_test_mode:', intent.metadata?.is_test_mode);
+  
   try {
     // Get real market price using symbol utilities with freshness check
     const baseSymbol = toBaseSymbol(intent.symbol);
@@ -1658,8 +1689,13 @@ async function executeTradeDirectly(
     const priceStaleMaxMs = sc.priceStaleMaxMs || 15000;
     const spreadThresholdBps = sc.spreadThresholdBps || 15;
     
+    console.log('[DEBUG][executeTradeDirectly] baseSymbol:', baseSymbol);
+    console.log('[DEBUG][executeTradeDirectly] Fetching market price...');
+    
       const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
       const realMarketPrice = priceData.price;
+      
+      console.log('[DEBUG][executeTradeDirectly] realMarketPrice:', realMarketPrice);
       
       // Store price for decision logging
       intent.metadata = intent.metadata || {};
@@ -1719,12 +1755,16 @@ async function executeTradeDirectly(
     let qty: number;
     
     if (intent.side === 'BUY') {
+      console.log('[DEBUG][executeTradeDirectly] ENTERED BUY branch');
+      
       // Calculate current EUR balance from all trades
       const { data: allTrades } = await supabaseClient
         .from('mock_trades')
         .select('trade_type, total_value')
         .eq('user_id', intent.userId)
         .eq('is_test_mode', true);
+      
+      console.log('[DEBUG][executeTradeDirectly] allTrades count:', allTrades?.length || 0);
       
       let availableEur = 30000; // Starting balance
       
@@ -1740,15 +1780,24 @@ async function executeTradeDirectly(
       }
       
       console.log(`💰 DIRECT: Available EUR balance: €${availableEur.toFixed(2)}`);
+      console.log('[DEBUG][executeTradeDirectly] availableEur:', availableEur);
+      console.log('[DEBUG][executeTradeDirectly] tradeAllocation:', tradeAllocation);
       
     // TEST MODE: Bypass balance check for test mode trades (including UI-seeded test BUYs)
     const isTestMode = intent.metadata?.mode === 'mock' 
       || sc?.is_test_mode 
       || intent.metadata?.is_test_mode === true;
     
+    console.log('[DEBUG][executeTradeDirectly] isTestMode:', isTestMode);
+    console.log('[DEBUG][executeTradeDirectly] intent.metadata?.mode:', intent.metadata?.mode);
+    console.log('[DEBUG][executeTradeDirectly] sc?.is_test_mode:', sc?.is_test_mode);
+    console.log('[DEBUG][executeTradeDirectly] intent.metadata?.is_test_mode:', intent.metadata?.is_test_mode);
+    
     if (isTestMode) {
+      console.log('[DEBUG][executeTradeDirectly] TEST MODE - bypassing balance check');
       console.log(`🧪 TEST MODE: Bypassing balance check - using virtual paper trading`);
       qty = intent.qtySuggested || (tradeAllocation / realMarketPrice);
+      console.log('[DEBUG][executeTradeDirectly] qty set to:', qty);
     } else {
         // Check if we have sufficient balance
         if (availableEur < tradeAllocation) {
@@ -1824,6 +1873,15 @@ async function executeTradeDirectly(
     
     console.log(`💱 DIRECT: ${intent.side} ${qty} ${baseSymbol} at €${realMarketPrice} = €${totalValue}`);
     
+    // DEBUG INSTRUMENTATION: Track mock_trades insert attempt
+    console.log('[DEBUG][executeTradeDirectly] ========== MOCK_TRADES INSERT ==========');
+    console.log('[DEBUG][executeTradeDirectly] About to insert mock_trade');
+    console.log('[DEBUG][executeTradeDirectly] intent.side:', intent.side);
+    console.log('[DEBUG][executeTradeDirectly] qty:', qty);
+    console.log('[DEBUG][executeTradeDirectly] baseSymbol:', baseSymbol);
+    console.log('[DEBUG][executeTradeDirectly] realMarketPrice:', realMarketPrice);
+    console.log('[DEBUG][executeTradeDirectly] totalValue:', totalValue);
+    
     // Insert trade record - store base symbol only
     const mockTrade = {
       user_id: intent.userId,
@@ -1839,9 +1897,14 @@ async function executeTradeDirectly(
       strategy_trigger: `direct_${intent.source}|req:${requestId}`
     };
 
+    console.log('[DEBUG][executeTradeDirectly] mockTrade payload:', JSON.stringify(mockTrade, null, 2));
+    console.log('[DEBUG][executeTradeDirectly] Calling supabaseClient.from("mock_trades").insert()...');
+
     const { error } = await supabaseClient
       .from('mock_trades')
       .insert(mockTrade);
+    
+    console.log('[DEBUG][executeTradeDirectly] Insert result - error:', error ? JSON.stringify(error) : 'null (success)');
 
     if (error) {
       console.log('============ STEP 4: WRITE FAILED ============');

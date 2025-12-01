@@ -2262,6 +2262,20 @@ export const useIntelligentTradingEngine = () => {
     trigger?: string,
     context?: 'ENTRY' | 'TP' | 'SL' | 'MANUAL'
   ) => {
+    // DEBUG INSTRUMENTATION: Track BUY execution pipeline
+    writeDebugStage('execute_trade_called', {
+      action,
+      cryptocurrency,
+      price,
+      customAmount,
+      trigger,
+      context,
+      strategyId: strategy?.id,
+      userId: user?.id,
+      timestamp: new Date().toISOString()
+    });
+    console.log('[DEBUG][executeTrade] CALLED:', { action, cryptocurrency, price, trigger, context });
+    
     engineConsoleLog('🔧 ENGINE: executeTrade called with action:', action, 'symbol:', cryptocurrency, 'context:', context);
     
     const { isAIFusionEnabled } = await import('@/utils/aiConfigHelpers');
@@ -2278,6 +2292,8 @@ export const useIntelligentTradingEngine = () => {
     // NEW: AI signal fusion evaluation
     if (isAIEnabled) {
       engineConsoleLog('🧠 AI-FUSION: Evaluating signal fusion for', action, cryptocurrency, 'context:', tradeContext);
+      
+      writeDebugStage('execute_trade_ai_fusion_start', { action, cryptocurrency, tradeContext });
       
       const fusionResult = await evaluateSignalFusion(strategy, cryptocurrency, action.toUpperCase() as 'BUY' | 'SELL', tradeContext);
       
@@ -2298,21 +2314,28 @@ export const useIntelligentTradingEngine = () => {
       
       // Check fusion decision
       if (fusionResult.decision === 'DEFER') {
+        writeDebugStage('execute_trade_deferred_by_fusion', { reason: fusionResult.reason });
+        console.log('[DEBUG][executeTrade] DEFERRED by fusion:', fusionResult.reason);
         engineConsoleLog('🚫 SCALPSMART: Trade deferred -', fusionResult.reason);
         Toast.info(`${cryptocurrency} ${action} deferred: ${fusionResult.reason}`);
         return;
       }
       
       if (fusionResult.decision === 'HOLD') {
+        writeDebugStage('execute_trade_held_by_fusion', { reason: fusionResult.reason });
+        console.log('[DEBUG][executeTrade] HELD by fusion:', fusionResult.reason);
         engineConsoleLog('⏸️ SCALPSMART: Signal too weak -', fusionResult.reason);
         return;
       }
       
       // Proceed with fusion-approved trade
+      writeDebugStage('execute_trade_fusion_approved', { score: fusionResult.sTotalScore, reason: fusionResult.reason });
       engineConsoleLog('✅ SCALPSMART: Signal fusion approved -', fusionResult.reason, 'Score:', fusionResult.sTotalScore);
     }
     
     if (!user?.id) {
+      writeDebugStage('execute_trade_no_user', { reason: 'no_authenticated_user' });
+      console.error('[DEBUG][executeTrade] NO USER - cannot execute');
       console.error('❌ ENGINE: Cannot execute trade - no authenticated user');
       return;
     }
@@ -2329,6 +2352,15 @@ export const useIntelligentTradingEngine = () => {
       strategyId: strategy.id,
     });
     
+    writeDebugStage('execute_trade_calling_coordinator', {
+      action,
+      cryptocurrency,
+      price,
+      strategyId: strategy.id,
+      userId: user.id
+    });
+    console.log('[DEBUG][executeTrade] Calling emitTradeIntentToCoordinator...');
+    
     engineConsoleLog('🎯 INTELLIGENT ENGINE: Using coordinator path (source: intelligent)');
     return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger);
   };
@@ -2342,6 +2374,9 @@ export const useIntelligentTradingEngine = () => {
     customAmount?: number,
     trigger?: string
   ) => {
+    writeDebugStage('emit_coordinator_start', { action, cryptocurrency, price, trigger });
+    console.log('[DEBUG][emitTradeIntentToCoordinator] START:', { action, cryptocurrency, price });
+    
     try {
       // Fetch latest technical features for this symbol (hardcode 1h granularity for now)
       const normalizedSymbol = cryptocurrency.includes('-EUR') ? cryptocurrency : `${cryptocurrency}-EUR`;
@@ -2378,14 +2413,40 @@ export const useIntelligentTradingEngine = () => {
         idempotencyKey: `idem_${Math.floor(Date.now() / 1000)}_${Math.random().toString(36).substr(2, 9)}`
       };
 
+      writeDebugStage('emit_coordinator_payload_ready', {
+        userId: intent.userId,
+        strategyId: intent.strategyId,
+        symbol: intent.symbol,
+        side: intent.side,
+        source: intent.source,
+        qtySuggested: intent.qtySuggested,
+        is_test_mode: intent.metadata.is_test_mode
+      });
+      console.log('[DEBUG][emitTradeIntentToCoordinator] PAYLOAD READY:', JSON.stringify(intent, null, 2));
+
       engineConsoleLog('🎯 INTELLIGENT: Emitting intent to coordinator:', JSON.stringify(intent, null, 2));
 
+      writeDebugStage('emit_coordinator_before_fetch', { timestamp: new Date().toISOString() });
+      console.log('[DEBUG][emitTradeIntentToCoordinator] CALLING supabase.functions.invoke...');
+      
       const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
         body: { intent }
       });
 
+      writeDebugStage('emit_coordinator_after_fetch', {
+        hasError: !!error,
+        errorMessage: error?.message || null,
+        hasDecision: !!decision,
+        decisionAction: decision?.decision?.action || decision?.action || null,
+        decisionReason: decision?.decision?.reason || decision?.reason || null,
+        rawResponse: decision
+      });
+      console.log('[DEBUG][emitTradeIntentToCoordinator] RESPONSE:', { error, decision: JSON.stringify(decision) });
+
       // Handle Supabase client errors (network, auth, etc.)
       if (error) {
+        writeDebugStage('emit_coordinator_error', { errorMessage: error.message });
+        console.error('[DEBUG][emitTradeIntentToCoordinator] ERROR from coordinator:', error);
         console.error('❌ INTELLIGENT: Coordinator call failed:', error);
         Toast.error(`Network error processing ${action} for ${cryptocurrency}: ${error.message}`);
         return;
@@ -2393,17 +2454,28 @@ export const useIntelligentTradingEngine = () => {
 
       // Handle coordinator responses
       if (!decision) {
+        writeDebugStage('emit_coordinator_no_decision', { reason: 'null_response' });
+        console.error('[DEBUG][emitTradeIntentToCoordinator] NO DECISION returned');
         console.error('❌ INTELLIGENT: No decision returned from coordinator');
         Toast.error(`No response from trading coordinator for ${action} on ${cryptocurrency}`);
         return;
       }
 
+      writeDebugStage('emit_coordinator_complete', {
+        action: decision?.decision?.action || decision?.action,
+        reason: decision?.decision?.reason || decision?.reason,
+        ok: decision?.ok
+      });
+      console.log('[DEBUG][emitTradeIntentToCoordinator] COMPLETE:', decision);
+      
       engineConsoleLog('📋 INTELLIGENT: Coordinator decision:', JSON.stringify(decision, null, 2));
 
       // STEP 1: Use standardized coordinator toast handler
       // Toast handling removed - silent mode
 
     } catch (error) {
+      writeDebugStage('emit_coordinator_exception', { error: String(error) });
+      console.error('[DEBUG][emitTradeIntentToCoordinator] EXCEPTION:', error);
       console.error('❌ INTELLIGENT: Error executing trade intent:', error);
       Toast.error(`Error processing ${action} for ${cryptocurrency}`);
     }
