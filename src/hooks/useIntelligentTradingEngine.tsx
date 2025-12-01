@@ -1828,6 +1828,8 @@ export const useIntelligentTradingEngine = () => {
   };
 
   // WHALE SIGNALS from whale_signal_events table - REAL IMPLEMENTATION
+  // Table schema: id, source_id, user_id, event_type, transaction_hash, amount, 
+  //               from_address, to_address, token_symbol, blockchain, timestamp, raw_data, processed, created_at
   const checkWhaleSignals = async (symbol: string): Promise<boolean> => {
     try {
       const cryptoSymbol = symbol.split('-')[0];
@@ -1835,20 +1837,19 @@ export const useIntelligentTradingEngine = () => {
       type WhaleSignalEvent = {
         id: string;
         created_at: string;
-        symbol: string;
-        side: string;
-        size?: number;
-        source?: string;
+        token_symbol: string;  // FIXED: correct column name
         event_type?: string;
+        amount?: number;       // FIXED: correct column name (was 'size')
         timestamp?: string;
         processed?: boolean;
-        metadata?: any;
+        raw_data?: any;
       };
 
-      // Check for whale signals in the whale_signal_events table (this exists!)
+      // Check for whale signals in the whale_signal_events table
+      // Using correct column name: token_symbol (not 'symbol')
       const whaleRows = await fromTable('whale_signal_events')
         .select('*')
-        .eq('symbol', cryptoSymbol)
+        .eq('token_symbol', cryptoSymbol)  // FIXED: use token_symbol
         .gte('created_at', new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString())
         .order('created_at', { ascending: false })
         .limit(10);
@@ -1857,12 +1858,13 @@ export const useIntelligentTradingEngine = () => {
 
       if (whaleSignals?.length) {
         // Check for significant whale activity (large amounts)
-        function hasSize(x: any): x is { size: number } {
-          return x && typeof x.size === 'number';
+        // Using correct column name: amount (not 'size')
+        function hasAmount(x: any): x is { amount: number } {
+          return x && typeof x.amount === 'number';
         }
         
-        const largeTransactions = whaleSignals.filter(hasSize).filter(signal => 
-          signal.size > 100000 // Large whale transactions
+        const largeTransactions = whaleSignals.filter(hasAmount).filter(signal => 
+          signal.amount > 100000 // Large whale transactions
         );
 
         if (largeTransactions.length > 0) {
