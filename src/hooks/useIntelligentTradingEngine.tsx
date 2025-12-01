@@ -1977,8 +1977,12 @@ export const useIntelligentTradingEngine = () => {
         'macd_bullish'
       ];
 
-      // EXTENDED: 4 hours lookback to match signal generation frequency
-      const lookbackMs = 1000 * 60 * 60 * 4; // 4 hours
+      // EXTENDED: 24h lookback in Test Mode to validate pipe with older signals; 4h default otherwise
+      const baseLookbackMs = 1000 * 60 * 60 * 4;      // 4h default
+      const testModeLookbackMs = 1000 * 60 * 60 * 24; // 24h in test mode
+      const lookbackMs = (config?.is_test_mode || config?.enableTestTrading)
+        ? testModeLookbackMs
+        : baseLookbackMs;
       const { data: liveSignals, error: queryError } = await supabase
         .from('live_signals')
         .select('*')
