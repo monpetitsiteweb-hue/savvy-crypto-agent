@@ -442,13 +442,48 @@ export const useIntelligentTradingEngine = () => {
 
           console.log('🧪 FORCED DEBUG TRADE: Coordinator response:', decision, 'error:', error);
           
-          // STEP 2: If coordinator approved the BUY, execute the trade and insert into mock_trades
-          const coordinatorAction = decision?.decision?.action || decision?.action;
-          const coordinatorReason = decision?.decision?.reason || decision?.reason;
-          const isApproved = decision?.ok === true && coordinatorAction === 'BUY';
+          // STEP 2: Normalize the coordinator response structure
+          // The edge function returns: { ok: boolean, decision: { action, reason, request_id, ... } }
+          // Handle both nested and flat response formats for compatibility
+          type CoordinatorInnerDecision = {
+            action: 'BUY' | 'SELL' | 'HOLD' | 'DEFER' | 'BLOCK';
+            reason: string;
+            request_id?: string;
+            retry_in_ms?: number;
+            debugTag?: string;
+            logged_to_decision_events?: boolean;
+          };
+          type CoordinatorResponse = {
+            ok?: boolean;
+            decision?: CoordinatorInnerDecision;
+            action?: string;   // legacy fallback
+            reason?: string;   // legacy fallback
+            request_id?: string; // legacy fallback
+          };
+          
+          const response = decision as CoordinatorResponse;
+          const inner = response?.decision;
+          const coordinatorAction = inner?.action ?? response?.action ?? null;
+          const coordinatorReason = inner?.reason ?? response?.reason ?? null;
+          const coordinatorRequestId = inner?.request_id ?? response?.request_id ?? null;
+          const isApproved = response?.ok === true && coordinatorAction === 'BUY';
+          
+          console.log('🧪 FORCED DEBUG TRADE: Coordinator response (normalized):', {
+            ok: response?.ok,
+            action: coordinatorAction,
+            reason: coordinatorReason,
+            requestId: coordinatorRequestId
+          });
           
           if (isApproved) {
             console.log('🧪 FORCED DEBUG TRADE: Coordinator APPROVED - executing mock trade insertion');
+            
+            writeDebugStage('forced_debug_trade_approved', {
+              ok: response?.ok,
+              action: coordinatorAction,
+              reason: coordinatorReason,
+              requestId: coordinatorRequestId
+            });
             
             // Run spread/liquidity gates in test mode (they will bypass but log)
             const config = firstTestStrategy.configuration || {};
@@ -489,7 +524,7 @@ export const useIntelligentTradingEngine = () => {
               executed_at: new Date().toISOString(),
               market_conditions: {
                 debugTag: 'forced_debug_trade',
-                coordinator_request_id: decision?.decision?.request_id || decision?.request_id,
+                coordinator_request_id: coordinatorRequestId,
                 coordinator_reason: coordinatorReason,
                 spread_bps: spreadCheck.spreadBps,
                 depth_ratio: liquidityCheck.depthRatio,
@@ -532,12 +567,12 @@ export const useIntelligentTradingEngine = () => {
             }
           } else {
             console.log('🧪 FORCED DEBUG TRADE: Coordinator did NOT approve BUY', { 
-              ok: decision?.ok, 
+              ok: response?.ok, 
               action: coordinatorAction, 
               reason: coordinatorReason 
             });
-            writeDebugStage('forced_debug_trade_not_approved', { 
-              ok: decision?.ok, 
+            writeDebugStage('forced_debug_trade_declined', { 
+              ok: response?.ok, 
               action: coordinatorAction, 
               reason: coordinatorReason 
             });
