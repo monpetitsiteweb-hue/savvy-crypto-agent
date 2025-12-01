@@ -1153,13 +1153,17 @@ export const useIntelligentTradingEngine = () => {
           console.log('🧪 [FUSION] Spread gate bypassed in test mode', { symbol, spreadBps: spread.spreadBps });
         }
         
-        // Gate 2: Liquidity/Depth check - BYPASS for TP exits
+        // Gate 2: Liquidity/Depth check - BYPASS for TP exits (bypassed in test mode via isTestModeConfig)
         const enforceLiquidity = context !== 'TP';
         if (enforceLiquidity) {
-          const liquidity = await checkLiquidityGate(symbol, effectiveConfigWithSources.minDepthRatio);
+          const liquidity = await checkLiquidityGate(symbol, effectiveConfigWithSources.minDepthRatio, isTestModeConfig);
           if (liquidity.blocked) {
             gateBlocks.push('blocked_by_liquidity');
             engineConsoleLog(`🚫 LIQUIDITY GATE: Blocked ${side} for ${symbol} (context: ${context}) - depth ratio: ${liquidity.depthRatio} < ${effectiveConfigWithSources.minDepthRatio}`);
+          }
+          // Log bypass for debugging
+          if (liquidity.bypassed) {
+            console.log('🧪 [FUSION] Liquidity gate bypassed in test mode', { symbol, depthRatio: liquidity.depthRatio });
           }
         } else {
           engineConsoleLog(`✅ LIQUIDITY GATE: Bypassed for ${side} ${symbol} (context: ${context})`);
@@ -1318,7 +1322,8 @@ export const useIntelligentTradingEngine = () => {
     }
   };
   
-  const checkLiquidityGate = async (symbol: string, minDepthRatio: number): Promise<{ blocked: boolean; depthRatio: number }> => {
+  // NOTE: checkLiquidityGate now accepts isTestMode to bypass blocking in test mode (like spread gate)
+  const checkLiquidityGate = async (symbol: string, minDepthRatio: number, isTestMode: boolean = false): Promise<{ blocked: boolean; depthRatio: number; bypassed?: boolean }> => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
       const pairSymbol = `${baseSymbol}-EUR`;
@@ -1335,16 +1340,38 @@ export const useIntelligentTradingEngine = () => {
         const averageDepth = totalDepth / 2;
         const depthRatio = averageDepth > 0 ? Math.min(bidDepth, askDepth) / averageDepth : 0;
         
+        const wouldBeBlocked = depthRatio < minDepthRatio;
+        
+        // TEST MODE BYPASS: In test mode, never block but log the actual depth ratio
+        if (isTestMode && wouldBeBlocked) {
+          console.log('🧪 [LIQUIDITY_GATE_BYPASS] fusion_liquidity_gate_bypassed_test_mode', {
+            symbol: pairSymbol,
+            bidDepth: bidDepth.toFixed(4),
+            askDepth: askDepth.toFixed(4),
+            depthRatio: depthRatio.toFixed(4),
+            thresholdRatio: minDepthRatio,
+            wouldHaveBlocked: true,
+            bypassed: true,
+            reason: 'test_mode_enabled'
+          });
+          return {
+            blocked: false, // BYPASSED - do not block in test mode
+            depthRatio,
+            bypassed: true
+          };
+        }
+        
         return {
-          blocked: depthRatio < minDepthRatio,
-          depthRatio
+          blocked: wouldBeBlocked,
+          depthRatio,
+          bypassed: false
         };
       }
       
-      return { blocked: false, depthRatio: 10 }; // Default to good depth if can't fetch
+      return { blocked: false, depthRatio: 10, bypassed: false }; // Default to good depth if can't fetch
     } catch (error) {
       console.error('❌ LIQUIDITY GATE: Error checking depth:', error);
-      return { blocked: false, depthRatio: 10 };
+      return { blocked: false, depthRatio: 10, bypassed: false };
     }
   };
   
