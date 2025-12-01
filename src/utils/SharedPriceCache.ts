@@ -20,7 +20,8 @@ declare global {
 
 class SharedPriceCache {
   private cache = new Map<string, CachedPrice>();
-  private readonly TTL_MS = 10000; // 10 seconds
+  // TTL must be >= polling interval (60s) to prevent price flickering
+  private readonly TTL_MS = 120000; // 2 minutes (buffer for polling + network delays)
 
   set(symbol: string, price: number, bid: number, ask: number): void {
     this.cache.set(symbol, {
