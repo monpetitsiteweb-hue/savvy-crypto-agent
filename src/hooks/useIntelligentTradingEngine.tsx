@@ -2815,10 +2815,20 @@ export const useIntelligentTradingEngine = () => {
           reason: innerDecision?.reason
         });
         
+        // Early return if coordinator did not approve BUY (avoid unnecessary second call)
+        if (parsedDecision?.ok !== true || innerDecision?.action !== 'BUY') {
+          console.log('[INTELLIGENT_AUTO] Coordinator did not approve BUY, skipping execution', {
+            ok: parsedDecision?.ok,
+            action: innerDecision?.action,
+            reason: innerDecision?.reason,
+          });
+          return;
+        }
+        
         const baseSymbol = cryptocurrency.replace('-EUR', '');
         const qty = intent.qtySuggested;
         
-        // Pass preApprovedDecision to skip the second coordinator call
+        // Pass preApprovedDecision (coordinator already approved above)
         const result = await runCoordinatorApprovedMockBuy({
           userId: user!.id,
           strategyId: strategy.id,
@@ -2835,7 +2845,7 @@ export const useIntelligentTradingEngine = () => {
             fusion_confidence: intent.confidence,
             engineFeatures: engineFeatures
           },
-          preApprovedDecision: parsedDecision?.ok === true ? innerDecision : undefined
+          preApprovedDecision: innerDecision
         });
         
         if (result.success) {
