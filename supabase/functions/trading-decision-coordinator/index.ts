@@ -2508,11 +2508,19 @@ async function executeWithMinimalLock(
       return { action: 'DEFER', reason: 'insufficient_price_freshness', request_id: requestId, retry_in_ms: 0 };
     }
     
-    // Spread gate
-    if (priceData.spreadBps > spreadThresholdBps) {
+    // Spread gate - BYPASS IN TEST MODE
+    const isTestModeForSpread = strategyConfig?.configuration?.is_test_mode === true || 
+                                strategyConfig?.is_test_mode === true ||
+                                intent.metadata?.is_test_mode === true;
+    
+    if (!isTestModeForSpread && priceData.spreadBps > spreadThresholdBps) {
       console.log(`🚫 COORDINATOR: Trade blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
       logDecisionAsync(supabaseClient, intent, 'DEFER', 'spread_too_wide', config, requestId, undefined, undefined, priceData.price, strategyConfig);
       return { action: 'DEFER', reason: 'spread_too_wide', request_id: requestId, retry_in_ms: 0 };
+    }
+    
+    if (isTestModeForSpread && priceData.spreadBps > spreadThresholdBps) {
+      console.log(`🧪 TEST MODE: Bypassing spread gate (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
     }
     
     // PHASE 3.1: PRE-EXECUTION CIRCUIT BREAKER GATE
