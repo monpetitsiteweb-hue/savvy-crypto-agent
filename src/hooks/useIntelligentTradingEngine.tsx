@@ -776,6 +776,140 @@ export const useIntelligentTradingEngine = () => {
       maxActiveCoins: config.maxActiveCoins,
     });
     
+    // =====================================================================
+    // TEST_ALWAYS_BUY BYPASS: Skip fusion completely in test mode
+    // If test mode is enabled and no open position for the first symbol,
+    // directly emit INTELLIGENT_AUTO BUY intent to coordinator
+    // =====================================================================
+    const isTestModeStrategy = config?.is_test_mode === true || config?.enableTestTrading === true || testMode;
+    
+    if (isTestModeStrategy) {
+      const selectedCoins = config.selectedCoins || [];
+      const testCoin = selectedCoins.length > 0 ? selectedCoins[0] : 'BTC';
+      const testSymbol = `${testCoin}-EUR`;
+      const testBaseSymbol = testCoin;
+      
+      // Check if we have an open position for this symbol
+      const hasPositionForTestCoin = positions.some(p => p.cryptocurrency === testBaseSymbol);
+      
+      if (!hasPositionForTestCoin) {
+        console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: No open position for', testBaseSymbol, '- emitting intent');
+        
+        // Get current price from market data or cache
+        let testPrice = marketData[testSymbol]?.price || 0;
+        if (!testPrice) {
+          const cached = sharedPriceCache.get(testSymbol);
+          testPrice = cached?.price || 0;
+        }
+        
+        if (testPrice > 0) {
+          const testQty = (config.perTradeAllocation || 50) / testPrice;
+          
+          const testIntent = {
+            userId: user!.id,
+            strategyId: strategy.id,
+            symbol: testSymbol,
+            side: 'BUY' as const,
+            source: 'intelligent' as const,
+            confidence: 0.99,
+            reason: 'TEST_ALWAYS_BUY',
+            qtySuggested: testQty,
+            metadata: {
+              mode: 'mock',
+              engine: 'intelligent',
+              is_test_mode: true,
+              trigger: 'TEST_ALWAYS_BUY',
+              price: testPrice,
+              symbol_normalized: testSymbol,
+            },
+            ts: new Date().toISOString(),
+          };
+          
+          console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: emitting intent', {
+            symbol: testSymbol,
+            price: testPrice,
+            qty: testQty,
+            confidence: 0.99,
+          });
+          
+          writeDebugStage('test_always_buy_emitting', {
+            symbol: testSymbol,
+            price: testPrice,
+            qty: testQty,
+            strategyId: strategy.id,
+          });
+          
+          try {
+            const { data: coordinatorResponse, error: coordError } = await supabase.functions.invoke('trading-decision-coordinator', {
+              body: { intent: testIntent }
+            });
+            
+            console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator response', coordinatorResponse, coordError);
+            
+            // Parse the coordinator response
+            let parsedDecision: any = null;
+            if (coordinatorResponse && !coordError) {
+              parsedDecision = typeof coordinatorResponse === 'string' ? JSON.parse(coordinatorResponse) : coordinatorResponse;
+            }
+            
+            const innerDecision = parsedDecision?.decision ?? parsedDecision ?? {};
+            const coordinatorAction = innerDecision?.action || parsedDecision?.action || null;
+            
+            console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: parsed decision', {
+              ok: parsedDecision?.ok,
+              action: coordinatorAction,
+              reason: innerDecision?.reason,
+            });
+            
+            // If coordinator approved BUY, use runCoordinatorApprovedMockBuy with preApprovedDecision
+            if (parsedDecision?.ok === true && coordinatorAction === 'BUY') {
+              console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator approved, calling runCoordinatorApprovedMockBuy');
+              
+              const result = await runCoordinatorApprovedMockBuy({
+                userId: user!.id,
+                strategyId: strategy.id,
+                symbol: testSymbol,
+                baseSymbol: testBaseSymbol,
+                qty: testQty,
+                price: testPrice,
+                reason: 'TEST_ALWAYS_BUY',
+                confidence: 0.99,
+                strategyTrigger: 'INTELLIGENT_AUTO',
+                extraMetadata: {
+                  test_always_buy: true,
+                },
+                preApprovedDecision: innerDecision, // Reuse the existing decision, no second call
+              });
+              
+              if (result.success) {
+                console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: SUCCESS! mock_trade inserted', result.mockTradeId);
+                actionsPlanned.buy++;
+                return 1; // One buy executed
+              } else {
+                console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: helper returned failure', result.reason);
+              }
+            } else {
+              console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator did NOT approve BUY', {
+                ok: parsedDecision?.ok,
+                action: coordinatorAction,
+                reason: innerDecision?.reason,
+              });
+            }
+          } catch (err) {
+            console.error('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: error', err);
+            writeDebugStage('test_always_buy_error', { error: String(err) });
+          }
+        } else {
+          console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: no valid price for', testSymbol, '- skipping');
+        }
+      } else {
+        console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: already have position for', testBaseSymbol, '- skipping bypass');
+      }
+    }
+    // =====================================================================
+    // END TEST_ALWAYS_BUY BYPASS
+    // =====================================================================
+    
     // Check position limits
     if (config.maxActiveCoins && positions.length >= config.maxActiveCoins) {
       writeDebugStage('buy_opportunities_max_positions_reached', { 
