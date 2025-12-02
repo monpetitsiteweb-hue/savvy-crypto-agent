@@ -778,22 +778,22 @@ export const useIntelligentTradingEngine = () => {
     
     // =====================================================================
     // TEST_ALWAYS_BUY BYPASS: Skip fusion completely in test mode
-    // If test mode is enabled and no open position for the first symbol,
-    // directly emit INTELLIGENT_AUTO BUY intent to coordinator
+    // Iterate through ALL configured coins and find one WITHOUT an open position
     // =====================================================================
     const isTestModeStrategy = config?.is_test_mode === true || config?.enableTestTrading === true || testMode;
     
     if (isTestModeStrategy) {
-      const selectedCoins = config.selectedCoins || [];
-      const testCoin = selectedCoins.length > 0 ? selectedCoins[0] : 'BTC';
-      const testSymbol = `${testCoin}-EUR`;
-      const testBaseSymbol = testCoin;
+      const selectedCoins: string[] = config.selectedCoins || ['BTC', 'ETH', 'XRP', 'SOL', 'ADA'];
+      const positionSymbols = new Set(positions.map(p => p.cryptocurrency));
       
-      // Check if we have an open position for this symbol
-      const hasPositionForTestCoin = positions.some(p => p.cryptocurrency === testBaseSymbol);
+      // Find a coin that does NOT have an open position
+      const availableCoin = selectedCoins.find(coin => !positionSymbols.has(coin));
       
-      if (!hasPositionForTestCoin) {
-        console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: No open position for', testBaseSymbol, '- emitting intent');
+      if (availableCoin) {
+        const testSymbol = `${availableCoin}-EUR`;
+        const testBaseSymbol = availableCoin;
+        
+        console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: Found coin without position:', testBaseSymbol, '- emitting intent');
         
         // Get current price from market data or cache
         let testPrice = marketData[testSymbol]?.price || 0;
@@ -903,7 +903,7 @@ export const useIntelligentTradingEngine = () => {
           console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: no valid price for', testSymbol, '- skipping');
         }
       } else {
-        console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: already have position for', testBaseSymbol, '- skipping bypass');
+        console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: ALL coins have positions:', Array.from(positionSymbols), '- skipping bypass');
       }
     }
     // =====================================================================
