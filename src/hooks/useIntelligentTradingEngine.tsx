@@ -404,28 +404,18 @@ export const useIntelligentTradingEngine = () => {
             return;
           }
           
-          const debugIntent = {
+          // Log params that will be passed to the helper (no separate debugIntent needed)
+          console.log('🧪 FORCED DEBUG TRADE: Calling runCoordinatorApprovedMockBuy with params:', {
             userId: user.id,
-            strategyId: firstTestStrategy.id,  // Use real strategy ID from DB
+            strategyId: firstTestStrategy.id,
             symbol: forcedSymbol,
-            side: 'BUY' as const,
-            source: 'intelligent' as const,
-            confidence: 0.99,
+            baseSymbol: forcedBaseSymbol,
+            qty: forcedQty,
+            price: forcedPrice,
             reason: 'FORCED_DEBUG_TRADE',
-            qtySuggested: forcedQty,
-            metadata: {
-              mode: 'mock',
-              debug: true,
-              debugTag: 'forced_debug_trade',
-              engine: 'intelligent',
-              is_test_mode: true,
-              forced_price: forcedPrice,
-            },
-            ts: new Date().toISOString(),
-            idempotencyKey: `forced_debug_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-          };
-
-          console.log('🧪 FORCED DEBUG TRADE: Calling runCoordinatorApprovedMockBuy with intent:', JSON.stringify(debugIntent, null, 2));
+            confidence: 0.99,
+            strategyTrigger: 'FORCED_DEBUG_TRADE'
+          });
 
           writeDebugStage('forced_debug_trade_before_helper', { 
             symbol: forcedSymbol, 
@@ -2489,6 +2479,7 @@ export const useIntelligentTradingEngine = () => {
   };
 
   // Helper: Run coordinator-approved mock BUY (gates + mock_trades insert)
+  // If preApprovedDecision is provided, skips the coordinator call and uses it directly
   const runCoordinatorApprovedMockBuy = async (params: {
     userId: string;
     strategyId: string;
@@ -2500,6 +2491,7 @@ export const useIntelligentTradingEngine = () => {
     confidence: number;
     strategyTrigger: string;  // 'FORCED_DEBUG_TRADE' | 'INTELLIGENT_AUTO'
     extraMetadata?: Record<string, any>;
+    preApprovedDecision?: any; // Optional: reuse existing coordinator decision (skip second call)
   }) => {
     const {
       userId,
@@ -2511,70 +2503,89 @@ export const useIntelligentTradingEngine = () => {
       reason,
       confidence,
       strategyTrigger,
-      extraMetadata = {}
+      extraMetadata = {},
+      preApprovedDecision
     } = params;
 
-    // Build coordinator intent
-    const intent = {
-      userId,
-      strategyId,
-      symbol,
-      side: 'BUY' as const,
-      source: 'intelligent' as const,
-      confidence,
-      reason,
-      qtySuggested: qty,
-      metadata: {
-        mode: 'mock',
-        engine: 'intelligent',
-        is_test_mode: true,
-        ...extraMetadata,
-      },
-      ts: new Date().toISOString(),
-      idempotencyKey: `${strategyTrigger.toLowerCase()}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-    };
-
-    console.log(`[${strategyTrigger}] Emitting intent to coordinator:`, JSON.stringify(intent, null, 2));
-
-    // Call coordinator
-    const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
-      body: { intent }
-    });
-
-    console.log(`[${strategyTrigger}] Coordinator response:`, JSON.stringify(decision), 'error:', error);
-
-    // Parse response - handle both string and object formats
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rawAny: any = decision;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let raw: any;
+    let coordinatorAction: string | null;
+    let coordinatorReason: string | null;
+    let coordinatorRequestId: string | null;
 
-    try {
-      if (typeof rawAny === 'string') {
-        raw = JSON.parse(rawAny);
-      } else {
-        raw = rawAny ?? {};
+    if (preApprovedDecision) {
+      // REUSE existing coordinator decision (no second call)
+      console.log(`[${strategyTrigger}] Using preApprovedDecision (no new coordinator call)`, {
+        action: preApprovedDecision?.action,
+        reason: preApprovedDecision?.reason,
+      });
+      
+      raw = { ok: true, decision: preApprovedDecision };
+      coordinatorAction = preApprovedDecision?.action ?? null;
+      coordinatorReason = preApprovedDecision?.reason ?? null;
+      coordinatorRequestId = preApprovedDecision?.request_id ?? null;
+    } else {
+      // Build coordinator intent and call (for forced debug path)
+      const intent = {
+        userId,
+        strategyId,
+        symbol,
+        side: 'BUY' as const,
+        source: 'intelligent' as const,
+        confidence,
+        reason,
+        qtySuggested: qty,
+        metadata: {
+          mode: 'mock',
+          engine: 'intelligent',
+          is_test_mode: true,
+          ...extraMetadata,
+        },
+        ts: new Date().toISOString(),
+        idempotencyKey: `${strategyTrigger.toLowerCase()}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      };
+
+      console.log(`[${strategyTrigger}] Emitting intent to coordinator:`, JSON.stringify(intent, null, 2));
+
+      // Call coordinator
+      const { data: decision, error } = await supabase.functions.invoke('trading-decision-coordinator', {
+        body: { intent }
+      });
+
+      console.log(`[${strategyTrigger}] Coordinator response:`, JSON.stringify(decision), 'error:', error);
+
+      // Parse response - handle both string and object formats
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawAny: any = decision;
+
+      try {
+        if (typeof rawAny === 'string') {
+          raw = JSON.parse(rawAny);
+        } else {
+          raw = rawAny ?? {};
+        }
+      } catch (e) {
+        console.error(`[${strategyTrigger}] Failed to parse coordinator response as JSON`, { rawAny, error: e });
+        raw = {};
       }
-    } catch (e) {
-      console.error(`[${strategyTrigger}] Failed to parse coordinator response as JSON`, { rawAny, error: e });
-      raw = {};
+
+      console.log(`[${strategyTrigger}] Raw coordinator shape:`, {
+        typeofRaw: typeof raw,
+        keys: typeof raw === 'object' && raw != null ? Object.keys(raw) : null,
+        nestedDecisionKeys:
+          raw && typeof raw === 'object' && raw.decision && typeof raw.decision === 'object'
+            ? Object.keys(raw.decision)
+            : null
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const inner: any = (raw && typeof raw === 'object' && raw.decision) ? raw.decision : {};
+
+      coordinatorAction = inner.action ?? raw.action ?? null;
+      coordinatorReason = inner.reason ?? raw.reason ?? null;
+      coordinatorRequestId = inner.request_id ?? raw.request_id ?? null;
     }
 
-    console.log(`[${strategyTrigger}] Raw coordinator shape:`, {
-      typeofRaw: typeof raw,
-      keys: typeof raw === 'object' && raw != null ? Object.keys(raw) : null,
-      nestedDecisionKeys:
-        raw && typeof raw === 'object' && raw.decision && typeof raw.decision === 'object'
-          ? Object.keys(raw.decision)
-          : null
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const inner: any = (raw && typeof raw === 'object' && raw.decision) ? raw.decision : {};
-
-    const coordinatorAction: string | null = inner.action ?? raw.action ?? null;
-    const coordinatorReason: string | null = inner.reason ?? raw.reason ?? null;
-    const coordinatorRequestId: string | null = inner.request_id ?? raw.request_id ?? null;
     const isApproved: boolean = raw.ok === true && coordinatorAction === 'BUY';
 
     console.log(`[${strategyTrigger}] Coordinator response (normalized):`, {
@@ -2780,11 +2791,34 @@ export const useIntelligentTradingEngine = () => {
 
       // NEW: For automatic intelligent BUYs in test mode, execute the mock trade if coordinator approves
       if (testMode && action === 'buy') {
-        console.log('[INTELLIGENT_AUTO] Test mode BUY - checking coordinator approval for automatic execution');
+        console.log('[INTELLIGENT_AUTO] Test mode BUY - reusing coordinator decision (no second call)');
+        
+        // Parse the already-received coordinator decision
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let parsedDecision: any;
+        try {
+          if (typeof decision === 'string') {
+            parsedDecision = JSON.parse(decision);
+          } else {
+            parsedDecision = decision ?? {};
+          }
+        } catch {
+          parsedDecision = decision ?? {};
+        }
+        
+        // Extract the inner decision object
+        const innerDecision = parsedDecision?.decision ?? parsedDecision ?? {};
+        
+        console.log('[INTELLIGENT_AUTO] Parsed coordinator decision:', {
+          ok: parsedDecision?.ok,
+          action: innerDecision?.action,
+          reason: innerDecision?.reason
+        });
         
         const baseSymbol = cryptocurrency.replace('-EUR', '');
         const qty = intent.qtySuggested;
         
+        // Pass preApprovedDecision to skip the second coordinator call
         const result = await runCoordinatorApprovedMockBuy({
           userId: user!.id,
           strategyId: strategy.id,
@@ -2800,7 +2834,8 @@ export const useIntelligentTradingEngine = () => {
             fusion_reason: trigger,
             fusion_confidence: intent.confidence,
             engineFeatures: engineFeatures
-          }
+          },
+          preApprovedDecision: parsedDecision?.ok === true ? innerDecision : undefined
         });
         
         if (result.success) {
