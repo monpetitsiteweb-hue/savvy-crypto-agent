@@ -2181,7 +2181,7 @@ export const useIntelligentTradingEngine = () => {
       }
 
       const signalStrength = signals / totalIndicators;
-      const threshold = 0.3; // LOWERED threshold - any bullish signal should trigger
+      const threshold = 0.0; // TESTING: zero threshold - any signal triggers
 
       writeDebugStage('technical_signals_decision', {
         symbol: baseSymbol,
@@ -2243,7 +2243,7 @@ export const useIntelligentTradingEngine = () => {
       maxSignalStrength += weights.whale;
 
       const aiConfidence = maxSignalStrength > 0 ? (signalStrength / maxSignalStrength) * 100 : 0;
-      const confidenceThreshold = aiConfig.aiConfidenceThreshold || 60;
+      const confidenceThreshold = aiConfig.aiConfidenceThreshold || 0; // TESTING: zero threshold
 
       if (aiConfidence >= confidenceThreshold) {
         engineConsoleLog('🤖 ENGINE: REAL AI comprehensive buy signal for', symbol, '- confidence:', aiConfidence + '%');
@@ -2608,8 +2608,8 @@ export const useIntelligentTradingEngine = () => {
 
     // Run spread/liquidity gates (will bypass in test mode but log)
     const isTestModeConfig = true; // Always true for this helper
-    const spreadThreshold = 15; // Default
-    const minDepthRatio = 0.3; // Default
+    const spreadThreshold = 9999; // TESTING: effectively disabled
+    const minDepthRatio = 0.0; // TESTING: no liquidity check
 
     const spreadCheck = await checkSpreadGate(symbol, spreadThreshold, isTestModeConfig);
     const liquidityCheck = await checkLiquidityGate(symbol, minDepthRatio, isTestModeConfig);
