@@ -15,6 +15,9 @@ import { getAllSymbols } from '@/data/coinbaseCoins';
 import { checkMarketAvailability, filterSupportedSymbols } from '@/utils/marketAvailability';
 import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { getFeaturesForEngine } from '@/lib/api/features';
+// PHASE 1-4 REFACTOR: Exposure-based risk management
+import { calculateExposure, canBuySymbol, findBestSymbolForTrade } from '@/utils/exposureCalculator';
+import { isSymbolInCooldown, recordTradeForCooldown, getCooldownMs } from '@/utils/symbolCooldown';
 
 // Global debug object declaration
 declare global {
@@ -766,6 +769,9 @@ export const useIntelligentTradingEngine = () => {
   };
   
   // Instrumented version of checkBuyOpportunities
+  // ============================================================================
+  // PHASE 1-4 REFACTOR: Exposure-based risk management replaces hasPosition gate
+  // ============================================================================
   const checkBuyOpportunitiesInstrumented = async (strategy: any, marketData: any, actionsPlanned: { buy: number; sell: number; hold: number }): Promise<number> => {
     const config = strategy.configuration as any;
     
@@ -776,147 +782,202 @@ export const useIntelligentTradingEngine = () => {
       maxActiveCoins: config.maxActiveCoins,
     });
     
+    // PHASE 1-3: Calculate exposure metrics (replaces hasPosition gate)
+    const exposure = calculateExposure({
+      positions,
+      marketData,
+      config: {
+        maxWalletExposure: config.maxWalletExposure,
+        riskManagement: config.riskManagement,
+        maxActiveCoins: config.maxActiveCoins,
+        perTradeAllocation: config.perTradeAllocation || 50,
+        selectedCoins: config.selectedCoins,
+        walletValueEUR: config.walletValueEUR || 30000, // Test mode default
+      },
+    });
+    
+    writeDebugStage('buy_opportunities_exposure_calculated', {
+      totalExposureEUR: exposure.totalExposureEUR.toFixed(2),
+      maxWalletExposureEUR: exposure.maxWalletExposureEUR.toFixed(2),
+      uniqueCoinsWithExposure: exposure.uniqueCoinsWithExposure,
+      maxActiveCoins: exposure.maxActiveCoins,
+      canAddNewCoin: exposure.canAddNewCoin,
+      perTradeAllocation: exposure.perTradeAllocation,
+      maxExposurePerCoinEUR: exposure.maxExposurePerCoinEUR.toFixed(2),
+    });
+    
     // =====================================================================
-    // TEST_ALWAYS_BUY BYPASS: Skip fusion completely in test mode
-    // Iterate through ALL configured coins and find one WITHOUT an open position
+    // PHASE 1: TEST_ALWAYS_BUY - Uses EXPOSURE limits, not hasPosition
     // =====================================================================
     const isTestModeStrategy = config?.is_test_mode === true || config?.enableTestTrading === true || testMode;
     
     if (isTestModeStrategy) {
       const selectedCoins: string[] = config.selectedCoins || ['BTC', 'ETH', 'XRP', 'SOL', 'ADA'];
-      const positionSymbols = new Set(positions.map(p => p.cryptocurrency));
       
-      // Find a coin that does NOT have an open position
-      const availableCoin = selectedCoins.find(coin => !positionSymbols.has(coin));
+      // PHASE 1 FIX: Find coin that passes exposure check (not "has no position")
+      const { symbol: availableSymbol, reason: selectionReason } = findBestSymbolForTrade(
+        selectedCoins.map(c => `${c}-EUR`),
+        exposure
+      );
       
-      if (availableCoin) {
-        const testSymbol = `${availableCoin}-EUR`;
-        const testBaseSymbol = availableCoin;
+      if (availableSymbol) {
+        const testSymbol = availableSymbol;
+        const testBaseSymbol = availableSymbol.replace('-EUR', '');
         
-        console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: Found coin without position:', testBaseSymbol, '- emitting intent');
+        // PHASE 4: Check per-symbol cooldown
+        const cooldownMs = getCooldownMs(config, 'buy');
+        const cooldownCheck = isSymbolInCooldown(testSymbol, 'buy', cooldownMs);
         
-        // Get current price from market data or cache
-        let testPrice = marketData[testSymbol]?.price || 0;
-        if (!testPrice) {
-          const cached = sharedPriceCache.get(testSymbol);
-          testPrice = cached?.price || 0;
-        }
-        
-        if (testPrice > 0) {
-          const testQty = (config.perTradeAllocation || 50) / testPrice;
-          
-          const testIntent = {
-            userId: user!.id,
-            strategyId: strategy.id,
-            symbol: testSymbol,
-            side: 'BUY' as const,
-            source: 'intelligent' as const,
-            confidence: 0.99,
-            reason: 'TEST_ALWAYS_BUY',
-            qtySuggested: testQty,
-            metadata: {
-              mode: 'mock',
-              engine: 'intelligent',
-              is_test_mode: true,
-              trigger: 'TEST_ALWAYS_BUY',
-              price: testPrice,
-              symbol_normalized: testSymbol,
-            },
-            ts: new Date().toISOString(),
-          };
-          
-          console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: emitting intent', {
-            symbol: testSymbol,
-            price: testPrice,
-            qty: testQty,
-            confidence: 0.99,
+        if (cooldownCheck.inCooldown) {
+          console.log(`🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: ${testBaseSymbol} in cooldown (${Math.ceil(cooldownCheck.remainingMs / 1000)}s remaining) - trying next`);
+          writeDebugStage('test_always_buy_cooldown', { 
+            symbol: testBaseSymbol, 
+            remainingMs: cooldownCheck.remainingMs,
+            cooldownMs,
           });
+        } else {
+          console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: Found coin within exposure limits:', testBaseSymbol, '- emitting intent');
           
-          writeDebugStage('test_always_buy_emitting', {
-            symbol: testSymbol,
-            price: testPrice,
-            qty: testQty,
-            strategyId: strategy.id,
-          });
+          // Get current price from market data or cache
+          let testPrice = marketData[testSymbol]?.price || 0;
+          if (!testPrice) {
+            const cached = sharedPriceCache.get(testSymbol);
+            testPrice = cached?.price || 0;
+          }
           
-          try {
-            const { data: coordinatorResponse, error: coordError } = await supabase.functions.invoke('trading-decision-coordinator', {
-              body: { intent: testIntent }
-            });
+          if (testPrice > 0) {
+            const testQty = (config.perTradeAllocation || 50) / testPrice;
             
-            console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator response', coordinatorResponse, coordError);
-            
-            // Parse the coordinator response
-            let parsedDecision: any = null;
-            if (coordinatorResponse && !coordError) {
-              parsedDecision = typeof coordinatorResponse === 'string' ? JSON.parse(coordinatorResponse) : coordinatorResponse;
-            }
-            
-            const innerDecision = parsedDecision?.decision ?? parsedDecision ?? {};
-            const coordinatorAction = innerDecision?.action || parsedDecision?.action || null;
-            
-            console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: parsed decision', {
-              ok: parsedDecision?.ok,
-              action: coordinatorAction,
-              reason: innerDecision?.reason,
-            });
-            
-            // If coordinator approved BUY, use runCoordinatorApprovedMockBuy with preApprovedDecision
-            if (parsedDecision?.ok === true && coordinatorAction === 'BUY') {
-              console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator approved, calling runCoordinatorApprovedMockBuy');
-              
-              const result = await runCoordinatorApprovedMockBuy({
-                userId: user!.id,
-                strategyId: strategy.id,
-                symbol: testSymbol,
-                baseSymbol: testBaseSymbol,
-                qty: testQty,
+            const testIntent = {
+              userId: user!.id,
+              strategyId: strategy.id,
+              symbol: testSymbol,
+              side: 'BUY' as const,
+              source: 'intelligent' as const,
+              confidence: 0.99,
+              reason: 'TEST_ALWAYS_BUY',
+              qtySuggested: testQty,
+              metadata: {
+                mode: 'mock',
+                engine: 'intelligent',
+                is_test_mode: true,
+                trigger: 'TEST_ALWAYS_BUY',
                 price: testPrice,
-                reason: 'TEST_ALWAYS_BUY',
-                confidence: 0.99,
-                strategyTrigger: 'INTELLIGENT_AUTO',
-                extraMetadata: {
-                  test_always_buy: true,
-                },
-                preApprovedDecision: innerDecision, // Reuse the existing decision, no second call
+                symbol_normalized: testSymbol,
+                // PHASE 1: Include exposure data for coordinator
+                exposure_check: canBuySymbol(testSymbol, exposure),
+              },
+              ts: new Date().toISOString(),
+            };
+            
+            console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: emitting intent', {
+              symbol: testSymbol,
+              price: testPrice,
+              qty: testQty,
+              confidence: 0.99,
+              exposureCheck: testIntent.metadata.exposure_check,
+            });
+            
+            writeDebugStage('test_always_buy_emitting', {
+              symbol: testSymbol,
+              price: testPrice,
+              qty: testQty,
+              strategyId: strategy.id,
+              exposureDetails: testIntent.metadata.exposure_check,
+            });
+            
+            try {
+              const { data: coordinatorResponse, error: coordError } = await supabase.functions.invoke('trading-decision-coordinator', {
+                body: { intent: testIntent }
               });
               
-              if (result.success) {
-                console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: SUCCESS! mock_trade inserted', result.mockTradeId);
-                actionsPlanned.buy++;
-                return 1; // One buy executed
-              } else {
-                console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: helper returned failure', result.reason);
+              console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator response', coordinatorResponse, coordError);
+              
+              // Parse the coordinator response
+              let parsedDecision: any = null;
+              if (coordinatorResponse && !coordError) {
+                parsedDecision = typeof coordinatorResponse === 'string' ? JSON.parse(coordinatorResponse) : coordinatorResponse;
               }
-            } else {
-              console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator did NOT approve BUY', {
+              
+              const innerDecision = parsedDecision?.decision ?? parsedDecision ?? {};
+              const coordinatorAction = innerDecision?.action || parsedDecision?.action || null;
+              
+              console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: parsed decision', {
                 ok: parsedDecision?.ok,
                 action: coordinatorAction,
                 reason: innerDecision?.reason,
               });
+              
+              // If coordinator approved BUY, use runCoordinatorApprovedMockBuy with preApprovedDecision
+              if (parsedDecision?.ok === true && coordinatorAction === 'BUY') {
+                console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator approved, calling runCoordinatorApprovedMockBuy');
+                
+                const result = await runCoordinatorApprovedMockBuy({
+                  userId: user!.id,
+                  strategyId: strategy.id,
+                  symbol: testSymbol,
+                  baseSymbol: testBaseSymbol,
+                  qty: testQty,
+                  price: testPrice,
+                  reason: 'TEST_ALWAYS_BUY',
+                  confidence: 0.99,
+                  strategyTrigger: 'INTELLIGENT_AUTO',
+                  extraMetadata: {
+                    test_always_buy: true,
+                  },
+                  preApprovedDecision: innerDecision,
+                });
+                
+                if (result.success) {
+                  // PHASE 4: Record cooldown after successful trade
+                  recordTradeForCooldown(testSymbol, 'buy');
+                  
+                  console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: SUCCESS! mock_trade inserted', result.mockTradeId);
+                  actionsPlanned.buy++;
+                  return 1;
+                } else {
+                  console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: helper returned failure', result.reason);
+                }
+              } else {
+                console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator did NOT approve BUY', {
+                  ok: parsedDecision?.ok,
+                  action: coordinatorAction,
+                  reason: innerDecision?.reason,
+                });
+              }
+            } catch (err) {
+              console.error('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: error', err);
+              writeDebugStage('test_always_buy_error', { error: String(err) });
             }
-          } catch (err) {
-            console.error('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: error', err);
-            writeDebugStage('test_always_buy_error', { error: String(err) });
+          } else {
+            console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: no valid price for', testSymbol, '- skipping');
           }
-        } else {
-          console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: no valid price for', testSymbol, '- skipping');
         }
       } else {
-        console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: ALL coins have positions:', Array.from(positionSymbols), '- skipping bypass');
+        // PHASE 1: Log exposure-based rejection instead of "all have positions"
+        console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: No coins within exposure limits -', selectionReason);
+        writeDebugStage('test_always_buy_exposure_blocked', {
+          reason: selectionReason,
+          totalExposureEUR: exposure.totalExposureEUR,
+          maxWalletExposureEUR: exposure.maxWalletExposureEUR,
+          uniqueCoinsWithExposure: exposure.uniqueCoinsWithExposure,
+          maxActiveCoins: exposure.maxActiveCoins,
+        });
       }
     }
     // =====================================================================
-    // END TEST_ALWAYS_BUY BYPASS
+    // END TEST_ALWAYS_BUY (PHASE 1)
     // =====================================================================
     
-    // Check position limits
-    if (config.maxActiveCoins && positions.length >= config.maxActiveCoins) {
-      writeDebugStage('buy_opportunities_max_positions_reached', { 
-        positions: positions.length,
-        maxActiveCoins: config.maxActiveCoins,
+    // PHASE 3: Check UNIQUE COINS limit (not positions.length)
+    if (exposure.uniqueCoinsWithExposure >= exposure.maxActiveCoins && !exposure.canAddNewCoin) {
+      // Only block if trying to add a NEW coin - existing coins can still get more trades
+      writeDebugStage('buy_opportunities_max_unique_coins_reached', { 
+        uniqueCoinsWithExposure: exposure.uniqueCoinsWithExposure,
+        maxActiveCoins: exposure.maxActiveCoins,
+        note: 'Can still add trades to existing coins if within per-coin limits',
       });
-      return 0;
+      // Don't return 0 here - we may still be able to add to existing coins
     }
 
     // Get coins to analyze
@@ -967,23 +1028,43 @@ export const useIntelligentTradingEngine = () => {
         continue;
       }
 
-      // Skip if already have position in this coin (unless DCA enabled)
-      // FIX: Compare using base symbol (BTC) not pair symbol (BTC-EUR)
-      const hasPosition = positions.some(p => p.cryptocurrency === baseSymbol);
-      writeDebugStage('buy_opportunity_position_check', { 
+      // =====================================================================
+      // PHASE 2: Replace hasPosition gate with EXPOSURE-BASED check
+      // DCA is now controlled by exposure limits, not enableDCA flag
+      // =====================================================================
+      const exposureCheck = canBuySymbol(symbol, exposure);
+      writeDebugStage('buy_opportunity_exposure_check', { 
         symbol, 
-        hasPosition,
-        enableDCA: config.enableDCA,
+        allowed: exposureCheck.allowed,
+        reason: exposureCheck.reason,
+        details: exposureCheck.details,
       });
       
-      if (hasPosition && !config.enableDCA) {
-        writeDebugStage('buy_opportunity_skip_has_position', { symbol });
+      if (!exposureCheck.allowed) {
+        writeDebugStage('buy_opportunity_skip_exposure_limit', { 
+          symbol, 
+          reason: exposureCheck.reason,
+          details: exposureCheck.details,
+        });
+        continue;
+      }
+      
+      // PHASE 4: Check per-symbol cooldown
+      const cooldownMs = getCooldownMs(config, 'buy');
+      const cooldownCheck = isSymbolInCooldown(symbol, 'buy', cooldownMs);
+      
+      if (cooldownCheck.inCooldown) {
+        writeDebugStage('buy_opportunity_skip_cooldown', { 
+          symbol, 
+          remainingMs: cooldownCheck.remainingMs,
+          cooldownMs,
+        });
         continue;
       }
 
       // Check if we should buy this coin using REAL signals
       writeDebugStage('buy_opportunity_get_signal', { symbol, before: true });
-      const buySignal = await getBuySignal(config, symbol, marketData, hasPosition);
+      const buySignal = await getBuySignal(config, symbol, marketData, false); // PHASE 2: hasPosition no longer blocks
       writeDebugStage('buy_opportunity_get_signal', { 
         symbol, 
         after: true,
