@@ -1527,7 +1527,8 @@ serve(async (req) => {
     
     try {
       // Use timestamp-based conflict detection (NO DB LOCKS)
-      const conflictResult = await detectConflicts(supabaseClient, intent, unifiedConfig);
+      // PHASE 5: Pass strategy config for exposure check
+      const conflictResult = await detectConflicts(supabaseClient, intent, unifiedConfig, strategy);
       
       if (conflictResult.hasConflict) {
         const guardReport = conflictResult.guardReport || {};
@@ -2381,10 +2382,12 @@ function removeFromQueue(symbolKey: string, intent: TradeIntent): void {
 }
 
 // Timestamp-based conflict detection (NO DB LOCKS)
+// PHASE 5: Also includes exposure-based risk limits
 async function detectConflicts(
   supabaseClient: any,
   intent: TradeIntent,
-  config: UnifiedConfig
+  config: UnifiedConfig,
+  strategyConfig?: any
 ): Promise<{ hasConflict: boolean; reason: string; guardReport?: any }> {
   
   // Initialize guard report
@@ -2396,11 +2399,88 @@ async function detectConflicts(
     qtyMismatch: false,
     marketClosed: false,
     holdPeriodNotMet: false,
+    exposureLimitExceeded: false, // PHASE 5: New guard
     other: null as string | null,
   };
   
   // Get recent trades for this symbol
   const baseSymbol = toBaseSymbol(intent.symbol);
+  
+  // =====================================================================
+  // PHASE 5: EXPOSURE CHECK FOR BUY INTENTS
+  // Derive maxExposurePerCoin from existing config params - NO NEW KNOBS
+  // =====================================================================
+  if (intent.side === 'BUY') {
+    const cfg = strategyConfig?.configuration || strategyConfig || {};
+    const walletValueEUR = cfg.walletValueEUR || 30000; // Test mode default
+    const maxWalletExposurePct = Math.min(
+      cfg.maxWalletExposure || 80,
+      cfg.riskManagement?.maxWalletExposure || 80
+    );
+    const selectedCoinsCount = (cfg.selectedCoins || []).length || 5;
+    const maxActiveCoins = cfg.maxActiveCoins || selectedCoinsCount;
+    const perTradeAllocation = cfg.perTradeAllocation || 50;
+    
+    // Calculate derived limits
+    const maxWalletExposureEUR = walletValueEUR * (maxWalletExposurePct / 100);
+    const maxExposurePerCoinEUR = maxWalletExposureEUR / maxActiveCoins;
+    
+    // Get ALL open positions for this user/strategy
+    const { data: allPositions } = await supabaseClient
+      .from('mock_trades')
+      .select('cryptocurrency, amount, price, trade_type')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)
+      .eq('trade_type', 'buy')
+      .order('executed_at', { ascending: false });
+    
+    // Calculate current exposure
+    const positionsBySymbol: Record<string, number> = {};
+    let totalExposureEUR = 0;
+    
+    for (const trade of allPositions || []) {
+      const sym = trade.cryptocurrency.replace('-EUR', '');
+      const tradeValue = trade.amount * trade.price;
+      
+      if (!positionsBySymbol[sym]) {
+        positionsBySymbol[sym] = 0;
+      }
+      positionsBySymbol[sym] += tradeValue;
+      totalExposureEUR += tradeValue;
+    }
+    
+    const currentSymbolExposure = positionsBySymbol[baseSymbol] || 0;
+    const uniqueCoinsWithExposure = Object.keys(positionsBySymbol).length;
+    const tradeValueEUR = perTradeAllocation;
+    
+    // Check 1: Global wallet exposure
+    if (totalExposureEUR + tradeValueEUR > maxWalletExposureEUR) {
+      console.log(`🚫 COORDINATOR: BUY blocked - max wallet exposure reached (${totalExposureEUR.toFixed(0)} + ${tradeValueEUR} > ${maxWalletExposureEUR.toFixed(0)})`);
+      guardReport.exposureLimitExceeded = true;
+      return { hasConflict: true, reason: 'max_wallet_exposure_reached', guardReport };
+    }
+    
+    // Check 2: Max active coins (unique coins)
+    const isNewCoin = currentSymbolExposure < 1;
+    if (isNewCoin && uniqueCoinsWithExposure >= maxActiveCoins) {
+      console.log(`🚫 COORDINATOR: BUY blocked - max active coins reached (${uniqueCoinsWithExposure} >= ${maxActiveCoins})`);
+      guardReport.exposureLimitExceeded = true;
+      return { hasConflict: true, reason: 'max_active_coins_reached', guardReport };
+    }
+    
+    // Check 3: Per-symbol exposure limit
+    if (currentSymbolExposure + tradeValueEUR > maxExposurePerCoinEUR) {
+      console.log(`🚫 COORDINATOR: BUY blocked - max per-coin exposure reached (${currentSymbolExposure.toFixed(0)} + ${tradeValueEUR} > ${maxExposurePerCoinEUR.toFixed(0)})`);
+      guardReport.exposureLimitExceeded = true;
+      return { hasConflict: true, reason: 'max_exposure_per_coin_reached', guardReport };
+    }
+    
+    console.log(`✅ COORDINATOR: Exposure check passed for ${baseSymbol} BUY (symbol: €${currentSymbolExposure.toFixed(0)}, total: €${totalExposureEUR.toFixed(0)})`);
+  }
+  // =====================================================================
+  // END PHASE 5 EXPOSURE CHECK
+  // =====================================================================
+  
   const { data: recentTrades } = await supabaseClient
     .from('mock_trades')
     .select('trade_type, executed_at, amount, price')
