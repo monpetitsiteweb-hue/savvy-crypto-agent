@@ -1,30 +1,38 @@
-# DEPRECATED: Legacy technical signal generator - DISABLED
-# This workflow generated signals for the old automated engine
-# The intelligent engine now handles signal processing directly
-# 
-# Signal data continues to be available via features-refresh and ohlcv pipelines
+# Technical Signal Generator - Runs every 5 minutes
+# Generates technical analysis signals (MA cross, RSI, price breakouts) into live_signals table
+# These signals are consumed by the intelligent engine's fusion layer
 
-name: Technical Signal Generator (5 min) - DISABLED
+name: Technical Signal Generator (5 min)
 
 on:
-  # DISABLED: Part of automated engine deprecation
-  # schedule:
-  #   - cron: '*/5 * * * *'  # Every 5 minutes
-  workflow_dispatch:  # Allow manual trigger for debugging only
+  schedule:
+    - cron: '*/5 * * * *'  # Every 5 minutes
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   run-signal-generator:
     runs-on: ubuntu-latest
     steps:
-      - name: DEPRECATED - Signal Generator Disabled
+      - name: Generate Technical Signals
         run: |
-          echo "⚠️ DEPRECATED: The technical signal generator has been disabled."
-          echo "The intelligent engine handles signal processing directly."
-          echo ""
-          echo "Signal data pipelines still active:"
-          echo "  - features-refresh-daily.yml"
-          echo "  - ohlcv-backfill-daily.yml"  
-          echo "  - ohlcv-live-ingest-hourly.yml"
-          echo ""
-          echo "Exiting without calling technical-signal-generator..."
-          exit 0
+          echo "🔧 Running Technical Signal Generator..."
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.SUPABASE_PROJECT_URL }}/functions/v1/technical-signal-generator" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"symbols": ["BTC-EUR", "ETH-EUR", "XRP-EUR", "SOL-EUR", "ADA-EUR", "AVAX-EUR", "DOT-EUR"]}')
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "Response code: $HTTP_CODE"
+          echo "Response body: $BODY"
+          
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✅ Technical signals generated successfully"
+          else
+            echo "⚠️ Signal generation returned non-2xx status: $HTTP_CODE"
+            # Don't fail the workflow - signals are supplementary
+          fi
