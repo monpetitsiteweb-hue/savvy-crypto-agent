@@ -3450,84 +3450,171 @@ async function executeTradeOrder(
         
         // Skip coverage enforcement - allow manual SELL to proceed
         
-      // ========= BRANCH D: LEGACY SYMBOL-LEVEL LOGIC =========
+      // ========= BRANCH D: PER-LOT SELL LOGIC (REPLACES LEGACY BULK SELL) =========
+      // NEW ARCHITECTURE: Each BUY lot gets its own SELL row with original_trade_id
       } else {
-        // Standard SELL: Enforce coverage gate for automated/engine SELLs
-        console.log(`🔒 COORDINATOR: Standard SELL - ENFORCING symbol-level coverage gate`);
+        console.log(`🎯 COORDINATOR: Per-Lot SELL - reconstructing open lots for ${baseSymbol}`);
         
-        // Recompute FIFO for this specific SELL quantity (already computed in profit gate)
+        // Fetch ALL buy trades with IDs for per-lot tracking
         const { data: buyTrades } = await supabaseClient
           .from('mock_trades')
-          .select('amount, price, executed_at')
+          .select('id, amount, price, executed_at, total_value')
           .eq('user_id', intent.userId)
           .eq('strategy_id', intent.strategyId)
           .eq('cryptocurrency', baseSymbol)
           .eq('trade_type', 'buy')
-          .order('executed_at', { ascending: true });
+          .eq('is_test_mode', true)
+          .order('executed_at', { ascending: true }); // FIFO order
 
+        // Fetch ALL sell trades with original_trade_id to track what's been sold per lot
         const { data: sellTrades } = await supabaseClient
           .from('mock_trades')
-          .select('original_purchase_amount')
+          .select('amount, original_trade_id')
           .eq('user_id', intent.userId)
           .eq('strategy_id', intent.strategyId)
           .eq('cryptocurrency', baseSymbol)
           .eq('trade_type', 'sell')
-          .not('original_purchase_amount', 'is', null);
+          .eq('is_test_mode', true);
 
-        if (buyTrades && buyTrades.length > 0) {
-          let totalSold = sellTrades ? sellTrades.reduce((sum, sell) => sum + parseFloat(sell.original_purchase_amount), 0) : 0;
-          let remainingQty = qty;
-          let fifoValue = 0;
-          let fifoAmount = 0;
-
-          for (const buy of buyTrades) {
-            if (remainingQty <= 0) break;
-            const buyAmount = parseFloat(buy.amount);
-            const buyPrice = parseFloat(buy.price);
-            const availableFromBuy = Math.max(0, buyAmount - totalSold);
-            
-            if (availableFromBuy > 0) {
-              const takeAmount = Math.min(remainingQty, availableFromBuy);
-              fifoAmount += takeAmount;
-              fifoValue += takeAmount * buyPrice;
-              remainingQty -= takeAmount;
-            }
-            totalSold -= Math.min(totalSold, buyAmount);
-          }
-
-          if (!fifoAmount || fifoAmount <= 0) {
-            console.log(`🚫 COORDINATOR: SELL blocked - insufficient_position_size`);
-            // Log BLOCK decision before returning
-            await logDecisionAsync(
-              supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
-              { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, effectiveConfig
-            );
-            return { success: false, error: 'insufficient_position_size', effectiveConfig };
-          }
-
-          // Cap the sell size to what's actually available under FIFO
-          if (qty > fifoAmount) {
-            console.log(`⚠️ COORDINATOR: Capping SELL qty from ${qty} to ${fifoAmount} (FIFO remaining)`);
-            qty = fifoAmount;
-          }
-
-          // Recompute totalValue after any cap
-          totalValue = qty * realMarketPrice;
-
-          fifoFields = {
-            original_purchase_amount: fifoAmount,
-            original_purchase_value: fifoValue,
-            original_purchase_price: fifoValue / fifoAmount
-          };
-        } else {
+        if (!buyTrades || buyTrades.length === 0) {
           console.log(`🚫 COORDINATOR: SELL blocked - no buy history found`);
-          // Log BLOCK decision before returning
           await logDecisionAsync(
             supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
             { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, effectiveConfig
           );
           return { success: false, error: 'insufficient_position_size', effectiveConfig };
         }
+
+        // Build per-lot sold amounts map
+        const soldByLotId = new Map<string, number>();
+        if (sellTrades) {
+          for (const sell of sellTrades) {
+            if (sell.original_trade_id) {
+              const current = soldByLotId.get(sell.original_trade_id) || 0;
+              soldByLotId.set(sell.original_trade_id, current + parseFloat(sell.amount));
+            }
+          }
+        }
+
+        // Also handle legacy sells without original_trade_id (FIFO deduction)
+        const legacySells = (sellTrades || []).filter(s => !s.original_trade_id);
+        let legacySellRemaining = legacySells.reduce((sum, s) => sum + parseFloat(s.amount), 0);
+
+        // Reconstruct open lots with remaining amounts
+        interface OpenLot {
+          lotId: string;
+          originalAmount: number;
+          remainingAmount: number;
+          entryPrice: number;
+          entryValue: number;
+        }
+        
+        const openLots: OpenLot[] = [];
+        
+        for (const buy of buyTrades) {
+          const buyAmount = parseFloat(buy.amount);
+          const buyPrice = parseFloat(buy.price);
+          
+          // Subtract targeted sells (with original_trade_id)
+          let soldFromLot = soldByLotId.get(buy.id) || 0;
+          
+          // Subtract legacy sells (FIFO order)
+          if (legacySellRemaining > 0) {
+            const deductFromLegacy = Math.min(legacySellRemaining, buyAmount - soldFromLot);
+            if (deductFromLegacy > 0) {
+              soldFromLot += deductFromLegacy;
+              legacySellRemaining -= deductFromLegacy;
+            }
+          }
+          
+          const remaining = buyAmount - soldFromLot;
+          
+          if (remaining > 0.00000001) {
+            openLots.push({
+              lotId: buy.id,
+              originalAmount: buyAmount,
+              remainingAmount: remaining,
+              entryPrice: buyPrice,
+              entryValue: remaining * buyPrice, // Pro-rata value for remaining
+            });
+          }
+        }
+
+        console.log(`[COORD][PER_LOT] Open lots for ${baseSymbol}:`, openLots.length);
+        openLots.forEach((lot, i) => {
+          console.log(`  [${i}] lotId=${lot.lotId.substring(0, 8)}... remaining=${lot.remainingAmount.toFixed(8)} entry=€${lot.entryPrice.toFixed(2)}`);
+        });
+
+        if (openLots.length === 0) {
+          console.log(`🚫 COORDINATOR: SELL blocked - no open lots found`);
+          await logDecisionAsync(
+            supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
+            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, effectiveConfig
+          );
+          return { success: false, error: 'insufficient_position_size', effectiveConfig };
+        }
+
+        // Build per-lot sell orders (FIFO)
+        interface PerLotSellOrder {
+          lotId: string;
+          amount: number;
+          entryPrice: number;
+          entryValue: number;
+        }
+        
+        const perLotSellOrders: PerLotSellOrder[] = [];
+        let remainingToSell = qty;
+
+        for (const lot of openLots) {
+          if (remainingToSell <= 0.00000001) break;
+          
+          const takeAmount = Math.min(remainingToSell, lot.remainingAmount);
+          
+          if (takeAmount > 0.00000001) {
+            perLotSellOrders.push({
+              lotId: lot.lotId,
+              amount: takeAmount,
+              entryPrice: lot.entryPrice,
+              entryValue: takeAmount * lot.entryPrice,
+            });
+            remainingToSell -= takeAmount;
+          }
+        }
+
+        console.log(`[COORD][PER_LOT] Generated ${perLotSellOrders.length} per-lot sell orders`);
+        perLotSellOrders.forEach((order, i) => {
+          console.log(`  [${i}] lotId=${order.lotId.substring(0, 8)}... sell=${order.amount.toFixed(8)} entry=€${order.entryPrice.toFixed(2)}`);
+        });
+
+        if (perLotSellOrders.length === 0) {
+          console.log(`🚫 COORDINATOR: SELL blocked - could not build per-lot orders`);
+          await logDecisionAsync(
+            supabaseClient, intent, 'BLOCK', 'insufficient_position_size',
+            { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice }, undefined, realMarketPrice, effectiveConfig
+          );
+          return { success: false, error: 'insufficient_position_size', effectiveConfig };
+        }
+
+        // Store perLotSellOrders for multi-insert later
+        // @ts-ignore - Adding custom field for per-lot processing
+        intent.__perLotSellOrders = perLotSellOrders;
+        
+        // Update qty to total being sold (may be capped by available lots)
+        const totalSelling = perLotSellOrders.reduce((sum, o) => sum + o.amount, 0);
+        if (totalSelling < qty) {
+          console.log(`⚠️ COORDINATOR: Capping SELL qty from ${qty} to ${totalSelling} (available in lots)`);
+          qty = totalSelling;
+        }
+        totalValue = qty * realMarketPrice;
+
+        // Use first lot's FIFO fields for backward compatibility (will be overridden per-row in insert)
+        const firstOrder = perLotSellOrders[0];
+        fifoFields = {
+          original_purchase_amount: firstOrder.amount,
+          original_purchase_value: firstOrder.entryValue,
+          original_purchase_price: firstOrder.entryPrice,
+          original_trade_id: firstOrder.lotId,
+        };
       }
     }
 
@@ -3544,6 +3631,89 @@ async function executeTradeOrder(
       // TEST mode → mock_trades with is_test_mode=true
       console.log(`[coordinator] TEST MODE: Writing to mock_trades (is_test_mode=true)`);
       
+      // ============= PER-LOT SELL INSERTION =============
+      // @ts-ignore - Check for per-lot orders generated in Branch D
+      const perLotSellOrders = intent.__perLotSellOrders as { lotId: string; amount: number; entryPrice: number; entryValue: number }[] | undefined;
+      
+      if (perLotSellOrders && perLotSellOrders.length > 0 && intent.side === 'SELL') {
+        // INSERT MULTIPLE ROWS - one per lot being closed
+        console.log(`[coordinator] PER-LOT SELL: Inserting ${perLotSellOrders.length} SELL rows`);
+        
+        const sellRows = perLotSellOrders.map((order, index) => {
+          const exitValue = order.amount * realMarketPrice;
+          const realizedPnl = exitValue - order.entryValue;
+          const realizedPnlPct = order.entryValue > 0 ? (realizedPnl / order.entryValue) * 100 : 0;
+          
+          return {
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            trade_type: 'sell',
+            cryptocurrency: baseSymbol,
+            amount: order.amount,
+            price: realMarketPrice,
+            total_value: order.amount * realMarketPrice,
+            executed_at,
+            is_test_mode: true,
+            notes: `Coordinator: UD=ON (TEST) - Per-lot SELL [${index + 1}/${perLotSellOrders.length}]`,
+            strategy_trigger: intent.source === 'coordinator_tp' 
+              ? `coord_tp|req:${requestId}|lot:${order.lotId.substring(0, 8)}` 
+              : `coord_${intent.source}|req:${requestId}|lot:${order.lotId.substring(0, 8)}`,
+            market_conditions: { 
+              execution_mode: executionMode, 
+              decision_at, 
+              executed_at, 
+              latency_ms: execution_latency_ms, 
+              request_id: requestId,
+              lot_index: index,
+              total_lots: perLotSellOrders.length
+            },
+            // Per-lot FIFO fields
+            original_trade_id: order.lotId,
+            original_purchase_amount: order.amount,
+            original_purchase_value: order.entryValue,
+            original_purchase_price: order.entryPrice,
+            exit_value: exitValue,
+            realized_pnl: Math.round(realizedPnl * 100) / 100,
+            realized_pnl_pct: Math.round(realizedPnlPct * 100) / 100,
+          };
+        });
+
+        const { data: insertResults, error: insertError } = await supabaseClient
+          .from('mock_trades')
+          .insert(sellRows)
+          .select('id');
+
+        if (insertError) {
+          console.error('❌ COORDINATOR: Per-lot SELL insert failed:', insertError);
+          return { success: false, error: insertError.message };
+        }
+
+        // Log success
+        console.log('============ PER-LOT SELL SUCCESSFUL ============');
+        console.log(`Inserted ${insertResults?.length || 0} SELL rows for ${perLotSellOrders.length} lots`);
+        sellRows.forEach((row, i) => {
+          console.log(`  [${i}] lotId=${row.original_trade_id?.substring(0, 8)}... amount=${row.amount.toFixed(8)} pnl=€${row.realized_pnl?.toFixed(2)}`);
+        });
+
+        const totalQty = sellRows.reduce((sum, r) => sum + r.amount, 0);
+        const totalPnl = sellRows.reduce((sum, r) => sum + (r.realized_pnl || 0), 0);
+        console.log(`📊 Total: qty=${totalQty.toFixed(8)}, pnl=€${totalPnl.toFixed(2)}`);
+
+        return { 
+          success: true, 
+          qty: totalQty, 
+          tradeId: insertResults?.[0]?.id, // Return first row ID for backward compatibility
+          executed_at,
+          decision_price,
+          executed_price,
+          partial_fill: false,
+          effectiveConfig,
+          perLotResults: insertResults?.map(r => r.id) // Return all IDs
+        };
+      }
+      // ============= END PER-LOT SELL INSERTION =============
+      
+      // Standard single-row insert (BUY or single SELL)
       const mockTrade = {
         user_id: intent.userId,
         strategy_id: intent.strategyId,
