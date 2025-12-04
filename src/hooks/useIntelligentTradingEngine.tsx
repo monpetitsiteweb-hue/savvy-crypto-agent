@@ -18,6 +18,9 @@ import { getFeaturesForEngine } from '@/lib/api/features';
 // PHASE 1-4 REFACTOR: Exposure-based risk management
 import { calculateExposure, canBuySymbol, findBestSymbolForTrade } from '@/utils/exposureCalculator';
 import { isSymbolInCooldown, recordTradeForCooldown, getCooldownMs } from '@/utils/symbolCooldown';
+// Debug utilities - registers global functions for console access
+import '@/utils/signalSeeder';
+import { logEngineCycle, createSymbolDecision, CycleLog, SymbolDecisionLog } from '@/utils/engineDebugLogger';
 
 // Global debug object declaration
 declare global {
@@ -55,9 +58,10 @@ const isAutorunDisabled = () => {
   return (window as any).__INTELLIGENT_DISABLE_AUTORUN === true;
 };
 
-// Suppressible console log for engine - COMPLETELY SILENT
-const engineConsoleLog = (..._args: any[]) => {
-  // All engine logs suppressed
+// Suppressible console log for engine - ENABLED for debugging
+const engineConsoleLog = (...args: any[]) => {
+  if (isLogSuppressed()) return;
+  console.log('[IntelligentEngine]', ...args);
 };
 
 // Helper to write debug stage and push to history
@@ -996,6 +1000,7 @@ export const useIntelligentTradingEngine = () => {
     });
     
     let buysExecuted = 0;
+    const symbolDecisions: SymbolDecisionLog[] = []; // Collect per-symbol decisions for cycle log
     
     for (const coin of coinsToAnalyze) {
       const baseSymbol = coin; // BTC, ETH, etc.
@@ -1041,6 +1046,14 @@ export const useIntelligentTradingEngine = () => {
       });
       
       if (!exposureCheck.allowed) {
+        symbolDecisions.push(createSymbolDecision(symbol, {
+          blockedByExposure: true,
+          exposureCurrent: exposureCheck.details?.currentExposure || 0,
+          exposureLimit: exposureCheck.details?.maxExposure || 0,
+          blockedByMaxActiveCoins: exposureCheck.reason.includes('max_active_coins'),
+          activeCoins: exposure.uniqueCoinsWithExposure,
+          maxActiveCoins: exposure.maxActiveCoins,
+        }, 'blocked_by_exposure', exposureCheck.reason));
         writeDebugStage('buy_opportunity_skip_exposure_limit', { 
           symbol, 
           reason: exposureCheck.reason,
@@ -1054,6 +1067,10 @@ export const useIntelligentTradingEngine = () => {
       const cooldownCheck = isSymbolInCooldown(symbol, 'buy', cooldownMs);
       
       if (cooldownCheck.inCooldown) {
+        symbolDecisions.push(createSymbolDecision(symbol, {
+          blockedByCooldown: true,
+          cooldownRemainingMs: cooldownCheck.remainingMs,
+        }, 'blocked_by_cooldown', `Cooldown: ${Math.ceil(cooldownCheck.remainingMs / 1000)}s remaining`));
         writeDebugStage('buy_opportunity_skip_cooldown', { 
           symbol, 
           remainingMs: cooldownCheck.remainingMs,
@@ -1073,13 +1090,20 @@ export const useIntelligentTradingEngine = () => {
       });
       
       if (!buySignal) {
+        symbolDecisions.push(createSymbolDecision(symbol, {
+          signalFusionResult: 'no_signals',
+        }, 'no_buy_signal', 'No valid bullish signal found in live_signals'));
         writeDebugStage('buy_opportunity_no_signal', { symbol });
         continue;
       }
 
-      // Execute buy
+      // Execute buy - signal exists
+      symbolDecisions.push(createSymbolDecision(symbol, {
+        hasValidBullishSignal: true,
+        signalFusionResult: 'bullish',
+      }, 'eligible_for_intelligent_auto_buy', buySignal.reason));
       writeDebugStage('buy_opportunity_executing', { 
-        symbol, 
+        symbol,
         price: currentData.price,
         reason: buySignal.reason,
       });
@@ -1117,6 +1141,18 @@ export const useIntelligentTradingEngine = () => {
       coinsAnalyzed: coinsToAnalyze.length,
       buysExecuted,
     });
+    
+    // Log structured cycle for easy debugging
+    const cycleLog: CycleLog = {
+      cycleId: `cycle_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      mode: (config?.is_test_mode || config?.enableTestTrading) ? 'TEST_ALWAYS_BUY' : 'INTELLIGENT_AUTO',
+      symbolDecisions,
+      intentEmitted: buysExecuted > 0,
+      intentSymbol: buysExecuted > 0 ? coinsToAnalyze.find(c => symbolDecisions.find(d => d.symbol === `${c}-EUR` && d.finalDecision.includes('eligible'))) + '-EUR' : undefined,
+      intentSide: buysExecuted > 0 ? 'BUY' : undefined,
+    };
+    logEngineCycle(cycleLog);
     
     return buysExecuted;
   };
