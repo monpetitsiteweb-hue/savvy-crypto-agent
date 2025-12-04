@@ -19,48 +19,53 @@ import { toBaseSymbol } from './symbols';
 export interface TradeRow {
   id: string;
   user_id: string;
-  strategy_id: string | null;
+  strategy_id: string;
   trade_type: 'buy' | 'sell';
   cryptocurrency: string;
   amount: number;
   price: number;
   total_value: number;
   executed_at: string;
-  is_test_mode?: boolean;
   original_trade_id?: string | null;
-  original_purchase_amount?: number | null;
-  original_purchase_value?: number | null;
-  original_purchase_price?: number | null;
-  exit_value?: number | null;
-  realized_pnl?: number | null;
-  realized_pnl_pct?: number | null;
+  is_test_mode?: boolean;
 }
 
 export interface OpenLot {
-  lotId: string;           // ID of the original BUY trade
-  cryptocurrency: string;  // Base symbol (BTC, ETH, etc.)
-  originalAmount: number;  // Amount from original BUY
-  soldAmount: number;      // Total amount sold from this lot
-  remainingAmount: number; // originalAmount - soldAmount
-  entryPrice: number;      // Price from original BUY
-  entryValue: number;      // Total value from original BUY
-  entryDate: string;       // executed_at from original BUY
+  lotId: string;           // BUY trade id
+  symbol: string;
+  entryPrice: number;
+  entryDate: string;
+  originalAmount: number;
+  remainingAmount: number;
+  soldAmount: number;
+  entryValue: number;      // originalAmount * entryPrice
+  remainingValue: number;  // remainingAmount * entryPrice
+  // Per-lot unrealized P&L (computed with current price)
+  unrealizedPnl?: number;
+  unrealizedPnlPct?: number;
+  ageMs?: number;          // milliseconds since entry
 }
 
 export interface ClosedLot {
   lotId: string;
-  cryptocurrency: string;
-  amount: number;
+  symbol: string;
   entryPrice: number;
-  entryValue: number;
-  entryDate: string;
   exitPrice: number;
-  exitValue: number;
+  entryDate: string;
   exitDate: string;
+  amount: number;
   realizedPnl: number;
   realizedPnlPct: number;
-  sellTradeId: string;     // ID of the SELL trade that closed this lot
+  sellTradeId: string;
 }
+
+// Close modes for SELL intents
+export type CloseMode = 
+  | 'TP_SELECTIVE'    // Only close profitable lots meeting criteria
+  | 'SL_FULL_FLUSH'   // Close all lots (stop loss hit)
+  | 'AUTO_CLOSE_ALL'  // Time-based close all
+  | 'MANUAL_LOT'      // Manual close of specific lot
+  | 'MANUAL_SYMBOL';  // Manual close of symbol (FIFO)
 
 export interface SellOrder {
   lotId: string;           // ID of the BUY lot being closed
@@ -138,7 +143,7 @@ export function reconstructOpenLots(trades: TradeRow[], symbolFilter?: string): 
     );
     
     for (const sell of symbolSellsNoLotId) {
-      let remainingToDeduct = sell.original_purchase_amount || sell.amount;
+      let remainingToDeduct = sell.amount;
       
       for (const buy of buys) {
         if (remainingToDeduct <= 0) break;
@@ -162,12 +167,13 @@ export function reconstructOpenLots(trades: TradeRow[], symbolFilter?: string): 
       if (remainingAmount > 0.00000001) { // Small epsilon for float comparison
         openLots.push({
           lotId: buy.id,
-          cryptocurrency: symbol,
+          symbol: symbol,
           originalAmount: buy.amount,
           soldAmount,
           remainingAmount,
           entryPrice: buy.price,
           entryValue: buy.total_value,
+          remainingValue: remainingAmount * buy.price,
           entryDate: buy.executed_at,
         });
       }
@@ -230,7 +236,7 @@ export function buildSellOrdersForLots(
     if (takeAmount > 0.00000001) {
       orders.push({
         lotId: lot.lotId,
-        cryptocurrency: lot.cryptocurrency,
+        cryptocurrency: lot.symbol,
         amount: takeAmount,
         entryPrice: lot.entryPrice,
         entryValue: takeAmount * lot.entryPrice, // Pro-rata entry value
@@ -268,7 +274,7 @@ export function calculateLotPnl(
 export function logLotState(openLots: OpenLot[], context: string): void {
   console.log(`[LOT_ENGINE][${context}] Open lots:`, openLots.length);
   openLots.forEach((lot, i) => {
-    console.log(`  [${i}] ${lot.cryptocurrency} lotId=${lot.lotId.substring(0, 8)}... remaining=${lot.remainingAmount.toFixed(8)} entry=€${lot.entryPrice.toFixed(2)}`);
+    console.log(`  [${i}] ${lot.symbol} lotId=${lot.lotId.substring(0, 8)}... remaining=${lot.remainingAmount.toFixed(8)} entry=€${lot.entryPrice.toFixed(2)}`);
   });
 }
 
@@ -290,7 +296,7 @@ export function calculatePooledSummary(openLots: OpenLot[]): Map<string, PooledP
   const summaryBySymbol = new Map<string, PooledPositionSummary>();
   
   for (const lot of openLots) {
-    const existing = summaryBySymbol.get(lot.cryptocurrency);
+    const existing = summaryBySymbol.get(lot.symbol);
     
     if (existing) {
       existing.totalRemainingAmount += lot.remainingAmount;
@@ -303,8 +309,8 @@ export function calculatePooledSummary(openLots: OpenLot[]): Map<string, PooledP
         existing.newestEntryDate = lot.entryDate;
       }
     } else {
-      summaryBySymbol.set(lot.cryptocurrency, {
-        symbol: lot.cryptocurrency,
+      summaryBySymbol.set(lot.symbol, {
+        symbol: lot.symbol,
         totalRemainingAmount: lot.remainingAmount,
         totalEntryValue: lot.remainingAmount * lot.entryPrice,
         averageEntryPrice: lot.entryPrice,
@@ -333,4 +339,136 @@ export function logPooledSummary(summaryBySymbol: Map<string, PooledPositionSumm
   summaryBySymbol.forEach((summary, symbol) => {
     console.log(`  ${symbol}: ${summary.lotCount} lots, remaining=${summary.totalRemainingAmount.toFixed(8)}, avgPrice=€${summary.averageEntryPrice.toFixed(2)}, value=€${summary.totalEntryValue.toFixed(2)}`);
   });
+}
+
+/**
+ * Enrich open lots with unrealized P&L and age
+ * Used by engine to make per-lot decisions
+ */
+export function enrichLotsWithUnrealizedPnl(
+  openLots: OpenLot[], 
+  currentPrice: number,
+  nowMs: number = Date.now()
+): OpenLot[] {
+  return openLots.map(lot => {
+    const currentValue = lot.remainingAmount * currentPrice;
+    const entryValue = lot.remainingAmount * lot.entryPrice;
+    const unrealizedPnl = currentValue - entryValue;
+    const unrealizedPnlPct = entryValue > 0 ? (unrealizedPnl / entryValue) * 100 : 0;
+    const ageMs = nowMs - new Date(lot.entryDate).getTime();
+    
+    return {
+      ...lot,
+      unrealizedPnl: Math.round(unrealizedPnl * 100) / 100,
+      unrealizedPnlPct: Math.round(unrealizedPnlPct * 100) / 100,
+      ageMs,
+    };
+  });
+}
+
+/**
+ * Build SELL orders for TP_SELECTIVE mode
+ * Only closes lots that are:
+ * - Individually profitable (P&L >= tpThresholdPct)
+ * - Old enough (age >= minHoldMs)
+ * - Uses FIFO order among qualifying lots
+ * 
+ * @param enrichedLots - Lots with unrealizedPnlPct and ageMs populated
+ * @param tpThresholdPct - TP threshold in percent (e.g. 5 for 5%)
+ * @param minHoldMs - Minimum hold period in milliseconds
+ * @param maxAmount - Maximum total amount to sell (optional, defaults to all qualifying lots)
+ */
+export function buildSelectiveTpSellOrders(
+  enrichedLots: OpenLot[],
+  tpThresholdPct: number,
+  minHoldMs: number,
+  maxAmount?: number
+): SellOrder[] {
+  // Filter to only profitable lots meeting criteria
+  const qualifyingLots = enrichedLots.filter(lot => {
+    const meetsProfit = (lot.unrealizedPnlPct ?? 0) >= tpThresholdPct;
+    const meetsAge = (lot.ageMs ?? 0) >= minHoldMs;
+    return meetsProfit && meetsAge;
+  });
+  
+  // Sort by entry date (FIFO - oldest profitable first)
+  qualifyingLots.sort((a, b) => 
+    new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime()
+  );
+  
+  console.log(`[LOT_ENGINE][TP_SELECTIVE] Qualifying lots: ${qualifyingLots.length} of ${enrichedLots.length} (threshold=${tpThresholdPct}%, minHold=${minHoldMs}ms)`);
+  
+  const orders: SellOrder[] = [];
+  let remaining = maxAmount ?? Infinity;
+  
+  for (const lot of qualifyingLots) {
+    if (remaining <= 0.00000001) break;
+    
+    const takeAmount = Math.min(remaining, lot.remainingAmount);
+    
+    if (takeAmount > 0.00000001) {
+      orders.push({
+        lotId: lot.lotId,
+        cryptocurrency: lot.symbol,
+        amount: takeAmount,
+        entryPrice: lot.entryPrice,
+        entryValue: takeAmount * lot.entryPrice,
+      });
+      
+      remaining -= takeAmount;
+      
+      console.log(`  [TP_SELECTIVE] Close lot ${lot.lotId.substring(0, 8)}... amount=${takeAmount.toFixed(8)} pnl=${lot.unrealizedPnlPct?.toFixed(2)}%`);
+    }
+  }
+  
+  return orders;
+}
+
+/**
+ * Build SELL orders for SL_FULL_FLUSH mode
+ * Closes ALL lots for a symbol (stop loss triggered)
+ * Uses FIFO order
+ */
+export function buildFullFlushSellOrders(openLots: OpenLot[]): SellOrder[] {
+  // Sort by entry date (FIFO)
+  const sortedLots = [...openLots].sort((a, b) => 
+    new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime()
+  );
+  
+  console.log(`[LOT_ENGINE][SL_FULL_FLUSH] Flushing all ${sortedLots.length} lots`);
+  
+  return sortedLots.map(lot => ({
+    lotId: lot.lotId,
+    cryptocurrency: lot.symbol,
+    amount: lot.remainingAmount,
+    entryPrice: lot.entryPrice,
+    entryValue: lot.remainingAmount * lot.entryPrice,
+  }));
+}
+
+/**
+ * Calculate pooled unrealized P&L for a symbol
+ * Used to check pooled TP/SL thresholds
+ */
+export function calculatePooledUnrealizedPnl(
+  openLots: OpenLot[], 
+  currentPrice: number
+): { unrealizedPnl: number; unrealizedPnlPct: number; totalEntryValue: number; totalCurrentValue: number } {
+  let totalEntryValue = 0;
+  let totalCurrentValue = 0;
+  
+  for (const lot of openLots) {
+    totalEntryValue += lot.remainingAmount * lot.entryPrice;
+    totalCurrentValue += lot.remainingAmount * currentPrice;
+  }
+  
+  const unrealizedPnl = totalCurrentValue - totalEntryValue;
+  const unrealizedPnlPct = totalEntryValue > 0 ? (unrealizedPnl / totalEntryValue) * 100 : 0;
+  
+  return {
+    unrealizedPnl: Math.round(unrealizedPnl * 100) / 100,
+    unrealizedPnlPct: Math.round(unrealizedPnlPct * 100) / 100,
+    totalEntryValue: Math.round(totalEntryValue * 100) / 100,
+    totalCurrentValue: Math.round(totalCurrentValue * 100) / 100,
+  };
 }

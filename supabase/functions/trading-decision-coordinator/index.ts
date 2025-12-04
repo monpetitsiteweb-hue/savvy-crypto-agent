@@ -3450,10 +3450,21 @@ async function executeTradeOrder(
         
         // Skip coverage enforcement - allow manual SELL to proceed
         
-      // ========= BRANCH D: PER-LOT SELL LOGIC (REPLACES LEGACY BULK SELL) =========
-      // NEW ARCHITECTURE: Each BUY lot gets its own SELL row with original_trade_id
+      // ========= BRANCH D: PER-LOT SELL LOGIC (HYBRID TP/SL MODEL) =========
+      // Architecture: Pooled triggers, per-lot execution
+      // CloseMode from intent metadata determines which lots to close:
+      //   - TP_SELECTIVE: Only close lots where lot P&L >= TP threshold AND age >= minHold
+      //   - SL_FULL_FLUSH: Close ALL lots (stop loss hit)
+      //   - AUTO_CLOSE_ALL: Close ALL lots (time-based)
+      //   - MANUAL_SYMBOL: Close by FIFO up to qtySuggested
       } else {
-        console.log(`🎯 COORDINATOR: Per-Lot SELL - reconstructing open lots for ${baseSymbol}`);
+        // Extract closeMode from intent metadata
+        const closeMode = intent.metadata?.closeMode || 'MANUAL_SYMBOL';
+        const tpThresholdPct = intent.metadata?.tpThresholdPct ?? 3; // Default 3% TP for selective
+        const minHoldMs = intent.metadata?.minHoldMs ?? 60000; // Default 1 min hold
+        
+        console.log(`🎯 COORDINATOR: Per-Lot SELL [${closeMode}] - reconstructing open lots for ${baseSymbol}`);
+        console.log(`  Config: tpThreshold=${tpThresholdPct}%, minHold=${minHoldMs}ms`);
         
         // Fetch ALL buy trades with IDs for per-lot tracking
         const { data: buyTrades } = await supabaseClient
@@ -3500,20 +3511,26 @@ async function executeTradeOrder(
         const legacySells = (sellTrades || []).filter(s => !s.original_trade_id);
         let legacySellRemaining = legacySells.reduce((sum, s) => sum + parseFloat(s.amount), 0);
 
-        // Reconstruct open lots with remaining amounts
-        interface OpenLot {
+        // Reconstruct open lots with remaining amounts AND unrealized P&L
+        interface EnrichedOpenLot {
           lotId: string;
           originalAmount: number;
           remainingAmount: number;
           entryPrice: number;
           entryValue: number;
+          entryDate: string;
+          ageMs: number;
+          unrealizedPnl: number;
+          unrealizedPnlPct: number;
         }
         
-        const openLots: OpenLot[] = [];
+        const nowMs = Date.now();
+        const openLots: EnrichedOpenLot[] = [];
         
         for (const buy of buyTrades) {
           const buyAmount = parseFloat(buy.amount);
           const buyPrice = parseFloat(buy.price);
+          const entryDate = buy.executed_at;
           
           // Subtract targeted sells (with original_trade_id)
           let soldFromLot = soldByLotId.get(buy.id) || 0;
@@ -3530,19 +3547,30 @@ async function executeTradeOrder(
           const remaining = buyAmount - soldFromLot;
           
           if (remaining > 0.00000001) {
+            // Calculate per-lot unrealized P&L
+            const entryValue = remaining * buyPrice;
+            const currentValue = remaining * realMarketPrice;
+            const unrealizedPnl = currentValue - entryValue;
+            const unrealizedPnlPct = entryValue > 0 ? (unrealizedPnl / entryValue) * 100 : 0;
+            const ageMs = nowMs - new Date(entryDate).getTime();
+            
             openLots.push({
               lotId: buy.id,
               originalAmount: buyAmount,
               remainingAmount: remaining,
               entryPrice: buyPrice,
-              entryValue: remaining * buyPrice, // Pro-rata value for remaining
+              entryValue,
+              entryDate,
+              ageMs,
+              unrealizedPnl: Math.round(unrealizedPnl * 100) / 100,
+              unrealizedPnlPct: Math.round(unrealizedPnlPct * 100) / 100,
             });
           }
         }
 
         console.log(`[COORD][PER_LOT] Open lots for ${baseSymbol}:`, openLots.length);
         openLots.forEach((lot, i) => {
-          console.log(`  [${i}] lotId=${lot.lotId.substring(0, 8)}... remaining=${lot.remainingAmount.toFixed(8)} entry=€${lot.entryPrice.toFixed(2)}`);
+          console.log(`  [${i}] lotId=${lot.lotId.substring(0, 8)}... remaining=${lot.remainingAmount.toFixed(8)} entry=€${lot.entryPrice.toFixed(2)} pnl=${lot.unrealizedPnlPct.toFixed(2)}% age=${Math.round(lot.ageMs / 60000)}min`);
         });
 
         if (openLots.length === 0) {
@@ -3554,36 +3582,106 @@ async function executeTradeOrder(
           return { success: false, error: 'insufficient_position_size', effectiveConfig };
         }
 
-        // Build per-lot sell orders (FIFO)
+        // Build per-lot sell orders based on closeMode
         interface PerLotSellOrder {
           lotId: string;
           amount: number;
           entryPrice: number;
           entryValue: number;
+          unrealizedPnlPct: number;
         }
         
-        const perLotSellOrders: PerLotSellOrder[] = [];
-        let remainingToSell = qty;
-
-        for (const lot of openLots) {
-          if (remainingToSell <= 0.00000001) break;
+        let perLotSellOrders: PerLotSellOrder[] = [];
+        
+        if (closeMode === 'TP_SELECTIVE') {
+          // ========= TP_SELECTIVE: Only close profitable lots meeting criteria =========
+          console.log(`[COORD][TP_SELECTIVE] Filtering for profitable lots (threshold=${tpThresholdPct}%, minHold=${minHoldMs}ms)`);
           
-          const takeAmount = Math.min(remainingToSell, lot.remainingAmount);
+          // Filter to only profitable lots meeting criteria
+          const qualifyingLots = openLots.filter(lot => {
+            const meetsProfit = lot.unrealizedPnlPct >= tpThresholdPct;
+            const meetsAge = lot.ageMs >= minHoldMs;
+            console.log(`    Lot ${lot.lotId.substring(0, 8)}: pnl=${lot.unrealizedPnlPct.toFixed(2)}% (need ${tpThresholdPct}%), age=${Math.round(lot.ageMs / 60000)}min (need ${Math.round(minHoldMs / 60000)}min) → ${meetsProfit && meetsAge ? '✓' : '✗'}`);
+            return meetsProfit && meetsAge;
+          });
           
-          if (takeAmount > 0.00000001) {
-            perLotSellOrders.push({
-              lotId: lot.lotId,
-              amount: takeAmount,
-              entryPrice: lot.entryPrice,
-              entryValue: takeAmount * lot.entryPrice,
-            });
-            remainingToSell -= takeAmount;
+          // Sort by entry date (FIFO - oldest profitable first)
+          qualifyingLots.sort((a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime());
+          
+          console.log(`[COORD][TP_SELECTIVE] ${qualifyingLots.length}/${openLots.length} lots qualify for TP close`);
+          
+          // Close all qualifying lots (or up to qty if provided)
+          let remainingToSell = qty > 0 ? qty : Infinity;
+          
+          for (const lot of qualifyingLots) {
+            if (remainingToSell <= 0.00000001) break;
+            
+            const takeAmount = Math.min(remainingToSell, lot.remainingAmount);
+            
+            if (takeAmount > 0.00000001) {
+              perLotSellOrders.push({
+                lotId: lot.lotId,
+                amount: takeAmount,
+                entryPrice: lot.entryPrice,
+                entryValue: takeAmount * lot.entryPrice,
+                unrealizedPnlPct: lot.unrealizedPnlPct,
+              });
+              remainingToSell -= takeAmount;
+            }
+          }
+          
+          // If NO lots qualify for TP, BLOCK the sell
+          if (perLotSellOrders.length === 0) {
+            console.log(`🚫 COORDINATOR: TP_SELECTIVE blocked - no lots meet TP criteria`);
+            await logDecisionAsync(
+              supabaseClient, intent, 'BLOCK', 'no_lots_meet_tp_criteria',
+              { enableUnifiedDecisions: true } as UnifiedConfig, requestId, { realMarketPrice, closeMode, tpThresholdPct, minHoldMs, openLotCount: openLots.length }, undefined, realMarketPrice, effectiveConfig
+            );
+            return { success: false, error: 'no_lots_meet_tp_criteria', effectiveConfig };
+          }
+          
+        } else if (closeMode === 'SL_FULL_FLUSH' || closeMode === 'AUTO_CLOSE_ALL') {
+          // ========= SL_FULL_FLUSH / AUTO_CLOSE_ALL: Close ALL lots =========
+          console.log(`[COORD][${closeMode}] Flushing all ${openLots.length} lots`);
+          
+          // Sort by entry date (FIFO)
+          openLots.sort((a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime());
+          
+          perLotSellOrders = openLots.map(lot => ({
+            lotId: lot.lotId,
+            amount: lot.remainingAmount,
+            entryPrice: lot.entryPrice,
+            entryValue: lot.remainingAmount * lot.entryPrice,
+            unrealizedPnlPct: lot.unrealizedPnlPct,
+          }));
+          
+        } else {
+          // ========= MANUAL_SYMBOL / default: FIFO up to qtySuggested =========
+          console.log(`[COORD][${closeMode}] FIFO close up to qty=${qty}`);
+          
+          let remainingToSell = qty;
+          
+          for (const lot of openLots) {
+            if (remainingToSell <= 0.00000001) break;
+            
+            const takeAmount = Math.min(remainingToSell, lot.remainingAmount);
+            
+            if (takeAmount > 0.00000001) {
+              perLotSellOrders.push({
+                lotId: lot.lotId,
+                amount: takeAmount,
+                entryPrice: lot.entryPrice,
+                entryValue: takeAmount * lot.entryPrice,
+                unrealizedPnlPct: lot.unrealizedPnlPct,
+              });
+              remainingToSell -= takeAmount;
+            }
           }
         }
 
-        console.log(`[COORD][PER_LOT] Generated ${perLotSellOrders.length} per-lot sell orders`);
+        console.log(`[COORD][PER_LOT] Generated ${perLotSellOrders.length} per-lot sell orders [${closeMode}]`);
         perLotSellOrders.forEach((order, i) => {
-          console.log(`  [${i}] lotId=${order.lotId.substring(0, 8)}... sell=${order.amount.toFixed(8)} entry=€${order.entryPrice.toFixed(2)}`);
+          console.log(`  [${i}] lotId=${order.lotId.substring(0, 8)}... sell=${order.amount.toFixed(8)} entry=€${order.entryPrice.toFixed(2)} pnl=${order.unrealizedPnlPct.toFixed(2)}%`);
         });
 
         if (perLotSellOrders.length === 0) {
