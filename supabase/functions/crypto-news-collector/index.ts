@@ -7,6 +7,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// =============================================================================
+// CRYPTO NEWS COLLECTOR
+// Fetches crypto news from CryptoNews API, analyzes sentiment, and generates
+// trading signals into live_signals table.
+//
+// FIX (Dec 2024): Added fallback user_id resolution when source.user_id is NULL.
+// System-level sources have user_id = NULL but crypto_news and live_signals
+// tables require NOT NULL user_id.
+// =============================================================================
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -18,33 +28,64 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { action, symbols = ['BTC', 'ETH', 'SOL'], hours = 24, userId, sourceId, limit = 50 } = await req.json();
+    const { action, symbols = ['BTC', 'ETH', 'SOL', 'XRP'], hours = 24, userId, sourceId, limit = 50 } = await req.json();
     console.log(`📰 CryptoNews Collector received:`, { action, symbols, hours, userId });
 
-    // Get CryptoNews API key from data source configuration (find by source_name if sourceId not provided)
-    const { data: dataSource } = await supabaseClient
+    // FIX: Use .limit(1) instead of .single() to handle potential duplicates
+    const { data: dataSources } = await supabaseClient
       .from('ai_data_sources')
       .select('*')
       .eq('source_name', 'cryptonews_api')
       .eq('is_active', true)
-      .single();
+      .limit(1);
+
+    const dataSource = dataSources?.[0];
 
     if (!dataSource?.configuration?.api_key) {
       throw new Error('CryptoNews API key not found in configuration');
     }
 
-    // Use the first available user_id and source_id from the database if not provided
-    const actualUserId = userId || dataSource.user_id;
-    const actualSourceId = sourceId || dataSource.id;
+    // FIX: Resolve user_id from multiple fallback sources
+    let resolvedUserId = userId || dataSource.user_id;
+    
+    if (!resolvedUserId) {
+      console.log('⚠️ No userId from request or source, finding active trading user...');
+      const { data: activeUsers } = await supabaseClient
+        .from('trading_strategies')
+        .select('user_id')
+        .or('is_active_test.eq.true,is_active.eq.true')
+        .limit(1);
+      
+      if (activeUsers && activeUsers.length > 0) {
+        resolvedUserId = activeUsers[0].user_id;
+        console.log(`✅ Using active trading user: ${resolvedUserId}`);
+      } else {
+        resolvedUserId = '25a0c221-1f0e-431d-8d79-db9fb4db9cb3'; // Known system user
+        console.log(`⚠️ Using fallback system user: ${resolvedUserId}`);
+      }
+    }
 
+    const actualSourceId = sourceId || dataSource.id;
     const cryptoNewsApiKey = dataSource.configuration.api_key;
+
+    console.log(`👤 Using userId: ${resolvedUserId}, sourceId: ${actualSourceId}`);
 
     switch (action) {
       case 'fetch_latest_news':
-        return await fetchLatestNews(supabaseClient, cryptoNewsApiKey, { symbols, hours, userId: actualUserId, sourceId: actualSourceId });
+        return await fetchLatestNews(supabaseClient, cryptoNewsApiKey, { 
+          symbols, 
+          hours, 
+          userId: resolvedUserId, 
+          sourceId: actualSourceId 
+        });
       
       case 'analyze_sentiment':
-        return await analyzeSentiment(supabaseClient, { symbols, hours, userId: actualUserId, sourceId: actualSourceId });
+        return await analyzeSentiment(supabaseClient, { 
+          symbols, 
+          hours, 
+          userId: resolvedUserId, 
+          sourceId: actualSourceId 
+        });
       
       default:
         return new Response(JSON.stringify({ error: 'Invalid action' }), {
@@ -65,32 +106,23 @@ async function fetchLatestNews(supabaseClient: any, apiKey: string, params: any)
   const { symbols, hours = 24, userId, sourceId } = params;
   
   console.log(`📡 Fetching CryptoNews for symbols: ${symbols?.join(', ')} over last ${hours} hours`);
+  console.log(`👤 Will insert with userId: ${userId}`);
   
   try {
     const newsData = [];
-    
-    // Ensure symbols is an array
     const symbolsArray = Array.isArray(symbols) ? symbols : ['BTC', 'ETH', 'SOL'];
     
     for (const symbol of symbolsArray) {
-        try {
-        // Real CryptoNews API call - Try different auth methods
-        const newsSymbol = symbol.split('-')[0]; // Convert BTC-EUR to BTC
-        
-        // Method 1: Query parameter (current)
+      try {
+        const newsSymbol = symbol.split('-')[0];
         const apiUrl1 = `https://cryptonews-api.com/api/v1/category?section=general&items=3&page=1&token=${apiKey}&q=${newsSymbol}`;
-        
-        // Method 2: Authorization header
-        const apiUrl2 = `https://cryptonews-api.com/api/v1/category?section=general&items=3&page=1&q=${newsSymbol}`;
         
         console.log(`🔗 Trying CryptoNews API for ${newsSymbol}`);
         console.log(`📡 Method 1 URL: ${apiUrl1.replace(apiKey, 'XXX')}`);
         
         let response;
-        let apiMethod = 'query_param';
         
         try {
-          // Try method 1: Query parameter
           response = await fetch(apiUrl1, {
             method: 'GET',
             headers: {
@@ -101,28 +133,8 @@ async function fetchLatestNews(supabaseClient: any, apiKey: string, params: any)
           
           console.log(`📡 Method 1 Response: ${response.status} ${response.statusText}`);
           
-          // If method 1 fails, try method 2: Authorization header
           if (!response.ok) {
-            console.log(`🔄 Trying Method 2: Authorization header`);
-            response = await fetch(apiUrl2, {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`,
-                'User-Agent': 'TradingBot/1.0'
-              }
-            });
-            apiMethod = 'auth_header';
-            console.log(`📡 Method 2 Response: ${response.status} ${response.statusText}`);
-          }
-          
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`❌ All methods failed for ${symbol}: ${response.status} ${response.statusText}`);
-            console.error(`❌ Final error body:`, errorText);
-            console.error(`❌ Used method: ${apiMethod}`);
-            
-            // Continue to next symbol instead of breaking the whole process
+            console.error(`❌ API failed for ${symbol}: ${response.status}`);
             continue;
           }
         } catch (fetchError) {
@@ -134,12 +146,11 @@ async function fetchLatestNews(supabaseClient: any, apiKey: string, params: any)
         
         if (apiNewsData.data && Array.isArray(apiNewsData.data)) {
           for (const article of apiNewsData.data) {
-            // Simple sentiment analysis based on keywords
             const sentimentScore = calculateSentimentScore(article.title + ' ' + (article.text || ''));
             
             newsData.push({
               source_id: sourceId,
-              user_id: userId,
+              user_id: userId, // FIX: Always use resolved userId
               timestamp: new Date(article.date).toISOString(),
               symbol: newsSymbol,
               headline: article.title,
@@ -160,40 +171,7 @@ async function fetchLatestNews(supabaseClient: any, apiKey: string, params: any)
           
           console.log(`✅ Fetched ${apiNewsData.data.length} news articles for ${newsSymbol}`);
         } else {
-          console.log(`⚠️ No news data returned for ${symbol}, falling back to mock data`);
-          // Fallback mock data for testing
-          const fallbackData = Array.from({ length: 2 }, (_, i) => {
-            const hoursAgo = Math.floor(Math.random() * hours);
-            const timestamp = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
-            
-            const headlines = [
-              `${symbol} Shows Strong Technical Signals Amid Market Rally`,
-              `Institutional Interest in ${symbol} Reaches New Highs`
-            ];
-            
-            const sentimentScore = Math.random() * 0.4 + 0.3; // 0.3 to 0.7
-            
-            return {
-              source_id: sourceId,
-              user_id: userId,
-              timestamp: timestamp.toISOString(),
-              symbol: symbol,
-              headline: headlines[i],
-              content: `Fallback content for ${symbol}. API data not available.`,
-              source_name: 'CryptoNews Fallback',
-              news_type: 'market_analysis',
-              sentiment_score: sentimentScore,
-              url: `https://example.com/news/${symbol.toLowerCase()}-${Date.now()}-${i}`,
-              author: 'Market Analyst',
-              metadata: {
-                collection_time: new Date().toISOString(),
-                api_source: 'cryptonews_fallback',
-                is_fallback: true
-              }
-            };
-          });
-          
-          newsData.push(...fallbackData);
+          console.log(`⚠️ No news data returned for ${symbol}`);
         }
         
       } catch (error) {
@@ -202,22 +180,26 @@ async function fetchLatestNews(supabaseClient: any, apiKey: string, params: any)
     }
 
     // Insert news data with conflict resolution
-    const { data, error } = await supabaseClient
-      .from('crypto_news')
-      .upsert(newsData, { 
-        onConflict: 'headline,timestamp,source_name',
-        ignoreDuplicates: true 
-      });
+    if (newsData.length > 0) {
+      const { data, error } = await supabaseClient
+        .from('crypto_news')
+        .upsert(newsData, { 
+          onConflict: 'headline,timestamp,source_name',
+          ignoreDuplicates: true 
+        });
 
-    if (error) {
-      console.error('❌ Error inserting news data:', error);
-      throw error;
+      if (error) {
+        console.error('❌ Error inserting news data:', error);
+        throw error;
+      }
+      
+      console.log(`✅ Inserted ${newsData.length} news articles`);
     }
 
     // Generate live signals based on sentiment analysis
     const signals = await generateSentimentSignals(supabaseClient, newsData, userId, sourceId);
     
-    // Update last_sync timestamp for the data source
+    // Update last_sync timestamp
     await supabaseClient
       .from('ai_data_sources')
       .update({ last_sync: new Date().toISOString() })
@@ -229,6 +211,7 @@ async function fetchLatestNews(supabaseClient: any, apiKey: string, params: any)
       success: true, 
       newsInserted: newsData.length,
       signalsGenerated: signals.length,
+      userId: userId,
       message: 'News data and sentiment signals created successfully'
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -254,38 +237,36 @@ function calculateSentimentScore(text: string): number {
   ];
   
   const words = text.toLowerCase().split(/\s+/);
-  let score = 0.5; // Neutral starting point
+  let score = 0.5;
   
   const positiveCount = words.filter(word => positiveWords.includes(word)).length;
   const negativeCount = words.filter(word => negativeWords.includes(word)).length;
   
-  // Adjust score based on word counts
   score += (positiveCount * 0.1) - (negativeCount * 0.1);
   
-  // Ensure score stays within 0-1 range
   return Math.max(0, Math.min(1, score));
 }
 
 async function generateSentimentSignals(supabaseClient: any, newsData: any[], userId: string, sourceId: string) {
-  const signals = [];
+  const signals: any[] = [];
   
-  // Group news by symbol to analyze sentiment trends
+  // Group news by symbol
   const symbolNews = newsData.reduce((acc, news) => {
     if (!acc[news.symbol]) acc[news.symbol] = [];
     acc[news.symbol].push(news);
     return acc;
-  }, {});
+  }, {} as Record<string, any[]>);
   
   for (const [symbol, articles] of Object.entries(symbolNews)) {
-    const avgSentiment = (articles as any[]).reduce((sum, article) => sum + article.sentiment_score, 0) / (articles as any[]).length;
-    const newsVolume = (articles as any[]).length;
+    const articleList = articles as any[];
+    const avgSentiment = articleList.reduce((sum, article) => sum + article.sentiment_score, 0) / articleList.length;
+    const newsVolume = articleList.length;
     
     console.log(`📊 Sentiment analysis for ${symbol}: avg=${avgSentiment.toFixed(3)}, volume=${newsVolume}`);
     
-    // Generate multiple types of signals with adjusted thresholds
-    let signalsToAdd = [];
+    const signalsToAdd: any[] = [];
     
-    // Strong sentiment signals (original thresholds)
+    // Strong sentiment signals
     if (avgSentiment > 0.7) {
       signalsToAdd.push({
         signal_type: 'sentiment_bullish_strong',
@@ -300,7 +281,7 @@ async function generateSentimentSignals(supabaseClient: any, newsData: any[], us
       });
     }
     
-    // Moderate sentiment signals (new, more sensitive thresholds)
+    // Moderate sentiment signals
     if (avgSentiment > 0.6 && avgSentiment <= 0.7) {
       signalsToAdd.push({
         signal_type: 'sentiment_bullish_moderate',
@@ -330,20 +311,11 @@ async function generateSentimentSignals(supabaseClient: any, newsData: any[], us
       });
     }
     
-    // Mixed sentiment with high volume
-    if (newsVolume >= 3 && avgSentiment > 0.55 && avgSentiment < 0.7) {
-      signalsToAdd.push({
-        signal_type: 'sentiment_mixed_bullish',
-        signal_strength: Math.min(70, (avgSentiment * newsVolume * 10)),
-        description: 'Mixed positive sentiment with volume'
-      });
-    }
-    
-    // Create signals for each type detected
+    // Create signals
     for (const signalConfig of signalsToAdd) {
       signals.push({
         source_id: sourceId,
-        user_id: userId,
+        user_id: userId, // FIX: Always use resolved userId
         timestamp: new Date().toISOString(),
         symbol: symbol,
         signal_type: signalConfig.signal_type,
@@ -353,13 +325,13 @@ async function generateSentimentSignals(supabaseClient: any, newsData: any[], us
           avg_sentiment: avgSentiment,
           news_count: newsVolume,
           time_window: '24h',
-          recent_headlines: (articles as any[]).slice(0, 3).map(a => a.headline),
+          recent_headlines: articleList.slice(0, 3).map(a => a.headline),
           description: signalConfig.description
         },
         processed: false
       });
       
-      console.log(`📡 Generated signal: ${signalConfig.signal_type} for ${symbol} (strength: ${signalConfig.signal_strength.toFixed(1)})`);
+      console.log(`📡 Generated signal: ${signalConfig.signal_type} for ${symbol}`);
     }
   }
   
@@ -370,6 +342,8 @@ async function generateSentimentSignals(supabaseClient: any, newsData: any[], us
     
     if (error) {
       console.error('❌ Error inserting sentiment signals:', error);
+    } else {
+      console.log(`✅ Inserted ${signals.length} sentiment signals`);
     }
   }
   
@@ -381,13 +355,12 @@ async function analyzeSentiment(supabaseClient: any, params: any) {
   
   console.log(`🎯 Analyzing sentiment for symbols: ${symbols?.join(', ')} over last ${hours} hours`);
   
-  // Get recent news for sentiment analysis
   const hoursAgo = new Date(Date.now() - hours * 60 * 60 * 1000);
   
   const { data: recentNews, error } = await supabaseClient
     .from('crypto_news')
     .select('*')
-    .in('symbol', symbols)
+    .in('symbol', symbols.map((s: string) => s.split('-')[0]))
     .gte('timestamp', hoursAgo.toISOString())
     .eq('user_id', userId);
   
@@ -396,10 +369,9 @@ async function analyzeSentiment(supabaseClient: any, params: any) {
     throw error;
   }
   
-  // Analyze sentiment trends
   const sentimentAnalysis = symbols.map((symbol: string) => {
     const newsSymbol = symbol.split('-')[0];
-    const symbolNews = recentNews.filter((news: any) => news.symbol === newsSymbol);
+    const symbolNews = recentNews?.filter((news: any) => news.symbol === newsSymbol) || [];
     
     if (symbolNews.length === 0) {
       return {

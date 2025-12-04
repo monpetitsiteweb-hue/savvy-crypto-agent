@@ -7,14 +7,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
 };
 
-// ============================================================================
-// SYMBOL MAPPING: Local symbols (EUR-based) → EODHD crypto symbols (USD-based)
-// NOTE: EODHD only provides USD-based crypto pairs with .CC suffix.
-// We map our local symbols for the API call but store the original local symbol
-// in market_ohlcv_raw. FX conversion will be handled in a later iteration.
-// ============================================================================
+// =============================================================================
+// EODHD COLLECTOR
+// Fetches OHLCV data from EODHD API, stores in market_ohlcv_raw, and generates
+// trading signals (volume spikes, volatility, breakouts) into live_signals.
+//
+// FIX (Dec 2024): Added fallback user_id resolution when source.user_id is NULL.
+// System-level sources have user_id = NULL but live_signals requires NOT NULL.
+// =============================================================================
+
 const EODHD_CRYPTO_SYMBOL_MAP: Record<string, string> = {
-  // Original coins
   'AAVE-EUR': 'AAVE-USD.CC',
   'ADA-EUR': 'ADA-USD.CC',
   'ALGO-EUR': 'ALGO-USD.CC',
@@ -35,7 +37,6 @@ const EODHD_CRYPTO_SYMBOL_MAP: Record<string, string> = {
   'USDT-EUR': 'USDT-USD.CC',
   'XLM-EUR': 'XLM-USD.CC',
   'XRP-EUR': 'XRP-USD.CC',
-  // Extended coins (Coinbase + EODHD supported)
   'APT-EUR': 'APT-USD.CC',
   'ARB-EUR': 'ARB-USD.CC',
   'DOGE-EUR': 'DOGE-USD.CC',
@@ -53,24 +54,18 @@ const EODHD_CRYPTO_SYMBOL_MAP: Record<string, string> = {
   'XTZ-EUR': 'XTZ-USD.CC',
 };
 
-/**
- * Maps a local symbol (e.g. "BTC-EUR") to an EODHD crypto symbol (e.g. "BTC-USD.CC").
- * If no mapping exists, falls back to appending .CC to the symbol.
- */
 function toEodhdCryptoSymbol(localSymbol: string): string {
   if (EODHD_CRYPTO_SYMBOL_MAP[localSymbol]) {
     return EODHD_CRYPTO_SYMBOL_MAP[localSymbol];
   }
-  // Fallback: extract base asset and append -USD.CC
   const base = localSymbol.split('-')[0];
   return `${base}-USD.CC`;
 }
 
-// Granularity mapping for EODHD intervals
 const GRANULARITY_MAP: Record<string, string> = {
-  '1m': '1h',   // Map 1min to 1h granularity bucket
-  '5m': '1h',   // Map 5min to 1h granularity bucket
-  '15m': '1h',  // Map 15min to 1h granularity bucket
+  '1m': '1h',
+  '5m': '1h',
+  '15m': '1h',
   '1h': '1h',
   '4h': '4h',
   '1d': '24h',
@@ -82,7 +77,6 @@ serve(async (req) => {
   }
 
   try {
-    // Validate cron secret for scheduled invocations (optional for manual testing)
     const cronSecret = req.headers.get('x-cron-secret');
     const expectedSecret = Deno.env.get('CRON_SECRET');
     const isScheduledRun = cronSecret && cronSecret.trim() === expectedSecret?.trim();
@@ -94,7 +88,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Get active eodhd data sources (supports both 'eodhd' and 'eodhd_api')
+    // Get active eodhd data sources
     const { data: sources, error: sourcesError } = await supabaseClient
       .from('ai_data_sources')
       .select('*')
@@ -115,6 +109,22 @@ serve(async (req) => {
       });
     }
 
+    // FIX: Resolve fallback user_id for system sources
+    let fallbackUserId: string | null = null;
+    const { data: activeUsers } = await supabaseClient
+      .from('trading_strategies')
+      .select('user_id')
+      .or('is_active_test.eq.true,is_active.eq.true')
+      .limit(1);
+    
+    if (activeUsers && activeUsers.length > 0) {
+      fallbackUserId = activeUsers[0].user_id;
+      console.log(`📋 Fallback user for signals: ${fallbackUserId}`);
+    } else {
+      fallbackUserId = '25a0c221-1f0e-431d-8d79-db9fb4db9cb3'; // Known system user
+      console.log(`⚠️ Using hardcoded fallback user: ${fallbackUserId}`);
+    }
+
     console.log(`📊 Found ${sources.length} active EODHD source(s)`);
 
     let totalSignalsCreated = 0;
@@ -128,7 +138,10 @@ serve(async (req) => {
         continue;
       }
 
-      // Get symbols from configuration - support EUR symbols
+      // FIX: Use source.user_id if available, otherwise fallback
+      const effectiveUserId = source.user_id || fallbackUserId;
+      console.log(`👤 Using userId for source ${source.id}: ${effectiveUserId}`);
+
       const rawSymbols = source.configuration?.symbols || ['BTC-EUR', 'ETH-EUR'];
       const symbols: string[] = Array.isArray(rawSymbols) ? rawSymbols : [rawSymbols];
       const interval = source.configuration?.interval || '1h';
@@ -137,15 +150,10 @@ serve(async (req) => {
       processedSources.push(source.id);
 
       for (const symbol of symbols) {
-        // symbol here is the "local" symbol from config (e.g. "BTC-EUR")
         const localSymbol = symbol;
         
         try {
-          // Map local symbol to EODHD crypto symbol for API call
-          // e.g. "BTC-EUR" → "BTC-USD.CC" (EODHD only has USD-based crypto pairs)
           const eodhdSymbol = toEodhdCryptoSymbol(localSymbol);
-          
-          // Build EODHD intraday URL
           const baseUrl = (source.configuration?.base_url ?? 'https://eodhd.com/api/').replace(/\/$/, '');
           const url = `${baseUrl}/intraday/${encodeURIComponent(eodhdSymbol)}?api_token=${encodeURIComponent(apiKey)}&interval=${encodeURIComponent(interval)}&fmt=json`;
           
@@ -153,23 +161,18 @@ serve(async (req) => {
           const response = await fetch(url);
           
           if (!response.ok) {
-            // Log both local and remote symbols for debugging, hide API key
-            console.error(`❌ EODHD API error for ${localSymbol} (remote: ${eodhdSymbol}) – status ${response.status} ${response.statusText} – path: /intraday/${eodhdSymbol}`);
+            console.error(`❌ EODHD API error for ${localSymbol} (remote: ${eodhdSymbol}) – status ${response.status}`);
             continue;
           }
 
-          // Safe JSON parsing - avoid crash on invalid response body
           let data;
           try {
             data = await response.json();
           } catch (jsonErr) {
-            console.error(`❌ Invalid JSON from EODHD for ${localSymbol} (remote: ${eodhdSymbol}).`);
-            const text = await response.text().catch(() => "<unreadable>");
-            console.error("Raw response:", text.slice(0, 500));
+            console.error(`❌ Invalid JSON from EODHD for ${localSymbol}`);
             continue;
           }
 
-          // Limit number of candles to reduce memory
           const MAX_CANDLES = 300;
           if (Array.isArray(data) && data.length > MAX_CANDLES) {
             data = data.slice(-MAX_CANDLES);
@@ -182,56 +185,55 @@ serve(async (req) => {
 
           console.log(`📈 Received ${data.length} candles for ${localSymbol}`);
 
-          // ============================================================
-          // PART 1: Store OHLCV data into market_ohlcv_raw
-          // NOTE: We store the LOCAL symbol (e.g. "BTC-EUR") in the DB,
-          // even though the actual price data is USD-based from EODHD.
-          // FX conversion will be handled in a later iteration.
-          // ============================================================
+          // Store OHLCV data - filter out invalid candles
           const granularity = GRANULARITY_MAP[interval] || '1h';
-          
-          // Map EODHD response to market_ohlcv_raw format
-          const ohlcvRows = data.map((candle: any) => ({
-            symbol: localSymbol, // Keep original local symbol (e.g., BTC-EUR)
-            granularity: granularity,
-            ts_utc: new Date(candle.datetime || candle.timestamp * 1000).toISOString(),
-            open: parseFloat(candle.open),
-            high: parseFloat(candle.high),
-            low: parseFloat(candle.low),
-            close: parseFloat(candle.close),
-            volume: parseFloat(candle.volume || 0),
-          }));
+          const ohlcvRows = data
+            .filter((candle: any) => {
+              const open = parseFloat(candle.open);
+              const high = parseFloat(candle.high);
+              const low = parseFloat(candle.low);
+              const close = parseFloat(candle.close);
+              return !isNaN(open) && !isNaN(high) && !isNaN(low) && !isNaN(close) &&
+                     open > 0 && high > 0 && low > 0 && close > 0;
+            })
+            .map((candle: any) => ({
+              symbol: localSymbol,
+              granularity: granularity,
+              ts_utc: new Date(candle.datetime || candle.timestamp * 1000).toISOString(),
+              open: parseFloat(candle.open),
+              high: parseFloat(candle.high),
+              low: parseFloat(candle.low),
+              close: parseFloat(candle.close),
+              volume: parseFloat(candle.volume || 0),
+            }));
 
-          // Upsert OHLCV data (idempotent - no duplicates, no .select() to reduce memory)
-          const { error: ohlcvError } = await supabaseClient
-            .from('market_ohlcv_raw')
-            .upsert(ohlcvRows, {
-              onConflict: 'symbol,granularity,ts_utc',
-              ignoreDuplicates: true
-            });
+          if (ohlcvRows.length > 0) {
+            const { error: ohlcvError } = await supabaseClient
+              .from('market_ohlcv_raw')
+              .upsert(ohlcvRows, {
+                onConflict: 'symbol,granularity,ts_utc',
+                ignoreDuplicates: true
+              });
 
-          if (ohlcvError) {
-            console.error(`❌ Error upserting OHLCV for ${localSymbol}:`, ohlcvError.message);
-          } else {
-            totalOhlcvRowsInserted += ohlcvRows.length;
-            console.log(`✅ Upserted ${ohlcvRows.length} OHLCV rows for ${localSymbol} (${granularity})`);
+            if (ohlcvError) {
+              console.error(`❌ Error upserting OHLCV for ${localSymbol}:`, ohlcvError.message);
+            } else {
+              totalOhlcvRowsInserted += ohlcvRows.length;
+              console.log(`✅ Upserted ${ohlcvRows.length} OHLCV rows for ${localSymbol} (${granularity})`);
+            }
           }
 
-          // ============================================================
-          // PART 2: Generate trading signals (existing behavior)
-          // ============================================================
-          if (data.length >= 20) {
+          // Generate trading signals with VALID user_id
+          if (data.length >= 20 && effectiveUserId) {
             const recentData = data.slice(-20);
             const latest = recentData[recentData.length - 1];
             const prices = recentData.map((d: any) => parseFloat(d.close));
             const volumes = recentData.map((d: any) => parseFloat(d.volume || 0));
 
-            // Calculate metrics
             const avgVolume = volumes.reduce((a: number, b: number) => a + b, 0) / volumes.length;
             const latestVolume = parseFloat(latest.volume || 0);
             const priceChangePct = ((prices[prices.length - 1] - prices[0]) / prices[0]) * 100;
             
-            // Calculate volatility (standard deviation of price changes)
             const priceChanges = prices.slice(1).map((p: number, i: number) => (p - prices[i]) / prices[i]);
             const avgChange = priceChanges.reduce((a: number, b: number) => a + b, 0) / priceChanges.length;
             const volatility = Math.sqrt(
@@ -240,11 +242,11 @@ serve(async (req) => {
 
             const signals: any[] = [];
 
-            // Detect volume spike
+            // Volume spike
             if (latestVolume > avgVolume * 2.0) {
               signals.push({
                 source_id: source.id,
-                user_id: source.user_id,
+                user_id: effectiveUserId, // FIX: Use resolved user_id
                 timestamp: new Date(latest.datetime || latest.timestamp * 1000).toISOString(),
                 symbol: localSymbol,
                 signal_type: 'eodhd_intraday_volume_spike',
@@ -261,11 +263,11 @@ serve(async (req) => {
               });
             }
 
-            // Detect unusual volatility
+            // Unusual volatility
             if (volatility > 0.01) {
               signals.push({
                 source_id: source.id,
-                user_id: source.user_id,
+                user_id: effectiveUserId,
                 timestamp: new Date(latest.datetime || latest.timestamp * 1000).toISOString(),
                 symbol: localSymbol,
                 signal_type: 'eodhd_unusual_volatility',
@@ -281,11 +283,11 @@ serve(async (req) => {
               });
             }
 
-            // Detect price breakouts
+            // Price breakouts
             if (priceChangePct > 3) {
               signals.push({
                 source_id: source.id,
-                user_id: source.user_id,
+                user_id: effectiveUserId,
                 timestamp: new Date(latest.datetime || latest.timestamp * 1000).toISOString(),
                 symbol: localSymbol,
                 signal_type: 'eodhd_price_breakout_bullish',
@@ -302,7 +304,7 @@ serve(async (req) => {
             } else if (priceChangePct < -3) {
               signals.push({
                 source_id: source.id,
-                user_id: source.user_id,
+                user_id: effectiveUserId,
                 timestamp: new Date(latest.datetime || latest.timestamp * 1000).toISOString(),
                 symbol: localSymbol,
                 signal_type: 'eodhd_price_breakdown_bearish',
@@ -318,7 +320,6 @@ serve(async (req) => {
               });
             }
 
-            // Insert signals into live_signals
             if (signals.length > 0) {
               const { error: signalError } = await supabaseClient
                 .from('live_signals')

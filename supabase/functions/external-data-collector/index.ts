@@ -144,6 +144,22 @@ async function syncAllDataSources(supabaseClient: any, userId: string) {
   console.log(`✅ Synced ${sources.length} data sources from enabled categories`);
 }
 
+// =============================================================================
+// FIX (Dec 2024): Added helper to resolve fallback user_id for system sources
+// =============================================================================
+async function resolveFallbackUserId(supabaseClient: any): Promise<string> {
+  const { data: activeUsers } = await supabaseClient
+    .from('trading_strategies')
+    .select('user_id')
+    .or('is_active_test.eq.true,is_active.eq.true')
+    .limit(1);
+  
+  if (activeUsers && activeUsers.length > 0) {
+    return activeUsers[0].user_id;
+  }
+  return '25a0c221-1f0e-431d-8d79-db9fb4db9cb3'; // Known system user fallback
+}
+
 async function syncDataSource(supabaseClient: any, sourceId: string) {
   console.log(`🔄 Starting sync for source ID: ${sourceId}`);
   
@@ -163,7 +179,13 @@ async function syncDataSource(supabaseClient: any, sourceId: string) {
     throw new Error('Data source not found');
   }
 
-  console.log(`🔄 Syncing ${source.source_name} (ID: ${sourceId})...`);
+  // FIX: Resolve fallback user_id for system-level sources
+  if (!source.user_id) {
+    source.user_id = await resolveFallbackUserId(supabaseClient);
+    console.log(`👤 Resolved fallback user_id for ${source.source_name}: ${source.user_id}`);
+  }
+
+  console.log(`🔄 Syncing ${source.source_name} (ID: ${sourceId}) with user_id: ${source.user_id}...`);
 
   switch (source.source_name) {
     case 'arkham_intelligence':
