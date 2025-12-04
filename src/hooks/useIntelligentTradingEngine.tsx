@@ -2542,10 +2542,12 @@ export const useIntelligentTradingEngine = () => {
   };
 
   // Position Management
+  // NOTE: This calculates POOLED positions per symbol (Σ BUYs - Σ SELLs)
+  // For lot-level tracking, see lotEngine.ts
   const calculateOpenPositions = async (): Promise<Position[]> => {
     if (!user?.id) return [];
 
-    engineLog('POSITIONS: Starting position calculation for user: ' + user.id);
+    engineLog('POSITIONS: Starting POOLED position calculation for user: ' + user.id);
 
     const { data: buyTrades } = await supabase
       .from('mock_trades')
@@ -2562,30 +2564,20 @@ export const useIntelligentTradingEngine = () => {
       .eq('trade_type', 'sell')
       .eq('is_test_mode', true);
 
-    engineLog('POSITIONS: Buy trades found: ' + (buyTrades?.length || 0));
+    engineLog('POSITIONS: Buy trades (lots) found: ' + (buyTrades?.length || 0));
     engineLog('POSITIONS: Sell trades found: ' + (sellTrades?.length || 0));
     
-    if (buyTrades?.length) {
-      engineConsoleLog('🧮 POSITIONS: Sample buy trades:', buyTrades.slice(0, 3).map(t => ({
-        symbol: t.cryptocurrency,
-        amount: t.amount,
-        executed_at: t.executed_at
-      })));
-    }
-    
-    if (sellTrades?.length) {
-      engineConsoleLog('🧮 POSITIONS: Sample sell trades:', sellTrades.slice(0, 3).map(t => ({
-        symbol: t.cryptocurrency,
-        amount: t.amount,
-        executed_at: t.executed_at
-      })));
-    }
+    // Count sells with/without original_trade_id for debugging
+    // Cast to any to access original_trade_id which exists in DB but not in strict types
+    const sellsWithLotId = sellTrades?.filter(t => (t as any).original_trade_id)?.length || 0;
+    const sellsWithoutLotId = sellTrades?.filter(t => !(t as any).original_trade_id)?.length || 0;
+    engineLog(`POSITIONS: Sells with original_trade_id: ${sellsWithLotId}, without: ${sellsWithoutLotId}`);
 
     if (!buyTrades) return [];
 
     const positions: Record<string, Position> = {};
 
-    // Add buy trades with normalized symbols
+    // Add buy trades with normalized symbols (POOLED aggregation)
     buyTrades.forEach(trade => {
       // Normalize symbol - remove -EUR suffix if present
       const symbol = trade.cryptocurrency.replace('-EUR', '');
@@ -2608,26 +2600,18 @@ export const useIntelligentTradingEngine = () => {
       }
     });
 
-    engineConsoleLog('🧮 POSITIONS: Positions after buy trades:', Object.keys(positions).length);
-
-    // Subtract sell trades with normalized symbols
+    // Subtract sell trades with normalized symbols (POOLED deduction)
     if (sellTrades) {
       sellTrades.forEach(trade => {
         // Normalize symbol - remove -EUR suffix if present
         const symbol = trade.cryptocurrency.replace('-EUR', '');
-        engineConsoleLog('🧮 POSITIONS: Processing sell trade for', symbol, 'amount:', trade.amount);
         if (positions[symbol]) {
-          const beforeAmount = positions[symbol].remaining_amount;
           positions[symbol].remaining_amount -= trade.amount;
-          engineConsoleLog('🧮 POSITIONS: Updated', symbol, 'from', beforeAmount, 'to', positions[symbol].remaining_amount);
           
           // Remove position if completely sold
           if (positions[symbol].remaining_amount <= 0.000001) {
-            engineConsoleLog('🧮 POSITIONS: Removing position', symbol, 'due to zero balance');
             delete positions[symbol];
           }
-        } else {
-          engineConsoleLog('🧮 POSITIONS: Warning - sell trade for', symbol, 'but no position found!');
         }
       });
     }
@@ -2641,7 +2625,17 @@ export const useIntelligentTradingEngine = () => {
       return false;
     });
 
-    engineConsoleLog('🧮 POSITIONS: Final open positions:', finalPositions.length);
+    // Log pooled summary for debugging (ENGINE level)
+    console.log('[ENGINE][POSITIONS] Pooled positions summary:', {
+      totalSymbols: finalPositions.length,
+      positions: finalPositions.map(p => ({
+        symbol: p.cryptocurrency,
+        remaining: p.remaining_amount.toFixed(8),
+        avgPrice: p.average_price.toFixed(2),
+        oldestDate: p.oldest_purchase_date
+      }))
+    });
+
     return finalPositions;
   };
 

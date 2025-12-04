@@ -317,6 +317,18 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const getOpenPositionsList = () => {
     if (trades.length === 0) return [] as Trade[];
     const { openLots } = buildFifoLots(trades);
+    
+    // Log open lots for debugging (UI level)
+    console.log('[UI][OPEN_POSITIONS] Open lots:', {
+      lotsCount: openLots.length,
+      symbols: [...new Set(openLots.map(t => t.cryptocurrency))],
+      totalsPerSymbol: openLots.reduce((acc, lot) => {
+        const sym = toBaseSymbol(lot.cryptocurrency);
+        acc[sym] = (acc[sym] || 0) + lot.amount;
+        return acc;
+      }, {} as Record<string, number>)
+    });
+    
     return openLots.sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime());
   };
 
@@ -633,6 +645,21 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
 
     return (
       <Card className="p-4 hover:shadow-md transition-shadow" data-testid="past-position-card">
+        {/* Lot-Linked Indicator for SELL trades */}
+        {trade.trade_type === 'sell' && (
+          <div className="flex gap-2 mb-2">
+            {trade.original_trade_id ? (
+              <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
+                Lot-Linked
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30">
+                Legacy (FIFO)
+              </Badge>
+            )}
+          </div>
+        )}
+        
         {trade.is_corrupted && (
           <TooltipProvider>
             <Tooltip>
@@ -819,6 +846,16 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
 
   const openPositions = getOpenPositionsList();
   const pastPositions = trades.filter(t => t.trade_type === 'sell');
+  
+  // Log past positions lot-linking status for debugging
+  const pastWithLotId = pastPositions.filter(t => t.original_trade_id).length;
+  const pastWithoutLotId = pastPositions.filter(t => !t.original_trade_id).length;
+  console.log('[UI][PAST_POSITIONS] Sells:', {
+    total: pastPositions.length,
+    withOriginalTradeId: pastWithLotId,
+    withoutOriginalTradeId: pastWithoutLotId,
+    lotLinkingPct: pastPositions.length > 0 ? Math.round((pastWithLotId / pastPositions.length) * 100) : 0
+  });
   
   // Pagination for both open and past positions  
   const totalPastPages = Math.ceil(pastPositions.length / PAGE_SIZE);
