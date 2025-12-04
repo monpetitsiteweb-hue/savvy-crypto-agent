@@ -1588,35 +1588,74 @@ export const useIntelligentTradingEngine = () => {
   };
   
   // Signal Bucket Calculations (using existing data sources)
+  // ============================================================================
+  // SIGNAL BUCKET CALCULATIONS - Using REAL data from market_features_v0 and live_signals
+  // These functions query actual database tables with correct signal type names
+  // ============================================================================
+  
   const calculateTrendScore = async (symbol: string, side: 'BUY' | 'SELL'): Promise<number> => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
+      const fullSymbol = symbol.includes('-EUR') ? symbol : `${symbol}-EUR`;
       
-      // Use existing live_signals table for trend indicators
+      // PRIMARY: Use market_features_v0 for real EMA/MACD trend data
+      // NOTE: Casting to any because Supabase types are out of sync with actual schema
+      const { data: featuresRaw } = await supabase
+        .from('market_features_v0')
+        .select('*')
+        .eq('symbol', fullSymbol)
+        .order('ts_utc', { ascending: false })
+        .limit(1);
+      
+      const features = featuresRaw as any[] | null;
+      let trendScore = 0;
+      
+      if (features && features.length > 0) {
+        const f = features[0];
+        // EMA trend: EMA20 > EMA50 = bullish, EMA20 < EMA50 = bearish
+        if (f.ema_20 && f.ema_50) {
+          const emaTrend = (f.ema_20 - f.ema_50) / f.ema_50; // % above/below
+          trendScore += emaTrend * 2; // Scale up
+        }
+        // MACD: Positive = bullish, Negative = bearish
+        if (f.macd_line && f.macd_signal) {
+          const macdDiff = (f.macd_line - f.macd_signal) / Math.abs(f.macd_signal || 1);
+          trendScore += macdDiff * 0.5;
+        }
+        // 24h return as trend indicator
+        if (f.ret_24h) {
+          trendScore += f.ret_24h * 3; // 10% return = +0.3 score
+        }
+      }
+      
+      // SECONDARY: Also check live_signals for MA cross signals (extended window: 24h)
       const { data: signals } = await supabase
         .from('live_signals')
         .select('*')
-        .eq('symbol', baseSymbol)
-        .in('signal_type', ['ma_cross_bullish', 'ma_cross_bearish', 'trend_bullish', 'trend_bearish'])
-        .gte('timestamp', new Date(Date.now() - 3600000).toISOString()) // Last hour
+        .in('symbol', [baseSymbol, fullSymbol, 'ALL'])
+        .in('signal_type', ['ma_cross_bullish', 'ma_cross_bearish', 'price_breakout_bullish', 'price_breakout_bearish'])
+        .gte('timestamp', new Date(Date.now() - 86400000).toISOString()) // Last 24h
         .order('timestamp', { ascending: false })
         .limit(10);
       
-      if (!signals || signals.length === 0) return 0;
+      if (signals && signals.length > 0) {
+        signals.forEach((signal, idx) => {
+          const recency = 1 / (idx + 1); // More recent = higher weight
+          const strength = Math.min(1, (signal.signal_strength || 0) / 100); // Normalize 0-100 to 0-1
+          if (signal.signal_type.includes('bullish')) {
+            trendScore += recency * strength * 0.3;
+          } else if (signal.signal_type.includes('bearish')) {
+            trendScore -= recency * strength * 0.3;
+          }
+        });
+      }
       
-      // Score based on recent trend signals
-      let trendScore = 0;
-      signals.forEach(signal => {
-        const weight = 1 / (signals.indexOf(signal) + 1); // Recent signals weighted higher
-        const strength = signal.signal_strength || 0;
-        if (signal.signal_type.includes('bullish')) {
-          trendScore += side === 'BUY' ? weight * strength : -weight * strength;
-        } else if (signal.signal_type.includes('bearish')) {
-          trendScore += side === 'SELL' ? weight * strength : -weight * strength;
-        }
-      });
+      // Adjust for side: BUY wants positive trend, SELL wants negative trend
+      const finalScore = side === 'BUY' ? trendScore : -trendScore;
       
-      return Math.max(-1, Math.min(1, trendScore / 3)); // Normalize to [-1, 1]
+      console.log(`📊 [FUSION] Trend score for ${symbol} (${side}): ${finalScore.toFixed(3)} | features: ${features?.length || 0}, signals: ${signals?.length || 0}`);
+      
+      return Math.max(-1, Math.min(1, finalScore));
       
     } catch (error) {
       console.error('❌ TREND SCORE: Error calculating trend score:', error);
@@ -1626,15 +1665,36 @@ export const useIntelligentTradingEngine = () => {
   
   const calculateVolatilityScore = async (symbol: string): Promise<number> => {
     try {
-      // Mock volatility calculation - use price data variance as proxy
-      const baseSymbol = symbol.replace('-EUR', '');
-      const currentData = await getCurrentData([baseSymbol]);
-      const priceData = currentData[baseSymbol];
-      if (!priceData?.price) return 0.5;
+      const fullSymbol = symbol.includes('-EUR') ? symbol : `${symbol}-EUR`;
       
-      // Simple volatility proxy: score based on price level and time
-      const volatilityProxy = Math.sin(Date.now() / 100000) * 0.3 + 0.5;
-      return Math.max(-1, Math.min(1, volatilityProxy * 2 - 1)); // Convert to [-1, 1]
+      // Use REAL volatility data from market_features_v0
+      const { data: features } = await supabase
+        .from('market_features_v0')
+        .select('vol_1h, vol_4h, vol_24h, vol_7d, ret_1h, ret_24h')
+        .eq('symbol', fullSymbol)
+        .order('ts_utc', { ascending: false })
+        .limit(1);
+      
+      if (features && features.length > 0) {
+        const f = features[0];
+        // Use actual volatility metrics if available
+        const vol1h = f.vol_1h || 0;
+        const vol24h = f.vol_24h || 0;
+        const ret1h = Math.abs(f.ret_1h || 0);
+        const ret24h = Math.abs(f.ret_24h || 0);
+        
+        // Higher volatility = neutral to slightly negative (riskier)
+        // Score: Low vol = +0.5, High vol = -0.5
+        const avgVol = (vol1h + vol24h) / 2 || (ret1h + ret24h) / 2;
+        const volScore = avgVol > 0.05 ? -0.3 : avgVol > 0.02 ? 0 : 0.3;
+        
+        console.log(`📊 [FUSION] Volatility score for ${symbol}: ${volScore.toFixed(3)} | vol1h: ${vol1h?.toFixed(4)}, ret24h: ${ret24h?.toFixed(4)}`);
+        return volScore;
+      }
+      
+      // Fallback: slight positive bias (low volatility assumed)
+      console.log(`📊 [FUSION] Volatility score for ${symbol}: 0 (no data)`);
+      return 0;
       
     } catch (error) {
       console.error('❌ VOLATILITY SCORE: Error calculating volatility score:', error);
@@ -1645,31 +1705,72 @@ export const useIntelligentTradingEngine = () => {
   const calculateMomentumScore = async (symbol: string, side: 'BUY' | 'SELL'): Promise<number> => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
+      const fullSymbol = symbol.includes('-EUR') ? symbol : `${symbol}-EUR`;
       
-      // Use existing live_signals for momentum indicators
+      let momentumScore = 0;
+      
+      // PRIMARY: Use RSI from market_features_v0
+      // NOTE: Casting to any because Supabase types are out of sync with actual schema
+      const { data: featuresRaw } = await supabase
+        .from('market_features_v0')
+        .select('*')
+        .eq('symbol', fullSymbol)
+        .order('ts_utc', { ascending: false })
+        .limit(1);
+      
+      const features = featuresRaw as any[] | null;
+      if (features && features.length > 0) {
+        const f = features[0];
+        // RSI: < 30 = oversold (bullish), > 70 = overbought (bearish)
+        if (f.rsi_14) {
+          if (f.rsi_14 < 30) {
+            momentumScore += 0.5; // Oversold = bullish momentum
+          } else if (f.rsi_14 > 70) {
+            momentumScore -= 0.5; // Overbought = bearish momentum
+          } else {
+            momentumScore += (50 - f.rsi_14) / 100; // Neutral zone: slight bias
+          }
+        }
+        // Short-term returns as momentum
+        if (f.ret_1h) {
+          momentumScore += f.ret_1h * 5; // 1% 1h return = +0.05
+        }
+      }
+      
+      // SECONDARY: Check live_signals for RSI signals (CORRECT signal type names!)
       const { data: momentum } = await supabase
         .from('live_signals')
         .select('*')
-        .eq('symbol', baseSymbol)
-        .in('signal_type', ['momentum_bullish', 'momentum_bearish', 'rsi_oversold', 'rsi_overbought'])
+        .in('symbol', [baseSymbol, fullSymbol, 'ALL'])
+        .in('signal_type', [
+          'rsi_oversold_bullish',     // CORRECT name from DB
+          'rsi_overbought_bearish',   // CORRECT name from DB
+          'momentum_bullish', 
+          'momentum_bearish'
+        ])
+        .gte('timestamp', new Date(Date.now() - 86400000).toISOString()) // Last 24h
         .order('timestamp', { ascending: false })
-        .limit(5);
+        .limit(10);
       
-      if (!momentum || momentum.length === 0) return 0;
+      if (momentum && momentum.length > 0) {
+        momentum.forEach((signal, index) => {
+          const weight = 1 / (index + 1);
+          const strength = Math.min(1, (signal.signal_strength || 0) / 100); // Normalize
+          
+          if (signal.signal_type.includes('bullish') || signal.signal_type.includes('oversold')) {
+            momentumScore += weight * strength * 0.3;
+          } else if (signal.signal_type.includes('bearish') || signal.signal_type.includes('overbought')) {
+            momentumScore -= weight * strength * 0.3;
+          }
+        });
+      }
       
-      let momentumScore = 0;
-      momentum.forEach((signal, index) => {
-        const weight = 1 / (index + 1);
-        const strength = signal.signal_strength || 0;
-        
-        if (signal.signal_type.includes('bullish') || signal.signal_type === 'rsi_oversold') {
-          momentumScore += side === 'BUY' ? weight * strength : -weight * strength;
-        } else if (signal.signal_type.includes('bearish') || signal.signal_type === 'rsi_overbought') {
-          momentumScore += side === 'SELL' ? weight * strength : -weight * strength;
-        }
-      });
+      // Adjust for side
+      const finalScore = side === 'BUY' ? momentumScore : -momentumScore;
       
-      return Math.max(-1, Math.min(1, momentumScore)); // Normalize to [-1, 1]
+      console.log(`📊 [FUSION] Momentum score for ${symbol} (${side}): ${finalScore.toFixed(3)} | features: ${features?.length || 0}, signals: ${momentum?.length || 0}`);
+      
+      return Math.max(-1, Math.min(1, finalScore));
       
     } catch (error) {
       console.error('❌ MOMENTUM SCORE: Error calculating momentum score:', error);
@@ -1681,34 +1782,50 @@ export const useIntelligentTradingEngine = () => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
       
-      // Use existing live_signals for whale-related activity
+      // Check live_signals for whale-related activity (CORRECT signal type names!)
       const { data: whaleActivity } = await supabase
         .from('live_signals')
         .select('*')
-        .eq('symbol', baseSymbol)
-        .in('signal_type', ['whale_movement', 'large_volume', 'unusual_activity'])
-        .gte('timestamp', new Date(Date.now() - 1800000).toISOString()) // Last 30 min
+        .in('symbol', [baseSymbol, 'ALL']) // Whale signals often use 'ALL' for market-wide
+        .in('signal_type', [
+          'whale_exchange_inflow',    // CORRECT names from signal ingestion docs
+          'whale_exchange_outflow',
+          'whale_large_movement',
+          'whale_movement',
+          'whale_transfer',
+          'whale_usdt_injection',
+          'whale_usdc_injection'
+        ])
+        .gte('timestamp', new Date(Date.now() - 3600000).toISOString()) // Last hour
         .order('timestamp', { ascending: false })
-        .limit(5);
+        .limit(10);
       
-      if (!whaleActivity || whaleActivity.length === 0) return 0;
+      if (!whaleActivity || whaleActivity.length === 0) {
+        console.log(`📊 [FUSION] Whale score for ${symbol}: 0 (no whale signals)`);
+        return 0; // No whale data = neutral
+      }
       
       let whaleScore = 0;
       whaleActivity.forEach((activity, index) => {
         const weight = 1 / (index + 1);
-        const strength = activity.signal_strength || 0;
+        const strength = Math.min(1, (activity.signal_strength || 0) / 100);
         
-        // Positive strength = bullish activity, negative = bearish
-        if (strength > 0 && side === 'BUY') {
-          whaleScore += weight * Math.abs(strength);
-        } else if (strength < 0 && side === 'SELL') {
-          whaleScore += weight * Math.abs(strength);
+        // Exchange inflow = bearish (selling), outflow = bullish (accumulating)
+        if (activity.signal_type.includes('outflow') || activity.signal_type.includes('injection')) {
+          whaleScore += weight * strength; // Bullish
+        } else if (activity.signal_type.includes('inflow')) {
+          whaleScore -= weight * strength; // Bearish
         } else {
-          whaleScore -= weight * Math.abs(strength) * 0.5; // Opposing flow penalty
+          // Generic movement - slightly positive bias
+          whaleScore += weight * strength * 0.2;
         }
       });
       
-      return Math.max(-1, Math.min(1, whaleScore));
+      const finalScore = side === 'BUY' ? whaleScore : -whaleScore;
+      
+      console.log(`📊 [FUSION] Whale score for ${symbol} (${side}): ${finalScore.toFixed(3)} | signals: ${whaleActivity.length}`);
+      
+      return Math.max(-1, Math.min(1, finalScore));
       
     } catch (error) {
       console.error('❌ WHALE SCORE: Error calculating whale score:', error);
@@ -1720,47 +1837,49 @@ export const useIntelligentTradingEngine = () => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
       
-      // Use existing live_signals for sentiment and news
+      // Check live_signals for sentiment (CORRECT signal type names from DB!)
       const { data: sentimentSignals } = await supabase
         .from('live_signals')
         .select('*')
-        .eq('symbol', baseSymbol)
-        .in('signal_type', ['sentiment_bullish_strong', 'sentiment_bearish_strong', 'news_volume_spike'])
-        .gte('timestamp', new Date(Date.now() - 3600000).toISOString()) // Last hour
+        .in('symbol', [baseSymbol, 'ALL'])
+        .in('signal_type', [
+          'sentiment_bullish_strong',
+          'sentiment_bullish_moderate',  // CORRECT name from DB
+          'sentiment_bearish_strong',
+          'sentiment_bearish_moderate',  // CORRECT name from DB
+          'sentiment_mixed_bullish',     // CORRECT name from DB
+          'fear_index_extreme',          // CORRECT name from DB (bullish!)
+          'fear_index_moderate',
+          'greed_index_moderate'         // CORRECT name from DB (bearish!)
+        ])
+        .gte('timestamp', new Date(Date.now() - 86400000).toISOString()) // Last 24h (sentiment is slower)
         .order('timestamp', { ascending: false })
-        .limit(10);
+        .limit(20);
       
-      if (!sentimentSignals || sentimentSignals.length === 0) return 0;
+      if (!sentimentSignals || sentimentSignals.length === 0) {
+        console.log(`📊 [FUSION] Sentiment score for ${symbol}: 0 (no sentiment signals)`);
+        return 0;
+      }
       
       let sentimentScore = 0;
       sentimentSignals.forEach((signal, index) => {
         const weight = 1 / (index + 1);
-        const strength = signal.signal_strength || 0;
+        const strength = Math.min(1, (signal.signal_strength || 50) / 100);
         
-        if (signal.signal_type === 'sentiment_bullish_strong') {
-          sentimentScore += side === 'BUY' ? weight * Math.abs(strength) : -weight * Math.abs(strength) * 0.7;
-        } else if (signal.signal_type === 'sentiment_bearish_strong') {
-          sentimentScore += side === 'SELL' ? weight * Math.abs(strength) : -weight * Math.abs(strength) * 0.7;
-        } else if (signal.signal_type === 'news_volume_spike') {
-          // News volume alone is neutral - combine with recent sentiment
-          const hasPositiveSentiment = sentimentSignals.some(s => 
-            s.signal_type === 'sentiment_bullish_strong' && 
-            Math.abs(new Date(s.timestamp).getTime() - new Date(signal.timestamp).getTime()) < 300000
-          );
-          const hasNegativeSentiment = sentimentSignals.some(s => 
-            s.signal_type === 'sentiment_bearish_strong' && 
-            Math.abs(new Date(s.timestamp).getTime() - new Date(signal.timestamp).getTime()) < 300000
-          );
-          
-          if (hasPositiveSentiment) {
-            sentimentScore += side === 'BUY' ? weight * 0.5 : -weight * 0.8;
-          } else if (hasNegativeSentiment) {
-            sentimentScore += side === 'SELL' ? weight * 0.5 : -weight * 0.8;
-          }
+        if (signal.signal_type.includes('bullish') || signal.signal_type === 'fear_index_extreme' || signal.signal_type === 'fear_index_moderate') {
+          // Bullish sentiment OR fear = contrarian bullish
+          sentimentScore += weight * strength * 0.5;
+        } else if (signal.signal_type.includes('bearish') || signal.signal_type === 'greed_index_moderate') {
+          // Bearish sentiment OR greed = contrarian bearish
+          sentimentScore -= weight * strength * 0.5;
         }
       });
       
-      return Math.max(-1, Math.min(1, sentimentScore / 2));
+      const finalScore = side === 'BUY' ? sentimentScore : -sentimentScore;
+      
+      console.log(`📊 [FUSION] Sentiment score for ${symbol} (${side}): ${finalScore.toFixed(3)} | signals: ${sentimentSignals.length}`);
+      
+      return Math.max(-1, Math.min(1, finalScore));
       
     } catch (error) {
       console.error('❌ SENTIMENT SCORE: Error calculating sentiment score:', error);
