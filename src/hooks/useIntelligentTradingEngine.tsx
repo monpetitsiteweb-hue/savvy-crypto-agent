@@ -810,168 +810,23 @@ export const useIntelligentTradingEngine = () => {
       maxExposurePerCoinEUR: exposure.maxExposurePerCoinEUR.toFixed(2),
     });
     
-    // =====================================================================
-    // PHASE 1: TEST_ALWAYS_BUY - Uses EXPOSURE limits, not hasPosition
-    // =====================================================================
-    const isTestModeStrategy = config?.is_test_mode === true || config?.enableTestTrading === true || testMode;
-    
-    if (isTestModeStrategy) {
-      const selectedCoins: string[] = config.selectedCoins || ['BTC', 'ETH', 'XRP', 'SOL', 'ADA'];
-      
-      // PHASE 1 FIX: Find coin that passes exposure check (not "has no position")
-      const { symbol: availableSymbol, reason: selectionReason } = findBestSymbolForTrade(
-        selectedCoins.map(c => `${c}-EUR`),
-        exposure
-      );
-      
-      if (availableSymbol) {
-        const testSymbol = availableSymbol;
-        const testBaseSymbol = availableSymbol.replace('-EUR', '');
-        
-        // PHASE 4: Check per-symbol cooldown
-        const cooldownMs = getCooldownMs(config, 'buy');
-        const cooldownCheck = isSymbolInCooldown(testSymbol, 'buy', cooldownMs);
-        
-        if (cooldownCheck.inCooldown) {
-          console.log(`🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: ${testBaseSymbol} in cooldown (${Math.ceil(cooldownCheck.remainingMs / 1000)}s remaining) - trying next`);
-          writeDebugStage('test_always_buy_cooldown', { 
-            symbol: testBaseSymbol, 
-            remainingMs: cooldownCheck.remainingMs,
-            cooldownMs,
-          });
-        } else {
-          console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: Found coin within exposure limits:', testBaseSymbol, '- emitting intent');
-          
-          // Get current price from market data or cache
-          let testPrice = marketData[testSymbol]?.price || 0;
-          if (!testPrice) {
-            const cached = sharedPriceCache.get(testSymbol);
-            testPrice = cached?.price || 0;
-          }
-          
-          if (testPrice > 0) {
-            const testQty = (config.perTradeAllocation || 50) / testPrice;
-            
-            const testIntent = {
-              userId: user!.id,
-              strategyId: strategy.id,
-              symbol: testSymbol,
-              side: 'BUY' as const,
-              source: 'intelligent' as const,
-              confidence: 0.99,
-              reason: 'TEST_ALWAYS_BUY',
-              qtySuggested: testQty,
-              metadata: {
-                mode: 'mock',
-                engine: 'intelligent',
-                is_test_mode: true,
-                trigger: 'TEST_ALWAYS_BUY',
-                price: testPrice,
-                symbol_normalized: testSymbol,
-                // PHASE 1: Include exposure data for coordinator
-                exposure_check: canBuySymbol(testSymbol, exposure),
-              },
-              ts: new Date().toISOString(),
-            };
-            
-            console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: emitting intent', {
-              symbol: testSymbol,
-              price: testPrice,
-              qty: testQty,
-              confidence: 0.99,
-              exposureCheck: testIntent.metadata.exposure_check,
-            });
-            
-            writeDebugStage('test_always_buy_emitting', {
-              symbol: testSymbol,
-              price: testPrice,
-              qty: testQty,
-              strategyId: strategy.id,
-              exposureDetails: testIntent.metadata.exposure_check,
-            });
-            
-            try {
-              const { data: coordinatorResponse, error: coordError } = await supabase.functions.invoke('trading-decision-coordinator', {
-                body: { intent: testIntent }
-              });
-              
-              console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator response', coordinatorResponse, coordError);
-              
-              // Parse the coordinator response
-              let parsedDecision: any = null;
-              if (coordinatorResponse && !coordError) {
-                parsedDecision = typeof coordinatorResponse === 'string' ? JSON.parse(coordinatorResponse) : coordinatorResponse;
-              }
-              
-              const innerDecision = parsedDecision?.decision ?? parsedDecision ?? {};
-              const coordinatorAction = innerDecision?.action || parsedDecision?.action || null;
-              
-              console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: parsed decision', {
-                ok: parsedDecision?.ok,
-                action: coordinatorAction,
-                reason: innerDecision?.reason,
-              });
-              
-              // If coordinator approved BUY, use runCoordinatorApprovedMockBuy with preApprovedDecision
-              if (parsedDecision?.ok === true && coordinatorAction === 'BUY') {
-                console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator approved, calling runCoordinatorApprovedMockBuy');
-                
-                const result = await runCoordinatorApprovedMockBuy({
-                  userId: user!.id,
-                  strategyId: strategy.id,
-                  symbol: testSymbol,
-                  baseSymbol: testBaseSymbol,
-                  qty: testQty,
-                  price: testPrice,
-                  reason: 'TEST_ALWAYS_BUY',
-                  confidence: 0.99,
-                  strategyTrigger: 'INTELLIGENT_AUTO',
-                  extraMetadata: {
-                    test_always_buy: true,
-                  },
-                  preApprovedDecision: innerDecision,
-                });
-                
-                if (result.success) {
-                  // PHASE 4: Record cooldown after successful trade
-                  recordTradeForCooldown(testSymbol, 'buy');
-                  
-                  console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: SUCCESS! mock_trade inserted', result.mockTradeId);
-                  actionsPlanned.buy++;
-                  return 1;
-                } else {
-                  console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: helper returned failure', result.reason);
-                }
-              } else {
-                console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: coordinator did NOT approve BUY', {
-                  ok: parsedDecision?.ok,
-                  action: coordinatorAction,
-                  reason: innerDecision?.reason,
-                });
-              }
-            } catch (err) {
-              console.error('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: error', err);
-              writeDebugStage('test_always_buy_error', { error: String(err) });
-            }
-          } else {
-            console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: no valid price for', testSymbol, '- skipping');
-          }
-        }
-      } else {
-        // PHASE 1: Log exposure-based rejection instead of "all have positions"
-        console.log('🧪 [INTELLIGENT_AUTO] TEST_ALWAYS_BUY: No coins within exposure limits -', selectionReason);
-        writeDebugStage('test_always_buy_exposure_blocked', {
-          reason: selectionReason,
-          totalExposureEUR: exposure.totalExposureEUR,
-          maxWalletExposureEUR: exposure.maxWalletExposureEUR,
-          uniqueCoinsWithExposure: exposure.uniqueCoinsWithExposure,
-          maxActiveCoins: exposure.maxActiveCoins,
-        });
-      }
-    }
-    // =====================================================================
-    // END TEST_ALWAYS_BUY (PHASE 1)
-    // =====================================================================
+    // ========================================================================
+    // REMOVED: TEST_ALWAYS_BUY automatic BUY bypass (v2 architecture)
+    // ========================================================================
+    // Previously, this block would automatically emit BUY intents in test mode
+    // without going through the normal signal evaluation path. This created
+    // INCONSISTENT behavior where:
+    //   - BUYs bypassed fusion checks
+    //   - SELLs (TP/SL) were blocked by fusion with "signal_too_weak"
+    //
+    // Now in v2:
+    //   - ALL BUYs go through the normal signal-based path below
+    //   - The engine will only BUY when real signals are detected
+    //   - TP/SL/timeout exits ALWAYS bypass fusion (they're hard risk rules)
+    //
+    // To force a debug BUY manually (for testing), use console:
+    //   window.__INTELLIGENT_FORCE_DEBUG_TRADE = true
+    // ========================================================================
     
     // PHASE 3: Check UNIQUE COINS limit (not positions.length)
     if (exposure.uniqueCoinsWithExposure >= exposure.maxActiveCoins && !exposure.canAddNewCoin) {
@@ -1113,56 +968,26 @@ export const useIntelligentTradingEngine = () => {
       writeDebugStage('buy_opportunity_executed', { symbol, buysExecuted });
     }
     
-    // --- TEST MODE: force BUY if engine reached this point and no buys executed ---
-    // This confirms the pipe to the coordinator is working even if signals fail
+    // ========================================================================
+    // REMOVED: TEST_ALWAYS_BUY force-buy logic
+    // ========================================================================
+    // Previously, this block would force a BUY if no signals were found in test mode.
+    // This created INCONSISTENT behavior where:
+    //   - BUYs bypassed fusion (via TEST_ALWAYS_BUY)
+    //   - SELLs did NOT bypass fusion (blocked by signal_too_weak)
+    //
+    // Now: BUYs and SELLs both go through fusion consistently.
+    // If you need to force a test BUY, use the debug console:
+    //   window.__INTELLIGENT_FORCE_DEBUG_TRADE = true
+    // ========================================================================
     if ((config?.is_test_mode || config?.enableTestTrading) && buysExecuted === 0) {
-      // FIX: Find an eligible symbol that passes exposure limits
-      const { symbol: eligibleSymbol, reason: eligibilityReason } = findBestSymbolForTrade(
-        coinsToAnalyze.map(c => `${c}-EUR`),
-        exposure
-      );
-      
-      if (!eligibleSymbol) {
-        // NO ELIGIBLE SYMBOLS - Do NOT emit a BUY intent with undefined symbol
-        console.log('[INTELLIGENT_AUTO] TEST_ALWAYS_BUY: no eligible symbols within exposure limits, skipping debug BUY');
-        writeDebugStage('test_force_buy_skipped_no_eligible_symbols', {
-          reason: eligibilityReason || 'no_symbols_within_exposure_limits',
-          coinsAnalyzed: coinsToAnalyze.length,
-          exposure: {
-            totalExposureEUR: exposure.totalExposureEUR,
-            maxWalletExposureEUR: exposure.maxWalletExposureEUR,
-            uniqueCoinsWithExposure: exposure.uniqueCoinsWithExposure,
-            maxActiveCoins: exposure.maxActiveCoins,
-          }
-        });
-        // Do NOT proceed - no buysExecuted++ or executeTrade call
-      } else {
-        const forceBuySymbol = eligibleSymbol;
-        const forceBuyPrice = marketData[forceBuySymbol]?.price || sharedPriceCache.get(forceBuySymbol)?.price || 0;
-        
-        if (forceBuyPrice <= 0) {
-          console.log('[INTELLIGENT_AUTO] TEST_ALWAYS_BUY: no valid price for', forceBuySymbol, '- skipping debug BUY');
-          writeDebugStage('test_force_buy_skipped_no_price', { symbol: forceBuySymbol });
-        } else {
-          writeDebugStage('test_force_buy_path_triggered', { 
-            symbol: forceBuySymbol, 
-            price: forceBuyPrice,
-            reason: 'no_normal_buys_executed_forcing_test_buy'
-          });
-          
-          await executeTrade(
-            strategy,
-            'buy',                    // action
-            forceBuySymbol,           // cryptocurrency
-            forceBuyPrice,            // price
-            undefined,                // customAmount
-            'debug_force_buy',        // trigger
-            'ENTRY'                   // context
-          );
-          buysExecuted++;
-          actionsPlanned.buy++;
-        }
-      }
+      // Log that no signals were found (no forced BUY)
+      console.log('[INTELLIGENT_AUTO] No bullish signals found - no BUY executed (fusion-consistent mode)');
+      writeDebugStage('no_buys_executed_fusion_consistent', {
+        reason: 'no_valid_signals_found',
+        coinsAnalyzed: coinsToAnalyze.length,
+        hint: 'To force a test BUY, use: window.__INTELLIGENT_FORCE_DEBUG_TRADE = true'
+      });
     }
     
     writeDebugStage('buy_opportunities_summary', { 
@@ -2696,15 +2521,38 @@ export const useIntelligentTradingEngine = () => {
       action === 'buy' ? 'ENTRY' : 'MANUAL'
     );
     
-    // NEW: AI signal fusion evaluation
-    // TEST MODE BYPASS: Skip fusion gating for explicit test/debug triggers
-    const isTestBypassTrigger = 
-      trigger === 'debug_force_buy' ||
-      trigger === 'FORCED_DEBUG_TRADE' ||
-      trigger === 'TEST_ALWAYS_BUY' ||
-      (trigger === 'AUTO_CLOSE_TIME' && (config?.is_test_mode || config?.enableTestTrading || testMode));
+    // ========================================================================
+    // FUSION BYPASS LOGIC - CRITICAL ARCHITECTURE DECISION
+    // ========================================================================
+    // 
+    // RULE 1: HARD RISK EXITS (TP/SL/timeout) NEVER go through fusion.
+    //         Fusion is AI intelligence; risk rules are protection.
+    //         Fusion can NEVER override hard risk exits.
+    //
+    // RULE 2: BUY entries ALWAYS go through fusion (no hidden test bypasses).
+    //         This ensures consistent behavior between test and production.
+    //
+    // RULE 3: Only explicit debug triggers bypass fusion for BUYs.
+    //         These are clearly marked and disabled by default.
+    // ========================================================================
     
-    if (isAIEnabled && !isTestBypassTrigger) {
+    // HARD RISK EXITS: Always bypass fusion (TP/SL/timeout are non-negotiable)
+    const isHardRiskExit = 
+      trigger === 'TAKE_PROFIT' ||
+      trigger === 'STOP_LOSS' ||
+      trigger === 'TRAILING_STOP' ||
+      trigger === 'AUTO_CLOSE_TIME';
+    
+    // DEBUG-ONLY BYPASSES: Explicit debug triggers (disabled by default, manual activation only)
+    const isDebugBypass = 
+      trigger === 'debug_force_buy' ||
+      trigger === 'FORCED_DEBUG_TRADE';
+    
+    // Determine if we should skip fusion
+    const shouldSkipFusion = isHardRiskExit || isDebugBypass;
+    
+    if (isAIEnabled && !shouldSkipFusion) {
+      // NORMAL PATH: All BUYs and discretionary SELLs go through fusion
       engineConsoleLog('🧠 AI-FUSION: Evaluating signal fusion for', action, cryptocurrency, 'context:', tradeContext);
       
       writeDebugStage('execute_trade_ai_fusion_start', { action, cryptocurrency, tradeContext });
@@ -2745,20 +2593,36 @@ export const useIntelligentTradingEngine = () => {
       // Proceed with fusion-approved trade
       writeDebugStage('execute_trade_fusion_approved', { score: fusionResult.sTotalScore, reason: fusionResult.reason });
       engineConsoleLog('✅ SCALPSMART: Signal fusion approved -', fusionResult.reason, 'Score:', fusionResult.sTotalScore);
-    } else if (isTestBypassTrigger) {
-      // EXPLICIT TEST BYPASS: Log clearly that we're bypassing fusion for test/debug
-      console.log(`🧪 [FUSION][TEST_BYPASS] Overriding fusion gate for ${trigger}`, {
+      
+    } else if (isHardRiskExit) {
+      // HARD RISK EXIT PATH: TP/SL/timeout bypass fusion unconditionally
+      console.log(`🛡️ [RISK_EXIT] Hard risk exit bypasses fusion: ${trigger}`, {
         action,
         cryptocurrency,
         tradeContext,
         trigger,
-        isTestMode: config?.is_test_mode || config?.enableTestTrading || testMode,
+        reason: 'hard_risk_rule_always_executes'
       });
-      writeDebugStage('execute_trade_fusion_bypassed_test_mode', { 
+      writeDebugStage('execute_trade_hard_risk_exit_bypass', { 
         trigger, 
         action, 
         cryptocurrency,
-        reason: 'test_bypass_enabled' 
+        reason: 'TP/SL/timeout are hard risk rules - fusion cannot block' 
+      });
+      
+    } else if (isDebugBypass) {
+      // DEBUG PATH: Explicit debug triggers only (for development)
+      console.log(`🧪 [DEBUG_BYPASS] Debug trigger bypasses fusion: ${trigger}`, {
+        action,
+        cryptocurrency,
+        tradeContext,
+        trigger
+      });
+      writeDebugStage('execute_trade_debug_bypass', { 
+        trigger, 
+        action, 
+        cryptocurrency,
+        reason: 'explicit_debug_trigger' 
       });
     }
     
