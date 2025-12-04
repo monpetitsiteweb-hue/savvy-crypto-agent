@@ -1668,6 +1668,7 @@ export const useIntelligentTradingEngine = () => {
       const fullSymbol = symbol.includes('-EUR') ? symbol : `${symbol}-EUR`;
       
       // Use REAL volatility data from market_features_v0
+      // NOTE: vol_1h/vol_4h are often NULL for coarser granularities - prioritize vol_24h
       const { data: features } = await supabase
         .from('market_features_v0')
         .select('vol_1h, vol_4h, vol_24h, vol_7d, ret_1h, ret_24h')
@@ -1676,23 +1677,31 @@ export const useIntelligentTradingEngine = () => {
         .limit(1);
       
       if (features && features.length > 0) {
-        const f = features[0];
-        // Use actual volatility metrics if available
-        const vol1h = f.vol_1h || 0;
-        const vol24h = f.vol_24h || 0;
-        const ret1h = Math.abs(f.ret_1h || 0);
-        const ret24h = Math.abs(f.ret_24h || 0);
+        const f = features[0] as any;
+        // PRIORITIZE vol_24h since vol_1h is usually NULL for 4h/24h granularities
+        const vol24h = f.vol_24h ?? 0;
+        const vol7d = f.vol_7d ?? 0;
+        const ret24h = Math.abs(f.ret_24h ?? 0);
+        
+        // Use vol_24h as primary, fallback to ret_24h (as proxy for realized volatility)
+        const avgVol = vol24h > 0 ? vol24h : (vol7d > 0 ? vol7d : ret24h);
         
         // Higher volatility = neutral to slightly negative (riskier)
-        // Score: Low vol = +0.5, High vol = -0.5
-        const avgVol = (vol1h + vol24h) / 2 || (ret1h + ret24h) / 2;
-        const volScore = avgVol > 0.05 ? -0.3 : avgVol > 0.02 ? 0 : 0.3;
+        // Score: Low vol (<2%) = +0.3, Medium (2-5%) = 0, High (>5%) = -0.3
+        let volScore = 0;
+        if (avgVol > 0.05) {
+          volScore = -0.3; // High volatility = risky
+        } else if (avgVol > 0.02) {
+          volScore = 0;    // Medium volatility = neutral
+        } else if (avgVol > 0) {
+          volScore = 0.3;  // Low volatility = favorable
+        }
         
-        console.log(`📊 [FUSION] Volatility score for ${symbol}: ${volScore.toFixed(3)} | vol1h: ${vol1h?.toFixed(4)}, ret24h: ${ret24h?.toFixed(4)}`);
+        console.log(`📊 [FUSION] Volatility score for ${symbol}: ${volScore.toFixed(3)} | vol24h: ${vol24h?.toFixed(4)}, ret24h: ${ret24h?.toFixed(4)}, avgVol: ${avgVol?.toFixed(4)}`);
         return volScore;
       }
       
-      // Fallback: slight positive bias (low volatility assumed)
+      // Fallback: neutral (no data)
       console.log(`📊 [FUSION] Volatility score for ${symbol}: 0 (no data)`);
       return 0;
       
@@ -1837,22 +1846,28 @@ export const useIntelligentTradingEngine = () => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
       
-      // Check live_signals for sentiment (CORRECT signal type names from DB!)
+      // Check live_signals for sentiment - INCLUDES news_volume_spike from crypto_news collector!
       const { data: sentimentSignals } = await supabase
         .from('live_signals')
         .select('*')
         .in('symbol', [baseSymbol, 'ALL'])
         .in('signal_type', [
+          // Legacy sentiment signal types (rarely used)
           'sentiment_bullish_strong',
-          'sentiment_bullish_moderate',  // CORRECT name from DB
+          'sentiment_bullish_moderate',
           'sentiment_bearish_strong',
-          'sentiment_bearish_moderate',  // CORRECT name from DB
-          'sentiment_mixed_bullish',     // CORRECT name from DB
-          'fear_index_extreme',          // CORRECT name from DB (bullish!)
+          'sentiment_bearish_moderate',
+          'sentiment_mixed_bullish',
+          // Fear & Greed index signals
+          'fear_index_extreme',
           'fear_index_moderate',
-          'greed_index_moderate'         // CORRECT name from DB (bearish!)
+          'greed_index_moderate',
+          // NEWS SIGNALS - This is what crypto_news collector actually produces!
+          'news_volume_spike',        // Has data.avg_sentiment field!
+          'news_sentiment_bullish',
+          'news_sentiment_bearish'
         ])
-        .gte('timestamp', new Date(Date.now() - 86400000).toISOString()) // Last 24h (sentiment is slower)
+        .gte('timestamp', new Date(Date.now() - 86400000).toISOString()) // Last 24h
         .order('timestamp', { ascending: false })
         .limit(20);
       
@@ -1862,22 +1877,39 @@ export const useIntelligentTradingEngine = () => {
       }
       
       let sentimentScore = 0;
+      let signalsProcessed = 0;
+      
       sentimentSignals.forEach((signal, index) => {
         const weight = 1 / (index + 1);
+        const signalData = signal.data as any;
+        
+        // SPECIAL HANDLING for news_volume_spike - extract avg_sentiment from data field
+        if (signal.signal_type === 'news_volume_spike' && signalData?.avg_sentiment !== undefined) {
+          // avg_sentiment is 0-1 where 0.5 = neutral, >0.5 = bullish, <0.5 = bearish
+          const avgSentiment = signalData.avg_sentiment;
+          const sentimentBias = (avgSentiment - 0.5) * 2; // Convert to -1 to +1 range
+          sentimentScore += weight * sentimentBias * 0.4; // 0.4 weight for news sentiment
+          signalsProcessed++;
+          return;
+        }
+        
+        // Standard signal processing
         const strength = Math.min(1, (signal.signal_strength || 50) / 100);
         
         if (signal.signal_type.includes('bullish') || signal.signal_type === 'fear_index_extreme' || signal.signal_type === 'fear_index_moderate') {
           // Bullish sentiment OR fear = contrarian bullish
           sentimentScore += weight * strength * 0.5;
+          signalsProcessed++;
         } else if (signal.signal_type.includes('bearish') || signal.signal_type === 'greed_index_moderate') {
           // Bearish sentiment OR greed = contrarian bearish
           sentimentScore -= weight * strength * 0.5;
+          signalsProcessed++;
         }
       });
       
       const finalScore = side === 'BUY' ? sentimentScore : -sentimentScore;
       
-      console.log(`📊 [FUSION] Sentiment score for ${symbol} (${side}): ${finalScore.toFixed(3)} | signals: ${sentimentSignals.length}`);
+      console.log(`📊 [FUSION] Sentiment score for ${symbol} (${side}): ${finalScore.toFixed(3)} | signals: ${sentimentSignals.length}, processed: ${signalsProcessed}`);
       
       return Math.max(-1, Math.min(1, finalScore));
       
