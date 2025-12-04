@@ -1415,12 +1415,32 @@ export const useIntelligentTradingEngine = () => {
 
   const executeSellOrder = async (strategy: any, position: Position, marketPrice: number, sellDecision: {reason: string, orderType?: string}) => {
     try {
-      // Map sell decision reasons to proper context
+      // Map sell decision reasons to proper context and closeMode
       const context = sellDecision.reason === 'TAKE_PROFIT' ? 'TP' : 
-                     sellDecision.reason === 'STOP_LOSS' ? 'SL' : 'MANUAL';
+                     sellDecision.reason === 'STOP_LOSS' ? 'SL' : 
+                     sellDecision.reason === 'AUTO_CLOSE_TIME' ? 'MANUAL' : 'MANUAL';
       
-      engineConsoleLog('🎯 SELL ORDER: Executing with context:', context, 'reason:', sellDecision.reason);
-      await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason, context);
+      // Determine closeMode based on sell reason (hybrid model)
+      // TP_SELECTIVE: Only close profitable lots meeting TP threshold
+      // SL_FULL_FLUSH: Close ALL lots (stop loss)
+      // AUTO_CLOSE_ALL: Close ALL lots (time-based)
+      const closeMode = 
+        sellDecision.reason === 'TAKE_PROFIT' ? 'TP_SELECTIVE' :
+        sellDecision.reason === 'STOP_LOSS' ? 'SL_FULL_FLUSH' :
+        sellDecision.reason === 'AUTO_CLOSE_TIME' ? 'AUTO_CLOSE_ALL' : 
+        'MANUAL_SYMBOL';
+      
+      // Get TP threshold from config for selective close
+      const config = strategy.configuration || {};
+      const tpThresholdPct = config.takeProfitPercentage || 3;
+      const minHoldMs = config.minHoldPeriodMs || 300000;
+      
+      engineConsoleLog('🎯 SELL ORDER: Executing with context:', context, 'closeMode:', closeMode, 'reason:', sellDecision.reason);
+      await executeTrade(strategy, 'sell', position.cryptocurrency, marketPrice, position.remaining_amount, sellDecision.reason, context, {
+        closeMode,
+        tpThresholdPct,
+        minHoldMs
+      });
     } catch (error) {
       logger.error('ENGINE: Error in executeTrade:', error);
     }
@@ -2646,7 +2666,8 @@ export const useIntelligentTradingEngine = () => {
     price: number, 
     customAmount?: number,
     trigger?: string,
-    context?: 'ENTRY' | 'TP' | 'SL' | 'MANUAL'
+    context?: 'ENTRY' | 'TP' | 'SL' | 'MANUAL',
+    sellMetadata?: { closeMode?: string; tpThresholdPct?: number; minHoldMs?: number }
   ) => {
     // DEBUG INSTRUMENTATION: Track BUY execution pipeline
     writeDebugStage('execute_trade_called', {
@@ -2770,7 +2791,7 @@ export const useIntelligentTradingEngine = () => {
     console.log('[DEBUG][executeTrade] Calling emitTradeIntentToCoordinator...');
     
     engineConsoleLog('🎯 INTELLIGENT ENGINE: Using coordinator path (source: intelligent)');
-    return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger);
+    return await emitTradeIntentToCoordinator(strategy, action, cryptocurrency, price, customAmount, trigger, sellMetadata);
   };
 
   // Helper: Run coordinator-approved mock BUY (gates + mock_trades insert)
@@ -2986,10 +3007,11 @@ export const useIntelligentTradingEngine = () => {
     cryptocurrency: string, 
     price: number, 
     customAmount?: number,
-    trigger?: string
+    trigger?: string,
+    sellMetadata?: { closeMode?: string; tpThresholdPct?: number; minHoldMs?: number }
   ) => {
-    writeDebugStage('emit_coordinator_start', { action, cryptocurrency, price, trigger });
-    console.log('[DEBUG][emitTradeIntentToCoordinator] START:', { action, cryptocurrency, price });
+    writeDebugStage('emit_coordinator_start', { action, cryptocurrency, price, trigger, sellMetadata });
+    console.log('[DEBUG][emitTradeIntentToCoordinator] START:', { action, cryptocurrency, price, sellMetadata });
     
     try {
       // Fetch latest technical features for this symbol (hardcode 1h granularity for now)
@@ -3021,7 +3043,13 @@ export const useIntelligentTradingEngine = () => {
           symbol_normalized: cryptocurrency.replace('-EUR', ''),
           trigger: trigger,
           engineFeatures: engineFeatures, // can be null if fetch failed
-          is_test_mode: testMode // Include test mode flag in metadata
+          is_test_mode: testMode, // Include test mode flag in metadata
+          // SELL-specific metadata for hybrid lot model
+          ...(action === 'sell' && sellMetadata ? {
+            closeMode: sellMetadata.closeMode || 'MANUAL_SYMBOL',
+            tpThresholdPct: sellMetadata.tpThresholdPct || 3,
+            minHoldMs: sellMetadata.minHoldMs || 300000
+          } : {})
         },
         ts: new Date().toISOString(),
         idempotencyKey: `idem_${Math.floor(Date.now() / 1000)}_${Math.random().toString(36).substr(2, 9)}`
