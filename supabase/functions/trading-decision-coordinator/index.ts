@@ -221,6 +221,33 @@ const toBaseSymbol = (input: string): BaseSymbol =>
 const toPairSymbol = (base: BaseSymbol): PairSymbol =>
   `${toBaseSymbol(base)}-EUR` as PairSymbol;
 
+// =============================================================================
+// SHARED POSITION HELPER: Calculate net position from all trades (BUYs - SELLs)
+// This is the canonical definition of "position exists" used across the coordinator
+// =============================================================================
+interface TradeRowForPosition {
+  trade_type: 'buy' | 'sell';
+  cryptocurrency: string;
+  amount: number;
+  executed_at?: string;
+}
+
+function calculateNetPositionForSymbol(trades: TradeRowForPosition[], baseSymbol: string): number {
+  const normalizedBase = toBaseSymbol(baseSymbol);
+  let sumBuys = 0;
+  let sumSells = 0;
+
+  for (const t of trades) {
+    const tradeSymbol = toBaseSymbol(t.cryptocurrency);
+    if (tradeSymbol !== normalizedBase) continue;
+    if (t.trade_type === 'buy') sumBuys += Number(t.amount);
+    else if (t.trade_type === 'sell') sumSells += Number(t.amount);
+  }
+
+  return sumBuys - sumSells;
+}
+// =============================================================================
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -2481,17 +2508,58 @@ async function detectConflicts(
   // END PHASE 5 EXPOSURE CHECK
   // =====================================================================
   
-  const { data: recentTrades } = await supabaseClient
+  // =====================================================================
+  // ALL-TIME TRADES QUERY: For position existence check (SELL validation)
+  // This query has NO time filter - positions are BUYs minus SELLs ALL TIME
+  // =====================================================================
+  const isTestMode = intent.metadata?.is_test_mode ?? false;
+  
+  const { data: allTradesForSymbol, error: allTradesError } = await supabaseClient
+    .from('mock_trades')
+    .select('trade_type, cryptocurrency, amount, executed_at')
+    .eq('user_id', intent.userId)
+    .eq('strategy_id', intent.strategyId)
+    .eq('cryptocurrency', baseSymbol)
+    .eq('is_test_mode', isTestMode);
+    // IMPORTANT: No .gte('executed_at', ...) here - all-time for position existence
+
+  if (allTradesError) {
+    console.error('[COORD][POSITIONS] Error fetching all trades:', allTradesError);
+  }
+
+  const allTrades = allTradesForSymbol || [];
+  
+  // Calculate net position using the shared helper
+  const netPosition = calculateNetPositionForSymbol(allTrades, baseSymbol);
+  
+  console.log('[COORD][POSITIONS] netPosition', {
+    userId: intent.userId.substring(0, 8) + '...',
+    strategyId: intent.strategyId.substring(0, 8) + '...',
+    baseSymbol,
+    netPosition: netPosition.toFixed(8),
+    tradeCount: allTrades.length,
+    buys: allTrades.filter(t => t.trade_type === 'buy').length,
+    sells: allTrades.filter(t => t.trade_type === 'sell').length,
+  });
+
+  // =====================================================================
+  // RECENT TRADES QUERY: For time-based guards (cooldown, hold period timing)
+  // This query has a time window - used ONLY for time-based logic
+  // =====================================================================
+  const cooldownWindowMs = Math.max(config.cooldownBetweenOppositeActionsMs, config.minHoldPeriodMs, 600000);
+  
+  const { data: recentTradesForCooldown } = await supabaseClient
     .from('mock_trades')
     .select('trade_type, executed_at, amount, price')
     .eq('user_id', intent.userId)
     .eq('strategy_id', intent.strategyId)
     .eq('cryptocurrency', baseSymbol)
-    .gte('executed_at', new Date(Date.now() - 600000).toISOString()) // Last 10 minutes
+    .eq('is_test_mode', isTestMode)
+    .gte('executed_at', new Date(Date.now() - cooldownWindowMs).toISOString())
     .order('executed_at', { ascending: false })
     .limit(20);
 
-  const trades = recentTrades || [];
+  const recentTrades = recentTradesForCooldown || [];
   
   // Apply precedence-based conflict rules
   if (intent.source === 'manual') {
@@ -2500,7 +2568,7 @@ async function detectConflicts(
 
   if (intent.source === 'pool' && intent.side === 'SELL') {
     // Pool exits get high precedence but check cooldown
-    const recentBuy = trades.find(t => 
+    const recentBuy = recentTrades.find(t => 
       t.trade_type === 'buy' && 
       (Date.now() - new Date(t.executed_at).getTime()) < config.cooldownBetweenOppositeActionsMs
     );
@@ -2513,33 +2581,59 @@ async function detectConflicts(
     return { hasConflict: false, reason: 'no_conflicts_detected', guardReport };
   }
 
-  // UNIVERSAL HOLD PERIOD CHECK - All SELL intents (first in order)
-  // Skip for position management intents that already have entry_price
+  // =====================================================================
+  // SELL VALIDATION: Position existence (all-time) + Hold period (time-based)
+  // =====================================================================
   if (intent.side === 'SELL') {
     const isPositionManagement = intent.metadata?.position_management === true && intent.metadata?.entry_price != null;
     
     if (!isPositionManagement) {
-      const lastBuy = trades.find(t => t.trade_type === 'buy');
-      if (lastBuy) {
-        const timeSinceBuy = Date.now() - new Date(lastBuy.executed_at).getTime();
-        const minHoldPeriodMs = config.minHoldPeriodMs || 300000; // 5 minutes default
-        
-        if (timeSinceBuy < minHoldPeriodMs) {
-          guardReport.holdPeriodNotMet = true;
-          return { hasConflict: true, reason: 'hold_min_period_not_met', guardReport };
-        }
-      } else {
+      // STEP 1: Check if position EXISTS (all-time net position > 0)
+      if (netPosition <= 0) {
+        console.log('[COORD][GUARD] positionNotFound', {
+          userId: intent.userId.substring(0, 8) + '...',
+          strategyId: intent.strategyId.substring(0, 8) + '...',
+          baseSymbol,
+          netPosition: netPosition.toFixed(8),
+        });
         guardReport.positionNotFound = true;
         return { hasConflict: true, reason: 'no_position_found', guardReport };
       }
+      
+      // STEP 2: Check hold period using the MOST RECENT BUY from ALL trades (not just recent window)
+      const allBuysSorted = allTrades
+        .filter(t => t.trade_type === 'buy')
+        .sort((a, b) => new Date(b.executed_at ?? 0).getTime() - new Date(a.executed_at ?? 0).getTime());
+      
+      const lastBuy = allBuysSorted[0];
+      
+      if (lastBuy) {
+        const timeSinceBuy = Date.now() - new Date(lastBuy.executed_at as string).getTime();
+        const minHoldPeriodMs = config.minHoldPeriodMs || 300000; // 5 minutes default
+        
+        if (timeSinceBuy < minHoldPeriodMs) {
+          console.log('[COORD][GUARD] holdPeriodNotMet', {
+            userId: intent.userId.substring(0, 8) + '...',
+            baseSymbol,
+            timeSinceBuyMs: timeSinceBuy,
+            minHoldPeriodMs,
+            lastBuyAt: lastBuy.executed_at,
+          });
+          guardReport.holdPeriodNotMet = true;
+          return { hasConflict: true, reason: 'hold_min_period_not_met', guardReport };
+        }
+      }
+      
+      console.log(`✅ COORDINATOR: SELL validated for ${baseSymbol} - position exists (net=${netPosition.toFixed(6)}) and hold period met`);
     } else {
       console.log(`✅ POSITION MANAGEMENT: Skipping FIFO validation for ${intent.symbol} SELL with entry_price=${intent.metadata.entry_price}`);
     }
   }
 
   // Check cooldown for opposite actions (no double penalty for automated BUYs)
+  // Uses recentTrades (time-windowed) as cooldown is inherently a time-based guard
   const oppositeAction = intent.side === 'BUY' ? 'sell' : 'buy';
-  const recentOpposite = trades.find(t => t.trade_type === oppositeAction);
+  const recentOpposite = recentTrades.find(t => t.trade_type === oppositeAction);
   
   if (recentOpposite) {
     const timeSinceOpposite = Date.now() - new Date(recentOpposite.executed_at).getTime();
