@@ -271,3 +271,66 @@ export function logLotState(openLots: OpenLot[], context: string): void {
     console.log(`  [${i}] ${lot.cryptocurrency} lotId=${lot.lotId.substring(0, 8)}... remaining=${lot.remainingAmount.toFixed(8)} entry=€${lot.entryPrice.toFixed(2)}`);
   });
 }
+
+/**
+ * Calculate pooled position summary from open lots
+ * This aggregates lot-level data into symbol-level metrics for strategy decisions
+ */
+export interface PooledPositionSummary {
+  symbol: string;
+  totalRemainingAmount: number;
+  totalEntryValue: number;
+  averageEntryPrice: number;
+  lotCount: number;
+  oldestEntryDate: string;
+  newestEntryDate: string;
+}
+
+export function calculatePooledSummary(openLots: OpenLot[]): Map<string, PooledPositionSummary> {
+  const summaryBySymbol = new Map<string, PooledPositionSummary>();
+  
+  for (const lot of openLots) {
+    const existing = summaryBySymbol.get(lot.cryptocurrency);
+    
+    if (existing) {
+      existing.totalRemainingAmount += lot.remainingAmount;
+      existing.totalEntryValue += lot.remainingAmount * lot.entryPrice;
+      existing.lotCount += 1;
+      if (lot.entryDate < existing.oldestEntryDate) {
+        existing.oldestEntryDate = lot.entryDate;
+      }
+      if (lot.entryDate > existing.newestEntryDate) {
+        existing.newestEntryDate = lot.entryDate;
+      }
+    } else {
+      summaryBySymbol.set(lot.cryptocurrency, {
+        symbol: lot.cryptocurrency,
+        totalRemainingAmount: lot.remainingAmount,
+        totalEntryValue: lot.remainingAmount * lot.entryPrice,
+        averageEntryPrice: lot.entryPrice,
+        lotCount: 1,
+        oldestEntryDate: lot.entryDate,
+        newestEntryDate: lot.entryDate,
+      });
+    }
+  }
+  
+  // Calculate average entry prices
+  summaryBySymbol.forEach((summary) => {
+    summary.averageEntryPrice = summary.totalRemainingAmount > 0 
+      ? summary.totalEntryValue / summary.totalRemainingAmount 
+      : 0;
+  });
+  
+  return summaryBySymbol;
+}
+
+/**
+ * Log pooled position summary for debugging
+ */
+export function logPooledSummary(summaryBySymbol: Map<string, PooledPositionSummary>, context: string): void {
+  console.log(`[LOT_ENGINE][POOLED][${context}] Pooled positions:`, summaryBySymbol.size);
+  summaryBySymbol.forEach((summary, symbol) => {
+    console.log(`  ${symbol}: ${summary.lotCount} lots, remaining=${summary.totalRemainingAmount.toFixed(8)}, avgPrice=€${summary.averageEntryPrice.toFixed(2)}, value=€${summary.totalEntryValue.toFixed(2)}`);
+  });
+}
