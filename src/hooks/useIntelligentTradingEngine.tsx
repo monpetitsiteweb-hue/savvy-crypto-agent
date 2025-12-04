@@ -1668,7 +1668,7 @@ export const useIntelligentTradingEngine = () => {
       const fullSymbol = symbol.includes('-EUR') ? symbol : `${symbol}-EUR`;
       
       // Use REAL volatility data from market_features_v0
-      // NOTE: vol_1h/vol_4h are often NULL for coarser granularities - prioritize vol_24h
+      // PRIORITIZE: vol_1h > vol_4h > vol_24h > vol_7d > ret_24h
       const { data: features } = await supabase
         .from('market_features_v0')
         .select('vol_1h, vol_4h, vol_24h, vol_7d, ret_1h, ret_24h')
@@ -1678,13 +1678,27 @@ export const useIntelligentTradingEngine = () => {
       
       if (features && features.length > 0) {
         const f = features[0] as any;
-        // PRIORITIZE vol_24h since vol_1h is usually NULL for 4h/24h granularities
-        const vol24h = f.vol_24h ?? 0;
-        const vol7d = f.vol_7d ?? 0;
-        const ret24h = Math.abs(f.ret_24h ?? 0);
         
-        // Use vol_24h as primary, fallback to ret_24h (as proxy for realized volatility)
-        const avgVol = vol24h > 0 ? vol24h : (vol7d > 0 ? vol7d : ret24h);
+        // PRIORITIZATION CHAIN: vol_1h > vol_4h > vol_24h > vol_7d > ret_24h
+        let avgVol = 0;
+        let volSource = 'none';
+        
+        if (f.vol_1h && f.vol_1h > 0) {
+          avgVol = f.vol_1h;
+          volSource = 'vol_1h';
+        } else if (f.vol_4h && f.vol_4h > 0) {
+          avgVol = f.vol_4h;
+          volSource = 'vol_4h';
+        } else if (f.vol_24h && f.vol_24h > 0) {
+          avgVol = f.vol_24h;
+          volSource = 'vol_24h';
+        } else if (f.vol_7d && f.vol_7d > 0) {
+          avgVol = f.vol_7d;
+          volSource = 'vol_7d';
+        } else if (f.ret_24h) {
+          avgVol = Math.abs(f.ret_24h);
+          volSource = 'ret_24h';
+        }
         
         // Higher volatility = neutral to slightly negative (riskier)
         // Score: Low vol (<2%) = +0.3, Medium (2-5%) = 0, High (>5%) = -0.3
@@ -1697,7 +1711,7 @@ export const useIntelligentTradingEngine = () => {
           volScore = 0.3;  // Low volatility = favorable
         }
         
-        console.log(`📊 [FUSION] Volatility score for ${symbol}: ${volScore.toFixed(3)} | vol24h: ${vol24h?.toFixed(4)}, ret24h: ${ret24h?.toFixed(4)}, avgVol: ${avgVol?.toFixed(4)}`);
+        console.log(`📊 [FUSION] Volatility score for ${symbol}: ${volScore.toFixed(3)} | source: ${volSource}, value: ${avgVol?.toFixed(4)}`);
         return volScore;
       }
       
@@ -1791,17 +1805,18 @@ export const useIntelligentTradingEngine = () => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
       
-      // Check live_signals for whale-related activity (CORRECT signal type names!)
+      // Check live_signals for whale-related activity from BOTH sources
       const { data: whaleActivity } = await supabase
         .from('live_signals')
         .select('*')
         .in('symbol', [baseSymbol, 'ALL']) // Whale signals often use 'ALL' for market-wide
+        .in('source', ['whale_alert_ws', 'whale_alert_tracked', 'whale_alert']) // ALL whale sources
         .in('signal_type', [
-          'whale_exchange_inflow',    // CORRECT names from signal ingestion docs
-          'whale_exchange_outflow',
-          'whale_large_movement',
-          'whale_movement',
-          'whale_transfer',
+          'whale_exchange_inflow',    // From whale_alert_ws
+          'whale_exchange_outflow',   // From whale_alert_ws
+          'whale_large_movement',     // From whale_alert_ws
+          'whale_movement',           // Generic
+          'whale_transfer',           // From QuickNode webhook
           'whale_usdt_injection',
           'whale_usdc_injection'
         ])
@@ -1858,12 +1873,15 @@ export const useIntelligentTradingEngine = () => {
           'sentiment_bearish_strong',
           'sentiment_bearish_moderate',
           'sentiment_mixed_bullish',
-          // Fear & Greed index signals
-          'fear_index_extreme',
-          'fear_index_moderate',
-          'greed_index_moderate',
+          // Fear & Greed index signals - ACTUAL TYPES FROM DB!
+          'fear_index_extreme',       // fgValue <= 20 → bullish opportunity
+          'fear_index_moderate',      // fgValue > 20 && <= 40 → accumulation
+          'greed_index_moderate',     // fgValue >= 60 && < 80 → caution
+          'greed_index_extreme',      // fgValue >= 80 → sell opportunity
+          'fear_greed_status',        // ADDED: Generic fear/greed status signal
           // NEWS SIGNALS - This is what crypto_news collector actually produces!
           'news_volume_spike',        // Has data.avg_sentiment field!
+          'news_volume_high',         // High news volume
           'news_sentiment_bullish',
           'news_sentiment_bearish'
         ])
@@ -1893,6 +1911,25 @@ export const useIntelligentTradingEngine = () => {
           return;
         }
         
+        // SPECIAL HANDLING for fear_greed_status - extract value from data field
+        if (signal.signal_type === 'fear_greed_status' && signalData?.fear_greed_value !== undefined) {
+          const fgValue = signalData.fear_greed_value;
+          // Fear/Greed: < 30 = fear (bullish contrarian), > 70 = greed (bearish contrarian)
+          let fgScore = 0;
+          if (fgValue < 30) {
+            fgScore = 0.3; // Extreme fear = bullish opportunity
+          } else if (fgValue < 45) {
+            fgScore = 0.15; // Fear = moderate bullish
+          } else if (fgValue > 70) {
+            fgScore = -0.3; // Extreme greed = bearish warning
+          } else if (fgValue > 55) {
+            fgScore = -0.15; // Greed = moderate bearish
+          }
+          sentimentScore += weight * fgScore;
+          signalsProcessed++;
+          return;
+        }
+        
         // Standard signal processing
         const strength = Math.min(1, (signal.signal_strength || 50) / 100);
         
@@ -1900,7 +1937,7 @@ export const useIntelligentTradingEngine = () => {
           // Bullish sentiment OR fear = contrarian bullish
           sentimentScore += weight * strength * 0.5;
           signalsProcessed++;
-        } else if (signal.signal_type.includes('bearish') || signal.signal_type === 'greed_index_moderate') {
+        } else if (signal.signal_type.includes('bearish') || signal.signal_type === 'greed_index_moderate' || signal.signal_type === 'greed_index_extreme') {
           // Bearish sentiment OR greed = contrarian bearish
           sentimentScore -= weight * strength * 0.5;
           signalsProcessed++;

@@ -1,0 +1,34 @@
+name: Whale Alert WS Collector (Hourly)
+
+on:
+  schedule:
+    # Run every hour at minute 15
+    - cron: '15 * * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  collect-whale-alerts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke Whale Alert WS Collector
+        run: |
+          echo "🐋 Invoking whale-alert-ws collector..."
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/whale-alert-ws" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -d '{}')
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "Response (HTTP $HTTP_CODE):"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "❌ Request failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          
+          echo "✅ Whale Alert WS collector completed successfully"
