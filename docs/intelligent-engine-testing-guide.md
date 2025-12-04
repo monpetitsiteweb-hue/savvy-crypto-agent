@@ -1,11 +1,41 @@
 # Intelligent Engine Testing Guide
 
+## Test Mode Fusion Bypass (NEW)
+
+The engine includes a **test-mode bypass** that allows trades to execute without being blocked by the AI fusion layer's `signal_too_weak` decisions.
+
+### When Fusion is Bypassed
+
+Fusion gating is **automatically bypassed** for these explicit test/debug triggers:
+
+| Trigger | Description |
+|---------|-------------|
+| `debug_force_buy` | Debug BUY triggered when no normal signals fire |
+| `FORCED_DEBUG_TRADE` | Manual debug trade via `window.__INTELLIGENT_FORCE_DEBUG_TRADE = true` |
+| `TEST_ALWAYS_BUY` | TEST_ALWAYS_BUY mode intent |
+| `AUTO_CLOSE_TIME` | Scheduled position close in test mode |
+
+### Console Logs When Bypass Active
+
+```
+🧪 [FUSION][TEST_BYPASS] Overriding fusion gate for debug_force_buy
+```
+
+### Fixed: BUY undefined-EUR Bug
+
+When all coins are blocked by exposure, the engine now **does NOT emit** a BUY intent. Instead you'll see:
+```
+[INTELLIGENT_AUTO] TEST_ALWAYS_BUY: no eligible symbols within exposure limits, skipping debug BUY
+```
+
+---
+
 ## Summary of Changes
 
 ### Files Modified
 1. **src/utils/signalSeeder.ts** (NEW) - Provides console utilities to seed/check/clear test signals
 2. **src/utils/engineDebugLogger.ts** (NEW) - Structured cycle logging for per-symbol decision visibility
-3. **src/hooks/useIntelligentTradingEngine.tsx** - Added imports and structured logging
+3. **src/hooks/useIntelligentTradingEngine.tsx** - Added imports, structured logging, and fusion bypass
 
 ### What Was Blocking
 The engine was **not producing normal INTELLIGENT_AUTO intents** because:

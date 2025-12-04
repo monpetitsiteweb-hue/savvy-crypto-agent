@@ -1116,25 +1116,53 @@ export const useIntelligentTradingEngine = () => {
     // --- TEST MODE: force BUY if engine reached this point and no buys executed ---
     // This confirms the pipe to the coordinator is working even if signals fail
     if ((config?.is_test_mode || config?.enableTestTrading) && buysExecuted === 0) {
-      const forceBuySymbol = coinsToAnalyze.length > 0 ? `${coinsToAnalyze[0]}-EUR` : 'BTC-EUR';
-      const forceBuyPrice = marketData[forceBuySymbol]?.price || marketData.currentPrice || 0;
-      writeDebugStage('test_force_buy_path_triggered', { 
-        symbol: forceBuySymbol, 
-        price: forceBuyPrice,
-        reason: 'no_normal_buys_executed_forcing_test_buy'
-      });
-      
-      await executeTrade(
-        strategy,
-        'buy',                    // action
-        forceBuySymbol,           // cryptocurrency
-        forceBuyPrice,            // price
-        undefined,                // customAmount
-        'debug_force_buy',        // trigger
-        'ENTRY'                   // context
+      // FIX: Find an eligible symbol that passes exposure limits
+      const { symbol: eligibleSymbol, reason: eligibilityReason } = findBestSymbolForTrade(
+        coinsToAnalyze.map(c => `${c}-EUR`),
+        exposure
       );
-      buysExecuted++;
-      actionsPlanned.buy++;
+      
+      if (!eligibleSymbol) {
+        // NO ELIGIBLE SYMBOLS - Do NOT emit a BUY intent with undefined symbol
+        console.log('[INTELLIGENT_AUTO] TEST_ALWAYS_BUY: no eligible symbols within exposure limits, skipping debug BUY');
+        writeDebugStage('test_force_buy_skipped_no_eligible_symbols', {
+          reason: eligibilityReason || 'no_symbols_within_exposure_limits',
+          coinsAnalyzed: coinsToAnalyze.length,
+          exposure: {
+            totalExposureEUR: exposure.totalExposureEUR,
+            maxWalletExposureEUR: exposure.maxWalletExposureEUR,
+            uniqueCoinsWithExposure: exposure.uniqueCoinsWithExposure,
+            maxActiveCoins: exposure.maxActiveCoins,
+          }
+        });
+        // Do NOT proceed - no buysExecuted++ or executeTrade call
+      } else {
+        const forceBuySymbol = eligibleSymbol;
+        const forceBuyPrice = marketData[forceBuySymbol]?.price || sharedPriceCache.get(forceBuySymbol)?.price || 0;
+        
+        if (forceBuyPrice <= 0) {
+          console.log('[INTELLIGENT_AUTO] TEST_ALWAYS_BUY: no valid price for', forceBuySymbol, '- skipping debug BUY');
+          writeDebugStage('test_force_buy_skipped_no_price', { symbol: forceBuySymbol });
+        } else {
+          writeDebugStage('test_force_buy_path_triggered', { 
+            symbol: forceBuySymbol, 
+            price: forceBuyPrice,
+            reason: 'no_normal_buys_executed_forcing_test_buy'
+          });
+          
+          await executeTrade(
+            strategy,
+            'buy',                    // action
+            forceBuySymbol,           // cryptocurrency
+            forceBuyPrice,            // price
+            undefined,                // customAmount
+            'debug_force_buy',        // trigger
+            'ENTRY'                   // context
+          );
+          buysExecuted++;
+          actionsPlanned.buy++;
+        }
+      }
     }
     
     writeDebugStage('buy_opportunities_summary', { 
@@ -2654,7 +2682,14 @@ export const useIntelligentTradingEngine = () => {
     );
     
     // NEW: AI signal fusion evaluation
-    if (isAIEnabled) {
+    // TEST MODE BYPASS: Skip fusion gating for explicit test/debug triggers
+    const isTestBypassTrigger = 
+      trigger === 'debug_force_buy' ||
+      trigger === 'FORCED_DEBUG_TRADE' ||
+      trigger === 'TEST_ALWAYS_BUY' ||
+      (trigger === 'AUTO_CLOSE_TIME' && (config?.is_test_mode || config?.enableTestTrading || testMode));
+    
+    if (isAIEnabled && !isTestBypassTrigger) {
       engineConsoleLog('🧠 AI-FUSION: Evaluating signal fusion for', action, cryptocurrency, 'context:', tradeContext);
       
       writeDebugStage('execute_trade_ai_fusion_start', { action, cryptocurrency, tradeContext });
@@ -2695,6 +2730,21 @@ export const useIntelligentTradingEngine = () => {
       // Proceed with fusion-approved trade
       writeDebugStage('execute_trade_fusion_approved', { score: fusionResult.sTotalScore, reason: fusionResult.reason });
       engineConsoleLog('✅ SCALPSMART: Signal fusion approved -', fusionResult.reason, 'Score:', fusionResult.sTotalScore);
+    } else if (isTestBypassTrigger) {
+      // EXPLICIT TEST BYPASS: Log clearly that we're bypassing fusion for test/debug
+      console.log(`🧪 [FUSION][TEST_BYPASS] Overriding fusion gate for ${trigger}`, {
+        action,
+        cryptocurrency,
+        tradeContext,
+        trigger,
+        isTestMode: config?.is_test_mode || config?.enableTestTrading || testMode,
+      });
+      writeDebugStage('execute_trade_fusion_bypassed_test_mode', { 
+        trigger, 
+        action, 
+        cryptocurrency,
+        reason: 'test_bypass_enabled' 
+      });
     }
     
     if (!user?.id) {
