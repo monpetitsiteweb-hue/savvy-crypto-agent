@@ -64,9 +64,9 @@ serve(async (req) => {
         .select('*')
         .eq('is_active', true)
         .or('source_name.eq.quicknode_webhooks,source_name.eq.whale_monitoring')
-        .single();
+        .limit(1);
         
-      if (!fallbackSource) {
+      if (!fallbackSource || fallbackSource.length === 0) {
         return new Response(JSON.stringify({ 
           success: true, 
           message: 'No data source configured, but webhook acknowledged' 
@@ -77,10 +77,29 @@ serve(async (req) => {
       }
       
       // Use fallback source
-      var dataSource = fallbackSource;
+      var dataSource = fallbackSource[0];
     }
 
-    const userId = dataSource.user_id;
+    // CRITICAL: Resolve user_id - sources may have NULL user_id
+    let userId = dataSource.user_id;
+    if (!userId) {
+      // Fallback: find an active trading user
+      const { data: activeUser } = await supabaseClient
+        .from('trading_strategies')
+        .select('user_id')
+        .eq('is_active', true)
+        .limit(1);
+      
+      if (activeUser && activeUser.length > 0) {
+        userId = activeUser[0].user_id;
+        console.log(`✅ Using active trading user: ${userId}`);
+      } else {
+        // Ultimate fallback: known system user
+        userId = '25a0c221-1f0e-431d-8d79-db9fb4db9cb3';
+        console.log(`✅ Using system fallback user: ${userId}`);
+      }
+    }
+    
     const sourceId = dataSource.id;
     const thresholdAmount = dataSource.threshold_amount || 50000;
 
@@ -320,6 +339,27 @@ async function processQuickNodeWebhook(supabaseClient: any, payload: any) {
   }
   
   const source = sources[0];
+  
+  // CRITICAL: Resolve user_id - sources may have NULL user_id
+  let effectiveUserId = source.user_id;
+  if (!effectiveUserId) {
+    // Fallback: find an active trading user
+    const { data: activeUser } = await supabaseClient
+      .from('trading_strategies')
+      .select('user_id')
+      .eq('is_active', true)
+      .limit(1);
+    
+    if (activeUser && activeUser.length > 0) {
+      effectiveUserId = activeUser[0].user_id;
+      console.log(`✅ QuickNode: Using active trading user: ${effectiveUserId}`);
+    } else {
+      // Ultimate fallback: known system user
+      effectiveUserId = '25a0c221-1f0e-431d-8d79-db9fb4db9cb3';
+      console.log(`✅ QuickNode: Using system fallback user: ${effectiveUserId}`);
+    }
+  }
+  
   const whaleEvents = [];
   
   // Process matching transactions from QuickNode payload
@@ -343,7 +383,7 @@ async function processQuickNodeWebhook(supabaseClient: any, payload: any) {
       
       const whaleEvent = {
         source_id: source.id,
-        user_id: source.user_id,
+        user_id: effectiveUserId,
         timestamp: new Date().toISOString(),
         event_type: 'large_transaction',
         blockchain: blockchain,
@@ -364,7 +404,7 @@ async function processQuickNodeWebhook(supabaseClient: any, payload: any) {
       
       const signal = {
         source_id: source.id,
-        user_id: source.user_id,
+        user_id: effectiveUserId,
         timestamp: whaleEvent.timestamp,
         symbol: 'ETH',
         signal_type: signalType,
