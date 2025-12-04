@@ -26,7 +26,7 @@ export async function seedBullishSignal(symbol: string): Promise<SeededSignal | 
     signal_type: 'momentum_bullish',
     signal_strength: 0.8,
     source: 'test_seeder',
-    source_id: `test_${Date.now()}`,
+    source_id: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
     data: { seeded: true, reason: 'Testing INTELLIGENT_AUTO BUY path' }
   };
