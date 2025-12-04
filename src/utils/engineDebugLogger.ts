@@ -26,7 +26,7 @@ export interface CycleLog {
   intentSide?: 'BUY' | 'SELL';
 }
 
-const DEBUG_HISTORY_KEY = '__INTELLIGENT_DEBUG_HISTORY';
+const DEBUG_HISTORY_KEY = '__INTELLIGENT_ENGINE_CYCLE_HISTORY';
 const MAX_HISTORY = 50;
 
 function getHistory(): CycleLog[] {
@@ -107,7 +107,11 @@ export function createSymbolDecision(
  * Get debug history, optionally filtered by symbol
  */
 export function getDebugHistory(symbol?: string): CycleLog[] {
-  const history = getHistory();
+  const raw = getHistory();
+  // Filter out any legacy/invalid entries that don't have symbolDecisions array
+  const history = raw.filter(
+    (cycle: any) => Array.isArray(cycle?.symbolDecisions)
+  );
   if (!symbol) return history;
   
   return history.map(cycle => ({
