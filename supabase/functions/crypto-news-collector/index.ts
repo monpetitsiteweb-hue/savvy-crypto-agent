@@ -28,7 +28,46 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { action, symbols = ['BTC', 'ETH', 'SOL', 'XRP'], hours = 24, userId, sourceId, limit = 50 } = await req.json();
+    let { action, symbols, hours = 24, userId, sourceId, limit = 50 } = await req.json();
+    
+    // FIX: If no symbols provided, fetch from active trading strategies
+    if (!symbols || symbols.length === 0) {
+      console.log('📊 No symbols provided, fetching from active strategies...');
+      const { data: strategies } = await supabaseClient
+        .from('trading_strategies')
+        .select('configuration')
+        .or('is_active_test.eq.true,is_active.eq.true');
+      
+      const strategySymbols = new Set<string>();
+      // Default symbols if no strategies found
+      strategySymbols.add('BTC');
+      strategySymbols.add('ETH');
+      strategySymbols.add('SOL');
+      strategySymbols.add('XRP');
+      
+      if (strategies && strategies.length > 0) {
+        for (const strategy of strategies) {
+          const config = strategy.configuration as any;
+          // Extract symbols from coins_and_amounts array
+          if (config?.coins_and_amounts && Array.isArray(config.coins_and_amounts)) {
+            for (const coin of config.coins_and_amounts) {
+              if (coin.symbol) {
+                strategySymbols.add(coin.symbol.replace('-EUR', ''));
+              }
+            }
+          }
+          // Also check selected_coins array
+          if (config?.selected_coins && Array.isArray(config.selected_coins)) {
+            for (const coin of config.selected_coins) {
+              strategySymbols.add(coin.replace('-EUR', ''));
+            }
+          }
+        }
+      }
+      
+      symbols = Array.from(strategySymbols);
+      console.log(`📊 Resolved symbols from strategies: ${symbols.join(', ')}`);
+    }
     console.log(`📰 CryptoNews Collector received:`, { action, symbols, hours, userId });
 
     // FIX: Use .limit(1) instead of .single() to handle potential duplicates

@@ -1,0 +1,50 @@
+name: Fear & Greed Index Collector (Hourly)
+
+on:
+  schedule:
+    # Run every hour at minute 30
+    - cron: '30 * * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  collect-fear-greed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke Fear & Greed Collector
+        run: |
+          echo "📊 Invoking fear_greed_index collector..."
+          
+          # First, get the source ID for fear_greed_index
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/external-data-collector" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -d '{
+              "action": "sync_source",
+              "sourceId": "fff8a815-7d92-4111-a58c-6e595e81f088"
+            }')
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "Response (HTTP $HTTP_CODE):"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "⚠️ Primary request failed, trying alternative approach..."
+            
+            # Try fetching directly from the API via data-sync-scheduler
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              "https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/data-sync-scheduler" \
+              -H "Content-Type: application/json" \
+              -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+              -d '{"schedule_type": "hourly"}')
+            
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+            
+            echo "Alternative Response (HTTP $HTTP_CODE):"
+            echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          fi
+          
+          echo "✅ Fear & Greed collector job completed"
