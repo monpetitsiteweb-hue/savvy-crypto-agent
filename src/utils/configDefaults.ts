@@ -1,27 +1,34 @@
 // Configuration Defaults - Centralized defaults to eliminate hardcoded values
-// ⚠️ TESTING MODE: All thresholds set to MINIMUM for testing
+// Production-ready values for real trading
 
 export const DEFAULT_VALUES = {
-  // Percentage values (percent points) - TESTING: very loose
-  TAKE_PROFIT_PCT: 0.01, // TESTING: ultra low
-  STOP_LOSS_PCT: 0.01,   // TESTING: ultra low
+  // Percentage values (percent points)
+  TAKE_PROFIT_PCT: 2.5,
+  STOP_LOSS_PCT: 1.5,
   
-  // Thresholds (normalized 0-1) - TESTING: no barriers
-  ENTER_THRESHOLD: 0.0,  // TESTING: any signal triggers entry
-  EXIT_THRESHOLD: 0.0,   // TESTING: any signal triggers exit
+  // Thresholds (normalized 0-1) - 0 means any signal triggers
+  ENTER_THRESHOLD: 0.0,
+  EXIT_THRESHOLD: 0.0,
   
-  // Context Gates - TESTING: disabled/very loose
-  SPREAD_THRESHOLD_BPS: 9999, // TESTING: effectively disabled
-  MIN_DEPTH_RATIO: 0.0,       // TESTING: no liquidity check
-  WHALE_CONFLICT_WINDOW_MS: 0, // TESTING: no whale conflict check
+  // Context Gates - USER CONFIGURABLE (not AI override)
+  // These are sensible production defaults
+  SPREAD_THRESHOLD_BPS: 25,    // 25 bps = 0.25% spread allowed
+  MIN_DEPTH_RATIO: 0.2,        // Low depth requirement for liquidity
+  WHALE_CONFLICT_WINDOW_MS: 300000, // 5 minutes
+  
+  // Validation bounds for UI
+  SPREAD_THRESHOLD_BPS_MIN: 0.1,
+  SPREAD_THRESHOLD_BPS_MAX: 200,
+  MIN_DEPTH_RATIO_MIN: 0,
+  MIN_DEPTH_RATIO_MAX: 3,
   
   // Allocation
   PER_TRADE_ALLOCATION: 50,
   ALLOCATION_UNIT: 'euro' as const,
   
-  // AI Features - TESTING: lowest thresholds
-  AUTONOMY_LEVEL: 100,       // TESTING: full autonomy
-  CONFIDENCE_THRESHOLD: 0,   // TESTING: no confidence required
+  // AI Features
+  AUTONOMY_LEVEL: 50,
+  CONFIDENCE_THRESHOLD: 0.5,
   
   // Fusion Weights
   FUSION_WEIGHTS: {
@@ -32,30 +39,30 @@ export const DEFAULT_VALUES = {
     sentiment: 0.15
   },
   
-  // Bracket Policy - TESTING: very loose
+  // Bracket Policy
   BRACKET_POLICY: {
     atrScaled: false,
-    stopLossPctWhenNotAtr: 0.01,  // TESTING: ultra low
-    trailBufferPct: 0.01,
-    enforceRiskReward: false,     // TESTING: disabled
-    minTpSlRatio: 0.0,            // TESTING: no ratio required
-    atrMultipliers: { tp: 0.1, sl: 0.1 }
+    stopLossPctWhenNotAtr: 1.5,
+    trailBufferPct: 0.5,
+    enforceRiskReward: true,
+    minTpSlRatio: 1.5,
+    atrMultipliers: { tp: 2.0, sl: 1.5 }
   },
   
-  // Override Bounds - TESTING: very loose
+  // Override Bounds
   OVERRIDE_BOUNDS: {
-    slPct: [0.0, 100.0] as [number, number],
-    tpOverSlMin: 0.0
+    slPct: [0.5, 10.0] as [number, number],
+    tpOverSlMin: 1.2
   },
   
   // TTL for overrides (15 minutes) 
   OVERRIDE_TTL_MS: 900000,
   
-  // Guardrail defaults - TESTING: disabled
-  MIN_HOLD_PERIOD_MS: 0,           // TESTING: no hold period
-  COOLDOWN_BETWEEN_ACTIONS_MS: 0,  // TESTING: no cooldown
-  PRICE_STALE_MAX_MS: 9999999,     // TESTING: price never stale
-  EPSILON_PNL_BUFFER_PCT: 0.0      // TESTING: no buffer
+  // Guardrail defaults
+  MIN_HOLD_PERIOD_MS: 60000,        // 1 minute minimum hold
+  COOLDOWN_BETWEEN_ACTIONS_MS: 30000, // 30 seconds cooldown
+  PRICE_STALE_MAX_MS: 60000,        // Price stale after 1 minute
+  EPSILON_PNL_BUFFER_PCT: 0.1       // 0.1% buffer
 } as const;
 
 export const ALLOWED_OVERRIDE_KEYS = [

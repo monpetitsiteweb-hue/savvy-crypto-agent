@@ -191,6 +191,9 @@ interface StrategyFormData {
     cooldownBetweenOppositeActionsMs: number;
     confidenceOverrideThreshold: number;
   };
+  // Market Quality Gates (USER-CONTROLLED - not AI override)
+  spreadThresholdBps: number;    // Max allowed spread in basis points (0.1 - 200)
+  minDepthRatio: number;         // Min liquidity depth ratio (0 - 3)
   // Execution Settings
   executionSettings: {
     execution_mode: 'COINBASE' | 'ONCHAIN';
@@ -523,7 +526,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       max_gas_cost_pct: 0.35,
       max_price_impact_bps: 40,
       max_quote_age_ms: 1500
-    }
+    },
+    // Market Quality Gates - USER CONTROLLED (default: permissive but safe)
+    spreadThresholdBps: 25,      // 25 bps = 0.25% max spread
+    minDepthRatio: 0.2           // Low depth requirement
   });
 
   // Apply risk profile presets
@@ -561,6 +567,9 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       setFormData(prev => ({ 
         ...prev, 
         ...config,
+        // Market Quality Gates - use config values or safe defaults
+        spreadThresholdBps: config.spreadThresholdBps ?? prev.spreadThresholdBps ?? 25,
+        minDepthRatio: config.minDepthRatio ?? prev.minDepthRatio ?? 0.2,
         // Properly merge the nested aiIntelligenceConfig with existing enableAIOverride
         aiIntelligenceConfig: {
           ...prev.aiIntelligenceConfig,
@@ -2087,16 +2096,143 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
                   {/* Unified Decisions Panel */}
                   {activeSection === 'unified-decisions' && (
-                    <UnifiedDecisionsConfig 
-                      config={formData.unifiedConfig || {
-                        enableUnifiedDecisions: false,
-                        minHoldPeriodMs: 120000,
-                        cooldownBetweenOppositeActionsMs: 30000,
-                        confidenceOverrideThreshold: 0.70
-                      }}
-                      onChange={(unifiedConfig) => updateFormData('unifiedConfig', unifiedConfig)}
-                      isActive={formData.enableTestTrading || formData.enableLiveTrading}
-                    />
+                    <>
+                      <UnifiedDecisionsConfig 
+                        config={formData.unifiedConfig || {
+                          enableUnifiedDecisions: false,
+                          minHoldPeriodMs: 120000,
+                          cooldownBetweenOppositeActionsMs: 30000,
+                          confidenceOverrideThreshold: 0.70
+                        }}
+                        onChange={(unifiedConfig) => updateFormData('unifiedConfig', unifiedConfig)}
+                        isActive={formData.enableTestTrading || formData.enableLiveTrading}
+                      />
+                      
+                      {/* Market Quality Gates - USER CONTROLLED */}
+                      <Card className="mt-6">
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2">
+                            <Shield className="h-5 w-5" />
+                            Market Quality Gates
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            Control when trades are allowed based on market conditions. These settings are user-controlled and never overridden by AI.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                          {/* Spread Threshold */}
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <TooltipField
+                                description="Maximum allowed bid-ask spread in basis points (bps). 1 bps = 0.01%. Lower values = stricter quality requirement. 25 bps is a safe default for most liquid pairs."
+                                examples={["Set spread to 25 bps", "Allow up to 50 bps spread", "Use tight spread of 10 bps"]}
+                              >
+                                <Label>Max Spread (BPS): {formData.spreadThresholdBps}</Label>
+                              </TooltipField>
+                              <Badge variant="outline" className="text-xs">
+                                {(formData.spreadThresholdBps / 100).toFixed(2)}%
+                              </Badge>
+                            </div>
+                            <Slider
+                              value={[formData.spreadThresholdBps]}
+                              onValueChange={([value]) => updateFormData('spreadThresholdBps', value)}
+                              min={0.1}
+                              max={200}
+                              step={0.5}
+                              className="w-full"
+                            />
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>0.1 bps (strict)</span>
+                              <span>200 bps (loose)</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Recommended: 15-30 bps for liquid pairs, 50-100 bps for less liquid pairs
+                            </p>
+                          </div>
+
+                          {/* Min Depth Ratio */}
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <TooltipField
+                                description="Minimum liquidity depth ratio required. Higher values = more liquidity required. 0 = disabled, 0.2 is a safe default."
+                                examples={["Set depth ratio to 0.2", "Require more liquidity", "Disable depth check"]}
+                              >
+                                <Label>Min Depth Ratio: {formData.minDepthRatio.toFixed(2)}</Label>
+                              </TooltipField>
+                              <Badge variant="outline" className="text-xs">
+                                {formData.minDepthRatio === 0 ? 'Disabled' : 'Active'}
+                              </Badge>
+                            </div>
+                            <Slider
+                              value={[formData.minDepthRatio]}
+                              onValueChange={([value]) => updateFormData('minDepthRatio', value)}
+                              min={0}
+                              max={3}
+                              step={0.05}
+                              className="w-full"
+                            />
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>0 (disabled)</span>
+                              <span>3 (strict)</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Recommended: 0.1-0.3 for normal trading, 0 to disable
+                            </p>
+                          </div>
+
+                          {/* Quick Presets */}
+                          <div className="pt-4 border-t border-border">
+                            <Label className="text-sm font-medium mb-3 block">Quick Presets</Label>
+                            <div className="flex gap-2 flex-wrap">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  updateFormData('spreadThresholdBps', 15);
+                                  updateFormData('minDepthRatio', 0.3);
+                                }}
+                              >
+                                Conservative
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  updateFormData('spreadThresholdBps', 25);
+                                  updateFormData('minDepthRatio', 0.2);
+                                }}
+                              >
+                                Balanced (Recommended)
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  updateFormData('spreadThresholdBps', 50);
+                                  updateFormData('minDepthRatio', 0.1);
+                                }}
+                              >
+                                Permissive
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  updateFormData('spreadThresholdBps', 200);
+                                  updateFormData('minDepthRatio', 0);
+                                }}
+                              >
+                                Disabled (Testing)
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </>
                   )}
 
                   {/* Execution Settings Panel */}
