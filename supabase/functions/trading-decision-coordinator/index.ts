@@ -2452,29 +2452,56 @@ async function detectConflicts(
     const maxWalletExposureEUR = walletValueEUR * (maxWalletExposurePct / 100);
     const maxExposurePerCoinEUR = maxWalletExposureEUR / maxActiveCoins;
     
-    // Get ALL open positions for this user/strategy
-    const { data: allPositions } = await supabaseClient
+    // Get ALL trades for this user/strategy (both buys AND sells) to calculate NET exposure
+    const { data: allTrades } = await supabaseClient
       .from('mock_trades')
       .select('cryptocurrency, amount, price, trade_type')
       .eq('user_id', intent.userId)
       .eq('strategy_id', intent.strategyId)
-      .eq('trade_type', 'buy')
+      .in('trade_type', ['buy', 'sell'])
       .order('executed_at', { ascending: false });
     
-    // Calculate current exposure
+    // Calculate NET exposure (buys - sells) per symbol
+    // Track net QUANTITY per symbol, then multiply by current price for exposure
+    const qtyBySymbol: Record<string, { netQty: number; avgPrice: number; buyQty: number }> = {};
+    
+    for (const trade of allTrades || []) {
+      const sym = trade.cryptocurrency.replace('-EUR', '');
+      const qty = parseFloat(trade.amount);
+      const price = parseFloat(trade.price);
+      
+      if (!qtyBySymbol[sym]) {
+        qtyBySymbol[sym] = { netQty: 0, avgPrice: 0, buyQty: 0 };
+      }
+      
+      if (trade.trade_type === 'buy') {
+        // Weighted average price for buys
+        const prevTotal = qtyBySymbol[sym].buyQty * qtyBySymbol[sym].avgPrice;
+        qtyBySymbol[sym].buyQty += qty;
+        qtyBySymbol[sym].avgPrice = qtyBySymbol[sym].buyQty > 0 
+          ? (prevTotal + qty * price) / qtyBySymbol[sym].buyQty 
+          : price;
+        qtyBySymbol[sym].netQty += qty;
+      } else {
+        // Subtract sells from net quantity
+        qtyBySymbol[sym].netQty -= qty;
+      }
+    }
+    
+    // Calculate exposure in EUR based on NET quantities
     const positionsBySymbol: Record<string, number> = {};
     let totalExposureEUR = 0;
     
-    for (const trade of allPositions || []) {
-      const sym = trade.cryptocurrency.replace('-EUR', '');
-      const tradeValue = trade.amount * trade.price;
-      
-      if (!positionsBySymbol[sym]) {
-        positionsBySymbol[sym] = 0;
+    for (const [sym, data] of Object.entries(qtyBySymbol)) {
+      // Only count positive net positions
+      if (data.netQty > 0) {
+        const exposureEUR = data.netQty * data.avgPrice;
+        positionsBySymbol[sym] = exposureEUR;
+        totalExposureEUR += exposureEUR;
       }
-      positionsBySymbol[sym] += tradeValue;
-      totalExposureEUR += tradeValue;
     }
+    
+    console.log(`[EXPOSURE] NET positions:`, Object.entries(positionsBySymbol).map(([k,v]) => `${k}=€${v.toFixed(0)}`).join(', ') || 'none');
     
     const currentSymbolExposure = positionsBySymbol[baseSymbol] || 0;
     const uniqueCoinsWithExposure = Object.keys(positionsBySymbol).length;
