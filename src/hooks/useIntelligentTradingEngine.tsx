@@ -1290,6 +1290,9 @@ export const useIntelligentTradingEngine = () => {
     const gatesConfig = getContextGatesConfig(config);
     const isAIEnabled = isAIFusionEnabled(config);
     
+    // Log effective config for debugging - shows user values vs AI overrides
+    engineConsoleLog(`[EFFECTIVE_CONFIG] Market Gates: spreadThresholdBps=${effectiveConfigWithSources.spreadThresholdBps} (source: ${effectiveConfigWithSources.value_sources.spreadThresholdBps?.source}), minDepthRatio=${effectiveConfigWithSources.minDepthRatio} (source: ${effectiveConfigWithSources.value_sources.minDepthRatio?.source})`);
+    
     // Default to legacy behavior if AI fusion not enabled
     if (!isAIEnabled) {
       return {

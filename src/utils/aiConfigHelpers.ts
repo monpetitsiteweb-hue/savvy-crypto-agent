@@ -24,20 +24,24 @@ interface EffectiveConfigWithSources extends EffectiveConfig {
 }
 
 // Compute effective configuration with three-layer precedence
+// IMPORTANT: spreadThresholdBps and minDepthRatio are ALWAYS user-controlled
+// They are NEVER overridden by AI features
 export function computeEffectiveConfig(
   strategyConfig: any,
   aiOverrides?: Record<string, any>
 ): EffectiveConfigWithSources {
   const now = Date.now();
   
-  // Layer 1: User strategy config (baseline) - NO HARDCODED VALUES
+  // Layer 1: User strategy config (baseline)
+  // spreadThresholdBps and minDepthRatio come ONLY from user config
   const userConfig = {
     tpPct: strategyConfig.takeProfitPercentage || DEFAULT_VALUES.TAKE_PROFIT_PCT,
     slPct: strategyConfig.stopLossPercentage || DEFAULT_VALUES.STOP_LOSS_PCT,
     enterThreshold: DEFAULT_VALUES.ENTER_THRESHOLD,
     exitThreshold: DEFAULT_VALUES.EXIT_THRESHOLD,
-    spreadThresholdBps: DEFAULT_VALUES.SPREAD_THRESHOLD_BPS,
-    minDepthRatio: DEFAULT_VALUES.MIN_DEPTH_RATIO,
+    // These two are USER-CONTROLLED ONLY - check strategy config first, then defaults
+    spreadThresholdBps: strategyConfig.spreadThresholdBps ?? DEFAULT_VALUES.SPREAD_THRESHOLD_BPS,
+    minDepthRatio: strategyConfig.minDepthRatio ?? DEFAULT_VALUES.MIN_DEPTH_RATIO,
     whaleConflictWindowMs: DEFAULT_VALUES.WHALE_CONFLICT_WINDOW_MS,
     perTradeAllocation: strategyConfig.perTradeAllocation || DEFAULT_VALUES.PER_TRADE_ALLOCATION,
     allocationUnit: strategyConfig.allocationUnit || DEFAULT_VALUES.ALLOCATION_UNIT
@@ -53,28 +57,20 @@ export function computeEffectiveConfig(
     valueSources[key] = { source: 'user_config' };
   });
 
-  // Apply AI features if enabled
+  // Apply AI features if enabled - BUT NOT for spread/depth gates
   if (aiConfig?.features?.fusion?.enabled) {
-    effectiveConfig.enterThreshold = aiConfig.features.fusion.enterThreshold || effectiveConfig.enterThreshold;
-    effectiveConfig.exitThreshold = aiConfig.features.fusion.exitThreshold || effectiveConfig.exitThreshold;
+    effectiveConfig.enterThreshold = aiConfig.features.fusion.enterThreshold ?? effectiveConfig.enterThreshold;
+    effectiveConfig.exitThreshold = aiConfig.features.fusion.exitThreshold ?? effectiveConfig.exitThreshold;
     valueSources.enterThreshold = { source: 'ai_feature' };
     valueSources.exitThreshold = { source: 'ai_feature' };
   }
 
-  if (aiConfig?.features?.contextGates) {
-    const gates = aiConfig.features.contextGates;
-    if (gates.spreadThresholdBps) {
-      effectiveConfig.spreadThresholdBps = gates.spreadThresholdBps;
-      valueSources.spreadThresholdBps = { source: 'ai_feature' };
-    }
-    if (gates.minDepthRatio) {
-      effectiveConfig.minDepthRatio = gates.minDepthRatio;
-      valueSources.minDepthRatio = { source: 'ai_feature' };
-    }
-    if (gates.whaleConflictWindowMs) {
-      effectiveConfig.whaleConflictWindowMs = gates.whaleConflictWindowMs;
-      valueSources.whaleConflictWindowMs = { source: 'ai_feature' };
-    }
+  // NOTE: spreadThresholdBps and minDepthRatio are NEVER overridden by AI features
+  // They remain as user_config source always
+  // Only whaleConflictWindowMs can be AI-controlled if needed
+  if (aiConfig?.features?.contextGates?.whaleConflictWindowMs) {
+    effectiveConfig.whaleConflictWindowMs = aiConfig.features.contextGates.whaleConflictWindowMs;
+    valueSources.whaleConflictWindowMs = { source: 'ai_feature' };
   }
 
   if (aiConfig?.features?.bracketPolicy) {

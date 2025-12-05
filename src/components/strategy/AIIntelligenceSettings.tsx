@@ -405,43 +405,13 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 </div>
               </div>
 
-              {/* Context Gates */}
+              {/* Context Gates - REMOVED from AI section */}
+              {/* spreadThresholdBps and minDepthRatio are now in main strategy config */}
               <div className="space-y-4">
-                <Label className="text-base font-medium">Context Gates (Market Filters)</Label>
-                
-                <div className="space-y-2">
-                  <Label>Max Spread (BPS): {config.features.contextGates.spreadThresholdBps.toFixed(1)}</Label>
-                  <Slider
-                    value={[config.features.contextGates.spreadThresholdBps]}
-                    onValueChange={([value]) => updateConfig({
-                      features: {
-                        ...config.features,
-                        contextGates: { ...config.features.contextGates, spreadThresholdBps: value }
-                      }
-                    })}
-                    min={0.1}
-                    max={50}
-                    step={0.1}
-                    className="w-full"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Min Depth Ratio: {config.features.contextGates.minDepthRatio}</Label>
-                  <Slider
-                    value={[config.features.contextGates.minDepthRatio]}
-                    onValueChange={([value]) => updateConfig({
-                      features: {
-                        ...config.features,
-                        contextGates: { ...config.features.contextGates, minDepthRatio: value }
-                      }
-                    })}
-                    min={1}
-                    max={10}
-                    step={0.1}
-                    className="w-full"
-                  />
-                </div>
+                <Label className="text-base font-medium">Context Gates (AI-Controlled)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Note: Spread and Depth gates are now configured in the main Risk Settings tab for direct user control.
+                </p>
 
                 <div className="space-y-2">
                   <Label>Whale Conflict Window: {Math.round(config.features.contextGates.whaleConflictWindowMs / 60000)} min</Label>
