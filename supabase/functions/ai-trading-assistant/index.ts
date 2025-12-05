@@ -826,6 +826,75 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     aiCanExecute: true,
     phrases: ['custom instructions', 'special instructions', 'AI instructions', 'additional guidance'],
     description: 'Custom AI instructions'
+  },
+
+  // === SIGNAL FUSION & CONTEXT GATES (MISSING FIELDS FIXED) ===
+  enterThreshold: {
+    key: 'enterThreshold',
+    type: 'number',
+    range: [0, 1],
+    dbPath: 'configuration.signalFusion.enterThreshold',
+    additionalPaths: ['configuration.aiIntelligenceConfig.features.fusion.enterThreshold'],
+    aiCanExecute: true,
+    phrases: ['enter threshold', 'entry threshold', 'buy threshold', 'signal enter threshold', 'fusion enter'],
+    description: 'Signal fusion enter threshold (0-1)'
+  },
+  exitThreshold: {
+    key: 'exitThreshold',
+    type: 'number',
+    range: [0, 1],
+    dbPath: 'configuration.signalFusion.exitThreshold',
+    additionalPaths: ['configuration.aiIntelligenceConfig.features.fusion.exitThreshold'],
+    aiCanExecute: true,
+    phrases: ['exit threshold', 'sell threshold', 'signal exit threshold', 'fusion exit'],
+    description: 'Signal fusion exit threshold (0-1)'
+  },
+  spreadThresholdBps: {
+    key: 'spreadThresholdBps',
+    type: 'number',
+    range: [0.1, 200],
+    dbPath: 'configuration.spreadThresholdBps',
+    additionalPaths: ['configuration.contextGates.spreadThresholdBps'],
+    aiCanExecute: true,
+    phrases: ['spread threshold', 'spread bps', 'maximum spread', 'spread limit', 'bid ask spread'],
+    description: 'Maximum bid-ask spread in basis points (bps)'
+  },
+  minDepthRatio: {
+    key: 'minDepthRatio',
+    type: 'number',
+    range: [0, 3],
+    dbPath: 'configuration.minDepthRatio',
+    additionalPaths: ['configuration.contextGates.minDepthRatio'],
+    aiCanExecute: true,
+    phrases: ['min depth ratio', 'depth ratio', 'liquidity depth', 'order book depth'],
+    description: 'Minimum order book depth ratio (0-3)'
+  },
+  trailingStopMinProfitThreshold: {
+    key: 'trailingStopMinProfitThreshold',
+    type: 'number',
+    range: [0.1, 50],
+    dbPath: 'configuration.trailingStopMinProfitThreshold',
+    aiCanExecute: true,
+    phrases: ['trailing stop min profit', 'trailing min profit', 'minimum profit for trailing', 'trailing stop profit threshold'],
+    description: 'Minimum profit percentage before trailing stop activates'
+  },
+  minHoldPeriodMs: {
+    key: 'minHoldPeriodMs',
+    type: 'number',
+    range: [0, 86400000],
+    dbPath: 'configuration.unifiedConfig.minHoldPeriodMs',
+    aiCanExecute: true,
+    phrases: ['min hold period', 'minimum hold', 'hold period', 'hold time', 'minimum hold time'],
+    description: 'Minimum hold period in milliseconds'
+  },
+  min_confidence: {
+    key: 'min_confidence',
+    type: 'number',
+    range: [0, 1],
+    dbPath: 'configuration.min_confidence',
+    aiCanExecute: true,
+    phrases: ['min confidence', 'minimum confidence', 'confidence threshold', 'min conf'],
+    description: 'Minimum confidence threshold for trades (0-1)'
   }
 };
 
@@ -1330,6 +1399,14 @@ class ConfigManager {
         strategyUpdates.configuration.aiIntelligenceConfig[finalProperty] = finalValue;
       } else {
         this.setNestedValue(strategyUpdates, dbPath, finalValue);
+      }
+      
+      // Also apply to additionalPaths if defined (for fields that exist in multiple locations)
+      if (fieldDef.additionalPaths && Array.isArray(fieldDef.additionalPaths)) {
+        for (const additionalPath of fieldDef.additionalPaths) {
+          console.log(`🎯 APPLYING_ADDITIONAL_PATH: ${field} → ${additionalPath} = ${JSON.stringify(finalValue)}`);
+          this.setNestedValue(strategyUpdates, additionalPath, finalValue);
+        }
       }
       
       // Store result for verification
