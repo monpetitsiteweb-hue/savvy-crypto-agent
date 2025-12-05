@@ -980,13 +980,33 @@ export const useIntelligentTradingEngine = () => {
     // If you need to force a test BUY, use the debug console:
     //   window.__INTELLIGENT_FORCE_DEBUG_TRADE = true
     // ========================================================================
-    if ((config?.is_test_mode || config?.enableTestTrading) && buysExecuted === 0) {
-      // Log that no signals were found (no forced BUY)
-      console.log('[INTELLIGENT_AUTO] No bullish signals found - no BUY executed (fusion-consistent mode)');
-      writeDebugStage('no_buys_executed_fusion_consistent', {
-        reason: 'no_valid_signals_found',
+    // TEST MODE BOOTSTRAP: If no buys executed and portfolio is empty, auto-buy first coin
+    // This ensures test mode works even without signals, for fast iteration
+    const isTestMode = config?.is_test_mode || config?.enableTestTrading || testMode;
+    const hasNoPositions = positions.length === 0;
+    
+    if (isTestMode && buysExecuted === 0 && hasNoPositions && coinsToAnalyze.length > 0) {
+      const bootstrapSymbol = `${coinsToAnalyze[0]}-EUR`;
+      const bootstrapData = marketData[bootstrapSymbol];
+      
+      if (bootstrapData?.price) {
+        console.log('[INTELLIGENT_AUTO] TEST MODE BOOTSTRAP: Empty portfolio, auto-buying first coin:', bootstrapSymbol);
+        writeDebugStage('test_mode_bootstrap_buy', {
+          symbol: bootstrapSymbol,
+          price: bootstrapData.price,
+          reason: 'empty_portfolio_bootstrap',
+        });
+        
+        await executeBuyOrder(strategy, bootstrapSymbol, bootstrapData.price, 'TEST_MODE_BOOTSTRAP');
+        actionsPlanned.buy++;
+        buysExecuted++;
+      }
+    } else if (isTestMode && buysExecuted === 0) {
+      console.log('[INTELLIGENT_AUTO] No bullish signals found - no BUY executed');
+      writeDebugStage('no_buys_executed', {
+        reason: hasNoPositions ? 'no_signals_found' : 'has_positions_waiting_for_signals',
         coinsAnalyzed: coinsToAnalyze.length,
-        hint: 'To force a test BUY, use: window.__INTELLIGENT_FORCE_DEBUG_TRADE = true'
+        positionsCount: positions.length,
       });
     }
     
