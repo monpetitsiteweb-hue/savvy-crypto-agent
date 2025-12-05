@@ -92,13 +92,13 @@ const defaultConfig: AIIntelligenceConfig = {
       enabled: false,
       weights: {
         trend: 0.25,
-        volatility: 0.20,
-        momentum: 0.25,
-        whale: 0.15,
-        sentiment: 0.15
-      },
-      enterThreshold: 0.65,
-      exitThreshold: 0.35,
+      volatility: 0.20,
+      momentum: 0.25,
+      whale: 0.15,
+      sentiment: 0.15
+    },
+    enterThreshold: 0.02,
+    exitThreshold: 0.01,
       conflictPenalty: 0.30
     },
     contextGates: {
@@ -207,8 +207,8 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
       fusion: { 
         enabled: true,
         weights: { trend: 0.25, volatility: 0.20, momentum: 0.25, whale: 0.15, sentiment: 0.15 },
-        enterThreshold: 0.65,
-        exitThreshold: 0.35,
+        enterThreshold: 0.02,
+        exitThreshold: 0.01,
         conflictPenalty: 0.30
       },
       contextGates: { spreadThresholdBps: 12, minDepthRatio: 3.0, whaleConflictWindowMs: 300000 }
@@ -218,8 +218,8 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
       fusion: {
         enabled: true,
         weights: { trend: 0.30, volatility: 0.15, momentum: 0.30, whale: 0.10, sentiment: 0.15 },
-        enterThreshold: 0.55,
-        exitThreshold: 0.25,
+        enterThreshold: 0.03,
+        exitThreshold: 0.015,
         conflictPenalty: 0.20
       },
       contextGates: { spreadThresholdBps: 18, minDepthRatio: 2.5, whaleConflictWindowMs: 180000 }
@@ -372,7 +372,7 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
               {/* Thresholds */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Enter Threshold: {config.features.fusion.enterThreshold}</Label>
+                  <Label>Enter Threshold: {config.features.fusion.enterThreshold.toFixed(3)}</Label>
                   <Slider
                     value={[config.features.fusion.enterThreshold]}
                     onValueChange={([value]) => updateConfig({
@@ -381,14 +381,15 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                         fusion: { ...config.features.fusion, enterThreshold: value }
                       }
                     })}
-                    min={0.1}
-                    max={1}
-                    step={0.05}
+                    min={0.01}
+                    max={0.20}
+                    step={0.005}
                     className="w-full"
                   />
+                  <p className="text-xs text-muted-foreground">Lower = more trades (0.01-0.20)</p>
                 </div>
                 <div className="space-y-2">
-                  <Label>Exit Threshold: {config.features.fusion.exitThreshold}</Label>
+                  <Label>Exit Threshold: {config.features.fusion.exitThreshold.toFixed(3)}</Label>
                   <Slider
                     value={[config.features.fusion.exitThreshold]}
                     onValueChange={([value]) => updateConfig({
@@ -397,11 +398,12 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                         fusion: { ...config.features.fusion, exitThreshold: value }
                       }
                     })}
-                    min={0.1}
-                    max={1}
-                    step={0.05}
+                    min={0.005}
+                    max={0.10}
+                    step={0.005}
                     className="w-full"
                   />
+                  <p className="text-xs text-muted-foreground">Lower = earlier exits (0.005-0.10)</p>
                 </div>
               </div>
 
