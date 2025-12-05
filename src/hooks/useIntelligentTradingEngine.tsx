@@ -164,20 +164,26 @@ export const useIntelligentTradingEngine = () => {
     if (!isLogSuppressed()) {
       (window as any).NotificationSink?.log({ 
         message: 'INTELLIGENT_ENGINE: Auth state changed', 
-        data: { user: !!user, loading, testMode }
+        data: { user: !!user, loading }
       });
     }
     
-    if (!loading && user && testMode) {
-      // Silent log for auth conditions met
+    // ========================================================================
+    // UNIFIED ENGINE: Runs for any authenticated user
+    // ========================================================================
+    // The engine runs the SAME logic for test and prod. Strategy-level config
+    // (e.g., selectedCoins, TP/SL thresholds, fusion settings) controls behavior,
+    // NOT a global UI toggle.
+    // ========================================================================
+    if (!loading && user) {
       if (!isLogSuppressed()) {
         (window as any).NotificationSink?.log({
-          message: 'INTELLIGENT_ENGINE: Auth conditions check - starting engine with recurring loop',
-          data: { user: !!user, loading, testMode, intervalMs: MONITORING_INTERVAL_MS }
+          message: 'INTELLIGENT_ENGINE: Starting unified engine loop',
+          data: { user: !!user, loading, intervalMs: MONITORING_INTERVAL_MS }
         });
       }
       
-      engineConsoleLog('🚀 INTELLIGENT ENGINE: Starting recurring monitoring loop (interval:', MONITORING_INTERVAL_MS, 'ms)');
+      engineConsoleLog('🚀 INTELLIGENT ENGINE: Starting unified monitoring loop (interval:', MONITORING_INTERVAL_MS, 'ms)');
       
       // Initial run after short delay
       const initialTimer = setTimeout(() => {
@@ -203,21 +209,20 @@ export const useIntelligentTradingEngine = () => {
         }
       };
     } else {
-      // Stop monitoring if conditions not met
+      // Stop monitoring if not authenticated
       if (marketMonitorRef.current) {
         clearInterval(marketMonitorRef.current);
         marketMonitorRef.current = null;
-        engineConsoleLog('🛑 INTELLIGENT ENGINE: Monitoring loop stopped (conditions not met)');
+        engineConsoleLog('🛑 INTELLIGENT ENGINE: Monitoring loop stopped (not authenticated)');
       }
-      // Silent log for auth waiting
       if (!isLogSuppressed()) {
         (window as any).NotificationSink?.log({ 
-          message: 'INTELLIGENT_ENGINE: Waiting for auth or testMode', 
-          data: { loading, user: !!user, testMode }
+          message: 'INTELLIGENT_ENGINE: Waiting for auth', 
+          data: { loading, user: !!user }
         });
       }
     }
-  }, [user, loading, testMode]);
+  }, [user, loading]); // REMOVED testMode dependency - engine runs for all authenticated users
 
   const checkStrategiesAndExecute = async () => {
     // DEBUG STAGE: start
@@ -240,23 +245,14 @@ export const useIntelligentTradingEngine = () => {
     
     if (!user || loading) {
       // DEBUG STAGE: early_exit_user_or_loading
-      writeDebugStage('early_exit_user_or_loading', { testMode, userPresent: !!user, loading });
-      Toast.info(`INTELLIGENT ENGINE: early exit – missing user or still loading | user=${!!user}, loading=${loading}, testMode=${testMode}`);
+      writeDebugStage('early_exit_user_or_loading', { userPresent: !!user, loading });
       engineLog('ENGINE: Skipping - user: ' + !!user + ' loading: ' + loading);
       return;
     }
     
-    if (!testMode) {
-      // DEBUG STAGE: early_exit_testmode_off
-      writeDebugStage('early_exit_testmode_off', { testMode, userPresent: !!user, loading });
-      Toast.info(`INTELLIGENT ENGINE: early exit – testMode is OFF | user=${!!user}, loading=${loading}, testMode=${testMode}`);
-      engineLog('TEST MODE IS OFF! You need to enable Test Mode to use the trading engine!');
-      return;
-    }
-
-    // NOTE: Forced debug trade block moved below strategy fetch - see after activeTestStrategies filter
-
-    Toast.success(`INTELLIGENT ENGINE: passed guards, entering strategy evaluation | user=${!!user}, loading=${loading}, testMode=${testMode}`);
+    // ========================================================================
+    // UNIFIED ENGINE: NO testMode check here - same path for test and prod
+    // ========================================================================
 
     try {
       engineLog('INTELLIGENT_ENGINE: Starting comprehensive strategy check');
@@ -299,72 +295,17 @@ export const useIntelligentTradingEngine = () => {
       // Normalize strategies using the same normalizeStrategy() as Debug Panel
       const strategies: StrategyData[] = (strategyRows || []).map(normalizeStrategy);
       
-      // DEBUG: Log normalized strategies (same fields Debug Panel shows)
-      engineConsoleLog("ENGINE: normalized strategies", strategies.map(s => ({
-        id: s.id,
-        name: s.strategy_name ?? (s as any).strategyName,
-        is_active: s.is_active,
-        test_mode: s.test_mode,
-        is_active_test: s.is_active_test,
-        is_active_live: s.is_active_live,
-        config_is_test_mode: (s.configuration as any)?.is_test_mode,
-        enableTestTrading: (s.configuration as any)?.enableTestTrading,
-      })));
+      // ========================================================================
+      // UNIFIED ENGINE: Evaluate ALL active strategies, not just "test" ones
+      // ========================================================================
+      // The strategy's execution_mode or is_test_mode can determine whether
+      // trades go to mock_trades or real execution, but the engine logic is SAME.
+      // ========================================================================
+      engineConsoleLog("ENGINE: Evaluating", strategies.length, "active strategies");
       
-      // CANONICAL FILTER: Match Debug Panel's detection logic exactly
-      // A strategy is a "test strategy" if:
-      //   1. is_active = true (already filtered in query)
-      //   2. AND (test_mode = true OR is_active_test = true OR config flags)
-      const activeTestStrategies = strategies.filter((s) => {
-        const rawRow = strategyRows.find(r => r.id === s.id) as any;
-        
-        // Check DB columns directly (same as Debug Panel)
-        const dbTestMode = rawRow?.test_mode === true;
-        const dbIsActiveTest = rawRow?.is_active_test === true;
-        
-        // Check normalized fields (from normalizeStrategy)
-        const normalizedTestMode = s.test_mode === true;
-        const normalizedIsActiveTest = s.is_active_test === true;
-        
-        // Check configuration nested flags
-        const configIsTestMode = (s.configuration as any)?.is_test_mode === true;
-        const configEnableTestTrading = (s.configuration as any)?.enableTestTrading === true;
-        
-        // Match if ANY test indicator is true
-        const match = dbTestMode || dbIsActiveTest || normalizedTestMode || normalizedIsActiveTest || configIsTestMode || configEnableTestTrading;
-        
-        engineConsoleLog("ENGINE: STRATEGY FILTER", {
-          id: s.id,
-          strategy_name: rawRow?.strategy_name,
-          dbTestMode,
-          dbIsActiveTest,
-          normalizedTestMode,
-          normalizedIsActiveTest,
-          configIsTestMode,
-          configEnableTestTrading,
-          MATCH: match
-        });
-        
-        return match;
-      });
-
-      // DEBUG STAGE: after_test_filter
-      writeDebugStage('after_test_filter', {
-        normalizedCount: strategies.length,
-        testStrategiesCount: activeTestStrategies.length,
-        testStrategyIds: activeTestStrategies.map(s => s.id),
-      });
-
-      engineLog(`ENGINE: testStrategies.length = ${activeTestStrategies.length}`);
-      Toast.info(`ENGINE: ${strategies.length} total, ${activeTestStrategies.length} test strategies`);
-
-      if (!activeTestStrategies?.length) {
-        // DEBUG STAGE: early_exit_no_test_strategies
-        writeDebugStage('early_exit_no_test_strategies', {
-          normalizedCount: strategies.length,
-        });
-        engineLog('ENGINE: No active test strategies found');
-        Toast.warn(`INTELLIGENT ENGINE: No test strategies found | Check DB flags (test_mode, is_active_test) or config (is_test_mode, enableTestTrading)`);
+      if (!strategies?.length) {
+        writeDebugStage('early_exit_no_active_strategies', { count: 0 });
+        engineLog('ENGINE: No active strategies found');
         return;
       }
 
@@ -372,16 +313,15 @@ export const useIntelligentTradingEngine = () => {
       // Set window.__INTELLIGENT_FORCE_DEBUG_TRADE = true in console to trigger
       // This block is placed AFTER strategy fetch so we have a valid strategyId
       if (typeof window !== 'undefined' && window.__INTELLIGENT_FORCE_DEBUG_TRADE) {
-        const firstTestStrategy = activeTestStrategies[0];
+        const firstStrategy = strategies[0];
         const forcedSymbol = 'BTC-EUR';
         const forcedBaseSymbol = 'BTC';
         const forcedQty = 0.001;
         
         writeDebugStage('forced_debug_trade_entry', { 
           userId: user.id, 
-          testMode, 
-          strategyId: firstTestStrategy.id,
-          strategyName: firstTestStrategy.strategy_name 
+          strategyId: firstStrategy.id,
+          strategyName: firstStrategy.strategy_name 
         });
 
         try {
@@ -414,7 +354,7 @@ export const useIntelligentTradingEngine = () => {
           // Log params that will be passed to the helper (no separate debugIntent needed)
           console.log('🧪 FORCED DEBUG TRADE: Calling runCoordinatorApprovedMockBuy with params:', {
             userId: user.id,
-            strategyId: firstTestStrategy.id,
+            strategyId: firstStrategy.id,
             symbol: forcedSymbol,
             baseSymbol: forcedBaseSymbol,
             qty: forcedQty,
@@ -426,7 +366,7 @@ export const useIntelligentTradingEngine = () => {
 
           writeDebugStage('forced_debug_trade_before_helper', { 
             symbol: forcedSymbol, 
-            strategyId: firstTestStrategy.id,
+            strategyId: firstStrategy.id,
             qtySuggested: forcedQty,
             price: forcedPrice
           });
@@ -434,7 +374,7 @@ export const useIntelligentTradingEngine = () => {
           // Use the helper for forced debug BUY - it will call coordinator and execute the trade
           const result = await runCoordinatorApprovedMockBuy({
             userId: user.id,
-            strategyId: firstTestStrategy.id,
+            strategyId: firstStrategy.id,
             symbol: forcedSymbol,
             baseSymbol: forcedBaseSymbol,
             qty: forcedQty,
@@ -476,11 +416,11 @@ export const useIntelligentTradingEngine = () => {
       
       // DEBUG STAGE: before_process_strategies
       writeDebugStage('before_process_strategies', {
-        testStrategiesCount: activeTestStrategies.length,
-        testStrategyIds: activeTestStrategies.map(s => s.id),
+        strategiesCount: strategies.length,
+        strategyIds: strategies.map(s => s.id),
       });
       
-      Toast.success(`INTELLIGENT ENGINE: Processing ${activeTestStrategies.length} test strategies...`);
+      engineConsoleLog(`INTELLIGENT ENGINE: Processing ${strategies.length} strategies...`);
 
       // Get market data from shared cache (no polling)
       const allCoins = new Set<string>();
@@ -516,8 +456,8 @@ export const useIntelligentTradingEngine = () => {
         ? currentMarketData 
         : (Object.keys(marketData).length > 0 ? marketData : await getCurrentData(symbolsToFetch));
       
-      // Process each strategy with comprehensive logic
-      for (const strategy of activeTestStrategies) {
+      // Process each strategy with unified logic
+      for (const strategy of strategies) {
         await processStrategyComprehensively(strategy, finalMarketData);
       }
     } catch (error) {
@@ -969,45 +909,33 @@ export const useIntelligentTradingEngine = () => {
     }
     
     // ========================================================================
-    // REMOVED: TEST_ALWAYS_BUY force-buy logic
+    // UNIFIED ENGINE PATH - SAME LOGIC FOR TEST AND PROD
     // ========================================================================
-    // Previously, this block would force a BUY if no signals were found in test mode.
-    // This created INCONSISTENT behavior where:
-    //   - BUYs bypassed fusion (via TEST_ALWAYS_BUY)
-    //   - SELLs did NOT bypass fusion (blocked by signal_too_weak)
-    //
-    // Now: BUYs and SELLs both go through fusion consistently.
-    // If you need to force a test BUY, use the debug console:
-    //   window.__INTELLIGENT_FORCE_DEBUG_TRADE = true
+    // NO test-mode shortcuts, NO auto-buy, NO bootstrap hacks.
+    // The engine will only BUY when real signals justify it.
+    // 
+    // If no BUYs executed, log structured diagnostics so we can trace why.
     // ========================================================================
-    // TEST MODE BOOTSTRAP: If no buys executed and portfolio is empty, auto-buy first coin
-    // This ensures test mode works even without signals, for fast iteration
-    const isTestMode = config?.is_test_mode || config?.enableTestTrading || testMode;
-    const hasNoPositions = positions.length === 0;
     
-    if (isTestMode && buysExecuted === 0 && hasNoPositions && coinsToAnalyze.length > 0) {
-      const bootstrapSymbol = `${coinsToAnalyze[0]}-EUR`;
-      const bootstrapData = marketData[bootstrapSymbol];
-      
-      if (bootstrapData?.price) {
-        console.log('[INTELLIGENT_AUTO] TEST MODE BOOTSTRAP: Empty portfolio, auto-buying first coin:', bootstrapSymbol);
-        writeDebugStage('test_mode_bootstrap_buy', {
-          symbol: bootstrapSymbol,
-          price: bootstrapData.price,
-          reason: 'empty_portfolio_bootstrap',
-        });
-        
-        await executeBuyOrder(strategy, bootstrapSymbol, bootstrapData.price, 'TEST_MODE_BOOTSTRAP');
-        actionsPlanned.buy++;
-        buysExecuted++;
-      }
-    } else if (isTestMode && buysExecuted === 0) {
-      console.log('[INTELLIGENT_AUTO] No bullish signals found - no BUY executed');
-      writeDebugStage('no_buys_executed', {
-        reason: hasNoPositions ? 'no_signals_found' : 'has_positions_waiting_for_signals',
+    if (buysExecuted === 0) {
+      // Log summary of why no buys happened
+      const summary = {
         coinsAnalyzed: coinsToAnalyze.length,
-        positionsCount: positions.length,
-      });
+        symbolDecisionsSummary: symbolDecisions.map(d => ({
+          symbol: d.symbol,
+          decision: d.finalDecision,
+          reason: d.reason,
+          blockers: {
+            exposure: d.blockedByExposure,
+            cooldown: d.blockedByCooldown,
+            maxActiveCoins: d.blockedByMaxActiveCoins,
+          },
+          signalResult: d.signalFusionResult,
+        })),
+      };
+      
+      console.log('[INTELLIGENT_AUTO] No BUYs this cycle - decision summary:', JSON.stringify(summary, null, 2));
+      writeDebugStage('cycle_no_buys', summary);
     }
     
     writeDebugStage('buy_opportunities_summary', { 
@@ -1019,7 +947,7 @@ export const useIntelligentTradingEngine = () => {
     const cycleLog: CycleLog = {
       cycleId: `cycle_${Date.now()}`,
       timestamp: new Date().toISOString(),
-      mode: (config?.is_test_mode || config?.enableTestTrading) ? 'TEST_ALWAYS_BUY' : 'INTELLIGENT_AUTO',
+      mode: 'INTELLIGENT_AUTO', // UNIFIED: always the same mode
       symbolDecisions,
       intentEmitted: buysExecuted > 0,
       intentSymbol: buysExecuted > 0 ? coinsToAnalyze.find(c => symbolDecisions.find(d => d.symbol === `${c}-EUR` && d.finalDecision.includes('eligible'))) + '-EUR' : undefined,
