@@ -2777,24 +2777,29 @@ async function executeWithMinimalLock(
     const needsLock = !(isPositionManagement && hasEntryPrice);
     
     if (needsLock) {
-      // Try to acquire lock with 300ms timeout for non-position-management intents
-      console.log(`🔒 COORDINATOR: Acquiring minimal lock for atomic section: ${lockKey}`);
+      // Try to acquire row-based lock (survives connection pooling)
+      console.log(`🔒 COORDINATOR: Acquiring row-based lock for atomic section: ${lockKey}`);
       
-      const { data: lockResult } = await supabaseClient.rpc('pg_try_advisory_lock', {
-        key: lockKey
+      const { data: lockResult, error: lockError } = await supabaseClient.rpc('acquire_execution_lock', {
+        p_lock_key: lockKey,
+        p_user_id: intent.userId,
+        p_strategy_id: intent.strategyId,
+        p_symbol: intent.symbol,
+        p_request_id: requestId,
+        p_ttl_seconds: 30
       });
 
-      if (!lockResult) {
-        // Lock contention in atomic section - defer briefly
+      if (lockError || !lockResult) {
+        // Lock contention - defer briefly
         metrics.blockedByLockCount++;
-        console.log(`🎯 UD_MODE=ON → DEFER: reason=atomic_section_busy_defer symbol=${intent.symbol} retry=${Math.round(200 + Math.random() * 300)}ms`);
-        
         const retryMs = Math.round(200 + Math.random() * 300);
+        console.log(`🎯 UD_MODE=ON → DEFER: reason=atomic_section_busy_defer symbol=${intent.symbol} retry=${retryMs}ms error=${lockError?.message || 'lock_held'}`);
+        
         return { action: 'DEFER', reason: 'atomic_section_busy_defer', request_id: requestId, retry_in_ms: retryMs };
       }
 
       lockAcquired = true;
-      console.log(`🔒 COORDINATOR: Minimal lock acquired - executing atomic section`);
+      console.log(`🔒 COORDINATOR: Row-based lock acquired - executing atomic section`);
     } else {
       console.log(`✅ POSITION MANAGEMENT: Skipping lock for ${intent.symbol} SELL with entry_price=${intent.metadata.entry_price}`);
     }
@@ -2833,28 +2838,21 @@ async function executeWithMinimalLock(
     }
 
   } finally {
-    // Always release lock
+    // Always release row-based lock
     if (lockAcquired) {
       try {
-        await supabaseClient.rpc('pg_advisory_unlock', { key: lockKey });
-        console.log(`🔓 COORDINATOR: Released minimal lock: ${lockKey}`);
+        await supabaseClient.rpc('release_execution_lock', { p_lock_key: lockKey });
+        console.log(`🔓 COORDINATOR: Released row-based lock: ${lockKey}`);
       } catch (unlockError) {
-        console.error(`❌ COORDINATOR: Failed to release minimal lock:`, unlockError);
+        console.error(`❌ COORDINATOR: Failed to release row-based lock:`, unlockError);
       }
     }
   }
 }
 
-// Generate lock key (kept for minimal lock usage)
-function generateLockKey(userId: string, strategyId: string, symbol: string): number {
-  const combined = `${userId}_${strategyId}_${symbol}`;
-  let hash = 0;
-  for (let i = 0; i < combined.length; i++) {
-    const char = combined.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return Math.abs(hash);
+// Generate lock key for row-based locking (returns string for execution_locks table)
+function generateLockKey(userId: string, strategyId: string, symbol: string): string {
+  return `${userId}_${strategyId}_${symbol}`;
 }
 
 // Get recent trades (timestamp-based, no locks)
@@ -4133,20 +4131,25 @@ async function executeTPSellWithLock(
   let lockAcquired = false;
   
   try {
-    // Acquire the same advisory lock used by the main execution path
-    console.log(`🔒 COORDINATOR: Acquiring TP lock for atomic TP SELL: ${lockKey}`);
+    // Acquire row-based lock (survives connection pooling)
+    console.log(`🔒 COORDINATOR: Acquiring row-based TP lock: ${lockKey}`);
     
-    const { data: lockResult } = await supabaseClient.rpc('pg_try_advisory_lock', {
-      key: lockKey
+    const { data: lockResult, error: lockError } = await supabaseClient.rpc('acquire_execution_lock', {
+      p_lock_key: lockKey,
+      p_user_id: intent.userId,
+      p_strategy_id: intent.strategyId,
+      p_symbol: intent.symbol,
+      p_request_id: requestId,
+      p_ttl_seconds: 30
     });
 
-    if (!lockResult) {
-      console.log(`🚫 COORDINATOR: TP SELL blocked by lock contention, deferring`);
+    if (lockError || !lockResult) {
+      console.log(`🚫 COORDINATOR: TP SELL blocked by lock contention, deferring (${lockError?.message || 'lock_held'})`);
       return { action: 'DEFER', reason: 'tp_lock_contention', request_id: requestId, retry_in_ms: 200 };
     }
 
     lockAcquired = true;
-    console.log(`🔒 COORDINATOR: TP lock acquired - executing TP SELL`);
+    console.log(`🔒 COORDINATOR: Row-based TP lock acquired - executing TP SELL`);
     
     const baseSymbol = toBaseSymbol(intent.symbol);
     
@@ -4198,13 +4201,13 @@ async function executeTPSellWithLock(
     console.error(`❌ COORDINATOR: TP SELL error:`, error);
     return { action: 'DEFER', reason: 'tp_execution_error', request_id: requestId, retry_in_ms: 0 };
   } finally {
-    // Always release lock
+    // Always release row-based lock
     if (lockAcquired) {
       try {
-        await supabaseClient.rpc('pg_advisory_unlock', { key: lockKey });
-        console.log(`🔓 COORDINATOR: Released TP lock: ${lockKey}`);
+        await supabaseClient.rpc('release_execution_lock', { p_lock_key: lockKey });
+        console.log(`🔓 COORDINATOR: Released row-based TP lock: ${lockKey}`);
       } catch (unlockError) {
-        console.error(`❌ COORDINATOR: Failed to release TP lock:`, unlockError);
+        console.error(`❌ COORDINATOR: Failed to release row-based TP lock:`, unlockError);
       }
     }
   }

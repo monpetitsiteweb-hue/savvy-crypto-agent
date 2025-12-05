@@ -1040,6 +1040,36 @@ export type Database = {
         }
         Relationships: []
       }
+      execution_locks: {
+        Row: {
+          acquired_at: string
+          expires_at: string
+          lock_key: string
+          request_id: string | null
+          strategy_id: string
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          acquired_at?: string
+          expires_at?: string
+          lock_key: string
+          request_id?: string | null
+          strategy_id: string
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          acquired_at?: string
+          expires_at?: string
+          lock_key?: string
+          request_id?: string | null
+          strategy_id?: string
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       execution_quality_log: {
         Row: {
           context: string | null
@@ -2816,6 +2846,17 @@ export type Database = {
       }
     }
     Functions: {
+      acquire_execution_lock: {
+        Args: {
+          p_lock_key: string
+          p_request_id?: string
+          p_strategy_id: string
+          p_symbol: string
+          p_ttl_seconds?: number
+          p_user_id: string
+        }
+        Returns: boolean
+      }
       admin_get_connection_name: {
         Args: { connection_id: string }
         Returns: string
@@ -2970,6 +3011,7 @@ export type Database = {
         Returns: Record<string, unknown>[]
       }
       refresh_data_health_metrics: { Args: never; Returns: undefined }
+      release_execution_lock: { Args: { p_lock_key: string }; Returns: boolean }
       reset_breaker: {
         Args: {
           p_breaker: string
