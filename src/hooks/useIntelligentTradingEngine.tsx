@@ -1310,40 +1310,29 @@ export const useIntelligentTradingEngine = () => {
     
     try {
       // Context Gates - Check blocking conditions first using effective config
-      // 🚀 HOTFIX: TP exits bypass liquidity and whale conflict gates
-      // 🧪 Option B: Test mode bypasses spread gate blocking
-      const isTestModeConfig = config?.is_test_mode === true || 
-                               config?.enableTestTrading === true ||
-                               testMode === true;
+      // 🚀 TP exits bypass liquidity and whale conflict gates (hard risk rules)
+      // ⚠️ UNIFIED: Same logic for test AND production - NO MORE BYPASSES
       
       if (gatesConfig) {
-        // Gate 1: Spread check (bypassed in test mode via Option B)
-        const spread = await checkSpreadGate(symbol, effectiveConfigWithSources.spreadThresholdBps, isTestModeConfig);
+        // Gate 1: Spread check - SAME for test and prod
+        const spread = await checkSpreadGate(symbol, effectiveConfigWithSources.spreadThresholdBps);
         if (spread.blocked) {
           gateBlocks.push('spread_too_wide');
         }
-        // Log bypass for debugging
-        if (spread.bypassed) {
-          console.log('🧪 [FUSION] Spread gate bypassed in test mode', { symbol, spreadBps: spread.spreadBps });
-        }
         
-        // Gate 2: Liquidity/Depth check - BYPASS for TP exits (bypassed in test mode via isTestModeConfig)
+        // Gate 2: Liquidity/Depth check - BYPASS only for TP exits (hard risk)
         const enforceLiquidity = context !== 'TP';
         if (enforceLiquidity) {
-          const liquidity = await checkLiquidityGate(symbol, effectiveConfigWithSources.minDepthRatio, isTestModeConfig);
+          const liquidity = await checkLiquidityGate(symbol, effectiveConfigWithSources.minDepthRatio);
           if (liquidity.blocked) {
             gateBlocks.push('blocked_by_liquidity');
             engineConsoleLog(`🚫 LIQUIDITY GATE: Blocked ${side} for ${symbol} (context: ${context}) - depth ratio: ${liquidity.depthRatio} < ${effectiveConfigWithSources.minDepthRatio}`);
           }
-          // Log bypass for debugging
-          if (liquidity.bypassed) {
-            console.log('🧪 [FUSION] Liquidity gate bypassed in test mode', { symbol, depthRatio: liquidity.depthRatio });
-          }
         } else {
-          engineConsoleLog(`✅ LIQUIDITY GATE: Bypassed for ${side} ${symbol} (context: ${context})`);
+          engineConsoleLog(`✅ LIQUIDITY GATE: Bypassed for ${side} ${symbol} (context: ${context}) - TP exit`);
         }
         
-        // Gate 3: Whale conflict check - BYPASS for TP exits  
+        // Gate 3: Whale conflict check - BYPASS only for TP exits (hard risk)
         const enforceWhaleConflict = context !== 'TP';
         if (enforceWhaleConflict) {
           const whaleConflict = await checkWhaleConflictGate(symbol, side, effectiveConfigWithSources.whaleConflictWindowMs);
@@ -1351,7 +1340,7 @@ export const useIntelligentTradingEngine = () => {
             gateBlocks.push('blocked_by_whale_conflict');
           }
         } else {
-          engineConsoleLog(`✅ WHALE GATE: Bypassed for ${side} ${symbol} (context: ${context})`);
+          engineConsoleLog(`✅ WHALE GATE: Bypassed for ${side} ${symbol} (context: ${context}) - TP exit`);
         }
         
         // If any gate blocks, return immediately
@@ -1397,25 +1386,49 @@ export const useIntelligentTradingEngine = () => {
       const conflictPenalty = calculateConflictPenalty(bucketScores, fusionConfig.conflictPenalty);
       const adjustedScore = Math.max(-1, Math.min(1, sTotalScore - conflictPenalty));
       
-      // Hysteresis: Different thresholds for enter vs exit
-      const enterThreshold = fusionConfig.enterThreshold || 0.65;
-      const exitThreshold = fusionConfig.exitThreshold || 0.35;
+      // ========================================================================
+      // DECISION LOGIC - UNIFIED FOR TEST AND PRODUCTION
+      // ========================================================================
+      // When enterThreshold = 0, ANY positive score triggers BUY
+      // When exitThreshold = 0, ANY negative score triggers SELL
+      // NO hidden neutral bands - thresholds are respected exactly
+      // ========================================================================
+      
+      // Use ?? to respect 0 values (|| would treat 0 as falsy → bad!)
+      const enterThreshold = fusionConfig?.enterThreshold ?? effectiveConfigWithSources.enterThreshold ?? 0;
+      const exitThreshold = fusionConfig?.exitThreshold ?? effectiveConfigWithSources.exitThreshold ?? 0;
+      
+      // Log thresholds for transparency
+      console.log(`📊 [FUSION] Decision thresholds for ${symbol} (${side}):`, {
+        enterThreshold,
+        exitThreshold,
+        adjustedScore: adjustedScore.toFixed(4),
+        bucketScores
+      });
       
       let decision: 'ENTER' | 'EXIT' | 'HOLD' | 'DEFER' = 'HOLD';
-      let reason = 'low_signal_confidence';
+      let reason = 'no_action_needed';
       
-      if (side === 'BUY' && adjustedScore >= enterThreshold) {
-        decision = 'ENTER';
-        reason = 'fusion_signal_strong';
-      } else if (side === 'SELL' && adjustedScore <= -exitThreshold) {
-        decision = 'EXIT';
-        reason = 'fusion_exit_signal';
-      } else if (Math.abs(adjustedScore) < 0.2) {
-        decision = 'HOLD';
-        reason = 'signal_too_weak';
-      } else {
-        decision = 'DEFER';
-        reason = adjustedScore > 0 ? 'trend_misalignment' : 'bearish_trend_defer';
+      // BUY DECISION: score >= enterThreshold (when threshold=0, any score >= 0 triggers)
+      if (side === 'BUY') {
+        if (adjustedScore >= enterThreshold) {
+          decision = 'ENTER';
+          reason = `fusion_signal_strong (score=${adjustedScore.toFixed(3)} >= threshold=${enterThreshold})`;
+        } else {
+          decision = 'HOLD';
+          reason = `signal_below_threshold (score=${adjustedScore.toFixed(3)} < threshold=${enterThreshold})`;
+        }
+      }
+      
+      // SELL DECISION: score <= -exitThreshold (when threshold=0, any score <= 0 triggers)
+      if (side === 'SELL') {
+        if (adjustedScore <= -exitThreshold) {
+          decision = 'EXIT';
+          reason = `fusion_exit_signal (score=${adjustedScore.toFixed(3)} <= -threshold=${-exitThreshold})`;
+        } else {
+          decision = 'HOLD';
+          reason = `exit_signal_not_strong (score=${adjustedScore.toFixed(3)} > -threshold=${-exitThreshold})`;
+        }
       }
       
       return {
@@ -1424,7 +1437,7 @@ export const useIntelligentTradingEngine = () => {
         decision,
         reason,
         gateBlocks: [],
-        effectiveConfig: effectiveConfigWithSources,
+        effectiveConfig: { ...effectiveConfigWithSources, enterThreshold, exitThreshold },
         valueSources: effectiveConfigWithSources.value_sources,
         context
       };
@@ -1445,8 +1458,8 @@ export const useIntelligentTradingEngine = () => {
   };
   
   // Context Gates Implementation
-  // NOTE: checkSpreadGate now accepts isTestMode to bypass blocking in test mode (Option B)
-  const checkSpreadGate = async (symbol: string, maxSpreadBps: number, isTestMode: boolean = false): Promise<{ blocked: boolean; spreadBps: number; bypassed?: boolean }> => {
+  // ⚠️ UNIFIED: Same logic for test AND production - NO MORE BYPASSES
+  const checkSpreadGate = async (symbol: string, maxSpreadBps: number): Promise<{ blocked: boolean; spreadBps: number }> => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
       const pairSymbol = `${baseSymbol}-EUR`;
@@ -1460,44 +1473,22 @@ export const useIntelligentTradingEngine = () => {
         const mid = (bid + ask) / 2;
         const spreadBps = ((ask - bid) / mid) * 10000; // Convert to basis points
         
-        const wouldBeBlocked = spreadBps > maxSpreadBps;
+        const blocked = spreadBps > maxSpreadBps;
         
-        // TEST MODE BYPASS (Option B): In test mode, never block but log the actual spread
-        if (isTestMode && wouldBeBlocked) {
-          console.log('🧪 [SPREAD_GATE_BYPASS] fusion_spread_gate_bypassed_test_mode', {
-            symbol: pairSymbol,
-            bid,
-            ask,
-            mid,
-            spreadBps: spreadBps.toFixed(2),
-            thresholdBps: maxSpreadBps,
-            wouldHaveBlocked: true,
-            bypassed: true,
-            reason: 'test_mode_enabled'
-          });
-          return {
-            blocked: false, // BYPASSED - do not block in test mode
-            spreadBps,
-            bypassed: true
-          };
-        }
+        console.log(`📊 [SPREAD_GATE] ${symbol}: spread=${spreadBps.toFixed(2)} bps, threshold=${maxSpreadBps} bps, blocked=${blocked}`);
         
-        return {
-          blocked: wouldBeBlocked,
-          spreadBps,
-          bypassed: false
-        };
+        return { blocked, spreadBps };
       }
       
-      return { blocked: false, spreadBps: 0, bypassed: false }; // Default to not blocked if can't fetch
+      return { blocked: false, spreadBps: 0 }; // Default to not blocked if can't fetch
     } catch (error) {
       console.error('❌ SPREAD GATE: Error checking spread:', error);
-      return { blocked: false, spreadBps: 0, bypassed: false };
+      return { blocked: false, spreadBps: 0 };
     }
   };
   
-  // NOTE: checkLiquidityGate now accepts isTestMode to bypass blocking in test mode (like spread gate)
-  const checkLiquidityGate = async (symbol: string, minDepthRatio: number, isTestMode: boolean = false): Promise<{ blocked: boolean; depthRatio: number; bypassed?: boolean }> => {
+  // ⚠️ UNIFIED: Same logic for test AND production - NO MORE BYPASSES
+  const checkLiquidityGate = async (symbol: string, minDepthRatio: number): Promise<{ blocked: boolean; depthRatio: number }> => {
     try {
       const baseSymbol = symbol.replace('-EUR', '');
       const pairSymbol = `${baseSymbol}-EUR`;
@@ -1514,38 +1505,17 @@ export const useIntelligentTradingEngine = () => {
         const averageDepth = totalDepth / 2;
         const depthRatio = averageDepth > 0 ? Math.min(bidDepth, askDepth) / averageDepth : 0;
         
-        const wouldBeBlocked = depthRatio < minDepthRatio;
+        const blocked = depthRatio < minDepthRatio;
         
-        // TEST MODE BYPASS: In test mode, never block but log the actual depth ratio
-        if (isTestMode && wouldBeBlocked) {
-          console.log('🧪 [LIQUIDITY_GATE_BYPASS] fusion_liquidity_gate_bypassed_test_mode', {
-            symbol: pairSymbol,
-            bidDepth: bidDepth.toFixed(4),
-            askDepth: askDepth.toFixed(4),
-            depthRatio: depthRatio.toFixed(4),
-            thresholdRatio: minDepthRatio,
-            wouldHaveBlocked: true,
-            bypassed: true,
-            reason: 'test_mode_enabled'
-          });
-          return {
-            blocked: false, // BYPASSED - do not block in test mode
-            depthRatio,
-            bypassed: true
-          };
-        }
+        console.log(`📊 [LIQUIDITY_GATE] ${symbol}: depthRatio=${depthRatio.toFixed(4)}, threshold=${minDepthRatio}, blocked=${blocked}`);
         
-        return {
-          blocked: wouldBeBlocked,
-          depthRatio,
-          bypassed: false
-        };
+        return { blocked, depthRatio };
       }
       
-      return { blocked: false, depthRatio: 10, bypassed: false }; // Default to good depth if can't fetch
+      return { blocked: false, depthRatio: 10 }; // Default to good depth if can't fetch
     } catch (error) {
       console.error('❌ LIQUIDITY GATE: Error checking depth:', error);
-      return { blocked: false, depthRatio: 10, bypassed: false };
+      return { blocked: false, depthRatio: 10 };
     }
   };
   
@@ -2974,19 +2944,18 @@ export const useIntelligentTradingEngine = () => {
 
     console.log(`[${strategyTrigger}] Coordinator APPROVED - executing mock trade insertion`);
 
-    // Run spread/liquidity gates (will bypass in test mode but log)
-    const isTestModeConfig = true; // Always true for this helper
-    const spreadThreshold = 9999; // TESTING: effectively disabled
-    const minDepthRatio = 0.0; // TESTING: no liquidity check
+    // Run spread/liquidity gates - UNIFIED: same logic test and prod
+    const spreadThreshold = 9999; // TESTING: effectively disabled via configDefaults
+    const minDepthRatio = 0.0; // TESTING: no liquidity check via configDefaults
 
-    const spreadCheck = await checkSpreadGate(symbol, spreadThreshold, isTestModeConfig);
-    const liquidityCheck = await checkLiquidityGate(symbol, minDepthRatio, isTestModeConfig);
+    const spreadCheck = await checkSpreadGate(symbol, spreadThreshold);
+    const liquidityCheck = await checkLiquidityGate(symbol, minDepthRatio);
 
-    console.log(`[${strategyTrigger}] Gates passed`, {
+    console.log(`[${strategyTrigger}] Gates checked (unified logic)`, {
       spreadBlocked: spreadCheck.blocked,
-      spreadBypassed: spreadCheck.bypassed,
+      spreadBps: spreadCheck.spreadBps,
       liquidityBlocked: liquidityCheck.blocked,
-      liquidityBypassed: liquidityCheck.bypassed
+      depthRatio: liquidityCheck.depthRatio
     });
 
     // Calculate total value
@@ -3014,11 +2983,7 @@ export const useIntelligentTradingEngine = () => {
         coordinator_request_id: coordinatorRequestId,
         coordinator_reason: coordinatorReason,
         spread_bps: spreadCheck.spreadBps,
-        depth_ratio: liquidityCheck.depthRatio,
-        gates_bypassed: {
-          spread: spreadCheck.bypassed || false,
-          liquidity: liquidityCheck.bypassed || false
-        }
+        depth_ratio: liquidityCheck.depthRatio
       }
     };
 
