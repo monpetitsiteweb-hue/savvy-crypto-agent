@@ -372,14 +372,41 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
   useEffect(() => {
     if (!isEnabled || !testMode || !user) return;
 
+    // =====================================================================
+    // KILL-SWITCH: Check window.__INTELLIGENT_DISABLE_AUTORUN
+    // When true, NO automatic pool exits (TP/SL) are processed.
+    // This is the SAME kill-switch used by useIntelligentTradingEngine.
+    // Manual SELLs from the UI still work (they don't go through this hook).
+    // =====================================================================
+    const checkKillSwitch = (): boolean => {
+      if (typeof window !== 'undefined' && (window as any).__INTELLIGENT_DISABLE_AUTORUN === true) {
+        console.log('[PoolExitManager] KILL-SWITCH ACTIVE: __INTELLIGENT_DISABLE_AUTORUN=true, skipping automatic pool exits');
+        return true;
+      }
+      return false;
+    };
+
+    // If kill-switch is active at mount, don't even start the interval
+    if (checkKillSwitch()) {
+      console.log('[PoolExitManager] Kill-switch active at mount - NOT starting automatic pool exit interval');
+      return;
+    }
+
     // PERFORMANCE FIX: Reduced from 5s to 60s to prevent DB overload
     const POOL_CHECK_INTERVAL_MS = 60000; // 1 minute
 
     const interval = setInterval(() => {
+      // Check kill-switch on each tick - allows dynamic disable
+      if (checkKillSwitch()) {
+        return;
+      }
       processAllPools();
     }, POOL_CHECK_INTERVAL_MS);
 
-    processAllPools();
+    // Initial run (also respects kill-switch)
+    if (!checkKillSwitch()) {
+      processAllPools();
+    }
 
     return () => {
       clearInterval(interval);
