@@ -30,42 +30,42 @@ jobs:
           # Convert comma-separated to JSON array
           SYMBOLS_JSON=$(echo "$SYMBOLS" | tr ',' '\n' | jq -R . | jq -s .)
           
-          # Fetch active userId from trading_strategies (same pattern as other workflows)
-          USER_ID_RESPONSE=$(curl -s -X POST \
-            "${SUPABASE_URL}/rest/v1/rpc/get_active_trading_user_id" \
+          echo "📊 Symbols JSON: $SYMBOLS_JSON"
+          
+          # Query trading_strategies directly to get active user_id
+          echo "📋 Querying trading_strategies for active user..."
+          USER_ID_RAW=$(curl -s -X GET \
+            "${SUPABASE_URL}/rest/v1/trading_strategies?is_active=eq.true&select=user_id&limit=1" \
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Content-Type: application/json" \
-            -d '{}' || echo '""')
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
           
-          # Fallback: if RPC doesn't exist, query trading_strategies directly
-          if [ -z "$USER_ID_RESPONSE" ] || [ "$USER_ID_RESPONSE" = '""' ] || [ "$USER_ID_RESPONSE" = "null" ]; then
-            echo "📋 RPC not available, querying trading_strategies directly..."
-            USER_ID_RESPONSE=$(curl -s -X GET \
-              "${SUPABASE_URL}/rest/v1/trading_strategies?is_active=eq.true&select=user_id&limit=1" \
-              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-              | jq -r '.[0].user_id // empty')
-          fi
+          echo "📋 Raw response: $USER_ID_RAW"
           
-          if [ -z "$USER_ID_RESPONSE" ] || [ "$USER_ID_RESPONSE" = "null" ]; then
+          # Extract user_id and strip any extra quotes
+          USER_ID=$(echo "$USER_ID_RAW" | jq -r '.[0].user_id // empty')
+          
+          if [ -z "$USER_ID" ] || [ "$USER_ID" = "null" ]; then
             echo "❌ No active strategy found - skipping shadow run"
             exit 0
           fi
           
-          USER_ID="$USER_ID_RESPONSE"
           echo "👤 Using userId: $USER_ID"
           echo "📊 Symbols: $SYMBOLS"
+          
+          # Build JSON body explicitly to avoid escaping issues
+          JSON_BODY=$(jq -n \
+            --arg userId "$USER_ID" \
+            --argjson symbols "$SYMBOLS_JSON" \
+            '{userId: $userId, symbols: $symbols}')
+          
+          echo "📦 Request body: $JSON_BODY"
           
           # Invoke backend-shadow-engine with SHADOW mode
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             "${SUPABASE_URL}/functions/v1/backend-shadow-engine" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"userId\": \"$USER_ID\",
-              \"symbols\": $SYMBOLS_JSON
-            }")
+            -d "$JSON_BODY")
           
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           BODY=$(echo "$RESPONSE" | sed '$d')
