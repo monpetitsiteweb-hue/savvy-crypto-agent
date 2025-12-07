@@ -353,7 +353,7 @@ export const useIntelligentTradingEngine = () => {
       // PHASE D: Even forced debug trades are blocked when FRONTEND_ENGINE_DISABLED
       if (typeof window !== 'undefined' && window.__INTELLIGENT_FORCE_DEBUG_TRADE) {
         if (FRONTEND_ENGINE_DISABLED) {
-          console.warn('[FRONTEND_ENGINE_DISABLED] Blocked forced debug BUY - frontend BUYs are disabled');
+          console.warn('[FRONTEND_BUY_BLOCKED] Frontend BUY disabled during backend cutover - forced debug BUY blocked');
           window.__INTELLIGENT_FORCE_DEBUG_TRADE = false;
           return;
         }
@@ -766,7 +766,7 @@ export const useIntelligentTradingEngine = () => {
     // With FRONTEND_ENGINE_DISABLED=true, we exit immediately.
     // ======================================================================
     if (FRONTEND_ENGINE_DISABLED) {
-      console.warn('[FRONTEND_ENGINE_DISABLED] checkBuyOpportunitiesInstrumented blocked - no automatic BUYs from frontend');
+      console.warn('[FRONTEND_BUY_BLOCKED] Frontend BUY disabled during backend cutover - automatic BUYs blocked');
       return 0;
     }
     
@@ -2577,7 +2577,7 @@ export const useIntelligentTradingEngine = () => {
   const executeBuyOrder = async (strategy: any, symbol: string, marketPrice: number, reason: string) => {
     // ============= PHASE D: BLOCK ALL AUTOMATIC FRONTEND BUYs =============
     if (FRONTEND_ENGINE_DISABLED) {
-      console.warn('[FRONTEND_ENGINE_DISABLED] Blocked automatic BUY for', symbol, '- reason:', reason);
+      console.warn('[FRONTEND_BUY_BLOCKED] Frontend BUY disabled during backend cutover -', symbol, 'BUY blocked');
       return;
     }
     // ======================================================================

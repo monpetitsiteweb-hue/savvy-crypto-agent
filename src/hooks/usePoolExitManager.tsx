@@ -43,7 +43,7 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
   // ==================================================================================
   const guardNoBuy = (intent: { side?: string } | undefined): boolean => {
     if (intent?.side === 'BUY') {
-      console.warn('[FRONTEND_ENGINE_DISABLED] Blocked BUY in exit manager');
+      console.warn('[FRONTEND_BUY_BLOCKED] Frontend BUY disabled during backend cutover - BUY blocked in exit manager');
       return true; // blocked
     }
     return false; // allowed
