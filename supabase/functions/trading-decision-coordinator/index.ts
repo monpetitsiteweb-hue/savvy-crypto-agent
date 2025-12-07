@@ -384,6 +384,54 @@ let metrics = {
   lastReset: Date.now()
 };
 
+// ============= PHASE A: DUAL-ENGINE DETECTION (LOG ONLY) =============
+// This helper checks for recent trades on the same user/strategy/symbol
+// within a short window to detect potential dual-engine conflicts.
+// 
+// In Phase A, this is LOG-ONLY and does NOT block trades.
+// It helps identify if frontend and backend engines are both active.
+// =======================================================================
+async function checkDualEngineConflict(
+  supabaseClient: any,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  windowMs: number = 30000 // 30 seconds default
+): Promise<{ hasRecentTrade: boolean; recentTradeId?: string; recentTradeAge?: number }> {
+  try {
+    const baseSymbol = toBaseSymbol(symbol);
+    const cutoffTime = new Date(Date.now() - windowMs).toISOString();
+    
+    const { data: recentTrades, error } = await supabaseClient
+      .from('mock_trades')
+      .select('id, executed_at')
+      .eq('user_id', userId)
+      .eq('strategy_id', strategyId)
+      .eq('cryptocurrency', baseSymbol)
+      .eq('is_test_mode', true)
+      .gte('executed_at', cutoffTime)
+      .order('executed_at', { ascending: false })
+      .limit(1);
+    
+    if (error || !recentTrades || recentTrades.length === 0) {
+      return { hasRecentTrade: false };
+    }
+    
+    const recentTrade = recentTrades[0];
+    const ageMs = Date.now() - new Date(recentTrade.executed_at).getTime();
+    
+    return {
+      hasRecentTrade: true,
+      recentTradeId: recentTrade.id,
+      recentTradeAge: ageMs
+    };
+  } catch (err) {
+    console.warn('[DualEngineCheck] Error checking for recent trades:', err);
+    return { hasRecentTrade: false };
+  }
+}
+// ============= END DUAL-ENGINE DETECTION =============
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -1191,6 +1239,12 @@ serve(async (req) => {
         is_test_mode: true,
       };
 
+      // PHASE A: Dual-engine detection (log only, no blocking)
+      const dualCheck = await checkDualEngineConflict(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
+      if (dualCheck.hasRecentTrade) {
+        console.warn(`[DualEngineWarning] Recent trade detected for user=${intent.userId.substring(0,8)}... strategy=${intent.strategyId.substring(0,8)}... symbol=${baseSymbol} within 30s (tradeId=${dualCheck.recentTradeId?.substring(0,8)}... age=${dualCheck.recentTradeAge}ms) - proceeding anyway (Phase A log-only)`);
+      }
+
       const { error: insErr } = await supabaseClient.from('mock_trades').insert([payload]);
       if (insErr) {
         console.error('[coordinator] mock sell insert failed', insErr);
@@ -1936,6 +1990,12 @@ async function executeTradeDirectly(
 
     console.log('[DEBUG][executeTradeDirectly] mockTrade payload:', JSON.stringify(mockTrade, null, 2));
     console.log('[DEBUG][executeTradeDirectly] Calling supabaseClient.from("mock_trades").insert()...');
+
+    // PHASE A: Dual-engine detection (log only, no blocking)
+    const dualCheck = await checkDualEngineConflict(supabaseClient, intent.userId, intent.strategyId, intent.symbol);
+    if (dualCheck.hasRecentTrade) {
+      console.warn(`[DualEngineWarning] Recent trade detected for user=${intent.userId.substring(0,8)}... strategy=${intent.strategyId.substring(0,8)}... symbol=${baseSymbol} within 30s (tradeId=${dualCheck.recentTradeId?.substring(0,8)}... age=${dualCheck.recentTradeAge}ms) - proceeding anyway (Phase A log-only)`);
+    }
 
     const { error } = await supabaseClient
       .from('mock_trades')
@@ -3840,6 +3900,12 @@ async function executeTradeOrder(
           };
         });
 
+        // PHASE A: Dual-engine detection (log only, no blocking)
+        const dualCheck = await checkDualEngineConflict(supabaseClient, intent.userId, intent.strategyId, intent.symbol);
+        if (dualCheck.hasRecentTrade) {
+          console.warn(`[DualEngineWarning] Recent trade detected for user=${intent.userId.substring(0,8)}... strategy=${intent.strategyId.substring(0,8)}... symbol=${baseSymbol} within 30s (tradeId=${dualCheck.recentTradeId?.substring(0,8)}... age=${dualCheck.recentTradeAge}ms) - proceeding anyway (Phase A log-only)`);
+        }
+
         const { data: insertResults, error: insertError } = await supabaseClient
           .from('mock_trades')
           .insert(sellRows)
@@ -3891,6 +3957,12 @@ async function executeTradeOrder(
         market_conditions: { execution_mode: executionMode, decision_at, executed_at, latency_ms: execution_latency_ms, request_id: requestId },
         ...fifoFields
       };
+
+      // PHASE A: Dual-engine detection (log only, no blocking)
+      const dualCheck = await checkDualEngineConflict(supabaseClient, intent.userId, intent.strategyId, intent.symbol);
+      if (dualCheck.hasRecentTrade) {
+        console.warn(`[DualEngineWarning] Recent trade detected for user=${intent.userId.substring(0,8)}... strategy=${intent.strategyId.substring(0,8)}... symbol=${baseSymbol} within 30s (tradeId=${dualCheck.recentTradeId?.substring(0,8)}... age=${dualCheck.recentTradeAge}ms) - proceeding anyway (Phase A log-only)`);
+      }
 
       const { data: insertResult, error } = await supabaseClient
         .from('mock_trades')
