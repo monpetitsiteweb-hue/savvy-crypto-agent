@@ -655,6 +655,31 @@ serve(async (req) => {
 
     const intent: TradeIntent = body.intent || body;
     
+    // ============= PHASE D: BLOCK FRONTEND AUTOMATIC BUYs =============
+    // Frontend intelligent engine is NO LONGER allowed to generate automatic BUYs.
+    // Only backend engine (BACKEND_LIVE) and manual UI (UI_MANUAL) can create BUYs.
+    // 
+    // This is a HARD BLOCK at the coordinator level as a safety gate.
+    // ===================================================================
+    const intentContext = intent?.metadata?.context || '';
+    const intentEngine = intent?.metadata?.engine || '';
+    const isFrontendIntelligent = 
+      intentContext === 'FRONTEND_INTELLIGENT' || 
+      (intentEngine === 'intelligent' && !intentContext.startsWith('BACKEND_'));
+    
+    if (isFrontendIntelligent && intent?.side === 'BUY') {
+      console.log('[Coordinator] Blocked frontend BUY (Phase D) - source:', intent?.source, 'context:', intentContext);
+      return new Response(JSON.stringify({
+        decision: {
+          action: 'BLOCK',
+          reason: 'frontend_buy_disabled',
+          fusion_score: 0,
+          request_id: `blocked_${Date.now()}`,
+          retry_in_ms: 0
+        }
+      }), { headers: corsHeaders });
+    }
+    
     // Log if no 'mode' field present - default to normal DECIDE flow
     const mode = (intent as any).mode || intent?.metadata?.mode;
     if (!mode) {
