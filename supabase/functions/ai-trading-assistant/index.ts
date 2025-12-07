@@ -882,7 +882,7 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     key: 'minHoldPeriodMs',
     type: 'number',
     range: [0, 86400000],
-    dbPath: 'configuration.unifiedConfig.minHoldPeriodMs',
+    dbPath: 'configuration.minHoldPeriodMs',
     aiCanExecute: true,
     phrases: ['min hold period', 'minimum hold', 'hold period', 'hold time', 'minimum hold time'],
     description: 'Minimum hold period in milliseconds'

@@ -1,5 +1,8 @@
 // Exposure Calculator - Centralized exposure logic for risk management
 // Used by Intelligent Engine and Coordinator for pooling/DCA decisions
+//
+// NOTE: Frontend exposure is advisory only.
+// The trading-decision-coordinator is the single source of truth for exposure enforcement.
 
 export interface ExposureParams {
   positions: Array<{
