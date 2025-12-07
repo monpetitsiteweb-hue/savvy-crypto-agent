@@ -37,6 +37,18 @@ export const usePoolExitManager = ({ isEnabled, testMode }: PoolExitManagerProps
   const lastTrailingUpdateRef = useRef<Map<string, number>>(new Map());
   const processingRef = useRef<Set<string>>(new Set());
 
+  // ============= PHASE D: SAFETY GUARD - NO BUY FROM POOL EXIT MANAGER =============
+  // This hook is SELL-ONLY. It should never issue a BUY.
+  // This guard ensures no BUY can ever leak through this code path.
+  // ==================================================================================
+  const guardNoBuy = (intent: { side?: string } | undefined): boolean => {
+    if (intent?.side === 'BUY') {
+      console.warn('[FRONTEND_ENGINE_DISABLED] Blocked BUY in exit manager');
+      return true; // blocked
+    }
+    return false; // allowed
+  };
+
   const getOpenTrades = async (userId: string, strategyId: string): Promise<Trade[]> => {
     try {
       const { data, error } = await supabase

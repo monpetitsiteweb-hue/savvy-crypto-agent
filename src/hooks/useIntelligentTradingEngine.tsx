@@ -52,6 +52,19 @@ const isLogSuppressed = () => {
   return (window as any).__INTELLIGENT_SUPPRESS_LOGS === true;
 };
 
+// ============= PHASE D: FRONTEND ENGINE BUY DISABLED =============
+// The frontend intelligent engine is NO LONGER allowed to generate automatic BUYs.
+// Only the backend engine (backend-shadow-engine) can create BUY orders.
+// 
+// Frontend is still allowed to:
+//   - Process manual SELLs (via UI)
+//   - Process manual BUYs (user explicitly clicks BUY in UI)
+//   - TP/SL pool exit manager SELLs (via usePoolExitManager)
+// 
+// This flag is ALWAYS TRUE in production. It cannot be disabled.
+// =================================================================
+const FRONTEND_ENGINE_DISABLED = true;
+
 // ============= FRONTEND ENGINE KILL-SWITCH =============
 // PHASE A (Cutover Prep): This flag allows disabling the 60s frontend intelligent
 // engine loop WITHOUT affecting manual SELLs or other UI-triggered actions.
@@ -336,7 +349,14 @@ export const useIntelligentTradingEngine = () => {
       // FORCED DEBUG TRADE PATH (test-mode only)
       // Set window.__INTELLIGENT_FORCE_DEBUG_TRADE = true in console to trigger
       // This block is placed AFTER strategy fetch so we have a valid strategyId
+      // 
+      // PHASE D: Even forced debug trades are blocked when FRONTEND_ENGINE_DISABLED
       if (typeof window !== 'undefined' && window.__INTELLIGENT_FORCE_DEBUG_TRADE) {
+        if (FRONTEND_ENGINE_DISABLED) {
+          console.warn('[FRONTEND_ENGINE_DISABLED] Blocked forced debug BUY - frontend BUYs are disabled');
+          window.__INTELLIGENT_FORCE_DEBUG_TRADE = false;
+          return;
+        }
         const firstStrategy = strategies[0];
         const forcedSymbol = 'BTC-EUR';
         const forcedBaseSymbol = 'BTC';
@@ -741,6 +761,15 @@ export const useIntelligentTradingEngine = () => {
   // PHASE 1-4 REFACTOR: Exposure-based risk management replaces hasPosition gate
   // ============================================================================
   const checkBuyOpportunitiesInstrumented = async (strategy: any, marketData: any, actionsPlanned: { buy: number; sell: number; hold: number }): Promise<number> => {
+    // ============= PHASE D: BLOCK ALL AUTOMATIC FRONTEND BUYs =============
+    // This function is the main entry point for automatic BUY decisions.
+    // With FRONTEND_ENGINE_DISABLED=true, we exit immediately.
+    // ======================================================================
+    if (FRONTEND_ENGINE_DISABLED) {
+      console.warn('[FRONTEND_ENGINE_DISABLED] checkBuyOpportunitiesInstrumented blocked - no automatic BUYs from frontend');
+      return 0;
+    }
+    
     const config = strategy.configuration as any;
     
     writeDebugStage('buy_opportunities_fetch_positions', {});
@@ -2546,6 +2575,12 @@ export const useIntelligentTradingEngine = () => {
   };
 
   const executeBuyOrder = async (strategy: any, symbol: string, marketPrice: number, reason: string) => {
+    // ============= PHASE D: BLOCK ALL AUTOMATIC FRONTEND BUYs =============
+    if (FRONTEND_ENGINE_DISABLED) {
+      console.warn('[FRONTEND_ENGINE_DISABLED] Blocked automatic BUY for', symbol, '- reason:', reason);
+      return;
+    }
+    // ======================================================================
     engineConsoleLog('💰 ENGINE: Executing buy order for', symbol, 'reason:', reason);
     await executeTrade(strategy, 'buy', symbol, marketPrice, undefined, reason);
   };
