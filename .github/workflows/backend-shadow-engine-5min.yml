@@ -1,0 +1,99 @@
+name: Backend Shadow Engine (5min)
+
+on:
+  schedule:
+    # Every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: 'Comma-separated symbols (default: BTC,ETH,SOL,AVAX,XRP,ADA)'
+        required: false
+        default: 'BTC,ETH,SOL,AVAX,XRP,ADA'
+
+jobs:
+  run-shadow-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke Backend Shadow Engine
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          echo "🌑 SHADOW ENGINE: Triggering scheduled shadow evaluation..."
+          echo "Mode: SHADOW (no trades will be inserted)"
+          echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          
+          # Default symbol list
+          SYMBOLS="${{ github.event.inputs.symbols || 'BTC,ETH,SOL,AVAX,XRP,ADA' }}"
+          
+          # Convert comma-separated to JSON array
+          SYMBOLS_JSON=$(echo "$SYMBOLS" | tr ',' '\n' | jq -R . | jq -s .)
+          
+          # Fetch active userId from trading_strategies (same pattern as other workflows)
+          USER_ID_RESPONSE=$(curl -s -X POST \
+            "${SUPABASE_URL}/rest/v1/rpc/get_active_trading_user_id" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}' || echo '""')
+          
+          # Fallback: if RPC doesn't exist, query trading_strategies directly
+          if [ -z "$USER_ID_RESPONSE" ] || [ "$USER_ID_RESPONSE" = '""' ] || [ "$USER_ID_RESPONSE" = "null" ]; then
+            echo "📋 RPC not available, querying trading_strategies directly..."
+            USER_ID_RESPONSE=$(curl -s -X GET \
+              "${SUPABASE_URL}/rest/v1/trading_strategies?is_active=eq.true&select=user_id&limit=1" \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              | jq -r '.[0].user_id // empty')
+          fi
+          
+          if [ -z "$USER_ID_RESPONSE" ] || [ "$USER_ID_RESPONSE" = "null" ]; then
+            echo "❌ No active strategy found - skipping shadow run"
+            exit 0
+          fi
+          
+          USER_ID="$USER_ID_RESPONSE"
+          echo "👤 Using userId: $USER_ID"
+          echo "📊 Symbols: $SYMBOLS"
+          
+          # Invoke backend-shadow-engine with SHADOW mode
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "${SUPABASE_URL}/functions/v1/backend-shadow-engine" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"userId\": \"$USER_ID\",
+              \"symbols\": $SYMBOLS_JSON
+            }")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "📡 Response code: $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✅ Shadow engine completed successfully"
+            echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+            
+            # Extract summary stats
+            WOULD_BUY=$(echo "$BODY" | jq '.summary.wouldBuy // 0')
+            WOULD_SELL=$(echo "$BODY" | jq '.summary.wouldSell // 0')
+            WOULD_HOLD=$(echo "$BODY" | jq '.summary.wouldHold // 0')
+            TOTAL=$(echo "$BODY" | jq '.summary.total // 0')
+            ELAPSED=$(echo "$BODY" | jq '.elapsed_ms // 0')
+            
+            echo ""
+            echo "📊 SHADOW RUN SUMMARY"
+            echo "  Symbols evaluated: $TOTAL"
+            echo "  Would BUY: $WOULD_BUY"
+            echo "  Would SELL: $WOULD_SELL"  
+            echo "  Would HOLD: $WOULD_HOLD"
+            echo "  Elapsed: ${ELAPSED}ms"
+            echo ""
+            echo "⚠️  SHADOW MODE: No trades were inserted to mock_trades"
+          else
+            echo "❌ Shadow engine failed with code $HTTP_CODE"
+            echo "$BODY"
+            exit 1
+          fi
