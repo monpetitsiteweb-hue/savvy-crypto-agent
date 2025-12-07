@@ -143,3 +143,6 @@ verify_jwt = true
 
 [functions.whale-alert-ws]
 verify_jwt = false
+
+[functions.backend-shadow-engine]
+verify_jwt = true
