@@ -20,6 +20,25 @@ type EngineMode = 'SHADOW' | 'LIVE';
 const BACKEND_ENGINE_MODE: EngineMode = 
   (Deno.env.get('BACKEND_ENGINE_MODE') as EngineMode) || 'SHADOW';
 
+// ============= PHASE B: USER ALLOWLIST FOR BACKEND LIVE =============
+// Comma-separated list of user IDs allowed to run in LIVE mode.
+// If BACKEND_ENGINE_MODE='LIVE' but user is not in allowlist, force SHADOW behavior.
+// If empty or unset, no one is allowlisted (all users run in SHADOW).
+const BACKEND_ENGINE_USER_ALLOWLIST_RAW = Deno.env.get('BACKEND_ENGINE_USER_ALLOWLIST') || '';
+
+function parseAllowlist(raw: string): Set<string> {
+  if (!raw.trim()) return new Set();
+  return new Set(raw.split(',').map(s => s.trim()).filter(s => s.length > 0));
+}
+
+function isUserAllowlisted(userId: string | null | undefined): boolean {
+  if (!userId) return false;
+  const allowlist = parseAllowlist(BACKEND_ENGINE_USER_ALLOWLIST_RAW);
+  if (allowlist.size === 0) return false;
+  return allowlist.has(userId);
+}
+// ============= END PHASE B ALLOWLIST =============
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -43,11 +62,16 @@ serve(async (req) => {
   }
 
   const startTime = Date.now();
-  const isShadowMode = BACKEND_ENGINE_MODE === 'SHADOW';
+  
+  // ============= PHASE B: EFFECTIVE SHADOW MODE CALCULATION =============
+  // 1. Read the configured mode from env (defaults to SHADOW)
+  // 2. Check if user is in the allowlist (only matters if mode is LIVE)
+  // 3. Compute effectiveShadowMode: forces SHADOW if user not allowlisted
+  // ======================================================================
+  const isModeConfiguredShadow = BACKEND_ENGINE_MODE === 'SHADOW';
   
   try {
     console.log(`🌑 BACKEND ENGINE: Starting run in ${BACKEND_ENGINE_MODE} mode`);
-    console.log(`   → isShadowMode=${isShadowMode}, trades_will_insert=${!isShadowMode}`);
     
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -67,6 +91,16 @@ serve(async (req) => {
       });
     }
 
+    // PHASE B: Calculate effective shadow mode with allowlist check
+    const isUserAllowedForLive = !isModeConfiguredShadow && isUserAllowlisted(userId);
+    const effectiveShadowMode = isModeConfiguredShadow || !isUserAllowedForLive;
+    
+    // Log the mode computation for observability
+    if (BACKEND_ENGINE_MODE === 'LIVE' && !isUserAllowedForLive) {
+      console.log(`🌑 BACKEND_ENGINE_MODE=LIVE but user ${userId.substring(0, 8)}... is not in BACKEND_ENGINE_USER_ALLOWLIST – forcing SHADOW behavior`);
+    }
+    console.log(`   → engineMode=${BACKEND_ENGINE_MODE}, effectiveShadowMode=${effectiveShadowMode}, userAllowedForLive=${isUserAllowedForLive}`);
+
     console.log(`🌑 ${BACKEND_ENGINE_MODE}: Evaluating for user ${userId}, strategyId=${strategyId || 'all'}`);
 
     // Step 1: Fetch active strategies (same as frontend)
@@ -85,8 +119,10 @@ serve(async (req) => {
     if (strategiesError || !strategies?.length) {
       console.log(`🌑 ${BACKEND_ENGINE_MODE}: No active strategies found`);
       return new Response(JSON.stringify({ 
-        shadow: isShadowMode,
+        shadow: effectiveShadowMode,
         mode: BACKEND_ENGINE_MODE,
+        effectiveShadowMode,
+        userAllowedForLive: isUserAllowedForLive,
         decisions: [],
         summary: { wouldBuy: 0, wouldSell: 0, wouldHold: 0, total: 0 },
         message: 'No active strategies found',
@@ -107,7 +143,7 @@ serve(async (req) => {
       
       console.log(`🌑 ${BACKEND_ENGINE_MODE}: Processing strategy "${strategy.strategy_name}" with coins: ${selectedCoins.join(', ')}`);
 
-      // Step 3: For each symbol, build intent and call coordinator in SHADOW mode
+      // Step 3: For each symbol, build intent and call coordinator
       for (const coin of selectedCoins) {
         const symbol = coin.includes('-') ? coin : `${coin}-EUR`;
         const baseSymbol = coin.replace('-EUR', '');
@@ -145,8 +181,8 @@ serve(async (req) => {
           const qtySuggested = tradeAllocation / currentPrice;
 
           // Build intent matching frontend shape
-          // Mode-conditional metadata for SHADOW vs LIVE
-          const intentMetadata = isShadowMode ? {
+          // Mode-conditional metadata based on effectiveShadowMode
+          const intentMetadata = effectiveShadowMode ? {
             mode: 'mock',
             engine: 'intelligent',
             is_test_mode: true,
@@ -172,14 +208,14 @@ serve(async (req) => {
             side: 'BUY' as const,
             source: 'intelligent' as const,
             confidence: 0.65, // Default confidence
-            reason: isShadowMode ? 'BACKEND_SHADOW_EVALUATION' : 'BACKEND_LIVE_DECISION',
+            reason: effectiveShadowMode ? 'BACKEND_SHADOW_EVALUATION' : 'BACKEND_LIVE_DECISION',
             qtySuggested,
             metadata: intentMetadata,
             ts: new Date().toISOString(),
-            idempotencyKey: `${isShadowMode ? 'shadow' : 'live'}_${strategy.id}_${baseSymbol}_${Date.now()}`
+            idempotencyKey: `${effectiveShadowMode ? 'shadow' : 'live'}_${strategy.id}_${baseSymbol}_${Date.now()}`
           };
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: Calling coordinator for ${baseSymbol} BUY intent`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: Calling coordinator for ${baseSymbol} BUY intent (effectiveShadow=${effectiveShadowMode})`);
 
           // Call coordinator with shadow flag
           const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
@@ -236,8 +272,10 @@ serve(async (req) => {
               price: currentPrice,
               qtySuggested,
               coordinatorResponse: decision,
+              // Phase B: Include all mode info in metadata
               engineMode: BACKEND_ENGINE_MODE,
-              shadowMode: isShadowMode,
+              effectiveShadowMode,
+              userAllowedForLive: isUserAllowedForLive,
             }
           });
 
@@ -276,17 +314,25 @@ serve(async (req) => {
       try {
         // Only log decisions that would execute (for meaningful learning data)
         if (dec.wouldExecute) {
-          // Mode-conditional metadata for decision_events
-          const eventMetadata = isShadowMode ? {
+          // Phase B: Mode-conditional metadata for decision_events with all mode info
+          const eventMetadata = effectiveShadowMode ? {
             ...dec.metadata,
             origin: 'BACKEND_SHADOW',
             shadow_only: true,
             no_trade_inserted: true,
+            // Phase B fields
+            engineMode: BACKEND_ENGINE_MODE,
+            effectiveShadowMode: true,
+            userAllowedForLive: isUserAllowedForLive,
           } : {
             ...dec.metadata,
             origin: 'BACKEND_LIVE',
             shadow_only: false,
             no_trade_inserted: false,
+            // Phase B fields
+            engineMode: BACKEND_ENGINE_MODE,
+            effectiveShadowMode: false,
+            userAllowedForLive: isUserAllowedForLive,
           };
 
           await supabaseClient.from('decision_events').insert({
@@ -301,7 +347,7 @@ serve(async (req) => {
             metadata: eventMetadata,
             decision_ts: dec.timestamp,
           });
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: Logged decision_event for ${dec.symbol} (origin=BACKEND_${BACKEND_ENGINE_MODE})`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: Logged decision_event for ${dec.symbol} (origin=${effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE'})`);
         }
       } catch (logErr) {
         console.warn(`🌑 ${BACKEND_ENGINE_MODE}: Could not log decision_event for ${dec.symbol}:`, logErr);
@@ -309,13 +355,15 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({
-      shadow: isShadowMode,
+      shadow: effectiveShadowMode,
       mode: BACKEND_ENGINE_MODE,
+      effectiveShadowMode,
+      userAllowedForLive: isUserAllowedForLive,
       decisions: allDecisions,
       summary,
       strategies_evaluated: strategies.length,
       elapsed_ms,
-      message: isShadowMode 
+      message: effectiveShadowMode 
         ? 'Shadow evaluation complete - NO trades were executed'
         : 'Live evaluation complete - trades may have been executed',
     }), {
@@ -325,8 +373,9 @@ serve(async (req) => {
   } catch (error) {
     console.error(`🌑 ${BACKEND_ENGINE_MODE}: Fatal error:`, error);
     return new Response(JSON.stringify({ 
-      shadow: isShadowMode,
+      shadow: true,
       mode: BACKEND_ENGINE_MODE,
+      effectiveShadowMode: true,
       error: error.message,
       elapsed_ms: Date.now() - startTime
     }), {
