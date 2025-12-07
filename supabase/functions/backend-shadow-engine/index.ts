@@ -309,45 +309,51 @@ serve(async (req) => {
     
     console.log(`🌑 ${BACKEND_ENGINE_MODE}: Run complete. wouldBuy=${summary.wouldBuy}, wouldSell=${summary.wouldSell}, wouldHold=${summary.wouldHold}, elapsed=${elapsed_ms}ms`);
 
-    // Log decisions to decision_events with appropriate origin tag
+    // Log ALL decisions to decision_events for shadow mode observability
+    // This includes DEFER, BLOCK, HOLD - not just BUY/SELL executions
+    // This is critical for validating backend decisions before going LIVE
     for (const dec of allDecisions) {
       try {
-        // Only log decisions that would execute (for meaningful learning data)
-        if (dec.wouldExecute) {
-          // Phase B: Mode-conditional metadata for decision_events with all mode info
-          const eventMetadata = effectiveShadowMode ? {
-            ...dec.metadata,
-            origin: 'BACKEND_SHADOW',
-            shadow_only: true,
-            no_trade_inserted: true,
-            // Phase B fields
-            engineMode: BACKEND_ENGINE_MODE,
-            effectiveShadowMode: true,
-            userAllowedForLive: isUserAllowedForLive,
-          } : {
-            ...dec.metadata,
-            origin: 'BACKEND_LIVE',
-            shadow_only: false,
-            no_trade_inserted: false,
-            // Phase B fields
-            engineMode: BACKEND_ENGINE_MODE,
-            effectiveShadowMode: false,
-            userAllowedForLive: isUserAllowedForLive,
-          };
+        // Phase B: Mode-conditional metadata for decision_events with all mode info
+        const eventMetadata = effectiveShadowMode ? {
+          ...dec.metadata,
+          origin: 'BACKEND_SHADOW',
+          shadow_only: true,
+          no_trade_inserted: true,
+          wouldExecute: dec.wouldExecute,
+          // Phase B fields
+          engineMode: BACKEND_ENGINE_MODE,
+          effectiveShadowMode: true,
+          userAllowedForLive: isUserAllowedForLive,
+        } : {
+          ...dec.metadata,
+          origin: 'BACKEND_LIVE',
+          shadow_only: false,
+          no_trade_inserted: !dec.wouldExecute,
+          wouldExecute: dec.wouldExecute,
+          // Phase B fields
+          engineMode: BACKEND_ENGINE_MODE,
+          effectiveShadowMode: false,
+          userAllowedForLive: isUserAllowedForLive,
+        };
 
-          await supabaseClient.from('decision_events').insert({
-            user_id: userId,
-            strategy_id: dec.metadata.strategyId,
-            symbol: dec.symbol,
-            side: dec.side,
-            source: 'intelligent',
-            confidence: dec.confidence,
-            reason: dec.reason,
-            entry_price: dec.metadata.price,
-            metadata: eventMetadata,
-            decision_ts: dec.timestamp,
-          });
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: Logged decision_event for ${dec.symbol} (origin=${effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE'})`);
+        const { error: insertError } = await supabaseClient.from('decision_events').insert({
+          user_id: userId,
+          strategy_id: dec.metadata.strategyId,
+          symbol: dec.symbol,
+          side: dec.side,
+          source: 'intelligent',
+          confidence: dec.confidence,
+          reason: `${dec.action}:${dec.reason}`,
+          entry_price: dec.metadata.price,
+          metadata: eventMetadata,
+          decision_ts: dec.timestamp,
+        });
+        
+        if (insertError) {
+          console.warn(`🌑 ${BACKEND_ENGINE_MODE}: Insert error for ${dec.symbol}:`, insertError.message);
+        } else {
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: Logged decision_event for ${dec.symbol} action=${dec.action} (origin=${effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE'})`);
         }
       } catch (logErr) {
         console.warn(`🌑 ${BACKEND_ENGINE_MODE}: Could not log decision_event for ${dec.symbol}:`, logErr);
