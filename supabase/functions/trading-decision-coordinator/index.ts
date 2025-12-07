@@ -551,6 +551,15 @@ serve(async (req) => {
       console.log('[coordinator] No "mode" field, defaulting to DECIDE flow');
     }
     
+    // ============= SHADOW MODE DETECTION =============
+    // Shadow mode: Run all decision logic but DO NOT insert trades
+    // Used by backend-shadow-engine for validation/dry-run
+    const isShadowMode = intent?.metadata?.execMode === 'SHADOW' || 
+                         intent?.metadata?.context === 'BACKEND_SHADOW';
+    if (isShadowMode) {
+      console.log('🌑 COORDINATOR: SHADOW MODE DETECTED - will NOT insert trades');
+    }
+    
     // ============= ENTRY LOGGING FOR DEBUGGING =============
     // CRITICAL: Log incoming source and debugTag immediately for diagnostics
     console.info('COORDINATOR: received trade intent', {
@@ -3748,6 +3757,36 @@ async function executeTradeOrder(
     const executed_price = realMarketPrice;
     const slippage_bps = ((executed_price - decision_price) / decision_price) * 10000;
     const partial_fill = false; // Mock trades are always full fills
+    
+    // ============= SHADOW MODE CHECK =============
+    // In shadow mode, skip actual trade inserts but return what WOULD happen
+    const isShadowMode = intent?.metadata?.execMode === 'SHADOW' || 
+                         intent?.metadata?.context === 'BACKEND_SHADOW';
+    
+    if (isShadowMode) {
+      console.log('🌑 SHADOW MODE: Skipping trade insert - returning decision only');
+      return {
+        success: true,
+        qty,
+        tradeId: undefined, // No trade inserted
+        executed_at,
+        decision_price,
+        executed_price,
+        partial_fill: false,
+        effectiveConfig,
+        // @ts-ignore - Shadow-specific fields
+        shadow: true,
+        wouldExecute: true,
+        shadowDecision: {
+          side: intent.side,
+          symbol: baseSymbol,
+          qty,
+          price: realMarketPrice,
+          totalValue,
+          reason: 'shadow_mode_no_insert'
+        }
+      };
+    }
     
     // PHASE 5: Branch execution based on mode
     if (executionMode === "TEST") {
