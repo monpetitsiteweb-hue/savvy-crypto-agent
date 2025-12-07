@@ -695,6 +695,12 @@ serve(async (req) => {
       console.log('🌑 COORDINATOR: SHADOW MODE DETECTED - will NOT insert trades');
     }
     
+    // ============= PHASE E: BACKEND LIVE DETECTION =============
+    const isBackendLive = intent?.metadata?.context === 'BACKEND_LIVE';
+    if (isBackendLive) {
+      console.log('🔥 COORDINATOR: BACKEND_LIVE MODE - trade will be inserted');
+    }
+    
     // ============= ENTRY LOGGING FOR DEBUGGING =============
     // CRITICAL: Log incoming source and debugTag immediately for diagnostics
     console.info('COORDINATOR: received trade intent', {
@@ -706,6 +712,7 @@ serve(async (req) => {
       side: intent?.side,
       idempotencyKey: intent?.idempotencyKey,
       strategyId: intent?.strategyId,
+      backend_request_id: intent?.metadata?.backend_request_id,
     });
     
     // STRUCTURED LOGGING
@@ -722,6 +729,7 @@ serve(async (req) => {
       currentPrice: intent?.metadata?.currentPrice ?? null,
       debugTag: intent?.metadata?.debugTag,
       engine: intent?.metadata?.engine,
+      backend_request_id: intent?.metadata?.backend_request_id,
     }, null, 2));
     
     // STEP 2: COORDINATOR ENTRY LOGS
@@ -734,8 +742,67 @@ serve(async (req) => {
     
     // Generate request ID and idempotency key
     const requestId = generateRequestId();
-    const idempotencyKey = generateIdempotencyKey(intent);
+    // Use provided idempotencyKey from backend or generate new one
+    const idempotencyKey = intent?.idempotencyKey || generateIdempotencyKey(intent);
     intent.idempotencyKey = idempotencyKey;
+    
+    // ============= PHASE E: IDEMPOTENCY CHECK FOR BACKEND LIVE =============
+    // Prevent duplicate trade execution using idempotencyKey
+    if (isBackendLive && intent.side === 'BUY' && idempotencyKey) {
+      console.log(`[BackendLiveDedup] Checking idempotency for key: ${idempotencyKey}`);
+      
+      // Check if this exact idempotencyKey has already been executed
+      const { data: existingByKey } = await supabaseClient
+        .from('mock_trades')
+        .select('id, executed_at')
+        .eq('user_id', intent.userId)
+        .like('strategy_trigger', `%${idempotencyKey}%`)
+        .limit(1);
+      
+      if (existingByKey && existingByKey.length > 0) {
+        console.log(`[BackendLiveDedup] BLOCKED - Duplicate idempotencyKey found: ${existingByKey[0].id}`);
+        return new Response(JSON.stringify({
+          alreadyExecuted: true,
+          decision: {
+            action: 'BLOCK',
+            reason: 'duplicate_idempotency_key',
+            request_id: requestId,
+            retry_in_ms: 0,
+            existing_trade_id: existingByKey[0].id
+          }
+        }), { headers: corsHeaders });
+      }
+      
+      // ============= PHASE E: 5-SECOND TIME WINDOW DEDUP =============
+      // Additional dedup: Check for recent trades on same symbol within 5 seconds
+      const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
+      const { data: recentTrades } = await supabaseClient
+        .from('mock_trades')
+        .select('id, executed_at')
+        .eq('user_id', intent.userId)
+        .eq('strategy_id', intent.strategyId)
+        .eq('cryptocurrency', resolvedSymbol)
+        .eq('trade_type', 'buy')
+        .gte('executed_at', fiveSecondsAgo)
+        .limit(1);
+      
+      if (recentTrades && recentTrades.length > 0) {
+        console.log(`[BackendLiveDedup] BLOCKED - Duplicate execution within 5s window: ${recentTrades[0].id}`);
+        return new Response(JSON.stringify({
+          alreadyExecuted: true,
+          decision: {
+            action: 'BLOCK',
+            reason: 'duplicate_time_window',
+            request_id: requestId,
+            retry_in_ms: 0,
+            existing_trade_id: recentTrades[0].id,
+            window_seconds: 5
+          }
+        }), { headers: corsHeaders });
+      }
+      
+      console.log(`[BackendLiveDedup] No duplicates found - proceeding with trade`);
+    }
 
     // Validate intent - strategyId can be null for forced debug trades from intelligent engine
     const isIntelligentForcedDebug = intent?.source === 'intelligent' && intent?.metadata?.debugTag === 'forced_debug_trade';
@@ -2344,6 +2411,14 @@ async function logDecisionAsync(
           symbol_normalized: intent.metadata?.symbol_normalized ?? baseSymbol,
           trigger: intent.metadata?.trigger ?? null,
           idempotencyKey: intent.idempotencyKey ?? null,  // Forward idempotencyKey
+          // ============= PHASE E: Backend traceability metadata =============
+          // These fields are set when the intent comes from backend-shadow-engine in LIVE mode
+          origin: intent.metadata?.context === 'BACKEND_LIVE' ? 'BACKEND_LIVE' : 
+                  intent.metadata?.context === 'BACKEND_SHADOW' ? 'BACKEND_SHADOW' : null,
+          engineMode: intent.metadata?.context?.startsWith('BACKEND_') ? 'LIVE' : null,
+          backend_request_id: intent.metadata?.backend_request_id ?? null,
+          backend_ts: intent.metadata?.backend_ts ?? null,
+          idempotency_key: intent.idempotencyKey ?? null,
         },
         raw_intent: intent as any
       };
@@ -4031,6 +4106,21 @@ async function executeTradeOrder(
       }
       // ============= END PER-LOT SELL INSERTION =============
       
+      // ============= PHASE E: Enhanced mock_trades insert with backend metadata =============
+      // Include idempotency_key and backend_request_id in notes for traceability
+      const isBackendLiveInsert = intent.metadata?.context === 'BACKEND_LIVE';
+      const backendRequestId = intent.metadata?.backend_request_id || null;
+      const idempotencyKeyForInsert = intent.idempotencyKey || null;
+      
+      // Build notes with traceability info
+      let tradeNotes = 'Coordinator: UD=ON (TEST)';
+      if (isBackendLiveInsert) {
+        tradeNotes = `Coordinator: UD=ON (TEST) | origin=BACKEND_LIVE`;
+        if (backendRequestId) {
+          tradeNotes += ` | backend_request_id=${backendRequestId}`;
+        }
+      }
+      
       // Standard single-row insert (BUY or single SELL)
       const mockTrade = {
         user_id: intent.userId,
@@ -4042,9 +4132,22 @@ async function executeTradeOrder(
         total_value: totalValue,
         executed_at,
         is_test_mode: true,  // SECONDARY source
-        notes: `Coordinator: UD=ON (TEST)`,
-        strategy_trigger: intent.source === 'coordinator_tp' ? `coord_tp|req:${requestId}` : `coord_${intent.source}|req:${requestId}`,
-        market_conditions: { execution_mode: executionMode, decision_at, executed_at, latency_ms: execution_latency_ms, request_id: requestId },
+        notes: tradeNotes,
+        // PHASE E: Include idempotencyKey in strategy_trigger for dedup checking
+        strategy_trigger: intent.source === 'coordinator_tp' 
+          ? `coord_tp|req:${requestId}${idempotencyKeyForInsert ? '|idem:' + idempotencyKeyForInsert : ''}` 
+          : `coord_${intent.source}|req:${requestId}${idempotencyKeyForInsert ? '|idem:' + idempotencyKeyForInsert : ''}`,
+        market_conditions: { 
+          execution_mode: executionMode, 
+          decision_at, 
+          executed_at, 
+          latency_ms: execution_latency_ms, 
+          request_id: requestId,
+          // PHASE E: Backend metadata in market_conditions
+          origin: isBackendLiveInsert ? 'BACKEND_LIVE' : null,
+          backend_request_id: backendRequestId,
+          idempotency_key: idempotencyKeyForInsert,
+        },
         ...fifoFields
       };
 

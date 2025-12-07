@@ -201,6 +201,12 @@ serve(async (req) => {
             currentPrice,
           };
 
+          // ============= PHASE E: Unique idempotencyKey + backend_request_id =============
+          // Generate unique identifiers for deduplication and traceability
+          const backendRequestId = crypto.randomUUID();
+          const timestamp = Date.now();
+          const idempotencyKey = `live_${userId}_${strategy.id}_${baseSymbol}_${timestamp}`;
+          
           const intent = {
             userId,
             strategyId: strategy.id,
@@ -210,9 +216,14 @@ serve(async (req) => {
             confidence: 0.65, // Default confidence
             reason: effectiveShadowMode ? 'BACKEND_SHADOW_EVALUATION' : 'BACKEND_LIVE_DECISION',
             qtySuggested,
-            metadata: intentMetadata,
+            metadata: {
+              ...intentMetadata,
+              // PHASE E: Add backend_request_id for traceability
+              backend_request_id: backendRequestId,
+              backend_ts: new Date().toISOString(),
+            },
             ts: new Date().toISOString(),
-            idempotencyKey: `${effectiveShadowMode ? 'shadow' : 'live'}_${strategy.id}_${baseSymbol}_${Date.now()}`
+            idempotencyKey: idempotencyKey
           };
 
           console.log(`🌑 ${BACKEND_ENGINE_MODE}: Calling coordinator for ${baseSymbol} BUY intent (effectiveShadow=${effectiveShadowMode})`);
@@ -251,8 +262,9 @@ serve(async (req) => {
 
           console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → action=${action}, reason=${reason}`);
 
-          // Determine what would happen
-          const wouldExecute = action === 'BUY' || action === 'SELL' || action === 'EXECUTE';
+          // ============= PHASE E: Mark wouldExecute correctly =============
+          // wouldExecute = true when action is BUY or SELL (actual trade would occur)
+          const wouldExecute = action === 'BUY' || action === 'SELL';
           let side: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
           if (action === 'BUY') side = 'BUY';
           else if (action === 'SELL') side = 'SELL';
@@ -309,12 +321,12 @@ serve(async (req) => {
     
     console.log(`🌑 ${BACKEND_ENGINE_MODE}: Run complete. wouldBuy=${summary.wouldBuy}, wouldSell=${summary.wouldSell}, wouldHold=${summary.wouldHold}, elapsed=${elapsed_ms}ms`);
 
-    // Log ALL decisions to decision_events for shadow mode observability
+    // ============= PHASE E: Log ALL decisions to decision_events =============
     // This includes DEFER, BLOCK, HOLD - not just BUY/SELL executions
-    // This is critical for validating backend decisions before going LIVE
+    // EVERY backend decision gets logged for complete observability and audit
     for (const dec of allDecisions) {
       try {
-        // Phase B: Mode-conditional metadata for decision_events with all mode info
+        // Phase E: Enhanced metadata with backend traceability fields
         const eventMetadata = effectiveShadowMode ? {
           ...dec.metadata,
           origin: 'BACKEND_SHADOW',
@@ -335,6 +347,10 @@ serve(async (req) => {
           engineMode: BACKEND_ENGINE_MODE,
           effectiveShadowMode: false,
           userAllowedForLive: isUserAllowedForLive,
+          // Phase E: Backend traceability fields
+          backend_live_ts: new Date().toISOString(),
+          idempotency_key: dec.metadata?.idempotencyKey || null,
+          backend_request_id: dec.metadata?.backend_request_id || null,
         };
 
         const { error: insertError } = await supabaseClient.from('decision_events').insert({
