@@ -52,7 +52,21 @@ const isLogSuppressed = () => {
   return (window as any).__INTELLIGENT_SUPPRESS_LOGS === true;
 };
 
-// Check if autorun is disabled
+// ============= FRONTEND ENGINE KILL-SWITCH =============
+// PHASE A (Cutover Prep): This flag allows disabling the 60s frontend intelligent
+// engine loop WITHOUT affecting manual SELLs or other UI-triggered actions.
+// 
+// Usage: Set window.__INTELLIGENT_DISABLE_AUTORUN = true in browser console
+// 
+// When enabled:
+//   - The 60s recurring loop is NOT started
+//   - Manual SELLs via UI still work (they go directly to coordinator)
+//   - The app loads normally, no crashes
+// 
+// This is a temporary kill-switch for the frontend engine during backend cutover.
+// Once backend LIVE mode is fully validated, this flag will be used to disable
+// frontend automation for users migrated to backend engine.
+// =============================================================================
 const isAutorunDisabled = () => {
   if (typeof window === "undefined") return false;
   return (window as any).__INTELLIGENT_DISABLE_AUTORUN === true;
@@ -126,7 +140,17 @@ export const useIntelligentTradingEngine = () => {
     testMode 
   });
   
-  // INTELLIGENT ENGINE MONITORING INTERVAL
+  // ============= LEGACY FRONTEND INTELLIGENT ENGINE =============
+  // This 60s loop is the legacy frontend intelligent engine (browser-only).
+  // It runs ONLY when the browser tab is open and active.
+  // 
+  // A backend engine is being introduced (backend-shadow-engine) that will
+  // eventually replace this loop for 24/7 operation. During cutover, this
+  // loop can be disabled via window.__INTELLIGENT_DISABLE_AUTORUN = true.
+  // 
+  // Manual SELLs and UI-triggered actions are NOT affected by this loop -
+  // they go directly to the coordinator via separate code paths.
+  // =================================================================
   // PERFORMANCE FIX: Increased from 30s to 60s to reduce DB load
   const MONITORING_INTERVAL_MS = 60000; // 1 minute
   
