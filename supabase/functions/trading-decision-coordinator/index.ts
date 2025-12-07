@@ -384,27 +384,52 @@ let metrics = {
   lastReset: Date.now()
 };
 
-// ============= PHASE A: DUAL-ENGINE DETECTION (LOG ONLY) =============
+// ============= PHASE A/B: DUAL-ENGINE DETECTION (LOG ONLY) =============
 // This helper checks for recent trades on the same user/strategy/symbol
 // within a short window to detect potential dual-engine conflicts.
 // 
-// In Phase A, this is LOG-ONLY and does NOT block trades.
+// In Phase A/B, this is LOG-ONLY and does NOT block trades.
 // It helps identify if frontend and backend engines are both active.
+// 
+// Phase B enhancement: Also detects origin (BACKEND vs FRONTEND_INTELLIGENT vs OTHER)
+// based on intent.metadata.context to help distinguish engine sources.
 // =======================================================================
+
+// Determine intent origin for dual-engine detection logging
+function detectIntentOrigin(intentMetadata: Record<string, any> | undefined): string {
+  if (!intentMetadata) return 'OTHER';
+  const context = intentMetadata.context || '';
+  if (typeof context === 'string' && context.startsWith('BACKEND_')) {
+    return 'BACKEND';
+  }
+  if (intentMetadata.engine === 'intelligent') {
+    return 'FRONTEND_INTELLIGENT';
+  }
+  return 'OTHER';
+}
+
+interface DualEngineCheckResult {
+  hasRecentTrade: boolean;
+  recentTradeId?: string;
+  recentTradeAge?: number;
+  recentTradeNotes?: string;
+  inferredRecentOrigin?: string;
+}
+
 async function checkDualEngineConflict(
   supabaseClient: any,
   userId: string,
   strategyId: string,
   symbol: string,
   windowMs: number = 30000 // 30 seconds default
-): Promise<{ hasRecentTrade: boolean; recentTradeId?: string; recentTradeAge?: number }> {
+): Promise<DualEngineCheckResult> {
   try {
     const baseSymbol = toBaseSymbol(symbol);
     const cutoffTime = new Date(Date.now() - windowMs).toISOString();
     
     const { data: recentTrades, error } = await supabaseClient
       .from('mock_trades')
-      .select('id, executed_at')
+      .select('id, executed_at, notes, strategy_trigger')
       .eq('user_id', userId)
       .eq('strategy_id', strategyId)
       .eq('cryptocurrency', baseSymbol)
@@ -420,15 +445,52 @@ async function checkDualEngineConflict(
     const recentTrade = recentTrades[0];
     const ageMs = Date.now() - new Date(recentTrade.executed_at).getTime();
     
+    // Infer origin from stored notes/trigger if possible
+    let inferredRecentOrigin = 'UNKNOWN';
+    const notes = recentTrade.notes || '';
+    const trigger = recentTrade.strategy_trigger || '';
+    if (notes.includes('BACKEND_LIVE') || trigger.includes('BACKEND_LIVE')) {
+      inferredRecentOrigin = 'BACKEND';
+    } else if (notes.includes('BACKEND_SHADOW') || trigger.includes('BACKEND_SHADOW')) {
+      inferredRecentOrigin = 'BACKEND_SHADOW';
+    } else if (notes.includes('intelligent') || trigger.includes('intelligent')) {
+      inferredRecentOrigin = 'FRONTEND_INTELLIGENT';
+    } else if (notes.includes('manual') || trigger.includes('manual')) {
+      inferredRecentOrigin = 'MANUAL';
+    }
+    
     return {
       hasRecentTrade: true,
       recentTradeId: recentTrade.id,
-      recentTradeAge: ageMs
+      recentTradeAge: ageMs,
+      recentTradeNotes: notes,
+      inferredRecentOrigin
     };
   } catch (err) {
     console.warn('[DualEngineCheck] Error checking for recent trades:', err);
     return { hasRecentTrade: false };
   }
+}
+
+// Enhanced logging helper for dual-engine warnings (Phase B)
+function logDualEngineWarning(
+  dualCheck: DualEngineCheckResult,
+  currentOrigin: string,
+  userId: string,
+  strategyId: string,
+  baseSymbol: string
+): void {
+  console.warn(
+    `[DualEngineWarning] Recent trade detected for ` +
+    `user=${userId.substring(0,8)}... ` +
+    `strategy=${strategyId.substring(0,8)}... ` +
+    `symbol=${baseSymbol} within 30s | ` +
+    `currentOrigin=${currentOrigin} | ` +
+    `recentTradeOrigin=${dualCheck.inferredRecentOrigin || 'UNKNOWN'} | ` +
+    `tradeId=${dualCheck.recentTradeId?.substring(0,8)}... ` +
+    `age=${dualCheck.recentTradeAge}ms - ` +
+    `proceeding anyway (Phase B log-only)`
+  );
 }
 // ============= END DUAL-ENGINE DETECTION =============
 
@@ -1239,10 +1301,11 @@ serve(async (req) => {
         is_test_mode: true,
       };
 
-      // PHASE A: Dual-engine detection (log only, no blocking)
+      // PHASE B: Dual-engine detection with origin tracking (log only, no blocking)
+      const currentOrigin = detectIntentOrigin(intent.metadata);
       const dualCheck = await checkDualEngineConflict(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
       if (dualCheck.hasRecentTrade) {
-        console.warn(`[DualEngineWarning] Recent trade detected for user=${intent.userId.substring(0,8)}... strategy=${intent.strategyId.substring(0,8)}... symbol=${baseSymbol} within 30s (tradeId=${dualCheck.recentTradeId?.substring(0,8)}... age=${dualCheck.recentTradeAge}ms) - proceeding anyway (Phase A log-only)`);
+        logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
       }
 
       const { error: insErr } = await supabaseClient.from('mock_trades').insert([payload]);
@@ -1991,10 +2054,11 @@ async function executeTradeDirectly(
     console.log('[DEBUG][executeTradeDirectly] mockTrade payload:', JSON.stringify(mockTrade, null, 2));
     console.log('[DEBUG][executeTradeDirectly] Calling supabaseClient.from("mock_trades").insert()...');
 
-    // PHASE A: Dual-engine detection (log only, no blocking)
+    // PHASE B: Dual-engine detection with origin tracking (log only, no blocking)
+    const currentOrigin = detectIntentOrigin(intent.metadata);
     const dualCheck = await checkDualEngineConflict(supabaseClient, intent.userId, intent.strategyId, intent.symbol);
     if (dualCheck.hasRecentTrade) {
-      console.warn(`[DualEngineWarning] Recent trade detected for user=${intent.userId.substring(0,8)}... strategy=${intent.strategyId.substring(0,8)}... symbol=${baseSymbol} within 30s (tradeId=${dualCheck.recentTradeId?.substring(0,8)}... age=${dualCheck.recentTradeAge}ms) - proceeding anyway (Phase A log-only)`);
+      logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
     }
 
     const { error } = await supabaseClient
@@ -3900,10 +3964,11 @@ async function executeTradeOrder(
           };
         });
 
-        // PHASE A: Dual-engine detection (log only, no blocking)
+        // PHASE B: Dual-engine detection with origin tracking (log only, no blocking)
+        const currentOrigin = detectIntentOrigin(intent.metadata);
         const dualCheck = await checkDualEngineConflict(supabaseClient, intent.userId, intent.strategyId, intent.symbol);
         if (dualCheck.hasRecentTrade) {
-          console.warn(`[DualEngineWarning] Recent trade detected for user=${intent.userId.substring(0,8)}... strategy=${intent.strategyId.substring(0,8)}... symbol=${baseSymbol} within 30s (tradeId=${dualCheck.recentTradeId?.substring(0,8)}... age=${dualCheck.recentTradeAge}ms) - proceeding anyway (Phase A log-only)`);
+          logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
         }
 
         const { data: insertResults, error: insertError } = await supabaseClient
@@ -3958,10 +4023,11 @@ async function executeTradeOrder(
         ...fifoFields
       };
 
-      // PHASE A: Dual-engine detection (log only, no blocking)
+      // PHASE B: Dual-engine detection with origin tracking (log only, no blocking)
+      const currentOrigin = detectIntentOrigin(intent.metadata);
       const dualCheck = await checkDualEngineConflict(supabaseClient, intent.userId, intent.strategyId, intent.symbol);
       if (dualCheck.hasRecentTrade) {
-        console.warn(`[DualEngineWarning] Recent trade detected for user=${intent.userId.substring(0,8)}... strategy=${intent.strategyId.substring(0,8)}... symbol=${baseSymbol} within 30s (tradeId=${dualCheck.recentTradeId?.substring(0,8)}... age=${dualCheck.recentTradeAge}ms) - proceeding anyway (Phase A log-only)`);
+        logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
       }
 
       const { data: insertResult, error } = await supabaseClient
