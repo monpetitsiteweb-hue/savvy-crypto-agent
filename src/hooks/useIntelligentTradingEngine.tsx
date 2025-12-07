@@ -1162,11 +1162,33 @@ export const useIntelligentTradingEngine = () => {
       return { reason: 'AUTO_CLOSE_TIME', orderType: 'market', decisionData: logContext };
     }
 
-    // 2. STOP LOSS CHECK with epsilon buffer (Phase 5)
-    const adjustedStopLoss = Math.abs(config.stopLossPercentage || 0) + epsilonPnLBufferPct;
-    if (config.stopLossPercentage && pnlPercentage <= -adjustedStopLoss) {
+    // 2. STOP LOSS CHECK - STRICT ENFORCEMENT
+    // =========================================================================
+    // CRITICAL FIX: STOP_LOSS should ONLY trigger when:
+    //   1. stopLossPercentage is configured (truthy, > 0)
+    //   2. Actual P&L percentage is at or below the negative SL threshold
+    // 
+    // Example: If SL = 0.7%, only trigger when pnlPercentage <= -0.7%
+    // Previously, STOP_LOSS was being triggered incorrectly for small losses.
+    // =========================================================================
+    const configuredSL = config.stopLossPercentage;
+    const hasSLConfigured = typeof configuredSL === 'number' && configuredSL > 0;
+    const adjustedStopLoss = hasSLConfigured ? Math.abs(configuredSL) + epsilonPnLBufferPct : 0;
+    const slThresholdMet = hasSLConfigured && pnlPercentage <= -adjustedStopLoss;
+    
+    // Log SL evaluation for debugging
+    console.log('[EngineSellDecision][SL_CHECK]', {
+      symbol: position.cryptocurrency,
+      configuredSL,
+      hasSLConfigured,
+      adjustedStopLoss: adjustedStopLoss.toFixed(4),
+      pnlPercentage: pnlPercentage.toFixed(4),
+      slThresholdMet,
+      comparison: `${pnlPercentage.toFixed(4)} <= -${adjustedStopLoss.toFixed(4)} = ${slThresholdMet}`,
+    });
+    
+    if (slThresholdMet) {
       logContext.reasonChosen = 'sl_hit';
-      // PHASE 1: Enhanced logging for observability
       console.log('[EngineSellDecision]', {
         symbol: position.cryptocurrency,
         trigger: 'STOP_LOSS',
@@ -1181,11 +1203,30 @@ export const useIntelligentTradingEngine = () => {
       };
     }
 
-    // 3. TAKE PROFIT CHECK with epsilon buffer (Phase 5)
-    const adjustedTakeProfit = (config.takeProfitPercentage || 0) + epsilonPnLBufferPct;
-    if (config.takeProfitPercentage && pnlPercentage >= adjustedTakeProfit) {
+    // 3. TAKE PROFIT CHECK - STRICT ENFORCEMENT
+    // =========================================================================
+    // CRITICAL FIX: TAKE_PROFIT should ONLY trigger when:
+    //   1. takeProfitPercentage is configured (truthy, > 0)
+    //   2. Actual P&L percentage is at or above the positive TP threshold
+    // =========================================================================
+    const configuredTP = config.takeProfitPercentage;
+    const hasTPConfigured = typeof configuredTP === 'number' && configuredTP > 0;
+    const adjustedTakeProfit = hasTPConfigured ? Math.abs(configuredTP) + epsilonPnLBufferPct : 0;
+    const tpThresholdMet = hasTPConfigured && pnlPercentage >= adjustedTakeProfit;
+    
+    // Log TP evaluation for debugging
+    console.log('[EngineSellDecision][TP_CHECK]', {
+      symbol: position.cryptocurrency,
+      configuredTP,
+      hasTPConfigured,
+      adjustedTakeProfit: adjustedTakeProfit.toFixed(4),
+      pnlPercentage: pnlPercentage.toFixed(4),
+      tpThresholdMet,
+      comparison: `${pnlPercentage.toFixed(4)} >= ${adjustedTakeProfit.toFixed(4)} = ${tpThresholdMet}`,
+    });
+    
+    if (tpThresholdMet) {
       logContext.reasonChosen = 'tp_hit';
-      // PHASE 1: Enhanced logging for observability
       console.log('[EngineSellDecision]', {
         symbol: position.cryptocurrency,
         trigger: 'TAKE_PROFIT',
