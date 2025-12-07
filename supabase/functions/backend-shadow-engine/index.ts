@@ -1,15 +1,24 @@
-// Backend Shadow Engine - Phase 3
+// Backend Shadow Engine - Phase 4.1
 // 
 // This edge function evaluates trading decisions using the same logic as the frontend
-// intelligent engine, but in SHADOW MODE - it never inserts real trades.
+// intelligent engine. Supports two modes:
+//   - SHADOW (default): Log decisions to decision_events only, no trades inserted
+//   - LIVE: Same decision path, coordinator inserts into mock_trades
 // 
-// Purpose: Validate backend-driven decision making before migrating from frontend.
+// Configuration: Set BACKEND_ENGINE_MODE env var to 'SHADOW' or 'LIVE'
+// Default: 'SHADOW' (safe, observability-only mode)
 // 
 // Usage: POST with { userId, strategyId?, symbols?: string[] }
-// Returns: { shadow: true, decisions: [...], summary: { wouldBuy, wouldSell, wouldHold } }
+// Returns: { shadow: boolean, decisions: [...], summary: { wouldBuy, wouldSell, wouldHold } }
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// ============= ENGINE MODE CONFIGURATION =============
+// Read from environment, default to 'SHADOW' for safety
+type EngineMode = 'SHADOW' | 'LIVE';
+const BACKEND_ENGINE_MODE: EngineMode = 
+  (Deno.env.get('BACKEND_ENGINE_MODE') as EngineMode) || 'SHADOW';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -34,9 +43,11 @@ serve(async (req) => {
   }
 
   const startTime = Date.now();
+  const isShadowMode = BACKEND_ENGINE_MODE === 'SHADOW';
   
   try {
-    console.log('🌑 BACKEND SHADOW ENGINE: Starting shadow evaluation run');
+    console.log(`🌑 BACKEND ENGINE: Starting run in ${BACKEND_ENGINE_MODE} mode`);
+    console.log(`   → isShadowMode=${isShadowMode}, trades_will_insert=${!isShadowMode}`);
     
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -56,7 +67,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`🌑 SHADOW: Evaluating for user ${userId}, strategyId=${strategyId || 'all'}`);
+    console.log(`🌑 ${BACKEND_ENGINE_MODE}: Evaluating for user ${userId}, strategyId=${strategyId || 'all'}`);
 
     // Step 1: Fetch active strategies (same as frontend)
     let strategiesQuery = supabaseClient
@@ -72,9 +83,10 @@ serve(async (req) => {
     const { data: strategies, error: strategiesError } = await strategiesQuery;
 
     if (strategiesError || !strategies?.length) {
-      console.log('🌑 SHADOW: No active strategies found');
+      console.log(`🌑 ${BACKEND_ENGINE_MODE}: No active strategies found`);
       return new Response(JSON.stringify({ 
-        shadow: true,
+        shadow: isShadowMode,
+        mode: BACKEND_ENGINE_MODE,
         decisions: [],
         summary: { wouldBuy: 0, wouldSell: 0, wouldHold: 0, total: 0 },
         message: 'No active strategies found',
@@ -84,7 +96,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`🌑 SHADOW: Found ${strategies.length} active strategies`);
+    console.log(`🌑 ${BACKEND_ENGINE_MODE}: Found ${strategies.length} active strategies`);
 
     const allDecisions: ShadowDecision[] = [];
 
@@ -93,7 +105,7 @@ serve(async (req) => {
       const config = strategy.configuration || {};
       const selectedCoins = requestedSymbols || config.selectedCoins || ['BTC', 'ETH'];
       
-      console.log(`🌑 SHADOW: Processing strategy "${strategy.strategy_name}" with coins: ${selectedCoins.join(', ')}`);
+      console.log(`🌑 ${BACKEND_ENGINE_MODE}: Processing strategy "${strategy.strategy_name}" with coins: ${selectedCoins.join(', ')}`);
 
       // Step 3: For each symbol, build intent and call coordinator in SHADOW mode
       for (const coin of selectedCoins) {
@@ -110,11 +122,11 @@ serve(async (req) => {
               currentPrice = parseFloat(tickerData.price) || 0;
             }
           } catch (priceErr) {
-            console.warn(`🌑 SHADOW: Could not fetch price for ${symbol}:`, priceErr);
+            console.warn(`🌑 ${BACKEND_ENGINE_MODE}: Could not fetch price for ${symbol}:`, priceErr);
           }
 
           if (currentPrice <= 0) {
-            console.log(`🌑 SHADOW: Skipping ${symbol} - no valid price`);
+            console.log(`🌑 ${BACKEND_ENGINE_MODE}: Skipping ${symbol} - no valid price`);
             allDecisions.push({
               symbol: baseSymbol,
               side: 'HOLD',
@@ -133,6 +145,26 @@ serve(async (req) => {
           const qtySuggested = tradeAllocation / currentPrice;
 
           // Build intent matching frontend shape
+          // Mode-conditional metadata for SHADOW vs LIVE
+          const intentMetadata = isShadowMode ? {
+            mode: 'mock',
+            engine: 'intelligent',
+            is_test_mode: true,
+            // SHADOW MODE FLAGS - coordinator will skip inserts
+            execMode: 'SHADOW',
+            context: 'BACKEND_SHADOW',
+            shadow_run_ts: new Date().toISOString(),
+            currentPrice,
+          } : {
+            mode: 'mock',
+            engine: 'intelligent',
+            is_test_mode: true,
+            // LIVE MODE FLAGS - coordinator will insert trades
+            context: 'BACKEND_LIVE',
+            backend_live_ts: new Date().toISOString(),
+            currentPrice,
+          };
+
           const intent = {
             userId,
             strategyId: strategy.id,
@@ -140,23 +172,14 @@ serve(async (req) => {
             side: 'BUY' as const,
             source: 'intelligent' as const,
             confidence: 0.65, // Default confidence
-            reason: 'BACKEND_SHADOW_EVALUATION',
+            reason: isShadowMode ? 'BACKEND_SHADOW_EVALUATION' : 'BACKEND_LIVE_DECISION',
             qtySuggested,
-            metadata: {
-              mode: 'mock',
-              engine: 'intelligent',
-              is_test_mode: true,
-              // ====== SHADOW MODE FLAG ======
-              execMode: 'SHADOW',
-              context: 'BACKEND_SHADOW',
-              shadow_run_ts: new Date().toISOString(),
-              currentPrice,
-            },
+            metadata: intentMetadata,
             ts: new Date().toISOString(),
-            idempotencyKey: `shadow_${strategy.id}_${baseSymbol}_${Date.now()}`
+            idempotencyKey: `${isShadowMode ? 'shadow' : 'live'}_${strategy.id}_${baseSymbol}_${Date.now()}`
           };
 
-          console.log(`🌑 SHADOW: Calling coordinator for ${baseSymbol} BUY intent (SHADOW mode)`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: Calling coordinator for ${baseSymbol} BUY intent`);
 
           // Call coordinator with shadow flag
           const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
@@ -165,7 +188,7 @@ serve(async (req) => {
           );
 
           if (coordError) {
-            console.error(`🌑 SHADOW: Coordinator error for ${baseSymbol}:`, coordError);
+            console.error(`🌑 ${BACKEND_ENGINE_MODE}: Coordinator error for ${baseSymbol}:`, coordError);
             allDecisions.push({
               symbol: baseSymbol,
               side: 'BUY',
@@ -190,7 +213,7 @@ serve(async (req) => {
           const reason = decision?.reason || 'no_reason';
           const fusionScore = decision?.fusion_score || decision?.fusionScore;
 
-          console.log(`🌑 SHADOW: ${baseSymbol} → action=${action}, reason=${reason}`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → action=${action}, reason=${reason}`);
 
           // Determine what would happen
           const wouldExecute = action === 'BUY' || action === 'SELL' || action === 'EXECUTE';
@@ -213,12 +236,13 @@ serve(async (req) => {
               price: currentPrice,
               qtySuggested,
               coordinatorResponse: decision,
-              shadowMode: true,
+              engineMode: BACKEND_ENGINE_MODE,
+              shadowMode: isShadowMode,
             }
           });
 
         } catch (symbolErr) {
-          console.error(`🌑 SHADOW: Error processing ${coin}:`, symbolErr);
+          console.error(`🌑 ${BACKEND_ENGINE_MODE}: Error processing ${coin}:`, symbolErr);
           allDecisions.push({
             symbol: baseSymbol,
             side: 'HOLD',
@@ -245,13 +269,26 @@ serve(async (req) => {
 
     const elapsed_ms = Date.now() - startTime;
     
-    console.log(`🌑 SHADOW: Run complete. wouldBuy=${summary.wouldBuy}, wouldSell=${summary.wouldSell}, wouldHold=${summary.wouldHold}, elapsed=${elapsed_ms}ms`);
+    console.log(`🌑 ${BACKEND_ENGINE_MODE}: Run complete. wouldBuy=${summary.wouldBuy}, wouldSell=${summary.wouldSell}, wouldHold=${summary.wouldHold}, elapsed=${elapsed_ms}ms`);
 
-    // Log shadow decisions to decision_events with origin tag (observability)
+    // Log decisions to decision_events with appropriate origin tag
     for (const dec of allDecisions) {
       try {
         // Only log decisions that would execute (for meaningful learning data)
         if (dec.wouldExecute) {
+          // Mode-conditional metadata for decision_events
+          const eventMetadata = isShadowMode ? {
+            ...dec.metadata,
+            origin: 'BACKEND_SHADOW',
+            shadow_only: true,
+            no_trade_inserted: true,
+          } : {
+            ...dec.metadata,
+            origin: 'BACKEND_LIVE',
+            shadow_only: false,
+            no_trade_inserted: false,
+          };
+
           await supabaseClient.from('decision_events').insert({
             user_id: userId,
             strategy_id: dec.metadata.strategyId,
@@ -261,36 +298,35 @@ serve(async (req) => {
             confidence: dec.confidence,
             reason: dec.reason,
             entry_price: dec.metadata.price,
-            metadata: {
-              ...dec.metadata,
-              origin: 'BACKEND_SHADOW',
-              shadow_only: true,
-              no_trade_inserted: true,
-            },
+            metadata: eventMetadata,
             decision_ts: dec.timestamp,
           });
-          console.log(`🌑 SHADOW: Logged decision_event for ${dec.symbol} (origin=BACKEND_SHADOW)`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: Logged decision_event for ${dec.symbol} (origin=BACKEND_${BACKEND_ENGINE_MODE})`);
         }
       } catch (logErr) {
-        console.warn(`🌑 SHADOW: Could not log decision_event for ${dec.symbol}:`, logErr);
+        console.warn(`🌑 ${BACKEND_ENGINE_MODE}: Could not log decision_event for ${dec.symbol}:`, logErr);
       }
     }
 
     return new Response(JSON.stringify({
-      shadow: true,
+      shadow: isShadowMode,
+      mode: BACKEND_ENGINE_MODE,
       decisions: allDecisions,
       summary,
       strategies_evaluated: strategies.length,
       elapsed_ms,
-      message: 'Shadow evaluation complete - NO trades were executed',
+      message: isShadowMode 
+        ? 'Shadow evaluation complete - NO trades were executed'
+        : 'Live evaluation complete - trades may have been executed',
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
-    console.error('🌑 SHADOW: Fatal error:', error);
+    console.error(`🌑 ${BACKEND_ENGINE_MODE}: Fatal error:`, error);
     return new Response(JSON.stringify({ 
-      shadow: true,
+      shadow: isShadowMode,
+      mode: BACKEND_ENGINE_MODE,
       error: error.message,
       elapsed_ms: Date.now() - startTime
     }), {
