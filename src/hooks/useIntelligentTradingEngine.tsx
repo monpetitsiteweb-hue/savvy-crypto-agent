@@ -1086,9 +1086,26 @@ export const useIntelligentTradingEngine = () => {
     }
 
     // 1. AUTO CLOSE AFTER HOURS (overrides everything)
-    if (config.autoCloseAfterHours && hoursSincePurchase >= config.autoCloseAfterHours) {
+    // PHASE 1 FIX: Make AUTO_CLOSE_TIME explicit opt-in only
+    // - Must be a valid positive number (not null, undefined, 0, or negative)
+    // - This prevents silent auto-close when config is missing or invalid
+    const autoCloseHours = config.autoCloseAfterHours;
+    const isAutoCloseConfigured = 
+      typeof autoCloseHours === 'number' &&
+      Number.isFinite(autoCloseHours) &&
+      autoCloseHours > 0;
+    
+    if (isAutoCloseConfigured && hoursSincePurchase >= autoCloseHours) {
       logContext.reasonChosen = 'auto_close_time_hit';
-      engineLog('SELL DECISION: AUTO CLOSE TRIGGERED - ' + hoursSincePurchase + ' >= ' + config.autoCloseAfterHours, logContext);
+      // PHASE 1: Enhanced logging for observability
+      console.log('[EngineSellDecision]', {
+        symbol: position.cryptocurrency,
+        trigger: 'AUTO_CLOSE_TIME',
+        reason: `Position held ${hoursSincePurchase.toFixed(2)}h >= configured ${autoCloseHours}h`,
+        pnlPct: pnlPercentage.toFixed(2),
+        autoCloseAfterHours: autoCloseHours,
+      });
+      engineLog('SELL DECISION: AUTO CLOSE TRIGGERED - ' + hoursSincePurchase + ' >= ' + autoCloseHours, logContext);
       return { reason: 'AUTO_CLOSE_TIME', orderType: 'market', decisionData: logContext };
     }
 
@@ -1096,6 +1113,13 @@ export const useIntelligentTradingEngine = () => {
     const adjustedStopLoss = Math.abs(config.stopLossPercentage || 0) + epsilonPnLBufferPct;
     if (config.stopLossPercentage && pnlPercentage <= -adjustedStopLoss) {
       logContext.reasonChosen = 'sl_hit';
+      // PHASE 1: Enhanced logging for observability
+      console.log('[EngineSellDecision]', {
+        symbol: position.cryptocurrency,
+        trigger: 'STOP_LOSS',
+        reason: `P&L ${pnlPercentage.toFixed(2)}% <= -${adjustedStopLoss.toFixed(2)}% (SL + buffer)`,
+        pnlPct: pnlPercentage.toFixed(2),
+      });
       engineLog('SELL DECISION: STOP LOSS TRIGGERED with buffer - ' + pnlPercentage + ' <= ' + (-adjustedStopLoss), logContext);
       return { 
         reason: 'STOP_LOSS', 
@@ -1108,6 +1132,13 @@ export const useIntelligentTradingEngine = () => {
     const adjustedTakeProfit = (config.takeProfitPercentage || 0) + epsilonPnLBufferPct;
     if (config.takeProfitPercentage && pnlPercentage >= adjustedTakeProfit) {
       logContext.reasonChosen = 'tp_hit';
+      // PHASE 1: Enhanced logging for observability
+      console.log('[EngineSellDecision]', {
+        symbol: position.cryptocurrency,
+        trigger: 'TAKE_PROFIT',
+        reason: `P&L ${pnlPercentage.toFixed(2)}% >= ${adjustedTakeProfit.toFixed(2)}% (TP + buffer)`,
+        pnlPct: pnlPercentage.toFixed(2),
+      });
       engineLog('SELL DECISION: TAKE PROFIT TRIGGERED with buffer - ' + pnlPercentage + ' >= ' + adjustedTakeProfit, logContext);
       return { 
         reason: 'TAKE_PROFIT', 
@@ -2893,77 +2924,35 @@ export const useIntelligentTradingEngine = () => {
       return { success: false, reason: coordinatorReason || 'not_approved', normalizedDecision: { action: coordinatorAction, reason: coordinatorReason } };
     }
 
-    console.log(`[${strategyTrigger}] Coordinator APPROVED - executing mock trade insertion`);
+    // =========================================================================
+    // PHASE 1 FIX: REMOVE FRONTEND TRADE INSERTION
+    // =========================================================================
+    // The coordinator is the ONLY component allowed to insert into mock_trades.
+    // Frontend should NOT insert trades directly - coordinator already did this.
+    // 
+    // Previously, this block would insert a duplicate trade row with notes like
+    // "Automatic intelligent engine trade via coordinator".
+    // 
+    // Now we simply return success and trust the coordinator's insertion.
+    // =========================================================================
+    
+    console.log(`[${strategyTrigger}] Coordinator APPROVED - trade already inserted by coordinator (no frontend insert)`);
 
-    // Run spread/liquidity gates - UNIFIED: same logic test and prod
-    const spreadThreshold = 9999; // TESTING: effectively disabled via configDefaults
-    const minDepthRatio = 0.0; // TESTING: no liquidity check via configDefaults
+    // Extract trade ID from coordinator response if available
+    const coordinatorTradeId = raw?.decision?.trade_id || raw?.trade_id || null;
 
-    const spreadCheck = await checkSpreadGate(symbol, spreadThreshold);
-    const liquidityCheck = await checkLiquidityGate(symbol, minDepthRatio);
-
-    console.log(`[${strategyTrigger}] Gates checked (unified logic)`, {
-      spreadBlocked: spreadCheck.blocked,
-      spreadBps: spreadCheck.spreadBps,
-      liquidityBlocked: liquidityCheck.blocked,
-      depthRatio: liquidityCheck.depthRatio
-    });
-
-    // Calculate total value
+    // Update local wallet balances (for UI consistency only)
     const totalValue = qty * price;
-
-    // Insert into mock_trades
-    const mockTradeData = {
-      strategy_id: strategyId,
-      user_id: userId,
-      trade_type: 'buy',
-      cryptocurrency: baseSymbol, // Use base symbol without -EUR
-      amount: Math.round(qty * 1e8) / 1e8,
-      price: Math.round(price * 1e6) / 1e6,
-      total_value: Math.round(totalValue * 100) / 100,
-      fees: 0,
-      strategy_trigger: strategyTrigger,
-      notes: strategyTrigger === 'FORCED_DEBUG_TRADE' 
-        ? 'Forced debug trade via __INTELLIGENT_FORCE_DEBUG_TRADE'
-        : 'Automatic intelligent engine trade via coordinator',
-      is_test_mode: true,
-      profit_loss: 0,
-      executed_at: new Date().toISOString(),
-      market_conditions: {
-        ...extraMetadata,
-        coordinator_request_id: coordinatorRequestId,
-        coordinator_reason: coordinatorReason,
-        spread_bps: spreadCheck.spreadBps,
-        depth_ratio: liquidityCheck.depthRatio
-      }
-    };
-
-    console.log(`[${strategyTrigger}] Inserting mock_trade:`, mockTradeData);
-
-    const { data: insertedTrade, error: insertError } = await supabase
-      .from('mock_trades')
-      .insert(mockTradeData)
-      .select();
-
-    if (insertError) {
-      console.error(`[${strategyTrigger}] Database insert error:`, insertError);
-      return { success: false, reason: 'database_error', error: insertError.message };
-    }
-
-    const mockTradeId = insertedTrade?.[0]?.id;
-    console.log(`[${strategyTrigger}] SUCCESS! mock_trade inserted:`, mockTradeId);
-
-    // Update local wallet balances (for UI consistency)
     const eurBalance = getBalance('EUR');
     if (eurBalance >= totalValue) {
       updateBalance('EUR', -totalValue);
       updateBalance(baseSymbol, qty);
-      console.log(`[${strategyTrigger}] Updated local balances`);
+      console.log(`[${strategyTrigger}] Updated local balances (UI only)`);
     }
 
     return {
       success: true,
-      mockTradeId,
+      mockTradeId: coordinatorTradeId,
       normalizedDecision: { action: coordinatorAction, reason: coordinatorReason, requestId: coordinatorRequestId }
     };
   };
