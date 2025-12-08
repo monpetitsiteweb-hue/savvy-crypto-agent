@@ -116,6 +116,8 @@ interface Trade {
   sell_fees?: number;
   is_corrupted?: boolean;
   integrity_reason?: string;
+  // GOAL 2.C: P&L at decision time (from backend exit engine)
+  pnl_at_decision_pct?: number;
 }
 
 interface TradePerformance {
@@ -757,15 +759,29 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           )}
           
           {trade.trade_type === 'sell' ? (
+            <>
+              {/* GOAL 2.C: Show P&L at decision time if available */}
+              {trade.pnl_at_decision_pct !== null && trade.pnl_at_decision_pct !== undefined && (
+                <div>
+                  <p className="text-muted-foreground">P&L at decision</p>
+                  <p className={`font-medium ${
+                    trade.pnl_at_decision_pct > 0 ? 'text-emerald-600' : 
+                    trade.pnl_at_decision_pct < -0.01 ? 'text-red-600' : ''
+                  }`}>
+                    {formatPercentage(trade.pnl_at_decision_pct)}
+                  </p>
+                </div>
+              )}
               <div>
-                <p className="text-muted-foreground">P&L (€)</p>
+                <p className="text-muted-foreground">Realized P&L (€)</p>
                 <p className={`font-medium ${
                   (performance.gainLoss || 0) > 0 ? 'text-emerald-600' : 
-                (performance.gainLoss || 0) < -0.01 ? 'text-red-600' : ''
-              }`} data-testid="realized-pnl">
-                {formatEuro(performance.gainLoss || 0)}
-              </p>
-            </div>
+                  (performance.gainLoss || 0) < -0.01 ? 'text-red-600' : ''
+                }`} data-testid="realized-pnl">
+                  {formatEuro(performance.gainLoss || 0)}
+                </p>
+              </div>
+            </>
           ) : performance.gainLoss !== null && performance.gainLossPercentage !== null && (
             <>
               <div>

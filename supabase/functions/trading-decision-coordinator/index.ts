@@ -4199,6 +4199,9 @@ async function executeTradeOrder(
       }
       
       // Standard single-row insert (BUY or single SELL)
+      // GOAL 2.B: Include pnl_at_decision_pct from backend intent metadata
+      const pnlAtDecisionPct = intent.metadata?.pnl_at_decision_pct ?? null;
+      
       const mockTrade = {
         user_id: intent.userId,
         strategy_id: intent.strategyId,
@@ -4225,6 +4228,8 @@ async function executeTradeOrder(
           backend_request_id: backendRequestId,
           idempotency_key: idempotencyKeyForInsert,
         },
+        // GOAL 2.B: P&L at decision time for UI display
+        pnl_at_decision_pct: pnlAtDecisionPct,
         ...fifoFields
       };
 
