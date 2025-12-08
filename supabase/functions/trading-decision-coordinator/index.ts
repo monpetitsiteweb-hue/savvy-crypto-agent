@@ -690,30 +690,56 @@ serve(async (req) => {
     // 
     // This ensures that when browser is closed, risk management still works
     // via the backend 5-minute scheduler.
+    // 
+    // ENHANCED GUARD: Also blocks SELLs with auto-exit triggers that have:
+    //   - origin = null (frontend doesn't set origin)
+    //   - context = null (frontend doesn't set context for auto exits)
     // ===================================================================
     const autoExitContexts = ['AUTO_TP', 'AUTO_SL', 'AUTO_TRAIL', 'AUTO_CLOSE', 'TP', 'SL'];
     const intentTrigger = intent?.metadata?.trigger || '';
     const autoExitTriggers = ['TAKE_PROFIT', 'STOP_LOSS', 'TRAILING_STOP', 'AUTO_CLOSE_TIME'];
+    const intentOrigin = intent?.metadata?.origin || null;
     
+    // Check if this is an automatic exit (based on trigger or context)
     const isAutoExitContext = autoExitContexts.includes(intentContext) || autoExitTriggers.includes(intentTrigger);
-    const isFromBackend = intentContext.startsWith('BACKEND_') || intent?.metadata?.origin === 'BACKEND_LIVE';
-    const isManualOrPool = intent?.source === 'manual' || intentContext === 'MANUAL' || intentContext === 'POOL_EXIT';
     
-    if (intent?.side === 'SELL' && isAutoExitContext && !isFromBackend && !isManualOrPool) {
+    // Backend exits must have explicit origin='BACKEND_LIVE' or context starting with 'BACKEND_' or 'AUTO_'
+    const isFromBackend = intentContext.startsWith('BACKEND_') || 
+                          intentContext.startsWith('AUTO_') || 
+                          intentOrigin === 'BACKEND_LIVE';
+    
+    // Manual and pool exits are allowed from frontend
+    const isManualOrPool = intent?.source === 'manual' || 
+                          intentContext === 'MANUAL' || 
+                          intentContext === 'POOL_EXIT' ||
+                          intentContext === 'pool';
+    
+    // ENHANCED: Block if auto-exit trigger but NO proper backend origin/context
+    // This catches the case where frontend sends trigger=AUTO_CLOSE_TIME but origin=null, context=null
+    const isFrontendAutoExit = intent?.side === 'SELL' && 
+                               autoExitTriggers.includes(intentTrigger) && 
+                               (intentOrigin === null || intentOrigin === undefined) &&
+                               (intentContext === '' || intentContext === null || intentContext === undefined) &&
+                               intent?.source !== 'manual';
+    
+    if (intent?.side === 'SELL' && (isAutoExitContext || isFrontendAutoExit) && !isFromBackend && !isManualOrPool) {
       console.log('[Coordinator] Blocked frontend auto-exit SELL (Phase S3)', {
         source: intent?.source,
         context: intentContext,
         trigger: intentTrigger,
-        reason: 'frontend_auto_exit_disabled',
+        origin: intentOrigin,
+        reason: 'blocked_auto_exit_frontend_origin',
+        isFrontendAutoExit,
+        isAutoExitContext,
       });
       return new Response(JSON.stringify({
         decision: {
           action: 'BLOCK',
-          reason: 'frontend_auto_exit_disabled',
+          reason: 'blocked_auto_exit_frontend_origin',
           fusion_score: 0,
           request_id: `blocked_exit_${Date.now()}`,
           retry_in_ms: 0,
-          message: 'Automatic exits (TP/SL/trailing/auto-close) must originate from backend engine.'
+          message: 'Automatic exits (TP/SL/trailing/auto-close) must originate from backend engine with origin=BACKEND_LIVE.'
         }
       }), { headers: corsHeaders });
     }
