@@ -680,6 +680,44 @@ serve(async (req) => {
       }), { headers: corsHeaders });
     }
     
+    // ============= PHASE S3: BLOCK FRONTEND AUTOMATIC SELLs =============
+    // Frontend is NO LONGER allowed to generate automatic SELL exits.
+    // Automatic exits (TP/SL/trailing/auto-close) must come from backend engine.
+    // 
+    // Frontend is ONLY allowed:
+    //   - Manual SELLs (context = 'MANUAL' or source = 'manual')
+    //   - Pool exits (context = 'POOL_EXIT')
+    // 
+    // This ensures that when browser is closed, risk management still works
+    // via the backend 5-minute scheduler.
+    // ===================================================================
+    const autoExitContexts = ['AUTO_TP', 'AUTO_SL', 'AUTO_TRAIL', 'AUTO_CLOSE', 'TP', 'SL'];
+    const intentTrigger = intent?.metadata?.trigger || '';
+    const autoExitTriggers = ['TAKE_PROFIT', 'STOP_LOSS', 'TRAILING_STOP', 'AUTO_CLOSE_TIME'];
+    
+    const isAutoExitContext = autoExitContexts.includes(intentContext) || autoExitTriggers.includes(intentTrigger);
+    const isFromBackend = intentContext.startsWith('BACKEND_') || intent?.metadata?.origin === 'BACKEND_LIVE';
+    const isManualOrPool = intent?.source === 'manual' || intentContext === 'MANUAL' || intentContext === 'POOL_EXIT';
+    
+    if (intent?.side === 'SELL' && isAutoExitContext && !isFromBackend && !isManualOrPool) {
+      console.log('[Coordinator] Blocked frontend auto-exit SELL (Phase S3)', {
+        source: intent?.source,
+        context: intentContext,
+        trigger: intentTrigger,
+        reason: 'frontend_auto_exit_disabled',
+      });
+      return new Response(JSON.stringify({
+        decision: {
+          action: 'BLOCK',
+          reason: 'frontend_auto_exit_disabled',
+          fusion_score: 0,
+          request_id: `blocked_exit_${Date.now()}`,
+          retry_in_ms: 0,
+          message: 'Automatic exits (TP/SL/trailing/auto-close) must originate from backend engine.'
+        }
+      }), { headers: corsHeaders });
+    }
+    
     // Log if no 'mode' field present - default to normal DECIDE flow
     const mode = (intent as any).mode || intent?.metadata?.mode;
     if (!mode) {
@@ -696,7 +734,8 @@ serve(async (req) => {
     }
     
     // ============= PHASE E: BACKEND LIVE DETECTION =============
-    const isBackendLive = intent?.metadata?.context === 'BACKEND_LIVE';
+    const isBackendLive = intent?.metadata?.context === 'BACKEND_LIVE' || 
+                          autoExitContexts.includes(intentContext) && isFromBackend;
     if (isBackendLive) {
       console.log('🔥 COORDINATOR: BACKEND_LIVE MODE - trade will be inserted');
     }

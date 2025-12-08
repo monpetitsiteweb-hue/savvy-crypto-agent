@@ -1043,6 +1043,27 @@ export const useIntelligentTradingEngine = () => {
   };
 
   const manageExistingPositions = async (strategy: any, marketData: any) => {
+    // ============= PHASE S1: BLOCK ALL AUTOMATIC EXITS WHEN ENGINE DISABLED =============
+    // When FRONTEND_ENGINE_DISABLED is true, the backend-shadow-engine owns ALL automatic exits.
+    // This includes: TAKE_PROFIT, STOP_LOSS, TRAILING_STOP, AUTO_CLOSE_TIME
+    // 
+    // The frontend is ONLY allowed to:
+    //   - Manual SELLs triggered from UI buttons (context = 'MANUAL')
+    //   - Pool exits via usePoolExitManager (context = 'POOL_EXIT')
+    // 
+    // This guard ensures that when the browser is closed, no automatic exits are missed
+    // because the backend handles them on its 5-minute schedule.
+    // ===================================================================================
+    if (FRONTEND_ENGINE_DISABLED) {
+      console.warn('[FRONTEND_AUTO_EXIT_BLOCKED]', {
+        reason: 'FRONTEND_ENGINE_DISABLED',
+        context: 'AUTO_EXIT_MANAGEMENT',
+        message: 'Backend engine now handles TP/SL/trailing/auto-close. Frontend only handles manual SELLs.',
+        timestamp: new Date().toISOString(),
+      });
+      return; // Exit early - backend owns automatic exits
+    }
+    
     const config = strategy.configuration as any;
     const positions = await calculateOpenPositions();
     
