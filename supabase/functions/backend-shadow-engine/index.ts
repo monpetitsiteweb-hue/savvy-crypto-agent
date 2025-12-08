@@ -204,6 +204,7 @@ serve(async (req) => {
             const idempotencyKey = `exit_${userId}_${strategy.id}_${baseSymbol}_${exitDecision.trigger}_${timestamp}`;
             
             // Build SELL intent
+            // GOAL 2.A: Include pnl_at_decision_pct in metadata for tracking
             const sellIntent = {
               userId,
               strategyId: strategy.id,
@@ -219,6 +220,8 @@ serve(async (req) => {
                 is_test_mode: true,
                 context: effectiveShadowMode ? 'BACKEND_SHADOW' : exitDecision.context,
                 trigger: exitDecision.trigger,
+                // GOAL 2.A: P&L at decision time for tracking/UI display
+                pnl_at_decision_pct: parseFloat(pnlPercentage.toFixed(4)),
                 pnlPercentage: pnlPercentage.toFixed(4),
                 entryPrice: position.averagePrice,
                 currentPrice,
