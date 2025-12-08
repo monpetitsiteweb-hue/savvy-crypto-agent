@@ -715,14 +715,26 @@ serve(async (req) => {
                           intentContext === 'pool';
     
     // ENHANCED: Block if auto-exit trigger but NO proper backend origin/context
-    // This catches the case where frontend sends trigger=AUTO_CLOSE_TIME but origin=null, context=null
+    // This catches the case where frontend sends trigger=AUTO_CLOSE_TIME but origin=null, context=null or empty
+    // 
+    // CRITICAL FIX: intentContext defaults to '' (empty string) from line 664, NOT null
+    // So we must check for empty string explicitly in addition to null/undefined
+    const isEmptyOrNullContext = !intentContext || intentContext === '';
+    const isEmptyOrNullOrigin = !intentOrigin || intentOrigin === null || intentOrigin === undefined;
+    
     const isFrontendAutoExit = intent?.side === 'SELL' && 
                                autoExitTriggers.includes(intentTrigger) && 
-                               (intentOrigin === null || intentOrigin === undefined) &&
-                               (intentContext === '' || intentContext === null || intentContext === undefined) &&
+                               isEmptyOrNullOrigin &&
+                               isEmptyOrNullContext &&
                                intent?.source !== 'manual';
     
-    if (intent?.side === 'SELL' && (isAutoExitContext || isFrontendAutoExit) && !isFromBackend && !isManualOrPool) {
+    // Also check: any SELL with an auto trigger that doesn't have BACKEND_LIVE origin is blocked
+    const hasAutoTriggerButNotBackend = intent?.side === 'SELL' &&
+                                        autoExitTriggers.includes(intentTrigger) &&
+                                        intentOrigin !== 'BACKEND_LIVE' &&
+                                        !isManualOrPool;
+    
+    if (intent?.side === 'SELL' && (isAutoExitContext || isFrontendAutoExit || hasAutoTriggerButNotBackend) && !isFromBackend && !isManualOrPool) {
       console.log('[Coordinator] Blocked frontend auto-exit SELL (Phase S3)', {
         source: intent?.source,
         context: intentContext,
