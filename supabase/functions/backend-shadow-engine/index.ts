@@ -193,6 +193,14 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
       case 'whale_large_movement':
         scores.whale += strength * 0.7;
         break;
+      case 'whale_exchange_inflow':
+        // Inflow to exchange = potential selling pressure (bearish)
+        scores.whale -= strength * 0.3;
+        break;
+      case 'whale_exchange_outflow':
+        // Outflow from exchange = accumulation (bullish)
+        scores.whale += strength * 0.5;
+        break;
       
       default:
         // Log unknown signal types for debugging
@@ -544,17 +552,20 @@ serve(async (req) => {
             .in('signal_type', [
               // BULLISH signals
               'ma_cross_bullish', 'rsi_oversold_bullish', 'momentum_bullish', 
-              'trend_bullish', 'macd_bullish', 
-              // BEARISH signals (CRITICAL - must include these!)
+              'trend_bullish', 'macd_bullish',
+              // EODHD signals (CRITICAL - these are the main signals!)
+              'eodhd_price_breakout_bullish', 'eodhd_price_breakdown_bearish',
+              'eodhd_intraday_volume_spike', 'eodhd_unusual_volatility',
+              // BEARISH signals
               'ma_cross_bearish', 'rsi_overbought_bearish', 'momentum_bearish',
               'trend_bearish', 'macd_bearish', 'ma_momentum_bearish',
               // NEUTRAL
               'momentum_neutral',
               // WHALE
-              'whale_large_movement'
+              'whale_large_movement', 'whale_exchange_inflow', 'whale_exchange_outflow'
             ])
             .order('timestamp', { ascending: false })
-            .limit(30);
+            .limit(50);
 
           // Fetch technical features for this symbol
           const { data: features } = await supabaseClient
