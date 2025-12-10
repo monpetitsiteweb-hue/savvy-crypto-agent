@@ -141,22 +141,38 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
         break;
       case 'rsi_oversold_bullish':
         // RSI oversold is a STRONG reversal/buy opportunity signal
-        // This indicates a potential bounce - treat it as bullish momentum AND trend
         hasOversoldSignal = true;
         oversoldStrength = Math.max(oversoldStrength, strength);
-        scores.momentum += strength * 0.7;  // Strong momentum signal
-        scores.trend += strength * 0.4;     // Also contributes to trend (reversal expected)
+        scores.momentum += strength * 0.7;
+        scores.trend += strength * 0.4;
+        break;
+      
+      // EODHD breakout signals - STRONG bullish indicators
+      case 'eodhd_price_breakout_bullish':
+        scores.trend += strength * 0.7;
+        scores.momentum += strength * 0.5;
+        console.log(`📈 EODHD BREAKOUT BULLISH: ${sig.symbol} strength=${strength.toFixed(3)}`);
+        break;
+      case 'eodhd_intraday_volume_spike':
+        scores.momentum += strength * 0.4;
+        scores.volatility += strength * 0.3;
+        break;
+      case 'eodhd_unusual_volatility':
+        scores.volatility += strength * 0.3;
         break;
       
       // BEARISH signals - subtract from scores
       case 'trend_bearish':
         scores.trend -= strength * 0.8;
         break;
+      case 'eodhd_price_breakdown_bearish':
+        scores.trend -= strength * 0.7;
+        scores.momentum -= strength * 0.4;
+        break;
       case 'ma_cross_bearish':
         // MA cross bearish is less impactful if we have oversold conditions
-        // (oversold + bearish MA often = buying opportunity for reversal)
-        scores.trend -= strength * 0.4;  // Reduced from 0.6
-        scores.momentum -= strength * 0.2; // Reduced from 0.4
+        scores.trend -= strength * 0.4;
+        scores.momentum -= strength * 0.2;
         break;
       case 'momentum_bearish':
       case 'ma_momentum_bearish':
@@ -167,18 +183,20 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
         scores.trend -= strength * 0.2;
         break;
       case 'rsi_overbought_bearish':
-        // RSI overbought is a STRONG sell signal - penalize heavily
         scores.momentum -= strength * 0.7;
         scores.trend -= strength * 0.3;
         break;
       case 'momentum_neutral':
-        // Neutral signals don't contribute much either way
         break;
         
       // Whale signals
       case 'whale_large_movement':
         scores.whale += strength * 0.7;
         break;
+      
+      default:
+        // Log unknown signal types for debugging
+        console.log(`⚠️ Unknown signal type: ${sig.signal_type}`);
     }
   }
 
