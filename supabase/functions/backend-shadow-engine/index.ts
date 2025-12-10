@@ -115,6 +115,10 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
     sentiment: 0,
   };
 
+  // Track if we have strong reversal signals (oversold conditions)
+  let hasOversoldSignal = false;
+  let oversoldStrength = 0;
+
   // Process ALL live signals (bullish AND bearish)
   for (const sig of signals) {
     const strength = Math.min(1, sig.signal_strength / 100); // Normalize to 0-1
@@ -136,24 +140,31 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
         scores.trend += strength * 0.3;
         break;
       case 'rsi_oversold_bullish':
-        scores.momentum += strength * 0.5;
+        // RSI oversold is a STRONG reversal/buy opportunity signal
+        // This indicates a potential bounce - treat it as bullish momentum AND trend
+        hasOversoldSignal = true;
+        oversoldStrength = Math.max(oversoldStrength, strength);
+        scores.momentum += strength * 0.7;  // Strong momentum signal
+        scores.trend += strength * 0.4;     // Also contributes to trend (reversal expected)
         break;
       
-      // BEARISH signals - subtract from scores (CRITICAL FOR AVOIDING BAD ENTRIES)
+      // BEARISH signals - subtract from scores
       case 'trend_bearish':
         scores.trend -= strength * 0.8;
         break;
       case 'ma_cross_bearish':
-        scores.trend -= strength * 0.6;
-        scores.momentum -= strength * 0.4;
+        // MA cross bearish is less impactful if we have oversold conditions
+        // (oversold + bearish MA often = buying opportunity for reversal)
+        scores.trend -= strength * 0.4;  // Reduced from 0.6
+        scores.momentum -= strength * 0.2; // Reduced from 0.4
         break;
       case 'momentum_bearish':
       case 'ma_momentum_bearish':
-        scores.momentum -= strength * 0.8;
+        scores.momentum -= strength * 0.6;
         break;
       case 'macd_bearish':
-        scores.momentum -= strength * 0.6;
-        scores.trend -= strength * 0.3;
+        scores.momentum -= strength * 0.5;
+        scores.trend -= strength * 0.2;
         break;
       case 'rsi_overbought_bearish':
         // RSI overbought is a STRONG sell signal - penalize heavily
@@ -171,14 +182,25 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
     }
   }
 
+  // If we have strong oversold signals, boost the overall scores
+  // (buying the dip strategy)
+  if (hasOversoldSignal && oversoldStrength > 0.3) {
+    scores.trend += oversoldStrength * 0.3;
+    scores.momentum += oversoldStrength * 0.2;
+    console.log(`🌑 OVERSOLD BOOST: strength=${oversoldStrength.toFixed(3)}, boosting trend/momentum`);
+  }
+
   // Process technical features if available
   if (features) {
     // RSI: < 30 oversold (bullish), > 70 overbought (bearish)
     if (features.rsi_14 != null) {
       if (features.rsi_14 < 30) {
-        scores.momentum += 0.3; // Oversold = potential bounce
+        scores.momentum += 0.4; // Strong oversold = potential bounce
+        scores.trend += 0.2;
+      } else if (features.rsi_14 < 40) {
+        scores.momentum += 0.2; // Moderately oversold
       } else if (features.rsi_14 > 70) {
-        scores.momentum -= 0.5; // Overbought = likely pullback - STRONGER penalty
+        scores.momentum -= 0.5; // Overbought = likely pullback
         scores.trend -= 0.2;
       } else if (features.rsi_14 >= 50 && features.rsi_14 <= 60) {
         scores.momentum += 0.1; // Healthy bullish zone
@@ -199,7 +221,7 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
       if (features.ema_20 > features.ema_50) {
         scores.trend += 0.3; // Short-term above long-term = bullish
       } else {
-        scores.trend -= 0.3; // Bearish trend - equal penalty
+        scores.trend -= 0.2; // Bearish trend (reduced penalty)
       }
     }
     
@@ -207,18 +229,17 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
       if (features.ema_50 > features.ema_200) {
         scores.trend += 0.2; // Golden cross territory
       } else {
-        scores.trend -= 0.2; // Death cross territory - equal penalty
+        scores.trend -= 0.1; // Death cross territory (reduced penalty)
       }
     }
 
     // Volatility: use vol_1h - moderate volatility is good for trading
     if (features.vol_1h != null) {
-      // Normalize volatility (typical crypto vol is 1-5%)
       const normalizedVol = Math.min(1, features.vol_1h / 5);
       if (normalizedVol > 0.1 && normalizedVol < 0.5) {
-        scores.volatility += 0.2; // Good trading volatility
+        scores.volatility += 0.2;
       } else if (normalizedVol >= 0.5) {
-        scores.volatility -= 0.1; // Too volatile, risky
+        scores.volatility -= 0.1;
       }
     }
   }
@@ -548,29 +569,30 @@ serve(async (req) => {
           const enterThreshold = config.enterThreshold || 0.15;
           const minConfidence = config.minConfidence || 0.5;
 
-          // ============= STRICT ENTRY DECISION LOGIC =============
-          // Require BOTH positive trend AND non-negative momentum to avoid buying into weakness
-          const isTrendPositive = signalScores.trend > 0.1; // Require meaningful positive trend
-          const isMomentumOk = signalScores.momentum >= -0.2; // Allow slightly negative momentum but not strongly bearish
-          const isNotOverbought = signalScores.momentum > -0.5; // Block if strong overbought signals
+          // ============= ENTRY DECISION LOGIC =============
+          // Relaxed conditions: Buy on positive fusion OR strong oversold signals
+          const isTrendPositive = signalScores.trend > -0.1; // Allow slightly negative trend (reversal plays)
+          const isMomentumPositive = signalScores.momentum > 0; // Require positive momentum
+          const isNotOverbought = signalScores.momentum > -0.5; // Block only strong overbought
           const meetsThreshold = fusionScore >= enterThreshold;
           
-          // STRICT: Must meet ALL conditions
-          const shouldBuy = meetsThreshold && isTrendPositive && isMomentumOk && isNotOverbought;
+          // BUY if:
+          // 1. Fusion score meets threshold AND trend is not strongly negative, OR
+          // 2. Strong positive momentum (oversold bounce) even with weak trend
+          const shouldBuy = (meetsThreshold && isTrendPositive) || 
+                           (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought);
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → fusion=${fusionScore.toFixed(3)}, threshold=${enterThreshold}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, trendOK=${isTrendPositive}, momentumOK=${isMomentumOk}, notOverbought=${isNotOverbought}, shouldBuy=${shouldBuy}`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → fusion=${fusionScore.toFixed(3)}, threshold=${enterThreshold}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, trendOK=${isTrendPositive}, momentumOK=${isMomentumPositive}, notOverbought=${isNotOverbought}, shouldBuy=${shouldBuy}`);
 
           // If signals don't support a buy, skip this coin with clear reason
           if (!shouldBuy) {
             let skipReason = 'conditions_not_met';
-            if (!isTrendPositive) {
-              skipReason = `trend_too_weak_${signalScores.trend.toFixed(3)}`;
+            if (signalScores.trend < -0.1 && signalScores.momentum <= 0.3) {
+              skipReason = `trend_negative_${signalScores.trend.toFixed(3)}_no_momentum_boost`;
             } else if (!isNotOverbought) {
               skipReason = `overbought_momentum_${signalScores.momentum.toFixed(3)}`;
-            } else if (!isMomentumOk) {
-              skipReason = `momentum_bearish_${signalScores.momentum.toFixed(3)}`;
-            } else if (!meetsThreshold) {
-              skipReason = `fusion_below_${enterThreshold}_got_${fusionScore.toFixed(3)}`;
+            } else if (!meetsThreshold && !isMomentumPositive) {
+              skipReason = `fusion_${fusionScore.toFixed(3)}_below_${enterThreshold}_no_momentum`;
             }
             
             allDecisions.push({
@@ -589,7 +611,7 @@ serve(async (req) => {
                 signals: signalScores,
                 enterThreshold,
                 isTrendPositive,
-                isMomentumOk,
+                isMomentumPositive,
                 isNotOverbought,
                 meetsThreshold,
                 engineMode: BACKEND_ENGINE_MODE,
