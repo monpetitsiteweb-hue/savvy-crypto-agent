@@ -115,11 +115,12 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
     sentiment: 0,
   };
 
-  // Process live signals
+  // Process ALL live signals (bullish AND bearish)
   for (const sig of signals) {
     const strength = Math.min(1, sig.signal_strength / 100); // Normalize to 0-1
     
     switch (sig.signal_type) {
+      // BULLISH signals - add to scores
       case 'trend_bullish':
         scores.trend += strength * 0.8;
         break;
@@ -137,6 +138,33 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
       case 'rsi_oversold_bullish':
         scores.momentum += strength * 0.5;
         break;
+      
+      // BEARISH signals - subtract from scores (CRITICAL FOR AVOIDING BAD ENTRIES)
+      case 'trend_bearish':
+        scores.trend -= strength * 0.8;
+        break;
+      case 'ma_cross_bearish':
+        scores.trend -= strength * 0.6;
+        scores.momentum -= strength * 0.4;
+        break;
+      case 'momentum_bearish':
+      case 'ma_momentum_bearish':
+        scores.momentum -= strength * 0.8;
+        break;
+      case 'macd_bearish':
+        scores.momentum -= strength * 0.6;
+        scores.trend -= strength * 0.3;
+        break;
+      case 'rsi_overbought_bearish':
+        // RSI overbought is a STRONG sell signal - penalize heavily
+        scores.momentum -= strength * 0.7;
+        scores.trend -= strength * 0.3;
+        break;
+      case 'momentum_neutral':
+        // Neutral signals don't contribute much either way
+        break;
+        
+      // Whale signals
       case 'whale_large_movement':
         scores.whale += strength * 0.7;
         break;
@@ -150,7 +178,8 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
       if (features.rsi_14 < 30) {
         scores.momentum += 0.3; // Oversold = potential bounce
       } else if (features.rsi_14 > 70) {
-        scores.momentum -= 0.3; // Overbought = potential pullback
+        scores.momentum -= 0.5; // Overbought = likely pullback - STRONGER penalty
+        scores.trend -= 0.2;
       } else if (features.rsi_14 >= 50 && features.rsi_14 <= 60) {
         scores.momentum += 0.1; // Healthy bullish zone
       }
@@ -170,7 +199,7 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
       if (features.ema_20 > features.ema_50) {
         scores.trend += 0.3; // Short-term above long-term = bullish
       } else {
-        scores.trend -= 0.2; // Bearish trend
+        scores.trend -= 0.3; // Bearish trend - equal penalty
       }
     }
     
@@ -178,7 +207,7 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
       if (features.ema_50 > features.ema_200) {
         scores.trend += 0.2; // Golden cross territory
       } else {
-        scores.trend -= 0.15; // Death cross territory
+        scores.trend -= 0.2; // Death cross territory - equal penalty
       }
     }
 
@@ -466,19 +495,27 @@ serve(async (req) => {
           }
 
           // ============= INTELLIGENT SIGNAL EVALUATION =============
-          // Fetch live signals for this symbol (bullish signals from last 4 hours)
-          const signalLookback = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+          // Fetch ALL signals for this symbol (bullish AND bearish from last 2 hours for freshness)
+          const signalLookback = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
           const { data: liveSignals } = await supabaseClient
             .from('live_signals')
             .select('signal_type, signal_strength, data')
             .or(`symbol.eq.${baseSymbol},symbol.eq.${symbol}`)
             .gte('timestamp', signalLookback)
             .in('signal_type', [
+              // BULLISH signals
               'ma_cross_bullish', 'rsi_oversold_bullish', 'momentum_bullish', 
-              'trend_bullish', 'macd_bullish', 'whale_large_movement'
+              'trend_bullish', 'macd_bullish', 
+              // BEARISH signals (CRITICAL - must include these!)
+              'ma_cross_bearish', 'rsi_overbought_bearish', 'momentum_bearish',
+              'trend_bearish', 'macd_bearish', 'ma_momentum_bearish',
+              // NEUTRAL
+              'momentum_neutral',
+              // WHALE
+              'whale_large_movement'
             ])
             .order('timestamp', { ascending: false })
-            .limit(20);
+            .limit(30);
 
           // Fetch technical features for this symbol
           const { data: features } = await supabaseClient
@@ -511,19 +548,30 @@ serve(async (req) => {
           const enterThreshold = config.enterThreshold || 0.15;
           const minConfidence = config.minConfidence || 0.5;
 
-          // ============= ENTRY DECISION LOGIC =============
-          const isTrendPositive = signalScores.trend > 0;
-          const isMomentumPositive = signalScores.momentum > 0;
+          // ============= STRICT ENTRY DECISION LOGIC =============
+          // Require BOTH positive trend AND non-negative momentum to avoid buying into weakness
+          const isTrendPositive = signalScores.trend > 0.1; // Require meaningful positive trend
+          const isMomentumOk = signalScores.momentum >= -0.2; // Allow slightly negative momentum but not strongly bearish
+          const isNotOverbought = signalScores.momentum > -0.5; // Block if strong overbought signals
           const meetsThreshold = fusionScore >= enterThreshold;
-          const shouldBuy = meetsThreshold && isTrendPositive;
+          
+          // STRICT: Must meet ALL conditions
+          const shouldBuy = meetsThreshold && isTrendPositive && isMomentumOk && isNotOverbought;
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → fusion=${fusionScore.toFixed(3)}, threshold=${enterThreshold}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → fusion=${fusionScore.toFixed(3)}, threshold=${enterThreshold}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, trendOK=${isTrendPositive}, momentumOK=${isMomentumOk}, notOverbought=${isNotOverbought}, shouldBuy=${shouldBuy}`);
 
-          // If signals don't support a buy, skip this coin
+          // If signals don't support a buy, skip this coin with clear reason
           if (!shouldBuy) {
-            const skipReason = !isTrendPositive 
-              ? 'trend_not_positive' 
-              : `fusion_below_threshold_${fusionScore.toFixed(3)}`;
+            let skipReason = 'conditions_not_met';
+            if (!isTrendPositive) {
+              skipReason = `trend_too_weak_${signalScores.trend.toFixed(3)}`;
+            } else if (!isNotOverbought) {
+              skipReason = `overbought_momentum_${signalScores.momentum.toFixed(3)}`;
+            } else if (!isMomentumOk) {
+              skipReason = `momentum_bearish_${signalScores.momentum.toFixed(3)}`;
+            } else if (!meetsThreshold) {
+              skipReason = `fusion_below_${enterThreshold}_got_${fusionScore.toFixed(3)}`;
+            }
             
             allDecisions.push({
               symbol: baseSymbol,
@@ -541,7 +589,9 @@ serve(async (req) => {
                 signals: signalScores,
                 enterThreshold,
                 isTrendPositive,
-                isMomentumPositive,
+                isMomentumOk,
+                isNotOverbought,
+                meetsThreshold,
                 engineMode: BACKEND_ENGINE_MODE,
               }
             });
