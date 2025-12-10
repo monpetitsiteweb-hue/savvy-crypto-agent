@@ -78,6 +78,132 @@ interface OpenPosition {
 type ExitContext = 'AUTO_TP' | 'AUTO_SL' | 'AUTO_TRAIL' | 'AUTO_CLOSE';
 type ExitTrigger = 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'AUTO_CLOSE_TIME';
 
+// ============= SIGNAL SCORING HELPER =============
+interface SignalScores {
+  trend: number;
+  momentum: number;
+  volatility: number;
+  whale: number;
+  sentiment: number;
+}
+
+interface MarketFeatures {
+  rsi_14?: number | null;
+  macd_hist?: number | null;
+  ema_20?: number | null;
+  ema_50?: number | null;
+  ema_200?: number | null;
+  vol_1h?: number | null;
+}
+
+interface LiveSignal {
+  signal_type: string;
+  signal_strength: number;
+  data?: Record<string, any> | null;
+}
+
+/**
+ * Compute signal scores from live_signals and market_features_v0
+ * Returns normalized scores (-1 to +1) for each signal category
+ */
+function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | null): SignalScores {
+  const scores: SignalScores = {
+    trend: 0,
+    momentum: 0,
+    volatility: 0,
+    whale: 0,
+    sentiment: 0,
+  };
+
+  // Process live signals
+  for (const sig of signals) {
+    const strength = Math.min(1, sig.signal_strength / 100); // Normalize to 0-1
+    
+    switch (sig.signal_type) {
+      case 'trend_bullish':
+        scores.trend += strength * 0.8;
+        break;
+      case 'ma_cross_bullish':
+        scores.trend += strength * 0.6;
+        scores.momentum += strength * 0.4;
+        break;
+      case 'momentum_bullish':
+        scores.momentum += strength * 0.8;
+        break;
+      case 'macd_bullish':
+        scores.momentum += strength * 0.6;
+        scores.trend += strength * 0.3;
+        break;
+      case 'rsi_oversold_bullish':
+        scores.momentum += strength * 0.5;
+        break;
+      case 'whale_large_movement':
+        scores.whale += strength * 0.7;
+        break;
+    }
+  }
+
+  // Process technical features if available
+  if (features) {
+    // RSI: < 30 oversold (bullish), > 70 overbought (bearish)
+    if (features.rsi_14 != null) {
+      if (features.rsi_14 < 30) {
+        scores.momentum += 0.3; // Oversold = potential bounce
+      } else if (features.rsi_14 > 70) {
+        scores.momentum -= 0.3; // Overbought = potential pullback
+      } else if (features.rsi_14 >= 50 && features.rsi_14 <= 60) {
+        scores.momentum += 0.1; // Healthy bullish zone
+      }
+    }
+
+    // MACD histogram: positive = bullish momentum
+    if (features.macd_hist != null) {
+      if (features.macd_hist > 0) {
+        scores.momentum += Math.min(0.4, features.macd_hist * 0.1);
+      } else {
+        scores.momentum += Math.max(-0.4, features.macd_hist * 0.1);
+      }
+    }
+
+    // EMA trend: price above EMAs = uptrend
+    if (features.ema_20 != null && features.ema_50 != null) {
+      if (features.ema_20 > features.ema_50) {
+        scores.trend += 0.3; // Short-term above long-term = bullish
+      } else {
+        scores.trend -= 0.2; // Bearish trend
+      }
+    }
+    
+    if (features.ema_50 != null && features.ema_200 != null) {
+      if (features.ema_50 > features.ema_200) {
+        scores.trend += 0.2; // Golden cross territory
+      } else {
+        scores.trend -= 0.15; // Death cross territory
+      }
+    }
+
+    // Volatility: use vol_1h - moderate volatility is good for trading
+    if (features.vol_1h != null) {
+      // Normalize volatility (typical crypto vol is 1-5%)
+      const normalizedVol = Math.min(1, features.vol_1h / 5);
+      if (normalizedVol > 0.1 && normalizedVol < 0.5) {
+        scores.volatility += 0.2; // Good trading volatility
+      } else if (normalizedVol >= 0.5) {
+        scores.volatility -= 0.1; // Too volatile, risky
+      }
+    }
+  }
+
+  // Clamp all scores to -1 to +1
+  scores.trend = Math.max(-1, Math.min(1, scores.trend));
+  scores.momentum = Math.max(-1, Math.min(1, scores.momentum));
+  scores.volatility = Math.max(-1, Math.min(1, scores.volatility));
+  scores.whale = Math.max(-1, Math.min(1, scores.whale));
+  scores.sentiment = Math.max(-1, Math.min(1, scores.sentiment));
+
+  return scores;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -306,13 +432,13 @@ serve(async (req) => {
         }
       }
 
-      // Step 3: For each symbol, evaluate BUY opportunities (existing logic)
+      // Step 3: For each symbol, evaluate BUY opportunities WITH SIGNAL INTELLIGENCE
       for (const coin of selectedCoins) {
         const symbol = coin.includes('-') ? coin : `${coin}-EUR`;
         const baseSymbol = coin.replace('-EUR', '');
         
         try {
-          // Fetch current price (same as frontend would)
+          // Fetch current price
           let currentPrice = 0;
           try {
             const tickerResponse = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
@@ -339,29 +465,109 @@ serve(async (req) => {
             continue;
           }
 
-          // Calculate suggested quantity (same logic as frontend)
+          // ============= INTELLIGENT SIGNAL EVALUATION =============
+          // Fetch live signals for this symbol (bullish signals from last 4 hours)
+          const signalLookback = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+          const { data: liveSignals } = await supabaseClient
+            .from('live_signals')
+            .select('signal_type, signal_strength, data')
+            .or(`symbol.eq.${baseSymbol},symbol.eq.${symbol}`)
+            .gte('timestamp', signalLookback)
+            .in('signal_type', [
+              'ma_cross_bullish', 'rsi_oversold_bullish', 'momentum_bullish', 
+              'trend_bullish', 'macd_bullish', 'whale_large_movement'
+            ])
+            .order('timestamp', { ascending: false })
+            .limit(20);
+
+          // Fetch technical features for this symbol
+          const { data: features } = await supabaseClient
+            .from('market_features_v0')
+            .select('rsi_14, macd_hist, ema_20, ema_50, ema_200, vol_1h')
+            .eq('symbol', symbol)
+            .eq('granularity', '1h')
+            .order('ts_utc', { ascending: false })
+            .limit(1)
+            .single();
+
+          // ============= COMPUTE FUSION SCORE =============
+          const signalScores = computeSignalScores(liveSignals || [], features);
+          const fusionWeights = {
+            trend: config.trendWeight || 0.35,
+            momentum: config.momentumWeight || 0.25,
+            volatility: config.volatilityWeight || 0.15,
+            whale: config.whaleWeight || 0.15,
+            sentiment: config.sentimentWeight || 0.10,
+          };
+          
+          const fusionScore = 
+            signalScores.trend * fusionWeights.trend +
+            signalScores.momentum * fusionWeights.momentum +
+            signalScores.volatility * fusionWeights.volatility +
+            signalScores.whale * fusionWeights.whale +
+            signalScores.sentiment * fusionWeights.sentiment;
+
+          // Get thresholds from config
+          const enterThreshold = config.enterThreshold || 0.15;
+          const minConfidence = config.minConfidence || 0.5;
+
+          // ============= ENTRY DECISION LOGIC =============
+          const isTrendPositive = signalScores.trend > 0;
+          const isMomentumPositive = signalScores.momentum > 0;
+          const meetsThreshold = fusionScore >= enterThreshold;
+          const shouldBuy = meetsThreshold && isTrendPositive;
+
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → fusion=${fusionScore.toFixed(3)}, threshold=${enterThreshold}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
+
+          // If signals don't support a buy, skip this coin
+          if (!shouldBuy) {
+            const skipReason = !isTrendPositive 
+              ? 'trend_not_positive' 
+              : `fusion_below_threshold_${fusionScore.toFixed(3)}`;
+            
+            allDecisions.push({
+              symbol: baseSymbol,
+              side: 'HOLD',
+              action: 'SKIP',
+              reason: skipReason,
+              confidence: fusionScore,
+              fusionScore,
+              wouldExecute: false,
+              timestamp: new Date().toISOString(),
+              metadata: {
+                strategyId: strategy.id,
+                strategyName: strategy.strategy_name,
+                price: currentPrice,
+                signals: signalScores,
+                enterThreshold,
+                isTrendPositive,
+                isMomentumPositive,
+                engineMode: BACKEND_ENGINE_MODE,
+              }
+            });
+            continue;
+          }
+
+          // ============= SIGNALS POSITIVE - PROCEED WITH BUY INTENT =============
           const tradeAllocation = config.perTradeAllocation || 50;
           const qtySuggested = tradeAllocation / currentPrice;
+          const computedConfidence = Math.min(0.95, Math.max(minConfidence, fusionScore));
 
-          // Build intent matching frontend shape
-          const intentMetadata = effectiveShadowMode ? {
+          const intentMetadata = {
             mode: 'mock',
             engine: 'intelligent',
             is_test_mode: true,
-            execMode: 'SHADOW',
-            context: 'BACKEND_SHADOW',
-            shadow_run_ts: new Date().toISOString(),
+            context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+            backend_ts: new Date().toISOString(),
             currentPrice,
-          } : {
-            mode: 'mock',
-            engine: 'intelligent',
-            is_test_mode: true,
-            context: 'BACKEND_LIVE',
-            backend_live_ts: new Date().toISOString(),
-            currentPrice,
+            // Include signal intelligence in metadata
+            fusionScore,
+            signalScores,
+            enterThreshold,
+            isTrendPositive,
+            isMomentumPositive,
           };
 
-          // Generate unique identifiers
           const backendRequestId = crypto.randomUUID();
           const timestamp = Date.now();
           const idempotencyKey = `live_${userId}_${strategy.id}_${baseSymbol}_${timestamp}`;
@@ -372,21 +578,20 @@ serve(async (req) => {
             symbol: baseSymbol,
             side: 'BUY' as const,
             source: 'intelligent' as const,
-            confidence: 0.65,
-            reason: effectiveShadowMode ? 'BACKEND_SHADOW_EVALUATION' : 'BACKEND_LIVE_DECISION',
+            confidence: computedConfidence,
+            reason: `signal_confirmed_fusion_${fusionScore.toFixed(3)}`,
             qtySuggested,
             metadata: {
               ...intentMetadata,
               backend_request_id: backendRequestId,
-              backend_ts: new Date().toISOString(),
+              origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
             },
             ts: new Date().toISOString(),
-            idempotencyKey: idempotencyKey
+            idempotencyKey,
           };
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: Calling coordinator for ${baseSymbol} BUY intent (effectiveShadow=${effectiveShadowMode})`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNALS POSITIVE → calling coordinator (fusion=${fusionScore.toFixed(3)}, confidence=${computedConfidence.toFixed(2)})`);
 
-          // Call coordinator with shadow flag
           const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
             'trading-decision-coordinator',
             { body: { intent } }
@@ -399,15 +604,15 @@ serve(async (req) => {
               side: 'BUY',
               action: 'ERROR',
               reason: coordError.message || 'coordinator_error',
-              confidence: intent.confidence,
+              confidence: computedConfidence,
+              fusionScore,
               wouldExecute: false,
               timestamp: new Date().toISOString(),
-              metadata: { error: coordError }
+              metadata: { error: coordError, signals: signalScores }
             });
             continue;
           }
 
-          // Parse coordinator response
           let parsed = coordinatorResponse;
           if (typeof parsed === 'string') {
             try { parsed = JSON.parse(parsed); } catch { parsed = {}; }
@@ -416,21 +621,18 @@ serve(async (req) => {
           const decision = parsed?.decision || parsed;
           const action = decision?.action || 'UNKNOWN';
           const reason = decision?.reason || 'no_reason';
-          const fusionScore = decision?.fusion_score || decision?.fusionScore;
 
           console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → action=${action}, reason=${reason}`);
 
-          const wouldExecute = action === 'BUY' || action === 'SELL';
-          let side: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
-          if (action === 'BUY') side = 'BUY';
-          else if (action === 'SELL') side = 'SELL';
+          const wouldExecute = action === 'BUY';
+          let side: 'BUY' | 'SELL' | 'HOLD' = action === 'BUY' ? 'BUY' : 'HOLD';
 
           allDecisions.push({
             symbol: baseSymbol,
             side,
             action,
             reason,
-            confidence: intent.confidence,
+            confidence: computedConfidence,
             fusionScore,
             wouldExecute,
             timestamp: new Date().toISOString(),
@@ -439,6 +641,7 @@ serve(async (req) => {
               strategyName: strategy.strategy_name,
               price: currentPrice,
               qtySuggested,
+              signalScores,
               coordinatorResponse: decision,
               engineMode: BACKEND_ENGINE_MODE,
               effectiveShadowMode,
