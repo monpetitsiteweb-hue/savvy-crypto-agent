@@ -353,7 +353,12 @@ type Reason =
   | "signal_too_weak"
   | "no_position_to_sell"
   | "insufficient_position_size"
-  | "no_position_found";
+  | "no_position_found"
+  // NEW STABILIZATION GATES (Phase: Omniscient AI Agent)
+  | "blocked_by_stop_loss_cooldown"
+  | "blocked_by_signal_alignment"
+  | "blocked_by_high_volatility"
+  | "blocked_by_entry_spacing";
 
 interface TradeDecision {
   action: DecisionAction;
@@ -2586,6 +2591,106 @@ async function logDecisionAsync(
   }
 }
 
+// ============= DYNAMIC TP/SL CALCULATION =============
+// Compute dynamic thresholds based on recent price volatility
+// This fixes the "TP never hit / SL always hit" problem in crypto
+
+interface DynamicThresholds {
+  dynamicTpPct: number;
+  dynamicSlPct: number;
+  microVolatility: number;
+  source: 'dynamic' | 'static';
+}
+
+async function computeDynamicTpSlThresholds(
+  supabaseClient: any,
+  symbol: string,
+  baseTpPct: number,
+  baseSlPct: number
+): Promise<DynamicThresholds> {
+  try {
+    const baseSymbol = symbol.includes('-') ? symbol.split('-')[0] : symbol;
+    
+    // Fetch recent price snapshots (last 5 minutes) for micro-volatility calculation
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: recentPrices } = await supabaseClient
+      .from('price_snapshots')
+      .select('price, ts')
+      .eq('symbol', `${baseSymbol}-EUR`)
+      .gte('ts', fiveMinutesAgo)
+      .order('ts', { ascending: false })
+      .limit(30);
+    
+    // If not enough price data, try market_features_v0 for volatility
+    if (!recentPrices || recentPrices.length < 3) {
+      const { data: features } = await supabaseClient
+        .from('market_features_v0')
+        .select('vol_1h, vol_4h, vol_24h')
+        .eq('symbol', `${baseSymbol}-EUR`)
+        .eq('granularity', '1h')
+        .order('ts_utc', { ascending: false })
+        .limit(1);
+      
+      if (features && features.length > 0) {
+        // Use pre-computed volatility from market features
+        const vol = features[0].vol_1h || features[0].vol_4h || features[0].vol_24h || 0;
+        const volPct = vol * 100; // Convert to percentage
+        
+        // Dynamic adjustment: TP = max(baseTp, vol * 1.0), SL = max(baseSl, vol * 1.2)
+        const dynamicTpPct = Math.max(baseTpPct, volPct * 1.0);
+        const dynamicSlPct = Math.max(baseSlPct, volPct * 1.2);
+        
+        console.log(`[DynamicTPSL] Using market_features volatility for ${baseSymbol}: vol=${volPct.toFixed(2)}%, TP=${dynamicTpPct.toFixed(2)}%, SL=${dynamicSlPct.toFixed(2)}%`);
+        
+        return {
+          dynamicTpPct: Math.min(dynamicTpPct, 5.0), // Cap at 5%
+          dynamicSlPct: Math.min(dynamicSlPct, 5.0), // Cap at 5%
+          microVolatility: volPct,
+          source: 'dynamic'
+        };
+      }
+      
+      // Fallback to static thresholds
+      console.log(`[DynamicTPSL] No volatility data for ${baseSymbol}, using static thresholds`);
+      return { dynamicTpPct: baseTpPct, dynamicSlPct: baseSlPct, microVolatility: 0, source: 'static' };
+    }
+    
+    // Compute micro-volatility from price snapshots
+    const prices = recentPrices.map((p: any) => parseFloat(p.price));
+    const latestPrice = prices[0];
+    const oldestPrice = prices[prices.length - 1];
+    
+    // Micro-volatility = |price change| / oldest price
+    const microVolatility = Math.abs(latestPrice - oldestPrice) / oldestPrice * 100;
+    
+    // Also compute max swing for more robust volatility estimate
+    const maxPrice = Math.max(...prices);
+    const minPrice = Math.min(...prices);
+    const maxSwing = (maxPrice - minPrice) / minPrice * 100;
+    
+    // Use the larger of micro-volatility and half the max swing
+    const effectiveVol = Math.max(microVolatility, maxSwing * 0.5);
+    
+    // Dynamic adjustment: wider thresholds in volatile markets
+    const dynamicTpPct = Math.max(baseTpPct, effectiveVol * 1.0);
+    const dynamicSlPct = Math.max(baseSlPct, effectiveVol * 1.2);
+    
+    console.log(`[DynamicTPSL] ${baseSymbol}: microVol=${microVolatility.toFixed(3)}%, maxSwing=${maxSwing.toFixed(3)}%, TP=${dynamicTpPct.toFixed(2)}% (base ${baseTpPct}%), SL=${dynamicSlPct.toFixed(2)}% (base ${baseSlPct}%)`);
+    
+    return {
+      dynamicTpPct: Math.min(dynamicTpPct, 5.0), // Cap at 5%
+      dynamicSlPct: Math.min(dynamicSlPct, 5.0), // Cap at 5%
+      microVolatility: effectiveVol,
+      source: 'dynamic'
+    };
+    
+  } catch (error) {
+    console.error(`[DynamicTPSL] Error computing thresholds for ${symbol}:`, error);
+    // Fallback to static on error
+    return { dynamicTpPct: baseTpPct, dynamicSlPct: baseSlPct, microVolatility: 0, source: 'static' };
+  }
+}
+
 // ============= PHASE 1: TP DETECTION FUNCTIONS =============
 
 // Evaluate if current position has reached take-profit threshold
@@ -2595,13 +2700,25 @@ async function evaluatePositionStatus(
   strategyConfig: any,
   currentPrice: number,
   requestId: string
-): Promise<{ shouldSell: boolean; pnlPct: number; tpPct: number; metadata: any } | null> {
+): Promise<{ shouldSell: boolean; pnlPct: number; tpPct: number; slPct?: number; metadata: any } | null> {
   
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
     
-    // Extract TP config
-    const tpPercentage = strategyConfig?.takeProfitPercentage || 0.5; // Default 0.5%
+    // Extract base TP/SL config
+    const baseTpPct = strategyConfig?.takeProfitPercentage || 0.7;
+    const baseSlPct = strategyConfig?.stopLossPercentage || 0.7;
+    
+    // Compute dynamic thresholds based on recent volatility
+    const dynamicThresholds = await computeDynamicTpSlThresholds(
+      supabaseClient, 
+      baseSymbol, 
+      baseTpPct, 
+      baseSlPct
+    );
+    
+    const effectiveTpPct = dynamicThresholds.dynamicTpPct;
+    const effectiveSlPct = dynamicThresholds.dynamicSlPct;
     
     // Get BUY trades to check if we have a position
     const { data: buyTrades } = await supabaseClient
@@ -2666,25 +2783,44 @@ async function evaluatePositionStatus(
       avgPurchasePrice: avgPurchasePrice.toFixed(2),
       currentPrice: currentPrice.toFixed(2),
       pnlPct: pnlPct.toFixed(2),
-      tpPct: tpPercentage.toFixed(2),
+      tpPct: effectiveTpPct.toFixed(2),
+      slPct: effectiveSlPct.toFixed(2),
+      baseTpPct: baseTpPct.toFixed(2),
+      baseSlPct: baseSlPct.toFixed(2),
+      microVolatility: dynamicThresholds.microVolatility.toFixed(3),
+      thresholdSource: dynamicThresholds.source,
       positionSize: totalPurchaseAmount.toFixed(8),
-      evaluation: 'tp_detection'
+      evaluation: 'tp_sl_detection'
     };
 
-    // Check if TP threshold is reached
-    if (pnlPct >= tpPercentage) {
+    // Check if TP threshold is reached (using DYNAMIC threshold)
+    if (pnlPct >= effectiveTpPct) {
+      console.log(`[DynamicTPSL] TP HIT for ${baseSymbol}: pnl=${pnlPct.toFixed(2)}% >= tp=${effectiveTpPct.toFixed(2)}%`);
       return { 
         shouldSell: true, 
         pnlPct: parseFloat(pnlPct.toFixed(2)), 
-        tpPct: tpPercentage,
+        tpPct: effectiveTpPct,
+        slPct: effectiveSlPct,
         metadata 
       };
     }
+    
+    // Check if SL threshold is reached (using DYNAMIC threshold)
+    if (pnlPct <= -effectiveSlPct) {
+      console.log(`[DynamicTPSL] SL HIT for ${baseSymbol}: pnl=${pnlPct.toFixed(2)}% <= -sl=${-effectiveSlPct.toFixed(2)}%`);
+      return { 
+        shouldSell: true, 
+        pnlPct: parseFloat(pnlPct.toFixed(2)), 
+        tpPct: effectiveTpPct,
+        slPct: effectiveSlPct,
+        metadata: { ...metadata, evaluation: 'sl_detection', trigger: 'STOP_LOSS' }
+      };
+    }
 
-    return null; // TP not reached
+    return null; // Neither TP nor SL reached
     
   } catch (error) {
-    console.error(`❌ COORDINATOR: TP evaluation error for ${intent.symbol}:`, error);
+    console.error(`❌ COORDINATOR: TP/SL evaluation error for ${intent.symbol}:`, error);
     return null;
   }
 }
@@ -2727,7 +2863,7 @@ async function detectConflicts(
   strategyConfig?: any
 ): Promise<{ hasConflict: boolean; reason: string; guardReport?: any }> {
   
-  // Initialize guard report
+  // Initialize guard report (EXTENDED FOR OMNISCIENT AI AGENT STABILIZATION)
   const guardReport = {
     minNotionalFail: false,
     cooldownActive: false,
@@ -2736,7 +2872,12 @@ async function detectConflicts(
     qtyMismatch: false,
     marketClosed: false,
     holdPeriodNotMet: false,
-    exposureLimitExceeded: false, // PHASE 5: New guard
+    exposureLimitExceeded: false, // PHASE 5: Exposure guard
+    // NEW STABILIZATION GATES (Omniscient AI Agent)
+    stopLossCooldownActive: false,
+    signalAlignmentFailed: false,
+    highVolatilityBlocked: false,
+    entrySpacingBlocked: false,
     other: null as string | null,
   };
   
@@ -2843,6 +2984,116 @@ async function detectConflicts(
   }
   // =====================================================================
   // END PHASE 5 EXPOSURE CHECK
+  // =====================================================================
+  
+  // =====================================================================
+  // OMNISCIENT AI AGENT STABILIZATION GATES (BUY-SIDE)
+  // These gates prevent the "death spiral" and ensure multi-signal validation
+  // =====================================================================
+  if (intent.side === 'BUY') {
+    const cfg = strategyConfig?.configuration || strategyConfig || {};
+    const signalScores = intent.metadata?.signalScores || {};
+    
+    // ========= GATE 1: STOP-LOSS COOLDOWN =========
+    // After a STOP_LOSS exit, block BUY on same symbol for cooldown period
+    // This prevents the deadly SL → immediate re-entry loop
+    const stopLossCooldownMs = cfg.stopLossCooldownMs || 300000; // 5 minutes default
+    
+    // Check recent decision_events for STOP_LOSS exits on this symbol
+    const slCooldownCutoff = new Date(Date.now() - stopLossCooldownMs).toISOString();
+    const { data: recentSlExits } = await supabaseClient
+      .from('decision_events')
+      .select('id, decision_ts, metadata')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)
+      .eq('symbol', baseSymbol)
+      .eq('side', 'SELL')
+      .gte('decision_ts', slCooldownCutoff)
+      .order('decision_ts', { ascending: false })
+      .limit(5);
+    
+    // Check if any recent SELL was a STOP_LOSS
+    const recentStopLoss = (recentSlExits || []).find((ev: any) => {
+      const trigger = ev.metadata?.trigger || ev.metadata?.exitTrigger || '';
+      return trigger === 'STOP_LOSS' || trigger === 'SL' || trigger === 'stop_loss';
+    });
+    
+    if (recentStopLoss) {
+      const slExitTime = new Date(recentStopLoss.decision_ts).getTime();
+      const timeSinceSL = Date.now() - slExitTime;
+      if (timeSinceSL < stopLossCooldownMs) {
+        console.log(`🚫 COORDINATOR: BUY blocked - stop-loss cooldown active (${Math.round(timeSinceSL/1000)}s < ${stopLossCooldownMs/1000}s)`);
+        console.log(`   Recent SL exit at ${recentStopLoss.decision_ts}, waiting ${Math.round((stopLossCooldownMs - timeSinceSL)/1000)}s more`);
+        guardReport.stopLossCooldownActive = true;
+        return { hasConflict: true, reason: 'blocked_by_stop_loss_cooldown', guardReport };
+      }
+    }
+    
+    // ========= GATE 2: MULTI-SIGNAL ALIGNMENT =========
+    // An omniscient AI agent requires MULTIPLE confirming signals, not just one
+    // Block BUYs when core signals are weak or misaligned
+    const trendScore = signalScores.trend ?? 0;
+    const momentumScore = signalScores.momentum ?? 0;
+    const volatilityScore = signalScores.volatility ?? 0;
+    
+    // Configurable thresholds (with sensible defaults for crypto)
+    const minTrendScore = cfg.minTrendScoreForBuy ?? 0.4;
+    const minMomentumScore = cfg.minMomentumScoreForBuy ?? 0.25;
+    const maxVolatilityForBuy = cfg.maxVolatilityScoreForBuy ?? 0.5;
+    
+    // Only apply signal alignment gate if we have signal scores in metadata
+    const hasSignalScores = Object.keys(signalScores).length > 0;
+    if (hasSignalScores) {
+      const alignmentPassed = trendScore >= minTrendScore && 
+                              momentumScore >= minMomentumScore;
+      
+      if (!alignmentPassed) {
+        console.log(`🚫 COORDINATOR: BUY blocked - signal alignment failed`);
+        console.log(`   trend=${trendScore.toFixed(2)} (need >=${minTrendScore}), momentum=${momentumScore.toFixed(2)} (need >=${minMomentumScore})`);
+        console.log(`   Full signal scores:`, JSON.stringify(signalScores));
+        guardReport.signalAlignmentFailed = true;
+        return { hasConflict: true, reason: 'blocked_by_signal_alignment', guardReport };
+      }
+      console.log(`✅ COORDINATOR: Signal alignment passed (trend=${trendScore.toFixed(2)}, momentum=${momentumScore.toFixed(2)})`);
+    }
+    
+    // ========= GATE 3: HIGH VOLATILITY BLOCK =========
+    // Block BUYs when volatility is dangerously high (risk management)
+    if (hasSignalScores && volatilityScore > maxVolatilityForBuy) {
+      console.log(`🚫 COORDINATOR: BUY blocked - high volatility (${volatilityScore.toFixed(2)} > ${maxVolatilityForBuy})`);
+      guardReport.highVolatilityBlocked = true;
+      return { hasConflict: true, reason: 'blocked_by_high_volatility', guardReport };
+    }
+    
+    // ========= GATE 4: MINIMUM ENTRY SPACING =========
+    // Prevent rapid-fire entries on the same symbol (anti-churn)
+    const minEntrySpacingMs = cfg.minEntrySpacingMs || 600000; // 10 minutes default
+    
+    const entrySpacingCutoff = new Date(Date.now() - minEntrySpacingMs).toISOString();
+    const { data: recentBuysForSpacing } = await supabaseClient
+      .from('mock_trades')
+      .select('id, executed_at')
+      .eq('user_id', intent.userId)
+      .eq('strategy_id', intent.strategyId)
+      .eq('cryptocurrency', baseSymbol)
+      .eq('trade_type', 'buy')
+      .gte('executed_at', entrySpacingCutoff)
+      .order('executed_at', { ascending: false })
+      .limit(1);
+    
+    if (recentBuysForSpacing && recentBuysForSpacing.length > 0) {
+      const lastBuyTime = new Date(recentBuysForSpacing[0].executed_at).getTime();
+      const timeSinceLastBuy = Date.now() - lastBuyTime;
+      console.log(`🚫 COORDINATOR: BUY blocked - entry spacing not met (${Math.round(timeSinceLastBuy/1000)}s < ${minEntrySpacingMs/1000}s)`);
+      console.log(`   Last BUY at ${recentBuysForSpacing[0].executed_at}, waiting ${Math.round((minEntrySpacingMs - timeSinceLastBuy)/1000)}s more`);
+      guardReport.entrySpacingBlocked = true;
+      return { hasConflict: true, reason: 'blocked_by_entry_spacing', guardReport };
+    }
+    
+    console.log(`✅ COORDINATOR: All stabilization gates passed for ${baseSymbol} BUY`);
+  }
+  // =====================================================================
+  // END OMNISCIENT AI AGENT STABILIZATION GATES
   // =====================================================================
   
   // =====================================================================
