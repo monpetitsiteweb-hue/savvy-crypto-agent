@@ -338,7 +338,15 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { symbols, granularities }: LiveIngestRequest = await req.json();
+    // Parse request body with defaults
+    const body = await req.json().catch(() => ({}));
+    
+    // Default symbols and granularities for scheduled runs
+    const DEFAULT_SYMBOLS = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 'AVAX-EUR', 'DOT-EUR', 'LINK-EUR', 'LTC-EUR', 'BCH-EUR'];
+    const DEFAULT_GRANULARITIES = ['1h', '4h', '24h'];
+    
+    const symbols: string[] = body.symbols || DEFAULT_SYMBOLS;
+    const granularities: string[] = body.granularities || DEFAULT_GRANULARITIES;
     
     logger.info(`Starting live ingest for ${symbols.length} symbols × ${granularities.length} granularities`);
 
