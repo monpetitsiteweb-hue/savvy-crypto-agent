@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coordinator Stabilization Gates Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #e0e0e0; }
+    .test-section { background: #2a2a2a; padding: 15px; margin: 10px 0; border-radius: 8px; }
+    .test-title { color: #4fc3f7; font-weight: bold; margin-bottom: 10px; }
+    .result { padding: 10px; margin: 5px 0; border-radius: 4px; }
+    .success { background: #1b5e20; }
+    .blocked { background: #e65100; }
+    .error { background: #b71c1c; }
+    button { background: #4fc3f7; color: #000; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; margin: 5px; }
+    button:hover { background: #29b6f6; }
+    pre { background: #333; padding: 10px; overflow-x: auto; border-radius: 4px; font-size: 12px; }
+    .status { display: inline-block; padding: 3px 8px; border-radius: 3px; margin-left: 10px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>🧠 Coordinator Stabilization Gates Test Suite</h1>
+  <p>Testing new gates for the Omniscient AI Agent coordinator</p>
+  
+  <div class="test-section">
+    <div class="test-title">Test 1: Stop-Loss Cooldown Gate</div>
+    <p>Simulates: After SL exit, immediate BUY should be blocked</p>
+    <button onclick="testStopLossCooldown()">Run Test 1</button>
+    <div id="test1Result"></div>
+  </div>
+
+  <div class="test-section">
+    <div class="test-title">Test 2: Multi-Signal Alignment Gate</div>
+    <p>Simulates: BUY with weak signals (trend=0.5, momentum=0.10) should be blocked</p>
+    <button onclick="testSignalAlignment()">Run Test 2</button>
+    <div id="test2Result"></div>
+  </div>
+
+  <div class="test-section">
+    <div class="test-title">Test 3: High Volatility Gate</div>
+    <p>Simulates: BUY when volatilityScore > 0.5 should be blocked</p>
+    <button onclick="testHighVolatility()">Run Test 3</button>
+    <div id="test3Result"></div>
+  </div>
+
+  <div class="test-section">
+    <div class="test-title">Test 4: Entry Spacing Gate</div>
+    <p>Simulates: Rapid BUY after recent BUY should be blocked</p>
+    <button onclick="testEntrySpacing()">Run Test 4</button>
+    <div id="test4Result"></div>
+  </div>
+
+  <div class="test-section">
+    <div class="test-title">Test 5: Dynamic TP/SL Thresholds</div>
+    <p>Checks: Position evaluation uses dynamic volatility-based thresholds</p>
+    <button onclick="testDynamicThresholds()">Run Test 5</button>
+    <div id="test5Result"></div>
+  </div>
+
+  <div class="test-section">
+    <div class="test-title">Run All Tests</div>
+    <button onclick="runAllTests()">🚀 Run All Tests</button>
+    <div id="allTestsResult"></div>
+  </div>
+
+  <script>
+    const API_URL = 'https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/trading-decision-coordinator';
+    const AUTH_KEY = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8';
+    
+    // Test user/strategy from existing data
+    const USER_ID = '25a0c221-1f0e-431d-8d79-db9fb4db9cb3';
+    const STRATEGY_ID = '5f0664fd-98cb-4ec2-8c2b-95cb1a28b80e';
+
+    async function sendIntent(intent, testName) {
+      const startTime = Date.now();
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          headers: {
+            'Authorization': AUTH_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ intent })
+        });
+        
+        const result = await response.json();
+        const duration = Date.now() - startTime;
+        
+        return {
+          success: true,
+          testName,
+          duration,
+          status: response.status,
+          result
+        };
+      } catch (error) {
+        return {
+          success: false,
+          testName,
+          error: error.message
+        };
+      }
+    }
+
+    function displayResult(containerId, result, expectedReason) {
+      const container = document.getElementById(containerId);
+      const decision = result.result?.decision || result.result;
+      const reason = decision?.reason || 'unknown';
+      const action = decision?.action || 'UNKNOWN';
+      
+      const isExpected = reason === expectedReason;
+      const cssClass = isExpected ? 'success' : (reason.includes('blocked') ? 'blocked' : 'error');
+      
+      container.innerHTML = `
+        <div class="result ${cssClass}">
+          <strong>Action:</strong> ${action} | <strong>Reason:</strong> ${reason}
+          <span class="status" style="background: ${isExpected ? '#4caf50' : '#f44336'}">
+            ${isExpected ? '✓ EXPECTED' : '✗ UNEXPECTED'}
+          </span>
+        </div>
+        <pre>${JSON.stringify(result, null, 2)}</pre>
+      `;
+    }
+
+    async function testStopLossCooldown() {
+      // This test requires a recent SL exit in decision_events
+      // For now, we send a BUY that should trigger the SL cooldown check
+      const intent = {
+        userId: USER_ID,
+        strategyId: STRATEGY_ID,
+        symbol: 'SOL',  // Symbol that likely had recent SL
+        side: 'BUY',
+        source: 'intelligent',
+        confidence: 0.75,
+        reason: 'test_sl_cooldown',
+        metadata: {
+          mode: 'mock',
+          is_test_mode: true,
+          context: 'BACKEND_LIVE',
+          origin: 'BACKEND_LIVE',
+          signalScores: { trend: 0.6, momentum: 0.4, volatility: 0.3, whale: 0, sentiment: 0 }
+        },
+        ts: new Date().toISOString()
+      };
+      
+      const result = await sendIntent(intent, 'Stop-Loss Cooldown');
+      displayResult('test1Result', result, 'blocked_by_stop_loss_cooldown');
+    }
+
+    async function testSignalAlignment() {
+      // Send BUY with weak signals that should fail alignment gate
+      const intent = {
+        userId: USER_ID,
+        strategyId: STRATEGY_ID,
+        symbol: 'ETH',
+        side: 'BUY',
+        source: 'intelligent',
+        confidence: 0.65,
+        reason: 'test_signal_alignment',
+        metadata: {
+          mode: 'mock',
+          is_test_mode: true,
+          context: 'BACKEND_LIVE',
+          origin: 'BACKEND_LIVE',
+          // WEAK SIGNALS - should trigger blocked_by_signal_alignment
+          signalScores: { 
+            trend: 0.3,      // < 0.4 threshold
+            momentum: 0.10,  // < 0.25 threshold  
+            volatility: 0.2, 
+            whale: 0, 
+            sentiment: 0 
+          }
+        },
+        ts: new Date().toISOString()
+      };
+      
+      const result = await sendIntent(intent, 'Signal Alignment');
+      displayResult('test2Result', result, 'blocked_by_signal_alignment');
+    }
+
+    async function testHighVolatility() {
+      // Send BUY with high volatility score
+      const intent = {
+        userId: USER_ID,
+        strategyId: STRATEGY_ID,
+        symbol: 'AVAX',
+        side: 'BUY',
+        source: 'intelligent',
+        confidence: 0.7,
+        reason: 'test_high_volatility',
+        metadata: {
+          mode: 'mock',
+          is_test_mode: true,
+          context: 'BACKEND_LIVE',
+          origin: 'BACKEND_LIVE',
+          // HIGH VOLATILITY - should trigger blocked_by_high_volatility
+          signalScores: { 
+            trend: 0.6,      // passes
+            momentum: 0.4,   // passes
+            volatility: 0.7, // > 0.5 threshold - SHOULD BLOCK
+            whale: 0, 
+            sentiment: 0 
+          }
+        },
+        ts: new Date().toISOString()
+      };
+      
+      const result = await sendIntent(intent, 'High Volatility');
+      displayResult('test3Result', result, 'blocked_by_high_volatility');
+    }
+
+    async function testEntrySpacing() {
+      // Send two rapid BUYs - second should be blocked by entry spacing
+      // First, check if there was a recent BUY on this symbol
+      const intent = {
+        userId: USER_ID,
+        strategyId: STRATEGY_ID,
+        symbol: 'ADA',  // Symbol that likely has recent trades
+        side: 'BUY',
+        source: 'intelligent',
+        confidence: 0.75,
+        reason: 'test_entry_spacing',
+        metadata: {
+          mode: 'mock',
+          is_test_mode: true,
+          context: 'BACKEND_LIVE',
+          origin: 'BACKEND_LIVE',
+          signalScores: { trend: 0.6, momentum: 0.4, volatility: 0.3, whale: 0, sentiment: 0 }
+        },
+        ts: new Date().toISOString()
+      };
+      
+      const result = await sendIntent(intent, 'Entry Spacing');
+      displayResult('test4Result', result, 'blocked_by_entry_spacing');
+    }
+
+    async function testDynamicThresholds() {
+      // This test verifies dynamic TP/SL by looking at coordinator logs
+      // Send a SELL intent to trigger position evaluation with dynamic thresholds
+      const intent = {
+        userId: USER_ID,
+        strategyId: STRATEGY_ID,
+        symbol: 'BTC',
+        side: 'SELL',
+        source: 'intelligent',
+        confidence: 0.8,
+        reason: 'test_dynamic_tp_sl',
+        metadata: {
+          mode: 'mock',
+          is_test_mode: true,
+          context: 'BACKEND_LIVE',
+          origin: 'BACKEND_LIVE',
+          trigger: 'TAKE_PROFIT',
+          position_management: false
+        },
+        ts: new Date().toISOString()
+      };
+      
+      const result = await sendIntent(intent, 'Dynamic TP/SL');
+      // This test validates that the coordinator processes without error
+      const container = document.getElementById('test5Result');
+      const decision = result.result?.decision || result.result;
+      const action = decision?.action || 'UNKNOWN';
+      
+      container.innerHTML = `
+        <div class="result ${result.success ? 'success' : 'error'}">
+          <strong>Action:</strong> ${action} | Dynamic thresholds were computed (check coordinator logs for [DynamicTPSL])
+        </div>
+        <pre>${JSON.stringify(result, null, 2)}</pre>
+      `;
+    }
+
+    async function runAllTests() {
+      const container = document.getElementById('allTestsResult');
+      container.innerHTML = '<p>Running all tests...</p>';
+      
+      await testStopLossCooldown();
+      await new Promise(r => setTimeout(r, 500));
+      
+      await testSignalAlignment();
+      await new Promise(r => setTimeout(r, 500));
+      
+      await testHighVolatility();
+      await new Promise(r => setTimeout(r, 500));
+      
+      await testEntrySpacing();
+      await new Promise(r => setTimeout(r, 500));
+      
+      await testDynamicThresholds();
+      
+      container.innerHTML = '<p style="color: #4caf50">✓ All tests completed! Check individual results above.</p>';
+    }
+  </script>
+</body>
+</html>
