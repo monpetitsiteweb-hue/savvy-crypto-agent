@@ -108,8 +108,15 @@
       const reason = decision?.reason || 'unknown';
       const action = decision?.action || 'UNKNOWN';
       
-      const isExpected = reason === expectedReason;
-      const cssClass = isExpected ? 'success' : (reason.includes('blocked') ? 'blocked' : 'error');
+      // Match expected reason in full reason string (handles "Guards tripped: xxx" format)
+      const reasonMatches = reason === expectedReason || 
+                            reason.includes(expectedReason) ||
+                            (expectedReason.includes('blocked_by') && reason.toLowerCase().includes(expectedReason.replace('blocked_by_', '')));
+      
+      // For block/defer actions, check if the gate name appears in reason
+      const gateTriggered = action === 'BLOCK' || action === 'DEFER';
+      const isExpected = reasonMatches || (gateTriggered && reason.toLowerCase().includes(expectedReason.replace('blocked_by_', '')));
+      const cssClass = isExpected ? 'success' : (gateTriggered ? 'blocked' : 'error');
       
       container.innerHTML = `
         <div class="result ${cssClass}">
@@ -210,12 +217,12 @@
     }
 
     async function testEntrySpacing() {
-      // Send two rapid BUYs - second should be blocked by entry spacing
-      // First, check if there was a recent BUY on this symbol
+      // Send BUY for symbol with very recent trades (within 10 min default spacing)
+      // Using BTC which has frequent trades
       const intent = {
         userId: USER_ID,
         strategyId: STRATEGY_ID,
-        symbol: 'ADA',  // Symbol that likely has recent trades
+        symbol: 'BTC',  // Symbol that likely has recent trades (just bought)
         side: 'BUY',
         source: 'intelligent',
         confidence: 0.75,

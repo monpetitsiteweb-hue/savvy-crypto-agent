@@ -3070,12 +3070,16 @@ async function detectConflicts(
     const minEntrySpacingMs = cfg.minEntrySpacingMs || 600000; // 10 minutes default
     
     const entrySpacingCutoff = new Date(Date.now() - minEntrySpacingMs).toISOString();
+    
+    // Query both formats: "BTC" and "BTC-EUR" since mock_trades stores full pair
+    const symbolVariants = [baseSymbol, `${baseSymbol}-EUR`];
+    
     const { data: recentBuysForSpacing } = await supabaseClient
       .from('mock_trades')
-      .select('id, executed_at')
+      .select('id, executed_at, cryptocurrency')
       .eq('user_id', intent.userId)
       .eq('strategy_id', intent.strategyId)
-      .eq('cryptocurrency', baseSymbol)
+      .in('cryptocurrency', symbolVariants)
       .eq('trade_type', 'buy')
       .gte('executed_at', entrySpacingCutoff)
       .order('executed_at', { ascending: false })
@@ -3085,7 +3089,7 @@ async function detectConflicts(
       const lastBuyTime = new Date(recentBuysForSpacing[0].executed_at).getTime();
       const timeSinceLastBuy = Date.now() - lastBuyTime;
       console.log(`🚫 COORDINATOR: BUY blocked - entry spacing not met (${Math.round(timeSinceLastBuy/1000)}s < ${minEntrySpacingMs/1000}s)`);
-      console.log(`   Last BUY at ${recentBuysForSpacing[0].executed_at}, waiting ${Math.round((minEntrySpacingMs - timeSinceLastBuy)/1000)}s more`);
+      console.log(`   Last BUY at ${recentBuysForSpacing[0].executed_at} for ${recentBuysForSpacing[0].cryptocurrency}, waiting ${Math.round((minEntrySpacingMs - timeSinceLastBuy)/1000)}s more`);
       guardReport.entrySpacingBlocked = true;
       return { hasConflict: true, reason: 'blocked_by_entry_spacing', guardReport };
     }
