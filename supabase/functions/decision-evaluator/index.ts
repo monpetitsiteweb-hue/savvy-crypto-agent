@@ -54,24 +54,19 @@ serve(async (req) => {
   
   const isBackfillMode = mode === 'backfill';
   
-  // Security check for scheduled calls
+  // Security check for scheduled calls - use env variable (consistent with other functions)
   const hdrSecret = req.headers.get('x-cron-secret');
   
   if (isScheduled) {
-    const { data, error } = await supabase
-      .schema('vault')
-      .from('decrypted_secrets')
-      .select('decrypted_secret')
-      .eq('name', 'CRON_SECRET')
-      .single();
-
-    const expected = data?.decrypted_secret;
-    if (error || !expected || hdrSecret !== expected) {
+    const cronSecret = Deno.env.get('CRON_SECRET');
+    if (!cronSecret || hdrSecret !== cronSecret) {
+      console.error('❌ EVALUATOR: CRON_SECRET mismatch or not set');
       return new Response(JSON.stringify({ success: false, error: 'forbidden' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
+    console.log('✅ EVALUATOR: CRON_SECRET validated for scheduled call');
   }
 
   try {
@@ -412,6 +407,6 @@ async function evaluateDecision(
     return 'no_ohlcv_data';
   }
 
-  console.log(`✅ EVALUATOR: Created outcome for decision ${decision.id} (${symbolWithPair}, ${horizon}): realized_pnl=${realized_pnl_pct.toFixed(2)}%, hit_tp=${hit_tp}, hit_sl=${hit_sl}`);
+  console.log(`✅ EVALUATOR: Created outcome for decision ${decision.id} (${decision.symbol}, ${horizon}): realized_pnl=${realized_pnl_pct.toFixed(2)}%, hit_tp=${hit_tp}, hit_sl=${hit_sl}`);
   return 'success';
 }
