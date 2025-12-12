@@ -171,33 +171,60 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const resetPortfolio = async () => {
-    if (!user) return;
-    
     setIsLoading(true);
     try {
-      const { error } = await supabase.rpc('reset_user_test_portfolio', {
-        target_balance: 30000
-      });
-
-      if (error) {
-        throw error;
+      // Fetch authenticated user
+      const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !authUser?.id) {
+        console.error('[resetPortfolio] Failed to get authenticated user:', userError);
+        throw new Error('Failed to get authenticated user');
       }
       
-      localStorage.removeItem(`mock-wallet-${user.id}`);
+      console.log('[resetPortfolio] Authenticated user.id:', authUser.id);
+      
+      // Call reset_portfolio_capital RPC
+      const { data: resetData, error: resetError } = await supabase.rpc('reset_portfolio_capital' as any, {
+        p_user_id: authUser.id,
+      });
+      
+      console.log('[resetPortfolio] reset_portfolio_capital result:', { resetData, resetError });
+      
+      if (resetError) {
+        throw resetError;
+      }
+      
+      // Immediately refresh metrics
+      const { data: metrics, error: metricsError } = await supabase.rpc('get_portfolio_metrics' as any, {
+        p_user_id: authUser.id,
+      }) as { data: { cash_balance_eur?: number } | null, error: any };
+      
+      console.log('[resetPortfolio] get_portfolio_metrics result:', { metrics, metricsError });
+      
+      if (metricsError) {
+        console.error('[resetPortfolio] Failed to fetch metrics:', metricsError);
+      }
+      
+      // Clear local storage
+      localStorage.removeItem(`mock-wallet-${authUser.id}`);
+      
+      // Update state from metrics or default to 30k
+      const cashBalance = metrics?.cash_balance_eur ?? 30000;
       
       setBalances([{
         currency: 'EUR',
-        amount: 30000,
-        value_in_base: 30000
+        amount: cashBalance,
+        value_in_base: cashBalance
       }]);
       
-      localStorage.setItem(`mock-wallet-${user.id}`, JSON.stringify([{
+      localStorage.setItem(`mock-wallet-${authUser.id}`, JSON.stringify([{
         currency: 'EUR',
-        amount: 30000,
-        value_in_base: 30000
+        amount: cashBalance,
+        value_in_base: cashBalance
       }]));
       
     } catch (error) {
+      console.error('[resetPortfolio] Error:', error);
       throw error;
     } finally {
       setIsLoading(false);
