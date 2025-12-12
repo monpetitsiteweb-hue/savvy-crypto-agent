@@ -10,19 +10,6 @@ interface WalletBalance {
   value_in_base: number;
 }
 
-interface PortfolioMetrics {
-  success?: boolean;
-  cash_balance_eur?: number;
-  reserved_eur?: number;
-  available_eur?: number;
-  invested_cost_basis_eur?: number;
-  current_position_value_eur?: number;
-  unrealized_pnl_eur?: number;
-  realized_pnl_eur?: number;
-  total_pnl_eur?: number;
-  total_portfolio_value_eur?: number;
-}
-
 interface MockWalletContextType {
   balances: WalletBalance[];
   initializeWallet: () => void;
@@ -82,15 +69,16 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(true);
     try {
       // Fetch EUR balance from portfolio_capital via get_portfolio_metrics
-      let eurBalance = 30000; // fallback
+      // NO fallback - if RPC fails or returns !success, EUR = 0 (not initialized)
+      let eurBalance = 0;
       
       const { data: metrics, error: metricsError } = await supabase.rpc('get_portfolio_metrics' as any, {
         p_user_id: user.id,
-      }) as { data: PortfolioMetrics | null, error: any };
+      });
       
       console.log('[refreshFromDatabase] metrics:', metrics, 'error:', metricsError);
       
-      if (!metricsError && metrics?.cash_balance_eur !== undefined) {
+      if (!metricsError && metrics?.success === true && metrics?.cash_balance_eur !== undefined) {
         eurBalance = metrics.cash_balance_eur;
       }
       
@@ -157,7 +145,7 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // initializeWallet: In test mode, just refresh from database (no hardcoded EUR=5000)
+  // initializeWallet: In test mode, just refresh from database (no hardcoded EUR)
   const initializeWallet = () => {
     if (!testMode || !user) return;
     // Simply trigger a refresh - EUR comes from portfolio_capital, crypto from trades
@@ -221,7 +209,7 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       // Immediately refresh metrics
       const { data: metrics, error: metricsError } = await supabase.rpc('get_portfolio_metrics' as any, {
         p_user_id: authUser.id,
-      }) as { data: PortfolioMetrics | null, error: any };
+      });
       
       console.log('[resetPortfolio] get_portfolio_metrics result:', { metrics, metricsError });
       
@@ -232,8 +220,10 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       // Clear local storage
       localStorage.removeItem(`mock-wallet-${authUser.id}`);
       
-      // Update state from metrics or default to 30k
-      const cashBalance = metrics?.cash_balance_eur ?? 30000;
+      // Get cash balance from RPC - NO fallback
+      const cashBalance = (metrics?.success === true && metrics?.cash_balance_eur !== undefined) 
+        ? metrics.cash_balance_eur 
+        : 0;
       
       // After reset, only EUR balance (no crypto positions)
       setBalances([{
