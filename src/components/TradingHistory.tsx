@@ -755,12 +755,23 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                 </div>
               )}
               <div>
-                <p className="text-muted-foreground">Realized P&L (€)</p>
+                <p className="text-muted-foreground">Realized P&L</p>
                 <p className={`font-medium ${
                   (performance.gainLoss || 0) > 0 ? 'text-emerald-600' : 
                   (performance.gainLoss || 0) < -0.01 ? 'text-red-600' : ''
                 }`} data-testid="realized-pnl">
                   {formatEuro(performance.gainLoss || 0)}
+                  {/* P1: Show % from DB or compute */}
+                  {' '}
+                  <span className="text-xs">
+                    ({formatPercentage(
+                      performance.gainLossPercentage !== null 
+                        ? performance.gainLossPercentage 
+                        : (performance.purchaseValue && performance.purchaseValue > 0 
+                            ? ((performance.gainLoss || 0) / performance.purchaseValue) * 100 
+                            : 0)
+                    )})
+                  </span>
                 </p>
               </div>
             </>
