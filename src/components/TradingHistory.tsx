@@ -10,7 +10,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useMockWallet } from '@/hooks/useMockWallet';
+import { usePortfolioMetrics } from '@/hooks/usePortfolioMetrics';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
+import { PortfolioNotInitialized } from './PortfolioNotInitialized';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { calculateOpenPosition, processPastPosition } from '@/utils/valuationService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -140,7 +142,16 @@ interface TradingHistoryProps {
 export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingHistoryProps) {
   const { user } = useAuth();
   const { testMode } = useTestMode();
-  const { getTotalValue, balances } = useMockWallet();
+  const { resetPortfolio, isLoading: walletLoading } = useMockWallet();
+  const { 
+    metrics, 
+    loading: metricsLoading, 
+    isInitialized,
+    refresh: refreshMetrics,
+    unrealizedPnlPct,
+    realizedPnlPct,
+    totalPnlPct
+  } = usePortfolioMetrics();
   const { toast } = useToast();
   
   // Mount beacon + global error handler
@@ -163,18 +174,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [sellConfirmation, setSellConfirmation] = useState<{ open: boolean; trade: Trade | null }>({ 
     open: false, 
     trade: null 
-  });
-  const [stats, setStats] = useState({
-    totalTrades: 0,
-    totalVolume: 0,
-    netProfitLoss: 0,
-    openPositions: 0,
-    totalInvested: 0,
-    currentPL: 0,
-    totalPL: 0,
-    currentlyInvested: 0,
-    pastInvestments: 0,
-    realizedPL: 0
   });
 
   // Initialize shared price cache on mount
@@ -370,26 +369,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         for (const trade of openPositions) {
           const performance = calculateTradePerformance(trade);
           if (!performance.isCorrupted) {
-            unrealizedPL += performance.gainLoss || 0;
             invested += performance.purchaseValue || 0;
           }
         }
-
-        // Total Volume = purchase values only (current + past investments)
-        const totalInvestmentVolume = invested + pastInvestments;
-
-        setStats({
-          totalTrades: openPositions.length + sellTrades.length,
-          totalVolume: totalInvestmentVolume,
-          netProfitLoss: realizedPL + unrealizedPL,
-          openPositions: openPositions.length,
-          totalInvested: invested,
-          currentPL: unrealizedPL,
-          totalPL: realizedPL + unrealizedPL,
-          currentlyInvested: invested,
-          pastInvestments: pastInvestments,
-          realizedPL: realizedPL
-        });
       }
     } catch (error) {
       // Silent error handling - no UI toasts
@@ -856,6 +838,15 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     );
   }
 
+  // Show not initialized state
+  if (testMode && !metricsLoading && !isInitialized) {
+    const handleReset = async () => {
+      await resetPortfolio();
+      setTimeout(() => refreshMetrics(), 500);
+    };
+    return <PortfolioNotInitialized onReset={handleReset} isLoading={walletLoading} />;
+  }
+
   if (!hasActiveStrategy) {
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
@@ -924,7 +915,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           </Button>
         </div>
 
-      {/* Portfolio Summary */}
+      {/* Portfolio Summary - FROM RPC */}
       <div className="mb-6">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <PieChart className="w-5 h-5" />
@@ -941,7 +932,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Open Positions</span>
-                <span className="text-lg font-bold">{stats.openPositions}</span>
+                <span className="text-lg font-bold">{openPositions.length}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Past Positions</span>
@@ -949,12 +940,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Total Trades</span>
-                <span className="text-sm">{stats.totalTrades}</span>
+                <span className="text-sm">{openPositions.length + pastPositions.length}</span>
               </div>
             </div>
           </Card>
           
-          {/* Investment */}
+          {/* Investment - FROM RPC */}
           <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <DollarSign className="w-4 h-4 text-yellow-500" />
@@ -962,21 +953,21 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Currently Invested</span>
-                <span className="text-lg font-bold">{formatEuro(stats.currentlyInvested)}</span>
+                <span className="text-xs text-muted-foreground">Invested (Cost Basis)</span>
+                <span className="text-lg font-bold">{formatEuro(metrics.invested_cost_basis_eur)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Past Investments</span>
-                <span className="text-sm">{formatEuro(stats.pastInvestments)}</span>
+                <span className="text-xs text-muted-foreground">Current Value</span>
+                <span className="text-sm">{formatEuro(metrics.current_position_value_eur)}</span>
               </div>
               <div className="flex justify-between items-center border-t pt-2">
-                <span className="text-xs text-muted-foreground font-medium">Total</span>
-                <span className="text-sm font-semibold">{formatEuro(stats.totalVolume)}</span>
+                <span className="text-xs text-muted-foreground font-medium">Cash Available</span>
+                <span className="text-sm font-semibold">{formatEuro(metrics.available_eur)}</span>
               </div>
             </div>
           </Card>
           
-          {/* Performance */}
+          {/* Performance - FROM RPC */}
           <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <TrendingUp className="w-4 h-4 text-green-500" />
@@ -985,20 +976,20 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Unrealized P&L</span>
-                <span className={`text-lg font-bold ${stats.currentPL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {formatEuro(stats.currentPL)}
+                <span className={`text-lg font-bold ${metrics.unrealized_pnl_eur >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {formatEuro(metrics.unrealized_pnl_eur)} <span className="text-xs">({formatPercentage(unrealizedPnlPct)})</span>
                 </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Realized P&L</span>
-                <span className={`text-sm ${stats.realizedPL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {formatEuro(stats.realizedPL)}
+                <span className={`text-sm ${metrics.realized_pnl_eur >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {formatEuro(metrics.realized_pnl_eur)} <span className="text-xs">({formatPercentage(realizedPnlPct)})</span>
                 </span>
               </div>
               <div className="flex justify-between items-center border-t pt-2">
                 <span className="text-xs text-muted-foreground font-medium">Total P&L</span>
-                <span className={`text-sm font-semibold ${stats.totalPL >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {formatEuro(stats.totalPL)}
+                <span className={`text-sm font-semibold ${metrics.total_pnl_eur >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {formatEuro(metrics.total_pnl_eur)} <span className="text-xs">({formatPercentage(totalPnlPct)})</span>
                 </span>
               </div>
             </div>

@@ -7,11 +7,14 @@ import { useMockWallet } from "@/hooks/useMockWallet";
 import { useTestMode } from "@/hooks/useTestMode";
 import { useAuth } from "@/hooks/useAuth";
 import { useRealTimeMarketData } from "@/hooks/useRealTimeMarketData";
+import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { supabase } from '@/integrations/supabase/client';
-import { Wallet, TrendingUp, TrendingDown, RefreshCw, Loader2, TestTube, DollarSign, RotateCcw } from "lucide-react";
+import { Wallet, TrendingUp, TrendingDown, RefreshCw, Loader2, TestTube, DollarSign, RotateCcw, AlertTriangle } from "lucide-react";
 import { logger } from '@/utils/logger';
-import { calculateValuation, checkIntegrity, type ValuationInputs, type OpenPositionInputs } from "@/utils/valuationService";
+import { calculateValuation, checkIntegrity, type OpenPositionInputs } from "@/utils/valuationService";
 import { CorruptionWarning } from "@/components/CorruptionWarning";
+import { PortfolioNotInitialized } from "@/components/PortfolioNotInitialized";
+import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 
 interface PortfolioData {
   accounts?: Array<{
@@ -42,8 +45,19 @@ export const UnifiedPortfolioDisplay = () => {
   const { testMode } = useTestMode();
   const { user } = useAuth();
   
-  const { balances, getTotalValue, refreshFromDatabase, resetPortfolio, isLoading } = useMockWallet();
+  const { resetPortfolio, isLoading: walletLoading } = useMockWallet();
   const { getCurrentData } = useRealTimeMarketData();
+  const { 
+    metrics, 
+    loading: metricsLoading, 
+    isInitialized, 
+    refresh: refreshMetrics,
+    sinceStartGainEur,
+    sinceStartGainPct,
+    unrealizedPnlPct,
+    realizedPnlPct,
+    totalPnlPct
+  } = usePortfolioMetrics();
   
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
@@ -62,15 +76,13 @@ export const UnifiedPortfolioDisplay = () => {
         
         const prices: {[key: string]: number} = { EUR: 1 };
         
-        // Update prices for all common symbols
         commonSymbols.forEach(symbol => {
           const crypto = symbol.split('-')[0];
           if (data[symbol]?.price && data[symbol].price > 0) {
             prices[crypto] = data[symbol].price;
-            prices[symbol] = data[symbol].price; // Also store with full symbol for compatibility
+            prices[symbol] = data[symbol].price;
           }
         });
-        
         
         setRealTimePrices(prices);
       } catch (error) {
@@ -79,8 +91,7 @@ export const UnifiedPortfolioDisplay = () => {
     };
 
     updateRealTimePrices();
-    // PERFORMANCE FIX: Reduced from 30s to 60s to prevent API rate limiting
-    const interval = setInterval(updateRealTimePrices, 60000); // Update every 60 seconds
+    const interval = setInterval(updateRealTimePrices, 60000);
     
     return () => clearInterval(interval);
   }, [getCurrentData]);
@@ -94,33 +105,10 @@ export const UnifiedPortfolioDisplay = () => {
 
   // Fetch positions for valuation service
   useEffect(() => {
-    if (testMode && user) {
+    if (testMode && user && isInitialized) {
       fetchPositionsData();
-    } else {
-      logger.info('NOT fetching positions - testMode:', testMode, 'user:', !!user);
     }
-  }, [testMode, user]);
-
-  // Auto-refresh portfolio when balances change in test mode
-  useEffect(() => {
-    if (testMode && balances.length > 0) {
-      const mockAccounts = balances.map(balance => ({
-        uuid: `mock-${balance.currency.toLowerCase()}-account`,
-        name: `${balance.currency} Wallet`,
-        currency: balance.currency,
-        available_balance: {
-          value: balance.amount.toFixed(balance.currency === 'EUR' ? 2 : 8),
-          currency: balance.currency
-        },
-        hold: {
-          value: '0',
-          currency: balance.currency
-        }
-      }));
-
-      setPortfolioData({ accounts: mockAccounts });
-    }
-  }, [balances, testMode]);
+  }, [testMode, user, isInitialized]);
 
   // Calculate valuations when positions or prices change
   useEffect(() => {
@@ -128,10 +116,7 @@ export const UnifiedPortfolioDisplay = () => {
       const valuations: Record<string, any> = {};
       
       for (const position of positions) {
-        // Skip corrupted positions from KPI calculations
-        if (position.is_corrupted) {
-          continue;
-        }
+        if (position.is_corrupted) continue;
         
         const currentPrice = realTimePrices[position.symbol] || 0;
         
@@ -147,10 +132,7 @@ export const UnifiedPortfolioDisplay = () => {
             valuations[position.symbol] = valuation;
           } catch (error) {
             logger.error(`Error calculating valuation for ${position.symbol}:`, error);
-            // Don't set valuation if calculation fails
           }
-        } else {
-          logger.warn(`No current price for ${position.symbol}, available prices:`, Object.keys(realTimePrices));
         }
       }
       
@@ -166,17 +148,16 @@ export const UnifiedPortfolioDisplay = () => {
     if (!user) return;
     
     try {
-      // Get open positions from buy trades that haven't been fully sold
       const { data: trades, error } = await supabase
         .from('mock_trades')
         .select('*')
         .eq('user_id', user.id)
         .eq('trade_type', 'buy')
+        .eq('is_test_mode', true)
         .order('executed_at', { ascending: true });
 
       if (error) throw error;
 
-      // Calculate net positions per symbol (simplified for demo)
       const positionMap = new Map<string, PositionData>();
       
       for (const trade of trades || []) {
@@ -184,7 +165,6 @@ export const UnifiedPortfolioDisplay = () => {
         const existing = positionMap.get(symbol);
         
         if (existing) {
-          // Average in new position
           const totalValue = existing.purchase_value + trade.total_value;
           const totalAmount = existing.amount + trade.amount;
           existing.purchase_value = totalValue;
@@ -222,7 +202,6 @@ export const UnifiedPortfolioDisplay = () => {
       if (error) throw error;
       setConnections(data || []);
       
-      // Auto-select first connection if none selected
       const savedConnectionId = localStorage.getItem(`selectedConnection_${user.id}`);
       if (savedConnectionId && data?.find(c => c.id === savedConnectionId)) {
         setSelectedConnectionId(savedConnectionId);
@@ -262,26 +241,17 @@ export const UnifiedPortfolioDisplay = () => {
     }
   };
 
-  const getTotalPortfolioValue = () => {
-    if (testMode) {
-      return getTotalValue();
-    } else if (portfolioData?.accounts) {
-      // Calculate total value from production portfolio using real-time prices
-      return portfolioData.accounts.reduce((total, account) => {
-        const amount = parseFloat(account.available_balance?.value || '0');
-        if (account.currency === 'EUR') {
-          return total + amount;
-        } else {
-          const price = realTimePrices[account.currency] || 0;
-          return total + (amount * price);
-        }
-      }, 0);
+  const handleResetPortfolio = async () => {
+    try {
+      await resetPortfolio();
+      // Refresh metrics after reset
+      setTimeout(() => refreshMetrics(), 500);
+    } catch (error) {
+      logger.error('Failed to reset portfolio:', error);
     }
-    return 0;
   };
 
   const renderPositionCard = (position: PositionData) => {
-    // Use valuation service for all calculations - map fields correctly
     const openPositionInputs: OpenPositionInputs = {
       symbol: position.symbol,
       amount: position.amount,
@@ -292,7 +262,6 @@ export const UnifiedPortfolioDisplay = () => {
     const currentPrice = realTimePrices[position.symbol] || 0;
     const valuation = positionValuations[position.symbol];
     
-    // Skip calculation if corrupted and no current price
     if ((position.is_corrupted && !currentPrice) || !integrityCheck.is_valid) {
       return (
         <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600 border-red-500/30">
@@ -306,12 +275,8 @@ export const UnifiedPortfolioDisplay = () => {
                 />
               </div>
               <div className="text-right">
-                <div className="text-lg font-bold text-red-400">
-                  Corrupted Data
-                </div>
-                <div className="text-xs text-slate-400">
-                  Requires manual review
-                </div>
+                <div className="text-lg font-bold text-red-400">Corrupted Data</div>
+                <div className="text-xs text-slate-400">Requires manual review</div>
               </div>
             </div>
           </div>
@@ -319,7 +284,6 @@ export const UnifiedPortfolioDisplay = () => {
       );
     }
 
-    // Show loading state if valuation not yet calculated
     if (!valuation) {
       return (
         <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600">
@@ -327,9 +291,7 @@ export const UnifiedPortfolioDisplay = () => {
             <div className="flex justify-between items-center">
               <span className="text-sm font-medium text-slate-300">{position.symbol}</span>
               <div className="text-right">
-                <div className="text-lg font-bold text-slate-400">
-                  Calculating...
-                </div>
+                <div className="text-lg font-bold text-slate-400">Calculating...</div>
               </div>
             </div>
           </div>
@@ -340,7 +302,6 @@ export const UnifiedPortfolioDisplay = () => {
     return (
       <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600">
         <div className="space-y-3">
-          {/* Header with symbol and corruption warning */}
           <div className="flex justify-between items-center">
             <div className="flex items-center">
               <span className="text-sm font-medium text-slate-300">{position.symbol}</span>
@@ -361,7 +322,6 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           </div>
           
-          {/* P&L Display */}
           <div className="flex justify-between items-center pt-2 border-t border-slate-600/50">
             <span className="text-xs text-slate-400">P&L:</span>
             <div className="text-right">
@@ -373,7 +333,6 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           </div>
           
-          {/* Current Price */}
           <div className="flex justify-between items-center">
             <span className="text-xs text-slate-400">Current Price:</span>
             <div className="flex items-center gap-1">
@@ -388,7 +347,6 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           </div>
           
-          {/* Entry Price for Reference */}
           <div className="flex justify-between items-center text-xs text-slate-500">
             <span>Entry: €{position.entry_price.toFixed(2)}</span>
             <span>Value: €{position.purchase_value.toFixed(2)}</span>
@@ -407,7 +365,6 @@ export const UnifiedPortfolioDisplay = () => {
     return (
       <Card key={account.uuid} className="p-4 bg-slate-700/50 border-slate-600">
         <div className="space-y-3">
-          {/* Euro Value (Primary) */}
           <div className="flex justify-between items-center">
             <span className="text-sm font-medium text-slate-300">{currency}</span>
             <div className="text-right">
@@ -424,7 +381,6 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           </div>
           
-          {/* Real-time Price */}
           {currency !== 'EUR' && (
             <div className="flex justify-between items-center pt-2 border-t border-slate-600/50">
               <span className="text-xs text-slate-400">Current Price:</span>
@@ -445,13 +401,10 @@ export const UnifiedPortfolioDisplay = () => {
     );
   };
 
-  const handleResetPortfolio = async () => {
-    try {
-      await resetPortfolio();
-    } catch (error) {
-      logger.error('Failed to reset portfolio:', error);
-    }
-  };
+  // Show not initialized state for test mode
+  if (testMode && !metricsLoading && !isInitialized) {
+    return <PortfolioNotInitialized onReset={handleResetPortfolio} isLoading={walletLoading} />;
+  }
 
   return (
     <Card className={`${testMode ? 'border-orange-500/20' : 'border-blue-500/20'} bg-slate-800/50 border-slate-600`}>
@@ -472,39 +425,120 @@ export const UnifiedPortfolioDisplay = () => {
               </Badge>
             )}
           </div>
-          {testMode && (
+          <div className="flex items-center gap-2">
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              onClick={handleResetPortfolio}
-              disabled={isLoading}
-              className="text-red-400 border-red-400/50 hover:bg-red-400/10"
+              onClick={refreshMetrics}
+              disabled={metricsLoading}
+              className="text-slate-400 hover:text-white"
             >
-              <RotateCcw className="h-4 w-4 mr-1" />
-              Reset Portfolio
+              <RefreshCw className={`h-4 w-4 ${metricsLoading ? 'animate-spin' : ''}`} />
             </Button>
-          )}
+            {testMode && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleResetPortfolio}
+                disabled={walletLoading}
+                className="text-red-400 border-red-400/50 hover:bg-red-400/10"
+              >
+                <RotateCcw className="h-4 w-4 mr-1" />
+                Reset Portfolio
+              </Button>
+            )}
+          </div>
         </CardTitle>
       </CardHeader>
       
       <CardContent>
         <div className="space-y-4">
-          {(isLoading || fetchingPortfolio) && (
+          {(metricsLoading || fetchingPortfolio) && (
             <div className="flex justify-center items-center p-4">
               <Loader2 className="h-6 w-6 animate-spin text-blue-400" />
               <span className="ml-2 text-blue-400">
-                {testMode ? 'Syncing with trades...' : 'Fetching live portfolio...'}
+                {testMode ? 'Loading portfolio metrics...' : 'Fetching live portfolio...'}
               </span>
             </div>
           )}
           
-          {/* Total Portfolio Value */}
+          {/* Total Portfolio Value - FROM RPC */}
           <div className="flex justify-between items-center p-4 bg-slate-700/50 rounded-lg border border-slate-600/50">
-            <span className="font-medium text-white">Total Portfolio Value</span>
-            <span className="text-2xl font-bold text-green-400">
-              €{getTotalPortfolioValue().toLocaleString(undefined, { maximumFractionDigits: 2 })}
-            </span>
+            <div>
+              <span className="font-medium text-white">Total Portfolio Value</span>
+              {testMode && isInitialized && (
+                <div className="text-xs text-slate-400 mt-1">
+                  Started with {formatEuro(metrics.starting_capital_eur)}
+                </div>
+              )}
+            </div>
+            <div className="text-right">
+              <span className="text-2xl font-bold text-green-400">
+                {formatEuro(metrics.total_portfolio_value_eur)}
+              </span>
+              {/* Since start gain */}
+              {testMode && isInitialized && metrics.starting_capital_eur > 0 && (
+                <div className={`text-sm ${sinceStartGainEur >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {sinceStartGainEur >= 0 ? '+' : ''}{formatEuro(sinceStartGainEur)} ({formatPercentage(sinceStartGainPct)})
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Portfolio Metrics Grid - FROM RPC */}
+          {testMode && isInitialized && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="p-3 bg-slate-700/30 rounded-lg">
+                <div className="text-xs text-slate-400">Cash Available</div>
+                <div className="text-lg font-semibold text-white">{formatEuro(metrics.available_eur)}</div>
+                {metrics.reserved_eur > 0 && (
+                  <div className="text-xs text-amber-400">Reserved: {formatEuro(metrics.reserved_eur)}</div>
+                )}
+              </div>
+              
+              <div className="p-3 bg-slate-700/30 rounded-lg">
+                <div className="text-xs text-slate-400">Invested</div>
+                <div className="text-lg font-semibold text-white">{formatEuro(metrics.invested_cost_basis_eur)}</div>
+                <div className="text-xs text-slate-500">Current: {formatEuro(metrics.current_position_value_eur)}</div>
+              </div>
+              
+              <div className="p-3 bg-slate-700/30 rounded-lg">
+                <div className="text-xs text-slate-400">Unrealized P&L</div>
+                <div className={`text-lg font-semibold ${metrics.unrealized_pnl_eur >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {formatEuro(metrics.unrealized_pnl_eur)}
+                </div>
+                <div className={`text-xs ${metrics.unrealized_pnl_eur >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                  {formatPercentage(unrealizedPnlPct)}
+                </div>
+              </div>
+              
+              <div className="p-3 bg-slate-700/30 rounded-lg">
+                <div className="text-xs text-slate-400">Realized P&L</div>
+                <div className={`text-lg font-semibold ${metrics.realized_pnl_eur >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {formatEuro(metrics.realized_pnl_eur)}
+                </div>
+                <div className={`text-xs ${metrics.realized_pnl_eur >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                  {formatPercentage(realizedPnlPct)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Total P&L and Fees Summary */}
+          {testMode && isInitialized && (
+            <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-lg">
+              <div>
+                <div className="text-sm text-slate-400">Total P&L</div>
+                <div className={`text-xl font-bold ${metrics.total_pnl_eur >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {formatEuro(metrics.total_pnl_eur)} <span className="text-sm">({formatPercentage(totalPnlPct)})</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm text-slate-400">Total Fees</div>
+                <div className="text-sm text-slate-300">{formatEuro(metrics.total_fees_eur)}</div>
+              </div>
+            </div>
+          )}
           
           {/* Portfolio Breakdown */}
           {testMode ? (
@@ -512,13 +546,13 @@ export const UnifiedPortfolioDisplay = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {positions.map(renderPositionCard)}
               </div>
-            ) : (
+            ) : isInitialized ? (
               <div className="text-center py-8">
                 <p className="text-slate-300">
                   No open positions. Start trading to see positions.
                 </p>
               </div>
-            )
+            ) : null
           ) : (
             portfolioData?.accounts && portfolioData.accounts.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -534,7 +568,7 @@ export const UnifiedPortfolioDisplay = () => {
           )}
 
           {/* Real-time sync indicator */}
-          {testMode && (
+          {testMode && isInitialized && (
             <div className="text-xs text-slate-400 text-center mt-2">
               💫 Real-time prices • Updates automatically after trades
             </div>
