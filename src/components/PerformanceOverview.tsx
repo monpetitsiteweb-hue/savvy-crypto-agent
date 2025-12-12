@@ -238,6 +238,22 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
           </div>
         </div>
 
+        {/* Gas Tracking Placeholder - P5 */}
+        <div className="mt-4 p-3 bg-slate-700/20 rounded-lg border border-slate-700/50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-slate-400">
+              <Activity className="h-4 w-4" />
+              Gas Spent (est.)
+            </div>
+            <div className="text-right">
+              <div className="text-sm font-medium text-slate-500">€0.00</div>
+              <div className="text-xs text-slate-600" title="Available when on-chain execution is enabled; mock trades will later estimate">
+                Mock trades (no gas)
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* P&L Breakdown */}
         {isInitialized && (
           <div className="mt-4 pt-4 border-t border-slate-700">
