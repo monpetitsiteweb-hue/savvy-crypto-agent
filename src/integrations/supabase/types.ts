@@ -1744,6 +1744,33 @@ export type Database = {
         }
         Relationships: []
       }
+      portfolio_capital: {
+        Row: {
+          cash_balance_eur: number
+          created_at: string
+          reserved_eur: number
+          starting_capital_eur: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cash_balance_eur?: number
+          created_at?: string
+          reserved_eur?: number
+          starting_capital_eur?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cash_balance_eur?: number
+          created_at?: string
+          reserved_eur?: number
+          starting_capital_eur?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       price_data: {
         Row: {
           close_price: number
@@ -2908,6 +2935,7 @@ export type Database = {
           user_id: string
         }[]
       }
+      check_capital_access: { Args: { p_user_id: string }; Returns: boolean }
       dearmor: { Args: { "": string }; Returns: string }
       debug_decision_logs: {
         Args: { minutes_back?: number; my_user: string }
@@ -2980,6 +3008,7 @@ export type Database = {
           user_id: string
         }[]
       }
+      get_portfolio_metrics: { Args: { p_user_id: string }; Returns: Json }
       get_user_connection_status: {
         Args: { connection_id: string }
         Returns: {
@@ -3015,6 +3044,14 @@ export type Database = {
       }
       refresh_data_health_metrics: { Args: never; Returns: undefined }
       release_execution_lock: { Args: { p_lock_key: string }; Returns: boolean }
+      release_reservation: {
+        Args: { p_amount_eur: number; p_user_id: string }
+        Returns: Json
+      }
+      reserve_capital: {
+        Args: { p_amount_eur: number; p_user_id: string }
+        Returns: Json
+      }
       reset_breaker: {
         Args: {
           p_breaker: string
@@ -3037,9 +3074,25 @@ export type Database = {
         Args: { target_balance?: number }
         Returns: undefined
       }
+      reset_portfolio_capital: {
+        Args: { p_starting_capital?: number; p_user_id: string }
+        Returns: Json
+      }
       reset_user_test_portfolio: {
         Args: { target_balance?: number }
         Returns: undefined
+      }
+      settle_buy_trade: {
+        Args: {
+          p_actual_spent: number
+          p_reserved_amount: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      settle_sell_trade: {
+        Args: { p_proceeds_eur: number; p_user_id: string }
+        Returns: Json
       }
     }
     Enums: {
