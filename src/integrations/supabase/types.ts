@@ -2952,19 +2952,34 @@ export type Database = {
         Args: { connection_id: string }
         Returns: string
       }
-      force_mock_trade_insert: {
-        Args: {
-          p_amount: number
-          p_original_purchase_amount?: number
-          p_original_trade_id?: string
-          p_price: number
-          p_strategy_id: string
-          p_symbol: string
-          p_trade_type: string
-          p_user_id: string
-        }
-        Returns: Json
-      }
+      force_mock_trade_insert:
+        | {
+            Args: {
+              p_amount: number
+              p_original_purchase_amount?: number
+              p_original_trade_id?: string
+              p_price: number
+              p_strategy_id: string
+              p_symbol: string
+              p_trade_type: string
+              p_user_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_amount: number
+              p_fees?: number
+              p_original_purchase_amount?: number
+              p_original_trade_id?: string
+              p_price: number
+              p_strategy_id: string
+              p_symbol: string
+              p_trade_type: string
+              p_user_id: string
+            }
+            Returns: Json
+          }
       gen_random_uuid: { Args: never; Returns: string }
       gen_salt: { Args: { "": string }; Returns: string }
       get_active_oauth_credentials: {
