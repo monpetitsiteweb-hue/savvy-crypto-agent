@@ -244,8 +244,8 @@ export const UnifiedPortfolioDisplay = () => {
   const handleResetPortfolio = async () => {
     try {
       await resetPortfolio();
-      // Refresh metrics after reset
-      setTimeout(() => refreshMetrics(), 500);
+      // P2 FIX: Await refresh directly, no setTimeout
+      await refreshMetrics();
     } catch (error) {
       logger.error('Failed to reset portfolio:', error);
     }

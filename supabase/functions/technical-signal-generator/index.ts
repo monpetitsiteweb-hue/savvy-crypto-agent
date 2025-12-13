@@ -8,13 +8,14 @@ const corsHeaders = {
 };
 
 // =============================================================================
-// TECHNICAL SIGNAL GENERATOR
-// Generates technical analysis signals (MA cross, RSI, price breakouts, volume)
-// and writes them to live_signals table for fusion layer consumption.
+// TECHNICAL SIGNAL GENERATOR (P2 FIX - Dec 2024)
 // 
-// FIX (Dec 2024): Changed .single() to .limit(1) to handle multiple sources.
-// Also added fallback to find ANY active user with trading strategies when
-// no userId is provided and system sources have user_id = NULL.
+// CHANGES:
+// 1. user_id = NULL for all signals (system-wide, not per-user)
+// 2. ai_data_sources lookup: filter by user_id IS NULL for system sources
+// 3. MACD calculation FIXED: build macdSeries across prices, then EMA(macdSeries, 9)
+// 4. Symbol normalization: always use base symbol (BTC not BTC-EUR)
+// 5. NO random user fallbacks, NO hardcoded user IDs
 // =============================================================================
 
 serve(async (req) => {
@@ -23,54 +24,34 @@ serve(async (req) => {
   }
 
   try {
-    console.log('📊 Technical Signal Generator triggered');
+    console.log('📊 Technical Signal Generator triggered (P2 FIX)');
     
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'SOL-EUR', 'ADA-EUR', 'AVAX-EUR', 'DOT-EUR'], userId, sourceId } = await req.json().catch(() => ({}));
+    const { symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'SOL-EUR', 'ADA-EUR', 'AVAX-EUR', 'DOT-EUR'], sourceId } = await req.json().catch(() => ({}));
 
-    // FIX: Use .limit(1) instead of .single() to handle multiple sources
-    const { data: dataSources } = await supabaseClient
+    // P2 FIX: Query SYSTEM source (user_id IS NULL) only
+    const { data: dataSources, error: sourceError } = await supabaseClient
       .from('ai_data_sources')
-      .select('id, user_id')
+      .select('id')
       .eq('source_name', 'technical_analysis')
+      .is('user_id', null)  // SYSTEM source only
       .eq('is_active', true)
-      .order('last_sync', { ascending: false, nullsFirst: false })
       .limit(1);
+
+    if (sourceError) {
+      console.error('❌ Error fetching system source:', sourceError);
+    }
 
     let dataSource = dataSources?.[0];
 
-    // FIX: Resolve user_id from multiple fallback sources
-    let resolvedUserId = userId || dataSource?.user_id;
-    
-    // If still no userId, find the primary active user with trading strategies
-    if (!resolvedUserId) {
-      console.log('⚠️ No userId from request or source, finding active trading user...');
-      const { data: activeUsers } = await supabaseClient
-        .from('trading_strategies')
-        .select('user_id')
-        .or('is_active_test.eq.true,is_active.eq.true')
-        .limit(1);
-      
-      if (activeUsers && activeUsers.length > 0) {
-        resolvedUserId = activeUsers[0].user_id;
-        console.log(`✅ Using active trading user: ${resolvedUserId}`);
-      }
-    }
-    
-    // Final fallback: use a known system user
-    if (!resolvedUserId) {
-      resolvedUserId = '25a0c221-1f0e-431d-8d79-db9fb4db9cb3'; // Primary system user
-      console.log(`⚠️ Using fallback system user: ${resolvedUserId}`);
-    }
-
-    // Create source if it doesn't exist
+    // Create system source if it doesn't exist
     if (!dataSource) {
-      console.log('📝 Creating new technical_analysis data source...');
-      const { data: newSource } = await supabaseClient
+      console.log('📝 Creating system-wide technical_analysis data source...');
+      const { data: newSource, error: createError } = await supabaseClient
         .from('ai_data_sources')
         .insert({
           source_name: 'technical_analysis',
@@ -79,18 +60,25 @@ serve(async (req) => {
           is_active: true,
           update_frequency: '5min',
           configuration: { symbols, indicators: ['rsi', 'macd', 'price_change', 'volume_spike'] },
-          user_id: resolvedUserId
+          user_id: null  // SYSTEM source
         })
         .select()
         .single();
       
-      dataSource = newSource;
+      if (createError) {
+        console.error('❌ Error creating source:', createError);
+      } else {
+        dataSource = newSource;
+      }
     }
 
     const actualSourceId = sourceId || dataSource?.id;
+    
+    // P2 FIX: All signals will have user_id = NULL (system-wide)
+    const resolvedUserId = null;
 
     console.log(`🔍 Analyzing technical indicators for symbols: ${symbols.join(', ')}`);
-    console.log(`👤 Using userId: ${resolvedUserId}, sourceId: ${actualSourceId}`);
+    console.log(`📊 System-wide signals (user_id = NULL), sourceId: ${actualSourceId}`);
 
     const signals = [];
     const now = new Date();
@@ -118,11 +106,11 @@ serve(async (req) => {
 
         console.log(`📈 Analyzing ${priceData.length} price points for ${symbol}`);
 
-        // Generate technical signals with resolved user ID
+        // Generate technical signals with NULL user_id (system-wide)
         const technicalSignals = await generateTechnicalSignals(symbol, priceData, resolvedUserId, actualSourceId);
         signals.push(...technicalSignals);
 
-        // Cache calculated indicators in price_data metadata for faster loading
+        // Cache calculated indicators in price_data metadata
         await cacheIndicators(symbol, priceData, supabaseClient);
 
       } catch (error) {
@@ -139,7 +127,7 @@ serve(async (req) => {
       if (signalError) {
         console.error('❌ Error inserting technical signals:', signalError);
       } else {
-        console.log(`✅ Generated ${signals.length} technical signals`);
+        console.log(`✅ Generated ${signals.length} system-wide technical signals`);
       }
     } else {
       console.log('ℹ️ No technical signals generated this cycle');
@@ -157,9 +145,9 @@ serve(async (req) => {
       success: true,
       signals_generated: signals.length,
       symbols_analyzed: symbols.length,
-      user_id: resolvedUserId,
+      user_id: null, // System-wide signals
       timestamp: new Date().toISOString(),
-      message: `Generated ${signals.length} technical signals`
+      message: `Generated ${signals.length} system-wide technical signals`
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
@@ -176,13 +164,13 @@ serve(async (req) => {
   }
 });
 
-async function generateTechnicalSignals(symbol: string, priceData: any[], userId: string, sourceId: string) {
+async function generateTechnicalSignals(symbol: string, priceData: any[], userId: string | null, sourceId: string) {
   const signals = [];
   const latest = priceData[priceData.length - 1];
   const previous = priceData[priceData.length - 2];
   const earlier = priceData[0];
   
-  // Use base symbol (without -EUR suffix) for signals
+  // P2 FIX: Always use base symbol (BTC, not BTC-EUR)
   const baseSymbol = symbol.split('-')[0];
 
   console.log(`🔬 Calculating indicators for ${symbol}: Latest=${latest.close_price}, Previous=${previous.close_price}`);
@@ -200,7 +188,7 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
 
     signals.push({
       source_id: sourceId,
-      user_id: userId,
+      user_id: userId, // NULL for system-wide
       timestamp: new Date().toISOString(),
       symbol: baseSymbol,
       signal_type: signalType,
@@ -222,7 +210,7 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
     const rsi = calculateRSI(priceData.slice(-15));
     console.log(`📈 ${symbol} RSI: ${rsi.toFixed(2)}`);
 
-    if (rsi <= 35) { // Expanded from 30
+    if (rsi <= 35) {
       signals.push({
         source_id: sourceId,
         user_id: userId,
@@ -239,7 +227,7 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
         },
         processed: false
       });
-    } else if (rsi >= 65) { // Expanded from 70
+    } else if (rsi >= 65) {
       signals.push({
         source_id: sourceId,
         user_id: userId,
@@ -282,7 +270,7 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
   // 3. Volume Spike Analysis
   if (priceData.length >= 5) {
     const avgVolume = priceData.slice(-5).reduce((sum, p) => sum + (p.volume || 0), 0) / 5;
-    const volumeSpike = (latest.volume || 0) > avgVolume * 1.5; // Lowered from 1.8
+    const volumeSpike = (latest.volume || 0) > avgVolume * 1.5;
 
     if (volumeSpike && avgVolume > 0) {
       const volumeRatio = (latest.volume || 0) / avgVolume;
@@ -308,8 +296,7 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
     }
   }
 
-  // 4. Moving Average / EMA Analysis (FIXED Dec 2024)
-  // Use EMA9/EMA21 to match UI indicators, not simple MAs
+  // 4. EMA Analysis (EMA9/EMA21 to match UI)
   if (priceData.length >= 21) {
     const prices = priceData.map(p => p.close_price);
     const ema9 = calculateEMA(prices, 9);
@@ -321,17 +308,16 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
 
     console.log(`📊 ${symbol} - Price: ${currentPrice.toFixed(2)}, EMA9: ${ema9.toFixed(2)}, EMA21: ${ema21.toFixed(2)}, Spread: ${emaSpreadPct.toFixed(4)}%`);
 
-    // EMA Crossover Detection - PRIMARY signal for bullish/bearish
-    // Bullish: EMA9 > EMA21 (short-term momentum is positive)
+    // EMA Crossover Detection
     if (ema9 > ema21) {
-      const strength = Math.min(100, Math.abs(emaSpreadPct) * 500); // Scale spread to 0-100
+      const strength = Math.min(100, Math.abs(emaSpreadPct) * 500);
       signals.push({
         source_id: sourceId,
         user_id: userId,
         timestamp: new Date().toISOString(),
         symbol: baseSymbol,
         signal_type: 'ma_cross_bullish',
-        signal_strength: Math.max(10, strength), // Minimum 10 to ensure detection
+        signal_strength: Math.max(10, strength),
         source: 'technical_analysis',
         data: {
           ema_short: ema9,
@@ -345,7 +331,6 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
       });
       console.log(`✅ ${symbol} EMA BULLISH: EMA9 ${ema9.toFixed(2)} > EMA21 ${ema21.toFixed(2)}`);
     } else if (ema9 < ema21) {
-      // Bearish: EMA9 < EMA21 (short-term momentum is negative)
       const strength = Math.min(100, Math.abs(emaSpreadPct) * 500);
       signals.push({
         source_id: sourceId,
@@ -370,14 +355,14 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
     
     // Add trend signal based on price vs longer EMA
     const trendStrength = ((currentPrice - ema21) / ema21) * 100;
-    if (Math.abs(trendStrength) > 0.1) { // Lowered threshold from 0.5%
+    if (Math.abs(trendStrength) > 0.1) {
       signals.push({
         source_id: sourceId,
         user_id: userId,
         timestamp: new Date().toISOString(),
         symbol: baseSymbol,
         signal_type: trendStrength > 0 ? 'trend_bullish' : 'trend_bearish',
-        signal_strength: Math.min(100, Math.abs(trendStrength) * 30), // Increased multiplier
+        signal_strength: Math.min(100, Math.abs(trendStrength) * 30),
         source: 'technical_analysis',
         data: {
           trend_strength: trendStrength,
@@ -452,18 +437,34 @@ async function cacheIndicators(symbol: string, priceData: any[], supabaseClient:
       };
     }
     
+    // P2 FIX: Correct MACD calculation
+    // Build macdSeries across prices, then calculate signal line from that series
     if (priceData.length >= 26) {
       const prices = priceData.map(p => p.close_price);
-      const ema12 = calculateEMA(prices, 12);
-      const ema26 = calculateEMA(prices, 26);
-      const macd = ema12 - ema26;
-      const signal = calculateEMA([macd], 9);
+      
+      // Build MACD series: for each point, compute EMA12 - EMA26 up to that point
+      const macdSeries: number[] = [];
+      for (let i = 25; i < prices.length; i++) {
+        const slice = prices.slice(0, i + 1);
+        const ema12 = calculateEMA(slice, 12);
+        const ema26 = calculateEMA(slice, 26);
+        macdSeries.push(ema12 - ema26);
+      }
+      
+      // Current MACD line
+      const macdLine = macdSeries[macdSeries.length - 1] || 0;
+      
+      // Signal line = EMA(macdSeries, 9)
+      const signalLine = macdSeries.length >= 9 ? calculateEMA(macdSeries, 9) : macdLine;
+      
+      // Histogram
+      const histogram = macdLine - signalLine;
       
       indicators.MACD = {
-        macd: Number(macd.toFixed(4)),
-        signal: Number(signal.toFixed(4)),
-        histogram: Number((macd - signal).toFixed(4)),
-        crossover: 'neutral'
+        macd: Number(macdLine.toFixed(4)),
+        signal: Number(signalLine.toFixed(4)),
+        histogram: Number(histogram.toFixed(4)),
+        crossover: histogram > 0 ? 'bullish' : histogram < 0 ? 'bearish' : 'neutral'
       };
     }
     
