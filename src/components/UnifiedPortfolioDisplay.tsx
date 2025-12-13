@@ -1,3 +1,5 @@
+// P2 FIX: UnifiedPortfolioDisplay uses ONLY server truth from RPC
+// NO local BUY-only aggregation. Positions from useOpenLots, metrics from usePortfolioMetrics.
 import { getAllTradingPairs } from '@/data/coinbaseCoins';
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,13 +10,15 @@ import { useTestMode } from "@/hooks/useTestMode";
 import { useAuth } from "@/hooks/useAuth";
 import { useRealTimeMarketData } from "@/hooks/useRealTimeMarketData";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
+import { useOpenLots, OpenLot } from "@/hooks/useOpenLots";
 import { supabase } from '@/integrations/supabase/client';
 import { Wallet, TrendingUp, TrendingDown, RefreshCw, Loader2, TestTube, DollarSign, RotateCcw, AlertTriangle } from "lucide-react";
 import { logger } from '@/utils/logger';
-import { calculateValuation, checkIntegrity, type OpenPositionInputs } from "@/utils/valuationService";
 import { CorruptionWarning } from "@/components/CorruptionWarning";
 import { PortfolioNotInitialized } from "@/components/PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
+import { afterReset } from '@/utils/resetHelpers';
+import { toBaseSymbol } from '@/utils/symbols';
 
 interface PortfolioData {
   accounts?: Array<{
@@ -32,13 +36,15 @@ interface PortfolioData {
   }>;
 }
 
-interface PositionData {
+// P2 FIX: AggregatedPosition derived from open lots (server truth), NOT from BUY trades only
+interface AggregatedPosition {
   symbol: string;
-  amount: number;
-  entry_price: number;
-  purchase_value: number;
-  is_corrupted?: boolean;
-  integrity_reason?: string;
+  totalAmount: number;
+  totalCostBasis: number;
+  avgEntryPrice: number;
+  currentValue: number;
+  unrealizedPnl: number;
+  unrealizedPnlPct: number;
 }
 
 export const UnifiedPortfolioDisplay = () => {
@@ -59,13 +65,16 @@ export const UnifiedPortfolioDisplay = () => {
     totalPnlPct
   } = usePortfolioMetrics();
   
+  // P2 FIX: Use server-side open lots instead of BUY-only aggregation
+  const { openLots, isLoading: lotsLoading, refresh: refreshOpenLots } = useOpenLots();
+  
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
   const [connections, setConnections] = useState<any[]>([]);
   const [realTimePrices, setRealTimePrices] = useState<{[key: string]: number}>({});
-  const [positions, setPositions] = useState<PositionData[]>([]);
-  const [positionValuations, setPositionValuations] = useState<Record<string, any>>({});
+  // P2 FIX: Aggregated positions derived from open lots + real-time prices
+  const [aggregatedPositions, setAggregatedPositions] = useState<AggregatedPosition[]>([]);
 
   // Fetch real-time prices for all displayed cryptocurrencies
   useEffect(() => {
@@ -103,90 +112,51 @@ export const UnifiedPortfolioDisplay = () => {
     }
   }, [testMode, user]);
 
-  // Fetch positions for valuation service
+  // P2 FIX: Aggregate positions from server-side open lots + real-time prices
+  // This replaces the old BUY-only aggregation which ignored SELLs
   useEffect(() => {
-    if (testMode && user && isInitialized) {
-      fetchPositionsData();
+    if (!testMode || !isInitialized || openLots.length === 0) {
+      setAggregatedPositions([]);
+      return;
     }
-  }, [testMode, user, isInitialized]);
-
-  // Calculate valuations when positions or prices change
-  useEffect(() => {
-    const calculateAllValuations = async () => {
-      const valuations: Record<string, any> = {};
-      
-      for (const position of positions) {
-        if (position.is_corrupted) continue;
-        
-        const currentPrice = realTimePrices[position.symbol] || 0;
-        
-        if (currentPrice > 0) {
-          try {
-            const openPositionInputs: OpenPositionInputs = {
-              symbol: position.symbol,
-              amount: position.amount,
-              entryPrice: position.entry_price,
-              purchaseValue: position.purchase_value
-            };
-            const valuation = await calculateValuation(openPositionInputs, currentPrice);
-            valuations[position.symbol] = valuation;
-          } catch (error) {
-            logger.error(`Error calculating valuation for ${position.symbol}:`, error);
-          }
-        }
-      }
-      
-      setPositionValuations(valuations);
-    };
     
-    if (positions.length > 0 && Object.keys(realTimePrices).length > 0) {
-      calculateAllValuations();
-    }
-  }, [positions, realTimePrices]);
-
-  const fetchPositionsData = async () => {
-    if (!user) return;
+    // Group open lots by symbol and aggregate
+    const positionMap = new Map<string, AggregatedPosition>();
     
-    try {
-      const { data: trades, error } = await supabase
-        .from('mock_trades')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('trade_type', 'buy')
-        .eq('is_test_mode', true)
-        .order('executed_at', { ascending: true });
-
-      if (error) throw error;
-
-      const positionMap = new Map<string, PositionData>();
+    for (const lot of openLots) {
+      if (lot.remaining_amount <= 0) continue;
       
-      for (const trade of trades || []) {
-        const symbol = trade.cryptocurrency.replace('-EUR', '');
-        const existing = positionMap.get(symbol);
-        
-        if (existing) {
-          const totalValue = existing.purchase_value + trade.total_value;
-          const totalAmount = existing.amount + trade.amount;
-          existing.purchase_value = totalValue;
-          existing.amount = totalAmount;
-          existing.entry_price = totalValue / totalAmount;
-        } else {
-          positionMap.set(symbol, {
-            symbol,
-            amount: trade.amount,
-            entry_price: trade.price,
-            purchase_value: trade.total_value,
-            is_corrupted: trade.is_corrupted,
-            integrity_reason: trade.integrity_reason
-          });
-        }
+      const symbol = toBaseSymbol(lot.cryptocurrency);
+      const existing = positionMap.get(symbol);
+      const lotCostBasis = lot.remaining_amount * lot.buy_price;
+      const currentPrice = realTimePrices[symbol] || realTimePrices[`${symbol}-EUR`] || lot.buy_price;
+      const currentValue = lot.remaining_amount * currentPrice;
+      
+      if (existing) {
+        existing.totalAmount += lot.remaining_amount;
+        existing.totalCostBasis += lotCostBasis;
+        existing.currentValue += currentValue;
+        existing.avgEntryPrice = existing.totalCostBasis / existing.totalAmount;
+        existing.unrealizedPnl = existing.currentValue - existing.totalCostBasis;
+        existing.unrealizedPnlPct = existing.totalCostBasis > 0 
+          ? (existing.unrealizedPnl / existing.totalCostBasis) * 100 
+          : 0;
+      } else {
+        const unrealizedPnl = currentValue - lotCostBasis;
+        positionMap.set(symbol, {
+          symbol,
+          totalAmount: lot.remaining_amount,
+          totalCostBasis: lotCostBasis,
+          avgEntryPrice: lot.buy_price,
+          currentValue,
+          unrealizedPnl,
+          unrealizedPnlPct: lotCostBasis > 0 ? (unrealizedPnl / lotCostBasis) * 100 : 0
+        });
       }
-      
-      setPositions(Array.from(positionMap.values()));
-    } catch (error) {
-      logger.error('Error fetching positions:', error);
     }
-  };
+    
+    setAggregatedPositions(Array.from(positionMap.values()));
+  }, [testMode, isInitialized, openLots, realTimePrices]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -241,63 +211,24 @@ export const UnifiedPortfolioDisplay = () => {
     }
   };
 
+  // P2 FIX: Deterministic reset - await all refreshes via afterReset helper
   const handleResetPortfolio = async () => {
     try {
       await resetPortfolio();
-      // P2 FIX: Await refresh directly, no setTimeout
-      await refreshMetrics();
+      // P2 FIX: Use centralized afterReset for deterministic refresh (no setTimeout)
+      await afterReset({
+        refreshPortfolioMetrics: refreshMetrics,
+        refreshOpenLots: refreshOpenLots,
+      });
     } catch (error) {
       logger.error('Failed to reset portfolio:', error);
     }
   };
 
-  const renderPositionCard = (position: PositionData) => {
-    const openPositionInputs: OpenPositionInputs = {
-      symbol: position.symbol,
-      amount: position.amount,
-      entryPrice: position.entry_price,
-      purchaseValue: position.purchase_value
-    };
-    const integrityCheck = checkIntegrity(openPositionInputs);
-    const currentPrice = realTimePrices[position.symbol] || 0;
-    const valuation = positionValuations[position.symbol];
-    
-    if ((position.is_corrupted && !currentPrice) || !integrityCheck.is_valid) {
-      return (
-        <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600 border-red-500/30">
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center">
-                <span className="text-sm font-medium text-slate-300">{position.symbol}</span>
-                <CorruptionWarning 
-                  isCorrupted={position.is_corrupted || !integrityCheck.is_valid}
-                  integrityReason={position.integrity_reason || integrityCheck.errors.join(', ')}
-                />
-              </div>
-              <div className="text-right">
-                <div className="text-lg font-bold text-red-400">Corrupted Data</div>
-                <div className="text-xs text-slate-400">Requires manual review</div>
-              </div>
-            </div>
-          </div>
-        </Card>
-      );
-    }
-
-    if (!valuation) {
-      return (
-        <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600">
-          <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-sm font-medium text-slate-300">{position.symbol}</span>
-              <div className="text-right">
-                <div className="text-lg font-bold text-slate-400">Calculating...</div>
-              </div>
-            </div>
-          </div>
-        </Card>
-      );
-    }
+  // P2 FIX: Render position card from aggregated open lots (server truth)
+  const renderAggregatedPositionCard = (position: AggregatedPosition) => {
+    const currentPrice = realTimePrices[position.symbol] || realTimePrices[`${position.symbol}-EUR`] || position.avgEntryPrice;
+    const isProfit = position.unrealizedPnl >= 0;
     
     return (
       <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600">
@@ -305,17 +236,13 @@ export const UnifiedPortfolioDisplay = () => {
           <div className="flex justify-between items-center">
             <div className="flex items-center">
               <span className="text-sm font-medium text-slate-300">{position.symbol}</span>
-              <CorruptionWarning 
-                isCorrupted={position.is_corrupted}
-                integrityReason={position.integrity_reason}
-              />
             </div>
             <div className="text-right">
               <div className="text-lg font-bold text-white">
-                €{valuation.current_value.toLocaleString()}
+                {formatEuro(position.currentValue)}
               </div>
               <div className="text-xs text-slate-400">
-                {position.amount.toLocaleString(undefined, {
+                {position.totalAmount.toLocaleString(undefined, {
                   maximumFractionDigits: position.symbol === 'XRP' ? 0 : 6
                 })} {position.symbol}
               </div>
@@ -323,12 +250,10 @@ export const UnifiedPortfolioDisplay = () => {
           </div>
           
           <div className="flex justify-between items-center pt-2 border-t border-slate-600/50">
-            <span className="text-xs text-slate-400">P&L:</span>
+            <span className="text-xs text-slate-400">Unrealized P&L:</span>
             <div className="text-right">
-              <div className={`text-sm font-medium ${
-                valuation.pnl_eur >= 0 ? 'text-green-400' : 'text-red-400'
-              }`}>
-                €{valuation.pnl_eur.toLocaleString()} ({valuation.pnl_pct.toFixed(2)}%)
+              <div className={`text-sm font-medium ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
+                {formatEuro(position.unrealizedPnl)} ({formatPercentage(position.unrealizedPnlPct)})
               </div>
             </div>
           </div>
@@ -337,9 +262,9 @@ export const UnifiedPortfolioDisplay = () => {
             <span className="text-xs text-slate-400">Current Price:</span>
             <div className="flex items-center gap-1">
               <span className="text-xs font-medium text-green-400">
-                €{valuation.current_price.toFixed(position.symbol === 'XRP' ? 4 : 2)}
+                {formatEuro(currentPrice)}
               </span>
-              {Math.random() > 0.5 ? (
+              {isProfit ? (
                 <TrendingUp className="h-3 w-3 text-green-400" />
               ) : (
                 <TrendingDown className="h-3 w-3 text-red-400" />
@@ -348,8 +273,8 @@ export const UnifiedPortfolioDisplay = () => {
           </div>
           
           <div className="flex justify-between items-center text-xs text-slate-500">
-            <span>Entry: €{position.entry_price.toFixed(2)}</span>
-            <span>Value: €{position.purchase_value.toFixed(2)}</span>
+            <span>Avg Entry: {formatEuro(position.avgEntryPrice)}</span>
+            <span>Cost Basis: {formatEuro(position.totalCostBasis)}</span>
           </div>
         </div>
       </Card>
@@ -540,13 +465,13 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
           
-          {/* Portfolio Breakdown */}
+          {/* Portfolio Breakdown - P2 FIX: Use aggregated positions from open lots */}
           {testMode ? (
-            positions.length > 0 ? (
+            aggregatedPositions.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {positions.map(renderPositionCard)}
+                {aggregatedPositions.map(renderAggregatedPositionCard)}
               </div>
-            ) : isInitialized ? (
+            ) : isInitialized && !lotsLoading ? (
               <div className="text-center py-8">
                 <p className="text-slate-300">
                   No open positions. Start trading to see positions.
