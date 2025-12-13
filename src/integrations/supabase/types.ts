@@ -3088,7 +3088,7 @@ export type Database = {
         Returns: undefined
       }
       reset_portfolio_capital: {
-        Args: { p_starting_capital?: number; p_user_id: string }
+        Args: { p_amount_eur?: number; p_user_id: string }
         Returns: Json
       }
       reset_user_test_portfolio: {

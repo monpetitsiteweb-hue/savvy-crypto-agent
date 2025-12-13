@@ -744,7 +744,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   if (testMode && !metricsLoading && !isInitialized) {
     const handleReset = async () => {
       await resetPortfolio();
-      setTimeout(() => refreshMetrics(), 500);
+      // Refresh ALL data sources after hard reset
+      setTimeout(() => {
+        refreshMetrics();
+        refreshOpenLots();
+        fetchTradingHistory();
+      }, 500);
     };
     return <PortfolioNotInitialized onReset={handleReset} isLoading={walletLoading} />;
   }
