@@ -308,68 +308,81 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
     }
   }
 
-  // 4. Moving Average Analysis
-  if (priceData.length >= 10) {
-    const shortMA = calculateSMA(priceData.slice(-5), 'close_price');
-    const longMA = calculateSMA(priceData.slice(-10), 'close_price');
+  // 4. Moving Average / EMA Analysis (FIXED Dec 2024)
+  // Use EMA9/EMA21 to match UI indicators, not simple MAs
+  if (priceData.length >= 21) {
+    const prices = priceData.map(p => p.close_price);
+    const ema9 = calculateEMA(prices, 9);
+    const ema21 = calculateEMA(prices, 21);
     const currentPrice = latest.close_price;
+    
+    // Calculate the EMA spread for signal strength
+    const emaSpreadPct = ((ema9 - ema21) / ema21) * 100;
 
-    console.log(`📊 ${symbol} - Price: ${currentPrice}, Short MA: ${shortMA.toFixed(2)}, Long MA: ${longMA.toFixed(2)}`);
+    console.log(`📊 ${symbol} - Price: ${currentPrice.toFixed(2)}, EMA9: ${ema9.toFixed(2)}, EMA21: ${ema21.toFixed(2)}, Spread: ${emaSpreadPct.toFixed(4)}%`);
 
-    // Golden Cross (bullish) or Death Cross (bearish)
-    if (shortMA > longMA && currentPrice > shortMA) {
+    // EMA Crossover Detection - PRIMARY signal for bullish/bearish
+    // Bullish: EMA9 > EMA21 (short-term momentum is positive)
+    if (ema9 > ema21) {
+      const strength = Math.min(100, Math.abs(emaSpreadPct) * 500); // Scale spread to 0-100
       signals.push({
         source_id: sourceId,
         user_id: userId,
         timestamp: new Date().toISOString(),
         symbol: baseSymbol,
         signal_type: 'ma_cross_bullish',
-        signal_strength: Math.min(100, ((shortMA - longMA) / longMA) * 500),
+        signal_strength: Math.max(10, strength), // Minimum 10 to ensure detection
         source: 'technical_analysis',
         data: {
-          short_ma: shortMA,
-          long_ma: longMA,
+          ema_short: ema9,
+          ema_long: ema21,
+          spread_pct: emaSpreadPct,
           current_price: currentPrice,
-          cross_type: 'golden_cross',
-          indicator: 'moving_average'
+          cross_type: 'ema_bullish',
+          indicator: 'ema_crossover'
         },
         processed: false
       });
-    } else if (shortMA < longMA && currentPrice < shortMA) {
+      console.log(`✅ ${symbol} EMA BULLISH: EMA9 ${ema9.toFixed(2)} > EMA21 ${ema21.toFixed(2)}`);
+    } else if (ema9 < ema21) {
+      // Bearish: EMA9 < EMA21 (short-term momentum is negative)
+      const strength = Math.min(100, Math.abs(emaSpreadPct) * 500);
       signals.push({
         source_id: sourceId,
         user_id: userId,
         timestamp: new Date().toISOString(),
         symbol: baseSymbol,
         signal_type: 'ma_cross_bearish',
-        signal_strength: Math.min(100, ((longMA - shortMA) / longMA) * 500),
+        signal_strength: Math.max(10, strength),
         source: 'technical_analysis',
         data: {
-          short_ma: shortMA,
-          long_ma: longMA,
+          ema_short: ema9,
+          ema_long: ema21,
+          spread_pct: emaSpreadPct,
           current_price: currentPrice,
-          cross_type: 'death_cross',
-          indicator: 'moving_average'
+          cross_type: 'ema_bearish',
+          indicator: 'ema_crossover'
         },
         processed: false
       });
+      console.log(`🔻 ${symbol} EMA BEARISH: EMA9 ${ema9.toFixed(2)} < EMA21 ${ema21.toFixed(2)}`);
     }
     
-    // Add trend signal regardless of cross
-    const trendStrength = ((currentPrice - longMA) / longMA) * 100;
-    if (Math.abs(trendStrength) > 0.5) {
+    // Add trend signal based on price vs longer EMA
+    const trendStrength = ((currentPrice - ema21) / ema21) * 100;
+    if (Math.abs(trendStrength) > 0.1) { // Lowered threshold from 0.5%
       signals.push({
         source_id: sourceId,
         user_id: userId,
         timestamp: new Date().toISOString(),
         symbol: baseSymbol,
         signal_type: trendStrength > 0 ? 'trend_bullish' : 'trend_bearish',
-        signal_strength: Math.min(100, Math.abs(trendStrength) * 20),
+        signal_strength: Math.min(100, Math.abs(trendStrength) * 30), // Increased multiplier
         source: 'technical_analysis',
         data: {
           trend_strength: trendStrength,
           current_price: currentPrice,
-          ma_reference: longMA,
+          ema_reference: ema21,
           indicator: 'trend'
         },
         processed: false
