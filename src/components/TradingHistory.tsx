@@ -1,4 +1,4 @@
-// P1: UI reads portfolio from RPC only. NO client-side trade inserts.
+// P1: UI reads portfolio from RPC only. NO client-side trade inserts. NO FIFO recomputation.
 import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -21,9 +21,6 @@ import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { useToast } from '@/hooks/use-toast';
 
-// Map each SELL button element to its Trade (no leaks, survives re-renders)
-const sellBtnMap = new WeakMap<HTMLButtonElement, Trade>();
-
 const PAGE_SIZE = 20;
 
 interface Trade {
@@ -40,7 +37,7 @@ interface Trade {
   strategy_trigger?: string;
   is_test_mode?: boolean;
   profit_loss?: number;
-  original_trade_id?: string; // Link to the specific BUY this SELL closes
+  original_trade_id?: string;
   original_purchase_amount?: number;
   original_purchase_price?: number;
   original_purchase_value?: number;
@@ -51,7 +48,6 @@ interface Trade {
   sell_fees?: number;
   is_corrupted?: boolean;
   integrity_reason?: string;
-  // GOAL 2.C: P&L at decision time (from backend exit engine)
   pnl_at_decision_pct?: number;
 }
 
@@ -87,7 +83,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   } = usePortfolioMetrics();
   const { toast } = useToast();
   
-  
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -105,9 +100,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   }, []);
 
-  // Price cache is now managed by MarketDataContext
-  // TradingHistory just reads from it - no symbol management needed
-
   // Calculate trade performance using shared cache
   const calculateTradePerformance = (trade: Trade): TradePerformance => {
     if (trade.trade_type === 'sell') {
@@ -122,7 +114,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         realized_pnl_pct: trade.realized_pnl_pct
       });
       
-      // Calculate P&L if missing from database
       let gainLoss = pastPosition.realizedPnL;
       let gainLossPercentage = pastPosition.realizedPnLPct;
       
@@ -145,11 +136,25 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       };
     }
     
-    // Open positions - use shared price cache
+    // Open positions - use shared price cache, return null if missing (NOT 0)
     const baseSymbol = toBaseSymbol(trade.cryptocurrency);
     const pairSymbol = toPairSymbol(baseSymbol);
     const cached = sharedPriceCache.get(pairSymbol);
-    const currentPrice = cached?.price || 0;
+    const currentPrice = cached?.price ?? null;
+    
+    if (currentPrice === null) {
+      // No price available - return nulls, UI will show "—"
+      return {
+        currentPrice: null,
+        currentValue: null,
+        purchaseValue: trade.amount * trade.price,
+        purchasePrice: trade.price,
+        gainLoss: null,
+        gainLossPercentage: null,
+        isCorrupted: false,
+        corruptionReasons: ['Current price not available']
+      };
+    }
     
     const openPositionInputs = {
       symbol: baseSymbol,
@@ -168,91 +173,16 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       gainLoss: performance.pnlEur,
       gainLossPercentage: performance.pnlPct,
       isCorrupted: false,
-      corruptionReasons: currentPrice === null ? ['Current price not available'] : []
+      corruptionReasons: []
     };
   };
 
-  // FIFO helper functions - FIXED to match database logic with targeted manual SELL support
-  const buildFifoLots = (allTrades: Trade[]) => {
-    const sorted = [...allTrades].sort((a,b)=> new Date(a.executed_at).getTime() - new Date(b.executed_at).getTime());
-    const lotsBySymbol = new Map<string, { trade: Trade; remaining: number }[]>();
-    for (const t of sorted) {
-      const sym = toBaseSymbol(t.cryptocurrency); // Normalize symbol to match database trigger logic
-      if (!lotsBySymbol.has(sym)) lotsBySymbol.set(sym, []);
-      if (t.trade_type === 'buy') {
-        lotsBySymbol.get(sym)!.push({ trade: t, remaining: t.amount });
-      } else if (t.trade_type === 'sell' && t.original_purchase_amount) {
-        const lots = lotsBySymbol.get(sym)!;
-        let sellRemaining = t.original_purchase_amount;
-
-        // TARGETED MANUAL SELL: Match to specific BUY if original_trade_id is present
-        if (t.original_trade_id) {
-          const targetLot = lots.find(l => l.trade.id === t.original_trade_id);
-          if (targetLot) {
-            const used = Math.min(targetLot.remaining, sellRemaining);
-            targetLot.remaining -= used;
-            sellRemaining -= used;
-          }
-          // If something is still remaining (edge case), fall back to FIFO
-          if (sellRemaining > 1e-12) {
-            // Fallback FIFO for remaining amount
-            for (let i = 0; i < lots.length && sellRemaining > 1e-12; i++) {
-              const lot = lots[i];
-              const used = Math.min(lot.remaining, sellRemaining);
-              lot.remaining -= used;
-              sellRemaining -= used;
-            }
-          }
-        } else {
-          // STANDARD FIFO: No original_trade_id, use global FIFO
-          for (let i = 0; i < lots.length && sellRemaining > 1e-12; i++) {
-            const lot = lots[i];
-            const used = Math.min(lot.remaining, sellRemaining);
-            lot.remaining -= used;
-            sellRemaining -= used;
-          }
-        }
-      }
-    }
-    const openLots: Trade[] = [];
-    let closedCount = 0;
-    lotsBySymbol.forEach((lots) => {
-      lots.forEach(({ trade, remaining }) => {
-        if (remaining > 1e-8) {  // Increased threshold to match database precision
-          const ratio = remaining / trade.amount;
-          openLots.push({
-            ...trade,
-            amount: remaining, // Show actual remaining amount
-            total_value: trade.total_value * ratio,
-            fees: 0,
-            notes: remaining < trade.amount ? 
-              `Partial: ${remaining.toFixed(8)} of ${trade.amount.toFixed(8)} remaining` : 
-              trade.notes
-          });
-        } else {
-          closedCount += 1;
-        }
-      });
-    });
-    return { openLots, closedCount };
-  };
-
-  const getOpenPositionsList = () => {
-    if (trades.length === 0) return [] as Trade[];
-    const { openLots } = buildFifoLots(trades);
-    
-    // Log open lots for debugging (UI level)
-    console.log('[UI][OPEN_POSITIONS] Open lots:', {
-      lotsCount: openLots.length,
-      symbols: [...new Set(openLots.map(t => t.cryptocurrency))],
-      totalsPerSymbol: openLots.reduce((acc, lot) => {
-        const sym = toBaseSymbol(lot.cryptocurrency);
-        acc[sym] = (acc[sym] || 0) + lot.amount;
-        return acc;
-      }, {} as Record<string, number>)
-    });
-    
-    return openLots.sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime());
+  // Get raw BUY trades as open positions (NO FIFO recomputation in UI)
+  // Backend RPC provides accurate open lot data; this is a fallback display of raw buys
+  const getOpenBuyTrades = (): Trade[] => {
+    return trades
+      .filter(t => t.trade_type === 'buy')
+      .sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime());
   };
 
   // Fetch trading history
@@ -271,32 +201,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       if (error) throw error;
 
       setTrades(data || []);
-
-        // Calculate stats
-      if (data && data.length > 0) {
-        const openPositions = getOpenPositionsList();
-        let realizedPL = 0;
-        let unrealizedPL = 0;
-        let invested = 0;
-        let pastInvestments = 0;
-
-        // Calculate realized P&L from sell trades
-        const sellTrades = data.filter(t => t.trade_type === 'sell');
-        realizedPL = sellTrades.reduce((sum, t) => sum + (t.realized_pnl || 0), 0);
-
-        // Calculate past investments (purchase values of sold positions)
-        pastInvestments = sellTrades.reduce((sum, t) => sum + (t.original_purchase_value || 0), 0);
-
-        // Calculate unrealized P&L from open positions
-        for (const trade of openPositions) {
-          const performance = calculateTradePerformance(trade);
-          if (!performance.isCorrupted) {
-            invested += performance.purchaseValue || 0;
-          }
-        }
-      }
     } catch (error) {
-      console.error('[TradingHistory] Error fetching trading history:', error);
+      // Silent error - just stop loading
     } finally {
       setLoading(false);
     }
@@ -324,7 +230,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           filter: `user_id=eq.${user.id}`
         },
         () => {
-          // Throttle updates to prevent constant blinking
           setTimeout(() => {
             fetchTradingHistory();
           }, 1000);
@@ -336,50 +241,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       supabase.removeChannel(channel);
     };
   }, [user]);
-
-
-  // Delegated SELL button handler (survives re-renders)
-  useEffect(() => {
-    const delegate = (e: Event) => {
-      const t = e.target as HTMLElement | null;
-      const btn = t?.closest('button[data-testid="sell-now"]') as HTMLButtonElement | null;
-      if (!btn) return;
-
-      const id = btn.dataset.sellId || '';
-      let resolved: Trade | undefined;
-
-      // 1) WeakMap first
-      resolved = sellBtnMap.get(btn);
-
-      // 2) Fallback to trades state by id
-      if (!resolved && id) {
-        resolved = trades.find(tr => tr.id === id);
-      }
-
-      // 3) Fallback to embedded JSON on the button
-      if (!resolved) {
-        const json = btn.getAttribute('data-trade-json');
-        if (json) {
-          try { resolved = JSON.parse(decodeURIComponent(json)); } catch {}
-        }
-      }
-
-      // Open confirmation modal instead of calling handleDirectSell directly
-      if (resolved) {
-        setSellConfirmation({ open: true, trade: resolved });
-      } else {
-        toast({
-          title: "Error",
-          description: "Could not resolve trade data for sell operation",
-          variant: "destructive"
-        });
-      }
-    };
-    ['pointerdown','click'].forEach(type => document.addEventListener(type, delegate, true));
-    return () => {
-      ['pointerdown','click'].forEach(type => document.removeEventListener(type, delegate, true));
-    };
-  }, [trades]);
 
   // Handle direct sell - ONLY via trading-decision-coordinator
   // NO client-side inserts, NO fallbacks, NO watchdogs
@@ -468,7 +329,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       });
     } catch (err: any) {
       // Error = show toast and STOP. No fallbacks, no emergency inserts.
-      console.error('[TradingHistory] handleDirectSell error:', err);
       toast({ 
         title: 'Sell Failed', 
         description: err?.message || 'Unknown error occurred', 
@@ -485,17 +345,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   }) => {
     const [performance, setPerformance] = useState<TradePerformance | null>(null);
     const [cardLoading, setCardLoading] = useState(true);
-    const sellBtnRef = useRef<HTMLButtonElement | null>(null);
-
-    // Map button to trade (no direct click listener - handled by delegation)
-    useEffect(() => {
-      const el = sellBtnRef.current;
-      if (!el) return;
-      sellBtnMap.set(el, trade);
-      return () => {
-        sellBtnMap.delete(el);
-      };
-    }, [trade.id]);
     
     useEffect(() => {
       const loadPerformance = () => {
@@ -503,7 +352,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           const perf = calculateTradePerformance(trade);
           setPerformance(perf);
         } catch (error) {
-          console.error('[TradeCard] Error calculating performance:', error);
+          // Silent error
         } finally {
           setCardLoading(false);
         }
@@ -639,7 +488,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           
           {trade.trade_type === 'sell' ? (
             <>
-              {/* GOAL 2.C: Show P&L at decision time if available */}
               {trade.pnl_at_decision_pct !== null && trade.pnl_at_decision_pct !== undefined && (
                 <div>
                   <p className="text-muted-foreground">P&L at decision</p>
@@ -658,7 +506,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                   (performance.gainLoss || 0) < -0.01 ? 'text-red-600' : ''
                 }`} data-testid="realized-pnl">
                   {formatEuro(performance.gainLoss || 0)}
-                  {/* P1: Show % from DB or compute */}
                   {' '}
                   <span className="text-xs">
                     ({formatPercentage(
@@ -699,25 +546,20 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
             
             {showSellButton && trade.trade_type === 'buy' && (
-              <button
-                        data-testid="sell-now"
-                        data-sell-id={trade.id}
-                        data-sell-sym={trade.cryptocurrency}
-                        data-trade-json={encodeURIComponent(JSON.stringify(trade))}
-                        data-th-version="v14.1"
-                        ref={sellBtnRef}
-                        type="button"
-                        className="px-3 py-1 text-sm bg-red-500 text-white rounded hover:bg-red-600"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          if (onRequestSell) {
-                            onRequestSell(trade);
-                          }
-                        }}
-                      >
-                        SELL NOW (v14)
-              </button>
+              <Button
+                variant="destructive"
+                size="sm"
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (onRequestSell) {
+                    onRequestSell(trade);
+                  }
+                }}
+              >
+                SELL NOW
+              </Button>
             )}
             
           </div>
@@ -759,22 +601,13 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
-  const openPositions = getOpenPositionsList();
+  // Show raw BUY trades as "buys" (NO FIFO recomputation in UI)
+  const openBuyTrades = getOpenBuyTrades();
   const pastPositions = trades.filter(t => t.trade_type === 'sell');
-  
-  // Log past positions lot-linking status for debugging
-  const pastWithLotId = pastPositions.filter(t => t.original_trade_id).length;
-  const pastWithoutLotId = pastPositions.filter(t => !t.original_trade_id).length;
-  console.log('[UI][PAST_POSITIONS] Sells:', {
-    total: pastPositions.length,
-    withOriginalTradeId: pastWithLotId,
-    withoutOriginalTradeId: pastWithoutLotId,
-    lotLinkingPct: pastPositions.length > 0 ? Math.round((pastWithLotId / pastPositions.length) * 100) : 0
-  });
   
   // Pagination for both open and past positions  
   const totalPastPages = Math.ceil(pastPositions.length / PAGE_SIZE);
-  const totalOpenPages = Math.ceil(openPositions.length / PAGE_SIZE);
+  const totalOpenPages = Math.ceil(openBuyTrades.length / PAGE_SIZE);
   
   const startIndex = (currentPage - 1) * PAGE_SIZE;
   const endIndex = startIndex + PAGE_SIZE;
@@ -782,35 +615,16 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   const openStartIndex = (openPage - 1) * PAGE_SIZE;
   const openEndIndex = openStartIndex + PAGE_SIZE;
-  const paginatedOpenPositions = openPositions.slice(openStartIndex, openEndIndex);
+  const paginatedOpenBuys = openBuyTrades.slice(openStartIndex, openEndIndex);
 
   return (
     <div className="space-y-6">
-      {/* Fixed beacon for visual proof */}
-      <div
-        id="th-beacon"
-        style={{
-          position: 'fixed',
-          top: 6,
-          right: 6,
-          zIndex: 99999,
-          background: '#111',
-          color: '#0f0',
-          fontSize: 12,
-          padding: '4px 8px',
-          borderRadius: 6,
-          boxShadow: '0 0 0 2px #0f0 inset'
-        }}
-      >
-        TH v13 ACTIVE
-      </div>
-
       <Card className="p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Activity className="w-5 h-5" />
-            <h2 className="text-lg font-semibold">Trading History (TH v13)</h2>
+            <h2 className="text-lg font-semibold">Trading History</h2>
           </div>
           <Button
             variant="outline"
@@ -831,24 +645,24 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         </h3>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Positions */}
+          {/* Positions - local counts only */}
           <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <TrendingUp className="w-4 h-4 text-blue-500" />
-              <span className="text-sm font-medium text-muted-foreground">Positions</span>
+              <span className="text-sm font-medium text-muted-foreground">Positions (counts)</span>
             </div>
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Open Positions</span>
-                <span className="text-lg font-bold">{openPositions.length}</span>
+                <span className="text-xs text-muted-foreground">BUY Trades</span>
+                <span className="text-lg font-bold">{openBuyTrades.length}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Past Positions</span>
+                <span className="text-xs text-muted-foreground">SELL Trades</span>
                 <span className="text-sm">{pastPositions.length}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Total Trades</span>
-                <span className="text-sm">{openPositions.length + pastPositions.length}</span>
+                <span className="text-sm">{trades.length}</span>
               </div>
             </div>
           </Card>
@@ -910,19 +724,19 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="open" className="flex items-center gap-2">
             <ArrowUpRight className="w-4 h-4" />
-            Open Positions ({openPositions.length})
+            BUY Trades ({openBuyTrades.length})
           </TabsTrigger>
           <TabsTrigger value="past" className="flex items-center gap-2" data-testid="past-positions-tab">
             <ArrowDownLeft className="w-4 h-4" />
-            Past Positions ({pastPositions.length})
+            SELL Trades ({pastPositions.length})
           </TabsTrigger>
         </TabsList>
         
         <TabsContent value="open" className="mt-4">
-          {openPositions.length > 0 ? (
+          {openBuyTrades.length > 0 ? (
             <>
               <div className="space-y-4">
-                {paginatedOpenPositions.map(trade => (
+                {paginatedOpenBuys.map(trade => (
                   <TradeCard
                     key={trade.id}
                     trade={trade}
@@ -932,7 +746,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                 ))}
               </div>
               
-              {/* Pagination for Open Positions */}
+              {/* Pagination for BUY Trades */}
               {totalOpenPages > 1 && (
                 <div className="flex items-center justify-center gap-2 mt-6">
                   <Button
@@ -964,8 +778,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No open positions</p>
-              <p className="text-sm mt-2">Your open positions will appear here when you make trades</p>
+              <p>No BUY trades</p>
+              <p className="text-sm mt-2">Your buy trades will appear here when you make trades</p>
             </div>
           )}
         </TabsContent>
@@ -1015,7 +829,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No past positions</p>
+              <p>No SELL trades</p>
               <p className="text-sm mt-2">Your completed trades will appear here</p>
             </div>
           )}
@@ -1034,7 +848,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                   <div><span className="text-muted-foreground">Amount:</span> <span className="font-medium">{sellConfirmation.trade.amount}</span></div>
                   <div><span className="text-muted-foreground">Entry Price:</span> <span className="font-medium">€{sellConfirmation.trade.price.toFixed(2)}</span></div>
                   <div className="text-xs text-muted-foreground mt-2">
-                    This will submit a mock/manual sell immediately with FIFO profit/loss calculation.
+                    This will request a manual SELL via the coordinator. Execution depends on gating rules.
                   </div>
                 </div>
               ) : null}
@@ -1061,11 +875,4 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       </Card>
     </div>
   );
-}
-
-// Expose utilities globally for debugging (silent)
-if (typeof window !== 'undefined') {
-  (window as any).toBaseSymbol = toBaseSymbol;
-  (window as any).toPairSymbol = toPairSymbol;
-  (window as any).sharedPriceCache = sharedPriceCache;
 }
