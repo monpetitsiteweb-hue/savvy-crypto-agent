@@ -1,5 +1,6 @@
 // P1: UI reads portfolio from RPC only. NO client-side trade inserts. NO FIFO recomputation.
-import { useState, useEffect, useRef } from 'react';
+// Open positions come from get_open_lots RPC - NO UI-side FIFO math.
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import { useTestMode } from '@/hooks/useTestMode';
 import { supabase } from '@/integrations/supabase/client';
 import { useMockWallet } from '@/hooks/useMockWallet';
 import { usePortfolioMetrics } from '@/hooks/usePortfolioMetrics';
+import { useOpenLots, OpenLot } from '@/hooks/useOpenLots';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { PortfolioNotInitialized } from './PortfolioNotInitialized';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
@@ -81,6 +83,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     realizedPnlPct,
     totalPnlPct
   } = usePortfolioMetrics();
+  const { openLots, isLoading: lotsLoading, refresh: refreshOpenLots } = useOpenLots();
   const { toast } = useToast();
   
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -88,9 +91,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [currentPage, setCurrentPage] = useState(1);
   const [openPage, setOpenPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'open' | 'past'>('open');
-  const [sellConfirmation, setSellConfirmation] = useState<{ open: boolean; trade: Trade | null }>({ 
+  const [sellConfirmation, setSellConfirmation] = useState<{ open: boolean; lot: OpenLot | null }>({ 
     open: false, 
-    trade: null 
+    lot: null 
   });
 
   // Initialize shared price cache on mount
@@ -177,12 +180,42 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   };
 
-  // Get raw BUY trades as open positions (NO FIFO recomputation in UI)
-  // Backend RPC provides accurate open lot data; this is a fallback display of raw buys
-  const getOpenBuyTrades = (): Trade[] => {
-    return trades
-      .filter(t => t.trade_type === 'buy')
-      .sort((a, b) => new Date(b.executed_at).getTime() - new Date(a.executed_at).getTime());
+  // Calculate lot performance using shared price cache
+  const calculateLotPerformance = (lot: OpenLot): TradePerformance => {
+    const baseSymbol = toBaseSymbol(lot.cryptocurrency);
+    const pairSymbol = toPairSymbol(baseSymbol);
+    const cached = sharedPriceCache.get(pairSymbol);
+    const currentPrice = cached?.price ?? null;
+    
+    const purchaseValue = lot.remaining_amount * lot.buy_price;
+    
+    if (currentPrice === null) {
+      return {
+        currentPrice: null,
+        currentValue: null,
+        purchaseValue,
+        purchasePrice: lot.buy_price,
+        gainLoss: null,
+        gainLossPercentage: null,
+        isCorrupted: false,
+        corruptionReasons: ['Current price not available']
+      };
+    }
+    
+    const currentValue = lot.remaining_amount * currentPrice;
+    const gainLoss = currentValue - purchaseValue;
+    const gainLossPercentage = purchaseValue > 0 ? (gainLoss / purchaseValue) * 100 : 0;
+    
+    return {
+      currentPrice,
+      currentValue,
+      purchaseValue,
+      purchasePrice: lot.buy_price,
+      gainLoss,
+      gainLossPercentage,
+      isCorrupted: false,
+      corruptionReasons: []
+    };
   };
 
   // Fetch trading history
@@ -242,17 +275,23 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     };
   }, [user]);
 
-  // Handle direct sell - ONLY via trading-decision-coordinator
+  // Handle direct sell of an open lot - ONLY via trading-decision-coordinator
   // NO client-side inserts, NO fallbacks, NO watchdogs
-  const handleDirectSell = async (trade: Trade) => {
+  // SELL uses remaining_amount from RPC (NOT original buy amount)
+  const handleDirectSell = async (lot: OpenLot) => {
     if (!user) {
       toast({ title: 'Sell Failed', description: 'User not authenticated', variant: 'destructive' });
       return;
     }
 
+    if (lot.remaining_amount <= 0) {
+      toast({ title: 'Sell Failed', description: 'No remaining amount to sell', variant: 'destructive' });
+      return;
+    }
+
     try {
       // Get current price from cache
-      const base = toBaseSymbol(trade.cryptocurrency);
+      const base = toBaseSymbol(lot.cryptocurrency);
       const pair = toPairSymbol(base);
       const cached = sharedPriceCache.get(pair);
       const price = cached?.price;
@@ -263,23 +302,16 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       }
 
       // Calculate expected P&L for logging (display only)
-      const perf = calculateTradePerformance(trade);
+      const perf = calculateLotPerformance(lot);
 
-      // Get strategy ID
-      const { data: strategies, error: stratError } = await supabase
-        .from('trading_strategies')
-        .select('id, strategy_name')
-        .eq('user_id', user.id);
-      
-      if (stratError) throw stratError;
-      
-      const strategyId = trade.strategy_id || (strategies && strategies[0]?.id);
+      // Use lot's strategy_id
+      const strategyId = lot.strategy_id;
       if (!strategyId) {
-        toast({ title: 'Sell Failed', description: 'No valid strategy found for manual sell', variant: 'destructive' });
+        toast({ title: 'Sell Failed', description: 'No valid strategy found for this lot', variant: 'destructive' });
         return;
       }
 
-      // Build payload for coordinator
+      // Build payload for coordinator with lot-specific data
       const sellPayload = {
         userId: user.id,
         strategyId,
@@ -288,20 +320,20 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         source: 'manual',
         confidence: 0.95,
         reason: 'Manual sell from Trading History UI',
-        qtySuggested: trade.amount,
+        qtySuggested: lot.remaining_amount, // Use remaining amount, NOT original buy amount
         mode: 'mock',
         metadata: {
           context: 'MANUAL',
           origin: 'UI',
           manualOverride: true,
-          originalTradeId: trade.id,
+          originalTradeId: lot.buy_trade_id, // Target specific lot
           uiTimestamp: new Date().toISOString(),
           currentPrice: price,
           expectedPnl: perf.gainLoss || 0,
           expectedPnlPct: perf.gainLossPercentage || 0,
           force: true,
         },
-        idempotencyKey: `manual_${user.id}_${trade.id}_${Date.now()}`,
+        idempotencyKey: `manual_${user.id}_${lot.buy_trade_id}_${Date.now()}`,
       };
 
       // Invoke coordinator - this is the ONLY path to insert trades
@@ -314,8 +346,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       }
 
       if (result?.ok === true && result?.decision?.action === 'SELL') {
-        toast({ title: 'Position Sold', description: `Sold ${trade.cryptocurrency}`, variant: 'default' });
-        // Refresh trades and portfolio metrics from RPC
+        toast({ title: 'Position Sold', description: `Sold ${lot.cryptocurrency}`, variant: 'default' });
+        // Refresh open lots and portfolio metrics from RPC
+        refreshOpenLots();
         fetchTradingHistory();
         refreshMetrics();
         return;
@@ -335,6 +368,125 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         variant: 'destructive' 
       });
     }
+  };
+
+  // OpenLotCard component for rendering open lots from RPC
+  const OpenLotCard = ({ lot, onRequestSell }: { 
+    lot: OpenLot; 
+    onRequestSell?: (l: OpenLot) => void;
+  }) => {
+    const [performance, setPerformance] = useState<TradePerformance | null>(null);
+    const [cardLoading, setCardLoading] = useState(true);
+    
+    useEffect(() => {
+      const loadPerformance = () => {
+        try {
+          const perf = calculateLotPerformance(lot);
+          setPerformance(perf);
+        } catch (error) {
+          // Silent error
+        } finally {
+          setCardLoading(false);
+        }
+      };
+
+      loadPerformance();
+    }, [lot.buy_trade_id]);
+
+    if (cardLoading || !performance) {
+      return (
+        <Card className="p-4">
+          <div className="h-4 bg-muted rounded w-1/3 mb-2"></div>
+          <div className="h-3 bg-muted rounded w-1/2"></div>
+        </Card>
+      );
+    }
+
+    const isProfit = (performance.gainLoss || 0) > 0;
+    const isLoss = (performance.gainLoss || 0) < 0;
+
+    return (
+      <Card className="p-4 hover:shadow-md transition-shadow" data-testid="open-lot-card">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="font-semibold text-lg">{lot.cryptocurrency}</span>
+          </div>
+          <Badge variant="default">OPEN</Badge>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-4 text-sm">
+          <div>
+            <p className="text-muted-foreground">Remaining Amount</p>
+            <p className="font-medium">{lot.remaining_amount.toFixed(8)}</p>
+          </div>
+          
+          <div>
+            <p className="text-muted-foreground">Entry Price</p>
+            <p className="font-medium" data-testid="purchase-price">
+              {formatEuro(lot.buy_price)}
+            </p>
+          </div>
+          
+          <div>
+            <p className="text-muted-foreground">Cost Basis</p>
+            <p className="font-medium">
+              {formatEuro(performance.purchaseValue || 0)}
+            </p>
+          </div>
+          
+          <div>
+            <p className="text-muted-foreground">Current Price</p>
+            <p className="font-medium">
+              {performance.currentPrice !== null ? formatEuro(performance.currentPrice) : "—"}
+            </p>
+          </div>
+          
+          <div>
+            <p className="text-muted-foreground">Current Value</p>
+            <p className="font-medium">
+              {performance.currentValue !== null ? formatEuro(performance.currentValue) : "—"}
+            </p>
+          </div>
+          
+          {performance.gainLoss !== null && performance.gainLossPercentage !== null && (
+            <>
+              <div>
+                <p className="text-muted-foreground">Unrealized P&L</p>
+                <p className={`font-medium ${isProfit ? 'text-emerald-600' : isLoss ? 'text-red-600' : ''}`}>
+                  {formatEuro(performance.gainLoss)} ({formatPercentage(performance.gainLossPercentage)})
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+        
+        <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
+          <div className="flex items-center justify-between">
+            <div>
+              <p>Opened: {new Date(lot.executed_at).toLocaleString()}</p>
+            </div>
+            
+            {lot.remaining_amount > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (onRequestSell) {
+                    onRequestSell(lot);
+                  }
+                }}
+              >
+                SELL NOW
+              </Button>
+            )}
+          </div>
+        </div>
+      </Card>
+    );
   };
 
   // TradeCard component for rendering individual trades
@@ -601,13 +753,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
-  // Show raw BUY trades as "buys" (NO FIFO recomputation in UI)
-  const openBuyTrades = getOpenBuyTrades();
+  // Open lots from RPC (NO FIFO recomputation in UI)
   const pastPositions = trades.filter(t => t.trade_type === 'sell');
   
   // Pagination for both open and past positions  
   const totalPastPages = Math.ceil(pastPositions.length / PAGE_SIZE);
-  const totalOpenPages = Math.ceil(openBuyTrades.length / PAGE_SIZE);
+  const totalOpenPages = Math.ceil(openLots.length / PAGE_SIZE);
   
   const startIndex = (currentPage - 1) * PAGE_SIZE;
   const endIndex = startIndex + PAGE_SIZE;
@@ -615,7 +766,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   
   const openStartIndex = (openPage - 1) * PAGE_SIZE;
   const openEndIndex = openStartIndex + PAGE_SIZE;
-  const paginatedOpenBuys = openBuyTrades.slice(openStartIndex, openEndIndex);
+  const paginatedOpenLots = openLots.slice(openStartIndex, openEndIndex);
 
   return (
     <div className="space-y-6">
@@ -653,8 +804,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">BUY Trades</span>
-                <span className="text-lg font-bold">{openBuyTrades.length}</span>
+                <span className="text-xs text-muted-foreground">Open Lots</span>
+                <span className="text-lg font-bold">{openLots.length}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">SELL Trades</span>
@@ -724,7 +875,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="open" className="flex items-center gap-2">
             <ArrowUpRight className="w-4 h-4" />
-            BUY Trades ({openBuyTrades.length})
+            Open Positions ({openLots.length})
           </TabsTrigger>
           <TabsTrigger value="past" className="flex items-center gap-2" data-testid="past-positions-tab">
             <ArrowDownLeft className="w-4 h-4" />
@@ -733,20 +884,25 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         </TabsList>
         
         <TabsContent value="open" className="mt-4">
-          {openBuyTrades.length > 0 ? (
+          {lotsLoading ? (
+            <div className="animate-pulse space-y-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-16 bg-muted rounded"></div>
+              ))}
+            </div>
+          ) : openLots.length > 0 ? (
             <>
               <div className="space-y-4">
-                {paginatedOpenBuys.map(trade => (
-                  <TradeCard
-                    key={trade.id}
-                    trade={trade}
-                    showSellButton={true}
-                    onRequestSell={(t) => setSellConfirmation({ open: true, trade: t })}
+                {paginatedOpenLots.map(lot => (
+                  <OpenLotCard
+                    key={lot.buy_trade_id}
+                    lot={lot}
+                    onRequestSell={(l) => setSellConfirmation({ open: true, lot: l })}
                   />
                 ))}
               </div>
               
-              {/* Pagination for BUY Trades */}
+              {/* Pagination for Open Lots */}
               {totalOpenPages > 1 && (
                 <div className="flex items-center justify-center gap-2 mt-6">
                   <Button
@@ -778,8 +934,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No BUY trades</p>
-              <p className="text-sm mt-2">Your buy trades will appear here when you make trades</p>
+              <p>No open positions</p>
+              <p className="text-sm mt-2">Your open positions will appear here when you make trades</p>
             </div>
           )}
         </TabsContent>
@@ -837,16 +993,16 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       </Tabs>
 
       {/* Confirmation Modal */}
-      <Dialog open={sellConfirmation.open} onOpenChange={(open) => setSellConfirmation(prev => ({ open, trade: open ? prev.trade : null }))}>
+      <Dialog open={sellConfirmation.open} onOpenChange={(open) => setSellConfirmation({ open, lot: open ? sellConfirmation.lot : null })}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Confirm Sell</DialogTitle>
             <DialogDescription>
-              {sellConfirmation.trade ? (
+              {sellConfirmation.lot ? (
                 <div className="space-y-2 mt-2 text-sm">
-                  <div><span className="text-muted-foreground">Asset:</span> <span className="font-medium">{sellConfirmation.trade.cryptocurrency}</span></div>
-                  <div><span className="text-muted-foreground">Amount:</span> <span className="font-medium">{sellConfirmation.trade.amount}</span></div>
-                  <div><span className="text-muted-foreground">Entry Price:</span> <span className="font-medium">€{sellConfirmation.trade.price.toFixed(2)}</span></div>
+                  <div><span className="text-muted-foreground">Asset:</span> <span className="font-medium">{sellConfirmation.lot.cryptocurrency}</span></div>
+                  <div><span className="text-muted-foreground">Remaining Amount:</span> <span className="font-medium">{sellConfirmation.lot.remaining_amount.toFixed(8)}</span></div>
+                  <div><span className="text-muted-foreground">Entry Price:</span> <span className="font-medium">€{sellConfirmation.lot.buy_price.toFixed(2)}</span></div>
                   <div className="text-xs text-muted-foreground mt-2">
                     This will request a manual SELL via the coordinator. Execution depends on gating rules.
                   </div>
@@ -855,16 +1011,16 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-2">
-            <Button variant="outline" onClick={() => setSellConfirmation({ open: false, trade: null })}>
+            <Button variant="outline" onClick={() => setSellConfirmation({ open: false, lot: null })}>
               Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={async () => {
-                if (!sellConfirmation.trade) return;
-                const t = sellConfirmation.trade;
-                setSellConfirmation({ open: false, trade: null });
-                await handleDirectSell(t);
+                if (!sellConfirmation.lot) return;
+                const l = sellConfirmation.lot;
+                setSellConfirmation({ open: false, lot: null });
+                await handleDirectSell(l);
               }}
             >
               Confirm Sell

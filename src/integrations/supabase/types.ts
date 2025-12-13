@@ -2992,6 +2992,19 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_open_lots: {
+        Args: { p_user_id: string }
+        Returns: {
+          buy_fee: number
+          buy_price: number
+          buy_total_value: number
+          buy_trade_id: string
+          cryptocurrency: string
+          executed_at: string
+          remaining_amount: number
+          strategy_id: string
+        }[]
+      }
       get_pending_decisions_for_horizon: {
         Args: { horizon_key: string }
         Returns: {
