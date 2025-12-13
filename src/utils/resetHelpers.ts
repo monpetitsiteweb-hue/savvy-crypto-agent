@@ -13,6 +13,7 @@ export interface AfterResetCallbacks {
   refreshPortfolioMetrics: () => Promise<void>;
   refreshTradingHistory?: () => Promise<void>;
   refreshOpenLots?: () => Promise<void>;
+  clearLocalState?: () => void;
 }
 
 /**
@@ -22,15 +23,24 @@ export interface AfterResetCallbacks {
 export async function afterReset(callbacks: AfterResetCallbacks): Promise<void> {
   const promises: Promise<void>[] = [];
   
+  // Refresh portfolio metrics from RPC (single source of truth)
   promises.push(callbacks.refreshPortfolioMetrics());
   
+  // Refresh trading history if mounted
   if (callbacks.refreshTradingHistory) {
     promises.push(callbacks.refreshTradingHistory());
   }
   
+  // Refresh open lots from RPC (server-side FIFO)
   if (callbacks.refreshOpenLots) {
     promises.push(callbacks.refreshOpenLots());
   }
   
+  // Clear any local cached state (synchronous)
+  if (callbacks.clearLocalState) {
+    callbacks.clearLocalState();
+  }
+  
+  // Await all async refreshes in parallel
   await Promise.all(promises);
 }

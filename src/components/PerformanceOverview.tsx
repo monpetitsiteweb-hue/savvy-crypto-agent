@@ -1,3 +1,4 @@
+// P2 FIX: PerformanceOverview uses afterReset for deterministic refresh
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -5,11 +6,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useTestMode } from "@/hooks/useTestMode";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
+import { useOpenLots } from "@/hooks/useOpenLots";
 import { TrendingUp, TrendingDown, DollarSign, Activity, Target, TestTube, Percent } from "lucide-react";
 import { NoActiveStrategyState } from "./NoActiveStrategyState";
 import { PortfolioNotInitialized } from "./PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useMockWallet } from "@/hooks/useMockWallet";
+import { afterReset } from "@/utils/resetHelpers";
 
 interface LocalMetrics {
   winningTrades: number;
@@ -37,6 +40,8 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
     unrealizedPnlPct
   } = usePortfolioMetrics();
   
+  // P2 FIX: Use server-side open lots for consistency
+  const { refresh: refreshOpenLots } = useOpenLots();
   const [localMetrics, setLocalMetrics] = useState<LocalMetrics>({
     winningTrades: 0,
     losingTrades: 0,
@@ -92,11 +97,16 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
     }
   }, [metrics.realized_pnl_eur, isInitialized]);
 
+  // P2 FIX: Deterministic reset using afterReset helper (no setTimeout)
   const handleReset = async () => {
     try {
       await resetPortfolio();
-      // P2 FIX: Await refresh directly, no setTimeout
-      await refreshMetrics();
+      // P2 FIX: Use centralized afterReset for deterministic refresh
+      await afterReset({
+        refreshPortfolioMetrics: refreshMetrics,
+        refreshOpenLots: refreshOpenLots,
+      });
+      // Fetch local metrics (win/loss counts) after reset
       await fetchLocalMetrics();
     } catch (error) {
       console.error('Failed to reset portfolio:', error);
