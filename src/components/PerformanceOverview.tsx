@@ -95,7 +95,9 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
   const handleReset = async () => {
     try {
       await resetPortfolio();
-      setTimeout(() => refreshMetrics(), 500);
+      // P2 FIX: Await refresh directly, no setTimeout
+      await refreshMetrics();
+      await fetchLocalMetrics();
     } catch (error) {
       console.error('Failed to reset portfolio:', error);
     }
