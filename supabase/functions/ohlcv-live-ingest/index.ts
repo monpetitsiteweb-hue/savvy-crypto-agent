@@ -198,15 +198,64 @@ async function upsertCandles(
   return data?.length || 0;
 }
 
+// Technical indicator helpers
+function calculateEMA(prices: number[], period: number): number | null {
+  if (prices.length < period) return null;
+  const k = 2 / (period + 1);
+  let sma = 0;
+  for (let i = 0; i < period; i++) sma += prices[i];
+  sma /= period;
+  let ema = sma;
+  for (let i = period; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+function calculateRSI(prices: number[], period: number = 14): number | null {
+  if (prices.length < period + 1) return null;
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const change = prices[i] - prices[i - 1];
+    if (change > 0) avgGain += change; else avgLoss += Math.abs(change);
+  }
+  avgGain /= period; avgLoss /= period;
+  for (let i = period + 1; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
+    avgGain = (avgGain * (period - 1) + (change > 0 ? change : 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + (change < 0 ? Math.abs(change) : 0)) / period;
+  }
+  const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+function calculateMACD(prices: number[]): { macd_line: number | null; macd_signal: number | null; macd_hist: number | null } {
+  if (prices.length < 35) return { macd_line: null, macd_signal: null, macd_hist: null };
+  const ema12 = calculateEMA(prices, 12);
+  const ema26 = calculateEMA(prices, 26);
+  if (ema12 === null || ema26 === null) return { macd_line: null, macd_signal: null, macd_hist: null };
+  const macd_line = ema12 - ema26;
+  // Simplified signal: use recent MACD values
+  const macdValues: number[] = [];
+  for (let i = 26; i <= prices.length; i++) {
+    const e12 = calculateEMA(prices.slice(0, i), 12);
+    const e26 = calculateEMA(prices.slice(0, i), 26);
+    if (e12 !== null && e26 !== null) macdValues.push(e12 - e26);
+  }
+  const macd_signal = macdValues.length >= 9 ? calculateEMA(macdValues, 9) : null;
+  const macd_hist = macd_signal !== null ? macd_line - macd_signal : null;
+  return { macd_line, macd_signal, macd_hist };
+}
+
 async function computeFeatures(
   supabase: any,
   symbol: string,
   granularity: string,
   latestTimestamp: Date
 ): Promise<void> {
-  // Get the last 168 candles (7 days worth for 1h granularity) to compute rolling features
+  // Get enough candles for EMA-200 + buffer
   const step = { '1h': 1, '4h': 4, '24h': 24 }[granularity] || 1;
-  const lookbackCandles = Math.max(168 / step, 50); // At least 50 candles for computation
+  const lookbackCandles = Math.max(250, 168 / step);
   const lookbackStart = new Date(latestTimestamp.getTime() - (lookbackCandles * step * 3600000));
 
   const { data: candles, error } = await supabase
@@ -219,9 +268,13 @@ async function computeFeatures(
     .order('ts_utc', { ascending: true });
 
   if (error || !candles || candles.length < 2) {
-    logger.warn(`Insufficient data to compute features for ${symbol} ${granularity}`);
+    logger.warn(`Insufficient data to compute features for ${symbol} ${granularity}: ${candles?.length || 0} candles`);
     return;
   }
+
+  const prices = candles.map((c: any) => parseFloat(c.close));
+  const lastIndex = prices.length - 1;
+  if (lastIndex < 1) return;
 
   // Scale windows by granularity
   const ret_1h_window = Math.max(1, Math.floor(1 / step));
@@ -229,58 +282,48 @@ async function computeFeatures(
   const ret_24h_window = Math.max(1, Math.floor(24 / step));
   const ret_7d_window = Math.max(1, Math.floor(168 / step));
 
-  // Compute rolling returns and volatility for the latest candle
-  const prices = candles.map(c => parseFloat(c.close));
-  const lastIndex = prices.length - 1;
-
-  if (lastIndex < 1) return;
-
-  // Calculate log returns using scaled windows
+  // Returns
   const ret_1h = lastIndex >= ret_1h_window ? Math.log(prices[lastIndex] / prices[lastIndex - ret_1h_window]) : null;
   const ret_4h = lastIndex >= ret_4h_window ? Math.log(prices[lastIndex] / prices[lastIndex - ret_4h_window]) : null;
   const ret_24h = lastIndex >= ret_24h_window ? Math.log(prices[lastIndex] / prices[lastIndex - ret_24h_window]) : null;
   const ret_7d = lastIndex >= ret_7d_window ? Math.log(prices[lastIndex] / prices[lastIndex - ret_7d_window]) : null;
 
-  // Calculate rolling volatility using scaled windows
+  // Volatility
   const getVolatility = (windowSize: number) => {
     if (lastIndex < windowSize || windowSize < 2) return null;
-    
     const returns = [];
     for (let i = lastIndex - windowSize + 1; i <= lastIndex; i++) {
       returns.push(Math.log(prices[i] / prices[i - 1]));
     }
-    
     const mean = returns.reduce((sum, r) => sum + r, 0) / returns.length;
     const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / (returns.length - 1);
     return Math.sqrt(variance);
   };
 
-  const vol_1h = getVolatility(ret_1h_window);
-  const vol_4h = getVolatility(ret_4h_window);
-  const vol_24h = getVolatility(ret_24h_window);
-  const vol_7d = getVolatility(ret_7d_window);
+  // Technical indicators
+  const rsi_14 = calculateRSI(prices, 14);
+  const macd = calculateMACD(prices);
+  const ema_20 = calculateEMA(prices, 20);
+  const ema_50 = calculateEMA(prices, 50);
+  const ema_200 = calculateEMA(prices, 200);
 
   const features = {
     symbol,
     granularity,
     ts_utc: latestTimestamp.toISOString(),
-    ret_1h,
-    ret_4h,
-    ret_24h,
-    ret_7d,
-    vol_1h,
-    vol_4h,
-    vol_24h,
-    vol_7d
+    ret_1h, ret_4h, ret_24h, ret_7d,
+    vol_1h: getVolatility(ret_1h_window),
+    vol_4h: getVolatility(ret_4h_window),
+    vol_24h: getVolatility(ret_24h_window),
+    vol_7d: getVolatility(ret_7d_window),
+    rsi_14, macd_line: macd.macd_line, macd_signal: macd.macd_signal, macd_hist: macd.macd_hist,
+    ema_20, ema_50, ema_200,
+    updated_at: new Date().toISOString()
   };
 
-  // Upsert features (idempotent)
   const { error: featuresError } = await supabase
     .from('market_features_v0')
-    .upsert(features, {
-      onConflict: 'symbol,granularity,ts_utc',
-      ignoreDuplicates: false // We want to update if computation changes
-    });
+    .upsert(features, { onConflict: 'symbol,granularity,ts_utc', ignoreDuplicates: false });
 
   if (featuresError) {
     throw new Error(`Failed to upsert features: ${featuresError.message}`);
