@@ -24,6 +24,14 @@ interface LatestDecision {
   decision_ts: string;
   source: string;
   metadata: {
+    // Backend writes to metadata.signals (not signalScores)
+    signals?: {
+      trend?: number;
+      momentum?: number;
+      volatility?: number;
+      sentiment?: number;
+      whale?: number;
+    };
     signalScores?: {
       trend?: number;
       momentum?: number;
@@ -32,10 +40,15 @@ interface LatestDecision {
       whale?: number;
     };
     fusionScore?: number;
+    enterThreshold?: number;
+    isTrendPositive?: boolean;
+    isMomentumPositive?: boolean;
+    meetsThreshold?: boolean;
     action?: string;
     decision_action?: string;
     decision_reason?: string;
-    mode?: string;
+    origin?: string;
+    engineMode?: string;
   } | null;
 }
 
@@ -251,7 +264,9 @@ export function BackendDecisionPanel() {
               {SYMBOLS.map(symbol => {
                 const signalInfo = getOverallSignal(symbol);
                 const decision = latestBySymbol[symbol];
-                const scores = decision?.metadata?.signalScores;
+                // Backend writes to metadata.signals (not signalScores)
+                const scores = decision?.metadata?.signals || decision?.metadata?.signalScores;
+                const meta = decision?.metadata;
                 
                 return (
                   <div 
@@ -273,21 +288,33 @@ export function BackendDecisionPanel() {
                           <TooltipTrigger asChild>
                             <div className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-help">
                               <Activity className="w-3 h-3" />
-                              <span>T:{(scores.trend ?? 0).toFixed(2)}</span>
-                              <span>M:{(scores.momentum ?? 0).toFixed(2)}</span>
+                              <span className={scores.trend && scores.trend > 0 ? 'text-green-600' : 'text-red-600'}>
+                                T:{(scores.trend ?? 0).toFixed(2)}
+                              </span>
+                              <span className={scores.momentum && scores.momentum > 0 ? 'text-green-600' : 'text-red-600'}>
+                                M:{(scores.momentum ?? 0).toFixed(2)}
+                              </span>
                               <span>V:{(scores.volatility ?? 0).toFixed(2)}</span>
                             </div>
                           </TooltipTrigger>
                           <TooltipContent>
                             <div className="text-xs space-y-1">
-                              <div>Trend: {(scores.trend ?? 0).toFixed(3)}</div>
-                              <div>Momentum: {(scores.momentum ?? 0).toFixed(3)}</div>
+                              <div className={scores.trend && scores.trend > 0 ? 'text-green-400' : 'text-red-400'}>
+                                Trend: {(scores.trend ?? 0).toFixed(3)} {meta?.isTrendPositive ? '✓' : '✗'}
+                              </div>
+                              <div className={scores.momentum && scores.momentum > 0 ? 'text-green-400' : 'text-red-400'}>
+                                Momentum: {(scores.momentum ?? 0).toFixed(3)} {meta?.isMomentumPositive ? '✓' : '✗'}
+                              </div>
                               <div>Volatility: {(scores.volatility ?? 0).toFixed(3)}</div>
                               <div>Sentiment: {(scores.sentiment ?? 0).toFixed(3)}</div>
                               <div>Whale: {(scores.whale ?? 0).toFixed(3)}</div>
-                              {decision?.metadata?.fusionScore !== undefined && (
-                                <div className="font-bold">Fusion: {decision.metadata.fusionScore.toFixed(3)}</div>
-                              )}
+                              <div className="border-t pt-1 mt-1">
+                                <div>Confidence: {(decision?.confidence ?? 0).toFixed(3)}</div>
+                                <div>Threshold: {meta?.enterThreshold ?? 0.15}</div>
+                                <div className={meta?.meetsThreshold ? 'text-green-400 font-bold' : 'text-red-400'}>
+                                  Meets threshold: {meta?.meetsThreshold ? 'YES' : 'NO'}
+                                </div>
+                              </div>
                             </div>
                           </TooltipContent>
                         </Tooltip>
