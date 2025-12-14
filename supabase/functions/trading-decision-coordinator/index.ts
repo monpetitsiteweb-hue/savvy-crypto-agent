@@ -1024,8 +1024,25 @@ serve(async (req) => {
         .single();
       
       const config = strategyConfig?.configuration || {};
-      const effectiveTpPct = config.takeProfitPercentage || 1.5;
-      const effectiveSlPct = config.stopLossPercentage || 0.8;
+      
+      // FAIL-CLOSED: Required config must exist - NO || fallbacks
+      const effectiveTpPct = config.takeProfitPercentage;
+      const effectiveSlPct = config.stopLossPercentage;
+      const minHoldPeriodMs = config.minHoldPeriodMs;
+      const cooldownMs = config.cooldownBetweenOppositeActionsMs;
+      const confidenceThreshold = config.aiConfidenceThreshold;
+      const confidenceOverrideThreshold = config.confidenceOverrideThreshold;
+      
+      // Validate required config before proceeding
+      if (effectiveTpPct === undefined || effectiveSlPct === undefined ||
+          minHoldPeriodMs === undefined || cooldownMs === undefined ||
+          confidenceThreshold === undefined) {
+        console.log(`🚫 UI TEST BUY: Missing required config fields`);
+        return new Response(JSON.stringify({
+          ok: false,
+          error: 'blocked_missing_config:tp_sl_or_hold_period'
+        }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
       
       // Log the BUY decision
       await logDecisionAsync(
@@ -1035,9 +1052,9 @@ serve(async (req) => {
         'no_conflicts_detected', // reason
         { 
           enableUnifiedDecisions: false,
-          minHoldPeriodMs: config.minHoldPeriodMs || 300000,
-          cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs || 180000,
-          confidenceOverrideThreshold: 0.70
+          minHoldPeriodMs: minHoldPeriodMs,
+          cooldownBetweenOppositeActionsMs: cooldownMs,
+          confidenceOverrideThreshold: confidenceOverrideThreshold
         }, // unifiedConfig
         requestId,
         undefined, // profitMetadata
@@ -1046,7 +1063,7 @@ serve(async (req) => {
         { // strategyConfig
           takeProfitPercentage: effectiveTpPct,
           stopLossPercentage: effectiveSlPct,
-          minConfidence: (config.aiConfidenceThreshold || 60) / 100,
+          minConfidence: confidenceThreshold / 100,
           configuration: config
         }
       );
@@ -1241,16 +1258,33 @@ serve(async (req) => {
         return respond('HOLD', 'internal_error', requestId);
       }
 
+      // FAIL-CLOSED: Required config must exist - NO hardcoded fallbacks
+      const configData = strategyConfig.configuration || {};
+      const effectiveTpPct = configData.takeProfitPercentage;
+      const effectiveSlPct = configData.stopLossPercentage;
+      const minHoldPeriodMs = configData.minHoldPeriodMs;
+      const cooldownMs = configData.cooldownBetweenOppositeActionsMs;
+      const confidenceThreshold = configData.aiConfidenceThreshold;
+      const confidenceOverrideThreshold = configData.confidenceOverrideThreshold;
+      
+      if (effectiveTpPct === undefined || effectiveSlPct === undefined ||
+          minHoldPeriodMs === undefined || cooldownMs === undefined ||
+          confidenceThreshold === undefined) {
+        console.log(`🚫 INTELLIGENT: Missing required config fields`);
+        return new Response(JSON.stringify({
+          ok: false,
+          error: 'blocked_missing_config:tp_sl_or_hold_period'
+        }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      
       const unifiedConfig: UnifiedConfig = strategyConfig.unified_config || {
         enableUnifiedDecisions: false,
-        minHoldPeriodMs: 300000,
-        cooldownBetweenOppositeActionsMs: 180000,
-        confidenceOverrideThreshold: 0.70
+        minHoldPeriodMs: minHoldPeriodMs,
+        cooldownBetweenOppositeActionsMs: cooldownMs,
+        confidenceOverrideThreshold: confidenceOverrideThreshold
       };
 
-      const config = strategyConfig.configuration || {};
-      const effectiveTpPct = config.takeProfitPercentage || 1.5;
-      const effectiveSlPct = config.stopLossPercentage || 0.8;
+      const config = configData;
 
       // Determine action based on side
       const action = intent.side as DecisionAction;
@@ -1284,7 +1318,7 @@ serve(async (req) => {
         { // strategyConfig
           takeProfitPercentage: effectiveTpPct,
           stopLossPercentage: effectiveSlPct,
-          minConfidence: (config.aiConfidenceThreshold || 60) / 100,
+          minConfidence: confidenceThreshold / 100,
           configuration: config
         }
       );
@@ -1512,8 +1546,24 @@ serve(async (req) => {
         .single();
       
       const config = strategyConfig?.configuration || {};
-      const effectiveTpPct = config.takeProfitPercentage || 1.5;
-      const effectiveSlPct = config.stopLossPercentage || 0.8;
+      
+      // FAIL-CLOSED: Required config must exist - NO || fallbacks
+      const effectiveTpPct = config.takeProfitPercentage;
+      const effectiveSlPct = config.stopLossPercentage;
+      const minHoldPeriodMs = config.minHoldPeriodMs;
+      const cooldownMs = config.cooldownBetweenOppositeActionsMs;
+      const confidenceThreshold = config.aiConfidenceThreshold;
+      const confidenceOverrideThreshold = config.confidenceOverrideThreshold;
+      
+      if (effectiveTpPct === undefined || effectiveSlPct === undefined ||
+          minHoldPeriodMs === undefined || cooldownMs === undefined ||
+          confidenceThreshold === undefined) {
+        console.log(`🚫 MANUAL SELL: Missing required config fields`);
+        return new Response(JSON.stringify({
+          ok: false,
+          error: 'blocked_missing_config:tp_sl_or_hold_period'
+        }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
       
       // Log the SELL decision
       await logDecisionAsync(
@@ -1523,9 +1573,9 @@ serve(async (req) => {
         'no_conflicts_detected', // reason
         { 
           enableUnifiedDecisions: false,
-          minHoldPeriodMs: config.minHoldPeriodMs || 300000,
-          cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs || 180000,
-          confidenceOverrideThreshold: 0.70
+          minHoldPeriodMs: minHoldPeriodMs,
+          cooldownBetweenOppositeActionsMs: cooldownMs,
+          confidenceOverrideThreshold: confidenceOverrideThreshold
         }, // unifiedConfig
         requestId,
         { // profitMetadata
@@ -1540,7 +1590,7 @@ serve(async (req) => {
         { // strategyConfig
           takeProfitPercentage: effectiveTpPct,
           stopLossPercentage: effectiveSlPct,
-          minConfidence: (config.aiConfidenceThreshold || 60) / 100,
+          minConfidence: confidenceThreshold / 100,
           configuration: config
         }
       );
@@ -2014,8 +2064,19 @@ async function executeTradeDirectly(
     // Get real market price using symbol utilities with freshness check
     const baseSymbol = toBaseSymbol(intent.symbol);
     const sc = strategyConfig || {};
-    const priceStaleMaxMs = sc.priceStaleMaxMs || 15000;
-    const spreadThresholdBps = sc.spreadThresholdBps || 15;
+    
+    // FAIL-CLOSED: Required config must exist - NO || fallbacks
+    const priceStaleMaxMs = sc.priceStaleMaxMs;
+    const spreadThresholdBps = sc.spreadThresholdBps;
+    
+    if (priceStaleMaxMs === undefined || priceStaleMaxMs === null) {
+      console.log(`🚫 DIRECT: Trade blocked - missing required config: priceStaleMaxMs`);
+      return { success: false, error: 'blocked_missing_config:priceStaleMaxMs' };
+    }
+    if (spreadThresholdBps === undefined || spreadThresholdBps === null) {
+      console.log(`🚫 DIRECT: Trade blocked - missing required config: spreadThresholdBps`);
+      return { success: false, error: 'blocked_missing_config:spreadThresholdBps' };
+    }
     
     console.log('[DEBUG][executeTradeDirectly] baseSymbol:', baseSymbol);
     console.log('[DEBUG][executeTradeDirectly] Fetching market price...');
@@ -2045,17 +2106,28 @@ async function executeTradeDirectly(
       if (recentBuys && recentBuys.length > 0) {
         const lastBuyTime = new Date(recentBuys[0].executed_at).getTime();
         const timeSinceBuy = Date.now() - lastBuyTime;
-        const minHoldPeriodMs = sc.minHoldPeriodMs || 300000; // 5 min default
+        
+        // FAIL-CLOSED: Required config must exist - NO || fallbacks
+        const minHoldPeriodMs = sc.minHoldPeriodMs;
+        if (minHoldPeriodMs === undefined || minHoldPeriodMs === null) {
+          console.log(`🚫 DIRECT: SELL blocked - missing required config: minHoldPeriodMs`);
+          return { success: false, error: 'blocked_missing_config:minHoldPeriodMs' };
+        }
         
         if (timeSinceBuy < minHoldPeriodMs) {
           console.log(`🚫 DIRECT: SELL blocked - hold period not met (${timeSinceBuy}ms < ${minHoldPeriodMs}ms)`);
           
           // Log decision for consistency
+          const cooldownMs = sc.cooldownBetweenOppositeActionsMs;
+          if (cooldownMs === undefined || cooldownMs === null) {
+            return { success: false, error: 'blocked_missing_config:cooldownBetweenOppositeActionsMs' };
+          }
+          
           const pseudoUnifiedConfig = {
             enableUnifiedDecisions: false,
-            minHoldPeriodMs: sc.minHoldPeriodMs || 300000,
-            cooldownBetweenOppositeActionsMs: sc.cooldownBetweenOppositeActionsMs || 180000,
-            confidenceOverrideThreshold: 0.70
+            minHoldPeriodMs: minHoldPeriodMs,
+            cooldownBetweenOppositeActionsMs: cooldownMs,
+            confidenceOverrideThreshold: sc.confidenceOverrideThreshold
           };
           
           await logDecisionAsync(supabaseClient, intent, 'DEFER', 'hold_min_period_not_met', pseudoUnifiedConfig, requestId, undefined, undefined, realMarketPrice, strategyConfig);
@@ -2385,11 +2457,16 @@ async function logDecisionAsync(
     // Log ALL decisions unconditionally (BUY/SELL/BLOCK/DEFER/HOLD) for complete audit trail
     if (action === 'BUY' || action === 'SELL' || action === 'BLOCK' || action === 'DEFER' || action === 'HOLD') {
       // Extract EFFECTIVE TP/SL/min_confidence from strategy config (after overrides)
-      // These values should be the actual parameters used for the decision, not the base strategy defaults
-      const effectiveTpPct = strategyConfig?.takeProfitPercentage || strategyConfig?.configuration?.takeProfitPercentage || 1.5;
-      const effectiveSlPct = strategyConfig?.stopLossPercentage || strategyConfig?.configuration?.stopLossPercentage || 0.8;
-      const effectiveMinConf = strategyConfig?.minConfidence || (strategyConfig?.configuration?.aiConfidenceThreshold ? (strategyConfig.configuration.aiConfidenceThreshold / 100) : 0.5);
+      // FAIL-CLOSED: Required config must exist - NO || fallbacks
+      const effectiveTpPct = strategyConfig?.takeProfitPercentage ?? strategyConfig?.configuration?.takeProfitPercentage;
+      const effectiveSlPct = strategyConfig?.stopLossPercentage ?? strategyConfig?.configuration?.stopLossPercentage;
+      const effectiveMinConf = strategyConfig?.minConfidence ?? (strategyConfig?.configuration?.aiConfidenceThreshold ? (strategyConfig.configuration.aiConfidenceThreshold / 100) : undefined);
       const finalEntryPrice = executionPrice || profitMetadata?.entry_price || intent.metadata?.entry_price || profitMetadata?.currentPrice || null;
+      
+      // Log warning if config missing (but don't block decision logging - it's an audit trail)
+      if (effectiveTpPct === undefined || effectiveSlPct === undefined || effectiveMinConf === undefined) {
+        console.warn(`[coordinator] WARNING: Missing config for decision logging - tp_pct=${effectiveTpPct}, sl_pct=${effectiveSlPct}, min_conf=${effectiveMinConf}`);
+      }
 
       // PHASE 1B: Extract isTestMode from strategy config (primary source) and intent metadata (fallback)
       const isTestMode = 
@@ -2997,7 +3074,13 @@ async function detectConflicts(
     // ========= GATE 1: STOP-LOSS COOLDOWN =========
     // After a STOP_LOSS exit, block BUY on same symbol for cooldown period
     // This prevents the deadly SL → immediate re-entry loop
-    const stopLossCooldownMs = cfg.stopLossCooldownMs || 300000; // 5 minutes default
+    // FAIL-CLOSED: Required config must exist - NO || fallbacks
+    const stopLossCooldownMs = cfg.stopLossCooldownMs;
+    if (stopLossCooldownMs === undefined || stopLossCooldownMs === null) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: stopLossCooldownMs`);
+      guardReport.missingConfig = 'stopLossCooldownMs';
+      return { hasConflict: true, reason: 'blocked_missing_config:stopLossCooldownMs', guardReport };
+    }
     
     // Check recent decision_events for STOP_LOSS exits on this symbol
     const slCooldownCutoff = new Date(Date.now() - stopLossCooldownMs).toISOString();
@@ -3032,14 +3115,34 @@ async function detectConflicts(
     // ========= GATE 2: MULTI-SIGNAL ALIGNMENT =========
     // An omniscient AI agent requires MULTIPLE confirming signals, not just one
     // Block BUYs when core signals are weak or misaligned
+    // NO HARDCODED FALLBACKS - values MUST come from strategy config
     const trendScore = signalScores.trend ?? 0;
     const momentumScore = signalScores.momentum ?? 0;
     const volatilityScore = signalScores.volatility ?? 0;
     
-    // Configurable thresholds (with sensible defaults for crypto)
-    const minTrendScore = cfg.minTrendScoreForBuy ?? 0.4;
-    const minMomentumScore = cfg.minMomentumScoreForBuy ?? 0.25;
-    const maxVolatilityForBuy = cfg.maxVolatilityScoreForBuy ?? 0.5;
+    // FAIL-CLOSED: Required thresholds must exist in config - NO ?? fallbacks
+    const minTrendScore = cfg.minTrendScoreForBuy;
+    const minMomentumScore = cfg.minMomentumScoreForBuy;
+    const maxVolatilityForBuy = cfg.maxVolatilityScoreForBuy;
+    
+    // Block if required config is missing
+    if (minTrendScore === undefined || minTrendScore === null) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: minTrendScoreForBuy`);
+      guardReport.missingConfig = 'minTrendScoreForBuy';
+      return { hasConflict: true, reason: 'blocked_missing_config:minTrendScoreForBuy', guardReport };
+    }
+    if (minMomentumScore === undefined || minMomentumScore === null) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: minMomentumScoreForBuy`);
+      guardReport.missingConfig = 'minMomentumScoreForBuy';
+      return { hasConflict: true, reason: 'blocked_missing_config:minMomentumScoreForBuy', guardReport };
+    }
+    if (maxVolatilityForBuy === undefined || maxVolatilityForBuy === null) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: maxVolatilityScoreForBuy`);
+      guardReport.missingConfig = 'maxVolatilityScoreForBuy';
+      return { hasConflict: true, reason: 'blocked_missing_config:maxVolatilityScoreForBuy', guardReport };
+    }
+    
+    console.log(`[Config] Signal alignment thresholds: minTrend=${minTrendScore}, minMomentum=${minMomentumScore}, maxVolatility=${maxVolatilityForBuy}`);
     
     // Only apply signal alignment gate if we have signal scores in metadata
     const hasSignalScores = Object.keys(signalScores).length > 0;
@@ -3067,7 +3170,13 @@ async function detectConflicts(
     
     // ========= GATE 4: MINIMUM ENTRY SPACING =========
     // Prevent rapid-fire entries on the same symbol (anti-churn)
-    const minEntrySpacingMs = cfg.minEntrySpacingMs || 600000; // 10 minutes default
+    // FAIL-CLOSED: Required config must exist
+    const minEntrySpacingMs = cfg.minEntrySpacingMs;
+    if (minEntrySpacingMs === undefined || minEntrySpacingMs === null) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: minEntrySpacingMs`);
+      guardReport.missingConfig = 'minEntrySpacingMs';
+      return { hasConflict: true, reason: 'blocked_missing_config:minEntrySpacingMs', guardReport };
+    }
     
     const entrySpacingCutoff = new Date(Date.now() - minEntrySpacingMs).toISOString();
     
@@ -3201,7 +3310,14 @@ async function detectConflicts(
       
       if (lastBuy) {
         const timeSinceBuy = Date.now() - new Date(lastBuy.executed_at as string).getTime();
-        const minHoldPeriodMs = config.minHoldPeriodMs || 300000; // 5 minutes default
+        
+        // FAIL-CLOSED: Required config must exist - NO || fallbacks
+        const minHoldPeriodMs = config.minHoldPeriodMs;
+        if (minHoldPeriodMs === undefined || minHoldPeriodMs === null) {
+          console.log(`🚫 COORDINATOR: SELL blocked - missing required config: minHoldPeriodMs`);
+          guardReport.missingConfig = 'minHoldPeriodMs';
+          return { hasConflict: true, reason: 'blocked_missing_config:minHoldPeriodMs', guardReport };
+        }
         
         if (timeSinceBuy < minHoldPeriodMs) {
           console.log('[COORD][GUARD] holdPeriodNotMet', {
@@ -3261,9 +3377,19 @@ async function executeWithMinimalLock(
   
   try {
     // PRICE FRESHNESS AND SPREAD GATES (before acquiring lock)
+    // FAIL-CLOSED: Required config must exist - NO || fallbacks
     const baseSymbol = toBaseSymbol(intent.symbol);
-    const priceStaleMaxMs = strategyConfig?.priceStaleMaxMs || 15000; // DEFAULT_VALUES.PRICE_STALE_MAX_MS
-    const spreadThresholdBps = strategyConfig?.spreadThresholdBps || 15; // DEFAULT_VALUES.SPREAD_THRESHOLD_BPS
+    const priceStaleMaxMs = strategyConfig?.priceStaleMaxMs;
+    const spreadThresholdBps = strategyConfig?.spreadThresholdBps;
+    
+    if (priceStaleMaxMs === undefined || priceStaleMaxMs === null) {
+      console.log(`🚫 COORDINATOR: Trade blocked - missing required config: priceStaleMaxMs`);
+      return { action: 'BLOCK', reason: 'blocked_missing_config:priceStaleMaxMs' };
+    }
+    if (spreadThresholdBps === undefined || spreadThresholdBps === null) {
+      console.log(`🚫 COORDINATOR: Trade blocked - missing required config: spreadThresholdBps`);
+      return { action: 'BLOCK', reason: 'blocked_missing_config:spreadThresholdBps' };
+    }
     
     const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
     
@@ -3698,11 +3824,18 @@ async function executeTradeOrder(
     const params = await loadStrategyParameters(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
     
     // Extract base config values for logging
+    // FAIL-CLOSED: Required config must exist - NO || fallbacks
     const baseConfig = {
-      tp_pct: strategyConfig?.takeProfitPercentage || strategyConfig?.configuration?.takeProfitPercentage || 1.5,
-      sl_pct: strategyConfig?.stopLossPercentage || strategyConfig?.configuration?.stopLossPercentage || 0.8,
-      min_confidence: strategyConfig?.minConfidence || (strategyConfig?.configuration?.aiConfidenceThreshold ? (strategyConfig.configuration.aiConfidenceThreshold / 100) : 0.5)
+      tp_pct: strategyConfig?.takeProfitPercentage ?? strategyConfig?.configuration?.takeProfitPercentage,
+      sl_pct: strategyConfig?.stopLossPercentage ?? strategyConfig?.configuration?.stopLossPercentage,
+      min_confidence: strategyConfig?.minConfidence ?? (strategyConfig?.configuration?.aiConfidenceThreshold ? (strategyConfig.configuration.aiConfidenceThreshold / 100) : undefined)
     };
+    
+    // Block if required config is missing
+    if (baseConfig.tp_pct === undefined || baseConfig.sl_pct === undefined || baseConfig.min_confidence === undefined) {
+      console.log(`🚫 COORDINATOR: Trade blocked - missing required config: tp_pct=${baseConfig.tp_pct}, sl_pct=${baseConfig.sl_pct}, min_conf=${baseConfig.min_confidence}`);
+      return { action: 'BLOCK', reason: 'blocked_missing_config:tp_sl_or_confidence' };
+    }
     
     // Create effective config by merging overrides
     let effectiveConfig = { ...strategyConfig };
