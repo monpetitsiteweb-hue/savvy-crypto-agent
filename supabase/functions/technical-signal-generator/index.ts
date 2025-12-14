@@ -85,11 +85,14 @@ serve(async (req) => {
 
     const actualSourceId = sourceId || dataSource?.id;
     
-    // P2 FIX: All signals will have user_id = NULL (system-wide)
-    const resolvedUserId = null;
+    // P2 FIX: Use SYSTEM_USER_ID sentinel for system-wide signals
+    // live_signals.user_id is NOT NULL, so we need a valid UUID
+    // Use a fixed sentinel UUID: 00000000-0000-0000-0000-000000000000
+    const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+    const resolvedUserId = SYSTEM_USER_ID;
 
     console.log(`🔍 Analyzing technical indicators for symbols: ${symbols.join(', ')}`);
-    console.log(`📊 System-wide signals (user_id = NULL), sourceId: ${actualSourceId}`);
+    console.log(`📊 System-wide signals (user_id = ${SYSTEM_USER_ID}), sourceId: ${actualSourceId}`);
 
     const signals = [];
     const now = new Date();
@@ -129,16 +132,23 @@ serve(async (req) => {
       }
     }
 
-    // Insert all generated signals
+    // Insert all generated signals with detailed error logging
     if (signals.length > 0) {
+      console.log(`📤 Attempting to insert ${signals.length} signals...`);
+      console.log(`📋 First signal sample:`, JSON.stringify(signals[0]));
+      
       const { data: insertedSignals, error: signalError } = await supabaseClient
         .from('live_signals')
         .insert(signals);
 
       if (signalError) {
         console.error('❌ Error inserting technical signals:', signalError);
+        console.error('❌ Error code:', signalError.code);
+        console.error('❌ Error details:', signalError.details);
+        console.error('❌ Error hint:', signalError.hint);
+        console.error('❌ Failed signals count:', signals.length);
       } else {
-        console.log(`✅ Generated ${signals.length} system-wide technical signals`);
+        console.log(`✅ Generated ${signals.length} system-wide technical signals for symbols: ${[...new Set(signals.map(s => s.symbol))].join(', ')}`);
       }
     } else {
       console.log('ℹ️ No technical signals generated this cycle');
