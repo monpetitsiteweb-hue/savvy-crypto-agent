@@ -366,7 +366,11 @@ type Reason =
   | "blocked_strategy_detached"
   | "blocked_policy_manage_only"
   | "blocked_policy_detached"
-  | "blocked_liquidation_batch_mismatch";
+  | "blocked_liquidation_batch_mismatch"
+  | "blocked_missing_policy"
+  | "blocked_missing_config"
+  | "blocked_liquidation_requires_batch_id"
+  | "decision_events_insert_failed";
 
 interface TradeDecision {
   action: DecisionAction;
@@ -1300,9 +1304,15 @@ serve(async (req) => {
           confidenceThreshold === undefined) {
         console.log(`🚫 INTELLIGENT: Missing required config fields`);
         return new Response(JSON.stringify({
-          ok: false,
-          error: 'blocked_missing_config:tp_sl_or_hold_period'
-        }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+          ok: true,
+          decision: {
+            action: 'BLOCK',
+            reason: 'blocked_missing_config',
+            request_id: requestId,
+            retry_in_ms: 0,
+            message: 'Missing required config fields: tp_sl_or_hold_period'
+          }
+        }), { headers: corsHeaders });
       }
       
       const unifiedConfig: UnifiedConfig = strategyConfig.unified_config || {
@@ -1367,7 +1377,7 @@ serve(async (req) => {
           strategyId: intent.strategyId,
         });
         return new Response(JSON.stringify({ 
-          ok: false,
+          ok: true,
           decision: {
             action: 'HOLD',
             reason: 'decision_events_insert_failed',
@@ -1681,10 +1691,27 @@ serve(async (req) => {
     // New columns: state, execution_target, on_disable_policy, liquidation_batch_id
     const strategyState = strategy.state || 'ACTIVE'; // Default ACTIVE for legacy rows
     const executionTarget = strategy.execution_target || 'MOCK';
-    const onDisablePolicy = strategy.on_disable_policy || 'MANAGE_ONLY';
     const liquidationBatchId = strategy.liquidation_batch_id || null;
     
-    console.log('[Coordinator][StateGate] state:', strategyState, 'executionTarget:', executionTarget, 'policy:', onDisablePolicy);
+    // FAIL-CLOSED: If state != ACTIVE and on_disable_policy IS NULL, BLOCK
+    // No silent default to MANAGE_ONLY - require explicit policy
+    const onDisablePolicy = strategy.on_disable_policy;
+    if (strategyState !== 'ACTIVE' && !onDisablePolicy) {
+      console.log(`🚫 COORDINATOR: Missing policy - strategy state is ${strategyState} but on_disable_policy is NULL`);
+      return new Response(JSON.stringify({
+        ok: true,
+        decision: {
+          action: 'BLOCK',
+          reason: 'blocked_missing_policy',
+          request_id: requestId,
+          retry_in_ms: 0,
+          strategy_state: strategyState,
+          message: 'Strategy is not ACTIVE but on_disable_policy is not set. Set policy before proceeding.'
+        }
+      }), { headers: corsHeaders });
+    }
+    
+    console.log('[Coordinator][StateGate] state:', strategyState, 'executionTarget:', executionTarget, 'policy:', onDisablePolicy || 'N/A (ACTIVE)');
     
     // ============= REAL MODE GATE =============
     // REAL mode is fully gated - no execution pipe yet
@@ -1796,9 +1823,13 @@ serve(async (req) => {
         // CLOSE_ALL policy: all SELLs allowed, but track liquidation batch
         if (onDisablePolicy === 'CLOSE_ALL') {
           console.log(`[Coordinator][Liquidation] CLOSE_ALL policy - SELL allowed`);
-          // If liquidation_batch_id is active, verify idempotency
-          if (liquidationBatchId && isLiquidationSell) {
+          
+          // If liquidation_batch_id is active, ALL managed/auto SELLs must include batch_id
+          // Manual SELLs can bypass this (user-initiated emergency exit)
+          if (liquidationBatchId) {
             const intentBatchId = intent.metadata?.liquidation_batch_id;
+            
+            // Case 1: intent has batch_id but it doesn't match active batch → stale request
             if (intentBatchId && intentBatchId !== liquidationBatchId) {
               console.log(`🚫 COORDINATOR: SELL blocked - liquidation_batch_id mismatch (intent: ${intentBatchId}, active: ${liquidationBatchId})`);
               return new Response(JSON.stringify({
@@ -1809,6 +1840,22 @@ serve(async (req) => {
                   request_id: requestId,
                   retry_in_ms: 0,
                   message: 'Liquidation batch ID mismatch. This is a stale liquidation request.'
+                }
+              }), { headers: corsHeaders });
+            }
+            
+            // Case 2: managed exit without batch_id during active liquidation → block
+            // This prevents auto-exits that weren't initiated by the liquidation flow
+            if (!intentBatchId && isManagedExit && !isManualSell) {
+              console.log(`🚫 COORDINATOR: SELL blocked - managed exit during CLOSE_ALL requires liquidation_batch_id`);
+              return new Response(JSON.stringify({
+                ok: true,
+                decision: {
+                  action: 'BLOCK',
+                  reason: 'blocked_liquidation_requires_batch_id',
+                  request_id: requestId,
+                  retry_in_ms: 0,
+                  message: 'During CLOSE_ALL liquidation, managed exits must include liquidation_batch_id.'
                 }
               }), { headers: corsHeaders });
             }
