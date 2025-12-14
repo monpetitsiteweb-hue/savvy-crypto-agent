@@ -329,7 +329,7 @@ interface MockTradeRow {
 }
 
 // STEP 1: Standardized response types
-type DecisionAction = "BUY" | "SELL" | "HOLD" | "DEFER";
+type DecisionAction = "BUY" | "SELL" | "HOLD" | "DEFER" | "BLOCK";
 type Reason =
   | "unified_decisions_disabled_direct_path"
   | "no_conflicts_detected"
@@ -358,7 +358,15 @@ type Reason =
   | "blocked_by_stop_loss_cooldown"
   | "blocked_by_signal_alignment"
   | "blocked_by_high_volatility"
-  | "blocked_by_entry_spacing";
+  | "blocked_by_entry_spacing"
+  // STRATEGY STATE & POLICY ENFORCEMENT
+  | "blocked_real_mode_not_supported"
+  | "blocked_strategy_not_active"
+  | "blocked_strategy_paused"
+  | "blocked_strategy_detached"
+  | "blocked_policy_manage_only"
+  | "blocked_policy_detached"
+  | "blocked_liquidation_batch_mismatch";
 
 interface TradeDecision {
   action: DecisionAction;
@@ -1245,10 +1253,10 @@ serve(async (req) => {
         marketPrice = intent.metadata?.price || intent.metadata?.currentPrice || null;
       }
 
-      // Fetch strategy config
+      // Fetch strategy config including state/policy fields
       const { data: strategyConfig, error: stratConfigError } = await supabaseClient
         .from('trading_strategies')
-        .select('unified_config, configuration')
+        .select('unified_config, configuration, state, execution_target, on_disable_policy')
         .eq('id', intent.strategyId)
         .eq('user_id', intent.userId)
         .single();
@@ -1256,6 +1264,26 @@ serve(async (req) => {
       if (stratConfigError || !strategyConfig) {
         console.error('❌ INTELLIGENT: Strategy not found:', stratConfigError);
         return respond('HOLD', 'internal_error', requestId);
+      }
+      
+      // State/execution gate for intelligent trades (early check)
+      const intStrategyState = strategyConfig.state || 'ACTIVE';
+      const intExecutionTarget = strategyConfig.execution_target || 'MOCK';
+      
+      if (intExecutionTarget === 'REAL') {
+        console.log('🚫 INTELLIGENT: REAL mode not supported');
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: { action: 'BLOCK', reason: 'blocked_real_mode_not_supported', request_id: requestId, retry_in_ms: 0 }
+        }), { headers: corsHeaders });
+      }
+      
+      if (intent.side === 'BUY' && intStrategyState !== 'ACTIVE') {
+        console.log(`🚫 INTELLIGENT: BUY blocked - strategy state is ${intStrategyState}`);
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: { action: 'BLOCK', reason: 'blocked_strategy_not_active', request_id: requestId, retry_in_ms: 0, strategy_state: intStrategyState }
+        }), { headers: corsHeaders });
       }
 
       // FAIL-CLOSED: Required config must exist - NO hardcoded fallbacks
@@ -1636,10 +1664,10 @@ serve(async (req) => {
       return respond(cachedDecision.decision.action, cachedDecision.decision.reason, cachedDecision.decision.request_id, cachedDecision.decision.retry_in_ms, cachedDecision.decision.qty ? { qty: cachedDecision.decision.qty } : {});
     }
 
-    // Get strategy configuration
+    // Get strategy configuration including state/policy fields
     const { data: strategy, error: strategyError } = await supabaseClient
       .from('trading_strategies')
-      .select('unified_config, configuration')
+      .select('unified_config, configuration, state, execution_target, on_disable_policy, liquidation_batch_id')
       .eq('id', intent.strategyId)
       .eq('user_id', intent.userId)
       .single();
@@ -1648,6 +1676,149 @@ serve(async (req) => {
       console.error('❌ COORDINATOR: Strategy not found:', strategyError);
       return respond('HOLD', 'internal_error', requestId);
     }
+
+    // ============= STRATEGY STATE & EXECUTION MODE ENFORCEMENT =============
+    // New columns: state, execution_target, on_disable_policy, liquidation_batch_id
+    const strategyState = strategy.state || 'ACTIVE'; // Default ACTIVE for legacy rows
+    const executionTarget = strategy.execution_target || 'MOCK';
+    const onDisablePolicy = strategy.on_disable_policy || 'MANAGE_ONLY';
+    const liquidationBatchId = strategy.liquidation_batch_id || null;
+    
+    console.log('[Coordinator][StateGate] state:', strategyState, 'executionTarget:', executionTarget, 'policy:', onDisablePolicy);
+    
+    // ============= REAL MODE GATE =============
+    // REAL mode is fully gated - no execution pipe yet
+    if (executionTarget === 'REAL') {
+      console.log('🚫 COORDINATOR: REAL mode is not yet supported - trade blocked');
+      return new Response(JSON.stringify({
+        ok: true,
+        decision: {
+          action: 'BLOCK',
+          reason: 'blocked_real_mode_not_supported',
+          request_id: requestId,
+          retry_in_ms: 0,
+          message: 'REAL execution mode is not yet implemented. Use MOCK mode for testing.'
+        }
+      }), { headers: corsHeaders });
+    }
+    
+    // ============= STRATEGY STATE GATE =============
+    // BUY is blocked when strategy is not ACTIVE
+    // SELL is allowed based on state and policy
+    if (intent.side === 'BUY' && strategyState !== 'ACTIVE') {
+      console.log(`🚫 COORDINATOR: BUY blocked - strategy state is ${strategyState} (not ACTIVE)`);
+      return new Response(JSON.stringify({
+        ok: true,
+        decision: {
+          action: 'BLOCK',
+          reason: 'blocked_strategy_not_active',
+          request_id: requestId,
+          retry_in_ms: 0,
+          strategy_state: strategyState,
+          message: `BUY orders are blocked when strategy is in ${strategyState} state.`
+        }
+      }), { headers: corsHeaders });
+    }
+    
+    // ============= SELL POLICY ENFORCEMENT =============
+    // When strategy is not ACTIVE, SELL behavior depends on on_disable_policy:
+    // - MANAGE_ONLY: Allow TP/SL/trailing/auto-close (managed exits) + manual SELLs
+    // - CLOSE_ALL: All SELLs allowed (liquidation in progress)
+    // - DETACH_TO_MANUAL: Only manual SELLs allowed (no auto exits)
+    // - PAUSED state: Only manual SELLs allowed
+    if (intent.side === 'SELL' && strategyState !== 'ACTIVE') {
+      const isManualSell = intent.source === 'manual' || 
+                           intent.metadata?.context === 'MANUAL' || 
+                           intent.metadata?.context === 'POOL_EXIT';
+      const isManagedExit = ['TAKE_PROFIT', 'STOP_LOSS', 'TRAILING_STOP', 'AUTO_CLOSE_TIME'].includes(intent.metadata?.trigger || '');
+      const isLiquidationSell = intent.metadata?.liquidation_batch_id != null;
+      
+      // PAUSED state: only manual allowed
+      if (strategyState === 'PAUSED' && !isManualSell) {
+        console.log(`🚫 COORDINATOR: SELL blocked - strategy is PAUSED, only manual SELLs allowed`);
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: {
+            action: 'BLOCK',
+            reason: 'blocked_strategy_paused',
+            request_id: requestId,
+            retry_in_ms: 0,
+            message: 'Strategy is PAUSED. Only manual SELLs are allowed.'
+          }
+        }), { headers: corsHeaders });
+      }
+      
+      // DETACHED state: only manual allowed
+      if (strategyState === 'DETACHED' && !isManualSell) {
+        console.log(`🚫 COORDINATOR: SELL blocked - strategy is DETACHED, only manual SELLs allowed`);
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: {
+            action: 'BLOCK',
+            reason: 'blocked_strategy_detached',
+            request_id: requestId,
+            retry_in_ms: 0,
+            message: 'Strategy is DETACHED. Positions are unmanaged - only manual SELLs allowed.'
+          }
+        }), { headers: corsHeaders });
+      }
+      
+      // PAUSED_MANAGE_ONLY state: policy-based enforcement
+      if (strategyState === 'PAUSED_MANAGE_ONLY') {
+        if (onDisablePolicy === 'MANAGE_ONLY' && !isManualSell && !isManagedExit) {
+          console.log(`🚫 COORDINATOR: SELL blocked - policy MANAGE_ONLY, but SELL is not a managed exit or manual`);
+          return new Response(JSON.stringify({
+            ok: true,
+            decision: {
+              action: 'BLOCK',
+              reason: 'blocked_policy_manage_only',
+              request_id: requestId,
+              retry_in_ms: 0,
+              message: 'Strategy policy is MANAGE_ONLY. Only TP/SL/trailing exits and manual SELLs are allowed.'
+            }
+          }), { headers: corsHeaders });
+        }
+        
+        if (onDisablePolicy === 'DETACH_TO_MANUAL' && !isManualSell) {
+          console.log(`🚫 COORDINATOR: SELL blocked - policy DETACH_TO_MANUAL, only manual SELLs allowed`);
+          return new Response(JSON.stringify({
+            ok: true,
+            decision: {
+              action: 'BLOCK',
+              reason: 'blocked_policy_detached',
+              request_id: requestId,
+              retry_in_ms: 0,
+              message: 'Strategy policy is DETACH_TO_MANUAL. Only manual SELLs are allowed.'
+            }
+          }), { headers: corsHeaders });
+        }
+        
+        // CLOSE_ALL policy: all SELLs allowed, but track liquidation batch
+        if (onDisablePolicy === 'CLOSE_ALL') {
+          console.log(`[Coordinator][Liquidation] CLOSE_ALL policy - SELL allowed`);
+          // If liquidation_batch_id is active, verify idempotency
+          if (liquidationBatchId && isLiquidationSell) {
+            const intentBatchId = intent.metadata?.liquidation_batch_id;
+            if (intentBatchId && intentBatchId !== liquidationBatchId) {
+              console.log(`🚫 COORDINATOR: SELL blocked - liquidation_batch_id mismatch (intent: ${intentBatchId}, active: ${liquidationBatchId})`);
+              return new Response(JSON.stringify({
+                ok: true,
+                decision: {
+                  action: 'BLOCK',
+                  reason: 'blocked_liquidation_batch_mismatch',
+                  request_id: requestId,
+                  retry_in_ms: 0,
+                  message: 'Liquidation batch ID mismatch. This is a stale liquidation request.'
+                }
+              }), { headers: corsHeaders });
+            }
+          }
+        }
+      }
+      
+      console.log(`[Coordinator][StateGate] SELL allowed - state: ${strategyState}, policy: ${onDisablePolicy}, isManual: ${isManualSell}, isManaged: ${isManagedExit}`);
+    }
+    // ============= END STATE/POLICY ENFORCEMENT =============
 
     const unifiedConfig: UnifiedConfig = strategy.unified_config || {
       enableUnifiedDecisions: false,
