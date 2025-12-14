@@ -388,6 +388,85 @@ interface UnifiedConfig {
   confidenceOverrideThreshold: number;
 }
 
+// ============= BACKWARD-COMPATIBLE CONFIG RESOLVER =============
+// Resolves required config fields from multiple possible locations in strategy configuration.
+// Supports legacy configs that store values in different paths (e.g., unifiedConfig.minHoldPeriodMs).
+// Returns { success: true, resolved: {...} } or { success: false, missingKeys: [...] }
+// =============================================================================
+
+interface ResolvedConfig {
+  takeProfitPercentage: number;
+  stopLossPercentage: number;
+  minHoldPeriodMs: number;
+  cooldownBetweenOppositeActionsMs: number;
+  aiConfidenceThreshold: number;
+  confidenceOverrideThreshold: number;
+}
+
+interface ConfigResolutionResult {
+  success: boolean;
+  resolved?: ResolvedConfig;
+  missingKeys?: string[];
+}
+
+function resolveStrategyConfig(config: Record<string, any>): ConfigResolutionResult {
+  const missingKeys: string[] = [];
+  
+  // Helper to resolve a value from multiple paths
+  const resolve = (primaryKey: string, ...alternativePaths: string[]): number | undefined => {
+    // Try primary key first
+    if (config[primaryKey] !== undefined && config[primaryKey] !== null) {
+      return Number(config[primaryKey]);
+    }
+    // Try alternative paths (nested objects like unifiedConfig.minHoldPeriodMs)
+    for (const path of alternativePaths) {
+      const parts = path.split('.');
+      let value: any = config;
+      for (const part of parts) {
+        value = value?.[part];
+        if (value === undefined || value === null) break;
+      }
+      if (value !== undefined && value !== null) {
+        return Number(value);
+      }
+    }
+    return undefined;
+  };
+  
+  // Resolve each required field with fallback paths
+  const takeProfitPercentage = resolve('takeProfitPercentage', 'tp_pct', 'tpPct');
+  const stopLossPercentage = resolve('stopLossPercentage', 'sl_pct', 'slPct');
+  const minHoldPeriodMs = resolve('minHoldPeriodMs', 'unifiedConfig.minHoldPeriodMs', 'unified_config.minHoldPeriodMs');
+  const cooldownBetweenOppositeActionsMs = resolve('cooldownBetweenOppositeActionsMs', 'unifiedConfig.cooldownBetweenOppositeActionsMs', 'unified_config.cooldownBetweenOppositeActionsMs', 'cooldownMs');
+  const aiConfidenceThreshold = resolve('aiConfidenceThreshold', 'minConfidence', 'confidenceThreshold');
+  const confidenceOverrideThreshold = resolve('confidenceOverrideThreshold', 'unifiedConfig.confidenceOverrideThreshold', 'unified_config.confidenceOverrideThreshold');
+  
+  // Check which keys are still missing after resolution
+  if (takeProfitPercentage === undefined) missingKeys.push('takeProfitPercentage');
+  if (stopLossPercentage === undefined) missingKeys.push('stopLossPercentage');
+  if (minHoldPeriodMs === undefined) missingKeys.push('minHoldPeriodMs');
+  if (cooldownBetweenOppositeActionsMs === undefined) missingKeys.push('cooldownBetweenOppositeActionsMs');
+  if (aiConfidenceThreshold === undefined) missingKeys.push('aiConfidenceThreshold');
+  // confidenceOverrideThreshold is optional - default to aiConfidenceThreshold if missing
+  
+  if (missingKeys.length > 0) {
+    console.log(`⚠️ Config resolution failed, missing keys: ${missingKeys.join(', ')}`);
+    return { success: false, missingKeys };
+  }
+  
+  return {
+    success: true,
+    resolved: {
+      takeProfitPercentage: takeProfitPercentage!,
+      stopLossPercentage: stopLossPercentage!,
+      minHoldPeriodMs: minHoldPeriodMs!,
+      cooldownBetweenOppositeActionsMs: cooldownBetweenOppositeActionsMs!,
+      aiConfidenceThreshold: aiConfidenceThreshold!,
+      confidenceOverrideThreshold: confidenceOverrideThreshold ?? aiConfidenceThreshold!
+    }
+  };
+}
+
 // In-memory caches for performance
 const recentDecisionCache = new Map<string, { decision: TradeDecision; timestamp: number }>();
 const symbolQueues = new Map<string, TradeIntent[]>();
@@ -1038,24 +1117,16 @@ serve(async (req) => {
       
       const config = strategyConfig?.configuration || {};
       
-      // FAIL-CLOSED: Required config must exist - NO || fallbacks
-      const effectiveTpPct = config.takeProfitPercentage;
-      const effectiveSlPct = config.stopLossPercentage;
-      const minHoldPeriodMs = config.minHoldPeriodMs;
-      const cooldownMs = config.cooldownBetweenOppositeActionsMs;
-      const confidenceThreshold = config.aiConfidenceThreshold;
-      const confidenceOverrideThreshold = config.confidenceOverrideThreshold;
-      
-      // Validate required config before proceeding
-      if (effectiveTpPct === undefined || effectiveSlPct === undefined ||
-          minHoldPeriodMs === undefined || cooldownMs === undefined ||
-          confidenceThreshold === undefined) {
-        console.log(`🚫 UI TEST BUY: Missing required config fields`);
+      // BACKWARD-COMPATIBLE CONFIG RESOLUTION - supports legacy key paths
+      const configResolution = resolveStrategyConfig(config);
+      if (!configResolution.success) {
+        console.log(`🚫 UI TEST BUY: Missing required config fields: ${configResolution.missingKeys?.join(', ')}`);
         return new Response(JSON.stringify({
           ok: false,
-          error: 'blocked_missing_config:tp_sl_or_hold_period'
+          error: `blocked_missing_config:${configResolution.missingKeys?.join(',')}`
         }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
+      const resolvedConfig = configResolution.resolved!;
       
       // Log the BUY decision
       await logDecisionAsync(
@@ -1065,18 +1136,18 @@ serve(async (req) => {
         'no_conflicts_detected', // reason
         { 
           enableUnifiedDecisions: false,
-          minHoldPeriodMs: minHoldPeriodMs,
-          cooldownBetweenOppositeActionsMs: cooldownMs,
-          confidenceOverrideThreshold: confidenceOverrideThreshold
+          minHoldPeriodMs: resolvedConfig.minHoldPeriodMs,
+          cooldownBetweenOppositeActionsMs: resolvedConfig.cooldownBetweenOppositeActionsMs,
+          confidenceOverrideThreshold: resolvedConfig.confidenceOverrideThreshold
         }, // unifiedConfig
         requestId,
         undefined, // profitMetadata
         tradeId, // tradeId
         price, // executionPrice
         { // strategyConfig
-          takeProfitPercentage: effectiveTpPct,
-          stopLossPercentage: effectiveSlPct,
-          minConfidence: confidenceThreshold / 100,
+          takeProfitPercentage: resolvedConfig.takeProfitPercentage,
+          stopLossPercentage: resolvedConfig.stopLossPercentage,
+          minConfidence: resolvedConfig.aiConfidenceThreshold / 100,
           configuration: config
         }
       );
@@ -1291,36 +1362,29 @@ serve(async (req) => {
         }), { headers: corsHeaders });
       }
 
-      // FAIL-CLOSED: Required config must exist - NO hardcoded fallbacks
+      // BACKWARD-COMPATIBLE CONFIG RESOLUTION - supports legacy key paths
       const configData = strategyConfig.configuration || {};
-      const effectiveTpPct = configData.takeProfitPercentage;
-      const effectiveSlPct = configData.stopLossPercentage;
-      const minHoldPeriodMs = configData.minHoldPeriodMs;
-      const cooldownMs = configData.cooldownBetweenOppositeActionsMs;
-      const confidenceThreshold = configData.aiConfidenceThreshold;
-      const confidenceOverrideThreshold = configData.confidenceOverrideThreshold;
-      
-      if (effectiveTpPct === undefined || effectiveSlPct === undefined ||
-          minHoldPeriodMs === undefined || cooldownMs === undefined ||
-          confidenceThreshold === undefined) {
-        console.log(`🚫 INTELLIGENT: Missing required config fields`);
+      const configResolution = resolveStrategyConfig(configData);
+      if (!configResolution.success) {
+        console.log(`🚫 INTELLIGENT: Missing required config fields: ${configResolution.missingKeys?.join(', ')}`);
         return new Response(JSON.stringify({
           ok: true,
           decision: {
             action: 'BLOCK',
-            reason: 'blocked_missing_config',
+            reason: `blocked_missing_config:${configResolution.missingKeys?.join(',')}` as Reason,
             request_id: requestId,
             retry_in_ms: 0,
-            message: 'Missing required config fields: tp_sl_or_hold_period'
+            message: `Missing required config fields: ${configResolution.missingKeys?.join(', ')}`
           }
         }), { headers: corsHeaders });
       }
+      const resolvedConfig = configResolution.resolved!;
       
       const unifiedConfig: UnifiedConfig = strategyConfig.unified_config || {
         enableUnifiedDecisions: false,
-        minHoldPeriodMs: minHoldPeriodMs,
-        cooldownBetweenOppositeActionsMs: cooldownMs,
-        confidenceOverrideThreshold: confidenceOverrideThreshold
+        minHoldPeriodMs: resolvedConfig.minHoldPeriodMs,
+        cooldownBetweenOppositeActionsMs: resolvedConfig.cooldownBetweenOppositeActionsMs,
+        confidenceOverrideThreshold: resolvedConfig.confidenceOverrideThreshold
       };
 
       const config = configData;
@@ -1586,23 +1650,16 @@ serve(async (req) => {
       
       const config = strategyConfig?.configuration || {};
       
-      // FAIL-CLOSED: Required config must exist - NO || fallbacks
-      const effectiveTpPct = config.takeProfitPercentage;
-      const effectiveSlPct = config.stopLossPercentage;
-      const minHoldPeriodMs = config.minHoldPeriodMs;
-      const cooldownMs = config.cooldownBetweenOppositeActionsMs;
-      const confidenceThreshold = config.aiConfidenceThreshold;
-      const confidenceOverrideThreshold = config.confidenceOverrideThreshold;
-      
-      if (effectiveTpPct === undefined || effectiveSlPct === undefined ||
-          minHoldPeriodMs === undefined || cooldownMs === undefined ||
-          confidenceThreshold === undefined) {
-        console.log(`🚫 MANUAL SELL: Missing required config fields`);
+      // BACKWARD-COMPATIBLE CONFIG RESOLUTION - supports legacy key paths
+      const configResolution = resolveStrategyConfig(config);
+      if (!configResolution.success) {
+        console.log(`🚫 MANUAL SELL: Missing required config fields: ${configResolution.missingKeys?.join(', ')}`);
         return new Response(JSON.stringify({
           ok: false,
-          error: 'blocked_missing_config:tp_sl_or_hold_period'
+          error: `blocked_missing_config:${configResolution.missingKeys?.join(',')}`
         }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
+      const resolvedConfig = configResolution.resolved!;
       
       // Log the SELL decision
       await logDecisionAsync(
@@ -1612,9 +1669,9 @@ serve(async (req) => {
         'no_conflicts_detected', // reason
         { 
           enableUnifiedDecisions: false,
-          minHoldPeriodMs: minHoldPeriodMs,
-          cooldownBetweenOppositeActionsMs: cooldownMs,
-          confidenceOverrideThreshold: confidenceOverrideThreshold
+          minHoldPeriodMs: resolvedConfig.minHoldPeriodMs,
+          cooldownBetweenOppositeActionsMs: resolvedConfig.cooldownBetweenOppositeActionsMs,
+          confidenceOverrideThreshold: resolvedConfig.confidenceOverrideThreshold
         }, // unifiedConfig
         requestId,
         { // profitMetadata
@@ -1627,9 +1684,9 @@ serve(async (req) => {
         undefined, // tradeId
         exitPrice, // executionPrice
         { // strategyConfig
-          takeProfitPercentage: effectiveTpPct,
-          stopLossPercentage: effectiveSlPct,
-          minConfidence: confidenceThreshold / 100,
+          takeProfitPercentage: resolvedConfig.takeProfitPercentage,
+          stopLossPercentage: resolvedConfig.stopLossPercentage,
+          minConfidence: resolvedConfig.aiConfidenceThreshold / 100,
           configuration: config
         }
       );
