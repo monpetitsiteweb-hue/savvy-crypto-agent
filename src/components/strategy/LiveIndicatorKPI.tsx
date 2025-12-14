@@ -86,7 +86,7 @@ export const LiveIndicatorKPI = () => {
   };
 
   return (
-    <Card>
+    <Card className="border-dashed border-muted-foreground/30 opacity-75">
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -97,9 +97,11 @@ export const LiveIndicatorKPI = () => {
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <Zap className="h-5 w-5 text-green-500" />
-                <span>Live Technical Indicators</span>
-                <Badge variant="secondary" className="text-xs">Cached</Badge>
+                <Zap className="h-5 w-5 text-muted-foreground" />
+                <span className="text-muted-foreground">Local Indicator Preview</span>
+                <Badge variant="outline" className="text-xs text-amber-600 border-amber-400 bg-amber-50 dark:bg-amber-950/30">
+                  ⚠️ NOT USED FOR TRADING
+                </Badge>
               </div>
             )}
           </div>
@@ -120,6 +122,9 @@ export const LiveIndicatorKPI = () => {
             </div>
           </div>
         </CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          These indicators are calculated locally for reference only. Backend decisions use different signal sources.
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
         {!hasIndicatorData ? (

@@ -12,6 +12,7 @@ import { StrategyConfig } from '@/components/StrategyConfig';
 import { TestStrategyConfig } from '@/components/TestStrategyConfig';
 import { PerformanceOverview } from '@/components/PerformanceOverview';
 import { LiveIndicatorKPI } from '@/components/strategy/LiveIndicatorKPI';
+import { BackendDecisionPanel } from '@/components/strategy/BackendDecisionPanel';
 import { AdminPage } from '@/components/admin/AdminPage';
 import { MarketDashboard } from '@/components/market/MarketDashboard';
 import { TradingViewMarketDashboard } from '@/components/market/TradingViewMarketDashboard';
@@ -449,6 +450,9 @@ function IndexComponent() {
                         hasActiveStrategy={hasActiveStrategy}
                         onCreateStrategy={() => setActiveTab('strategy')}
                       />
+                    </ErrorBoundary>
+                    <ErrorBoundary>
+                      <BackendDecisionPanel />
                     </ErrorBoundary>
                     <ErrorBoundary>
                       <LiveIndicatorKPI />
