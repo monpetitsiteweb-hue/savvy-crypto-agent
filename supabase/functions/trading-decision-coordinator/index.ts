@@ -368,9 +368,10 @@ type Reason =
   | "blocked_policy_detached"
   | "blocked_liquidation_batch_mismatch"
   | "blocked_missing_policy"
-  | "blocked_missing_config"
   | "blocked_liquidation_requires_batch_id"
-  | "decision_events_insert_failed";
+  | "decision_events_insert_failed"
+  // TEMPLATE LITERAL PATTERNS for dynamic reasons
+  | `blocked_missing_config:${string}`;
 
 interface TradeDecision {
   action: DecisionAction;
