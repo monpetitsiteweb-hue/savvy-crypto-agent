@@ -388,10 +388,17 @@ interface UnifiedConfig {
   confidenceOverrideThreshold: number;
 }
 
-// ============= BACKWARD-COMPATIBLE CONFIG RESOLVER =============
-// Resolves required config fields from multiple possible locations in strategy configuration.
-// Supports legacy configs that store values in different paths (e.g., unifiedConfig.minHoldPeriodMs).
-// Returns { success: true, resolved: {...} } or { success: false, missingKeys: [...] }
+// ============= STRICT CANONICAL CONFIG RESOLVER =============
+// Checks ONLY root-level canonical keys. No nested path fallbacks.
+// UI is responsible for writing canonical keys at root level.
+// FAIL-CLOSED: If any required key is missing, block with specific reason.
+// 
+// CANONICAL REQUIRED KEYS (root level):
+//   - minHoldPeriodMs (integer, ms)
+//   - cooldownBetweenOppositeActionsMs (integer, ms)
+//   - aiConfidenceThreshold (integer, 0-100)
+//   - takeProfitPercentage (number)
+//   - stopLossPercentage (number)
 // =============================================================================
 
 interface ResolvedConfig {
@@ -412,57 +419,52 @@ interface ConfigResolutionResult {
 function resolveStrategyConfig(config: Record<string, any>): ConfigResolutionResult {
   const missingKeys: string[] = [];
   
-  // Helper to resolve a value from multiple paths
-  const resolve = (primaryKey: string, ...alternativePaths: string[]): number | undefined => {
-    // Try primary key first
-    if (config[primaryKey] !== undefined && config[primaryKey] !== null) {
-      return Number(config[primaryKey]);
-    }
-    // Try alternative paths (nested objects like unifiedConfig.minHoldPeriodMs)
-    for (const path of alternativePaths) {
-      const parts = path.split('.');
-      let value: any = config;
-      for (const part of parts) {
-        value = value?.[part];
-        if (value === undefined || value === null) break;
-      }
-      if (value !== undefined && value !== null) {
-        return Number(value);
-      }
-    }
-    return undefined;
-  };
+  // STRICT: Only check root-level keys, no nested path fallbacks
+  const takeProfitPercentage = config.takeProfitPercentage;
+  const stopLossPercentage = config.stopLossPercentage;
+  const minHoldPeriodMs = config.minHoldPeriodMs;
+  const cooldownBetweenOppositeActionsMs = config.cooldownBetweenOppositeActionsMs;
+  const aiConfidenceThreshold = config.aiConfidenceThreshold;
+  const confidenceOverrideThreshold = config.confidenceOverrideThreshold;
   
-  // Resolve each required field with fallback paths
-  const takeProfitPercentage = resolve('takeProfitPercentage', 'tp_pct', 'tpPct');
-  const stopLossPercentage = resolve('stopLossPercentage', 'sl_pct', 'slPct');
-  const minHoldPeriodMs = resolve('minHoldPeriodMs', 'unifiedConfig.minHoldPeriodMs', 'unified_config.minHoldPeriodMs');
-  const cooldownBetweenOppositeActionsMs = resolve('cooldownBetweenOppositeActionsMs', 'unifiedConfig.cooldownBetweenOppositeActionsMs', 'unified_config.cooldownBetweenOppositeActionsMs', 'cooldownMs');
-  const aiConfidenceThreshold = resolve('aiConfidenceThreshold', 'minConfidence', 'confidenceThreshold');
-  const confidenceOverrideThreshold = resolve('confidenceOverrideThreshold', 'unifiedConfig.confidenceOverrideThreshold', 'unified_config.confidenceOverrideThreshold');
-  
-  // Check which keys are still missing after resolution
-  if (takeProfitPercentage === undefined) missingKeys.push('takeProfitPercentage');
-  if (stopLossPercentage === undefined) missingKeys.push('stopLossPercentage');
-  if (minHoldPeriodMs === undefined) missingKeys.push('minHoldPeriodMs');
-  if (cooldownBetweenOppositeActionsMs === undefined) missingKeys.push('cooldownBetweenOppositeActionsMs');
-  if (aiConfidenceThreshold === undefined) missingKeys.push('aiConfidenceThreshold');
-  // confidenceOverrideThreshold is optional - default to aiConfidenceThreshold if missing
+  // Check which canonical keys are missing
+  if (takeProfitPercentage === undefined || takeProfitPercentage === null) {
+    missingKeys.push('takeProfitPercentage');
+  }
+  if (stopLossPercentage === undefined || stopLossPercentage === null) {
+    missingKeys.push('stopLossPercentage');
+  }
+  if (minHoldPeriodMs === undefined || minHoldPeriodMs === null) {
+    missingKeys.push('minHoldPeriodMs');
+  }
+  if (cooldownBetweenOppositeActionsMs === undefined || cooldownBetweenOppositeActionsMs === null) {
+    missingKeys.push('cooldownBetweenOppositeActionsMs');
+  }
+  if (aiConfidenceThreshold === undefined || aiConfidenceThreshold === null) {
+    missingKeys.push('aiConfidenceThreshold');
+  }
   
   if (missingKeys.length > 0) {
-    console.log(`⚠️ Config resolution failed, missing keys: ${missingKeys.join(', ')}`);
+    console.log(`❌ [ConfigResolver] FAIL-CLOSED: Missing canonical root keys: ${missingKeys.join(', ')}`);
+    console.log(`   Strategy must have these keys at root level of configuration JSON.`);
+    console.log(`   Run SQL backfill or re-save strategy in UI to populate missing keys.`);
     return { success: false, missingKeys };
   }
+  
+  console.log(`✅ [ConfigResolver] All canonical keys present at root level`);
   
   return {
     success: true,
     resolved: {
-      takeProfitPercentage: takeProfitPercentage!,
-      stopLossPercentage: stopLossPercentage!,
-      minHoldPeriodMs: minHoldPeriodMs!,
-      cooldownBetweenOppositeActionsMs: cooldownBetweenOppositeActionsMs!,
-      aiConfidenceThreshold: aiConfidenceThreshold!,
-      confidenceOverrideThreshold: confidenceOverrideThreshold ?? aiConfidenceThreshold!
+      takeProfitPercentage: Number(takeProfitPercentage),
+      stopLossPercentage: Number(stopLossPercentage),
+      minHoldPeriodMs: Number(minHoldPeriodMs),
+      cooldownBetweenOppositeActionsMs: Number(cooldownBetweenOppositeActionsMs),
+      aiConfidenceThreshold: Number(aiConfidenceThreshold),
+      // confidenceOverrideThreshold is optional - default to aiConfidenceThreshold if missing
+      confidenceOverrideThreshold: confidenceOverrideThreshold !== undefined && confidenceOverrideThreshold !== null 
+        ? Number(confidenceOverrideThreshold) 
+        : Number(aiConfidenceThreshold)
     }
   };
 }

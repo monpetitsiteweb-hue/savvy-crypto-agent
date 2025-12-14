@@ -232,13 +232,29 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     if (!user) return;
 
     try {
-      // Create a copy in production (not move)
+      // Ensure canonical keys are present when copying to production
+      const config = (strategy.configuration && typeof strategy.configuration === 'object' && !Array.isArray(strategy.configuration))
+        ? strategy.configuration as Record<string, any>
+        : {};
+      const unifiedConfig = (config.unifiedConfig && typeof config.unifiedConfig === 'object') ? config.unifiedConfig as Record<string, any> : {};
+      const aiConfig = (config.aiIntelligenceConfig && typeof config.aiIntelligenceConfig === 'object') ? config.aiIntelligenceConfig as Record<string, any> : {};
+
+      const configWithCanonicalKeys = {
+        ...config,
+        // Ensure canonical root keys exist with defaults if missing
+        minHoldPeriodMs: config.minHoldPeriodMs ?? unifiedConfig.minHoldPeriodMs ?? 120000,
+        cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs ?? unifiedConfig.cooldownBetweenOppositeActionsMs ?? 30000,
+        aiConfidenceThreshold: config.aiConfidenceThreshold ?? aiConfig.aiConfidenceThreshold ?? 50,
+        takeProfitPercentage: config.takeProfitPercentage ?? 2.5,
+        stopLossPercentage: config.stopLossPercentage ?? 3.0,
+      };
+
       const productionStrategy = {
         user_id: user.id,
         strategy_name: strategy.strategy_name,
         description: strategy.description,
-        configuration: strategy.configuration,
-        test_mode: false, // This marks it as production
+        configuration: configWithCanonicalKeys,
+        test_mode: false,
         is_active: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -260,13 +276,29 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     if (!user) return;
 
     try {
+      // Ensure canonical keys are present when cloning
+      const config = (strategy.configuration && typeof strategy.configuration === 'object' && !Array.isArray(strategy.configuration))
+        ? strategy.configuration as Record<string, any>
+        : {};
+      const unifiedConfig = (config.unifiedConfig && typeof config.unifiedConfig === 'object') ? config.unifiedConfig as Record<string, any> : {};
+      const aiConfig = (config.aiIntelligenceConfig && typeof config.aiIntelligenceConfig === 'object') ? config.aiIntelligenceConfig as Record<string, any> : {};
+
+      const configWithCanonicalKeys = {
+        ...config,
+        minHoldPeriodMs: config.minHoldPeriodMs ?? unifiedConfig.minHoldPeriodMs ?? 120000,
+        cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs ?? unifiedConfig.cooldownBetweenOppositeActionsMs ?? 30000,
+        aiConfidenceThreshold: config.aiConfidenceThreshold ?? aiConfig.aiConfidenceThreshold ?? 50,
+        takeProfitPercentage: config.takeProfitPercentage ?? 2.5,
+        stopLossPercentage: config.stopLossPercentage ?? 3.0,
+      };
+
       const { error } = await supabase
         .from('trading_strategies')
         .insert({
           user_id: user.id,
           strategy_name: `${strategy.strategy_name} (Clone)`,
           description: `Clone of ${strategy.strategy_name}`,
-          configuration: strategy.configuration,
+          configuration: configWithCanonicalKeys,
           test_mode: true,
           is_active: false
         });
