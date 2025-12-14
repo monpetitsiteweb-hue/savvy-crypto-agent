@@ -2416,16 +2416,21 @@ export type Database = {
           created_at: string
           description: string | null
           execution_mode: string | null
+          execution_target: string
           id: string
           is_active: boolean
           is_active_live: boolean | null
           is_active_test: boolean | null
+          liquidation_batch_id: string | null
+          liquidation_requested_at: string | null
           max_gas_cost_pct: number | null
           max_price_impact_bps: number | null
           max_quote_age_ms: number | null
           mev_policy: string | null
+          on_disable_policy: string | null
           preferred_providers: string[] | null
           slippage_bps_default: number | null
+          state: string
           strategy_name: string
           test_mode: boolean | null
           unified_config: Json | null
@@ -2438,16 +2443,21 @@ export type Database = {
           created_at?: string
           description?: string | null
           execution_mode?: string | null
+          execution_target?: string
           id?: string
           is_active?: boolean
           is_active_live?: boolean | null
           is_active_test?: boolean | null
+          liquidation_batch_id?: string | null
+          liquidation_requested_at?: string | null
           max_gas_cost_pct?: number | null
           max_price_impact_bps?: number | null
           max_quote_age_ms?: number | null
           mev_policy?: string | null
+          on_disable_policy?: string | null
           preferred_providers?: string[] | null
           slippage_bps_default?: number | null
+          state?: string
           strategy_name: string
           test_mode?: boolean | null
           unified_config?: Json | null
@@ -2460,16 +2470,21 @@ export type Database = {
           created_at?: string
           description?: string | null
           execution_mode?: string | null
+          execution_target?: string
           id?: string
           is_active?: boolean
           is_active_live?: boolean | null
           is_active_test?: boolean | null
+          liquidation_batch_id?: string | null
+          liquidation_requested_at?: string | null
           max_gas_cost_pct?: number | null
           max_price_impact_bps?: number | null
           max_quote_age_ms?: number | null
           mev_policy?: string | null
+          on_disable_policy?: string | null
           preferred_providers?: string[] | null
           slippage_bps_default?: number | null
+          state?: string
           strategy_name?: string
           test_mode?: boolean | null
           unified_config?: Json | null
@@ -2782,6 +2797,36 @@ export type Database = {
         }
         Relationships: []
       }
+      strategy_open_positions: {
+        Row: {
+          entry_price: number | null
+          execution_target: string | null
+          is_test_mode: boolean | null
+          lot_id: string | null
+          managed_by_strategy: boolean | null
+          opened_at: string | null
+          remaining_qty: number | null
+          strategy_id: string | null
+          symbol: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mock_trades_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trading_strategies_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_connections_safe: {
         Row: {
           coinbase_user_id: string | null
@@ -2936,6 +2981,11 @@ export type Database = {
         }[]
       }
       check_capital_access: { Args: { p_user_id: string }; Returns: boolean }
+      check_real_trading_prerequisites: { Args: never; Returns: Json }
+      check_strategy_can_delete: {
+        Args: { p_strategy_id: string }
+        Returns: Json
+      }
       dearmor: { Args: { "": string }; Returns: string }
       debug_decision_logs: {
         Args: { minutes_back?: number; my_user: string }
@@ -3050,6 +3100,10 @@ export type Database = {
         }[]
       }
       get_portfolio_metrics: { Args: { p_user_id: string }; Returns: Json }
+      get_strategy_open_position_count: {
+        Args: { p_strategy_id: string }
+        Returns: number
+      }
       get_user_connection_status: {
         Args: { connection_id: string }
         Returns: {
@@ -3073,6 +3127,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      initiate_liquidation: { Args: { p_strategy_id: string }; Returns: Json }
       log_connection_access: {
         Args: { access_type?: string; connection_id: string }
         Returns: undefined
@@ -3133,6 +3188,14 @@ export type Database = {
       }
       settle_sell_trade: {
         Args: { p_proceeds_eur: number; p_user_id: string }
+        Returns: Json
+      }
+      update_strategy_state: {
+        Args: {
+          p_new_state: string
+          p_on_disable_policy?: string
+          p_strategy_id: string
+        }
         Returns: Json
       }
     }
