@@ -615,29 +615,66 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     e.preventDefault();
     if (!user) return;
 
-    // Validation
+    // Validation: strategy name required
     if (!formData.strategyName?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Strategy name is required.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // =========================================================================
+    // CANONICAL CONFIG ENFORCEMENT
+    // These 3 keys MUST exist at the root level of configuration.
+    // If UI values are missing, use sensible defaults.
+    // =========================================================================
+    const canonicalMinHoldPeriodMs = 
+      formData.unifiedConfig?.minHoldPeriodMs ?? 
+      formData.aiIntelligenceConfig?.features?.contextGates?.whaleConflictWindowMs ?? 
+      120000; // Default: 2 minutes
+
+    const canonicalCooldownMs = 
+      formData.unifiedConfig?.cooldownBetweenOppositeActionsMs ?? 
+      30000; // Default: 30 seconds
+
+    const canonicalAiConfidenceThreshold = 
+      formData.aiIntelligenceConfig?.aiConfidenceThreshold ?? 
+      50; // Default: 50%
+
+    // Validate ranges
+    if (canonicalMinHoldPeriodMs < 0 || canonicalCooldownMs < 0 || canonicalAiConfidenceThreshold < 0 || canonicalAiConfidenceThreshold > 100) {
+      toast({
+        title: "Validation Error",
+        description: "Invalid config values: minHoldPeriodMs and cooldownMs must be >= 0, aiConfidenceThreshold must be 0-100.",
+        variant: "destructive"
+      });
       return;
     }
 
     try {
-      
-      // Use aiIntelligenceConfig.enableAIOverride as single source of truth - no sync needed
-      const syncedFormData = {
-        ...formData
-        // aiIntelligenceConfig already contains enableAIOverride directly
+      // Build configuration with CANONICAL ROOT KEYS enforced
+      const configurationWithCanonicalKeys = {
+        ...formData,
+        // ======= CANONICAL ROOT KEYS (always written at root) =======
+        minHoldPeriodMs: canonicalMinHoldPeriodMs,
+        cooldownBetweenOppositeActionsMs: canonicalCooldownMs,
+        aiConfidenceThreshold: canonicalAiConfidenceThreshold,
+        // Also ensure TP/SL are at root for coordinator
+        takeProfitPercentage: formData.takeProfitPercentage,
+        stopLossPercentage: formData.stopLossPercentage,
       };
 
       const strategyData = {
         user_id: user.id,
         strategy_name: formData.strategyName,
         description: formData.notes || null,
-        configuration: syncedFormData as any,
+        configuration: configurationWithCanonicalKeys as any,
         test_mode: true, // Always create in test mode
         is_active: false, // Keep for backward compatibility
-        // NOTE: Removed is_active_test/is_active_live as they don't exist in DB schema
         updated_at: new Date().toISOString(),
-        // Execution settings - using (as any) to bypass TypeScript issues with new columns
+        // Execution settings
         execution_mode: formData.executionSettings.execution_mode,
         chain_id: formData.executionSettings.chain_id,
         slippage_bps_default: formData.executionSettings.slippage_bps_default,
@@ -657,10 +694,9 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
         if (error) throw error;
         
-        // Show success toast for execution settings
         toast({
-          title: "Execution settings saved",
-          description: "Your strategy execution configuration has been updated successfully.",
+          title: "Strategy saved",
+          description: "Your strategy configuration has been updated successfully.",
         });
         
         onBack();
@@ -669,25 +705,28 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
           .from('trading_strategies')
           .insert({
             ...strategyData,
-            test_mode: true // Ensure all new strategies are created as test strategies
+            test_mode: true
           })
           .select()
           .single();
 
         if (error) throw error;
 
-        // Show success toast for execution settings
         toast({
-          title: "Execution settings saved",
-          description: "Your strategy execution configuration has been created successfully.",
+          title: "Strategy created",
+          description: "Your strategy has been created successfully.",
         });
 
-        // Store the created strategy ID and show activation modal
         setCreatedStrategyId(data.id);
         setShowActivateTestModal(true);
       }
     } catch (error) {
       logger.error('Error saving strategy:', error);
+      toast({
+        title: "Save Failed",
+        description: "Failed to save strategy. Please try again.",
+        variant: "destructive"
+      });
     }
   };
 
