@@ -31,7 +31,18 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'SOL-EUR', 'ADA-EUR', 'AVAX-EUR', 'DOT-EUR'], sourceId } = await req.json().catch(() => ({}));
+    // Parse request body with explicit error logging
+    let parsedBody: { symbols?: string[]; sourceId?: string } = {};
+    try {
+      parsedBody = await req.json();
+      console.log('📋 Received body:', JSON.stringify(parsedBody));
+    } catch (parseErr) {
+      console.error('⚠️ Failed to parse request JSON, using defaults:', parseErr);
+    }
+    
+    // CRITICAL: Use ALL tracked symbols if none provided
+    const symbols = parsedBody.symbols ?? ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'SOL-EUR', 'ADA-EUR', 'AVAX-EUR', 'DOT-EUR'];
+    const sourceId = parsedBody.sourceId;
 
     // P2 FIX: Query SYSTEM source (user_id IS NULL) only
     const { data: dataSources, error: sourceError } = await supabaseClient
