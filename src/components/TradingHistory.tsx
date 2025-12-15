@@ -104,8 +104,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       const liveData = marketData[pairSymbol];
       const livePrice = liveData?.price;
       
-      // Cost basis always uses trade.total_value (includes fees if already in there)
-      costBasisEur += trade.total_value;
+      // Cost basis includes fees for accurate P&L calculation
+      const tradeCostBasis = trade.total_value + (trade.fees || 0);
+      costBasisEur += tradeCostBasis;
       
       if (livePrice && livePrice > 0) {
         currentValueEur += trade.amount * livePrice;
@@ -114,7 +115,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         if (!missingSymbols.includes(baseSymbol)) {
           missingSymbols.push(baseSymbol);
         }
-        currentValueEur += trade.total_value; // Fallback to cost basis
+        currentValueEur += tradeCostBasis; // Fallback to cost basis
       }
     }
     

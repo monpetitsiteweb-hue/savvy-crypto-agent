@@ -24,8 +24,8 @@ export function OpenTradeCard({ trade, onRequestSell }: OpenTradeCardProps) {
   const liveData = marketData[pairSymbol];
   const livePrice = liveData?.price || null;
   
-  // Cost basis (what we paid)
-  const costBasis = trade.total_value;
+  // Cost basis (what we paid) — includes fees for accurate P&L
+  const costBasis = trade.total_value + (trade.fees || 0);
   
   // Current value and P&L (live calculation for display only)
   const currentValue = livePrice ? trade.amount * livePrice : null;
