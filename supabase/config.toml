@@ -150,5 +150,3 @@ verify_jwt = true
 [functions.admin-reconcile-cash]
 verify_jwt = false
 
-[functions.test-reconcile-cash]
-verify_jwt = false
