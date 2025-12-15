@@ -146,3 +146,6 @@ verify_jwt = false
 
 [functions.backend-shadow-engine]
 verify_jwt = true
+
+[functions.admin-reconcile-cash]
+verify_jwt = false
