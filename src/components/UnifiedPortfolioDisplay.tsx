@@ -1,29 +1,34 @@
 // WALLET-STYLE VIEW: Shows portfolio value with live crypto prices
 // Aggregates from RPC for totals, live prices for per-asset display
 import { getAllTradingPairs } from '@/data/coinbaseCoins';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMockWallet } from "@/hooks/useMockWallet";
 import { useTestMode } from "@/hooks/useTestMode";
 import { useAuth } from "@/hooks/useAuth";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
+import { useMarketData } from "@/contexts/MarketDataContext";
 import { supabase } from '@/integrations/supabase/client';
-import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw } from "lucide-react";
+import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw, AlertCircle, Info } from "lucide-react";
 import { logger } from '@/utils/logger';
 import { PortfolioNotInitialized } from "@/components/PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { afterReset } from '@/utils/resetHelpers';
-import { toBaseSymbol } from '@/utils/symbols';
+import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 
-// Wallet-style position aggregated from open trades (cost basis only)
+// Wallet-style position aggregated from open trades with live price
 interface WalletAsset {
   symbol: string;
   totalAmount: number;
   totalCostBasis: number;
   avgEntryPrice: number;
+  livePrice: number | null;
+  liveValue: number | null;
+  unrealizedPnl: number | null;
 }
 
 interface PortfolioData {
@@ -40,18 +45,6 @@ interface PortfolioData {
       currency: string;
     };
   }>;
-}
-
-// Wallet-style position with live value
-interface WalletPosition {
-  symbol: string;
-  totalAmount: number;
-  totalCostBasis: number;
-  avgEntryPrice: number;
-  livePrice: number | null;
-  liveValue: number | null;
-  unrealizedPnl: number | null;
-  unrealizedPnlPct: number | null;
 }
 
 export const UnifiedPortfolioDisplay = () => {
@@ -74,12 +67,13 @@ export const UnifiedPortfolioDisplay = () => {
   // TRADE-BASED: Use open trades (not lots)
   const { openTrades, isLoading: tradesLoading, refresh: refreshOpenTrades } = useOpenTrades();
   
+  // Live price stream for per-asset display
+  const { marketData } = useMarketData();
+  
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
   const [connections, setConnections] = useState<any[]>([]);
-  // Wallet assets aggregated from open trades (cost basis only - no live price calculations)
-  const [walletAssets, setWalletAssets] = useState<WalletAsset[]>([]);
 
   // Fetch connections for production mode
   useEffect(() => {
@@ -88,16 +82,15 @@ export const UnifiedPortfolioDisplay = () => {
     }
   }, [testMode, user]);
 
-  // TRADE-BASED: Aggregate positions from open trades (cost basis only)
-  // NO frontend P&L calculations - aggregate unrealized P&L comes from RPC metrics
-  useEffect(() => {
+  // TRADE-BASED: Aggregate positions from open trades with LIVE PRICES
+  // This provides accurate current values when price_snapshots is incomplete
+  const walletAssets = useMemo<WalletAsset[]>(() => {
     if (!testMode || !isInitialized || openTrades.length === 0) {
-      setWalletAssets([]);
-      return;
+      return [];
     }
     
-    // Group open trades by symbol and aggregate (cost basis only)
-    const assetMap = new Map<string, WalletAsset>();
+    // Group open trades by symbol and aggregate
+    const assetMap = new Map<string, { symbol: string; totalAmount: number; totalCostBasis: number }>();
     
     for (const trade of openTrades) {
       const symbol = toBaseSymbol(trade.cryptocurrency);
@@ -107,19 +100,43 @@ export const UnifiedPortfolioDisplay = () => {
       if (existing) {
         existing.totalAmount += trade.amount;
         existing.totalCostBasis += tradeCostBasis;
-        existing.avgEntryPrice = existing.totalCostBasis / existing.totalAmount;
       } else {
         assetMap.set(symbol, {
           symbol,
           totalAmount: trade.amount,
           totalCostBasis: tradeCostBasis,
-          avgEntryPrice: trade.price
         });
       }
     }
     
-    setWalletAssets(Array.from(assetMap.values()));
-  }, [testMode, isInitialized, openTrades]);
+    // Enrich with live prices from market data
+    return Array.from(assetMap.values()).map(asset => {
+      const pairSymbol = toPairSymbol(asset.symbol);
+      const liveData = marketData[pairSymbol];
+      const livePrice = liveData?.price || null;
+      const liveValue = livePrice !== null ? asset.totalAmount * livePrice : null;
+      const unrealizedPnl = liveValue !== null ? liveValue - asset.totalCostBasis : null;
+      
+      return {
+        symbol: asset.symbol,
+        totalAmount: asset.totalAmount,
+        totalCostBasis: asset.totalCostBasis,
+        avgEntryPrice: asset.totalCostBasis / asset.totalAmount,
+        livePrice,
+        liveValue,
+        unrealizedPnl,
+      };
+    });
+  }, [testMode, isInitialized, openTrades, marketData]);
+  
+  // Compute live aggregate unrealized P&L from wallet assets (for comparison with RPC)
+  const liveAggregateUnrealizedPnl = useMemo(() => {
+    const total = walletAssets.reduce((sum, asset) => {
+      return sum + (asset.unrealizedPnl ?? 0);
+    }, 0);
+    const hasMissingPrices = walletAssets.some(a => a.livePrice === null);
+    return { total, hasMissingPrices };
+  }, [walletAssets]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -188,19 +205,39 @@ export const UnifiedPortfolioDisplay = () => {
     }
   };
 
-  // WALLET VIEW: Render asset card (cost basis only, no per-asset P&L)
-  // Aggregate unrealized P&L comes from RPC metrics in header
+  // WALLET VIEW: Render asset card with LIVE PRICE and value
+  // Shows current value and P&L using live market prices
   const renderWalletAssetCard = (asset: WalletAsset) => {
+    const hasPriceData = asset.livePrice !== null;
+    const unrealizedPnlPct = asset.unrealizedPnl !== null && asset.totalCostBasis > 0
+      ? (asset.unrealizedPnl / asset.totalCostBasis) * 100
+      : null;
+    const isProfit = asset.unrealizedPnl !== null && asset.unrealizedPnl > 0;
+    const isLoss = asset.unrealizedPnl !== null && asset.unrealizedPnl < 0;
+    
     return (
       <Card key={asset.symbol} className="p-4 bg-slate-700/50 border-slate-600">
         <div className="space-y-3">
           <div className="flex justify-between items-center">
-            <div className="flex items-center">
+            <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-slate-300">{asset.symbol}</span>
+              {!hasPriceData && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <AlertCircle className="h-3 w-3 text-amber-400" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Live price unavailable</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
             </div>
             <div className="text-right">
+              {/* Show live value if available, otherwise cost basis */}
               <div className="text-lg font-bold text-white">
-                {formatEuro(asset.totalCostBasis)}
+                {hasPriceData ? formatEuro(asset.liveValue!) : formatEuro(asset.totalCostBasis)}
               </div>
               <div className="text-xs text-slate-400">
                 {asset.totalAmount.toLocaleString(undefined, {
@@ -210,10 +247,24 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           </div>
           
+          {/* Live price and entry price */}
           <div className="flex justify-between items-center text-xs text-slate-500">
-            <span>Avg Entry: {formatEuro(asset.avgEntryPrice)}</span>
-            <span>Cost Basis</span>
+            <span>Entry: {formatEuro(asset.avgEntryPrice)}</span>
+            <span>
+              {hasPriceData ? `Now: ${formatEuro(asset.livePrice!)}` : 'Price unavailable'}
+            </span>
           </div>
+          
+          {/* Unrealized P&L per asset */}
+          {hasPriceData && asset.unrealizedPnl !== null && (
+            <div className={`text-xs flex justify-between items-center ${isProfit ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-slate-400'}`}>
+              <span>Unrealized P&L</span>
+              <span>
+                {asset.unrealizedPnl >= 0 ? '+' : ''}{formatEuro(asset.unrealizedPnl)}
+                {unrealizedPnlPct !== null && ` (${unrealizedPnlPct >= 0 ? '+' : ''}${formatPercentage(unrealizedPnlPct)})`}
+              </span>
+            </div>
+          )}
         </div>
       </Card>
     );
@@ -303,28 +354,41 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
           
-          {/* Total Portfolio Value - FROM RPC */}
-          <div className="flex justify-between items-center p-4 bg-slate-700/50 rounded-lg border border-slate-600/50">
-            <div>
-              <span className="font-medium text-white">Total Portfolio Value</span>
-              {testMode && isInitialized && (
-                <div className="text-xs text-slate-400 mt-1">
-                  Started with {formatEuro(metrics.starting_capital_eur)}
+          {/* Total Portfolio Value - Use live calculation when RPC has stale price data */}
+          {(() => {
+            // Compute live total from cash + live asset values
+            const liveCryptoValue = walletAssets.reduce((sum, a) => sum + (a.liveValue ?? a.totalCostBasis), 0);
+            const liveTotal = metrics.cash_balance_eur + liveCryptoValue;
+            // Use live value if it differs meaningfully from RPC (indicates stale price_snapshots)
+            const useRpcValue = Math.abs(liveTotal - metrics.total_portfolio_value_eur) < 1;
+            const displayTotal = useRpcValue ? metrics.total_portfolio_value_eur : liveTotal;
+            const displayGain = displayTotal - metrics.starting_capital_eur;
+            const displayGainPct = metrics.starting_capital_eur > 0 ? (displayGain / metrics.starting_capital_eur) * 100 : 0;
+            
+            return (
+              <div className="flex justify-between items-center p-4 bg-slate-700/50 rounded-lg border border-slate-600/50">
+                <div>
+                  <span className="font-medium text-white">Total Portfolio Value</span>
+                  {testMode && isInitialized && (
+                    <div className="text-xs text-slate-400 mt-1">
+                      Started with {formatEuro(metrics.starting_capital_eur)}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="text-right">
-              <span className="text-2xl font-bold text-green-400">
-                {formatEuro(metrics.total_portfolio_value_eur)}
-              </span>
-              {/* Since start gain */}
-              {testMode && isInitialized && metrics.starting_capital_eur > 0 && (
-                <div className={`text-sm ${sinceStartGainEur >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {sinceStartGainEur >= 0 ? '+' : ''}{formatEuro(sinceStartGainEur)} ({formatPercentage(sinceStartGainPct)})
+                <div className="text-right">
+                  <span className={`text-2xl font-bold ${displayGain >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {formatEuro(displayTotal)}
+                  </span>
+                  {/* Since start gain */}
+                  {testMode && isInitialized && metrics.starting_capital_eur > 0 && (
+                    <div className={`text-sm ${displayGain >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {displayGain >= 0 ? '+' : ''}{formatEuro(displayGain)} ({formatPercentage(displayGainPct)})
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
+            );
+          })()}
 
           {/* Portfolio Metrics Grid - FROM RPC */}
           {testMode && isInitialized && (
@@ -337,21 +401,56 @@ export const UnifiedPortfolioDisplay = () => {
                 )}
               </div>
               
-              <div className="p-3 bg-slate-700/30 rounded-lg">
-                <div className="text-xs text-slate-400">Invested</div>
-                <div className="text-lg font-semibold text-white">{formatEuro(metrics.invested_cost_basis_eur)}</div>
-                <div className="text-xs text-slate-500">Current: {formatEuro(metrics.current_position_value_eur)}</div>
-              </div>
+              {(() => {
+                // Use live crypto value when RPC value seems stale (≈0 when positions exist)
+                const liveCryptoValue = walletAssets.reduce((sum, a) => sum + (a.liveValue ?? a.totalCostBasis), 0);
+                const displayCurrent = (metrics.current_position_value_eur < 1 && liveCryptoValue > 1) 
+                  ? liveCryptoValue 
+                  : metrics.current_position_value_eur;
+                return (
+                  <div className="p-3 bg-slate-700/30 rounded-lg">
+                    <div className="text-xs text-slate-400">Invested</div>
+                    <div className="text-lg font-semibold text-white">{formatEuro(metrics.invested_cost_basis_eur)}</div>
+                    <div className="text-xs text-slate-500">Current: {formatEuro(displayCurrent)}</div>
+                  </div>
+                );
+              })()}
               
-              <div className="p-3 bg-slate-700/30 rounded-lg">
-                <div className="text-xs text-slate-400">Unrealized P&L</div>
-                <div className={`text-lg font-semibold ${metrics.unrealized_pnl_eur >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {formatEuro(metrics.unrealized_pnl_eur)}
-                </div>
-                <div className={`text-xs ${metrics.unrealized_pnl_eur >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
-                  {formatPercentage(unrealizedPnlPct)}
-                </div>
-              </div>
+              {(() => {
+                // Use live unrealized P&L when RPC value is stale/zero
+                const liveUnrealized = liveAggregateUnrealizedPnl.total;
+                const useRpcValue = Math.abs(metrics.unrealized_pnl_eur) > 0.01 || liveAggregateUnrealizedPnl.hasMissingPrices;
+                const displayUnrealized = useRpcValue ? metrics.unrealized_pnl_eur : liveUnrealized;
+                const displayPct = metrics.invested_cost_basis_eur > 0 
+                  ? (displayUnrealized / metrics.invested_cost_basis_eur) * 100 
+                  : 0;
+                
+                return (
+                  <div className="p-3 bg-slate-700/30 rounded-lg">
+                    <div className="flex items-center gap-1 text-xs text-slate-400">
+                      Unrealized P&L
+                      {!useRpcValue && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <Info className="h-3 w-3 text-amber-400" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">Live calculation (price_snapshots stale)</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </div>
+                    <div className={`text-lg font-semibold ${displayUnrealized >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {formatEuro(displayUnrealized)}
+                    </div>
+                    <div className={`text-xs ${displayUnrealized >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                      {formatPercentage(displayPct)}
+                    </div>
+                  </div>
+                );
+              })()}
               
               <div className="p-3 bg-slate-700/30 rounded-lg">
                 <div className="text-xs text-slate-400">Realized P&L</div>
@@ -365,21 +464,31 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
 
-          {/* Total P&L and Fees Summary */}
-          {testMode && isInitialized && (
-            <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-lg">
-              <div>
-                <div className="text-sm text-slate-400">Total P&L</div>
-                <div className={`text-xl font-bold ${metrics.total_pnl_eur >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {formatEuro(metrics.total_pnl_eur)} <span className="text-sm">({formatPercentage(totalPnlPct)})</span>
+          {/* Total P&L and Fees Summary - use live unrealized when RPC stale */}
+          {testMode && isInitialized && (() => {
+            const liveUnrealized = liveAggregateUnrealizedPnl.total;
+            const useRpcUnrealized = Math.abs(metrics.unrealized_pnl_eur) > 0.01 || liveAggregateUnrealizedPnl.hasMissingPrices;
+            const displayUnrealized = useRpcUnrealized ? metrics.unrealized_pnl_eur : liveUnrealized;
+            const displayTotalPnl = metrics.realized_pnl_eur + displayUnrealized;
+            const displayTotalPnlPct = metrics.starting_capital_eur > 0 
+              ? (displayTotalPnl / metrics.starting_capital_eur) * 100 
+              : 0;
+            
+            return (
+              <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-lg">
+                <div>
+                  <div className="text-sm text-slate-400">Total P&L</div>
+                  <div className={`text-xl font-bold ${displayTotalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {formatEuro(displayTotalPnl)} <span className="text-sm">({formatPercentage(displayTotalPnlPct)})</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-slate-400">Total Fees</div>
+                  <div className="text-sm text-slate-300">{formatEuro(metrics.total_fees_eur)}</div>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-sm text-slate-400">Total Fees</div>
-                <div className="text-sm text-slate-300">{formatEuro(metrics.total_fees_eur)}</div>
-              </div>
-            </div>
-          )}
+            );
+          })()}
           
           {/* WALLET VIEW: Crypto holdings breakdown by asset */}
           {testMode ? (
