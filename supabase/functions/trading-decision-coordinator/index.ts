@@ -463,7 +463,11 @@ async function settleCashLedger(
         return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, error: settleResult?.reason || 'unknown' };
       }
 
-      const cashAfter = settleResult?.new_cash_balance_eur ?? null;
+      const cashAfter =
+        settleResult?.cash_after ??
+        settleResult?.cash_balance_eur ??
+        settleResult?.new_cash_balance_eur ??
+        null;
 
       // DRIFT DETECTOR: Verify DB reflects the new cash
       const { data: verifyData, error: verifyError } = await supabaseClient
