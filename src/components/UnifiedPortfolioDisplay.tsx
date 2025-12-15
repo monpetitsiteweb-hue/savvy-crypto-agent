@@ -13,7 +13,7 @@ import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
 import { useMarketData } from "@/contexts/MarketDataContext";
 import { supabase } from '@/integrations/supabase/client';
-import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw, AlertCircle, Info } from "lucide-react";
+import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw, AlertCircle } from "lucide-react";
 import { logger } from '@/utils/logger';
 import { PortfolioNotInitialized } from "@/components/PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
@@ -82,12 +82,22 @@ export const UnifiedPortfolioDisplay = () => {
     }
   }, [testMode, user]);
 
-  // TRADE-BASED: Aggregate positions from open trades with LIVE PRICES
-  // This provides accurate current values when price_snapshots is incomplete
-  const walletAssets = useMemo<WalletAsset[]>(() => {
+  // TRADES-ONLY: Aggregate positions from open trades with LIVE PRICES
+  // This is the single source of truth for all aggregate metrics
+  const liveAggregates = useMemo(() => {
     if (!testMode || !isInitialized || openTrades.length === 0) {
-      return [];
+      return { 
+        costBasisEur: 0, 
+        currentValueEur: 0, 
+        unrealizedEur: 0, 
+        unrealizedPct: 0, 
+        hasMissingPrices: false, 
+        missingSymbols: [] as string[],
+        walletAssets: [] as WalletAsset[]
+      };
     }
+    
+    const missingSymbols: string[] = [];
     
     // Group open trades by symbol and aggregate
     const assetMap = new Map<string, { symbol: string; totalAmount: number; totalCostBasis: number }>();
@@ -109,13 +119,31 @@ export const UnifiedPortfolioDisplay = () => {
       }
     }
     
-    // Enrich with live prices from market data
-    return Array.from(assetMap.values()).map(asset => {
+    // Compute totals with live prices
+    let costBasisEur = 0;
+    let currentValueEur = 0;
+    
+    const walletAssets: WalletAsset[] = Array.from(assetMap.values()).map(asset => {
       const pairSymbol = toPairSymbol(asset.symbol);
       const liveData = marketData[pairSymbol];
       const livePrice = liveData?.price || null;
-      const liveValue = livePrice !== null ? asset.totalAmount * livePrice : null;
-      const unrealizedPnl = liveValue !== null ? liveValue - asset.totalCostBasis : null;
+      
+      costBasisEur += asset.totalCostBasis;
+      
+      let liveValue: number | null = null;
+      let unrealizedPnl: number | null = null;
+      
+      if (livePrice && livePrice > 0) {
+        liveValue = asset.totalAmount * livePrice;
+        unrealizedPnl = liveValue - asset.totalCostBasis;
+        currentValueEur += liveValue;
+      } else {
+        // Track missing symbols, fallback to cost basis
+        if (!missingSymbols.includes(asset.symbol)) {
+          missingSymbols.push(asset.symbol);
+        }
+        currentValueEur += asset.totalCostBasis; // Fallback
+      }
       
       return {
         symbol: asset.symbol,
@@ -127,16 +155,13 @@ export const UnifiedPortfolioDisplay = () => {
         unrealizedPnl,
       };
     });
+    
+    const unrealizedEur = currentValueEur - costBasisEur;
+    const unrealizedPct = costBasisEur > 0 ? (unrealizedEur / costBasisEur) * 100 : 0;
+    const hasMissingPrices = missingSymbols.length > 0;
+    
+    return { costBasisEur, currentValueEur, unrealizedEur, unrealizedPct, hasMissingPrices, missingSymbols, walletAssets };
   }, [testMode, isInitialized, openTrades, marketData]);
-  
-  // Compute live aggregate unrealized P&L from wallet assets (for comparison with RPC)
-  const liveAggregateUnrealizedPnl = useMemo(() => {
-    const total = walletAssets.reduce((sum, asset) => {
-      return sum + (asset.unrealizedPnl ?? 0);
-    }, 0);
-    const hasMissingPrices = walletAssets.some(a => a.livePrice === null);
-    return { total, hasMissingPrices };
-  }, [walletAssets]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -354,21 +379,31 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
           
-          {/* Total Portfolio Value - Use live calculation when RPC has stale price data */}
+          {/* Total Portfolio Value - LIVE computed: cash + currentValueEur */}
           {(() => {
-            // Compute live total from cash + live asset values
-            const liveCryptoValue = walletAssets.reduce((sum, a) => sum + (a.liveValue ?? a.totalCostBasis), 0);
-            const liveTotal = metrics.cash_balance_eur + liveCryptoValue;
-            // Use live value if it differs meaningfully from RPC (indicates stale price_snapshots)
-            const useRpcValue = Math.abs(liveTotal - metrics.total_portfolio_value_eur) < 1;
-            const displayTotal = useRpcValue ? metrics.total_portfolio_value_eur : liveTotal;
+            // TRADES-ONLY: Always use live-computed values
+            const displayTotal = metrics.cash_balance_eur + liveAggregates.currentValueEur;
             const displayGain = displayTotal - metrics.starting_capital_eur;
             const displayGainPct = metrics.starting_capital_eur > 0 ? (displayGain / metrics.starting_capital_eur) * 100 : 0;
             
             return (
               <div className="flex justify-between items-center p-4 bg-slate-700/50 rounded-lg border border-slate-600/50">
                 <div>
-                  <span className="font-medium text-white">Total Portfolio Value</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-white">Total Portfolio Value</span>
+                    {liveAggregates.hasMissingPrices && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <AlertCircle className="h-4 w-4 text-amber-400" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p className="text-xs">Partial valuation — missing live price for: {liveAggregates.missingSymbols.join(', ')}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                  </div>
                   {testMode && isInitialized && (
                     <div className="text-xs text-slate-400 mt-1">
                       Started with {formatEuro(metrics.starting_capital_eur)}
@@ -402,41 +437,43 @@ export const UnifiedPortfolioDisplay = () => {
               </div>
               
               {(() => {
-                // Use live crypto value when RPC value seems stale (≈0 when positions exist)
-                const liveCryptoValue = walletAssets.reduce((sum, a) => sum + (a.liveValue ?? a.totalCostBasis), 0);
-                const displayCurrent = (metrics.current_position_value_eur < 1 && liveCryptoValue > 1) 
-                  ? liveCryptoValue 
-                  : metrics.current_position_value_eur;
+                // TRADES-ONLY: Always use live-computed values
                 return (
                   <div className="p-3 bg-slate-700/30 rounded-lg">
-                    <div className="text-xs text-slate-400">Invested</div>
-                    <div className="text-lg font-semibold text-white">{formatEuro(metrics.invested_cost_basis_eur)}</div>
-                    <div className="text-xs text-slate-500">Current: {formatEuro(displayCurrent)}</div>
+                    <div className="flex items-center gap-1 text-xs text-slate-400">
+                      Invested
+                      {liveAggregates.hasMissingPrices && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger><AlertCircle className="h-3 w-3 text-amber-400" /></TooltipTrigger>
+                            <TooltipContent><p className="text-xs">Partial: {liveAggregates.missingSymbols.join(', ')}</p></TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </div>
+                    <div className="text-lg font-semibold text-white">{formatEuro(liveAggregates.costBasisEur)}</div>
+                    <div className="text-xs text-slate-500">Current: {formatEuro(liveAggregates.currentValueEur)}</div>
                   </div>
                 );
               })()}
               
               {(() => {
-                // Use live unrealized P&L when RPC value is stale/zero
-                const liveUnrealized = liveAggregateUnrealizedPnl.total;
-                const useRpcValue = Math.abs(metrics.unrealized_pnl_eur) > 0.01 || liveAggregateUnrealizedPnl.hasMissingPrices;
-                const displayUnrealized = useRpcValue ? metrics.unrealized_pnl_eur : liveUnrealized;
-                const displayPct = metrics.invested_cost_basis_eur > 0 
-                  ? (displayUnrealized / metrics.invested_cost_basis_eur) * 100 
-                  : 0;
+                // TRADES-ONLY: Always use live-computed unrealized P&L
+                const displayUnrealized = liveAggregates.unrealizedEur;
+                const displayPct = liveAggregates.unrealizedPct;
                 
                 return (
                   <div className="p-3 bg-slate-700/30 rounded-lg">
                     <div className="flex items-center gap-1 text-xs text-slate-400">
                       Unrealized P&L
-                      {!useRpcValue && (
+                      {liveAggregates.hasMissingPrices && (
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger>
-                              <Info className="h-3 w-3 text-amber-400" />
+                              <AlertCircle className="h-3 w-3 text-amber-400" />
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p className="text-xs">Live calculation (price_snapshots stale)</p>
+                              <p className="text-xs">Partial: missing {liveAggregates.missingSymbols.join(', ')}</p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -464,11 +501,10 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
 
-          {/* Total P&L and Fees Summary - use live unrealized when RPC stale */}
+          {/* Total P&L and Fees Summary - LIVE computed */}
           {testMode && isInitialized && (() => {
-            const liveUnrealized = liveAggregateUnrealizedPnl.total;
-            const useRpcUnrealized = Math.abs(metrics.unrealized_pnl_eur) > 0.01 || liveAggregateUnrealizedPnl.hasMissingPrices;
-            const displayUnrealized = useRpcUnrealized ? metrics.unrealized_pnl_eur : liveUnrealized;
+            // TRADES-ONLY: Always use live-computed unrealized P&L
+            const displayUnrealized = liveAggregates.unrealizedEur;
             const displayTotalPnl = metrics.realized_pnl_eur + displayUnrealized;
             const displayTotalPnlPct = metrics.starting_capital_eur > 0 
               ? (displayTotalPnl / metrics.starting_capital_eur) * 100 
@@ -492,9 +528,9 @@ export const UnifiedPortfolioDisplay = () => {
           
           {/* WALLET VIEW: Crypto holdings breakdown by asset */}
           {testMode ? (
-            walletAssets.length > 0 ? (
+            liveAggregates.walletAssets.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {walletAssets.map(renderWalletAssetCard)}
+                {liveAggregates.walletAssets.map(renderWalletAssetCard)}
               </div>
             ) : isInitialized && !tradesLoading ? (
               <div className="text-center py-8">
@@ -520,7 +556,7 @@ export const UnifiedPortfolioDisplay = () => {
           {/* Data source indicator */}
           {testMode && isInitialized && (
             <div className="text-xs text-slate-400 text-center mt-2">
-              📊 All metrics from RPC (get_portfolio_metrics) • Trade-based
+              📊 Live prices from market stream • Trades-only model
             </div>
           )}
         </div>
