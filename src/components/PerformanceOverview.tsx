@@ -1,5 +1,5 @@
-// TRADE-BASED: PerformanceOverview uses afterReset for deterministic refresh
-import { useEffect, useState } from "react";
+// TRADE-BASED: PerformanceOverview uses portfolioMath for consistent calculations
+import { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,12 +7,19 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTestMode } from "@/hooks/useTestMode";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
-import { TrendingUp, TrendingDown, DollarSign, Activity, Target, TestTube, Percent } from "lucide-react";
+import { useMarketData } from "@/contexts/MarketDataContext";
+import { TrendingUp, TrendingDown, DollarSign, Activity, Target, TestTube, Percent, Fuel } from "lucide-react";
 import { NoActiveStrategyState } from "./NoActiveStrategyState";
 import { PortfolioNotInitialized } from "./PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useMockWallet } from "@/hooks/useMockWallet";
 import { afterReset } from "@/utils/resetHelpers";
+import { 
+  computeFullPortfolioValuation, 
+  formatPnlWithSign,
+  type MarketPrices,
+  type PortfolioValuation 
+} from '@/utils/portfolioMath';
 
 interface LocalMetrics {
   winningTrades: number;
@@ -40,8 +47,9 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
     unrealizedPnlPct
   } = usePortfolioMetrics();
   
-  // TRADE-BASED: Use open trades for reset refresh
-  const { refresh: refreshOpenTrades } = useOpenTrades();
+  // TRADE-BASED: Use open trades for portfolio valuation
+  const { openTrades, refresh: refreshOpenTrades } = useOpenTrades();
+  const { marketData } = useMarketData();
   const [localMetrics, setLocalMetrics] = useState<LocalMetrics>({
     winningTrades: 0,
     losingTrades: 0,
@@ -49,14 +57,16 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
     totalTrades: 0
   });
   const [localLoading, setLocalLoading] = useState(true);
+  const [totalTradedVolume, setTotalTradedVolume] = useState(0);
 
-  // Fetch win/loss metrics locally (these are count-based, not stored in RPC)
+  // Fetch win/loss metrics and total traded volume locally
   const fetchLocalMetrics = async () => {
     if (!user) return;
     
     try {
       setLocalLoading(true);
       
+      // Fetch sell trades for win/loss
       const { data: sellTrades, error } = await supabase
         .from('mock_trades')
         .select('realized_pnl')
@@ -77,12 +87,36 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
         winRate,
         totalTrades: total
       });
+      
+      // Fetch total traded volume for gas calculation
+      const { data: allTrades } = await supabase
+        .from('mock_trades')
+        .select('total_value')
+        .eq('user_id', user.id)
+        .eq('is_test_mode', testMode)
+        .eq('is_corrupted', false);
+      
+      if (allTrades) {
+        const volume = allTrades.reduce((sum, t) => sum + (t.total_value || 0), 0);
+        setTotalTradedVolume(volume);
+      }
     } catch (error) {
       console.error('Error fetching local metrics:', error);
     } finally {
       setLocalLoading(false);
     }
   };
+  
+  // Compute portfolio valuation using shared utility
+  const portfolioValuation: PortfolioValuation = useMemo(() => {
+    return computeFullPortfolioValuation(
+      metrics,
+      openTrades,
+      marketData as MarketPrices,
+      totalTradedVolume,
+      testMode
+    );
+  }, [metrics, openTrades, marketData, totalTradedVolume, testMode]);
 
   useEffect(() => {
     if (user && testMode) {
@@ -175,7 +209,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
             <div className="text-xs text-slate-500">Success ratio (local)</div>
           </div>
 
-          {/* Total P&L - FROM RPC */}
+          {/* Total P&L - using portfolioMath */}
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm text-slate-300">
               <DollarSign className="h-4 w-4" />
@@ -184,16 +218,19 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
             {metricsLoading ? (
               <div className="w-20 h-8 bg-slate-700 animate-pulse rounded"></div>
             ) : (
-              <>
-                <div className={`text-2xl font-bold ${
-                  metrics.total_pnl_eur >= 0 ? 'text-green-400' : 'text-red-400'
-                }`}>
-                  {formatEuro(metrics.total_pnl_eur)}
-                </div>
-                <div className={`text-xs ${metrics.total_pnl_eur >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
-                  {formatPercentage(totalPnlPct)} from RPC
-                </div>
-              </>
+              (() => {
+                const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                return (
+                  <>
+                    <div className={`text-2xl font-bold ${pnl.colorClass}`}>
+                      {pnl.sign}{pnl.value}
+                    </div>
+                    <div className={`text-xs ${pnl.colorClass}`}>
+                      {formatPercentage(portfolioValuation.totalPnlPct)} — {pnl.label}
+                    </div>
+                  </>
+                );
+              })()
             )}
           </div>
 
@@ -250,43 +287,57 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
           </div>
         </div>
 
-        {/* Gas Tracking Placeholder - P5 */}
+        {/* Gas Tracking - using portfolioMath */}
         <div className="mt-4 p-3 bg-slate-700/20 rounded-lg border border-slate-700/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-slate-400">
-              <Activity className="h-4 w-4" />
+              <Fuel className="h-4 w-4" />
               Gas Spent (est.)
             </div>
             <div className="text-right">
-              <div className="text-sm font-medium text-slate-500">€0.00</div>
-              <div className="text-xs text-slate-600" title="Available when on-chain execution is enabled; mock trades will later estimate">
-                Mock trades (no gas)
+              <div className="text-sm font-medium text-amber-400">−{formatEuro(portfolioValuation.gasSpentEur)}</div>
+              <div className="text-xs text-slate-600">
+                0.20% of {formatEuro(totalTradedVolume)} traded
               </div>
             </div>
           </div>
         </div>
 
-        {/* P&L Breakdown */}
+        {/* P&L Breakdown - using portfolioMath */}
         {isInitialized && (
           <div className="mt-4 pt-4 border-t border-slate-700">
             <div className="grid grid-cols-2 gap-4">
               <div className="p-3 bg-slate-700/30 rounded-lg">
                 <div className="text-xs text-slate-400">Unrealized P&L</div>
-                <div className={`text-lg font-semibold ${metrics.unrealized_pnl_eur >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {formatEuro(metrics.unrealized_pnl_eur)}
-                </div>
-                <div className={`text-xs ${metrics.unrealized_pnl_eur >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
-                  {formatPercentage(unrealizedPnlPct)}
-                </div>
+                {(() => {
+                  const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
+                  return (
+                    <>
+                      <div className={`text-lg font-semibold ${unrealPnl.colorClass}`}>
+                        {unrealPnl.sign}{unrealPnl.value}
+                      </div>
+                      <div className={`text-xs ${unrealPnl.colorClass}`}>
+                        {formatPercentage(unrealizedPnlPct)}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
               <div className="p-3 bg-slate-700/30 rounded-lg">
                 <div className="text-xs text-slate-400">Realized P&L</div>
-                <div className={`text-lg font-semibold ${metrics.realized_pnl_eur >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {formatEuro(metrics.realized_pnl_eur)}
-                </div>
-                <div className={`text-xs ${metrics.realized_pnl_eur >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
-                  {formatPercentage(realizedPnlPct)}
-                </div>
+                {(() => {
+                  const realPnl = formatPnlWithSign(portfolioValuation.realizedPnlEur);
+                  return (
+                    <>
+                      <div className={`text-lg font-semibold ${realPnl.colorClass}`}>
+                        {realPnl.sign}{realPnl.value}
+                      </div>
+                      <div className={`text-xs ${realPnl.colorClass}`}>
+                        {formatPercentage(realizedPnlPct)}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           </div>

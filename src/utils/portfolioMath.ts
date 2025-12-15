@@ -1,0 +1,261 @@
+/**
+ * PORTFOLIO MATH - Single source of truth for all portfolio calculations
+ * 
+ * Total Portfolio Value = Cash + Open Positions Value - Gas Spent
+ * Total P&L = Total Portfolio Value - Starting Capital
+ * 
+ * This must be used by ALL UI components displaying portfolio totals.
+ */
+
+import type { OpenTrade } from '@/hooks/useOpenTrades';
+import type { PortfolioMetrics } from '@/hooks/usePortfolioMetrics';
+import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
+
+// Default gas rate for mock mode (0.20% of trade value)
+export const MOCK_GAS_RATE_PCT = 0.002;
+
+export interface MarketPrices {
+  [symbol: string]: { price: number } | undefined;
+}
+
+export interface OpenPositionValue {
+  symbol: string;
+  amount: number;
+  costBasis: number;
+  livePrice: number | null;
+  liveValue: number | null;
+  unrealizedPnl: number | null;
+  unrealizedPnlPct: number | null;
+}
+
+export interface PortfolioValuation {
+  // Core components
+  cashEur: number;
+  openPositionsValueEur: number;
+  gasSpentEur: number;
+  
+  // Derived totals
+  totalPortfolioValueEur: number;
+  totalPnlEur: number;
+  totalPnlPct: number;
+  
+  // Breakdown
+  startingCapitalEur: number;
+  unrealizedPnlEur: number;
+  realizedPnlEur: number;
+  
+  // Data quality
+  hasMissingPrices: boolean;
+  missingSymbols: string[];
+  
+  // Per-position breakdown
+  positions: OpenPositionValue[];
+}
+
+/**
+ * Compute the EUR value of all open trades using live market prices
+ */
+export function computeOpenTradesValueEur(
+  openTrades: OpenTrade[],
+  marketPrices: MarketPrices
+): { 
+  totalValue: number; 
+  costBasis: number;
+  positions: OpenPositionValue[];
+  hasMissingPrices: boolean; 
+  missingSymbols: string[];
+} {
+  if (!openTrades || openTrades.length === 0) {
+    return { 
+      totalValue: 0, 
+      costBasis: 0,
+      positions: [],
+      hasMissingPrices: false, 
+      missingSymbols: [] 
+    };
+  }
+  
+  const missingSymbols: string[] = [];
+  const positions: OpenPositionValue[] = [];
+  let totalValue = 0;
+  let costBasis = 0;
+  
+  // Group by symbol first
+  const symbolMap = new Map<string, { amount: number; cost: number }>();
+  
+  for (const trade of openTrades) {
+    const symbol = toBaseSymbol(trade.cryptocurrency);
+    const tradeCost = trade.total_value + (trade.fees || 0);
+    
+    const existing = symbolMap.get(symbol);
+    if (existing) {
+      existing.amount += trade.amount;
+      existing.cost += tradeCost;
+    } else {
+      symbolMap.set(symbol, { amount: trade.amount, cost: tradeCost });
+    }
+  }
+  
+  // Compute values with live prices
+  for (const [symbol, data] of symbolMap) {
+    const pairSymbol = toPairSymbol(symbol);
+    const liveData = marketPrices[pairSymbol];
+    const livePrice = liveData?.price || null;
+    
+    costBasis += data.cost;
+    
+    let liveValue: number | null = null;
+    let unrealizedPnl: number | null = null;
+    let unrealizedPnlPct: number | null = null;
+    
+    if (livePrice && livePrice > 0) {
+      liveValue = data.amount * livePrice;
+      unrealizedPnl = liveValue - data.cost;
+      unrealizedPnlPct = data.cost > 0 ? (unrealizedPnl / data.cost) * 100 : 0;
+      totalValue += liveValue;
+    } else {
+      // Fallback to cost basis when price missing
+      totalValue += data.cost;
+      if (!missingSymbols.includes(symbol)) {
+        missingSymbols.push(symbol);
+      }
+    }
+    
+    positions.push({
+      symbol,
+      amount: data.amount,
+      costBasis: data.cost,
+      livePrice,
+      liveValue,
+      unrealizedPnl,
+      unrealizedPnlPct,
+    });
+  }
+  
+  return {
+    totalValue,
+    costBasis,
+    positions,
+    hasMissingPrices: missingSymbols.length > 0,
+    missingSymbols,
+  };
+}
+
+/**
+ * Get cash balance from portfolio_capital (display as "Cash")
+ */
+export function getCashFromLedger(metrics: PortfolioMetrics): number {
+  return metrics.cash_balance_eur || 0;
+}
+
+/**
+ * Compute estimated gas spent in mock mode
+ * Formula: SUM(total_value) * MOCK_GAS_RATE_PCT
+ */
+export function computeMockGasSpentEur(totalTradedVolumeEur: number): number {
+  return totalTradedVolumeEur * MOCK_GAS_RATE_PCT;
+}
+
+/**
+ * Compute total portfolio value
+ * Formula: cash + openPositionsValue - gasSpent
+ */
+export function computeTotalPortfolioValueEur(
+  cashEur: number,
+  openPositionsValueEur: number,
+  gasSpentEur: number
+): number {
+  return cashEur + openPositionsValueEur - gasSpentEur;
+}
+
+/**
+ * Compute total P&L
+ * Formula: totalPortfolioValue - startingCapital
+ */
+export function computeTotalPnl(
+  totalPortfolioValueEur: number,
+  startingCapitalEur: number
+): { pnlEur: number; pnlPct: number } {
+  const pnlEur = totalPortfolioValueEur - startingCapitalEur;
+  const pnlPct = startingCapitalEur > 0 ? (pnlEur / startingCapitalEur) * 100 : 0;
+  return { pnlEur, pnlPct };
+}
+
+/**
+ * MAIN: Compute full portfolio valuation
+ * This is the single source of truth for portfolio display
+ */
+export function computeFullPortfolioValuation(
+  metrics: PortfolioMetrics,
+  openTrades: OpenTrade[],
+  marketPrices: MarketPrices,
+  totalTradedVolumeEur: number,
+  isTestMode: boolean
+): PortfolioValuation {
+  // 1. Get cash from ledger
+  const cashEur = getCashFromLedger(metrics);
+  
+  // 2. Compute open positions value with live prices
+  const openCalc = computeOpenTradesValueEur(openTrades, marketPrices);
+  const openPositionsValueEur = openCalc.totalValue;
+  
+  // 3. Compute gas (mock mode uses estimate, real mode uses actual from DB)
+  // For now, mock mode only. Real mode will use actual gas from trade records.
+  const gasSpentEur = isTestMode ? computeMockGasSpentEur(totalTradedVolumeEur) : 0;
+  
+  // 4. Compute total portfolio value
+  const totalPortfolioValueEur = computeTotalPortfolioValueEur(cashEur, openPositionsValueEur, gasSpentEur);
+  
+  // 5. Compute total P&L
+  const startingCapitalEur = metrics.starting_capital_eur || 0;
+  const { pnlEur: totalPnlEur, pnlPct: totalPnlPct } = computeTotalPnl(totalPortfolioValueEur, startingCapitalEur);
+  
+  // 6. P&L breakdown
+  const unrealizedPnlEur = openCalc.totalValue - openCalc.costBasis;
+  const realizedPnlEur = metrics.realized_pnl_eur || 0;
+  
+  return {
+    cashEur,
+    openPositionsValueEur,
+    gasSpentEur,
+    totalPortfolioValueEur,
+    totalPnlEur,
+    totalPnlPct,
+    startingCapitalEur,
+    unrealizedPnlEur,
+    realizedPnlEur,
+    hasMissingPrices: openCalc.hasMissingPrices,
+    missingSymbols: openCalc.missingSymbols,
+    positions: openCalc.positions,
+  };
+}
+
+/**
+ * Format P&L with explicit sign and profit/loss label
+ */
+export function formatPnlWithSign(pnlEur: number): { 
+  sign: string; 
+  value: string; 
+  label: 'Profit' | 'Loss' | 'Break-even';
+  colorClass: string;
+} {
+  if (Math.abs(pnlEur) < 0.01) {
+    return { sign: '', value: '€0.00', label: 'Break-even', colorClass: 'text-slate-400' };
+  }
+  
+  if (pnlEur > 0) {
+    return { 
+      sign: '+', 
+      value: `€${pnlEur.toFixed(2)}`, 
+      label: 'Profit', 
+      colorClass: 'text-green-400' 
+    };
+  }
+  
+  return { 
+    sign: '-', 
+    value: `€${Math.abs(pnlEur).toFixed(2)}`, 
+    label: 'Loss', 
+    colorClass: 'text-red-400' 
+  };
+}
