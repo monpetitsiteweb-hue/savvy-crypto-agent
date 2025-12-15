@@ -394,38 +394,54 @@ interface UnifiedConfig {
 // FAIL-CLOSED: If any required key is missing, block with specific reason.
 // 
 // CANONICAL REQUIRED KEYS (root level):
+//   - takeProfitPercentage (number, %)
+//   - stopLossPercentage (number, %)
+//   - aiConfidenceThreshold (integer, 0-100)
+//   - priceStaleMaxMs (integer, ms)
+//   - spreadThresholdBps (integer, bps)
 //   - minHoldPeriodMs (integer, ms)
 //   - cooldownBetweenOppositeActionsMs (integer, ms)
-//   - aiConfidenceThreshold (integer, 0-100)
-//   - takeProfitPercentage (number)
-//   - stopLossPercentage (number)
 // =============================================================================
 
-interface ResolvedConfig {
+interface CanonicalConfig {
   takeProfitPercentage: number;
   stopLossPercentage: number;
+  aiConfidenceThreshold: number;
+  priceStaleMaxMs: number;
+  spreadThresholdBps: number;
   minHoldPeriodMs: number;
   cooldownBetweenOppositeActionsMs: number;
-  aiConfidenceThreshold: number;
   confidenceOverrideThreshold: number;
+  is_test_mode: boolean;
 }
 
-interface ConfigResolutionResult {
+interface CanonicalConfigResult {
   success: boolean;
-  resolved?: ResolvedConfig;
+  config?: CanonicalConfig;
   missingKeys?: string[];
 }
 
-function resolveStrategyConfig(config: Record<string, any>): ConfigResolutionResult {
+/**
+ * SINGLE SOURCE OF TRUTH for canonical config resolution.
+ * Used by BOTH executeWithMinimalLock AND executeTradeOrder.
+ * 
+ * @param strategyConfig - Either the raw DB row (with .configuration) or already the configuration object
+ * @returns Resolved config with all required canonical keys, or list of missing keys
+ */
+function resolveCanonicalConfig(strategyConfig: any): CanonicalConfigResult {
+  // Normalize: if strategyConfig has .configuration, use that; otherwise use strategyConfig directly
+  const cfg = strategyConfig?.configuration || strategyConfig || {};
+  
   const missingKeys: string[] = [];
   
-  // STRICT: Only check root-level keys, no nested path fallbacks
-  const takeProfitPercentage = config.takeProfitPercentage;
-  const stopLossPercentage = config.stopLossPercentage;
-  const minHoldPeriodMs = config.minHoldPeriodMs;
-  const cooldownBetweenOppositeActionsMs = config.cooldownBetweenOppositeActionsMs;
-  const aiConfidenceThreshold = config.aiConfidenceThreshold;
-  const confidenceOverrideThreshold = config.confidenceOverrideThreshold;
+  // CANONICAL REQUIRED KEYS (STRICT: root-level only, no nested fallbacks)
+  const takeProfitPercentage = cfg.takeProfitPercentage;
+  const stopLossPercentage = cfg.stopLossPercentage;
+  const aiConfidenceThreshold = cfg.aiConfidenceThreshold;
+  const priceStaleMaxMs = cfg.priceStaleMaxMs;
+  const spreadThresholdBps = cfg.spreadThresholdBps;
+  const minHoldPeriodMs = cfg.minHoldPeriodMs;
+  const cooldownBetweenOppositeActionsMs = cfg.cooldownBetweenOppositeActionsMs;
   
   // Check which canonical keys are missing
   if (takeProfitPercentage === undefined || takeProfitPercentage === null) {
@@ -434,39 +450,56 @@ function resolveStrategyConfig(config: Record<string, any>): ConfigResolutionRes
   if (stopLossPercentage === undefined || stopLossPercentage === null) {
     missingKeys.push('stopLossPercentage');
   }
+  if (aiConfidenceThreshold === undefined || aiConfidenceThreshold === null) {
+    missingKeys.push('aiConfidenceThreshold');
+  }
+  if (priceStaleMaxMs === undefined || priceStaleMaxMs === null) {
+    missingKeys.push('priceStaleMaxMs');
+  }
+  if (spreadThresholdBps === undefined || spreadThresholdBps === null) {
+    missingKeys.push('spreadThresholdBps');
+  }
   if (minHoldPeriodMs === undefined || minHoldPeriodMs === null) {
     missingKeys.push('minHoldPeriodMs');
   }
   if (cooldownBetweenOppositeActionsMs === undefined || cooldownBetweenOppositeActionsMs === null) {
     missingKeys.push('cooldownBetweenOppositeActionsMs');
   }
-  if (aiConfidenceThreshold === undefined || aiConfidenceThreshold === null) {
-    missingKeys.push('aiConfidenceThreshold');
-  }
   
   if (missingKeys.length > 0) {
-    console.log(`❌ [ConfigResolver] FAIL-CLOSED: Missing canonical root keys: ${missingKeys.join(', ')}`);
-    console.log(`   Strategy must have these keys at root level of configuration JSON.`);
-    console.log(`   Run SQL backfill or re-save strategy in UI to populate missing keys.`);
+    console.log(`❌ [CanonicalConfig] FAIL-CLOSED: Missing required keys: ${missingKeys.join(', ')}`);
     return { success: false, missingKeys };
   }
   
-  console.log(`✅ [ConfigResolver] All canonical keys present at root level`);
+  // Optional keys with safe defaults
+  const confidenceOverrideThreshold = cfg.confidenceOverrideThreshold ?? aiConfidenceThreshold;
+  const is_test_mode = cfg.is_test_mode === true;
+  
+  console.log(`✅ [CanonicalConfig] All 7 canonical keys resolved`);
   
   return {
     success: true,
-    resolved: {
+    config: {
       takeProfitPercentage: Number(takeProfitPercentage),
       stopLossPercentage: Number(stopLossPercentage),
+      aiConfidenceThreshold: Number(aiConfidenceThreshold),
+      priceStaleMaxMs: Number(priceStaleMaxMs),
+      spreadThresholdBps: Number(spreadThresholdBps),
       minHoldPeriodMs: Number(minHoldPeriodMs),
       cooldownBetweenOppositeActionsMs: Number(cooldownBetweenOppositeActionsMs),
-      aiConfidenceThreshold: Number(aiConfidenceThreshold),
-      // confidenceOverrideThreshold is optional - default to aiConfidenceThreshold if missing
-      confidenceOverrideThreshold: confidenceOverrideThreshold !== undefined && confidenceOverrideThreshold !== null 
-        ? Number(confidenceOverrideThreshold) 
-        : Number(aiConfidenceThreshold)
+      confidenceOverrideThreshold: Number(confidenceOverrideThreshold),
+      is_test_mode
     }
   };
+}
+
+// LEGACY ALIAS for backward compatibility (used by some callers)
+function resolveStrategyConfig(config: Record<string, any>): { success: boolean; resolved?: any; missingKeys?: string[] } {
+  const result = resolveCanonicalConfig(config);
+  if (!result.success) {
+    return { success: false, missingKeys: result.missingKeys };
+  }
+  return { success: true, resolved: result.config };
 }
 
 // In-memory caches for performance
@@ -3659,20 +3692,21 @@ async function executeWithMinimalLock(
   let lockAcquired = false;
   
   try {
-    // PRICE FRESHNESS AND SPREAD GATES (before acquiring lock)
-    // FAIL-CLOSED: Required config must exist - NO || fallbacks
+    // =========================================================================
+    // CANONICAL CONFIG RESOLUTION (SINGLE SOURCE OF TRUTH)
+    // Use resolveCanonicalConfig for BOTH executeWithMinimalLock AND executeTradeOrder
+    // =========================================================================
     const baseSymbol = toBaseSymbol(intent.symbol);
-    const priceStaleMaxMs = strategyConfig?.priceStaleMaxMs;
-    const spreadThresholdBps = strategyConfig?.spreadThresholdBps;
+    const canonicalResult = resolveCanonicalConfig(strategyConfig);
     
-    if (priceStaleMaxMs === undefined || priceStaleMaxMs === null) {
-      console.log(`🚫 COORDINATOR: Trade blocked - missing required config: priceStaleMaxMs`);
-      return { action: 'BLOCK', reason: 'blocked_missing_config:priceStaleMaxMs' };
+    if (!canonicalResult.success) {
+      const missingKey = canonicalResult.missingKeys?.[0] || 'unknown';
+      console.log(`🚫 COORDINATOR: Trade blocked - missing canonical config: ${canonicalResult.missingKeys?.join(', ')}`);
+      return { action: 'BLOCK', reason: `blocked_missing_config:${missingKey}` as Reason, request_id: requestId, retry_in_ms: 0 };
     }
-    if (spreadThresholdBps === undefined || spreadThresholdBps === null) {
-      console.log(`🚫 COORDINATOR: Trade blocked - missing required config: spreadThresholdBps`);
-      return { action: 'BLOCK', reason: 'blocked_missing_config:spreadThresholdBps' };
-    }
+    
+    const canonical = canonicalResult.config!;
+    const { priceStaleMaxMs, spreadThresholdBps, is_test_mode } = canonical;
     
     const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
     
@@ -3684,9 +3718,7 @@ async function executeWithMinimalLock(
     }
     
     // Spread gate - BYPASS IN TEST MODE
-    const isTestModeForSpread = strategyConfig?.configuration?.is_test_mode === true || 
-                                strategyConfig?.is_test_mode === true ||
-                                intent.metadata?.is_test_mode === true;
+    const isTestModeForSpread = is_test_mode || intent.metadata?.is_test_mode === true;
     
     if (!isTestModeForSpread && priceData.spreadBps > spreadThresholdBps) {
       console.log(`🚫 COORDINATOR: Trade blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
@@ -4102,38 +4134,42 @@ async function executeTradeOrder(
 }> {
   
   try {
-    // PHASE 4: Load optimized parameters (override hard-coded config)
+    // =========================================================================
+    // CANONICAL CONFIG RESOLUTION - use same resolver as executeWithMinimalLock
+    // =========================================================================
     const baseSymbol = toBaseSymbol(intent.symbol);
-    const params = await loadStrategyParameters(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
+    const canonicalResult = resolveCanonicalConfig(strategyConfig);
     
-    // Extract base config values for logging
-    // FAIL-CLOSED: Required config must exist - NO || fallbacks
-    // Config structure: strategyConfig may be the raw DB row OR already the configuration object
-    const cfg = strategyConfig?.configuration || strategyConfig || {};
-    
-    const baseConfig = {
-      tp_pct: cfg.takeProfitPercentage,
-      sl_pct: cfg.stopLossPercentage,
-      min_confidence: cfg.aiConfidenceThreshold !== undefined ? (cfg.aiConfidenceThreshold / 100) : 
-                      (cfg.min_confidence ?? cfg.minConfidence ?? 0.5)
-    };
-    
-    // Block if required config is missing (except min_confidence which has a safe default)
-    if (baseConfig.tp_pct === undefined || baseConfig.sl_pct === undefined) {
-      console.log(`🚫 COORDINATOR: Trade blocked - missing required config: tp_pct=${baseConfig.tp_pct}, sl_pct=${baseConfig.sl_pct}, min_conf=${baseConfig.min_confidence}`);
-      return { success: false, error: `blocked_missing_config:tp_sl (tp=${baseConfig.tp_pct}, sl=${baseConfig.sl_pct})` };
+    // Note: Config should already be validated in executeWithMinimalLock,
+    // but we check again for safety in case this function is called directly
+    if (!canonicalResult.success) {
+      const missingKey = canonicalResult.missingKeys?.[0] || 'unknown';
+      console.log(`🚫 COORDINATOR: executeTradeOrder blocked - missing config: ${canonicalResult.missingKeys?.join(', ')}`);
+      return { success: false, error: `blocked_missing_config:${missingKey}` };
     }
     
-    // Create effective config by merging overrides
-    let effectiveConfig = { ...strategyConfig };
+    const canonical = canonicalResult.config!;
     
-    // Apply parameters (override strategy config if available)
+    // PHASE 4: Load optimized parameters (override canonical config)
+    const params = await loadStrategyParameters(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
+    
+    // Create effective config by merging overrides
+    let effectiveConfig = { 
+      ...strategyConfig,
+      // Ensure canonical values are present
+      takeProfitPercentage: canonical.takeProfitPercentage,
+      stopLossPercentage: canonical.stopLossPercentage,
+      aiConfidenceThreshold: canonical.aiConfidenceThreshold,
+      minConfidence: canonical.aiConfidenceThreshold / 100
+    };
+    
+    // Apply strategy_parameters overrides if available
     if (params) {
       effectiveConfig = {
-        ...strategyConfig,
-        takeProfitPercentage: params.tp_pct,
-        stopLossPercentage: params.sl_pct,
-        minConfidence: params.min_confidence
+        ...effectiveConfig,
+        takeProfitPercentage: params.tp_pct ?? canonical.takeProfitPercentage,
+        stopLossPercentage: params.sl_pct ?? canonical.stopLossPercentage,
+        minConfidence: params.min_confidence ?? (canonical.aiConfidenceThreshold / 100)
       };
     }
     
