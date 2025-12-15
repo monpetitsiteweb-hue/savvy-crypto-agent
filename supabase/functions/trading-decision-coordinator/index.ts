@@ -370,8 +370,127 @@ type Reason =
   | "blocked_missing_policy"
   | "blocked_liquidation_requires_batch_id"
   | "decision_events_insert_failed"
+  | "cash_ledger_settle_failed"
   // TEMPLATE LITERAL PATTERNS for dynamic reasons
   | `blocked_missing_config:${string}`;
+
+// ============= CASH LEDGER SETTLEMENT HELPER =============
+// Ensures cash_balance_eur moves correctly after every trade insert
+// For BUY: deduct total_value (we don't track fees separately in current data)
+// For SELL: credit exit_value (net proceeds after fees, as computed by trigger)
+// 
+// IMPORTANT: In current production data:
+// - fees, buy_fees, sell_fees are all 0 (not populated)
+// - exit_value = amount × price - implicit_fees (trigger computes this)
+// - total_value = amount × price (gross, no fees)
+// - realized_pnl = exit_value - original_purchase_value
+// 
+// Therefore:
+// - BUY: spend total_value (gross cost)
+// - SELL: receive exit_value if available, otherwise total_value (net proceeds)
+interface CashSettlementResult {
+  success: boolean;
+  cash_before?: number;
+  delta?: number;
+  cash_after?: number;
+  error?: string;
+}
+
+async function settleCashLedger(
+  supabaseClient: any,
+  userId: string,
+  side: 'BUY' | 'SELL',
+  tradeData: {
+    total_value: number;
+    exit_value?: number;
+    fees?: number;
+    buy_fees?: number;
+    sell_fees?: number;
+  }
+): Promise<CashSettlementResult> {
+  try {
+    // First, get current cash balance for logging
+    const { data: capitalData, error: capitalError } = await supabaseClient
+      .from('portfolio_capital')
+      .select('cash_balance_eur')
+      .eq('user_id', userId)
+      .single();
+    
+    const cashBefore = capitalData?.cash_balance_eur ?? null;
+    
+    if (side === 'BUY') {
+      // BUY: Deduct cash (total_value is gross cost)
+      // In current data, fees are 0, so total_value is the full amount to deduct
+      const buyNetSpent = tradeData.total_value + 
+        (tradeData.fees ?? 0) + 
+        (tradeData.buy_fees ?? 0);
+      
+      console.log(`💰 CASH LEDGER [BUY]: cash_before=${cashBefore?.toFixed(2) ?? 'N/A'}€, delta=-${buyNetSpent.toFixed(2)}€`);
+      
+      const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_buy_trade', {
+        p_user_id: userId,
+        p_reserved_amount: 0,
+        p_actual_spent: buyNetSpent
+      });
+      
+      if (settleError) {
+        console.error('❌ CASH LEDGER: settle_buy_trade RPC failed:', settleError);
+        return { success: false, cash_before: cashBefore, delta: -buyNetSpent, error: settleError.message };
+      }
+      
+      if (settleResult?.success === false) {
+        console.error('❌ CASH LEDGER: settle_buy_trade returned failure:', settleResult);
+        return { success: false, cash_before: cashBefore, delta: -buyNetSpent, error: settleResult?.reason || 'unknown' };
+      }
+      
+      const cashAfter = settleResult?.new_cash_balance_eur ?? null;
+      console.log(`✅ CASH LEDGER [BUY]: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€ (deducted ${buyNetSpent.toFixed(2)}€)`);
+      
+      return { success: true, cash_before: cashBefore, delta: -buyNetSpent, cash_after: cashAfter };
+      
+    } else {
+      // SELL: Credit cash with net proceeds
+      // Prefer exit_value (net, trigger-computed) over total_value (gross)
+      // If exit_value is missing, use total_value minus any fees
+      let sellNetProceeds: number;
+      
+      if (tradeData.exit_value !== undefined && tradeData.exit_value !== null) {
+        // Use exit_value directly - it's already net of fees (trigger computed)
+        sellNetProceeds = tradeData.exit_value;
+      } else {
+        // Fallback: total_value minus explicit fees
+        sellNetProceeds = tradeData.total_value - 
+          (tradeData.fees ?? 0) - 
+          (tradeData.sell_fees ?? 0);
+      }
+      
+      console.log(`💰 CASH LEDGER [SELL]: cash_before=${cashBefore?.toFixed(2) ?? 'N/A'}€, delta=+${sellNetProceeds.toFixed(2)}€`);
+      
+      const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_sell_trade', {
+        p_user_id: userId,
+        p_proceeds_eur: sellNetProceeds
+      });
+      
+      if (settleError) {
+        console.error('❌ CASH LEDGER: settle_sell_trade RPC failed:', settleError);
+        return { success: false, cash_before: cashBefore, delta: sellNetProceeds, error: settleError.message };
+      }
+      
+      if (settleResult?.success === false) {
+        console.error('❌ CASH LEDGER: settle_sell_trade returned failure:', settleResult);
+        return { success: false, cash_before: cashBefore, delta: sellNetProceeds, error: settleResult?.reason || 'unknown' };
+      }
+      
+      const cashAfter = settleResult?.new_cash_balance_eur ?? null;
+      console.log(`✅ CASH LEDGER [SELL]: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€ (credited ${sellNetProceeds.toFixed(2)}€)`);
+      
+      return { success: true, cash_before: cashBefore, delta: sellNetProceeds, cash_after: cashAfter };
+    }
+  } catch (error) {
+    console.error('❌ CASH LEDGER: Unexpected error in settleCashLedger:', error);
+    return { success: false, error: error?.message || 'unexpected_error' };
+  }
+}
 
 interface TradeDecision {
   action: DecisionAction;
@@ -1668,20 +1787,32 @@ serve(async (req) => {
         });
       }
 
-      // ============= CASH LEDGER UPDATE: Manual SELL proceeds =============
-      console.log(`💰 CASH LEDGER: Crediting ${exitValue.toFixed(2)}€ from manual SELL`);
-      
-      const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_sell_trade', {
-        p_user_id: intent.userId,
-        p_proceeds_eur: exitValue
+      // ============= CASH LEDGER UPDATE: Manual SELL proceeds (via helper) =============
+      const cashResult = await settleCashLedger(supabaseClient, intent.userId, 'SELL', {
+        total_value: exitValue,
+        exit_value: exitValue, // For manual SELL, exitValue is already computed correctly
+        fees: 0,
+        sell_fees: 0,
       });
       
-      if (settleError) {
-        console.error('⚠️ COORDINATOR: settle_sell_trade failed (trade inserted, cash not updated):', settleError);
-      } else if (settleResult?.success === false) {
-        console.error('⚠️ COORDINATOR: settle_sell_trade returned failure:', settleResult);
-      } else {
-        console.log(`✅ CASH LEDGER: Updated. New cash balance: ${settleResult?.new_cash_balance_eur}€`);
+      if (!cashResult.success) {
+        // Trade inserted but cash not updated - log decision_event for audit
+        console.error(`⚠️ COORDINATOR: Manual SELL cash settlement failed: ${cashResult.error}`);
+        await supabaseClient.from('decision_events').insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          symbol: baseSymbol,
+          side: 'SELL',
+          source: 'coordinator_manual_sell',
+          reason: 'cash_ledger_settle_failed',
+          decision_ts: new Date().toISOString(),
+          metadata: { 
+            cash_before: cashResult.cash_before,
+            delta: cashResult.delta,
+            error: cashResult.error,
+            trade_inserted: true 
+          }
+        });
       }
       // ============= END CASH LEDGER UPDATE =============
 
@@ -4901,23 +5032,36 @@ async function executeTradeOrder(
         const totalPnl = sellRows.reduce((sum, r) => sum + (r.realized_pnl || 0), 0);
         console.log(`📊 Total: qty=${totalQty.toFixed(8)}, pnl=€${totalPnl.toFixed(2)}`);
 
-        // ============= CASH LEDGER UPDATE: SELL proceeds =============
-        // Credit cash with total SELL proceeds (amount × price for each row)
-        const totalSellProceeds = sellRows.reduce((sum, r) => sum + r.total_value, 0);
-        console.log(`💰 CASH LEDGER: Crediting ${totalSellProceeds.toFixed(2)}€ from per-lot SELL`);
+        // ============= CASH LEDGER UPDATE: Per-lot SELL proceeds (via helper) =============
+        // Use exit_value (net, trigger-computed) not total_value (gross)
+        const totalExitValue = sellRows.reduce((sum, r) => sum + (r.exit_value || r.total_value), 0);
         
-        const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_sell_trade', {
-          p_user_id: intent.userId,
-          p_proceeds_eur: totalSellProceeds
+        const cashResult = await settleCashLedger(supabaseClient, intent.userId, 'SELL', {
+          total_value: sellRows.reduce((sum, r) => sum + r.total_value, 0),
+          exit_value: totalExitValue, // Use exit_value which is net of fees
+          fees: 0,
+          sell_fees: 0,
         });
         
-        if (settleError) {
-          console.error('⚠️ COORDINATOR: settle_sell_trade failed (trade inserted, cash not updated):', settleError);
-          // Trade already inserted - log warning but don't fail the whole operation
-        } else if (settleResult?.success === false) {
-          console.error('⚠️ COORDINATOR: settle_sell_trade returned failure:', settleResult);
-        } else {
-          console.log(`✅ CASH LEDGER: Updated. New cash balance: ${settleResult?.new_cash_balance_eur}€`);
+        if (!cashResult.success) {
+          // Trades inserted but cash not updated - log decision_event for audit
+          console.error(`⚠️ COORDINATOR: Per-lot SELL cash settlement failed: ${cashResult.error}`);
+          await supabaseClient.from('decision_events').insert({
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            symbol: baseSymbol,
+            side: 'SELL',
+            source: intent.source || 'coordinator_per_lot',
+            reason: 'cash_ledger_settle_failed',
+            decision_ts: new Date().toISOString(),
+            metadata: { 
+              cash_before: cashResult.cash_before,
+              delta: cashResult.delta,
+              error: cashResult.error,
+              trade_inserted: true,
+              lots_sold: sellRows.length
+            }
+          });
         }
         // ============= END CASH LEDGER UPDATE =============
 
@@ -5016,40 +5160,39 @@ async function executeTradeOrder(
       }, null, 2));
       console.log(`📊 Execution metrics: latency=${execution_latency_ms}ms, slippage=${slippage_bps}bps, partial_fill=${partial_fill}`);
 
-      // ============= CASH LEDGER UPDATE: BUY deduction or SELL credit =============
-      if (intent.side === 'BUY') {
-        // BUY: Deduct cash (total_value is the cost)
-        console.log(`💰 CASH LEDGER: Deducting ${totalValue.toFixed(2)}€ for BUY`);
-        
-        const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_buy_trade', {
-          p_user_id: intent.userId,
-          p_reserved_amount: 0, // No reservation in current flow
-          p_actual_spent: totalValue
-        });
-        
-        if (settleError) {
-          console.error('⚠️ COORDINATOR: settle_buy_trade failed (trade inserted, cash not updated):', settleError);
-        } else if (settleResult?.success === false) {
-          console.error('⚠️ COORDINATOR: settle_buy_trade returned failure:', settleResult);
-        } else {
-          console.log(`✅ CASH LEDGER: Updated. New cash balance: ${settleResult?.new_cash_balance_eur}€`);
+      // ============= CASH LEDGER UPDATE: BUY deduction or SELL credit (via helper) =============
+      // For SELL, use exit_value from fifoFields if available (net of fees)
+      const cashResult = await settleCashLedger(
+        supabaseClient, 
+        intent.userId, 
+        intent.side as 'BUY' | 'SELL',
+        {
+          total_value: totalValue,
+          exit_value: fifoFields?.exit_value, // Will be undefined for BUY, which is fine
+          fees: 0,
+          buy_fees: 0,
+          sell_fees: 0,
         }
-      } else if (intent.side === 'SELL') {
-        // SELL (single row): Credit cash with proceeds
-        console.log(`💰 CASH LEDGER: Crediting ${totalValue.toFixed(2)}€ from SELL`);
-        
-        const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_sell_trade', {
-          p_user_id: intent.userId,
-          p_proceeds_eur: totalValue
+      );
+      
+      if (!cashResult.success) {
+        // Trade inserted but cash not updated - log decision_event for audit
+        console.error(`⚠️ COORDINATOR: ${intent.side} cash settlement failed: ${cashResult.error}`);
+        await supabaseClient.from('decision_events').insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          symbol: baseSymbol,
+          side: intent.side,
+          source: intent.source || 'coordinator_standard',
+          reason: 'cash_ledger_settle_failed',
+          decision_ts: new Date().toISOString(),
+          metadata: { 
+            cash_before: cashResult.cash_before,
+            delta: cashResult.delta,
+            error: cashResult.error,
+            trade_inserted: true 
+          }
         });
-        
-        if (settleError) {
-          console.error('⚠️ COORDINATOR: settle_sell_trade failed (trade inserted, cash not updated):', settleError);
-        } else if (settleResult?.success === false) {
-          console.error('⚠️ COORDINATOR: settle_sell_trade returned failure:', settleResult);
-        } else {
-          console.log(`✅ CASH LEDGER: Updated. New cash balance: ${settleResult?.new_cash_balance_eur}€`);
-        }
       }
       // ============= END CASH LEDGER UPDATE =============
 
