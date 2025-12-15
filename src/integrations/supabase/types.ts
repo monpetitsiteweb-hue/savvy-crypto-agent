@@ -1552,6 +1552,7 @@ export type Database = {
           exit_value: number | null
           fee_native_wei: number | null
           fees: number | null
+          gas_cost_eur: number | null
           gas_cost_pct: number | null
           gas_estimate_wei: number | null
           gas_used_wei: number | null
@@ -1602,6 +1603,7 @@ export type Database = {
           exit_value?: number | null
           fee_native_wei?: number | null
           fees?: number | null
+          gas_cost_eur?: number | null
           gas_cost_pct?: number | null
           gas_estimate_wei?: number | null
           gas_used_wei?: number | null
@@ -1652,6 +1654,7 @@ export type Database = {
           exit_value?: number | null
           fee_native_wei?: number | null
           fees?: number | null
+          gas_cost_eur?: number | null
           gas_cost_pct?: number | null
           gas_estimate_wei?: number | null
           gas_used_wei?: number | null
@@ -1850,6 +1853,7 @@ export type Database = {
           id: string
           updated_at: string
           username: string | null
+          wallet_address: string | null
         }
         Insert: {
           account_type?: string
@@ -1860,6 +1864,7 @@ export type Database = {
           id: string
           updated_at?: string
           username?: string | null
+          wallet_address?: string | null
         }
         Update: {
           account_type?: string
@@ -1870,6 +1875,7 @@ export type Database = {
           id?: string
           updated_at?: string
           username?: string | null
+          wallet_address?: string | null
         }
         Relationships: []
       }
@@ -2567,6 +2573,51 @@ export type Database = {
         }
         Relationships: []
       }
+      wallet_balance_snapshots: {
+        Row: {
+          balance: number
+          balance_raw: string
+          chain_id: number
+          created_at: string
+          decimals: number
+          id: string
+          observed_at: string
+          source: string
+          symbol: string
+          token_address: string | null
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          balance: number
+          balance_raw: string
+          chain_id?: number
+          created_at?: string
+          decimals?: number
+          id?: string
+          observed_at?: string
+          source?: string
+          symbol: string
+          token_address?: string | null
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          balance?: number
+          balance_raw?: string
+          chain_id?: number
+          created_at?: string
+          decimals?: number
+          id?: string
+          observed_at?: string
+          source?: string
+          symbol?: string
+          token_address?: string | null
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
       whale_signal_events: {
         Row: {
           amount: number | null
@@ -3070,6 +3121,14 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_gas_spent_eur: {
+        Args: {
+          p_is_test_mode?: boolean
+          p_mock_gas_rate_pct?: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
       get_open_lots: {
         Args: { p_user_id: string }
         Returns: {
@@ -3119,6 +3178,10 @@ export type Database = {
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
+      }
+      get_wallet_portfolio_latest: {
+        Args: { p_user_id: string }
+        Returns: Json
       }
       has_role: {
         Args: {
