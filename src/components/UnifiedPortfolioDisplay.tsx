@@ -181,7 +181,7 @@ export const UnifiedPortfolioDisplay = () => {
       // Use centralized afterReset for deterministic refresh (no setTimeout)
       await afterReset({
         refreshPortfolioMetrics: refreshMetrics,
-        refreshOpenLots: refreshOpenTrades, // Now uses trades, not lots
+        refreshOpenTrades: refreshOpenTrades,
       });
     } catch (error) {
       logger.error('Failed to reset portfolio:', error);
