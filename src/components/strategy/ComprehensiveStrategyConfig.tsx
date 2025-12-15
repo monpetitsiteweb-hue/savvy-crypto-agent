@@ -193,6 +193,7 @@ interface StrategyFormData {
   };
   // Market Quality Gates (USER-CONTROLLED - not AI override)
   spreadThresholdBps: number;    // Max allowed spread in basis points (0.1 - 200)
+  priceStaleMaxMs: number;       // Max allowed price staleness in milliseconds (1000 - 60000)
   minDepthRatio: number;         // Min liquidity depth ratio (0 - 3)
   // Execution Settings
   executionSettings: {
@@ -529,6 +530,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     },
     // Market Quality Gates - USER CONTROLLED (default: permissive but safe)
     spreadThresholdBps: 25,      // 25 bps = 0.25% max spread
+    priceStaleMaxMs: 15000,      // 15 seconds max price staleness
     minDepthRatio: 0.2           // Low depth requirement
   });
 
@@ -627,7 +629,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
 
     // =========================================================================
     // CANONICAL CONFIG ENFORCEMENT
-    // These 3 keys MUST exist at the root level of configuration.
+    // These 7 keys MUST exist at the root level of configuration for coordinator.
     // If UI values are missing, use sensible defaults.
     // =========================================================================
     const canonicalMinHoldPeriodMs = 
@@ -643,6 +645,13 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       formData.aiIntelligenceConfig?.aiConfidenceThreshold ?? 
       50; // Default: 50%
 
+    // Market quality gates (CANONICAL - must be at root)
+    const canonicalPriceStaleMaxMs = 
+      formData.priceStaleMaxMs ?? 15000; // Default: 15 seconds
+    
+    const canonicalSpreadThresholdBps = 
+      formData.spreadThresholdBps ?? 30; // Default: 30 bps (0.30%)
+
     // Validate ranges
     if (canonicalMinHoldPeriodMs < 0 || canonicalCooldownMs < 0 || canonicalAiConfidenceThreshold < 0 || canonicalAiConfidenceThreshold > 100) {
       toast({
@@ -654,16 +663,21 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     }
 
     try {
-      // Build configuration with CANONICAL ROOT KEYS enforced
+      // Build configuration with ALL 7 CANONICAL ROOT KEYS enforced
       const configurationWithCanonicalKeys = {
         ...formData,
-        // ======= CANONICAL ROOT KEYS (always written at root) =======
+        // ======= CANONICAL ROOT KEYS (always written at root for coordinator) =======
+        // Timing
         minHoldPeriodMs: canonicalMinHoldPeriodMs,
         cooldownBetweenOppositeActionsMs: canonicalCooldownMs,
+        // Confidence
         aiConfidenceThreshold: canonicalAiConfidenceThreshold,
-        // Also ensure TP/SL are at root for coordinator
+        // TP/SL
         takeProfitPercentage: formData.takeProfitPercentage,
         stopLossPercentage: formData.stopLossPercentage,
+        // Market quality gates (NEW CANONICAL KEYS)
+        priceStaleMaxMs: canonicalPriceStaleMaxMs,
+        spreadThresholdBps: canonicalSpreadThresholdBps,
       };
 
       const strategyData = {
