@@ -3201,6 +3201,10 @@ export type Database = {
         Args: { "": string }
         Returns: Record<string, unknown>[]
       }
+      recalculate_cash_from_trades: {
+        Args: { p_is_test_mode: boolean; p_user_id: string }
+        Returns: Json
+      }
       refresh_data_health_metrics: { Args: never; Returns: undefined }
       release_execution_lock: { Args: { p_lock_key: string }; Returns: boolean }
       release_reservation: {
@@ -3244,7 +3248,7 @@ export type Database = {
       settle_buy_trade: {
         Args: {
           p_actual_spent: number
-          p_reserved_amount: number
+          p_reserved_amount?: number
           p_user_id: string
         }
         Returns: Json
