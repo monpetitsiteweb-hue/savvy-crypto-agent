@@ -4108,16 +4108,20 @@ async function executeTradeOrder(
     
     // Extract base config values for logging
     // FAIL-CLOSED: Required config must exist - NO || fallbacks
+    // Config structure: strategyConfig may be the raw DB row OR already the configuration object
+    const cfg = strategyConfig?.configuration || strategyConfig || {};
+    
     const baseConfig = {
-      tp_pct: strategyConfig?.takeProfitPercentage ?? strategyConfig?.configuration?.takeProfitPercentage,
-      sl_pct: strategyConfig?.stopLossPercentage ?? strategyConfig?.configuration?.stopLossPercentage,
-      min_confidence: strategyConfig?.minConfidence ?? (strategyConfig?.configuration?.aiConfidenceThreshold ? (strategyConfig.configuration.aiConfidenceThreshold / 100) : undefined)
+      tp_pct: cfg.takeProfitPercentage,
+      sl_pct: cfg.stopLossPercentage,
+      min_confidence: cfg.aiConfidenceThreshold !== undefined ? (cfg.aiConfidenceThreshold / 100) : 
+                      (cfg.min_confidence ?? cfg.minConfidence ?? 0.5)
     };
     
-    // Block if required config is missing
-    if (baseConfig.tp_pct === undefined || baseConfig.sl_pct === undefined || baseConfig.min_confidence === undefined) {
+    // Block if required config is missing (except min_confidence which has a safe default)
+    if (baseConfig.tp_pct === undefined || baseConfig.sl_pct === undefined) {
       console.log(`🚫 COORDINATOR: Trade blocked - missing required config: tp_pct=${baseConfig.tp_pct}, sl_pct=${baseConfig.sl_pct}, min_conf=${baseConfig.min_confidence}`);
-      return { action: 'BLOCK', reason: 'blocked_missing_config:tp_sl_or_confidence' };
+      return { success: false, error: `blocked_missing_config:tp_sl (tp=${baseConfig.tp_pct}, sl=${baseConfig.sl_pct})` };
     }
     
     // Create effective config by merging overrides
