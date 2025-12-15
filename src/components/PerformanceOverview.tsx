@@ -1,4 +1,4 @@
-// P2 FIX: PerformanceOverview uses afterReset for deterministic refresh
+// TRADE-BASED: PerformanceOverview uses afterReset for deterministic refresh
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useTestMode } from "@/hooks/useTestMode";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
-import { useOpenLots } from "@/hooks/useOpenLots";
+import { useOpenTrades } from "@/hooks/useOpenTrades";
 import { TrendingUp, TrendingDown, DollarSign, Activity, Target, TestTube, Percent } from "lucide-react";
 import { NoActiveStrategyState } from "./NoActiveStrategyState";
 import { PortfolioNotInitialized } from "./PortfolioNotInitialized";
@@ -40,8 +40,8 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
     unrealizedPnlPct
   } = usePortfolioMetrics();
   
-  // P2 FIX: Use server-side open lots for consistency
-  const { refresh: refreshOpenLots } = useOpenLots();
+  // TRADE-BASED: Use open trades for reset refresh
+  const { refresh: refreshOpenTrades } = useOpenTrades();
   const [localMetrics, setLocalMetrics] = useState<LocalMetrics>({
     winningTrades: 0,
     losingTrades: 0,
@@ -97,14 +97,14 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
     }
   }, [metrics.realized_pnl_eur, isInitialized]);
 
-  // P2 FIX: Deterministic reset using afterReset helper (no setTimeout)
+  // Deterministic reset using afterReset helper (no setTimeout)
   const handleReset = async () => {
     try {
       await resetPortfolio();
-      // P2 FIX: Use centralized afterReset for deterministic refresh
+      // Use centralized afterReset for deterministic refresh
       await afterReset({
         refreshPortfolioMetrics: refreshMetrics,
-        refreshOpenLots: refreshOpenLots,
+        refreshOpenLots: refreshOpenTrades, // Now uses trades, not lots
       });
       // Fetch local metrics (win/loss counts) after reset
       await fetchLocalMetrics();
