@@ -4173,10 +4173,14 @@ async function executeTradeOrder(
       };
     }
     
-    // Log parameter override status
+    // Log parameter override status using in-scope canonical values
     console.log('STRATEGY_PARAMS_OVERRIDE', {
       symbol: baseSymbol,
-      baseConfig,
+      canonicalConfig: {
+        tp_pct: canonical.takeProfitPercentage,
+        sl_pct: canonical.stopLossPercentage,
+        confidence: canonical.aiConfidenceThreshold
+      },
       params: params ? {
         min_confidence: params.min_confidence,
         tp_pct: params.tp_pct,
