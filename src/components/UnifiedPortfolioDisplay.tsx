@@ -10,7 +10,7 @@ import { useTestMode } from "@/hooks/useTestMode";
 import { useAuth } from "@/hooks/useAuth";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
-import { useMarketData } from "@/contexts/MarketDataContext";
+import { useOpenLots } from "@/hooks/useOpenLots";
 import { supabase } from '@/integrations/supabase/client';
 import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw } from "lucide-react";
 import { logger } from '@/utils/logger';
@@ -18,6 +18,14 @@ import { PortfolioNotInitialized } from "@/components/PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { afterReset } from '@/utils/resetHelpers';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
+
+// Simple position aggregated from open lots (cost basis only)
+interface SimplePosition {
+  symbol: string;
+  totalAmount: number;
+  totalCostBasis: number;
+  avgEntryPrice: number;
+}
 
 interface PortfolioData {
   accounts?: Array<{
