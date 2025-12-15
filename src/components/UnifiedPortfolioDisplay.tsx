@@ -1,6 +1,5 @@
-// SINGLE SOURCE OF TRUTH: All portfolio/PnL data comes ONLY from RPC (get_portfolio_metrics, get_open_lots).
-// NO frontend financial calculations. NO realTimePrices for portfolio P&L.
-// Aggregate metrics from RPC only. Per-position P&L not shown (RPC doesn't provide it).
+// WALLET-STYLE VIEW: Shows portfolio value with live crypto prices
+// Aggregates from RPC for totals, live prices for per-asset display
 import { getAllTradingPairs } from '@/data/coinbaseCoins';
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,14 +9,15 @@ import { useMockWallet } from "@/hooks/useMockWallet";
 import { useTestMode } from "@/hooks/useTestMode";
 import { useAuth } from "@/hooks/useAuth";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
-import { useOpenLots, OpenLot } from "@/hooks/useOpenLots";
+import { useOpenTrades } from "@/hooks/useOpenTrades";
+import { useMarketData } from "@/contexts/MarketDataContext";
 import { supabase } from '@/integrations/supabase/client';
 import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw } from "lucide-react";
 import { logger } from '@/utils/logger';
 import { PortfolioNotInitialized } from "@/components/PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { afterReset } from '@/utils/resetHelpers';
-import { toBaseSymbol } from '@/utils/symbols';
+import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 
 interface PortfolioData {
   accounts?: Array<{
@@ -35,12 +35,16 @@ interface PortfolioData {
   }>;
 }
 
-// Simple position display from RPC open lots (cost basis only, no frontend P&L)
-interface SimplePosition {
+// Wallet-style position with live value
+interface WalletPosition {
   symbol: string;
   totalAmount: number;
   totalCostBasis: number;
   avgEntryPrice: number;
+  livePrice: number | null;
+  liveValue: number | null;
+  unrealizedPnl: number | null;
+  unrealizedPnlPct: number | null;
 }
 
 export const UnifiedPortfolioDisplay = () => {
