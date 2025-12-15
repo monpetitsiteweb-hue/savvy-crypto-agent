@@ -1668,6 +1668,23 @@ serve(async (req) => {
         });
       }
 
+      // ============= CASH LEDGER UPDATE: Manual SELL proceeds =============
+      console.log(`💰 CASH LEDGER: Crediting ${exitValue.toFixed(2)}€ from manual SELL`);
+      
+      const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_sell_trade', {
+        p_user_id: intent.userId,
+        p_proceeds_eur: exitValue
+      });
+      
+      if (settleError) {
+        console.error('⚠️ COORDINATOR: settle_sell_trade failed (trade inserted, cash not updated):', settleError);
+      } else if (settleResult?.success === false) {
+        console.error('⚠️ COORDINATOR: settle_sell_trade returned failure:', settleResult);
+      } else {
+        console.log(`✅ CASH LEDGER: Updated. New cash balance: ${settleResult?.new_cash_balance_eur}€`);
+      }
+      // ============= END CASH LEDGER UPDATE =============
+
       // Add symbol quarantine to prevent automation races
       await supabaseClient
         .from('execution_holds')
@@ -4884,6 +4901,26 @@ async function executeTradeOrder(
         const totalPnl = sellRows.reduce((sum, r) => sum + (r.realized_pnl || 0), 0);
         console.log(`📊 Total: qty=${totalQty.toFixed(8)}, pnl=€${totalPnl.toFixed(2)}`);
 
+        // ============= CASH LEDGER UPDATE: SELL proceeds =============
+        // Credit cash with total SELL proceeds (amount × price for each row)
+        const totalSellProceeds = sellRows.reduce((sum, r) => sum + r.total_value, 0);
+        console.log(`💰 CASH LEDGER: Crediting ${totalSellProceeds.toFixed(2)}€ from per-lot SELL`);
+        
+        const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_sell_trade', {
+          p_user_id: intent.userId,
+          p_proceeds_eur: totalSellProceeds
+        });
+        
+        if (settleError) {
+          console.error('⚠️ COORDINATOR: settle_sell_trade failed (trade inserted, cash not updated):', settleError);
+          // Trade already inserted - log warning but don't fail the whole operation
+        } else if (settleResult?.success === false) {
+          console.error('⚠️ COORDINATOR: settle_sell_trade returned failure:', settleResult);
+        } else {
+          console.log(`✅ CASH LEDGER: Updated. New cash balance: ${settleResult?.new_cash_balance_eur}€`);
+        }
+        // ============= END CASH LEDGER UPDATE =============
+
         return { 
           success: true, 
           qty: totalQty, 
@@ -4978,6 +5015,43 @@ async function executeTradeOrder(
         fifo_fields: fifoFields
       }, null, 2));
       console.log(`📊 Execution metrics: latency=${execution_latency_ms}ms, slippage=${slippage_bps}bps, partial_fill=${partial_fill}`);
+
+      // ============= CASH LEDGER UPDATE: BUY deduction or SELL credit =============
+      if (intent.side === 'BUY') {
+        // BUY: Deduct cash (total_value is the cost)
+        console.log(`💰 CASH LEDGER: Deducting ${totalValue.toFixed(2)}€ for BUY`);
+        
+        const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_buy_trade', {
+          p_user_id: intent.userId,
+          p_reserved_amount: 0, // No reservation in current flow
+          p_actual_spent: totalValue
+        });
+        
+        if (settleError) {
+          console.error('⚠️ COORDINATOR: settle_buy_trade failed (trade inserted, cash not updated):', settleError);
+        } else if (settleResult?.success === false) {
+          console.error('⚠️ COORDINATOR: settle_buy_trade returned failure:', settleResult);
+        } else {
+          console.log(`✅ CASH LEDGER: Updated. New cash balance: ${settleResult?.new_cash_balance_eur}€`);
+        }
+      } else if (intent.side === 'SELL') {
+        // SELL (single row): Credit cash with proceeds
+        console.log(`💰 CASH LEDGER: Crediting ${totalValue.toFixed(2)}€ from SELL`);
+        
+        const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_sell_trade', {
+          p_user_id: intent.userId,
+          p_proceeds_eur: totalValue
+        });
+        
+        if (settleError) {
+          console.error('⚠️ COORDINATOR: settle_sell_trade failed (trade inserted, cash not updated):', settleError);
+        } else if (settleResult?.success === false) {
+          console.error('⚠️ COORDINATOR: settle_sell_trade returned failure:', settleResult);
+        } else {
+          console.log(`✅ CASH LEDGER: Updated. New cash balance: ${settleResult?.new_cash_balance_eur}€`);
+        }
+      }
+      // ============= END CASH LEDGER UPDATE =============
 
       console.log('✅ COORDINATOR TEST: Trade executed successfully');
       return { 
