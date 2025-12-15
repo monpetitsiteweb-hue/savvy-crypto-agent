@@ -1,5 +1,6 @@
-// P2 FIX: UnifiedPortfolioDisplay uses ONLY server truth from RPC
-// NO local BUY-only aggregation. Positions from useOpenLots, metrics from usePortfolioMetrics.
+// SINGLE SOURCE OF TRUTH: All portfolio/PnL data comes ONLY from RPC (get_portfolio_metrics, get_open_lots).
+// NO frontend financial calculations. NO realTimePrices for portfolio P&L.
+// Aggregate metrics from RPC only. Per-position P&L not shown (RPC doesn't provide it).
 import { getAllTradingPairs } from '@/data/coinbaseCoins';
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,13 +9,11 @@ import { Button } from "@/components/ui/button";
 import { useMockWallet } from "@/hooks/useMockWallet";
 import { useTestMode } from "@/hooks/useTestMode";
 import { useAuth } from "@/hooks/useAuth";
-import { useRealTimeMarketData } from "@/hooks/useRealTimeMarketData";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenLots, OpenLot } from "@/hooks/useOpenLots";
 import { supabase } from '@/integrations/supabase/client';
-import { Wallet, TrendingUp, TrendingDown, RefreshCw, Loader2, TestTube, DollarSign, RotateCcw, AlertTriangle } from "lucide-react";
+import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw } from "lucide-react";
 import { logger } from '@/utils/logger';
-import { CorruptionWarning } from "@/components/CorruptionWarning";
 import { PortfolioNotInitialized } from "@/components/PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { afterReset } from '@/utils/resetHelpers';
@@ -36,15 +35,12 @@ interface PortfolioData {
   }>;
 }
 
-// P2 FIX: AggregatedPosition derived from open lots (server truth), NOT from BUY trades only
-interface AggregatedPosition {
+// Simple position display from RPC open lots (cost basis only, no frontend P&L)
+interface SimplePosition {
   symbol: string;
   totalAmount: number;
   totalCostBasis: number;
   avgEntryPrice: number;
-  currentValue: number;
-  unrealizedPnl: number;
-  unrealizedPnlPct: number;
 }
 
 export const UnifiedPortfolioDisplay = () => {
@@ -52,7 +48,6 @@ export const UnifiedPortfolioDisplay = () => {
   const { user } = useAuth();
   
   const { resetPortfolio, isLoading: walletLoading } = useMockWallet();
-  const { getCurrentData } = useRealTimeMarketData();
   const { 
     metrics, 
     loading: metricsLoading, 
@@ -65,45 +60,15 @@ export const UnifiedPortfolioDisplay = () => {
     totalPnlPct
   } = usePortfolioMetrics();
   
-  // P2 FIX: Use server-side open lots instead of BUY-only aggregation
+  // SINGLE SOURCE OF TRUTH: Use server-side open lots
   const { openLots, isLoading: lotsLoading, refresh: refreshOpenLots } = useOpenLots();
   
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
   const [connections, setConnections] = useState<any[]>([]);
-  const [realTimePrices, setRealTimePrices] = useState<{[key: string]: number}>({});
-  // P2 FIX: Aggregated positions derived from open lots + real-time prices
-  const [aggregatedPositions, setAggregatedPositions] = useState<AggregatedPosition[]>([]);
-
-  // Fetch real-time prices for all displayed cryptocurrencies
-  useEffect(() => {
-    const updateRealTimePrices = async () => {
-      try {
-        const commonSymbols = getAllTradingPairs();
-        const data = await getCurrentData(commonSymbols);
-        
-        const prices: {[key: string]: number} = { EUR: 1 };
-        
-        commonSymbols.forEach(symbol => {
-          const crypto = symbol.split('-')[0];
-          if (data[symbol]?.price && data[symbol].price > 0) {
-            prices[crypto] = data[symbol].price;
-            prices[symbol] = data[symbol].price;
-          }
-        });
-        
-        setRealTimePrices(prices);
-      } catch (error) {
-        logger.error('Error fetching real-time prices:', error);
-      }
-    };
-
-    updateRealTimePrices();
-    const interval = setInterval(updateRealTimePrices, 60000);
-    
-    return () => clearInterval(interval);
-  }, [getCurrentData]);
+  // Simple positions aggregated from open lots (cost basis only - no live price calculations)
+  const [simplePositions, setSimplePositions] = useState<SimplePosition[]>([]);
 
   // Fetch connections for production mode
   useEffect(() => {
@@ -112,16 +77,16 @@ export const UnifiedPortfolioDisplay = () => {
     }
   }, [testMode, user]);
 
-  // P2 FIX: Aggregate positions from server-side open lots + real-time prices
-  // This replaces the old BUY-only aggregation which ignored SELLs
+  // SINGLE SOURCE OF TRUTH: Aggregate positions from open lots (cost basis only)
+  // NO frontend P&L calculations - aggregate unrealized P&L comes from RPC metrics
   useEffect(() => {
     if (!testMode || !isInitialized || openLots.length === 0) {
-      setAggregatedPositions([]);
+      setSimplePositions([]);
       return;
     }
     
-    // Group open lots by symbol and aggregate
-    const positionMap = new Map<string, AggregatedPosition>();
+    // Group open lots by symbol and aggregate (cost basis only)
+    const positionMap = new Map<string, SimplePosition>();
     
     for (const lot of openLots) {
       if (lot.remaining_amount <= 0) continue;
@@ -129,34 +94,23 @@ export const UnifiedPortfolioDisplay = () => {
       const symbol = toBaseSymbol(lot.cryptocurrency);
       const existing = positionMap.get(symbol);
       const lotCostBasis = lot.remaining_amount * lot.buy_price;
-      const currentPrice = realTimePrices[symbol] || realTimePrices[`${symbol}-EUR`] || lot.buy_price;
-      const currentValue = lot.remaining_amount * currentPrice;
       
       if (existing) {
         existing.totalAmount += lot.remaining_amount;
         existing.totalCostBasis += lotCostBasis;
-        existing.currentValue += currentValue;
         existing.avgEntryPrice = existing.totalCostBasis / existing.totalAmount;
-        existing.unrealizedPnl = existing.currentValue - existing.totalCostBasis;
-        existing.unrealizedPnlPct = existing.totalCostBasis > 0 
-          ? (existing.unrealizedPnl / existing.totalCostBasis) * 100 
-          : 0;
       } else {
-        const unrealizedPnl = currentValue - lotCostBasis;
         positionMap.set(symbol, {
           symbol,
           totalAmount: lot.remaining_amount,
           totalCostBasis: lotCostBasis,
-          avgEntryPrice: lot.buy_price,
-          currentValue,
-          unrealizedPnl,
-          unrealizedPnlPct: lotCostBasis > 0 ? (unrealizedPnl / lotCostBasis) * 100 : 0
+          avgEntryPrice: lot.buy_price
         });
       }
     }
     
-    setAggregatedPositions(Array.from(positionMap.values()));
-  }, [testMode, isInitialized, openLots, realTimePrices]);
+    setSimplePositions(Array.from(positionMap.values()));
+  }, [testMode, isInitialized, openLots]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -225,11 +179,9 @@ export const UnifiedPortfolioDisplay = () => {
     }
   };
 
-  // P2 FIX: Render position card from aggregated open lots (server truth)
-  const renderAggregatedPositionCard = (position: AggregatedPosition) => {
-    const currentPrice = realTimePrices[position.symbol] || realTimePrices[`${position.symbol}-EUR`] || position.avgEntryPrice;
-    const isProfit = position.unrealizedPnl >= 0;
-    
+  // SINGLE SOURCE OF TRUTH: Render position card from open lots (cost basis only)
+  // Per-position P&L not shown - aggregate unrealized P&L comes from RPC metrics
+  const renderSimplePositionCard = (position: SimplePosition) => {
     return (
       <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600">
         <div className="space-y-3">
@@ -239,7 +191,7 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
             <div className="text-right">
               <div className="text-lg font-bold text-white">
-                {formatEuro(position.currentValue)}
+                {formatEuro(position.totalCostBasis)}
               </div>
               <div className="text-xs text-slate-400">
                 {position.totalAmount.toLocaleString(undefined, {
@@ -249,43 +201,24 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           </div>
           
-          <div className="flex justify-between items-center pt-2 border-t border-slate-600/50">
-            <span className="text-xs text-slate-400">Unrealized P&L:</span>
-            <div className="text-right">
-              <div className={`text-sm font-medium ${isProfit ? 'text-green-400' : 'text-red-400'}`}>
-                {formatEuro(position.unrealizedPnl)} ({formatPercentage(position.unrealizedPnlPct)})
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-slate-400">Current Price:</span>
-            <div className="flex items-center gap-1">
-              <span className="text-xs font-medium text-green-400">
-                {formatEuro(currentPrice)}
-              </span>
-              {isProfit ? (
-                <TrendingUp className="h-3 w-3 text-green-400" />
-              ) : (
-                <TrendingDown className="h-3 w-3 text-red-400" />
-              )}
-            </div>
-          </div>
-          
           <div className="flex justify-between items-center text-xs text-slate-500">
             <span>Avg Entry: {formatEuro(position.avgEntryPrice)}</span>
-            <span>Cost Basis: {formatEuro(position.totalCostBasis)}</span>
+            <span>Cost Basis</span>
+          </div>
+          
+          {/* Note: Per-position P&L not shown. Aggregate unrealized P&L from RPC in header */}
+          <div className="text-xs text-slate-500 italic">
+            See aggregate P&L in header
           </div>
         </div>
       </Card>
     );
   };
 
+  // Production mode coin card (uses live price for display only, not P&L calculation)
   const renderCoinCard = (account: any) => {
     const amount = parseFloat(account.available_balance?.value || '0');
     const currency = account.currency;
-    const currentPrice = realTimePrices[currency] || 0;
-    const valueInEur = currency === 'EUR' ? amount : amount * currentPrice;
 
     return (
       <Card key={account.uuid} className="p-4 bg-slate-700/50 border-slate-600">
@@ -293,34 +226,13 @@ export const UnifiedPortfolioDisplay = () => {
           <div className="flex justify-between items-center">
             <span className="text-sm font-medium text-slate-300">{currency}</span>
             <div className="text-right">
-              <div className="text-lg font-bold text-white">
-                €{valueInEur.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              <div className="text-xs text-slate-400">
+                {amount.toLocaleString(undefined, {
+                  maximumFractionDigits: currency === 'XRP' ? 0 : 6
+                })} {currency}
               </div>
-              {currency !== 'EUR' && (
-                <div className="text-xs text-slate-400">
-                  {amount.toLocaleString(undefined, {
-                    maximumFractionDigits: currency === 'XRP' ? 0 : 6
-                  })} {currency}
-                </div>
-              )}
             </div>
           </div>
-          
-          {currency !== 'EUR' && (
-            <div className="flex justify-between items-center pt-2 border-t border-slate-600/50">
-              <span className="text-xs text-slate-400">Current Price:</span>
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-medium text-green-400">
-                  €{currentPrice.toFixed(currency === 'XRP' ? 4 : 2)}
-                </span>
-                {Math.random() > 0.5 ? (
-                  <TrendingUp className="h-3 w-3 text-green-400" />
-                ) : (
-                  <TrendingDown className="h-3 w-3 text-red-400" />
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </Card>
     );
@@ -465,11 +377,11 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
           
-          {/* Portfolio Breakdown - P2 FIX: Use aggregated positions from open lots */}
+          {/* SINGLE SOURCE OF TRUTH: Portfolio Breakdown - cost basis from open lots */}
           {testMode ? (
-            aggregatedPositions.length > 0 ? (
+            simplePositions.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {aggregatedPositions.map(renderAggregatedPositionCard)}
+                {simplePositions.map(renderSimplePositionCard)}
               </div>
             ) : isInitialized && !lotsLoading ? (
               <div className="text-center py-8">
@@ -492,10 +404,10 @@ export const UnifiedPortfolioDisplay = () => {
             )
           )}
 
-          {/* Real-time sync indicator */}
+          {/* Data source indicator */}
           {testMode && isInitialized && (
             <div className="text-xs text-slate-400 text-center mt-2">
-              💫 Real-time prices • Updates automatically after trades
+              📊 All metrics from RPC (get_portfolio_metrics) • FIFO-correct
             </div>
           )}
         </div>

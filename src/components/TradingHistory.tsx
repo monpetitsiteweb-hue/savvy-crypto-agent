@@ -1,5 +1,6 @@
-// P1: UI reads portfolio from RPC only. NO client-side trade inserts. NO FIFO recomputation.
-// Open positions come from get_open_lots RPC - NO UI-side FIFO math.
+// SINGLE SOURCE OF TRUTH: All portfolio/PnL data comes ONLY from RPC (get_portfolio_metrics, get_open_lots).
+// NO frontend financial calculations. NO SharedPriceCache for portfolio values.
+// Per-lot P&L not shown (RPC doesn't provide it). Aggregate unrealized P&L from RPC only.
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,11 +17,10 @@ import { useOpenLots, OpenLot } from '@/hooks/useOpenLots';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { PortfolioNotInitialized } from './PortfolioNotInitialized';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
-import { calculateOpenPosition, processPastPosition } from '@/utils/valuationService';
+import { processPastPosition } from '@/utils/valuationService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertTriangle } from 'lucide-react';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
-import { sharedPriceCache } from '@/utils/SharedPriceCache';
 import { useToast } from '@/hooks/use-toast';
 
 const PAGE_SIZE = 20;
@@ -96,17 +96,10 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     lot: null 
   });
 
-  // Initialize shared price cache on mount
-  useEffect(() => {
-    return () => {
-      sharedPriceCache.clear();
-    };
-  }, []);
-
-  // Calculate trade performance using shared cache
+  // SINGLE SOURCE OF TRUTH: Past positions use DB snapshot fields only (no frontend calculation)
   const calculateTradePerformance = (trade: Trade): TradePerformance => {
     if (trade.trade_type === 'sell') {
-      // Past positions - use snapshot fields only
+      // Past positions - use snapshot fields ONLY from database
       const pastPosition = processPastPosition({
         original_purchase_amount: trade.original_purchase_amount,
         original_purchase_value: trade.original_purchase_value,
@@ -120,10 +113,10 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       let gainLoss = pastPosition.realizedPnL;
       let gainLossPercentage = pastPosition.realizedPnLPct;
       
+      // Only compute if DB values missing (legacy data)
       if (gainLoss === null && pastPosition.exitValue !== null && pastPosition.purchaseValue !== null) {
         gainLoss = pastPosition.exitValue - pastPosition.purchaseValue;
       }
-      
       if (gainLossPercentage === null && gainLoss !== null && pastPosition.purchaseValue !== null && pastPosition.purchaseValue > 0) {
         gainLossPercentage = (gainLoss / pastPosition.purchaseValue) * 100;
       }
@@ -133,86 +126,22 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         currentValue: pastPosition.exitValue,
         purchaseValue: pastPosition.purchaseValue,
         purchasePrice: pastPosition.entryPrice,
-        gainLoss: gainLoss,
-        gainLossPercentage: gainLossPercentage,
+        gainLoss,
+        gainLossPercentage,
         isAutomatedWithoutPnL: false
       };
     }
     
-    // Open positions - use shared price cache, return null if missing (NOT 0)
-    const baseSymbol = toBaseSymbol(trade.cryptocurrency);
-    const pairSymbol = toPairSymbol(baseSymbol);
-    const cached = sharedPriceCache.get(pairSymbol);
-    const currentPrice = cached?.price ?? null;
-    
-    if (currentPrice === null) {
-      // No price available - return nulls, UI will show "—"
-      return {
-        currentPrice: null,
-        currentValue: null,
-        purchaseValue: trade.amount * trade.price,
-        purchasePrice: trade.price,
-        gainLoss: null,
-        gainLossPercentage: null,
-        isCorrupted: false,
-        corruptionReasons: ['Current price not available']
-      };
-    }
-    
-    const openPositionInputs = {
-      symbol: baseSymbol,
-      amount: trade.amount,
-      purchaseValue: trade.amount * trade.price,
-      entryPrice: trade.price
-    };
-    
-    const performance = calculateOpenPosition(openPositionInputs, currentPrice);
-    
+    // Open positions (BUY trades) - show cost basis only, no live P&L calculation
+    // Aggregate unrealized P&L comes from RPC (get_portfolio_metrics)
+    const purchaseValue = trade.amount * trade.price;
     return {
-      currentPrice: performance.currentPrice,
-      currentValue: performance.currentValue,
-      purchaseValue: openPositionInputs.purchaseValue,
-      purchasePrice: openPositionInputs.entryPrice,
-      gainLoss: performance.pnlEur,
-      gainLossPercentage: performance.pnlPct,
-      isCorrupted: false,
-      corruptionReasons: []
-    };
-  };
-
-  // Calculate lot performance using shared price cache
-  const calculateLotPerformance = (lot: OpenLot): TradePerformance => {
-    const baseSymbol = toBaseSymbol(lot.cryptocurrency);
-    const pairSymbol = toPairSymbol(baseSymbol);
-    const cached = sharedPriceCache.get(pairSymbol);
-    const currentPrice = cached?.price ?? null;
-    
-    const purchaseValue = lot.remaining_amount * lot.buy_price;
-    
-    if (currentPrice === null) {
-      return {
-        currentPrice: null,
-        currentValue: null,
-        purchaseValue,
-        purchasePrice: lot.buy_price,
-        gainLoss: null,
-        gainLossPercentage: null,
-        isCorrupted: false,
-        corruptionReasons: ['Current price not available']
-      };
-    }
-    
-    const currentValue = lot.remaining_amount * currentPrice;
-    const gainLoss = currentValue - purchaseValue;
-    const gainLossPercentage = purchaseValue > 0 ? (gainLoss / purchaseValue) * 100 : 0;
-    
-    return {
-      currentPrice,
-      currentValue,
+      currentPrice: null, // Not computed in frontend
+      currentValue: null, // Not computed in frontend
       purchaseValue,
-      purchasePrice: lot.buy_price,
-      gainLoss,
-      gainLossPercentage,
+      purchasePrice: trade.price,
+      gainLoss: null, // See aggregate P&L from RPC
+      gainLossPercentage: null,
       isCorrupted: false,
       corruptionReasons: []
     };
@@ -290,19 +219,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
 
     try {
-      // Get current price from cache
       const base = toBaseSymbol(lot.cryptocurrency);
-      const pair = toPairSymbol(base);
-      const cached = sharedPriceCache.get(pair);
-      const price = cached?.price;
-      
-      if (!price) {
-        toast({ title: 'Sell Failed', description: `Current price not available for ${pair}`, variant: 'destructive' });
-        return;
-      }
-
-      // Calculate expected P&L for logging (display only)
-      const perf = calculateLotPerformance(lot);
 
       // Use lot's strategy_id
       const strategyId = lot.strategy_id;
@@ -328,9 +245,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           manualOverride: true,
           originalTradeId: lot.buy_trade_id, // Target specific lot
           uiTimestamp: new Date().toISOString(),
-          currentPrice: price,
-          expectedPnl: perf.gainLoss || 0,
-          expectedPnlPct: perf.gainLossPercentage || 0,
           force: true,
         },
         idempotencyKey: `manual_${user.id}_${lot.buy_trade_id}_${Date.now()}`,
@@ -370,40 +284,14 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   };
 
-  // OpenLotCard component for rendering open lots from RPC
+  // SINGLE SOURCE OF TRUTH: Open lot display uses DB values only (cost basis from RPC)
+  // Per-lot unrealized P&L not shown - aggregate comes from get_portfolio_metrics RPC
   const OpenLotCard = ({ lot, onRequestSell }: { 
     lot: OpenLot; 
     onRequestSell?: (l: OpenLot) => void;
   }) => {
-    const [performance, setPerformance] = useState<TradePerformance | null>(null);
-    const [cardLoading, setCardLoading] = useState(true);
-    
-    useEffect(() => {
-      const loadPerformance = () => {
-        try {
-          const perf = calculateLotPerformance(lot);
-          setPerformance(perf);
-        } catch (error) {
-          // Silent error
-        } finally {
-          setCardLoading(false);
-        }
-      };
-
-      loadPerformance();
-    }, [lot.buy_trade_id]);
-
-    if (cardLoading || !performance) {
-      return (
-        <Card className="p-4">
-          <div className="h-4 bg-muted rounded w-1/3 mb-2"></div>
-          <div className="h-3 bg-muted rounded w-1/2"></div>
-        </Card>
-      );
-    }
-
-    const isProfit = (performance.gainLoss || 0) > 0;
-    const isLoss = (performance.gainLoss || 0) < 0;
+    // Cost basis from RPC data only - no frontend price lookups
+    const costBasis = lot.remaining_amount * lot.buy_price;
 
     return (
       <Card className="p-4 hover:shadow-md transition-shadow" data-testid="open-lot-card">
@@ -431,34 +319,21 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           <div>
             <p className="text-muted-foreground">Cost Basis</p>
             <p className="font-medium">
-              {formatEuro(performance.purchaseValue || 0)}
+              {formatEuro(costBasis)}
             </p>
           </div>
           
           <div>
-            <p className="text-muted-foreground">Current Price</p>
+            <p className="text-muted-foreground">Fee</p>
             <p className="font-medium">
-              {performance.currentPrice !== null ? formatEuro(performance.currentPrice) : "—"}
+              {formatEuro(lot.buy_fee || 0)}
             </p>
           </div>
-          
-          <div>
-            <p className="text-muted-foreground">Current Value</p>
-            <p className="font-medium">
-              {performance.currentValue !== null ? formatEuro(performance.currentValue) : "—"}
-            </p>
-          </div>
-          
-          {performance.gainLoss !== null && performance.gainLossPercentage !== null && (
-            <>
-              <div>
-                <p className="text-muted-foreground">Unrealized P&L</p>
-                <p className={`font-medium ${isProfit ? 'text-emerald-600' : isLoss ? 'text-red-600' : ''}`}>
-                  {formatEuro(performance.gainLoss)} ({formatPercentage(performance.gainLossPercentage)})
-                </p>
-              </div>
-            </>
-          )}
+        </div>
+        
+        {/* Note: Per-lot P&L not shown. Aggregate unrealized P&L from RPC in Portfolio Summary */}
+        <div className="mt-2 text-xs text-muted-foreground italic">
+          See Portfolio Summary for aggregate unrealized P&L
         </div>
         
         <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
