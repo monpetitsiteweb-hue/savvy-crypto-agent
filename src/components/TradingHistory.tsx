@@ -5,7 +5,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, ChevronLeft, ChevronRight, Info } from 'lucide-react';
+import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/useAuth';
@@ -21,7 +21,7 @@ import { PortfolioNotInitialized } from './PortfolioNotInitialized';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { processPastPosition } from '@/utils/valuationService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { AlertTriangle } from 'lucide-react';
+
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import { useToast } from '@/hooks/use-toast';
 
@@ -91,24 +91,38 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { marketData } = useMarketData();
   const { toast } = useToast();
   
-  // Compute live aggregate unrealized P&L from open trades
-  const liveAggregateUnrealizedPnl = useMemo(() => {
-    let total = 0;
-    let hasMissingPrices = false;
+  // TRADES-ONLY: Compute live aggregates from openTrades + marketData
+  // This is the single source of truth for all aggregate metrics
+  const liveAggregates = useMemo(() => {
+    const missingSymbols: string[] = [];
+    let costBasisEur = 0;
+    let currentValueEur = 0;
     
     for (const trade of openTrades) {
-      const pairSymbol = toPairSymbol(toBaseSymbol(trade.cryptocurrency));
+      const baseSymbol = toBaseSymbol(trade.cryptocurrency);
+      const pairSymbol = toPairSymbol(baseSymbol);
       const liveData = marketData[pairSymbol];
-      if (liveData?.price) {
-        const currentValue = trade.amount * liveData.price;
-        const costBasis = trade.total_value;
-        total += (currentValue - costBasis);
+      const livePrice = liveData?.price;
+      
+      // Cost basis always uses trade.total_value (includes fees if already in there)
+      costBasisEur += trade.total_value;
+      
+      if (livePrice && livePrice > 0) {
+        currentValueEur += trade.amount * livePrice;
       } else {
-        hasMissingPrices = true;
+        // Track missing symbols, fallback to cost basis for current value
+        if (!missingSymbols.includes(baseSymbol)) {
+          missingSymbols.push(baseSymbol);
+        }
+        currentValueEur += trade.total_value; // Fallback to cost basis
       }
     }
     
-    return { total, hasMissingPrices };
+    const unrealizedEur = currentValueEur - costBasisEur;
+    const unrealizedPct = costBasisEur > 0 ? (unrealizedEur / costBasisEur) * 100 : 0;
+    const hasMissingPrices = missingSymbols.length > 0;
+    
+    return { costBasisEur, currentValueEur, unrealizedEur, unrealizedPct, hasMissingPrices, missingSymbols };
   }, [openTrades, marketData]);
   
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -343,18 +357,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
 
     return (
       <Card className="p-4 hover:shadow-md transition-shadow" data-testid="past-position-card">
-        {/* Lot-Linked Indicator for SELL trades */}
+        {/* Trade linkage indicator for SELL trades */}
         {trade.trade_type === 'sell' && (
           <div className="flex gap-2 mb-2">
-            {trade.original_trade_id ? (
-              <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
-                Lot-Linked
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30">
-                Legacy (FIFO)
-              </Badge>
-            )}
+            <Badge variant="outline" className={`text-xs ${trade.original_trade_id ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' : 'bg-slate-500/10 text-slate-400 border-slate-500/30'}`}>
+              {trade.original_trade_id ? 'Linked SELL' : 'SELL'}
+            </Badge>
           </div>
         )}
         
@@ -640,25 +648,33 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
           </Card>
           
-          {/* Trading Exposure - FROM RPC (clarified semantics) */}
+          {/* Trading Exposure - LIVE computed from openTrades + marketData */}
           <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <DollarSign className="w-4 h-4 text-yellow-500" />
               <span className="text-sm font-medium text-muted-foreground">Trading Exposure</span>
+              {liveAggregates.hasMissingPrices && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger><AlertTriangle className="h-3 w-3 text-amber-400" /></TooltipTrigger>
+                    <TooltipContent><p className="text-xs">Partial: missing price for {liveAggregates.missingSymbols.join(', ')}</p></TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
             </div>
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Cost Basis</span>
-                <span className="text-lg font-bold">{formatEuro(metrics.invested_cost_basis_eur)}</span>
+                <span className="text-lg font-bold">{formatEuro(liveAggregates.costBasisEur)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Current Value</span>
-                <span className="text-sm">{formatEuro(metrics.current_position_value_eur)}</span>
+                <span className="text-sm">{formatEuro(liveAggregates.currentValueEur)}</span>
               </div>
             </div>
           </Card>
           
-          {/* Performance - FROM RPC */}
+          {/* Performance - LIVE computed from openTrades + marketData */}
           <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <TrendingUp className="w-4 h-4 text-green-500" />
@@ -666,12 +682,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
             <div className="space-y-2">
               {(() => {
-                // Use live unrealized P&L when RPC value is stale/zero
-                const useRpcValue = Math.abs(metrics.unrealized_pnl_eur) > 0.01 || liveAggregateUnrealizedPnl.hasMissingPrices;
-                const displayUnrealized = useRpcValue ? metrics.unrealized_pnl_eur : liveAggregateUnrealizedPnl.total;
-                const displayPct = metrics.invested_cost_basis_eur > 0 
-                  ? (displayUnrealized / metrics.invested_cost_basis_eur) * 100 
-                  : 0;
+                // TRADES-ONLY: Use live-computed unrealized P&L (always)
+                const displayUnrealized = liveAggregates.unrealizedEur;
+                const displayPct = liveAggregates.unrealizedPct;
                 const displayTotalPnl = metrics.realized_pnl_eur + displayUnrealized;
                 const displayTotalPct = metrics.starting_capital_eur > 0 
                   ? (displayTotalPnl / metrics.starting_capital_eur) * 100 
@@ -682,11 +695,11 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-muted-foreground flex items-center gap-1">
                         Unrealized P&L
-                        {!useRpcValue && (
+                        {liveAggregates.hasMissingPrices && (
                           <TooltipProvider>
                             <Tooltip>
-                              <TooltipTrigger><Info className="h-3 w-3 text-amber-400" /></TooltipTrigger>
-                              <TooltipContent><p className="text-xs">Live (price_snapshots stale)</p></TooltipContent>
+                              <TooltipTrigger><AlertTriangle className="h-3 w-3 text-amber-400" /></TooltipTrigger>
+                              <TooltipContent><p className="text-xs">Partial: missing price for {liveAggregates.missingSymbols.join(', ')}</p></TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         )}
