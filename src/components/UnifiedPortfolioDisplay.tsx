@@ -10,17 +10,16 @@ import { useTestMode } from "@/hooks/useTestMode";
 import { useAuth } from "@/hooks/useAuth";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
-import { useOpenLots } from "@/hooks/useOpenLots";
 import { supabase } from '@/integrations/supabase/client';
 import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw } from "lucide-react";
 import { logger } from '@/utils/logger';
 import { PortfolioNotInitialized } from "@/components/PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { afterReset } from '@/utils/resetHelpers';
-import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
+import { toBaseSymbol } from '@/utils/symbols';
 
-// Simple position aggregated from open lots (cost basis only)
-interface SimplePosition {
+// Wallet-style position aggregated from open trades (cost basis only)
+interface WalletAsset {
   symbol: string;
   totalAmount: number;
   totalCostBasis: number;
@@ -72,15 +71,15 @@ export const UnifiedPortfolioDisplay = () => {
     totalPnlPct
   } = usePortfolioMetrics();
   
-  // SINGLE SOURCE OF TRUTH: Use server-side open lots
-  const { openLots, isLoading: lotsLoading, refresh: refreshOpenLots } = useOpenLots();
+  // TRADE-BASED: Use open trades (not lots)
+  const { openTrades, isLoading: tradesLoading, refresh: refreshOpenTrades } = useOpenTrades();
   
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>('');
   const [connections, setConnections] = useState<any[]>([]);
-  // Simple positions aggregated from open lots (cost basis only - no live price calculations)
-  const [simplePositions, setSimplePositions] = useState<SimplePosition[]>([]);
+  // Wallet assets aggregated from open trades (cost basis only - no live price calculations)
+  const [walletAssets, setWalletAssets] = useState<WalletAsset[]>([]);
 
   // Fetch connections for production mode
   useEffect(() => {
@@ -89,40 +88,38 @@ export const UnifiedPortfolioDisplay = () => {
     }
   }, [testMode, user]);
 
-  // SINGLE SOURCE OF TRUTH: Aggregate positions from open lots (cost basis only)
+  // TRADE-BASED: Aggregate positions from open trades (cost basis only)
   // NO frontend P&L calculations - aggregate unrealized P&L comes from RPC metrics
   useEffect(() => {
-    if (!testMode || !isInitialized || openLots.length === 0) {
-      setSimplePositions([]);
+    if (!testMode || !isInitialized || openTrades.length === 0) {
+      setWalletAssets([]);
       return;
     }
     
-    // Group open lots by symbol and aggregate (cost basis only)
-    const positionMap = new Map<string, SimplePosition>();
+    // Group open trades by symbol and aggregate (cost basis only)
+    const assetMap = new Map<string, WalletAsset>();
     
-    for (const lot of openLots) {
-      if (lot.remaining_amount <= 0) continue;
-      
-      const symbol = toBaseSymbol(lot.cryptocurrency);
-      const existing = positionMap.get(symbol);
-      const lotCostBasis = lot.remaining_amount * lot.buy_price;
+    for (const trade of openTrades) {
+      const symbol = toBaseSymbol(trade.cryptocurrency);
+      const existing = assetMap.get(symbol);
+      const tradeCostBasis = trade.total_value;
       
       if (existing) {
-        existing.totalAmount += lot.remaining_amount;
-        existing.totalCostBasis += lotCostBasis;
+        existing.totalAmount += trade.amount;
+        existing.totalCostBasis += tradeCostBasis;
         existing.avgEntryPrice = existing.totalCostBasis / existing.totalAmount;
       } else {
-        positionMap.set(symbol, {
+        assetMap.set(symbol, {
           symbol,
-          totalAmount: lot.remaining_amount,
-          totalCostBasis: lotCostBasis,
-          avgEntryPrice: lot.buy_price
+          totalAmount: trade.amount,
+          totalCostBasis: tradeCostBasis,
+          avgEntryPrice: trade.price
         });
       }
     }
     
-    setSimplePositions(Array.from(positionMap.values()));
-  }, [testMode, isInitialized, openLots]);
+    setWalletAssets(Array.from(assetMap.values()));
+  }, [testMode, isInitialized, openTrades]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -181,46 +178,41 @@ export const UnifiedPortfolioDisplay = () => {
   const handleResetPortfolio = async () => {
     try {
       await resetPortfolio();
-      // P2 FIX: Use centralized afterReset for deterministic refresh (no setTimeout)
+      // Use centralized afterReset for deterministic refresh (no setTimeout)
       await afterReset({
         refreshPortfolioMetrics: refreshMetrics,
-        refreshOpenLots: refreshOpenLots,
+        refreshOpenLots: refreshOpenTrades, // Now uses trades, not lots
       });
     } catch (error) {
       logger.error('Failed to reset portfolio:', error);
     }
   };
 
-  // SINGLE SOURCE OF TRUTH: Render position card from open lots (cost basis only)
-  // Per-position P&L not shown - aggregate unrealized P&L comes from RPC metrics
-  const renderSimplePositionCard = (position: SimplePosition) => {
+  // WALLET VIEW: Render asset card (cost basis only, no per-asset P&L)
+  // Aggregate unrealized P&L comes from RPC metrics in header
+  const renderWalletAssetCard = (asset: WalletAsset) => {
     return (
-      <Card key={position.symbol} className="p-4 bg-slate-700/50 border-slate-600">
+      <Card key={asset.symbol} className="p-4 bg-slate-700/50 border-slate-600">
         <div className="space-y-3">
           <div className="flex justify-between items-center">
             <div className="flex items-center">
-              <span className="text-sm font-medium text-slate-300">{position.symbol}</span>
+              <span className="text-sm font-medium text-slate-300">{asset.symbol}</span>
             </div>
             <div className="text-right">
               <div className="text-lg font-bold text-white">
-                {formatEuro(position.totalCostBasis)}
+                {formatEuro(asset.totalCostBasis)}
               </div>
               <div className="text-xs text-slate-400">
-                {position.totalAmount.toLocaleString(undefined, {
-                  maximumFractionDigits: position.symbol === 'XRP' ? 0 : 6
-                })} {position.symbol}
+                {asset.totalAmount.toLocaleString(undefined, {
+                  maximumFractionDigits: asset.symbol === 'XRP' ? 0 : 6
+                })} {asset.symbol}
               </div>
             </div>
           </div>
           
           <div className="flex justify-between items-center text-xs text-slate-500">
-            <span>Avg Entry: {formatEuro(position.avgEntryPrice)}</span>
+            <span>Avg Entry: {formatEuro(asset.avgEntryPrice)}</span>
             <span>Cost Basis</span>
-          </div>
-          
-          {/* Note: Per-position P&L not shown. Aggregate unrealized P&L from RPC in header */}
-          <div className="text-xs text-slate-500 italic">
-            See aggregate P&L in header
           </div>
         </div>
       </Card>
@@ -389,16 +381,16 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
           
-          {/* SINGLE SOURCE OF TRUTH: Portfolio Breakdown - cost basis from open lots */}
+          {/* WALLET VIEW: Crypto holdings breakdown by asset */}
           {testMode ? (
-            simplePositions.length > 0 ? (
+            walletAssets.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {simplePositions.map(renderSimplePositionCard)}
+                {walletAssets.map(renderWalletAssetCard)}
               </div>
-            ) : isInitialized && !lotsLoading ? (
+            ) : isInitialized && !tradesLoading ? (
               <div className="text-center py-8">
                 <p className="text-slate-300">
-                  No open positions. Start trading to see positions.
+                  No open positions. Start trading to see holdings.
                 </p>
               </div>
             ) : null
@@ -419,7 +411,7 @@ export const UnifiedPortfolioDisplay = () => {
           {/* Data source indicator */}
           {testMode && isInitialized && (
             <div className="text-xs text-slate-400 text-center mt-2">
-              📊 All metrics from RPC (get_portfolio_metrics) • FIFO-correct
+              📊 All metrics from RPC (get_portfolio_metrics) • Trade-based
             </div>
           )}
         </div>
