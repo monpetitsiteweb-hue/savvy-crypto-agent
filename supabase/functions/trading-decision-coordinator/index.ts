@@ -429,8 +429,8 @@ async function settleCashLedger(
       
       const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_buy_trade', {
         p_user_id: userId,
+        p_actual_spent: buyNetSpent,
         p_reserved_amount: 0,
-        p_actual_spent: buyNetSpent
       });
       
       if (settleError) {
