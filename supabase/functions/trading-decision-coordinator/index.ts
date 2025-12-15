@@ -1390,6 +1390,11 @@ serve(async (req) => {
       };
 
       const config = configData;
+      
+      // Extract effective TP/SL/confidence from resolved config
+      const effectiveTpPct = configData.takeProfitPercentage ?? 0.7;
+      const effectiveSlPct = configData.stopLossPercentage ?? 0.7;
+      const confidenceThreshold = resolvedConfig.aiConfidenceThreshold; // 0-100
 
       // Determine action based on side
       const action = intent.side as DecisionAction;
