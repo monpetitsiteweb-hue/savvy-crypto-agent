@@ -105,7 +105,8 @@ export const UnifiedPortfolioDisplay = () => {
     for (const trade of openTrades) {
       const symbol = toBaseSymbol(trade.cryptocurrency);
       const existing = assetMap.get(symbol);
-      const tradeCostBasis = trade.total_value;
+      // Cost basis includes fees for accurate P&L calculation
+      const tradeCostBasis = trade.total_value + (trade.fees || 0);
       
       if (existing) {
         existing.totalAmount += trade.amount;
