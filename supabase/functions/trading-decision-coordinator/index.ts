@@ -406,8 +406,17 @@ async function settleCashLedger(
     fees?: number;
     buy_fees?: number;
     sell_fees?: number;
+  },
+  meta?: {
+    tradeId?: string;
+    path?: 'direct_ud_off' | 'standard' | 'manual' | 'per_lot';
+    isTestMode?: boolean;
   }
 ): Promise<CashSettlementResult> {
+  const path = meta?.path ?? 'standard';
+  const tradeId = meta?.tradeId ?? 'unknown_trade_id';
+  const isTestMode = meta?.isTestMode === true;
+
   try {
     // First, get current cash balance for logging
     const { data: capitalData, error: capitalError } = await supabaseClient
@@ -415,79 +424,141 @@ async function settleCashLedger(
       .select('cash_balance_eur')
       .eq('user_id', userId)
       .single();
-    
+
+    if (capitalError) {
+      console.error(`❌ CASH LEDGER: Failed to read cash_before (path=${path}, trade_id=${tradeId})`, capitalError);
+      if (isTestMode) return { success: false, error: 'cash_before_read_failed' };
+    }
+
     const cashBefore = capitalData?.cash_balance_eur ?? null;
-    
+
     if (side === 'BUY') {
-      // BUY: Deduct cash (total_value is gross cost)
-      // In current data, fees are 0, so total_value is the full amount to deduct
-      const buyNetSpent = tradeData.total_value + 
-        (tradeData.fees ?? 0) + 
-        (tradeData.buy_fees ?? 0);
-      
-      console.log(`💰 CASH LEDGER [BUY]: cash_before=${cashBefore?.toFixed(2) ?? 'N/A'}€, delta=-${buyNetSpent.toFixed(2)}€`);
-      
+      const buyNetSpent =
+        (Number(tradeData.total_value) || 0) +
+        (Number(tradeData.fees) || 0) +
+        (Number(tradeData.buy_fees) || 0);
+
+      if (!(buyNetSpent > 0)) {
+        console.error(`❌ CASH LEDGER [BUY]: invalid buyNetSpent=${buyNetSpent} (path=${path}, trade_id=${tradeId})`);
+        return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, error: 'invalid_buy_spend' };
+      }
+
+      console.log(
+        `💰 CASH LEDGER [BUY] path=${path} trade_id=${tradeId}: cash_before=${cashBefore?.toFixed(2) ?? 'N/A'}€, delta=-${buyNetSpent.toFixed(2)}€`
+      );
+
       const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_buy_trade', {
         p_user_id: userId,
         p_actual_spent: buyNetSpent,
         p_reserved_amount: 0,
       });
-      
+
       if (settleError) {
-        console.error('❌ CASH LEDGER: settle_buy_trade RPC failed:', settleError);
-        return { success: false, cash_before: cashBefore, delta: -buyNetSpent, error: settleError.message };
+        console.error(`❌ CASH LEDGER [BUY]: settle_buy_trade RPC failed (path=${path}, trade_id=${tradeId}):`, settleError);
+        return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, error: settleError.message };
       }
-      
+
       if (settleResult?.success === false) {
-        console.error('❌ CASH LEDGER: settle_buy_trade returned failure:', settleResult);
-        return { success: false, cash_before: cashBefore, delta: -buyNetSpent, error: settleResult?.reason || 'unknown' };
+        console.error(`❌ CASH LEDGER [BUY]: settle_buy_trade returned failure (path=${path}, trade_id=${tradeId}):`, settleResult);
+        return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, error: settleResult?.reason || 'unknown' };
       }
-      
+
       const cashAfter = settleResult?.new_cash_balance_eur ?? null;
-      console.log(`✅ CASH LEDGER [BUY]: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€ (deducted ${buyNetSpent.toFixed(2)}€)`);
-      
-      return { success: true, cash_before: cashBefore, delta: -buyNetSpent, cash_after: cashAfter };
-      
-    } else {
-      // SELL: Credit cash with net proceeds
-      // Prefer exit_value (net, trigger-computed) over total_value (gross)
-      // If exit_value is missing, use total_value minus any fees
-      let sellNetProceeds: number;
-      
-      if (tradeData.exit_value !== undefined && tradeData.exit_value !== null) {
-        // Use exit_value directly - it's already net of fees (trigger computed)
-        sellNetProceeds = tradeData.exit_value;
-      } else {
-        // Fallback: total_value minus explicit fees
-        sellNetProceeds = tradeData.total_value - 
-          (tradeData.fees ?? 0) - 
-          (tradeData.sell_fees ?? 0);
+
+      // DRIFT DETECTOR: Verify DB reflects the new cash
+      const { data: verifyData, error: verifyError } = await supabaseClient
+        .from('portfolio_capital')
+        .select('cash_balance_eur')
+        .eq('user_id', userId)
+        .single();
+
+      const verifiedCash = verifyData?.cash_balance_eur ?? null;
+      if (verifyError) {
+        console.error(`⚠️ CASH LEDGER [BUY]: verify read failed (path=${path}, trade_id=${tradeId})`, verifyError);
+        if (isTestMode) {
+          return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, error: 'cash_after_verify_failed' };
+        }
       }
-      
-      console.log(`💰 CASH LEDGER [SELL]: cash_before=${cashBefore?.toFixed(2) ?? 'N/A'}€, delta=+${sellNetProceeds.toFixed(2)}€`);
-      
-      const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_sell_trade', {
-        p_user_id: userId,
-        p_proceeds_eur: sellNetProceeds
-      });
-      
-      if (settleError) {
-        console.error('❌ CASH LEDGER: settle_sell_trade RPC failed:', settleError);
-        return { success: false, cash_before: cashBefore, delta: sellNetProceeds, error: settleError.message };
+
+      const drift =
+        cashAfter !== null && verifiedCash !== null ? Math.abs(Number(cashAfter) - Number(verifiedCash)) : null;
+
+      console.log(
+        `✅ CASH LEDGER [BUY] path=${path} trade_id=${tradeId}: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€, verified=${verifiedCash?.toFixed(2) ?? 'N/A'}€, drift=${drift?.toFixed(2) ?? 'N/A'}€`
+      );
+
+      if (isTestMode && drift !== null && drift > 0.02) {
+        console.error(`❌ CASH LEDGER [BUY]: DRIFT DETECTED > €0.02 (path=${path}, trade_id=${tradeId})`);
+        return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, cash_after: cashAfter ?? undefined, error: 'cash_drift_detected' };
       }
-      
-      if (settleResult?.success === false) {
-        console.error('❌ CASH LEDGER: settle_sell_trade returned failure:', settleResult);
-        return { success: false, cash_before: cashBefore, delta: sellNetProceeds, error: settleResult?.reason || 'unknown' };
-      }
-      
-      const cashAfter = settleResult?.new_cash_balance_eur ?? null;
-      console.log(`✅ CASH LEDGER [SELL]: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€ (credited ${sellNetProceeds.toFixed(2)}€)`);
-      
-      return { success: true, cash_before: cashBefore, delta: sellNetProceeds, cash_after: cashAfter };
+
+      return { success: true, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, cash_after: cashAfter ?? undefined };
     }
+
+    // SELL: Credit cash with net proceeds
+    let sellNetProceeds: number;
+    if (tradeData.exit_value !== undefined && tradeData.exit_value !== null) {
+      sellNetProceeds = Number(tradeData.exit_value) || 0;
+    } else {
+      sellNetProceeds =
+        (Number(tradeData.total_value) || 0) - (Number(tradeData.fees) || 0) - (Number(tradeData.sell_fees) || 0);
+    }
+
+    if (!(sellNetProceeds > 0)) {
+      console.error(`❌ CASH LEDGER [SELL]: invalid sellNetProceeds=${sellNetProceeds} (path=${path}, trade_id=${tradeId})`);
+      return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, error: 'invalid_sell_proceeds' };
+    }
+
+    console.log(
+      `💰 CASH LEDGER [SELL] path=${path} trade_id=${tradeId}: cash_before=${cashBefore?.toFixed(2) ?? 'N/A'}€, delta=+${sellNetProceeds.toFixed(2)}€`
+    );
+
+    const { data: settleResult, error: settleError } = await supabaseClient.rpc('settle_sell_trade', {
+      p_user_id: userId,
+      p_proceeds_eur: sellNetProceeds,
+    });
+
+    if (settleError) {
+      console.error(`❌ CASH LEDGER [SELL]: settle_sell_trade RPC failed (path=${path}, trade_id=${tradeId}):`, settleError);
+      return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, error: settleError.message };
+    }
+
+    if (settleResult?.success === false) {
+      console.error(`❌ CASH LEDGER [SELL]: settle_sell_trade returned failure (path=${path}, trade_id=${tradeId}):`, settleResult);
+      return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, error: settleResult?.reason || 'unknown' };
+    }
+
+    const cashAfter = settleResult?.new_cash_balance_eur ?? null;
+
+    // DRIFT DETECTOR: Verify DB reflects the new cash
+    const { data: verifyData, error: verifyError } = await supabaseClient
+      .from('portfolio_capital')
+      .select('cash_balance_eur')
+      .eq('user_id', userId)
+      .single();
+
+    const verifiedCash = verifyData?.cash_balance_eur ?? null;
+    if (verifyError) {
+      console.error(`⚠️ CASH LEDGER [SELL]: verify read failed (path=${path}, trade_id=${tradeId})`, verifyError);
+      if (isTestMode) {
+        return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, error: 'cash_after_verify_failed' };
+      }
+    }
+
+    const drift = cashAfter !== null && verifiedCash !== null ? Math.abs(Number(cashAfter) - Number(verifiedCash)) : null;
+
+    console.log(
+      `✅ CASH LEDGER [SELL] path=${path} trade_id=${tradeId}: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€, verified=${verifiedCash?.toFixed(2) ?? 'N/A'}€, drift=${drift?.toFixed(2) ?? 'N/A'}€`
+    );
+
+    if (isTestMode && drift !== null && drift > 0.02) {
+      console.error(`❌ CASH LEDGER [SELL]: DRIFT DETECTED > €0.02 (path=${path}, trade_id=${tradeId})`);
+      return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, cash_after: cashAfter ?? undefined, error: 'cash_drift_detected' };
+    }
+
+    return { success: true, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, cash_after: cashAfter ?? undefined };
   } catch (error) {
-    console.error('❌ CASH LEDGER: Unexpected error in settleCashLedger:', error);
+    console.error(`❌ CASH LEDGER: Unexpected error in settleCashLedger (path=${path}, trade_id=${tradeId}):`, error);
     return { success: false, error: error?.message || 'unexpected_error' };
   }
 }
@@ -1788,12 +1859,22 @@ serve(async (req) => {
       }
 
       // ============= CASH LEDGER UPDATE: Manual SELL proceeds (via helper) =============
-      const cashResult = await settleCashLedger(supabaseClient, intent.userId, 'SELL', {
-        total_value: exitValue,
-        exit_value: exitValue, // For manual SELL, exitValue is already computed correctly
-        fees: 0,
-        sell_fees: 0,
-      });
+      const cashResult = await settleCashLedger(
+        supabaseClient,
+        intent.userId,
+        'SELL',
+        {
+          total_value: exitValue,
+          exit_value: exitValue, // For manual SELL, exitValue is already computed correctly
+          fees: 0,
+          sell_fees: 0,
+        },
+        {
+          tradeId: 'manual_sell_unknown_trade_id',
+          path: 'manual',
+          isTestMode: true,
+        }
+      );
       
       if (!cashResult.success) {
         // Trade inserted but cash not updated - log decision_event for audit
@@ -2771,10 +2852,11 @@ async function executeTradeDirectly(
       logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
     }
 
-    const { error } = await supabaseClient
+    const { data: insertResult, error } = await supabaseClient
       .from('mock_trades')
-      .insert(mockTrade);
-    
+      .insert(mockTrade)
+      .select('id');
+
     console.log('[DEBUG][executeTradeDirectly] Insert result - error:', error ? JSON.stringify(error) : 'null (success)');
 
     if (error) {
@@ -2783,33 +2865,103 @@ async function executeTradeDirectly(
       throw new Error(`DB insert failed: ${error.message}`);
     }
 
+    const insertedTradeId = insertResult?.[0]?.id ?? null;
+
     // STEP 4: PROVE THE WRITE - log successful insert
     console.log('============ STEP 4: WRITE SUCCESSFUL ============');
     console.log('Inserted mockTrade:', JSON.stringify(mockTrade, null, 2));
-    
-    // Query back the inserted row for confirmation
-    const { data: insertedRow } = await supabaseClient
+    console.log('Inserted trade ID:', insertedTradeId ?? 'ID_NOT_RETURNED');
+
+    // Query back the inserted row for confirmation + settlement values (exit_value, fees)
+    const { data: insertedRow, error: insertedReadError } = await supabaseClient
       .from('mock_trades')
-      .select('id, cryptocurrency, trade_type, amount, original_purchase_amount, original_purchase_price')
+      .select('id, cryptocurrency, trade_type, amount, total_value, exit_value, fees, buy_fees, sell_fees')
       .eq('user_id', intent.userId)
       .eq('trade_type', intent.side.toLowerCase())
       .order('executed_at', { ascending: false })
       .limit(1);
-      
-    if (insertedRow && insertedRow.length > 0) {
-      console.log('New row id:', insertedRow[0].id);
-      console.log('Echo inserted fields:', insertedRow[0]);
+
+    if (insertedReadError) {
+      console.error('[DEBUG][executeTradeDirectly] Failed to read back inserted row:', insertedReadError);
+      if (intent.metadata?.is_test_mode === true || intent.metadata?.mode === 'mock' || strategyConfig?.is_test_mode) {
+        return { success: false, error: 'cash_ledger_settlement_failed' };
+      }
+    }
+
+    const tradeRow = insertedRow?.[0];
+
+    if (!tradeRow?.id) {
+      console.error('[DEBUG][executeTradeDirectly] Could not query back inserted row for settlement');
+      if (intent.metadata?.is_test_mode === true || intent.metadata?.mode === 'mock' || strategyConfig?.is_test_mode) {
+        return { success: false, error: 'cash_ledger_settlement_failed' };
+      }
     } else {
-      console.log('⚠️ Could not query back inserted row');
+      console.log('Echo inserted fields:', tradeRow);
+
+      // ================= CASH LEDGER UPDATE (DIRECT / UD=OFF) =================
+      const isTestMode =
+        intent.metadata?.mode === 'mock' ||
+        strategyConfig?.is_test_mode === true ||
+        intent.metadata?.is_test_mode === true;
+
+      const settleRes = await settleCashLedger(
+        supabaseClient,
+        intent.userId,
+        intent.side as 'BUY' | 'SELL',
+        {
+          // BUY: actual_spent should be total_value (+fees if ever used)
+          // SELL: proceeds should use exit_value if available else total_value - fees
+          total_value: Number(tradeRow.total_value) || 0,
+          exit_value: tradeRow.exit_value ?? undefined,
+          fees: tradeRow.fees ?? 0,
+          buy_fees: tradeRow.buy_fees ?? 0,
+          sell_fees: tradeRow.sell_fees ?? 0,
+        },
+        {
+          tradeId: tradeRow.id,
+          path: 'direct_ud_off',
+          isTestMode,
+        }
+      );
+
+      if (!settleRes?.success) {
+        console.error('❌ DIRECT: Cash ledger settlement failed:', settleRes);
+
+        // CRITICAL: in TEST MODE, hard-fail so we never mask wrong balances
+        if (isTestMode) {
+          return { success: false, error: 'cash_ledger_settlement_failed' };
+        }
+
+        // In non-test, log cash_ledger_settle_failed decision_event
+        await supabaseClient.from('decision_events').insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          symbol: baseSymbol,
+          side: intent.side,
+          source: 'coordinator_direct',
+          reason: 'cash_ledger_settle_failed',
+          decision_ts: new Date().toISOString(),
+          metadata: {
+            path: 'direct_ud_off',
+            trade_id: tradeRow.id,
+            cash_before: settleRes?.cash_before,
+            delta: settleRes?.delta,
+            cash_after: settleRes?.cash_after,
+            error: settleRes?.error,
+            trade_inserted: true,
+          },
+        });
+      }
+      // ================= END CASH LEDGER UPDATE =================
     }
 
     console.log('✅ DIRECT: Trade executed successfully');
-    
-    // STEP 5: FINAL DECISION - log for user 
+
+    // STEP 5: FINAL DECISION - log for user
     console.log('============ STEP 5: FINAL DECISION ============');
     console.log('decision.action:', intent.side);
     console.log('decision.reason: unified_decisions_disabled_direct_path');
-    
+
     return { success: true, qty };
 
   } catch (error) {
@@ -5035,13 +5187,23 @@ async function executeTradeOrder(
         // ============= CASH LEDGER UPDATE: Per-lot SELL proceeds (via helper) =============
         // Use exit_value (net, trigger-computed) not total_value (gross)
         const totalExitValue = sellRows.reduce((sum, r) => sum + (r.exit_value || r.total_value), 0);
-        
-        const cashResult = await settleCashLedger(supabaseClient, intent.userId, 'SELL', {
-          total_value: sellRows.reduce((sum, r) => sum + r.total_value, 0),
-          exit_value: totalExitValue, // Use exit_value which is net of fees
-          fees: 0,
-          sell_fees: 0,
-        });
+
+        const cashResult = await settleCashLedger(
+          supabaseClient,
+          intent.userId,
+          'SELL',
+          {
+            total_value: sellRows.reduce((sum, r) => sum + r.total_value, 0),
+            exit_value: totalExitValue, // Use exit_value which is net of fees
+            fees: 0,
+            sell_fees: 0,
+          },
+          {
+            tradeId: insertResults?.[0]?.id,
+            path: 'per_lot',
+            isTestMode: true,
+          }
+        );
         
         if (!cashResult.success) {
           // Trades inserted but cash not updated - log decision_event for audit
@@ -5163,8 +5325,8 @@ async function executeTradeOrder(
       // ============= CASH LEDGER UPDATE: BUY deduction or SELL credit (via helper) =============
       // For SELL, use exit_value from fifoFields if available (net of fees)
       const cashResult = await settleCashLedger(
-        supabaseClient, 
-        intent.userId, 
+        supabaseClient,
+        intent.userId,
         intent.side as 'BUY' | 'SELL',
         {
           total_value: totalValue,
@@ -5172,6 +5334,11 @@ async function executeTradeOrder(
           fees: 0,
           buy_fees: 0,
           sell_fees: 0,
+        },
+        {
+          tradeId: insertResult?.[0]?.id,
+          path: 'standard',
+          isTestMode: true,
         }
       );
       
