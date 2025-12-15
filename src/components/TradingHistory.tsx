@@ -1,11 +1,11 @@
 // TRADE-BASED MODEL: Each BUY is one position, each SELL fully closes one BUY
 // Per-trade live P&L restored using shared market data
-// Aggregates from RPC remain authoritative for totals
-import { useState, useEffect } from 'react';
+// Aggregates from RPC remain authoritative for totals, but uses live prices when RPC stale
+import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/useAuth';
@@ -14,6 +14,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useMockWallet } from '@/hooks/useMockWallet';
 import { usePortfolioMetrics } from '@/hooks/usePortfolioMetrics';
 import { useOpenTrades, OpenTrade } from '@/hooks/useOpenTrades';
+import { useMarketData } from '@/contexts/MarketDataContext';
 import { OpenTradeCard } from '@/components/trading/OpenTradeCard';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { PortfolioNotInitialized } from './PortfolioNotInitialized';
@@ -86,7 +87,29 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   } = usePortfolioMetrics();
   // TRADE-BASED: Use open trades instead of lots
   const { openTrades, isLoading: tradesLoading, refresh: refreshOpenTrades } = useOpenTrades();
+  // Live prices for aggregate unrealized P&L calculation
+  const { marketData } = useMarketData();
   const { toast } = useToast();
+  
+  // Compute live aggregate unrealized P&L from open trades
+  const liveAggregateUnrealizedPnl = useMemo(() => {
+    let total = 0;
+    let hasMissingPrices = false;
+    
+    for (const trade of openTrades) {
+      const pairSymbol = toPairSymbol(toBaseSymbol(trade.cryptocurrency));
+      const liveData = marketData[pairSymbol];
+      if (liveData?.price) {
+        const currentValue = trade.amount * liveData.price;
+        const costBasis = trade.total_value;
+        total += (currentValue - costBasis);
+      } else {
+        hasMissingPrices = true;
+      }
+    }
+    
+    return { total, hasMissingPrices };
+  }, [openTrades, marketData]);
   
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
@@ -642,24 +665,51 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
               <span className="text-sm font-medium text-muted-foreground">Performance</span>
             </div>
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Unrealized P&L</span>
-                <span className={`text-lg font-bold ${metrics.unrealized_pnl_eur >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {formatEuro(metrics.unrealized_pnl_eur)} <span className="text-xs">({formatPercentage(unrealizedPnlPct)})</span>
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Realized P&L</span>
-                <span className={`text-sm ${metrics.realized_pnl_eur >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {formatEuro(metrics.realized_pnl_eur)} <span className="text-xs">({formatPercentage(realizedPnlPct)})</span>
-                </span>
-              </div>
-              <div className="flex justify-between items-center border-t pt-2">
-                <span className="text-xs text-muted-foreground font-medium">Total P&L</span>
-                <span className={`text-sm font-semibold ${metrics.total_pnl_eur >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {formatEuro(metrics.total_pnl_eur)} <span className="text-xs">({formatPercentage(totalPnlPct)})</span>
-                </span>
-              </div>
+              {(() => {
+                // Use live unrealized P&L when RPC value is stale/zero
+                const useRpcValue = Math.abs(metrics.unrealized_pnl_eur) > 0.01 || liveAggregateUnrealizedPnl.hasMissingPrices;
+                const displayUnrealized = useRpcValue ? metrics.unrealized_pnl_eur : liveAggregateUnrealizedPnl.total;
+                const displayPct = metrics.invested_cost_basis_eur > 0 
+                  ? (displayUnrealized / metrics.invested_cost_basis_eur) * 100 
+                  : 0;
+                const displayTotalPnl = metrics.realized_pnl_eur + displayUnrealized;
+                const displayTotalPct = metrics.starting_capital_eur > 0 
+                  ? (displayTotalPnl / metrics.starting_capital_eur) * 100 
+                  : 0;
+                
+                return (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        Unrealized P&L
+                        {!useRpcValue && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger><Info className="h-3 w-3 text-amber-400" /></TooltipTrigger>
+                              <TooltipContent><p className="text-xs">Live (price_snapshots stale)</p></TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </span>
+                      <span className={`text-lg font-bold ${displayUnrealized >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        {formatEuro(displayUnrealized)} <span className="text-xs">({formatPercentage(displayPct)})</span>
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">Realized P&L</span>
+                      <span className={`text-sm ${metrics.realized_pnl_eur >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        {formatEuro(metrics.realized_pnl_eur)} <span className="text-xs">({formatPercentage(realizedPnlPct)})</span>
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center border-t pt-2">
+                      <span className="text-xs text-muted-foreground font-medium">Total P&L</span>
+                      <span className={`text-sm font-semibold ${displayTotalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                        {formatEuro(displayTotalPnl)} <span className="text-xs">({formatPercentage(displayTotalPct)})</span>
+                      </span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </Card>
         </div>
