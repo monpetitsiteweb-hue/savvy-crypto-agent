@@ -411,6 +411,8 @@ async function settleCashLedger(
     tradeId?: string;
     path?: 'direct_ud_off' | 'standard' | 'manual' | 'per_lot';
     isTestMode?: boolean;
+    strategyId?: string;
+    symbol?: string;
   }
 ): Promise<CashSettlementResult> {
   const path = meta?.path ?? 'standard';
@@ -484,16 +486,85 @@ async function settleCashLedger(
         }
       }
 
-      const drift =
+      const settleDrift =
         cashAfter !== null && verifiedCash !== null ? Math.abs(Number(cashAfter) - Number(verifiedCash)) : null;
 
       console.log(
-        `✅ CASH LEDGER [BUY] path=${path} trade_id=${tradeId}: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€, verified=${verifiedCash?.toFixed(2) ?? 'N/A'}€, drift=${drift?.toFixed(2) ?? 'N/A'}€`
+        `✅ CASH LEDGER [BUY] path=${path} trade_id=${tradeId}: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€, verified=${verifiedCash?.toFixed(2) ?? 'N/A'}€, settle_drift=${settleDrift?.toFixed(2) ?? 'N/A'}€`
       );
 
-      if (isTestMode && drift !== null && drift > 0.02) {
-        console.error(`❌ CASH LEDGER [BUY]: DRIFT DETECTED > €0.02 (path=${path}, trade_id=${tradeId})`);
-        return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, cash_after: cashAfter ?? undefined, error: 'cash_drift_detected' };
+      if (isTestMode && (cashAfter === null || verifiedCash === null)) {
+        return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, cash_after: cashAfter ?? undefined, error: 'cash_after_missing' };
+      }
+
+      // AUTO-REPAIR (TEST MODE ONLY): Recalculate expected cash from trades and fix any drift
+      // This corrects historical drift (e.g., legacy paths that skipped settlement) and prevents re-drift.
+      if (isTestMode) {
+        const { data: repairRes, error: repairErr } = await supabaseClient.rpc('recalculate_cash_from_trades', {
+          p_user_id: userId,
+          p_is_test_mode: true,
+        });
+
+        if (repairErr) {
+          console.error(`❌ CASH LEDGER [BUY]: autorepair RPC failed (path=${path}, trade_id=${tradeId})`, repairErr);
+          return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, cash_after: cashAfter ?? undefined, error: 'cash_autorepair_rpc_failed' };
+        }
+
+        const driftBefore = Math.abs(Number(repairRes?.correction ?? 0));
+
+        const { data: postRepairCap, error: postRepairErr } = await supabaseClient
+          .from('portfolio_capital')
+          .select('cash_balance_eur')
+          .eq('user_id', userId)
+          .single();
+
+        if (postRepairErr) {
+          console.error(`❌ CASH LEDGER [BUY]: post-repair cash read failed (path=${path}, trade_id=${tradeId})`, postRepairErr);
+          return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, cash_after: cashAfter ?? undefined, error: 'cash_post_repair_read_failed' };
+        }
+
+        const finalCash = Number(postRepairCap?.cash_balance_eur ?? 0);
+        const expectedCash = Number(repairRes?.expected_cash ?? finalCash);
+        const driftAfter = Math.abs(finalCash - expectedCash);
+
+        if (driftBefore > 0.02 || driftAfter > 0.02) {
+          console.log(
+            `🧯 CASH DRIFT AUTOREPAIR [BUY] path=${path} trade_id=${tradeId}: drift_before=${driftBefore.toFixed(2)}€, drift_after=${driftAfter.toFixed(2)}€`
+          );
+
+          // Log decision_event for auditability
+          try {
+            if (meta?.strategyId && meta?.symbol) {
+              await supabaseClient.from('decision_events').insert({
+                user_id: userId,
+                strategy_id: meta.strategyId,
+                symbol: meta.symbol,
+                side,
+                source: 'cash_ledger',
+                reason: 'cash_drift_autorepair_attempted',
+                decision_ts: new Date().toISOString(),
+                trade_id: meta?.tradeId ?? null,
+                metadata: {
+                  path,
+                  drift_before: driftBefore,
+                  drift_after: driftAfter,
+                  expected_cash: repairRes?.expected_cash,
+                  previous_cash: repairRes?.previous_cash,
+                  correction: repairRes?.correction,
+                },
+              });
+            }
+          } catch (e) {
+            console.error('⚠️ CASH LEDGER [BUY]: failed to log cash_drift_autorepair_attempted decision_event', e);
+          }
+        }
+
+        if (driftAfter > 0.02) {
+          console.error(`❌ CASH LEDGER [BUY]: autorepair FAILED (path=${path}, trade_id=${tradeId}) drift_after=${driftAfter}`);
+          return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, cash_after: finalCash, error: 'cash_drift_autorepair_failed' };
+        }
+
+        return { success: true, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, cash_after: finalCash };
       }
 
       return { success: true, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, cash_after: cashAfter ?? undefined };
@@ -532,7 +603,11 @@ async function settleCashLedger(
       return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, error: settleResult?.reason || 'unknown' };
     }
 
-    const cashAfter = settleResult?.new_cash_balance_eur ?? null;
+    const cashAfter =
+      settleResult?.cash_after ??
+      settleResult?.cash_balance_eur ??
+      settleResult?.new_cash_balance_eur ??
+      null;
 
     // DRIFT DETECTOR: Verify DB reflects the new cash
     const { data: verifyData, error: verifyError } = await supabaseClient
@@ -549,15 +624,83 @@ async function settleCashLedger(
       }
     }
 
-    const drift = cashAfter !== null && verifiedCash !== null ? Math.abs(Number(cashAfter) - Number(verifiedCash)) : null;
+    const settleDrift = cashAfter !== null && verifiedCash !== null ? Math.abs(Number(cashAfter) - Number(verifiedCash)) : null;
 
     console.log(
-      `✅ CASH LEDGER [SELL] path=${path} trade_id=${tradeId}: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€, verified=${verifiedCash?.toFixed(2) ?? 'N/A'}€, drift=${drift?.toFixed(2) ?? 'N/A'}€`
+      `✅ CASH LEDGER [SELL] path=${path} trade_id=${tradeId}: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€, verified=${verifiedCash?.toFixed(2) ?? 'N/A'}€, settle_drift=${settleDrift?.toFixed(2) ?? 'N/A'}€`
     );
 
-    if (isTestMode && drift !== null && drift > 0.02) {
-      console.error(`❌ CASH LEDGER [SELL]: DRIFT DETECTED > €0.02 (path=${path}, trade_id=${tradeId})`);
-      return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, cash_after: cashAfter ?? undefined, error: 'cash_drift_detected' };
+    if (isTestMode && (cashAfter === null || verifiedCash === null)) {
+      return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, cash_after: cashAfter ?? undefined, error: 'cash_after_missing' };
+    }
+
+    // AUTO-REPAIR (TEST MODE ONLY): Recalculate expected cash from trades and fix any drift
+    if (isTestMode) {
+      const { data: repairRes, error: repairErr } = await supabaseClient.rpc('recalculate_cash_from_trades', {
+        p_user_id: userId,
+        p_is_test_mode: true,
+      });
+
+      if (repairErr) {
+        console.error(`❌ CASH LEDGER [SELL]: autorepair RPC failed (path=${path}, trade_id=${tradeId})`, repairErr);
+        return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, cash_after: cashAfter ?? undefined, error: 'cash_autorepair_rpc_failed' };
+      }
+
+      const driftBefore = Math.abs(Number(repairRes?.correction ?? 0));
+
+      const { data: postRepairCap, error: postRepairErr } = await supabaseClient
+        .from('portfolio_capital')
+        .select('cash_balance_eur')
+        .eq('user_id', userId)
+        .single();
+
+      if (postRepairErr) {
+        console.error(`❌ CASH LEDGER [SELL]: post-repair cash read failed (path=${path}, trade_id=${tradeId})`, postRepairErr);
+        return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, cash_after: cashAfter ?? undefined, error: 'cash_post_repair_read_failed' };
+      }
+
+      const finalCash = Number(postRepairCap?.cash_balance_eur ?? 0);
+      const expectedCash = Number(repairRes?.expected_cash ?? finalCash);
+      const driftAfter = Math.abs(finalCash - expectedCash);
+
+      if (driftBefore > 0.02 || driftAfter > 0.02) {
+        console.log(
+          `🧯 CASH DRIFT AUTOREPAIR [SELL] path=${path} trade_id=${tradeId}: drift_before=${driftBefore.toFixed(2)}€, drift_after=${driftAfter.toFixed(2)}€`
+        );
+
+        // Log decision_event for auditability
+        try {
+          if (meta?.strategyId && meta?.symbol) {
+            await supabaseClient.from('decision_events').insert({
+              user_id: userId,
+              strategy_id: meta.strategyId,
+              symbol: meta.symbol,
+              side,
+              source: 'cash_ledger',
+              reason: 'cash_drift_autorepair_attempted',
+              decision_ts: new Date().toISOString(),
+              trade_id: meta?.tradeId ?? null,
+              metadata: {
+                path,
+                drift_before: driftBefore,
+                drift_after: driftAfter,
+                expected_cash: repairRes?.expected_cash,
+                previous_cash: repairRes?.previous_cash,
+                correction: repairRes?.correction,
+              },
+            });
+          }
+        } catch (e) {
+          console.error('⚠️ CASH LEDGER [SELL]: failed to log cash_drift_autorepair_attempted decision_event', e);
+        }
+      }
+
+      if (driftAfter > 0.02) {
+        console.error(`❌ CASH LEDGER [SELL]: autorepair FAILED (path=${path}, trade_id=${tradeId}) drift_after=${driftAfter}`);
+        return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, cash_after: finalCash, error: 'cash_drift_autorepair_failed' };
+      }
+
+      return { success: true, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, cash_after: finalCash };
     }
 
     return { success: true, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, cash_after: cashAfter ?? undefined };
@@ -1877,6 +2020,8 @@ serve(async (req) => {
           tradeId: 'manual_sell_unknown_trade_id',
           path: 'manual',
           isTestMode: true,
+          strategyId: intent.strategyId,
+          symbol: baseSymbol,
         }
       );
       
@@ -2925,6 +3070,8 @@ async function executeTradeDirectly(
           tradeId: tradeRow.id,
           path: 'direct_ud_off',
           isTestMode,
+          strategyId: intent.strategyId,
+          symbol: baseSymbol,
         }
       );
 
@@ -5206,6 +5353,8 @@ async function executeTradeOrder(
             tradeId: insertResults?.[0]?.id,
             path: 'per_lot',
             isTestMode: true,
+            strategyId: intent.strategyId,
+            symbol: baseSymbol,
           }
         );
         
@@ -5343,6 +5492,8 @@ async function executeTradeOrder(
           tradeId: insertResult?.[0]?.id,
           path: 'standard',
           isTestMode: true,
+          strategyId: intent.strategyId,
+          symbol: baseSymbol,
         }
       );
       
