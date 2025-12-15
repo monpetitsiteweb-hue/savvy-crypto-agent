@@ -12,7 +12,7 @@
 export interface AfterResetCallbacks {
   refreshPortfolioMetrics: () => Promise<void>;
   refreshTradingHistory?: () => Promise<void>;
-  refreshOpenLots?: () => Promise<void>;
+  refreshOpenTrades?: () => Promise<void>;
   clearLocalState?: () => void;
 }
 
@@ -31,9 +31,9 @@ export async function afterReset(callbacks: AfterResetCallbacks): Promise<void> 
     promises.push(callbacks.refreshTradingHistory());
   }
   
-  // Refresh open lots from RPC (server-side FIFO)
-  if (callbacks.refreshOpenLots) {
-    promises.push(callbacks.refreshOpenLots());
+  // Refresh open trades (trade-based model)
+  if (callbacks.refreshOpenTrades) {
+    promises.push(callbacks.refreshOpenTrades());
   }
   
   // Clear any local cached state (synchronous)

@@ -62,7 +62,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
         .select('realized_pnl')
         .eq('user_id', user.id)
         .eq('trade_type', 'sell')
-        .eq('is_test_mode', true);
+        .eq('is_test_mode', testMode);
 
       if (error) throw error;
 
@@ -104,7 +104,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
       // Use centralized afterReset for deterministic refresh
       await afterReset({
         refreshPortfolioMetrics: refreshMetrics,
-        refreshOpenLots: refreshOpenTrades, // Now uses trades, not lots
+        refreshOpenTrades: refreshOpenTrades,
       });
       // Fetch local metrics (win/loss counts) after reset
       await fetchLocalMetrics();
