@@ -58,35 +58,38 @@ export interface PortfolioValuation {
 export function computeOpenTradesValueEur(
   openTrades: OpenTrade[],
   marketPrices: MarketPrices
-): { 
-  totalValue: number; 
+): {
+  totalValue: number;
   costBasis: number;
+  pricedCostBasis: number;
   positions: OpenPositionValue[];
-  hasMissingPrices: boolean; 
+  hasMissingPrices: boolean;
   missingSymbols: string[];
 } {
   if (!openTrades || openTrades.length === 0) {
-    return { 
-      totalValue: 0, 
+    return {
+      totalValue: 0,
       costBasis: 0,
+      pricedCostBasis: 0,
       positions: [],
-      hasMissingPrices: false, 
-      missingSymbols: [] 
+      hasMissingPrices: false,
+      missingSymbols: [],
     };
   }
-  
+
   const missingSymbols: string[] = [];
   const positions: OpenPositionValue[] = [];
   let totalValue = 0;
   let costBasis = 0;
-  
-  // Group by symbol first
+  let pricedCostBasis = 0;
+
+  // Group by base symbol first
   const symbolMap = new Map<string, { amount: number; cost: number }>();
-  
+
   for (const trade of openTrades) {
     const symbol = toBaseSymbol(trade.cryptocurrency);
     const tradeCost = trade.total_value + (trade.fees || 0);
-    
+
     const existing = symbolMap.get(symbol);
     if (existing) {
       existing.amount += trade.amount;
@@ -95,32 +98,68 @@ export function computeOpenTradesValueEur(
       symbolMap.set(symbol, { amount: trade.amount, cost: tradeCost });
     }
   }
-  
+
+  // Resolve a live price from market data using multiple key schemes.
+  // MarketDataContext typically keys by pair symbols (e.g. "SOL-EUR"),
+  // but we also try base keys and a case-insensitive lookup.
+  const resolveLivePrice = (
+    baseSymbol: string
+  ): { price: number | null; matchedKey: string | null } => {
+    const base = toBaseSymbol(baseSymbol);
+    const pair = toPairSymbol(base);
+
+    const candidates = [pair, base];
+
+    for (const key of candidates) {
+      const p = marketPrices?.[key]?.price;
+      if (typeof p === 'number' && p > 0) {
+        return { price: p, matchedKey: key };
+      }
+    }
+
+    // Case-insensitive fallback (covers any unexpected key casing)
+    const keys = Object.keys(marketPrices || {});
+    const baseUpper = base.toUpperCase();
+    const pairUpper = pair.toUpperCase();
+    const foundKey =
+      keys.find((k) => k.toUpperCase() === pairUpper) ||
+      keys.find((k) => k.toUpperCase() === baseUpper) ||
+      null;
+
+    if (foundKey) {
+      const p = marketPrices?.[foundKey]?.price;
+      if (typeof p === 'number' && p > 0) {
+        return { price: p, matchedKey: foundKey };
+      }
+    }
+
+    return { price: null, matchedKey: null };
+  };
+
   // Compute values with live prices
   for (const [symbol, data] of symbolMap) {
-    const pairSymbol = toPairSymbol(symbol);
-    const liveData = marketPrices[pairSymbol];
-    const livePrice = liveData?.price || null;
-    
+    const { price: livePrice, matchedKey } = resolveLivePrice(symbol);
+
     costBasis += data.cost;
-    
+
     let liveValue: number | null = null;
     let unrealizedPnl: number | null = null;
     let unrealizedPnlPct: number | null = null;
-    
-    if (livePrice && livePrice > 0) {
+
+    if (livePrice !== null) {
       liveValue = data.amount * livePrice;
       unrealizedPnl = liveValue - data.cost;
       unrealizedPnlPct = data.cost > 0 ? (unrealizedPnl / data.cost) * 100 : 0;
       totalValue += liveValue;
+      pricedCostBasis += data.cost;
     } else {
-      // Fallback to cost basis when price missing
-      totalValue += data.cost;
+      // IMPORTANT: Never treat missing price as 0 or fallback to cost basis for TV.
+      // Exclude from valuation and surface missing symbols for UI warnings.
       if (!missingSymbols.includes(symbol)) {
         missingSymbols.push(symbol);
       }
     }
-    
+
     positions.push({
       symbol,
       amount: data.amount,
@@ -129,12 +168,17 @@ export function computeOpenTradesValueEur(
       liveValue,
       unrealizedPnl,
       unrealizedPnlPct,
+      // NOTE: matchedKey is logged by UI debug block; keep model stable here.
     });
+
+    // (matchedKey is intentionally not returned to keep API stable)
+    void matchedKey;
   }
-  
+
   return {
     totalValue,
     costBasis,
+    pricedCostBasis,
     positions,
     hasMissingPrices: missingSymbols.length > 0,
     missingSymbols,
@@ -210,8 +254,8 @@ export function computeFullPortfolioValuation(
   const startingCapitalEur = metrics.starting_capital_eur || 0;
   const { pnlEur: totalPnlEur, pnlPct: totalPnlPct } = computeTotalPnl(totalPortfolioValueEur, startingCapitalEur);
   
-  // 6. P&L breakdown
-  const unrealizedPnlEur = openCalc.totalValue - openCalc.costBasis;
+  // 6. P&L breakdown (only on positions with live prices)
+  const unrealizedPnlEur = openCalc.totalValue - openCalc.pricedCostBasis;
   const realizedPnlEur = metrics.realized_pnl_eur || 0;
   
   return {
