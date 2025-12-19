@@ -7,6 +7,7 @@ import { Footer } from '@/components/Footer';
 import { ConversationPanel } from '@/components/ConversationPanel';
 import { DebugPanel } from '@/components/DebugPanel';
 import { MergedPortfolioDisplay } from '@/components/MergedPortfolioDisplay';
+import { UnifiedPortfolioDisplay } from '@/components/UnifiedPortfolioDisplay';
 import { TradingHistory } from '@/components/TradingHistory';
 import { StrategyConfig } from '@/components/StrategyConfig';
 import { TestStrategyConfig } from '@/components/TestStrategyConfig';
@@ -446,10 +447,14 @@ function IndexComponent() {
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6">
                     <ErrorBoundary>
-                      <MergedPortfolioDisplay 
-                        hasActiveStrategy={hasActiveStrategy}
-                        onCreateStrategy={() => setActiveTab('strategy')}
-                      />
+                      {testMode ? (
+                        <UnifiedPortfolioDisplay />
+                      ) : (
+                        <MergedPortfolioDisplay
+                          hasActiveStrategy={hasActiveStrategy}
+                          onCreateStrategy={() => setActiveTab('strategy')}
+                        />
+                      )}
                     </ErrorBoundary>
                     <ErrorBoundary>
                       <BackendDecisionPanel />
