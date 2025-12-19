@@ -245,14 +245,20 @@ export const UnifiedPortfolioDisplay = () => {
 
     // Build positions array with lookup info
     const positions = liveAggregates.walletAssets.map((a) => {
-      const matchedKey = resolveKey(a.symbol);
+      const base = toBaseSymbol(a.symbol);
+      const pairKey = toPairSymbol(base);
+      const matchedKey = resolveKey(base);
+      const matchedPrice = matchedKey ? (marketData[matchedKey]?.price ?? null) : null;
+
       return {
         symbol: a.symbol,
         amount: a.totalAmount,
         livePrice: a.livePrice,
         liveValue: a.liveValue,
         costBasis: a.totalCostBasis,
-        lookupKeyUsed: matchedKey,
+        pairKey,
+        matchedKey,
+        matchedPrice,
       };
     });
 
