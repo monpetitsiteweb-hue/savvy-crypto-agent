@@ -226,7 +226,7 @@ export const UnifiedPortfolioDisplay = () => {
     return { costBasisEur, currentValueEur, unrealizedEur, unrealizedPct, hasMissingPrices, missingSymbols, walletAssets };
   }, [testMode, isInitialized, openTrades, marketData]);
 
-  // TEMP DEBUG: prove price mapping (symbols, marketData keys, and matches)
+  // SINGLE TEMP DEBUG: prove price mapping (symbols, marketData keys, and matches)
   useEffect(() => {
     if (!testMode || !isInitialized) return;
     const keys = Object.keys(marketData || {});
@@ -243,19 +243,17 @@ export const UnifiedPortfolioDisplay = () => {
       );
     };
 
-    console.debug('[portfolio-debug] openTrades symbols:', openSyms);
-    console.debug('[portfolio-debug] marketData keys sample:', keys.slice(0, 50));
+    console.debug('[portfolio-debug] missingSymbols:', portfolioValuation.missingSymbols);
+    console.debug('[portfolio-debug] marketData keys count:', keys.length);
     console.debug(
-      '[portfolio-debug] price matches:',
+      '[portfolio-debug] price matches per open symbol:',
       openSyms.map((s) => ({
         symbol: s,
-        pair: toPairSymbol(s),
         matchedKey: resolveKey(s),
-        price:
-          (resolveKey(s) && marketData[resolveKey(s) as string]?.price) || null,
+        price: (resolveKey(s) && marketData[resolveKey(s) as string]?.price) || null,
       }))
     );
-  }, [testMode, isInitialized, openTrades, marketData]);
+  }, [testMode, isInitialized, openTrades, marketData, portfolioValuation.missingSymbols]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -485,6 +483,16 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
           
+          {/* Partial Valuation Warning Badge */}
+          {portfolioValuation.hasMissingPrices && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+              <span className="text-sm text-amber-400">
+                Partial valuation (missing: {portfolioValuation.missingSymbols.join(', ')})
+              </span>
+            </div>
+          )}
+
           {/* Total Portfolio Value - using portfolioMath utility */}
           {(() => {
             // Use shared portfolioMath for consistent calculations
@@ -495,18 +503,6 @@ export const UnifiedPortfolioDisplay = () => {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-white">Total Portfolio Value</span>
-                    {portfolioValuation.hasMissingPrices && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <AlertCircle className="h-4 w-4 text-amber-400" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="text-xs">Partial valuation — missing live price for: {portfolioValuation.missingSymbols.join(', ')}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
                   </div>
                   {testMode && isInitialized && (
                     <div className="text-xs text-slate-400 mt-1">

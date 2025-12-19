@@ -630,6 +630,16 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           Portfolio Summary
         </h3>
         
+        {/* Partial Valuation Warning Badge */}
+        {portfolioValuation.hasMissingPrices && (
+          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+            <span className="text-sm text-amber-400">
+              Partial valuation (missing: {portfolioValuation.missingSymbols.join(', ')})
+            </span>
+          </div>
+        )}
+        
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Positions - TRADE-BASED counts */}
           <Card className="p-4">
