@@ -226,13 +226,13 @@ export const UnifiedPortfolioDisplay = () => {
     return { costBasisEur, currentValueEur, unrealizedEur, unrealizedPct, hasMissingPrices, missingSymbols, walletAssets };
   }, [testMode, isInitialized, openTrades, marketData]);
 
-  // SINGLE TEMP DEBUG: prove price mapping (symbols, marketData keys, and matches)
+  // STRUCTURED PROOF LOG: prove all runtime values
   useEffect(() => {
     if (!testMode || !isInitialized) return;
     const keys = Object.keys(marketData || {});
     const openSyms = openTrades.map((t) => toBaseSymbol(t.cryptocurrency));
 
-    const resolveKey = (base: string) => {
+    const resolveKey = (base: string): string | null => {
       const pair = toPairSymbol(base);
       if (marketData[pair]?.price && marketData[pair]!.price > 0) return pair;
       if (marketData[base]?.price && marketData[base]!.price > 0) return base;
@@ -243,17 +243,59 @@ export const UnifiedPortfolioDisplay = () => {
       );
     };
 
-    console.debug('[portfolio-debug] missingSymbols:', portfolioValuation.missingSymbols);
-    console.debug('[portfolio-debug] marketData keys count:', keys.length);
-    console.debug(
-      '[portfolio-debug] price matches per open symbol:',
-      openSyms.map((s) => ({
-        symbol: s,
-        matchedKey: resolveKey(s),
-        price: (resolveKey(s) && marketData[resolveKey(s) as string]?.price) || null,
-      }))
-    );
-  }, [testMode, isInitialized, openTrades, marketData, portfolioValuation.missingSymbols]);
+    // Build positions array with lookup info
+    const positions = liveAggregates.walletAssets.map((a) => {
+      const matchedKey = resolveKey(a.symbol);
+      return {
+        symbol: a.symbol,
+        amount: a.totalAmount,
+        livePrice: a.livePrice,
+        liveValue: a.liveValue,
+        costBasis: a.totalCostBasis,
+        lookupKeyUsed: matchedKey,
+      };
+    });
+
+    // Structured proof object
+    console.log('[portfolio-proof]', {
+      cashEur: portfolioValuation.cashEur,
+      startingCapitalEur: portfolioValuation.startingCapitalEur,
+      gasSpentEur: portfolioValuation.gasSpentEur,
+      openPositionsValueEur: portfolioValuation.openPositionsValueEur,
+      totalPortfolioValueEur: portfolioValuation.totalPortfolioValueEur,
+      totalPnlEur: portfolioValuation.totalPnlEur,
+      missingSymbols: portfolioValuation.missingSymbols,
+      positions,
+    });
+
+    // Log marketData keys (first 50) for reference
+    console.log('[portfolio-proof] marketData keys (first 50):', keys.slice(0, 50));
+    console.log('[portfolio-proof] lookup per symbol:', openSyms.map((s) => ({
+      symbol: s,
+      pairKey: toPairSymbol(s),
+      matchedKey: resolveKey(s),
+      priceFound: resolveKey(s) ? marketData[resolveKey(s) as string]?.price : null,
+    })));
+  }, [testMode, isInitialized, openTrades, marketData, portfolioValuation, liveAggregates]);
+
+  // RUNTIME ASSERTION: Check if math adds up (test mode only)
+  const mathMismatch = useMemo(() => {
+    if (!testMode || !isInitialized) return null;
+    const expected = portfolioValuation.cashEur + portfolioValuation.openPositionsValueEur - portfolioValuation.gasSpentEur;
+    const actual = portfolioValuation.totalPortfolioValueEur;
+    const diff = Math.abs(actual - expected);
+    if (diff > 0.01) {
+      return {
+        expected,
+        actual,
+        diff,
+        cash: portfolioValuation.cashEur,
+        open: portfolioValuation.openPositionsValueEur,
+        gas: portfolioValuation.gasSpentEur,
+      };
+    }
+    return null;
+  }, [testMode, isInitialized, portfolioValuation]);
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -483,6 +525,22 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
           
+          {/* Math Mismatch Banner (test mode assertion) */}
+          {mathMismatch && (
+            <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex flex-col gap-1">
+              <div className="flex items-center gap-2 text-red-400 font-semibold">
+                <AlertCircle className="h-4 w-4" />
+                Portfolio math mismatch!
+              </div>
+              <div className="text-xs text-red-300 font-mono">
+                Expected: {mathMismatch.expected.toFixed(2)} (cash {mathMismatch.cash.toFixed(2)} + open {mathMismatch.open.toFixed(2)} - gas {mathMismatch.gas.toFixed(2)})
+              </div>
+              <div className="text-xs text-red-300 font-mono">
+                Actual totalPortfolioValueEur: {mathMismatch.actual.toFixed(2)} — Diff: {mathMismatch.diff.toFixed(2)}
+              </div>
+            </div>
+          )}
+
           {/* Partial Valuation Warning Badge */}
           {portfolioValuation.hasMissingPrices && (
             <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2">
