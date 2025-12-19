@@ -77,28 +77,34 @@ export const MergedPortfolioDisplay = ({ hasActiveStrategy, onCreateStrategy }: 
     }
   }, [testMode, mockBalances]); // Removed updatePortfolioData to prevent infinite loop
 
-  // Fetch real-time prices every 60 seconds (less frequent to avoid rate limiting)
+  // Build realTimePrices from marketData (contains all tracked coins)
+  // This ensures ALL portfolio coins get proper EUR values, not just BTC/ETH/XRP
   useEffect(() => {
-    const fetchPrices = async () => {
-      try {
-        const response = await getCurrentData(['BTC-EUR', 'ETH-EUR', 'XRP-EUR']);
-        const prices: Record<string, number> = {};
-        
-        Object.entries(response).forEach(([symbol, data]) => {
-          const currency = symbol.split('-')[0];
-          prices[currency] = data.price;
-        });
-        
-        setRealTimePrices(prices);
-      } catch (error) {
-        // Silently fail price updates
+    if (!marketData) return;
+    
+    const prices: Record<string, number> = {};
+    
+    // Extract prices from marketData (keyed by pair like "BTC-EUR")
+    Object.entries(marketData).forEach(([symbol, data]) => {
+      if (data?.price && symbol.includes('-EUR')) {
+        const currency = symbol.split('-')[0];
+        prices[currency] = data.price;
       }
-    };
-
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 60000); // 60 seconds to avoid rate limiting
-    return () => clearInterval(interval);
-  }, []); // Removed getCurrentData to prevent infinite loop
+    });
+    
+    // Only update if we have new prices
+    if (Object.keys(prices).length > 0) {
+      setRealTimePrices(prev => {
+        // Merge with previous to preserve any prices
+        const merged = { ...prev, ...prices };
+        // Only update if actually changed
+        if (JSON.stringify(merged) !== JSON.stringify(prev)) {
+          return merged;
+        }
+        return prev;
+      });
+    }
+  }, [marketData]);
 
   const fetchConnections = async () => {
     try {
