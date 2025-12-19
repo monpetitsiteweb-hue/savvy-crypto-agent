@@ -1,11 +1,10 @@
 // TRADE-BASED MODEL: Each BUY is one position, each SELL fully closes one BUY
-// Per-trade live P&L restored using shared market data
-// Aggregates from RPC remain authoritative for totals, but uses live prices when RPC stale
+// Uses portfolioMath utility for consistent calculations across all views
 import { useState, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, DollarSign, PieChart, ChevronLeft, ChevronRight, AlertTriangle, Fuel } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/useAuth';
@@ -21,6 +20,12 @@ import { PortfolioNotInitialized } from './PortfolioNotInitialized';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { processPastPosition } from '@/utils/valuationService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { 
+  computeFullPortfolioValuation, 
+  formatPnlWithSign,
+  type MarketPrices,
+  type PortfolioValuation 
+} from '@/utils/portfolioMath';
 
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import { useToast } from '@/hooks/use-toast';
@@ -91,50 +96,49 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const { marketData } = useMarketData();
   const { toast } = useToast();
   
-  // TRADES-ONLY: Compute live aggregates from openTrades + marketData
-  // This is the single source of truth for all aggregate metrics
-  const liveAggregates = useMemo(() => {
-    const missingSymbols: string[] = [];
-    let costBasisEur = 0;
-    let currentValueEur = 0;
-    
-    for (const trade of openTrades) {
-      const baseSymbol = toBaseSymbol(trade.cryptocurrency);
-      const pairSymbol = toPairSymbol(baseSymbol);
-      const liveData = marketData[pairSymbol];
-      const livePrice = liveData?.price;
-      
-      // Cost basis includes fees for accurate P&L calculation
-      const tradeCostBasis = trade.total_value + (trade.fees || 0);
-      costBasisEur += tradeCostBasis;
-      
-      if (livePrice && livePrice > 0) {
-        currentValueEur += trade.amount * livePrice;
-      } else {
-        // Track missing symbols, fallback to cost basis for current value
-        if (!missingSymbols.includes(baseSymbol)) {
-          missingSymbols.push(baseSymbol);
-        }
-        currentValueEur += tradeCostBasis; // Fallback to cost basis
-      }
-    }
-    
-    const unrealizedEur = currentValueEur - costBasisEur;
-    const unrealizedPct = costBasisEur > 0 ? (unrealizedEur / costBasisEur) * 100 : 0;
-    const hasMissingPrices = missingSymbols.length > 0;
-    
-    return { costBasisEur, currentValueEur, unrealizedEur, unrealizedPct, hasMissingPrices, missingSymbols };
-  }, [openTrades, marketData]);
-  
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [openPage, setOpenPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'open' | 'past'>('open');
-  const [sellConfirmation, setSellConfirmation] = useState<{ open: boolean; trade: OpenTrade | null }>({ 
+  const [totalTradedVolume, setTotalTradedVolume] = useState(0);
+  const [sellConfirmation, setSellConfirmation] = useState<{ open: boolean; trade: OpenTrade | null }>({
     open: false, 
     trade: null 
   });
+
+  // SINGLE SOURCE OF TRUTH: Use portfolioMath utility for all calculations
+  // Fetch total traded volume for gas calculation
+  useEffect(() => {
+    if (!user || !testMode) return;
+    
+    const fetchTradedVolume = async () => {
+      const { data } = await supabase
+        .from('mock_trades')
+        .select('total_value')
+        .eq('user_id', user.id)
+        .eq('is_test_mode', true)
+        .eq('is_corrupted', false);
+      
+      if (data) {
+        const total = data.reduce((sum, t) => sum + (t.total_value || 0), 0);
+        setTotalTradedVolume(total);
+      }
+    };
+    
+    fetchTradedVolume();
+  }, [user, testMode, metrics]); // Re-fetch when metrics change (trade happened)
+
+  // SINGLE SOURCE OF TRUTH: Use portfolioMath for consistent calculations
+  const portfolioValuation: PortfolioValuation = useMemo(() => {
+    return computeFullPortfolioValuation(
+      metrics,
+      openTrades,
+      marketData as MarketPrices,
+      totalTradedVolume,
+      testMode
+    );
+  }, [metrics, openTrades, marketData, totalTradedVolume, testMode]);
 
   // SINGLE SOURCE OF TRUTH: Past positions use DB snapshot fields only (no frontend calculation)
   const calculateTradePerformance = (trade: Trade): TradePerformance => {
@@ -649,33 +653,43 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
           </Card>
           
-          {/* Trading Exposure - LIVE computed from openTrades + marketData */}
+          {/* Trading Exposure - using portfolioMath for consistency */}
           <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <DollarSign className="w-4 h-4 text-yellow-500" />
-              <span className="text-sm font-medium text-muted-foreground">Trading Exposure</span>
-              {liveAggregates.hasMissingPrices && (
+              <span className="text-sm font-medium text-muted-foreground">Portfolio Value</span>
+              {portfolioValuation.hasMissingPrices && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger><AlertTriangle className="h-3 w-3 text-amber-400" /></TooltipTrigger>
-                    <TooltipContent><p className="text-xs">Partial: missing price for {liveAggregates.missingSymbols.join(', ')}</p></TooltipContent>
+                    <TooltipContent><p className="text-xs">Partial: missing price for {portfolioValuation.missingSymbols.join(', ')}</p></TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               )}
             </div>
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Cost Basis</span>
-                <span className="text-lg font-bold">{formatEuro(liveAggregates.costBasisEur)}</span>
+                <span className="text-xs text-muted-foreground">Cash</span>
+                <span className="text-sm">{formatEuro(portfolioValuation.cashEur)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground">Current Value</span>
-                <span className="text-sm">{formatEuro(liveAggregates.currentValueEur)}</span>
+                <span className="text-xs text-muted-foreground">Open Positions</span>
+                <span className="text-sm">{formatEuro(portfolioValuation.openPositionsValueEur)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Fuel className="h-3 w-3" /> Gas (est.)
+                </span>
+                <span className="text-sm text-amber-400">−{formatEuro(portfolioValuation.gasSpentEur)}</span>
+              </div>
+              <div className="flex justify-between items-center border-t pt-2">
+                <span className="text-xs text-muted-foreground font-medium">Total Value</span>
+                <span className="text-lg font-bold">{formatEuro(portfolioValuation.totalPortfolioValueEur)}</span>
               </div>
             </div>
           </Card>
           
-          {/* Performance - LIVE computed from openTrades + marketData */}
+          {/* Performance - using portfolioMath for consistency */}
           <Card className="p-4">
             <div className="flex items-center gap-2 mb-3">
               <TrendingUp className="w-4 h-4 text-green-500" />
@@ -683,42 +697,39 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             </div>
             <div className="space-y-2">
               {(() => {
-                // TRADES-ONLY: Use live-computed unrealized P&L (always)
-                const displayUnrealized = liveAggregates.unrealizedEur;
-                const displayPct = liveAggregates.unrealizedPct;
-                const displayTotalPnl = metrics.realized_pnl_eur + displayUnrealized;
-                const displayTotalPct = metrics.starting_capital_eur > 0 
-                  ? (displayTotalPnl / metrics.starting_capital_eur) * 100 
-                  : 0;
+                // Use portfolioMath for consistent P&L calculation
+                const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
+                const realPnl = formatPnlWithSign(portfolioValuation.realizedPnlEur);
+                const totalPnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
                 
                 return (
                   <>
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-muted-foreground flex items-center gap-1">
                         Unrealized P&L
-                        {liveAggregates.hasMissingPrices && (
+                        {portfolioValuation.hasMissingPrices && (
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger><AlertTriangle className="h-3 w-3 text-amber-400" /></TooltipTrigger>
-                              <TooltipContent><p className="text-xs">Partial: missing price for {liveAggregates.missingSymbols.join(', ')}</p></TooltipContent>
+                              <TooltipContent><p className="text-xs">Partial: missing price for {portfolioValuation.missingSymbols.join(', ')}</p></TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         )}
                       </span>
-                      <span className={`text-lg font-bold ${displayUnrealized >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                        {formatEuro(displayUnrealized)} <span className="text-xs">({formatPercentage(displayPct)})</span>
+                      <span className={`text-lg font-bold ${unrealPnl.colorClass}`}>
+                        {unrealPnl.sign}{unrealPnl.value}
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-muted-foreground">Realized P&L</span>
-                      <span className={`text-sm ${metrics.realized_pnl_eur >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                        {formatEuro(metrics.realized_pnl_eur)} <span className="text-xs">({formatPercentage(realizedPnlPct)})</span>
+                      <span className={`text-sm ${realPnl.colorClass}`}>
+                        {realPnl.sign}{realPnl.value}
                       </span>
                     </div>
                     <div className="flex justify-between items-center border-t pt-2">
                       <span className="text-xs text-muted-foreground font-medium">Total P&L</span>
-                      <span className={`text-sm font-semibold ${displayTotalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                        {formatEuro(displayTotalPnl)} <span className="text-xs">({formatPercentage(displayTotalPct)})</span>
+                      <span className={`text-sm font-semibold ${totalPnl.colorClass}`}>
+                        {totalPnl.sign}{totalPnl.value} ({formatPercentage(portfolioValuation.totalPnlPct)}) — {totalPnl.label}
                       </span>
                     </div>
                   </>
