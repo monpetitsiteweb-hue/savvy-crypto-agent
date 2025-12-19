@@ -123,31 +123,31 @@ export const UnifiedPortfolioDisplay = () => {
     );
   }, [metrics, openTrades, marketData, totalTradedVolume, testMode]);
 
-  // Legacy liveAggregates for wallet asset display (positions breakdown)
+  // Wallet asset display (positions breakdown) — price mapping must match portfolioMath
   const liveAggregates = useMemo(() => {
     if (!testMode || !isInitialized || openTrades.length === 0) {
-      return { 
-        costBasisEur: 0, 
-        currentValueEur: 0, 
-        unrealizedEur: 0, 
-        unrealizedPct: 0, 
-        hasMissingPrices: false, 
+      return {
+        costBasisEur: 0,
+        currentValueEur: 0,
+        unrealizedEur: 0,
+        unrealizedPct: 0,
+        hasMissingPrices: false,
         missingSymbols: [] as string[],
-        walletAssets: [] as WalletAsset[]
+        walletAssets: [] as WalletAsset[],
       };
     }
-    
+
     const missingSymbols: string[] = [];
-    
-    // Group open trades by symbol and aggregate
+
+    // Group open trades by base symbol and aggregate
     const assetMap = new Map<string, { symbol: string; totalAmount: number; totalCostBasis: number }>();
-    
+
     for (const trade of openTrades) {
       const symbol = toBaseSymbol(trade.cryptocurrency);
       const existing = assetMap.get(symbol);
       // Cost basis includes fees for accurate P&L calculation
       const tradeCostBasis = trade.total_value + (trade.fees || 0);
-      
+
       if (existing) {
         existing.totalAmount += trade.amount;
         existing.totalCostBasis += tradeCostBasis;
@@ -159,49 +159,102 @@ export const UnifiedPortfolioDisplay = () => {
         });
       }
     }
-    
-    // Compute totals with live prices
+
+    // Compute totals with live prices (exclude missing prices; warn loudly)
     let costBasisEur = 0;
     let currentValueEur = 0;
-    
-    const walletAssets: WalletAsset[] = Array.from(assetMap.values()).map(asset => {
-      const pairSymbol = toPairSymbol(asset.symbol);
-      const liveData = marketData[pairSymbol];
-      const livePrice = liveData?.price || null;
-      
+
+    const marketKeys = Object.keys(marketData || {});
+
+    const resolveLivePrice = (baseSymbol: string): number | null => {
+      const base = toBaseSymbol(baseSymbol);
+      const pair = toPairSymbol(base);
+
+      const direct = marketData[pair]?.price;
+      if (typeof direct === 'number' && direct > 0) return direct;
+
+      const baseDirect = marketData[base]?.price;
+      if (typeof baseDirect === 'number' && baseDirect > 0) return baseDirect;
+
+      const foundKey =
+        marketKeys.find((k) => k.toUpperCase() === pair.toUpperCase()) ||
+        marketKeys.find((k) => k.toUpperCase() === base.toUpperCase()) ||
+        null;
+
+      const p = foundKey ? marketData[foundKey]?.price : undefined;
+      return typeof p === 'number' && p > 0 ? p : null;
+    };
+
+    const walletAssets: WalletAsset[] = Array.from(assetMap.values()).map((asset) => {
+      const livePrice = resolveLivePrice(asset.symbol);
+
       costBasisEur += asset.totalCostBasis;
-      
+
       let liveValue: number | null = null;
       let unrealizedPnl: number | null = null;
-      
-      if (livePrice && livePrice > 0) {
+
+      if (livePrice !== null) {
         liveValue = asset.totalAmount * livePrice;
         unrealizedPnl = liveValue - asset.totalCostBasis;
         currentValueEur += liveValue;
       } else {
-        // Track missing symbols, fallback to cost basis
         if (!missingSymbols.includes(asset.symbol)) {
           missingSymbols.push(asset.symbol);
         }
-        currentValueEur += asset.totalCostBasis; // Fallback
       }
-      
+
       return {
         symbol: asset.symbol,
         totalAmount: asset.totalAmount,
         totalCostBasis: asset.totalCostBasis,
-        avgEntryPrice: asset.totalCostBasis / asset.totalAmount,
+        avgEntryPrice: asset.totalAmount > 0 ? asset.totalCostBasis / asset.totalAmount : 0,
         livePrice,
         liveValue,
         unrealizedPnl,
       };
     });
-    
-    const unrealizedEur = currentValueEur - costBasisEur;
-    const unrealizedPct = costBasisEur > 0 ? (unrealizedEur / costBasisEur) * 100 : 0;
+
+    // Unrealized here is only on priced assets; missing prices are excluded.
+    const pricedCostBasis = walletAssets
+      .filter((a) => a.liveValue !== null)
+      .reduce((sum, a) => sum + a.totalCostBasis, 0);
+
+    const unrealizedEur = currentValueEur - pricedCostBasis;
+    const unrealizedPct = pricedCostBasis > 0 ? (unrealizedEur / pricedCostBasis) * 100 : 0;
     const hasMissingPrices = missingSymbols.length > 0;
-    
+
     return { costBasisEur, currentValueEur, unrealizedEur, unrealizedPct, hasMissingPrices, missingSymbols, walletAssets };
+  }, [testMode, isInitialized, openTrades, marketData]);
+
+  // TEMP DEBUG: prove price mapping (symbols, marketData keys, and matches)
+  useEffect(() => {
+    if (!testMode || !isInitialized) return;
+    const keys = Object.keys(marketData || {});
+    const openSyms = openTrades.map((t) => toBaseSymbol(t.cryptocurrency));
+
+    const resolveKey = (base: string) => {
+      const pair = toPairSymbol(base);
+      if (marketData[pair]?.price && marketData[pair]!.price > 0) return pair;
+      if (marketData[base]?.price && marketData[base]!.price > 0) return base;
+      return (
+        keys.find((k) => k.toUpperCase() === pair.toUpperCase()) ||
+        keys.find((k) => k.toUpperCase() === base.toUpperCase()) ||
+        null
+      );
+    };
+
+    console.debug('[portfolio-debug] openTrades symbols:', openSyms);
+    console.debug('[portfolio-debug] marketData keys sample:', keys.slice(0, 50));
+    console.debug(
+      '[portfolio-debug] price matches:',
+      openSyms.map((s) => ({
+        symbol: s,
+        pair: toPairSymbol(s),
+        matchedKey: resolveKey(s),
+        price:
+          (resolveKey(s) && marketData[resolveKey(s) as string]?.price) || null,
+      }))
+    );
   }, [testMode, isInitialized, openTrades, marketData]);
 
   const fetchConnections = async () => {
@@ -275,59 +328,71 @@ export const UnifiedPortfolioDisplay = () => {
   // Shows current value and P&L using live market prices
   const renderWalletAssetCard = (asset: WalletAsset) => {
     const hasPriceData = asset.livePrice !== null;
-    const unrealizedPnlPct = asset.unrealizedPnl !== null && asset.totalCostBasis > 0
-      ? (asset.unrealizedPnl / asset.totalCostBasis) * 100
-      : null;
+    const unrealizedPnlPct =
+      asset.unrealizedPnl !== null && asset.totalCostBasis > 0
+        ? (asset.unrealizedPnl / asset.totalCostBasis) * 100
+        : null;
     const isProfit = asset.unrealizedPnl !== null && asset.unrealizedPnl > 0;
     const isLoss = asset.unrealizedPnl !== null && asset.unrealizedPnl < 0;
-    
+
+    const showPriceUnavailable = !hasPriceData && asset.totalAmount > 0;
+
     return (
       <Card key={asset.symbol} className="p-4 bg-slate-700/50 border-slate-600">
         <div className="space-y-3">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-slate-300">{asset.symbol}</span>
-              {!hasPriceData && (
+              {showPriceUnavailable && (
                 <TooltipProvider>
                   <Tooltip>
-                    <TooltipTrigger>
-                      <AlertCircle className="h-3 w-3 text-amber-400" />
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex items-center gap-1">
+                        <AlertCircle className="h-3 w-3 text-amber-400" />
+                        <Badge variant="outline" className="text-amber-400 border-amber-400/40">
+                          Price unavailable
+                        </Badge>
+                      </span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p className="text-xs">Live price unavailable</p>
+                      <p className="text-xs">Live price missing — excluded from total valuation</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               )}
             </div>
             <div className="text-right">
-              {/* Show live value if available, otherwise cost basis */}
               <div className="text-lg font-bold text-white">
-                {hasPriceData ? formatEuro(asset.liveValue!) : formatEuro(asset.totalCostBasis)}
+                {hasPriceData && asset.liveValue !== null ? formatEuro(asset.liveValue) : '—'}
               </div>
               <div className="text-xs text-slate-400">
                 {asset.totalAmount.toLocaleString(undefined, {
-                  maximumFractionDigits: asset.symbol === 'XRP' ? 0 : 6
-                })} {asset.symbol}
+                  maximumFractionDigits: asset.symbol === 'XRP' ? 0 : 6,
+                })}{' '}
+                {asset.symbol}
               </div>
             </div>
           </div>
-          
+
           {/* Live price and entry price */}
           <div className="flex justify-between items-center text-xs text-slate-500">
             <span>Entry: {formatEuro(asset.avgEntryPrice)}</span>
-            <span>
-              {hasPriceData ? `Now: ${formatEuro(asset.livePrice!)}` : 'Price unavailable'}
-            </span>
+            <span>{hasPriceData ? `Now: ${formatEuro(asset.livePrice!)}` : 'Price unavailable'}</span>
           </div>
-          
+
           {/* Unrealized P&L per asset */}
           {hasPriceData && asset.unrealizedPnl !== null && (
-            <div className={`text-xs flex justify-between items-center ${isProfit ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-slate-400'}`}>
+            <div
+              className={`text-xs flex justify-between items-center ${
+                isProfit ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-slate-400'
+              }`}
+            >
               <span>Unrealized P&L</span>
               <span>
-                {asset.unrealizedPnl >= 0 ? '+' : ''}{formatEuro(asset.unrealizedPnl)}
-                {unrealizedPnlPct !== null && ` (${unrealizedPnlPct >= 0 ? '+' : ''}${formatPercentage(unrealizedPnlPct)})`}
+                {asset.unrealizedPnl >= 0 ? '+' : ''}
+                {formatEuro(asset.unrealizedPnl)}
+                {unrealizedPnlPct !== null &&
+                  ` (${unrealizedPnlPct >= 0 ? '+' : ''}${formatPercentage(unrealizedPnlPct)})`}
               </span>
             </div>
           )}
