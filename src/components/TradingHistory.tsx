@@ -101,32 +101,29 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   const [currentPage, setCurrentPage] = useState(1);
   const [openPage, setOpenPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'open' | 'past'>('open');
-  const [totalTradedVolume, setTotalTradedVolume] = useState(0);
+  const [txCount, setTxCount] = useState(0);
   const [sellConfirmation, setSellConfirmation] = useState<{ open: boolean; trade: OpenTrade | null }>({
     open: false, 
     trade: null 
   });
 
   // SINGLE SOURCE OF TRUTH: Use portfolioMath utility for all calculations
-  // Fetch total traded volume for gas calculation
+  // Fetch transaction count for gas calculation (each mock_trade row = 1 tx)
   useEffect(() => {
     if (!user || !testMode) return;
     
-    const fetchTradedVolume = async () => {
-      const { data } = await supabase
+    const fetchTxCount = async () => {
+      const { count } = await supabase
         .from('mock_trades')
-        .select('total_value')
+        .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .eq('is_test_mode', true)
         .eq('is_corrupted', false);
       
-      if (data) {
-        const total = data.reduce((sum, t) => sum + (t.total_value || 0), 0);
-        setTotalTradedVolume(total);
-      }
+      setTxCount(count || 0);
     };
     
-    fetchTradedVolume();
+    fetchTxCount();
   }, [user, testMode, metrics]); // Re-fetch when metrics change (trade happened)
 
   // SINGLE SOURCE OF TRUTH: Use portfolioMath for consistent calculations
@@ -135,10 +132,10 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       metrics,
       openTrades,
       marketData as MarketPrices,
-      totalTradedVolume,
+      txCount,
       testMode
     );
-  }, [metrics, openTrades, marketData, totalTradedVolume, testMode]);
+  }, [metrics, openTrades, marketData, txCount, testMode]);
 
   // SINGLE SOURCE OF TRUTH: Past positions use DB snapshot fields only (no frontend calculation)
   const calculateTradePerformance = (trade: Trade): TradePerformance => {

@@ -22,6 +22,7 @@ import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import { 
   computeFullPortfolioValuation, 
   formatPnlWithSign,
+  MOCK_GAS_PER_TX_EUR,
   type MarketPrices,
   type PortfolioValuation 
 } from '@/utils/portfolioMath';
@@ -88,28 +89,25 @@ export const UnifiedPortfolioDisplay = () => {
     }
   }, [testMode, user]);
 
-  // State for total traded volume (for gas calculation)
-  const [totalTradedVolume, setTotalTradedVolume] = useState(0);
+  // State for transaction count (for gas calculation)
+  const [txCount, setTxCount] = useState(0);
   
-  // Fetch total traded volume for gas calculation
+  // Fetch transaction count for gas calculation (each mock_trade row = 1 tx)
   useEffect(() => {
     if (!user || !testMode) return;
     
-    const fetchTradedVolume = async () => {
-      const { data } = await supabase
+    const fetchTxCount = async () => {
+      const { count } = await supabase
         .from('mock_trades')
-        .select('total_value')
+        .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .eq('is_test_mode', true)
         .eq('is_corrupted', false);
       
-      if (data) {
-        const total = data.reduce((sum, t) => sum + (t.total_value || 0), 0);
-        setTotalTradedVolume(total);
-      }
+      setTxCount(count || 0);
     };
     
-    fetchTradedVolume();
+    fetchTxCount();
   }, [user, testMode, metrics]); // Re-fetch when metrics change (trade happened)
 
   // SINGLE SOURCE OF TRUTH: Use portfolioMath utility for all calculations
@@ -118,10 +116,10 @@ export const UnifiedPortfolioDisplay = () => {
       metrics,
       openTrades,
       marketData as MarketPrices,
-      totalTradedVolume,
+      txCount,
       testMode
     );
-  }, [metrics, openTrades, marketData, totalTradedVolume, testMode]);
+  }, [metrics, openTrades, marketData, txCount, testMode]);
 
   // Wallet asset display (positions breakdown) — price mapping must match portfolioMath
   const liveAggregates = useMemo(() => {
@@ -262,13 +260,15 @@ export const UnifiedPortfolioDisplay = () => {
       };
     });
 
-    // Structured proof object
+    // Structured proof object with gas calculation details
     console.log('[portfolio-proof]', {
-      cashEur: portfolioValuation.cashEur,
-      startingCapitalEur: portfolioValuation.startingCapitalEur,
+      txCount,
+      MOCK_GAS_PER_TX_EUR,
       gasSpentEur: portfolioValuation.gasSpentEur,
+      cashEur: portfolioValuation.cashEur,
       openPositionsValueEur: portfolioValuation.openPositionsValueEur,
       totalPortfolioValueEur: portfolioValuation.totalPortfolioValueEur,
+      equation: `${portfolioValuation.cashEur.toFixed(2)} + ${portfolioValuation.openPositionsValueEur.toFixed(2)} - ${portfolioValuation.gasSpentEur.toFixed(2)} = ${portfolioValuation.totalPortfolioValueEur.toFixed(2)}`,
       totalPnlEur: portfolioValuation.totalPnlEur,
       missingSymbols: portfolioValuation.missingSymbols,
       positions,
@@ -624,14 +624,14 @@ export const UnifiedPortfolioDisplay = () => {
                 <div className="text-xs text-slate-500">Cost: {formatEuro(liveAggregates.costBasisEur)}</div>
               </div>
               
-              {/* Gas Spent (est.) */}
+              {/* Gas Spent (fixed per-tx model) */}
               <div className="p-3 bg-slate-700/30 rounded-lg">
                 <div className="flex items-center gap-1 text-xs text-slate-400">
                   <Fuel className="h-3 w-3" />
-                  Gas (est.)
+                  Gas (mock)
                 </div>
                 <div className="text-lg font-semibold text-amber-400">−{formatEuro(portfolioValuation.gasSpentEur)}</div>
-                <div className="text-xs text-slate-500">0.20% of volume</div>
+                <div className="text-xs text-slate-500">€{MOCK_GAS_PER_TX_EUR.toFixed(2)} × {txCount} tx</div>
               </div>
               
               {/* Total P&L */}
