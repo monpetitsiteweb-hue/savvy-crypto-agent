@@ -17,6 +17,7 @@ import { afterReset } from "@/utils/resetHelpers";
 import { 
   computeFullPortfolioValuation, 
   formatPnlWithSign,
+  MOCK_GAS_PER_TX_EUR,
   type MarketPrices,
   type PortfolioValuation 
 } from '@/utils/portfolioMath';
@@ -57,7 +58,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
     totalTrades: 0
   });
   const [localLoading, setLocalLoading] = useState(true);
-  const [totalTradedVolume, setTotalTradedVolume] = useState(0);
+  const [txCount, setTxCount] = useState(0);
 
   // Fetch win/loss metrics and total traded volume locally
   const fetchLocalMetrics = async () => {
@@ -88,18 +89,15 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
         totalTrades: total
       });
       
-      // Fetch total traded volume for gas calculation
-      const { data: allTrades } = await supabase
+      // Fetch transaction count for gas calculation (each trade = 1 tx)
+      const { count } = await supabase
         .from('mock_trades')
-        .select('total_value')
+        .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .eq('is_test_mode', testMode)
         .eq('is_corrupted', false);
       
-      if (allTrades) {
-        const volume = allTrades.reduce((sum, t) => sum + (t.total_value || 0), 0);
-        setTotalTradedVolume(volume);
-      }
+      setTxCount(count || 0);
     } catch (error) {
       console.error('Error fetching local metrics:', error);
     } finally {
@@ -113,10 +111,10 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
       metrics,
       openTrades,
       marketData as MarketPrices,
-      totalTradedVolume,
+      txCount,
       testMode
     );
-  }, [metrics, openTrades, marketData, totalTradedVolume, testMode]);
+  }, [metrics, openTrades, marketData, txCount, testMode]);
 
   useEffect(() => {
     if (user && testMode) {
@@ -296,17 +294,17 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
           </div>
         </div>
 
-        {/* Gas Tracking - using portfolioMath */}
+        {/* Gas Tracking - using portfolioMath (fixed per-tx model) */}
         <div className="mt-4 p-3 bg-slate-700/20 rounded-lg border border-slate-700/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-slate-400">
               <Fuel className="h-4 w-4" />
-              Gas Spent (est.)
+              Gas (mock)
             </div>
             <div className="text-right">
               <div className="text-sm font-medium text-amber-400">−{formatEuro(portfolioValuation.gasSpentEur)}</div>
               <div className="text-xs text-slate-600">
-                0.20% of {formatEuro(totalTradedVolume)} traded
+                ≈ €{MOCK_GAS_PER_TX_EUR.toFixed(2)} × {txCount} transactions
               </div>
             </div>
           </div>

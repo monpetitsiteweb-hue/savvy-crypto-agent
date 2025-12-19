@@ -11,8 +11,8 @@ import type { OpenTrade } from '@/hooks/useOpenTrades';
 import type { PortfolioMetrics } from '@/hooks/usePortfolioMetrics';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 
-// Default gas rate for mock mode (0.20% of trade value)
-export const MOCK_GAS_RATE_PCT = 0.002;
+// Fixed gas per transaction for mock mode (on-chain Base/EVM reality)
+export const MOCK_GAS_PER_TX_EUR = 0.10;
 
 export interface MarketPrices {
   [symbol: string]: { price: number } | undefined;
@@ -50,6 +50,9 @@ export interface PortfolioValuation {
   
   // Per-position breakdown
   positions: OpenPositionValue[];
+  
+  // Gas calculation metadata
+  txCount: number;
 }
 
 /**
@@ -193,11 +196,11 @@ export function getCashFromLedger(metrics: PortfolioMetrics): number {
 }
 
 /**
- * Compute estimated gas spent in mock mode
- * Formula: SUM(total_value) * MOCK_GAS_RATE_PCT
+ * Compute estimated gas spent in mock mode using fixed per-transaction cost
+ * Formula: txCount * MOCK_GAS_PER_TX_EUR (€0.10 per transaction)
  */
-export function computeMockGasSpentEur(totalTradedVolumeEur: number): number {
-  return totalTradedVolumeEur * MOCK_GAS_RATE_PCT;
+export function computeMockGasSpentEurByTx(txCount: number): number {
+  return txCount * MOCK_GAS_PER_TX_EUR;
 }
 
 /**
@@ -228,12 +231,18 @@ export function computeTotalPnl(
 /**
  * MAIN: Compute full portfolio valuation
  * This is the single source of truth for portfolio display
+ * 
+ * @param metrics Portfolio metrics from DB
+ * @param openTrades List of open trades
+ * @param marketPrices Live market prices
+ * @param txCount Number of executed transactions (for gas calculation in mock mode)
+ * @param isTestMode Whether in test/mock mode
  */
 export function computeFullPortfolioValuation(
   metrics: PortfolioMetrics,
   openTrades: OpenTrade[],
   marketPrices: MarketPrices,
-  totalTradedVolumeEur: number,
+  txCount: number,
   isTestMode: boolean
 ): PortfolioValuation {
   // 1. Get cash from ledger
@@ -243,9 +252,8 @@ export function computeFullPortfolioValuation(
   const openCalc = computeOpenTradesValueEur(openTrades, marketPrices);
   const openPositionsValueEur = openCalc.totalValue;
   
-  // 3. Compute gas (mock mode uses estimate, real mode uses actual from DB)
-  // For now, mock mode only. Real mode will use actual gas from trade records.
-  const gasSpentEur = isTestMode ? computeMockGasSpentEur(totalTradedVolumeEur) : 0;
+  // 3. Compute gas (mock mode uses fixed per-tx estimate)
+  const gasSpentEur = isTestMode ? computeMockGasSpentEurByTx(txCount) : 0;
   
   // 4. Compute total portfolio value
   const totalPortfolioValueEur = computeTotalPortfolioValueEur(cashEur, openPositionsValueEur, gasSpentEur);
@@ -271,6 +279,7 @@ export function computeFullPortfolioValuation(
     hasMissingPrices: openCalc.hasMissingPrices,
     missingSymbols: openCalc.missingSymbols,
     positions: openCalc.positions,
+    txCount,
   };
 }
 
