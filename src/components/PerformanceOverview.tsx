@@ -8,7 +8,7 @@ import { useTestMode } from "@/hooks/useTestMode";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
 import { useMarketData } from "@/contexts/MarketDataContext";
-import { TrendingUp, TrendingDown, DollarSign, Activity, Target, TestTube, Percent, Fuel } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Activity, Target, TestTube, Percent, Fuel, AlertTriangle } from "lucide-react";
 import { NoActiveStrategyState } from "./NoActiveStrategyState";
 import { PortfolioNotInitialized } from "./PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
@@ -178,6 +178,15 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {/* Partial Valuation Warning Badge */}
+        {portfolioValuation.hasMissingPrices && (
+          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+            <span className="text-sm text-amber-400">
+              Partial valuation (missing: {portfolioValuation.missingSymbols.join(', ')})
+            </span>
+          </div>
+        )}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           {/* Total Trades - from local count */}
           <div className="space-y-2">
