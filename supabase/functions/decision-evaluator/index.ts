@@ -90,7 +90,9 @@ serve(async (req) => {
     }
 
     // Process each horizon
-    const horizons = ['15m', '1h', '4h', '24h'];
+    // MVP: 15m disabled - requires 15m candles which we don't have (was incorrectly mapping 15m → 1h)
+    const horizons = ['1h', '4h', '24h'];
+    console.log('ℹ️ EVALUATOR: Skipping 15m horizon in MVP (not supported / needs 15m candles)');
     let totalOutcomes = 0;
     let totalPending = 0;
     let totalSkippedOld = 0;
@@ -303,13 +305,18 @@ async function evaluateDecision(
   const windowStart = new Date(decisionTime.getTime() - 5 * 60 * 1000); // 5 minutes before
   
   // Map horizon → OHLCV granularity
+  // MVP: 15m is disabled at loop level - throw if somehow called to prevent silent bugs
   const granularityMap: Record<string, string> = {
-    '15m': '1h',   // we only have 1h/4h/24h in market_ohlcv_raw
+    // '15m': REMOVED - was incorrectly using 1h candles, producing invalid results
     '1h': '1h',
     '4h': '4h',
     '24h': '24h',
   };
-  const granularity = granularityMap[horizon] ?? '1h';
+  const granularity = granularityMap[horizon];
+  if (!granularity) {
+    console.error(`❌ EVALUATOR: Unsupported horizon "${horizon}" - skipping (MVP: only 1h/4h/24h supported)`);
+    return 'skipped_unsupported_horizon';
+  }
 
   // Try both base symbol (BTC) and quote symbol (BTC-EUR)
   const candidateSymbols = [decision.symbol, `${decision.symbol}-EUR`];
