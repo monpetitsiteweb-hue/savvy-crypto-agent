@@ -882,13 +882,19 @@ serve(async (req) => {
           console.error(`🌑 ${BACKEND_ENGINE_MODE}: Error processing ${coin}:`, symbolErr);
           allDecisions.push({
             symbol: baseSymbol,
-            side: 'HOLD',
+            side: 'BUY', // intent_side = BUY (we WANTED to buy, but error blocked it)
             action: 'ERROR',
             reason: String(symbolErr),
             confidence: 0,
             wouldExecute: false,
             timestamp: new Date().toISOString(),
-            metadata: { error: String(symbolErr) }
+            metadata: { 
+              error: String(symbolErr),
+              // ============= EXECUTION TRUTH FIELDS (ERROR CASE) =============
+              intent_side: 'BUY',
+              execution_status: 'BLOCKED',
+              execution_reason: `error: ${String(symbolErr)}`,
+            }
           });
         }
       }
