@@ -240,7 +240,7 @@ async function evaluateDecision(
   decision: DecisionEvent, 
   horizon: string,
   dataStartDate: Date
-): Promise<'success' | 'no_data' | 'skipped' | 'missing_entry_price' | 'no_ohlcv_data' | 'ohlcv_insufficient'> {
+): Promise<'success' | 'no_data' | 'skipped' | 'skipped_unsupported_horizon' | 'missing_entry_price' | 'no_ohlcv_data' | 'ohlcv_insufficient'> {
   
   // Derive entry price with fallbacks for older data (stored in metadata)
   const entryPrice =
