@@ -1,17 +1,17 @@
-// Backend Shadow Engine - Phase S2/S3: Full Exit Management
+// Backend Shadow Engine - Phase S4: Intelligent Exit Engine with Runner Mode
 // 
 // This edge function evaluates trading decisions using the same logic as the frontend
 // intelligent engine. Supports two modes:
 //   - SHADOW (default): Log decisions to decision_events only, no trades inserted
 //   - LIVE: Same decision path, coordinator inserts into mock_trades
 // 
-// PHASE S2/S3: This engine now handles ALL automatic exits:
-//   - TAKE_PROFIT (TP)
-//   - STOP_LOSS (SL)
-//   - TRAILING_STOP
-//   - AUTO_CLOSE_TIME
-// 
-// Frontend no longer computes automatic exits - they are blocked by FRONTEND_ENGINE_DISABLED.
+// PHASE S4: INTELLIGENT EXIT ENGINE:
+//   - Default: if PnL >= TP => SELL
+//   - Exception: if bull_override (signals indicate continuation) => DON'T sell at TP
+//     Switch to RUNNER mode with TRAILING STOP protection
+//   - TRAILING_STOP: if price drops from peak by trailing distance => SELL
+//   - STOP_LOSS: hard guardrail always active
+//   - AUTO_CLOSE_TIME: disabled in MVP (last resort only)
 // 
 // Configuration: Set BACKEND_ENGINE_MODE env var to 'SHADOW' or 'LIVE'
 // Default: 'SHADOW' (safe, observability-only mode)
@@ -74,9 +74,47 @@ interface OpenPosition {
   tradeIds: string[];
 }
 
+// ============= PHASE S4: RUNNER STATE INTERFACE =============
+interface RunnerState {
+  runner_mode: boolean;
+  peak_pnl_pct: number;
+  trailing_distance_pct: number;
+  trailing_stop_level_pct: number;
+}
+
 // ============= PHASE S2: EXIT CONTEXT TYPES =============
-type ExitContext = 'AUTO_TP' | 'AUTO_SL' | 'AUTO_TRAIL' | 'AUTO_CLOSE';
-type ExitTrigger = 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'AUTO_CLOSE_TIME';
+type ExitContext = 'AUTO_TP' | 'AUTO_SL' | 'AUTO_TRAIL' | 'AUTO_CLOSE' | 'RUNNER_TRAIL';
+type ExitTrigger = 'TAKE_PROFIT' | 'STOP_LOSS' | 'TRAILING_STOP' | 'AUTO_CLOSE_TIME' | 'SELL_TRAILING_RUNNER';
+
+// ============= PHASE S4: EXIT TRACE INTERFACE =============
+interface ExitTrace {
+  symbol: string;
+  strategy_id: string;
+  pnl_pct_engine: number;
+  tp_pct: number;
+  is_tp_met: boolean;
+  bull_override: boolean;
+  bull_score_used: number;
+  bull_threshold: number;
+  bull_components: {
+    trend: number;
+    momentum: number;
+    fusion: number;
+  };
+  runner_mode_before: boolean;
+  runner_mode_after: boolean;
+  peak_pnl_before: number;
+  peak_pnl_after: number;
+  trailing_distance_pct: number;
+  trailing_stop_level_pct: number;
+  is_trailing_hit: boolean;
+  sl_pct: number;
+  is_sl_met: boolean;
+  final_action: 'SELL_TP' | 'HOLD_RUNNER' | 'SELL_TRAILING' | 'SELL_SL' | 'NO_EXIT';
+  final_reason: string;
+  context: string;
+  evaluated_at: string;
+}
 
 // ============= SIGNAL SCORING HELPER =============
 interface SignalScores {
@@ -151,7 +189,7 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
       case 'eodhd_price_breakout_bullish':
         scores.trend += strength * 0.7;
         scores.momentum += strength * 0.5;
-        console.log(`📈 EODHD BREAKOUT BULLISH: ${sig.symbol} strength=${strength.toFixed(3)}`);
+        console.log(`📈 EODHD BREAKOUT BULLISH: strength=${strength.toFixed(3)}`);
         break;
       case 'eodhd_intraday_volume_spike':
         scores.momentum += strength * 0.4;
@@ -280,6 +318,41 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
   return scores;
 }
 
+/**
+ * Compute fusion score from signal scores
+ */
+function computeFusionScore(scores: SignalScores, config: any): number {
+  const fusionWeights = {
+    trend: config.trendWeight || 0.35,
+    momentum: config.momentumWeight || 0.25,
+    volatility: config.volatilityWeight || 0.15,
+    whale: config.whaleWeight || 0.15,
+    sentiment: config.sentimentWeight || 0.10,
+  };
+  
+  return scores.trend * fusionWeights.trend +
+         scores.momentum * fusionWeights.momentum +
+         scores.volatility * fusionWeights.volatility +
+         scores.whale * fusionWeights.whale +
+         scores.sentiment * fusionWeights.sentiment;
+}
+
+/**
+ * Check if bull_override should prevent TP sell (let winners run)
+ * Returns true if signals indicate strong continuation probability
+ */
+function shouldLetWinnersRun(scores: SignalScores, fusionScore: number, config: any): { shouldRun: boolean; bullScore: number; threshold: number } {
+  // Get threshold from config, default 0.40 (MVP: not too aggressive)
+  const threshold = config.letWinnersRunThreshold ?? 0.40;
+  
+  // Bull score = weighted combination (trend more important for continuation)
+  const bullScore = (scores.trend * 0.5) + (scores.momentum * 0.35) + (fusionScore * 0.15);
+  
+  const shouldRun = bullScore >= threshold;
+  
+  return { shouldRun, bullScore, threshold };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -367,7 +440,7 @@ serve(async (req) => {
       const openPositions = await fetchOpenPositions(supabaseClient, userId, strategy.id);
       console.log(`🌑 ${BACKEND_ENGINE_MODE}: Found ${openPositions.length} open positions for exit evaluation`);
 
-      // ============= PHASE S2: EVALUATE EXITS FOR EACH OPEN POSITION =============
+      // ============= PHASE S4: INTELLIGENT EXIT EVALUATION =============
       for (const position of openPositions) {
         const baseSymbol = position.cryptocurrency.replace('-EUR', '');
         const symbol = `${baseSymbol}-EUR`;
@@ -394,66 +467,80 @@ serve(async (req) => {
           const pnlPercentage = ((currentPrice - position.averagePrice) / position.averagePrice) * 100;
           const hoursSincePurchase = (Date.now() - new Date(position.oldestPurchaseDate).getTime()) / (1000 * 60 * 60);
           
-          // ============= TP EXIT TRACE: Build structured trace for observability =============
-          const epsilonPnLBufferPct = config.epsilonPnLBufferPct || 0.03;
-          const configuredTP = config.takeProfitPercentage;
-          const hasTPConfigured = typeof configuredTP === 'number' && configuredTP > 0;
-          const adjustedTakeProfit = hasTPConfigured ? Math.abs(configuredTP) + epsilonPnLBufferPct : 0;
-          const isTpConditionMet = hasTPConfigured && pnlPercentage >= adjustedTakeProfit;
+          // ============= FETCH SIGNALS FOR BULL OVERRIDE =============
+          const signalLookback = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+          const { data: liveSignals } = await supabaseClient
+            .from('live_signals')
+            .select('signal_type, signal_strength, data')
+            .or(`symbol.eq.${baseSymbol},symbol.eq.${symbol}`)
+            .gte('timestamp', signalLookback)
+            .in('signal_type', [
+              'ma_cross_bullish', 'rsi_oversold_bullish', 'momentum_bullish', 
+              'trend_bullish', 'macd_bullish',
+              'eodhd_price_breakout_bullish', 'eodhd_price_breakdown_bearish',
+              'eodhd_intraday_volume_spike', 'eodhd_unusual_volatility',
+              'ma_cross_bearish', 'rsi_overbought_bearish', 'momentum_bearish',
+              'trend_bearish', 'macd_bearish', 'ma_momentum_bearish',
+              'momentum_neutral',
+              'whale_large_movement', 'whale_exchange_inflow', 'whale_exchange_outflow'
+            ])
+            .order('timestamp', { ascending: false })
+            .limit(50);
+
+          const { data: features } = await supabaseClient
+            .from('market_features_v0')
+            .select('rsi_14, macd_hist, ema_20, ema_50, ema_200, vol_1h')
+            .eq('symbol', symbol)
+            .eq('granularity', '1h')
+            .order('ts_utc', { ascending: false })
+            .limit(1)
+            .single();
+
+          const signalScores = computeSignalScores(liveSignals || [], features);
+          const fusionScore = computeFusionScore(signalScores, config);
           
-          const tpExitTrace = {
-            symbol: baseSymbol,
-            strategy_id: strategy.id,
-            entry_price_used: position.averagePrice,
-            current_price_used: currentPrice,
-            pnl_pct_used_by_engine: parseFloat(pnlPercentage.toFixed(4)),
-            take_profit_pct_config: configuredTP || null,
-            take_profit_pct_effective: adjustedTakeProfit,
-            epsilon_buffer_pct: epsilonPnLBufferPct,
-            is_tp_condition_met: isTpConditionMet,
-            hours_since_purchase: parseFloat(hoursSincePurchase.toFixed(2)),
-            auto_close_hours_config: config.autoCloseAfterHours || null,
-            stop_loss_pct_config: config.stopLossPercentage || null,
-            final_decision: 'PENDING', // Will be updated below
-            final_blocking_reason: null as string | null,
-            context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
-            ud_mode_if_any: strategy.unified_config?.enableUnifiedDecisions ?? null,
-            evaluated_at: new Date().toISOString(),
-          };
+          // ============= INTELLIGENT EXIT EVALUATION =============
+          const exitResult = await evaluateIntelligentExit(
+            supabaseClient,
+            config,
+            position,
+            currentPrice,
+            pnlPercentage,
+            hoursSincePurchase,
+            signalScores,
+            fusionScore,
+            userId,
+            strategy.id,
+            effectiveShadowMode
+          );
           
-          // Evaluate exit conditions
-          const exitDecision = evaluateExitConditions(config, position, currentPrice, pnlPercentage, hoursSincePurchase);
+          // Log exit trace
+          console.log(`📊 EXIT_TRACE [${baseSymbol}]:`, JSON.stringify(exitResult.trace));
           
-          if (exitDecision) {
-            tpExitTrace.final_decision = 'EXECUTE';
-            tpExitTrace.final_blocking_reason = null;
-            
-            console.log(`🌑 ${BACKEND_ENGINE_MODE}: EXIT TRIGGERED for ${baseSymbol} - trigger=${exitDecision.trigger}, pnl=${pnlPercentage.toFixed(2)}%`);
-            console.log(`📊 TP_EXIT_TRACE [${baseSymbol}]:`, JSON.stringify(tpExitTrace));
+          if (exitResult.shouldExit && exitResult.exitDecision) {
+            console.log(`🌑 ${BACKEND_ENGINE_MODE}: EXIT TRIGGERED for ${baseSymbol} - trigger=${exitResult.exitDecision.trigger}, action=${exitResult.trace.final_action}`);
             
             // Generate unique identifiers
             const backendRequestId = crypto.randomUUID();
             const timestamp = Date.now();
-            const idempotencyKey = `exit_${userId}_${strategy.id}_${baseSymbol}_${exitDecision.trigger}_${timestamp}`;
+            const idempotencyKey = `exit_${userId}_${strategy.id}_${baseSymbol}_${exitResult.exitDecision.trigger}_${timestamp}`;
             
             // Build SELL intent
-            // GOAL 2.A: Include pnl_at_decision_pct in metadata for tracking
             const sellIntent = {
               userId,
               strategyId: strategy.id,
               symbol: baseSymbol,
               side: 'SELL' as const,
               source: 'intelligent' as const,
-              confidence: 0.95, // High confidence for risk exits
-              reason: exitDecision.trigger,
+              confidence: 0.95,
+              reason: exitResult.exitDecision.trigger,
               qtySuggested: position.totalAmount,
               metadata: {
                 mode: 'mock',
                 engine: 'intelligent',
                 is_test_mode: true,
-                context: effectiveShadowMode ? 'BACKEND_SHADOW' : exitDecision.context,
-                trigger: exitDecision.trigger,
-                // GOAL 2.A: P&L at decision time for tracking/UI display
+                context: effectiveShadowMode ? 'BACKEND_SHADOW' : exitResult.exitDecision.context,
+                trigger: exitResult.exitDecision.trigger,
                 pnl_at_decision_pct: parseFloat(pnlPercentage.toFixed(4)),
                 pnlPercentage: pnlPercentage.toFixed(4),
                 entryPrice: position.averagePrice,
@@ -461,11 +548,9 @@ serve(async (req) => {
                 hoursSincePurchase: hoursSincePurchase.toFixed(2),
                 backend_request_id: backendRequestId,
                 backend_ts: new Date().toISOString(),
-                // PHASE S3: Mark as backend auto-exit
                 origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
                 exit_type: 'automatic',
-                // Include tp_exit_trace for full observability
-                tp_exit_trace: tpExitTrace,
+                exit_trace: exitResult.trace,
               },
               ts: new Date().toISOString(),
               idempotencyKey,
@@ -473,12 +558,12 @@ serve(async (req) => {
 
             if (effectiveShadowMode) {
               // SHADOW MODE: Log decision but don't execute
-              console.log(`🌑 SHADOW: Would SELL ${baseSymbol} via ${exitDecision.trigger} (pnl=${pnlPercentage.toFixed(2)}%)`);
+              console.log(`🌑 SHADOW: Would SELL ${baseSymbol} via ${exitResult.exitDecision.trigger} (pnl=${pnlPercentage.toFixed(2)}%)`);
               allDecisions.push({
                 symbol: baseSymbol,
                 side: 'SELL',
                 action: 'WOULD_SELL',
-                reason: exitDecision.trigger,
+                reason: exitResult.exitDecision.trigger,
                 confidence: 0.95,
                 wouldExecute: true,
                 timestamp: new Date().toISOString(),
@@ -491,7 +576,7 @@ serve(async (req) => {
               });
             } else {
               // LIVE MODE: Send SELL intent to coordinator
-              console.log(`🔥 LIVE: Executing SELL for ${baseSymbol} via ${exitDecision.trigger}`);
+              console.log(`🔥 LIVE: Executing SELL for ${baseSymbol} via ${exitResult.exitDecision.trigger}`);
               
               const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
                 'trading-decision-coordinator',
@@ -508,7 +593,7 @@ serve(async (req) => {
                   confidence: 0.95,
                   wouldExecute: false,
                   timestamp: new Date().toISOString(),
-                  metadata: { error: coordError, trigger: exitDecision.trigger, tp_exit_trace: tpExitTrace }
+                  metadata: { error: coordError, trigger: exitResult.exitDecision.trigger, exit_trace: exitResult.trace }
                 });
               } else {
                 let parsed = coordinatorResponse;
@@ -522,7 +607,7 @@ serve(async (req) => {
                   symbol: baseSymbol,
                   side: 'SELL',
                   action,
-                  reason: exitDecision.trigger,
+                  reason: exitResult.exitDecision.trigger,
                   confidence: 0.95,
                   wouldExecute: action === 'SELL',
                   timestamp: new Date().toISOString(),
@@ -536,53 +621,19 @@ serve(async (req) => {
               }
             }
           } else {
-            // ============= NO EXIT TRIGGERED: Log trace for observability =============
-            // Determine WHY no exit was triggered
-            let blockingReason = 'no_exit_condition_met';
-            
-            if (!hasTPConfigured) {
-              blockingReason = 'tp_not_configured';
-            } else if (pnlPercentage < adjustedTakeProfit) {
-              blockingReason = `pnl_below_tp_threshold:${pnlPercentage.toFixed(4)}_<_${adjustedTakeProfit.toFixed(4)}`;
-            }
-            
-            // Check SL
-            const configuredSL = config.stopLossPercentage;
-            const hasSLConfigured = typeof configuredSL === 'number' && configuredSL > 0;
-            const adjustedStopLoss = hasSLConfigured ? Math.abs(configuredSL) + epsilonPnLBufferPct : 0;
-            
-            if (hasSLConfigured && pnlPercentage > -adjustedStopLoss && pnlPercentage < adjustedTakeProfit) {
-              blockingReason = `in_range:sl=${(-adjustedStopLoss).toFixed(4)}_<_pnl=${pnlPercentage.toFixed(4)}_<_tp=${adjustedTakeProfit.toFixed(4)}`;
-            }
-            
-            // Check auto-close
-            const autoCloseHours = config.autoCloseAfterHours;
-            const isAutoCloseConfigured = typeof autoCloseHours === 'number' && autoCloseHours > 0;
-            if (isAutoCloseConfigured && hoursSincePurchase < autoCloseHours) {
-              // Auto-close not yet due
-              if (blockingReason === 'no_exit_condition_met') {
-                blockingReason = `auto_close_not_due:${hoursSincePurchase.toFixed(2)}h_<_${autoCloseHours}h`;
-              }
-            }
-            
-            tpExitTrace.final_decision = 'HOLD';
-            tpExitTrace.final_blocking_reason = blockingReason;
-            
-            console.log(`📊 TP_EXIT_TRACE [${baseSymbol}] NO_EXIT:`, JSON.stringify(tpExitTrace));
-            
-            // Log to decision_events for full observability (side='HOLD' with tp_exit_trace)
+            // ============= NO EXIT: Log HOLD with full trace =============
             allDecisions.push({
               symbol: baseSymbol,
               side: 'HOLD',
-              action: 'NO_EXIT',
-              reason: blockingReason,
+              action: exitResult.trace.final_action === 'HOLD_RUNNER' ? 'HOLD_RUNNER' : 'NO_EXIT',
+              reason: exitResult.trace.final_reason,
               confidence: 0,
               wouldExecute: false,
               timestamp: new Date().toISOString(),
               metadata: {
                 strategyId: strategy.id,
                 strategyName: strategy.strategy_name,
-                tp_exit_trace: tpExitTrace,
+                exit_trace: exitResult.trace,
                 origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
                 exit_evaluation: true,
               }
@@ -627,7 +678,6 @@ serve(async (req) => {
           }
 
           // ============= INTELLIGENT SIGNAL EVALUATION =============
-          // Fetch ALL signals for this symbol (bullish AND bearish from last 2 hours for freshness)
           const signalLookback = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
           const { data: liveSignals } = await supabaseClient
             .from('live_signals')
@@ -635,24 +685,18 @@ serve(async (req) => {
             .or(`symbol.eq.${baseSymbol},symbol.eq.${symbol}`)
             .gte('timestamp', signalLookback)
             .in('signal_type', [
-              // BULLISH signals
               'ma_cross_bullish', 'rsi_oversold_bullish', 'momentum_bullish', 
               'trend_bullish', 'macd_bullish',
-              // EODHD signals (CRITICAL - these are the main signals!)
               'eodhd_price_breakout_bullish', 'eodhd_price_breakdown_bearish',
               'eodhd_intraday_volume_spike', 'eodhd_unusual_volatility',
-              // BEARISH signals
               'ma_cross_bearish', 'rsi_overbought_bearish', 'momentum_bearish',
               'trend_bearish', 'macd_bearish', 'ma_momentum_bearish',
-              // NEUTRAL
               'momentum_neutral',
-              // WHALE
               'whale_large_movement', 'whale_exchange_inflow', 'whale_exchange_outflow'
             ])
             .order('timestamp', { ascending: false })
             .limit(50);
 
-          // Fetch technical features for this symbol
           const { data: features } = await supabaseClient
             .from('market_features_v0')
             .select('rsi_14, macd_hist, ema_20, ema_50, ema_200, vol_1h')
@@ -664,41 +708,23 @@ serve(async (req) => {
 
           // ============= COMPUTE FUSION SCORE =============
           const signalScores = computeSignalScores(liveSignals || [], features);
-          const fusionWeights = {
-            trend: config.trendWeight || 0.35,
-            momentum: config.momentumWeight || 0.25,
-            volatility: config.volatilityWeight || 0.15,
-            whale: config.whaleWeight || 0.15,
-            sentiment: config.sentimentWeight || 0.10,
-          };
-          
-          const fusionScore = 
-            signalScores.trend * fusionWeights.trend +
-            signalScores.momentum * fusionWeights.momentum +
-            signalScores.volatility * fusionWeights.volatility +
-            signalScores.whale * fusionWeights.whale +
-            signalScores.sentiment * fusionWeights.sentiment;
+          const fusionScore = computeFusionScore(signalScores, config);
 
           // Get thresholds from config
           const enterThreshold = config.enterThreshold || 0.15;
           const minConfidence = config.minConfidence || 0.5;
 
           // ============= ENTRY DECISION LOGIC =============
-          // Relaxed conditions: Buy on positive fusion OR strong oversold signals
-          const isTrendPositive = signalScores.trend > -0.1; // Allow slightly negative trend (reversal plays)
-          const isMomentumPositive = signalScores.momentum > 0; // Require positive momentum
-          const isNotOverbought = signalScores.momentum > -0.5; // Block only strong overbought
+          const isTrendPositive = signalScores.trend > -0.1;
+          const isMomentumPositive = signalScores.momentum > 0;
+          const isNotOverbought = signalScores.momentum > -0.5;
           const meetsThreshold = fusionScore >= enterThreshold;
           
-          // BUY if:
-          // 1. Fusion score meets threshold AND trend is not strongly negative, OR
-          // 2. Strong positive momentum (oversold bounce) even with weak trend
           const shouldBuy = (meetsThreshold && isTrendPositive) || 
                            (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought);
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → fusion=${fusionScore.toFixed(3)}, threshold=${enterThreshold}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, trendOK=${isTrendPositive}, momentumOK=${isMomentumPositive}, notOverbought=${isNotOverbought}, shouldBuy=${shouldBuy}`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → fusion=${fusionScore.toFixed(3)}, threshold=${enterThreshold}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
 
-          // If signals don't support a buy, skip this coin with clear reason
           if (!shouldBuy) {
             let skipReason = 'conditions_not_met';
             if (signalScores.trend < -0.1 && signalScores.momentum <= 0.3) {
@@ -724,10 +750,6 @@ serve(async (req) => {
                 price: currentPrice,
                 signals: signalScores,
                 enterThreshold,
-                isTrendPositive,
-                isMomentumPositive,
-                isNotOverbought,
-                meetsThreshold,
                 engineMode: BACKEND_ENGINE_MODE,
               }
             });
@@ -746,7 +768,6 @@ serve(async (req) => {
             context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
             backend_ts: new Date().toISOString(),
             currentPrice,
-            // Include signal intelligence in metadata
             fusionScore,
             signalScores,
             enterThreshold,
@@ -776,7 +797,7 @@ serve(async (req) => {
             idempotencyKey,
           };
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNALS POSITIVE → calling coordinator (fusion=${fusionScore.toFixed(3)}, confidence=${computedConfidence.toFixed(2)})`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNALS POSITIVE → calling coordinator (fusion=${fusionScore.toFixed(3)})`);
 
           const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
             'trading-decision-coordinator',
@@ -859,56 +880,43 @@ serve(async (req) => {
       total: allDecisions.length,
       deferred: allDecisions.filter(d => d.action === 'DEFER').length,
       blocked: allDecisions.filter(d => d.action === 'BLOCK').length,
-      autoExits: allDecisions.filter(d => d.side === 'SELL' && ['TAKE_PROFIT', 'STOP_LOSS', 'TRAILING_STOP', 'AUTO_CLOSE_TIME'].includes(d.reason)).length,
+      holdRunner: allDecisions.filter(d => d.action === 'HOLD_RUNNER').length,
     };
 
     const elapsed_ms = Date.now() - startTime;
-    
-    console.log(`🌑 ${BACKEND_ENGINE_MODE}: Run complete. wouldBuy=${summary.wouldBuy}, wouldSell=${summary.wouldSell}, autoExits=${summary.autoExits}, elapsed=${elapsed_ms}ms`);
+    console.log(`🌑 ${BACKEND_ENGINE_MODE}: Completed in ${elapsed_ms}ms → wouldBuy=${summary.wouldBuy}, wouldSell=${summary.wouldSell}, wouldHold=${summary.wouldHold}, holdRunner=${summary.holdRunner}`);
 
-    // Log ALL decisions to decision_events
+    // Step 5: Log all decisions to decision_events table for observability
     for (const dec of allDecisions) {
       try {
-        const eventMetadata = effectiveShadowMode ? {
+        const eventMetadata = {
           ...dec.metadata,
-          origin: 'BACKEND_SHADOW',
-          shadow_only: true,
-          no_trade_inserted: true,
-          wouldExecute: dec.wouldExecute,
           engineMode: BACKEND_ENGINE_MODE,
-          effectiveShadowMode: true,
-          userAllowedForLive: isUserAllowedForLive,
-        } : {
-          ...dec.metadata,
-          origin: 'BACKEND_LIVE',
-          shadow_only: false,
-          no_trade_inserted: !dec.wouldExecute,
-          wouldExecute: dec.wouldExecute,
-          engineMode: BACKEND_ENGINE_MODE,
-          effectiveShadowMode: false,
-          userAllowedForLive: isUserAllowedForLive,
-          backend_live_ts: new Date().toISOString(),
-          idempotency_key: dec.metadata?.idempotencyKey || null,
-          backend_request_id: dec.metadata?.backend_request_id || null,
+          effectiveShadowMode,
+          shadow_run: effectiveShadowMode,
+          is_backend_engine: true,
+          origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
         };
-
-        const { error: insertError } = await supabaseClient.from('decision_events').insert({
-          user_id: userId,
-          strategy_id: dec.metadata.strategyId,
-          symbol: dec.symbol,
-          side: dec.side,
-          source: 'intelligent',
-          confidence: dec.confidence,
-          reason: `${dec.action}:${dec.reason}`,
-          entry_price: dec.metadata.price || dec.metadata.currentPrice,
-          metadata: eventMetadata,
-          decision_ts: dec.timestamp,
-        });
+        
+        const { error: insertError } = await supabaseClient
+          .from('decision_events')
+          .insert({
+            user_id: userId,
+            strategy_id: dec.metadata.strategyId,
+            symbol: dec.symbol,
+            side: dec.side,
+            source: 'intelligent',
+            confidence: dec.confidence,
+            reason: `${dec.action}:${dec.reason}`,
+            entry_price: dec.metadata.price || dec.metadata.currentPrice,
+            metadata: eventMetadata,
+            decision_ts: dec.timestamp,
+          });
         
         if (insertError) {
           console.warn(`🌑 ${BACKEND_ENGINE_MODE}: Insert error for ${dec.symbol}:`, insertError.message);
         } else {
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: Logged decision_event for ${dec.symbol} action=${dec.action} (origin=${effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE'})`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: Logged decision_event for ${dec.symbol} action=${dec.action}`);
         }
       } catch (logErr) {
         console.warn(`🌑 ${BACKEND_ENGINE_MODE}: Could not log decision_event for ${dec.symbol}:`, logErr);
@@ -949,16 +957,14 @@ serve(async (req) => {
 // ============= PHASE S2: FETCH OPEN POSITIONS =============
 async function fetchOpenPositions(supabaseClient: any, userId: string, strategyId: string): Promise<OpenPosition[]> {
   try {
-    // Fetch all BUY and SELL trades for this user/strategy
-    // Use aggregated query to avoid row limits - calculate net positions in DB
     const { data: aggregatedPositions, error: aggError } = await supabaseClient
       .from('mock_trades')
-      .select('cryptocurrency, trade_type, amount, price, executed_at')
+      .select('cryptocurrency, trade_type, amount, price, executed_at, id')
       .eq('user_id', userId)
       .eq('strategy_id', strategyId)
       .eq('is_test_mode', true)
       .order('executed_at', { ascending: true })
-      .limit(10000); // Explicit high limit to get all trades
+      .limit(10000);
 
     if (aggError) {
       console.error('[fetchOpenPositions] Error fetching trades:', aggError);
@@ -973,7 +979,6 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
       return [];
     }
 
-    // Calculate net positions per symbol
     const positionMap = new Map<string, {
       totalBuyAmount: number;
       totalSellAmount: number;
@@ -1000,14 +1005,12 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
       }
     }
 
-    // Build open positions with net amount > 0
     const openPositions: OpenPosition[] = [];
     
     for (const [symbol, pos] of positionMap) {
       const netAmount = pos.totalBuyAmount - pos.totalSellAmount;
       
-      if (netAmount > 0.00000001) { // Small epsilon to avoid floating point issues
-        // Calculate weighted average price from remaining buys
+      if (netAmount > 0.00000001) {
         let totalValue = 0;
         let totalAmount = 0;
         const tradeIds: string[] = [];
@@ -1042,92 +1045,310 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
   }
 }
 
-// ============= PHASE S2: EVALUATE EXIT CONDITIONS =============
+// ============= PHASE S4: INTELLIGENT EXIT EVALUATION =============
 interface ExitDecision {
   trigger: ExitTrigger;
   context: ExitContext;
   reason: string;
 }
 
-function evaluateExitConditions(
+interface IntelligentExitResult {
+  shouldExit: boolean;
+  exitDecision: ExitDecision | null;
+  trace: ExitTrace;
+}
+
+async function evaluateIntelligentExit(
+  supabaseClient: any,
   config: any,
   position: OpenPosition,
   currentPrice: number,
   pnlPercentage: number,
-  hoursSincePurchase: number
-): ExitDecision | null {
+  hoursSincePurchase: number,
+  signalScores: SignalScores,
+  fusionScore: number,
+  userId: string,
+  strategyId: string,
+  effectiveShadowMode: boolean
+): Promise<IntelligentExitResult> {
+  const symbol = position.cryptocurrency.replace('-EUR', '');
   const epsilonPnLBufferPct = config.epsilonPnLBufferPct || 0.03;
   
-  // 1. AUTO CLOSE AFTER HOURS (highest priority)
-  const autoCloseHours = config.autoCloseAfterHours;
-  const isAutoCloseConfigured = 
-    typeof autoCloseHours === 'number' &&
-    Number.isFinite(autoCloseHours) &&
-    autoCloseHours > 0;
-  
-  if (isAutoCloseConfigured && hoursSincePurchase >= autoCloseHours) {
-    console.log(`[BackendExit] AUTO_CLOSE_TIME triggered for ${position.cryptocurrency}: held ${hoursSincePurchase.toFixed(2)}h >= ${autoCloseHours}h`);
-    return {
-      trigger: 'AUTO_CLOSE_TIME',
-      context: 'AUTO_CLOSE',
-      reason: `Position held ${hoursSincePurchase.toFixed(2)}h >= configured ${autoCloseHours}h`,
-    };
-  }
-
-  // 2. STOP LOSS CHECK - STRICT ENFORCEMENT
-  const configuredSL = config.stopLossPercentage;
-  const hasSLConfigured = typeof configuredSL === 'number' && configuredSL > 0;
-  const adjustedStopLoss = hasSLConfigured ? Math.abs(configuredSL) + epsilonPnLBufferPct : 0;
-  const slThresholdMet = hasSLConfigured && pnlPercentage <= -adjustedStopLoss;
-  
-  console.log(`[BackendExit][SL_CHECK] ${position.cryptocurrency}: pnl=${pnlPercentage.toFixed(4)}% <= -${adjustedStopLoss.toFixed(4)}% = ${slThresholdMet}`);
-  
-  if (slThresholdMet) {
-    console.log(`[BackendExit] STOP_LOSS triggered for ${position.cryptocurrency}: ${pnlPercentage.toFixed(2)}% <= -${adjustedStopLoss.toFixed(2)}%`);
-    return {
-      trigger: 'STOP_LOSS',
-      context: 'AUTO_SL',
-      reason: `P&L ${pnlPercentage.toFixed(2)}% <= -${adjustedStopLoss.toFixed(2)}% (SL + buffer)`,
-    };
-  }
-
-  // 3. TAKE PROFIT CHECK - STRICT ENFORCEMENT
+  // Get config values
   const configuredTP = config.takeProfitPercentage;
   const hasTPConfigured = typeof configuredTP === 'number' && configuredTP > 0;
   const adjustedTakeProfit = hasTPConfigured ? Math.abs(configuredTP) + epsilonPnLBufferPct : 0;
-  const tpThresholdMet = hasTPConfigured && pnlPercentage >= adjustedTakeProfit;
   
-  console.log(`[BackendExit][TP_CHECK] ${position.cryptocurrency}: pnl=${pnlPercentage.toFixed(4)}% >= ${adjustedTakeProfit.toFixed(4)}% = ${tpThresholdMet}`);
+  const configuredSL = config.stopLossPercentage;
+  const hasSLConfigured = typeof configuredSL === 'number' && configuredSL > 0;
+  const adjustedStopLoss = hasSLConfigured ? Math.abs(configuredSL) + epsilonPnLBufferPct : 0;
   
-  if (tpThresholdMet) {
-    console.log(`[BackendExit] TAKE_PROFIT triggered for ${position.cryptocurrency}: ${pnlPercentage.toFixed(2)}% >= ${adjustedTakeProfit.toFixed(2)}%`);
+  // Default trailing distance: 0.6% (MVP)
+  const trailingDistancePct = config.runnerTrailingDistancePct ?? 0.6;
+  
+  // ============= FETCH OR CREATE RUNNER STATE =============
+  const runnerState = await getOrCreateRunnerState(supabaseClient, userId, strategyId, symbol, pnlPercentage, trailingDistancePct, config);
+  
+  // Calculate bull override
+  const bullCheck = shouldLetWinnersRun(signalScores, fusionScore, config);
+  
+  // Build initial trace
+  const trace: ExitTrace = {
+    symbol,
+    strategy_id: strategyId,
+    pnl_pct_engine: parseFloat(pnlPercentage.toFixed(4)),
+    tp_pct: adjustedTakeProfit,
+    is_tp_met: hasTPConfigured && pnlPercentage >= adjustedTakeProfit,
+    bull_override: false,
+    bull_score_used: parseFloat(bullCheck.bullScore.toFixed(4)),
+    bull_threshold: bullCheck.threshold,
+    bull_components: {
+      trend: parseFloat(signalScores.trend.toFixed(4)),
+      momentum: parseFloat(signalScores.momentum.toFixed(4)),
+      fusion: parseFloat(fusionScore.toFixed(4)),
+    },
+    runner_mode_before: runnerState.runner_mode,
+    runner_mode_after: runnerState.runner_mode,
+    peak_pnl_before: runnerState.peak_pnl_pct,
+    peak_pnl_after: runnerState.peak_pnl_pct,
+    trailing_distance_pct: trailingDistancePct,
+    trailing_stop_level_pct: runnerState.trailing_stop_level_pct,
+    is_trailing_hit: false,
+    sl_pct: adjustedStopLoss,
+    is_sl_met: hasSLConfigured && pnlPercentage <= -adjustedStopLoss,
+    final_action: 'NO_EXIT',
+    final_reason: 'no_exit_condition_met',
+    context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+    evaluated_at: new Date().toISOString(),
+  };
+  
+  // ============= 1. STOP LOSS CHECK (ALWAYS FIRST - HARD GUARD) =============
+  if (trace.is_sl_met) {
+    trace.final_action = 'SELL_SL';
+    trace.final_reason = `P&L ${pnlPercentage.toFixed(2)}% <= -${adjustedStopLoss.toFixed(2)}% (SL hit)`;
+    
+    // Reset runner state on SL
+    await resetRunnerState(supabaseClient, userId, strategyId, symbol);
+    
     return {
-      trigger: 'TAKE_PROFIT',
-      context: 'AUTO_TP',
-      reason: `P&L ${pnlPercentage.toFixed(2)}% >= ${adjustedTakeProfit.toFixed(2)}% (TP + buffer)`,
+      shouldExit: true,
+      exitDecision: {
+        trigger: 'STOP_LOSS',
+        context: 'AUTO_SL',
+        reason: trace.final_reason,
+      },
+      trace,
     };
   }
-
-  // 4. TRAILING STOP (if configured)
-  const trailingStopPct = config.trailingStopLossPercentage;
-  const trailingMinProfit = config.trailingStopMinProfitThreshold || 0.5;
   
-  if (typeof trailingStopPct === 'number' && trailingStopPct > 0) {
-    // Trailing stop only activates if position is in profit
-    if (pnlPercentage >= trailingMinProfit) {
-      // TODO: Implement proper high-water-mark tracking in database
-      // For now, simplified: trailing stop triggers if profit drops below threshold
-      const trailingThreshold = pnlPercentage - trailingStopPct;
-      if (trailingThreshold > 0 && pnlPercentage <= trailingThreshold) {
-        console.log(`[BackendExit] TRAILING_STOP triggered for ${position.cryptocurrency}: pnl dropped to ${pnlPercentage.toFixed(2)}%`);
-        return {
-          trigger: 'TRAILING_STOP',
-          context: 'AUTO_TRAIL',
-          reason: `Trailing stop triggered at ${pnlPercentage.toFixed(2)}%`,
-        };
-      }
+  // ============= 2. TRAILING STOP CHECK (FOR RUNNER MODE) =============
+  if (runnerState.runner_mode && pnlPercentage > 0) {
+    // Update peak if current PnL is higher
+    const newPeak = Math.max(runnerState.peak_pnl_pct, pnlPercentage);
+    const newTrailingStopLevel = newPeak - trailingDistancePct;
+    
+    trace.peak_pnl_after = newPeak;
+    trace.trailing_stop_level_pct = newTrailingStopLevel;
+    
+    // Check if trailing stop is hit
+    if (pnlPercentage <= newTrailingStopLevel && newTrailingStopLevel > 0) {
+      trace.is_trailing_hit = true;
+      trace.final_action = 'SELL_TRAILING';
+      trace.final_reason = `Trailing stop hit: PnL ${pnlPercentage.toFixed(2)}% <= trailing level ${newTrailingStopLevel.toFixed(2)}% (peak was ${newPeak.toFixed(2)}%)`;
+      
+      // Reset runner state after trailing stop hit
+      await resetRunnerState(supabaseClient, userId, strategyId, symbol);
+      
+      return {
+        shouldExit: true,
+        exitDecision: {
+          trigger: 'SELL_TRAILING_RUNNER',
+          context: 'RUNNER_TRAIL',
+          reason: trace.final_reason,
+        },
+        trace,
+      };
+    }
+    
+    // Update runner state with new peak
+    await updateRunnerState(supabaseClient, userId, strategyId, symbol, true, newPeak, trailingDistancePct, config);
+  }
+  
+  // ============= 3. TAKE PROFIT CHECK WITH BULL OVERRIDE =============
+  if (trace.is_tp_met) {
+    // TP condition met - check bull override
+    if (bullCheck.shouldRun) {
+      // BULL OVERRIDE: Don't sell, switch to runner mode
+      trace.bull_override = true;
+      trace.runner_mode_after = true;
+      trace.peak_pnl_after = Math.max(runnerState.peak_pnl_pct, pnlPercentage);
+      trace.trailing_stop_level_pct = trace.peak_pnl_after - trailingDistancePct;
+      trace.final_action = 'HOLD_RUNNER';
+      trace.final_reason = `Bull override: bullScore=${bullCheck.bullScore.toFixed(3)} >= ${bullCheck.threshold} → switching to RUNNER mode (trailing from ${trace.peak_pnl_after.toFixed(2)}%)`;
+      
+      // Persist runner mode
+      await updateRunnerState(supabaseClient, userId, strategyId, symbol, true, trace.peak_pnl_after, trailingDistancePct, config);
+      
+      console.log(`🏃 RUNNER MODE ACTIVATED for ${symbol}: bullScore=${bullCheck.bullScore.toFixed(3)}, peak=${trace.peak_pnl_after.toFixed(2)}%, trailing@${trace.trailing_stop_level_pct.toFixed(2)}%`);
+      
+      return {
+        shouldExit: false,
+        exitDecision: null,
+        trace,
+      };
+    } else {
+      // No bull override, normal TP sell
+      trace.final_action = 'SELL_TP';
+      trace.final_reason = `P&L ${pnlPercentage.toFixed(2)}% >= ${adjustedTakeProfit.toFixed(2)}% (TP hit, no bull override: bullScore=${bullCheck.bullScore.toFixed(3)} < ${bullCheck.threshold})`;
+      
+      // Reset runner state on TP exit
+      await resetRunnerState(supabaseClient, userId, strategyId, symbol);
+      
+      return {
+        shouldExit: true,
+        exitDecision: {
+          trigger: 'TAKE_PROFIT',
+          context: 'AUTO_TP',
+          reason: trace.final_reason,
+        },
+        trace,
+      };
     }
   }
+  
+  // ============= 4. NO EXIT - CONTINUE HOLDING =============
+  // Determine blocking reason
+  if (!hasTPConfigured) {
+    trace.final_reason = 'tp_not_configured';
+  } else if (pnlPercentage < adjustedTakeProfit) {
+    trace.final_reason = `pnl_below_tp:${pnlPercentage.toFixed(4)}%_<_${adjustedTakeProfit.toFixed(4)}%`;
+  }
+  
+  // If in runner mode, update peak tracking
+  if (runnerState.runner_mode && pnlPercentage > runnerState.peak_pnl_pct) {
+    trace.peak_pnl_after = pnlPercentage;
+    trace.trailing_stop_level_pct = pnlPercentage - trailingDistancePct;
+    await updateRunnerState(supabaseClient, userId, strategyId, symbol, true, pnlPercentage, trailingDistancePct, config);
+  }
+  
+  return {
+    shouldExit: false,
+    exitDecision: null,
+    trace,
+  };
+}
 
-  return null; // No exit condition met
+// ============= RUNNER STATE HELPERS =============
+async function getOrCreateRunnerState(
+  supabaseClient: any,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  currentPnl: number,
+  trailingDistancePct: number,
+  config: any
+): Promise<RunnerState> {
+  // Check coin_pool_states table
+  const { data: existing, error } = await supabaseClient
+    .from('coin_pool_states')
+    .select('is_armed, high_water_price, last_trailing_stop_price, config_snapshot')
+    .eq('user_id', userId)
+    .eq('strategy_id', strategyId)
+    .eq('symbol', symbol)
+    .maybeSingle();
+  
+  if (error) {
+    console.warn(`[RunnerState] Error fetching state for ${symbol}:`, error);
+  }
+  
+  if (existing) {
+    // Use is_armed as runner_mode, high_water_price as peak
+    const storedPeak = existing.config_snapshot?.peak_pnl_pct ?? 0;
+    const storedTrailing = existing.config_snapshot?.trailing_distance_pct ?? trailingDistancePct;
+    
+    return {
+      runner_mode: existing.is_armed || false,
+      peak_pnl_pct: storedPeak,
+      trailing_distance_pct: storedTrailing,
+      trailing_stop_level_pct: storedPeak - storedTrailing,
+    };
+  }
+  
+  // No existing state - return default (not in runner mode)
+  return {
+    runner_mode: false,
+    peak_pnl_pct: Math.max(0, currentPnl),
+    trailing_distance_pct: trailingDistancePct,
+    trailing_stop_level_pct: Math.max(0, currentPnl) - trailingDistancePct,
+  };
+}
+
+async function updateRunnerState(
+  supabaseClient: any,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  runnerMode: boolean,
+  peakPnl: number,
+  trailingDistancePct: number,
+  config: any
+): Promise<void> {
+  const configSnapshot = {
+    runner_mode: runnerMode,
+    peak_pnl_pct: peakPnl,
+    trailing_distance_pct: trailingDistancePct,
+    trailing_stop_level_pct: peakPnl - trailingDistancePct,
+    updated_at: new Date().toISOString(),
+  };
+  
+  const { error } = await supabaseClient
+    .from('coin_pool_states')
+    .upsert({
+      user_id: userId,
+      strategy_id: strategyId,
+      symbol: symbol,
+      is_armed: runnerMode,
+      high_water_price: null, // We use config_snapshot for PnL tracking
+      last_trailing_stop_price: null,
+      config_snapshot: configSnapshot,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'user_id,strategy_id,symbol',
+    });
+  
+  if (error) {
+    console.warn(`[RunnerState] Error updating state for ${symbol}:`, error);
+  } else {
+    console.log(`[RunnerState] Updated ${symbol}: runnerMode=${runnerMode}, peak=${peakPnl.toFixed(2)}%`);
+  }
+}
+
+async function resetRunnerState(
+  supabaseClient: any,
+  userId: string,
+  strategyId: string,
+  symbol: string
+): Promise<void> {
+  const { error } = await supabaseClient
+    .from('coin_pool_states')
+    .update({
+      is_armed: false,
+      config_snapshot: {
+        runner_mode: false,
+        peak_pnl_pct: 0,
+        trailing_distance_pct: 0.6,
+        trailing_stop_level_pct: 0,
+        reset_at: new Date().toISOString(),
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', userId)
+    .eq('strategy_id', strategyId)
+    .eq('symbol', symbol);
+  
+  if (error) {
+    console.warn(`[RunnerState] Error resetting state for ${symbol}:`, error);
+  } else {
+    console.log(`[RunnerState] Reset runner state for ${symbol}`);
+  }
 }
