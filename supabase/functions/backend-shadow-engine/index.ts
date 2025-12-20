@@ -525,7 +525,7 @@ serve(async (req) => {
             const timestamp = Date.now();
             const idempotencyKey = `exit_${userId}_${strategy.id}_${baseSymbol}_${exitResult.exitDecision.trigger}_${timestamp}`;
             
-            // Build SELL intent
+            // Build SELL intent with position debug snapshot for coordinator
             const sellIntent = {
               userId,
               strategyId: strategy.id,
@@ -551,6 +551,18 @@ serve(async (req) => {
                 origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
                 exit_type: 'automatic',
                 exit_trace: exitResult.trace,
+                // ============= POSITION DEBUG SNAPSHOT (for positionNotFound debugging) =============
+                position_snapshot: {
+                  totalAmount: position.totalAmount,
+                  averagePrice: position.averagePrice,
+                  oldestPurchaseDate: position.oldestPurchaseDate,
+                  tradeIds_count: position.tradeIds?.length || 0,
+                  tradeIds_sample: position.tradeIds?.slice(0, 3) || [],
+                },
+                symbol_raw: position.cryptocurrency,
+                symbol_normalized: baseSymbol,
+                exit_trigger: exitResult.exitDecision.trigger,
+                exit_context: exitResult.exitDecision.context,
               },
               ts: new Date().toISOString(),
               idempotencyKey,

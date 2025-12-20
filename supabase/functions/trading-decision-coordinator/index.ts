@@ -3908,15 +3908,19 @@ async function detectConflicts(
   // =====================================================================
   // ALL-TIME TRADES QUERY: For position existence check (SELL validation)
   // This query has NO time filter - positions are BUYs minus SELLs ALL TIME
+  // IMPORTANT: Query BOTH symbol formats since mock_trades may store either
   // =====================================================================
   const isTestMode = intent.metadata?.is_test_mode ?? false;
+  
+  // Query both symbol formats: "XRP" and "XRP-EUR" since data may be stored either way
+  const symbolVariantsForPosition = [baseSymbol, `${baseSymbol}-EUR`];
   
   const { data: allTradesForSymbol, error: allTradesError } = await supabaseClient
     .from('mock_trades')
     .select('trade_type, cryptocurrency, amount, executed_at')
     .eq('user_id', intent.userId)
     .eq('strategy_id', intent.strategyId)
-    .eq('cryptocurrency', baseSymbol)
+    .in('cryptocurrency', symbolVariantsForPosition)
     .eq('is_test_mode', isTestMode);
     // IMPORTANT: No .gte('executed_at', ...) here - all-time for position existence
 
@@ -3929,14 +3933,21 @@ async function detectConflicts(
   // Calculate net position using the shared helper
   const netPosition = calculateNetPositionForSymbol(allTrades, baseSymbol);
   
+  // Enhanced debug logging for position lookup
   console.log('[COORD][POSITIONS] netPosition', {
     userId: intent.userId.substring(0, 8) + '...',
     strategyId: intent.strategyId.substring(0, 8) + '...',
     baseSymbol,
+    symbolVariantsQueried: symbolVariantsForPosition,
+    isTestMode,
     netPosition: netPosition.toFixed(8),
     tradeCount: allTrades.length,
     buys: allTrades.filter(t => t.trade_type === 'buy').length,
     sells: allTrades.filter(t => t.trade_type === 'sell').length,
+    // Debug: Show what symbols were actually found
+    foundSymbols: [...new Set(allTrades.map(t => t.cryptocurrency))],
+    // Debug: position_snapshot from intent if present (sent by backend)
+    position_snapshot_from_backend: intent.metadata?.position_snapshot || null,
   });
 
   // =====================================================================
@@ -3987,11 +3998,23 @@ async function detectConflicts(
     if (!isPositionManagement) {
       // STEP 1: Check if position EXISTS (all-time net position > 0)
       if (netPosition <= 0) {
-        console.log('[COORD][GUARD] positionNotFound', {
+        // Enhanced debug logging for positionNotFound
+        console.log('[COORD][GUARD] positionNotFound - DETAILED DEBUG', {
           userId: intent.userId.substring(0, 8) + '...',
           strategyId: intent.strategyId.substring(0, 8) + '...',
           baseSymbol,
+          symbolVariantsQueried: [baseSymbol, `${baseSymbol}-EUR`],
+          isTestMode,
           netPosition: netPosition.toFixed(8),
+          tradesFoundCount: allTrades.length,
+          buysFoundCount: allTrades.filter(t => t.trade_type === 'buy').length,
+          sellsFoundCount: allTrades.filter(t => t.trade_type === 'sell').length,
+          foundSymbolsInDB: [...new Set(allTrades.map(t => t.cryptocurrency))],
+          // Backend snapshot for correlation
+          position_snapshot_from_backend: intent.metadata?.position_snapshot || 'NOT_PROVIDED',
+          symbol_raw_from_backend: intent.metadata?.symbol_raw || 'NOT_PROVIDED',
+          symbol_normalized_from_backend: intent.metadata?.symbol_normalized || 'NOT_PROVIDED',
+          exit_trigger: intent.metadata?.exit_trigger || intent.reason,
         });
         guardReport.positionNotFound = true;
         return { hasConflict: true, reason: 'no_position_found', guardReport };
