@@ -572,6 +572,10 @@ serve(async (req) => {
                   strategyId: strategy.id,
                   strategyName: strategy.strategy_name,
                   shadow_only: true,
+                  // ============= EXECUTION TRUTH FIELDS (SELL SHADOW) =============
+                  intent_side: 'SELL',
+                  execution_status: 'SHADOW_ONLY',
+                  execution_reason: null,
                 }
               });
             } else {
@@ -593,7 +597,15 @@ serve(async (req) => {
                   confidence: 0.95,
                   wouldExecute: false,
                   timestamp: new Date().toISOString(),
-                  metadata: { error: coordError, trigger: exitResult.exitDecision.trigger, exit_trace: exitResult.trace }
+                  metadata: { 
+                    error: coordError, 
+                    trigger: exitResult.exitDecision.trigger, 
+                    exit_trace: exitResult.trace,
+                    // ============= EXECUTION TRUTH FIELDS (SELL ERROR) =============
+                    intent_side: 'SELL',
+                    execution_status: 'BLOCKED',
+                    execution_reason: `error: ${coordError.message || 'coordinator_error'}`,
+                  }
                 });
               } else {
                 let parsed = coordinatorResponse;
@@ -603,19 +615,30 @@ serve(async (req) => {
                 const decision = parsed?.decision || parsed;
                 const action = decision?.action || 'UNKNOWN';
                 
+                // Determine execution status for SELL
+                const sellWasExecuted = action === 'SELL';
+                const sellExecutionStatus: 'EXECUTED' | 'BLOCKED' | 'DEFERRED' = 
+                  sellWasExecuted ? 'EXECUTED' :
+                  action === 'DEFER' ? 'DEFERRED' : 'BLOCKED';
+                const sellExecutionReason = sellWasExecuted ? null : (decision?.reason || exitResult.exitDecision.trigger);
+                
                 allDecisions.push({
                   symbol: baseSymbol,
                   side: 'SELL',
                   action,
                   reason: exitResult.exitDecision.trigger,
                   confidence: 0.95,
-                  wouldExecute: action === 'SELL',
+                  wouldExecute: sellWasExecuted,
                   timestamp: new Date().toISOString(),
                   metadata: {
                     ...sellIntent.metadata,
                     strategyId: strategy.id,
                     strategyName: strategy.strategy_name,
                     coordinatorResponse: decision,
+                    // ============= EXECUTION TRUTH FIELDS (SELL LIVE) =============
+                    intent_side: 'SELL',
+                    execution_status: sellExecutionStatus,
+                    execution_reason: sellExecutionReason,
                   }
                 });
               }
@@ -636,6 +659,10 @@ serve(async (req) => {
                 exit_trace: exitResult.trace,
                 origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
                 exit_evaluation: true,
+                // ============= EXECUTION TRUTH FIELDS (HOLD/NO_EXIT) =============
+                intent_side: 'HOLD',
+                execution_status: 'SKIPPED',
+                execution_reason: exitResult.trace.final_reason,
               }
             });
           }
@@ -672,7 +699,13 @@ serve(async (req) => {
               confidence: 0,
               wouldExecute: false,
               timestamp: new Date().toISOString(),
-              metadata: { priceError: true }
+              metadata: { 
+                priceError: true,
+                // ============= EXECUTION TRUTH FIELDS (SKIP/NO_PRICE) =============
+                intent_side: 'HOLD',
+                execution_status: 'SKIPPED',
+                execution_reason: 'no_valid_price',
+              }
             });
             continue;
           }
@@ -751,6 +784,10 @@ serve(async (req) => {
                 signals: signalScores,
                 enterThreshold,
                 engineMode: BACKEND_ENGINE_MODE,
+                // ============= EXECUTION TRUTH FIELDS (SKIP/CONDITIONS) =============
+                intent_side: 'HOLD',
+                execution_status: 'SKIPPED',
+                execution_reason: skipReason,
               }
             });
             continue;
