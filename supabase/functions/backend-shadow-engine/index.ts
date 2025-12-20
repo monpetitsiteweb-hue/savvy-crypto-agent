@@ -831,8 +831,26 @@ serve(async (req) => {
 
           console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → action=${action}, reason=${reason}`);
 
-          const wouldExecute = action === 'BUY';
-          let side: 'BUY' | 'SELL' | 'HOLD' = action === 'BUY' ? 'BUY' : 'HOLD';
+          // ============= EXECUTION STATUS TRUTH =============
+          // Determine execution status based on coordinator response
+          // EXECUTED = trade was inserted into mock_trades
+          // BLOCKED = trade was blocked by exposure/guard/policy
+          // DEFERRED = trade was deferred for retry
+          const isBlocked = action === 'DEFER' || action === 'BLOCK' || action === 'HOLD';
+          const wasExecuted = action === 'BUY' || action === 'SELL';
+          
+          const execution_status: 'EXECUTED' | 'BLOCKED' | 'DEFERRED' = 
+            wasExecuted ? 'EXECUTED' :
+            action === 'DEFER' ? 'DEFERRED' : 'BLOCKED';
+          
+          const execution_reason = wasExecuted ? null : reason;
+          
+          // wouldExecute = true ONLY if execution actually happened
+          const wouldExecute = wasExecuted;
+          
+          // side = the INTENT (what the engine wanted to do) - always BUY for entry signals
+          // The execution_status tells what ACTUALLY happened
+          const side: 'BUY' | 'SELL' | 'HOLD' = 'BUY';
 
           allDecisions.push({
             symbol: baseSymbol,
@@ -853,6 +871,10 @@ serve(async (req) => {
               engineMode: BACKEND_ENGINE_MODE,
               effectiveShadowMode,
               userAllowedForLive: isUserAllowedForLive,
+              // ============= EXECUTION TRUTH FIELDS =============
+              execution_status,
+              execution_reason,
+              intent_side: 'BUY',
             }
           });
 
@@ -872,19 +894,20 @@ serve(async (req) => {
       }
     }
 
-    // Step 4: Compute summary
+    // Step 4: Compute summary with explicit execution status
     const summary = {
+      executed: allDecisions.filter(d => d.metadata?.execution_status === 'EXECUTED').length,
+      blocked: allDecisions.filter(d => d.metadata?.execution_status === 'BLOCKED').length,
+      deferred: allDecisions.filter(d => d.metadata?.execution_status === 'DEFERRED').length,
       wouldBuy: allDecisions.filter(d => d.side === 'BUY' && d.wouldExecute).length,
       wouldSell: allDecisions.filter(d => d.side === 'SELL' && d.wouldExecute).length,
       wouldHold: allDecisions.filter(d => d.side === 'HOLD' || !d.wouldExecute).length,
       total: allDecisions.length,
-      deferred: allDecisions.filter(d => d.action === 'DEFER').length,
-      blocked: allDecisions.filter(d => d.action === 'BLOCK').length,
       holdRunner: allDecisions.filter(d => d.action === 'HOLD_RUNNER').length,
     };
 
     const elapsed_ms = Date.now() - startTime;
-    console.log(`🌑 ${BACKEND_ENGINE_MODE}: Completed in ${elapsed_ms}ms → wouldBuy=${summary.wouldBuy}, wouldSell=${summary.wouldSell}, wouldHold=${summary.wouldHold}, holdRunner=${summary.holdRunner}`);
+    console.log(`🌑 ${BACKEND_ENGINE_MODE}: Completed in ${elapsed_ms}ms → executed=${summary.executed}, blocked=${summary.blocked}, deferred=${summary.deferred}, holdRunner=${summary.holdRunner}`);
 
     // Step 5: Log all decisions to decision_events table for observability
     for (const dec of allDecisions) {
