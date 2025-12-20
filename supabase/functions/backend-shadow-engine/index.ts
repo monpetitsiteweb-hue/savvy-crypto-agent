@@ -394,11 +394,42 @@ serve(async (req) => {
           const pnlPercentage = ((currentPrice - position.averagePrice) / position.averagePrice) * 100;
           const hoursSincePurchase = (Date.now() - new Date(position.oldestPurchaseDate).getTime()) / (1000 * 60 * 60);
           
+          // ============= TP EXIT TRACE: Build structured trace for observability =============
+          const epsilonPnLBufferPct = config.epsilonPnLBufferPct || 0.03;
+          const configuredTP = config.takeProfitPercentage;
+          const hasTPConfigured = typeof configuredTP === 'number' && configuredTP > 0;
+          const adjustedTakeProfit = hasTPConfigured ? Math.abs(configuredTP) + epsilonPnLBufferPct : 0;
+          const isTpConditionMet = hasTPConfigured && pnlPercentage >= adjustedTakeProfit;
+          
+          const tpExitTrace = {
+            symbol: baseSymbol,
+            strategy_id: strategy.id,
+            entry_price_used: position.averagePrice,
+            current_price_used: currentPrice,
+            pnl_pct_used_by_engine: parseFloat(pnlPercentage.toFixed(4)),
+            take_profit_pct_config: configuredTP || null,
+            take_profit_pct_effective: adjustedTakeProfit,
+            epsilon_buffer_pct: epsilonPnLBufferPct,
+            is_tp_condition_met: isTpConditionMet,
+            hours_since_purchase: parseFloat(hoursSincePurchase.toFixed(2)),
+            auto_close_hours_config: config.autoCloseAfterHours || null,
+            stop_loss_pct_config: config.stopLossPercentage || null,
+            final_decision: 'PENDING', // Will be updated below
+            final_blocking_reason: null as string | null,
+            context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+            ud_mode_if_any: strategy.unified_config?.enableUnifiedDecisions ?? null,
+            evaluated_at: new Date().toISOString(),
+          };
+          
           // Evaluate exit conditions
           const exitDecision = evaluateExitConditions(config, position, currentPrice, pnlPercentage, hoursSincePurchase);
           
           if (exitDecision) {
+            tpExitTrace.final_decision = 'EXECUTE';
+            tpExitTrace.final_blocking_reason = null;
+            
             console.log(`🌑 ${BACKEND_ENGINE_MODE}: EXIT TRIGGERED for ${baseSymbol} - trigger=${exitDecision.trigger}, pnl=${pnlPercentage.toFixed(2)}%`);
+            console.log(`📊 TP_EXIT_TRACE [${baseSymbol}]:`, JSON.stringify(tpExitTrace));
             
             // Generate unique identifiers
             const backendRequestId = crypto.randomUUID();
@@ -433,6 +464,8 @@ serve(async (req) => {
                 // PHASE S3: Mark as backend auto-exit
                 origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
                 exit_type: 'automatic',
+                // Include tp_exit_trace for full observability
+                tp_exit_trace: tpExitTrace,
               },
               ts: new Date().toISOString(),
               idempotencyKey,
@@ -475,7 +508,7 @@ serve(async (req) => {
                   confidence: 0.95,
                   wouldExecute: false,
                   timestamp: new Date().toISOString(),
-                  metadata: { error: coordError, trigger: exitDecision.trigger }
+                  metadata: { error: coordError, trigger: exitDecision.trigger, tp_exit_trace: tpExitTrace }
                 });
               } else {
                 let parsed = coordinatorResponse;
@@ -502,6 +535,58 @@ serve(async (req) => {
                 });
               }
             }
+          } else {
+            // ============= NO EXIT TRIGGERED: Log trace for observability =============
+            // Determine WHY no exit was triggered
+            let blockingReason = 'no_exit_condition_met';
+            
+            if (!hasTPConfigured) {
+              blockingReason = 'tp_not_configured';
+            } else if (pnlPercentage < adjustedTakeProfit) {
+              blockingReason = `pnl_below_tp_threshold:${pnlPercentage.toFixed(4)}_<_${adjustedTakeProfit.toFixed(4)}`;
+            }
+            
+            // Check SL
+            const configuredSL = config.stopLossPercentage;
+            const hasSLConfigured = typeof configuredSL === 'number' && configuredSL > 0;
+            const adjustedStopLoss = hasSLConfigured ? Math.abs(configuredSL) + epsilonPnLBufferPct : 0;
+            
+            if (hasSLConfigured && pnlPercentage > -adjustedStopLoss && pnlPercentage < adjustedTakeProfit) {
+              blockingReason = `in_range:sl=${(-adjustedStopLoss).toFixed(4)}_<_pnl=${pnlPercentage.toFixed(4)}_<_tp=${adjustedTakeProfit.toFixed(4)}`;
+            }
+            
+            // Check auto-close
+            const autoCloseHours = config.autoCloseAfterHours;
+            const isAutoCloseConfigured = typeof autoCloseHours === 'number' && autoCloseHours > 0;
+            if (isAutoCloseConfigured && hoursSincePurchase < autoCloseHours) {
+              // Auto-close not yet due
+              if (blockingReason === 'no_exit_condition_met') {
+                blockingReason = `auto_close_not_due:${hoursSincePurchase.toFixed(2)}h_<_${autoCloseHours}h`;
+              }
+            }
+            
+            tpExitTrace.final_decision = 'HOLD';
+            tpExitTrace.final_blocking_reason = blockingReason;
+            
+            console.log(`📊 TP_EXIT_TRACE [${baseSymbol}] NO_EXIT:`, JSON.stringify(tpExitTrace));
+            
+            // Log to decision_events for full observability (side='HOLD' with tp_exit_trace)
+            allDecisions.push({
+              symbol: baseSymbol,
+              side: 'HOLD',
+              action: 'NO_EXIT',
+              reason: blockingReason,
+              confidence: 0,
+              wouldExecute: false,
+              timestamp: new Date().toISOString(),
+              metadata: {
+                strategyId: strategy.id,
+                strategyName: strategy.strategy_name,
+                tp_exit_trace: tpExitTrace,
+                origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+                exit_evaluation: true,
+              }
+            });
           }
         } catch (exitErr) {
           console.error(`🌑 ${BACKEND_ENGINE_MODE}: Error evaluating exit for ${position.cryptocurrency}:`, exitErr);
@@ -865,16 +950,26 @@ serve(async (req) => {
 async function fetchOpenPositions(supabaseClient: any, userId: string, strategyId: string): Promise<OpenPosition[]> {
   try {
     // Fetch all BUY and SELL trades for this user/strategy
-    const { data: trades, error } = await supabaseClient
+    // Use aggregated query to avoid row limits - calculate net positions in DB
+    const { data: aggregatedPositions, error: aggError } = await supabaseClient
       .from('mock_trades')
-      .select('id, trade_type, cryptocurrency, amount, price, executed_at')
+      .select('cryptocurrency, trade_type, amount, price, executed_at')
       .eq('user_id', userId)
       .eq('strategy_id', strategyId)
       .eq('is_test_mode', true)
-      .order('executed_at', { ascending: true });
+      .order('executed_at', { ascending: true })
+      .limit(10000); // Explicit high limit to get all trades
 
-    if (error || !trades) {
-      console.error('Error fetching trades for positions:', error);
+    if (aggError) {
+      console.error('[fetchOpenPositions] Error fetching trades:', aggError);
+      return [];
+    }
+
+    const trades = aggregatedPositions || [];
+    console.log(`[fetchOpenPositions] Fetched ${trades.length} trades for strategy ${strategyId.substring(0, 8)}...`);
+
+    if (trades.length === 0) {
+      console.log('[fetchOpenPositions] No trades found');
       return [];
     }
 
