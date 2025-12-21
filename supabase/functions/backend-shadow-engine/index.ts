@@ -518,7 +518,45 @@ serve(async (req) => {
           console.log(`📊 EXIT_TRACE [${baseSymbol}]:`, JSON.stringify(exitResult.trace));
           
           if (exitResult.shouldExit && exitResult.exitDecision) {
-            console.log(`🌑 ${BACKEND_ENGINE_MODE}: EXIT TRIGGERED for ${baseSymbol} - trigger=${exitResult.exitDecision.trigger}, action=${exitResult.trace.final_action}`);
+            // ============= STALE POSITION GUARD: RE-VALIDATE BEFORE SELL =============
+            // Re-fetch net position from source of truth to prevent stale-position SELL attempts
+            const EPSILON = 1e-8;
+            const freshNetQty = await validateNetPosition(supabaseClient, userId, strategy.id, baseSymbol);
+            
+            if (freshNetQty <= EPSILON) {
+              // Position is closed - emit SKIP decision and clear runner state
+              console.log(`🛑 STALE_POSITION_GUARD [${baseSymbol}]: Net position is ${freshNetQty} <= epsilon, skipping SELL and clearing runner state`);
+              
+              // Clear stale runner/pool state to stop retrying forever
+              await resetRunnerState(supabaseClient, userId, strategy.id, baseSymbol);
+              
+              allDecisions.push({
+                symbol: baseSymbol,
+                side: 'HOLD',
+                action: 'SKIP_NO_POSITION',
+                reason: 'no_open_position',
+                confidence: 0,
+                wouldExecute: false,
+                timestamp: new Date().toISOString(),
+                metadata: {
+                  strategyId: strategy.id,
+                  strategyName: strategy.strategy_name,
+                  exit_trace: exitResult.trace,
+                  origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+                  stale_position_guard: true,
+                  cached_position_amount: position.totalAmount,
+                  fresh_net_qty: freshNetQty,
+                  epsilon: EPSILON,
+                  // ============= EXECUTION TRUTH FIELDS (STALE POSITION SKIP) =============
+                  intent_side: 'HOLD',
+                  execution_status: 'SKIPPED',
+                  execution_reason: 'no_open_position',
+                }
+              });
+              continue; // Skip to next position, don't emit SELL
+            }
+            
+            console.log(`🌑 ${BACKEND_ENGINE_MODE}: EXIT TRIGGERED for ${baseSymbol} - trigger=${exitResult.exitDecision.trigger}, action=${exitResult.trace.final_action} (freshNetQty=${freshNetQty.toFixed(8)})`);
             
             // Generate unique identifiers
             const backendRequestId = crypto.randomUUID();
@@ -1120,6 +1158,68 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
   } catch (err) {
     console.error('Error in fetchOpenPositions:', err);
     return [];
+  }
+}
+
+// ============= STALE POSITION GUARD: VALIDATE NET POSITION FROM SOURCE OF TRUTH =============
+/**
+ * Re-validate net position from mock_trades before emitting SELL intent.
+ * This prevents stale-position bugs where cached position data shows open position
+ * but actual net quantity is 0 (already sold).
+ * 
+ * @returns Net quantity (buy - sell) for the symbol. Returns 0 if position is closed.
+ */
+async function validateNetPosition(
+  supabaseClient: any,
+  userId: string,
+  strategyId: string,
+  symbol: string
+): Promise<number> {
+  try {
+    // Query mock_trades for fresh net position calculation
+    // Check both base symbol and -EUR suffix formats
+    const symbolVariants = [symbol, `${symbol}-EUR`, symbol.replace('-EUR', '')];
+    const uniqueSymbols = [...new Set(symbolVariants)];
+    
+    const { data: trades, error } = await supabaseClient
+      .from('mock_trades')
+      .select('trade_type, amount')
+      .eq('user_id', userId)
+      .eq('strategy_id', strategyId)
+      .eq('is_test_mode', true)
+      .in('cryptocurrency', uniqueSymbols);
+    
+    if (error) {
+      console.error(`[validateNetPosition] Error querying trades for ${symbol}:`, error);
+      // On error, return 0 to be safe and skip the SELL
+      return 0;
+    }
+    
+    if (!trades || trades.length === 0) {
+      console.log(`[validateNetPosition] No trades found for ${symbol}`);
+      return 0;
+    }
+    
+    let totalBuy = 0;
+    let totalSell = 0;
+    
+    for (const trade of trades) {
+      const amount = Number(trade.amount) || 0;
+      if (trade.trade_type === 'buy') {
+        totalBuy += amount;
+      } else if (trade.trade_type === 'sell') {
+        totalSell += amount;
+      }
+    }
+    
+    const netQty = totalBuy - totalSell;
+    console.log(`[validateNetPosition] ${symbol}: totalBuy=${totalBuy.toFixed(8)}, totalSell=${totalSell.toFixed(8)}, netQty=${netQty.toFixed(8)}`);
+    
+    return netQty;
+  } catch (err) {
+    console.error(`[validateNetPosition] Exception for ${symbol}:`, err);
+    // On exception, return 0 to be safe
+    return 0;
   }
 }
 
