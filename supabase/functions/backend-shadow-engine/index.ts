@@ -80,6 +80,7 @@ interface RunnerState {
   peak_pnl_pct: number;
   trailing_distance_pct: number;
   trailing_stop_level_pct: number;
+  runner_activated_at: string | null; // NEW: Track when runner mode was first activated
 }
 
 // ============= PHASE S2: EXIT CONTEXT TYPES =============
@@ -1348,26 +1349,54 @@ async function evaluateIntelligentExit(
       };
     }
     
-    // Update runner state with new peak
-    await updateRunnerState(supabaseClient, userId, strategyId, symbol, true, newPeak, trailingDistancePct, config);
+    // Update runner state with new peak (preserve activation timestamp)
+    const existingActivatedAt = runnerState.runner_activated_at ? new Date(runnerState.runner_activated_at).getTime() : null;
+    await updateRunnerState(supabaseClient, userId, strategyId, symbol, true, newPeak, trailingDistancePct, config, existingActivatedAt);
   }
   
   // ============= 3. TAKE PROFIT CHECK WITH BULL OVERRIDE =============
+  // NEW: maxBullOverrideDurationMs limits how long runner mode can stay active
+  const maxBullOverrideDurationMs = config.maxBullOverrideDurationMs ?? 14400000; // Default 4 hours
+  const runnerActivatedAt = runnerState.runner_activated_at ? new Date(runnerState.runner_activated_at).getTime() : null;
+  const runnerDurationMs = runnerActivatedAt ? (Date.now() - runnerActivatedAt) : 0;
+  const runnerExpired = runnerActivatedAt && runnerDurationMs > maxBullOverrideDurationMs;
+  
   if (trace.is_tp_met) {
-    // TP condition met - check bull override
-    if (bullCheck.shouldRun) {
+    // Check if runner mode has exceeded max duration
+    if (runnerState.runner_mode && runnerExpired) {
+      trace.final_action = 'SELL_TP';
+      trace.final_reason = `Bull override EXPIRED: runner active for ${Math.round(runnerDurationMs/60000)}min > max ${Math.round(maxBullOverrideDurationMs/60000)}min → forcing TP exit`;
+      
+      console.log(`⏰ RUNNER MODE EXPIRED for ${symbol}: active for ${Math.round(runnerDurationMs/60000)}min, max=${Math.round(maxBullOverrideDurationMs/60000)}min`);
+      
+      // Reset runner state on expiry
+      await resetRunnerState(supabaseClient, userId, strategyId, symbol);
+      
+      return {
+        shouldExit: true,
+        exitDecision: {
+          trigger: 'TAKE_PROFIT',
+          context: 'AUTO_TP',
+          reason: trace.final_reason,
+        },
+        trace,
+      };
+    }
+    
+    // TP condition met - check bull override (only if not expired)
+    if (bullCheck.shouldRun && !runnerExpired) {
       // BULL OVERRIDE: Don't sell, switch to runner mode
       trace.bull_override = true;
       trace.runner_mode_after = true;
       trace.peak_pnl_after = Math.max(runnerState.peak_pnl_pct, pnlPercentage);
       trace.trailing_stop_level_pct = trace.peak_pnl_after - trailingDistancePct;
       trace.final_action = 'HOLD_RUNNER';
-      trace.final_reason = `Bull override: bullScore=${bullCheck.bullScore.toFixed(3)} >= ${bullCheck.threshold} → switching to RUNNER mode (trailing from ${trace.peak_pnl_after.toFixed(2)}%)`;
+      trace.final_reason = `Bull override: bullScore=${bullCheck.bullScore.toFixed(3)} >= ${bullCheck.threshold} → switching to RUNNER mode (trailing from ${trace.peak_pnl_after.toFixed(2)}%, max duration=${Math.round(maxBullOverrideDurationMs/60000)}min)`;
       
-      // Persist runner mode
-      await updateRunnerState(supabaseClient, userId, strategyId, symbol, true, trace.peak_pnl_after, trailingDistancePct, config);
+      // Persist runner mode (with activation timestamp if not already set)
+      await updateRunnerState(supabaseClient, userId, strategyId, symbol, true, trace.peak_pnl_after, trailingDistancePct, config, runnerActivatedAt);
       
-      console.log(`🏃 RUNNER MODE ACTIVATED for ${symbol}: bullScore=${bullCheck.bullScore.toFixed(3)}, peak=${trace.peak_pnl_after.toFixed(2)}%, trailing@${trace.trailing_stop_level_pct.toFixed(2)}%`);
+      console.log(`🏃 RUNNER MODE ACTIVATED for ${symbol}: bullScore=${bullCheck.bullScore.toFixed(3)}, peak=${trace.peak_pnl_after.toFixed(2)}%, trailing@${trace.trailing_stop_level_pct.toFixed(2)}%, maxDuration=${Math.round(maxBullOverrideDurationMs/60000)}min`);
       
       return {
         shouldExit: false,
@@ -1375,9 +1404,10 @@ async function evaluateIntelligentExit(
         trace,
       };
     } else {
-      // No bull override, normal TP sell
+      // No bull override (or expired), normal TP sell
       trace.final_action = 'SELL_TP';
-      trace.final_reason = `P&L ${pnlPercentage.toFixed(2)}% >= ${adjustedTakeProfit.toFixed(2)}% (TP hit, no bull override: bullScore=${bullCheck.bullScore.toFixed(3)} < ${bullCheck.threshold})`;
+      const expiredSuffix = runnerExpired ? ' [runner expired]' : '';
+      trace.final_reason = `P&L ${pnlPercentage.toFixed(2)}% >= ${adjustedTakeProfit.toFixed(2)}% (TP hit, no bull override: bullScore=${bullCheck.bullScore.toFixed(3)} < ${bullCheck.threshold}${expiredSuffix})`;
       
       // Reset runner state on TP exit
       await resetRunnerState(supabaseClient, userId, strategyId, symbol);
@@ -1402,11 +1432,12 @@ async function evaluateIntelligentExit(
     trace.final_reason = `pnl_below_tp:${pnlPercentage.toFixed(4)}%_<_${adjustedTakeProfit.toFixed(4)}%`;
   }
   
-  // If in runner mode, update peak tracking
+  // If in runner mode, update peak tracking (preserve activation timestamp)
   if (runnerState.runner_mode && pnlPercentage > runnerState.peak_pnl_pct) {
     trace.peak_pnl_after = pnlPercentage;
     trace.trailing_stop_level_pct = pnlPercentage - trailingDistancePct;
-    await updateRunnerState(supabaseClient, userId, strategyId, symbol, true, pnlPercentage, trailingDistancePct, config);
+    const existingActivatedAt = runnerState.runner_activated_at ? new Date(runnerState.runner_activated_at).getTime() : null;
+    await updateRunnerState(supabaseClient, userId, strategyId, symbol, true, pnlPercentage, trailingDistancePct, config, existingActivatedAt);
   }
   
   return {
@@ -1443,12 +1474,14 @@ async function getOrCreateRunnerState(
     // Use is_armed as runner_mode, high_water_price as peak
     const storedPeak = existing.config_snapshot?.peak_pnl_pct ?? 0;
     const storedTrailing = existing.config_snapshot?.trailing_distance_pct ?? trailingDistancePct;
+    const storedActivatedAt = existing.config_snapshot?.runner_activated_at ?? null;
     
     return {
       runner_mode: existing.is_armed || false,
       peak_pnl_pct: storedPeak,
       trailing_distance_pct: storedTrailing,
       trailing_stop_level_pct: storedPeak - storedTrailing,
+      runner_activated_at: storedActivatedAt,
     };
   }
   
@@ -1458,6 +1491,7 @@ async function getOrCreateRunnerState(
     peak_pnl_pct: Math.max(0, currentPnl),
     trailing_distance_pct: trailingDistancePct,
     trailing_stop_level_pct: Math.max(0, currentPnl) - trailingDistancePct,
+    runner_activated_at: null,
   };
 }
 
@@ -1469,14 +1503,23 @@ async function updateRunnerState(
   runnerMode: boolean,
   peakPnl: number,
   trailingDistancePct: number,
-  config: any
+  config: any,
+  existingActivatedAt?: number | null // NEW: Pass existing activation time to preserve it
 ): Promise<void> {
+  // If entering runner mode for the first time, set activation timestamp
+  // If already in runner mode, preserve the original activation time
+  const now = new Date().toISOString();
+  const runnerActivatedAt = runnerMode 
+    ? (existingActivatedAt ? new Date(existingActivatedAt).toISOString() : now)
+    : null;
+  
   const configSnapshot = {
     runner_mode: runnerMode,
     peak_pnl_pct: peakPnl,
     trailing_distance_pct: trailingDistancePct,
     trailing_stop_level_pct: peakPnl - trailingDistancePct,
-    updated_at: new Date().toISOString(),
+    runner_activated_at: runnerActivatedAt, // NEW: Store activation timestamp
+    updated_at: now,
   };
   
   const { error } = await supabaseClient
@@ -1489,7 +1532,7 @@ async function updateRunnerState(
       high_water_price: null, // We use config_snapshot for PnL tracking
       last_trailing_stop_price: null,
       config_snapshot: configSnapshot,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     }, {
       onConflict: 'user_id,strategy_id,symbol',
     });
@@ -1497,7 +1540,8 @@ async function updateRunnerState(
   if (error) {
     console.warn(`[RunnerState] Error updating state for ${symbol}:`, error);
   } else {
-    console.log(`[RunnerState] Updated ${symbol}: runnerMode=${runnerMode}, peak=${peakPnl.toFixed(2)}%`);
+    const durationInfo = runnerActivatedAt ? `, activated_at=${runnerActivatedAt}` : '';
+    console.log(`[RunnerState] Updated ${symbol}: runnerMode=${runnerMode}, peak=${peakPnl.toFixed(2)}%${durationInfo}`);
   }
 }
 
