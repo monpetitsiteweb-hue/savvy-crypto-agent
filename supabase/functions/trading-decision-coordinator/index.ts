@@ -2671,7 +2671,171 @@ function cacheDecision(key: string, decision: TradeDecision): void {
   }
 }
 
+// =============================================================================
+// SELL CONTRACT (INVARIANT - applies to ALL paths, UD=ON or UD=OFF):
+// A SELL must always close BUY lots (FIFO), generate per-lot SELL rows,
+// and must NEVER insert an aggregated SELL without original_trade_id.
+// Each SELL row must have:
+//   - original_trade_id: UUID of the BUY lot being closed
+//   - original_purchase_amount: amount from the BUY lot
+//   - original_purchase_price: price from the BUY lot
+//   - original_purchase_value: entry value (amount * price)
+//   - exit_value: sell amount * exit price
+//   - realized_pnl: exit_value - original_purchase_value
+//   - realized_pnl_pct: (realized_pnl / original_purchase_value) * 100
+// =============================================================================
+
+// Helper: Reconstruct open lots from DB for a symbol (inlined for Deno compatibility)
+interface OpenLotFromDb {
+  lotId: string;
+  symbol: string;
+  entryPrice: number;
+  entryDate: string;
+  originalAmount: number;
+  remainingAmount: number;
+  entryValue: number;
+}
+
+async function reconstructOpenLotsFromDb(
+  supabaseClient: any,
+  userId: string,
+  strategyId: string,
+  baseSymbol: string
+): Promise<OpenLotFromDb[]> {
+  // Fetch all BUY trades for this symbol
+  const { data: buyTrades, error: buyError } = await supabaseClient
+    .from('mock_trades')
+    .select('id, cryptocurrency, amount, price, total_value, executed_at')
+    .eq('user_id', userId)
+    .eq('strategy_id', strategyId)
+    .in('cryptocurrency', [baseSymbol, `${baseSymbol}-EUR`])
+    .eq('trade_type', 'buy')
+    .order('executed_at', { ascending: true }); // FIFO order
+
+  if (buyError) {
+    console.error('[reconstructOpenLotsFromDb] Error fetching BUY trades:', buyError);
+    return [];
+  }
+
+  if (!buyTrades || buyTrades.length === 0) {
+    return [];
+  }
+
+  // Fetch all SELL trades that reference these BUYs
+  const buyIds = buyTrades.map((b: any) => b.id);
+  const { data: linkedSells, error: sellError } = await supabaseClient
+    .from('mock_trades')
+    .select('original_trade_id, amount')
+    .eq('user_id', userId)
+    .eq('strategy_id', strategyId)
+    .eq('trade_type', 'sell')
+    .in('original_trade_id', buyIds);
+
+  // Calculate sold amount per lot
+  const soldPerLot = new Map<string, number>();
+  if (linkedSells) {
+    for (const sell of linkedSells) {
+      if (sell.original_trade_id) {
+        const current = soldPerLot.get(sell.original_trade_id) || 0;
+        soldPerLot.set(sell.original_trade_id, current + parseFloat(sell.amount));
+      }
+    }
+  }
+
+  // Fetch unlinked SELLs (legacy, no original_trade_id) for FIFO deduction
+  const { data: unlinkedSells } = await supabaseClient
+    .from('mock_trades')
+    .select('amount, executed_at')
+    .eq('user_id', userId)
+    .eq('strategy_id', strategyId)
+    .in('cryptocurrency', [baseSymbol, `${baseSymbol}-EUR`])
+    .eq('trade_type', 'sell')
+    .is('original_trade_id', null)
+    .order('executed_at', { ascending: true });
+
+  // Apply FIFO for unlinked SELLs
+  const unlinkedSoldPerLot = new Map<string, number>();
+  if (unlinkedSells && unlinkedSells.length > 0) {
+    for (const sell of unlinkedSells) {
+      let remainingToDeduct = parseFloat(sell.amount);
+      for (const buy of buyTrades) {
+        if (remainingToDeduct <= 0.00000001) break;
+        const alreadySoldLinked = soldPerLot.get(buy.id) || 0;
+        const alreadySoldUnlinked = unlinkedSoldPerLot.get(buy.id) || 0;
+        const totalSold = alreadySoldLinked + alreadySoldUnlinked;
+        const available = parseFloat(buy.amount) - totalSold;
+        if (available > 0.00000001) {
+          const deduct = Math.min(remainingToDeduct, available);
+          unlinkedSoldPerLot.set(buy.id, alreadySoldUnlinked + deduct);
+          remainingToDeduct -= deduct;
+        }
+      }
+    }
+  }
+
+  // Build open lots
+  const openLots: OpenLotFromDb[] = [];
+  for (const buy of buyTrades) {
+    const soldLinked = soldPerLot.get(buy.id) || 0;
+    const soldUnlinked = unlinkedSoldPerLot.get(buy.id) || 0;
+    const totalSold = soldLinked + soldUnlinked;
+    const remaining = parseFloat(buy.amount) - totalSold;
+
+    if (remaining > 0.00000001) {
+      openLots.push({
+        lotId: buy.id,
+        symbol: toBaseSymbol(buy.cryptocurrency),
+        originalAmount: parseFloat(buy.amount),
+        remainingAmount: remaining,
+        entryPrice: parseFloat(buy.price),
+        entryValue: parseFloat(buy.total_value),
+        entryDate: buy.executed_at,
+      });
+    }
+  }
+
+  console.log(`[reconstructOpenLotsFromDb] Found ${openLots.length} open lots for ${baseSymbol}`);
+  openLots.forEach((lot, i) => {
+    console.log(`  [${i}] lotId=${lot.lotId.substring(0, 8)}... remaining=${lot.remainingAmount.toFixed(8)} entry=€${lot.entryPrice.toFixed(2)}`);
+  });
+
+  return openLots;
+}
+
+// Helper: Build per-lot sell orders from open lots (FIFO)
+interface PerLotSellOrder {
+  lotId: string;
+  amount: number;
+  entryPrice: number;
+  entryValue: number;
+}
+
+function buildPerLotSellOrdersForAmount(
+  openLots: OpenLotFromDb[],
+  amountToSell: number
+): PerLotSellOrder[] {
+  const orders: PerLotSellOrder[] = [];
+  let remaining = amountToSell;
+
+  for (const lot of openLots) {
+    if (remaining <= 0.00000001) break;
+    const takeAmount = Math.min(remaining, lot.remainingAmount);
+    if (takeAmount > 0.00000001) {
+      orders.push({
+        lotId: lot.lotId,
+        amount: takeAmount,
+        entryPrice: lot.entryPrice,
+        entryValue: takeAmount * lot.entryPrice,
+      });
+      remaining -= takeAmount;
+    }
+  }
+
+  return orders;
+}
+
 // Direct execution path (UD=OFF)
+// NOTE: This path now uses per-lot SELL mechanism identical to UD=ON path
 async function executeTradeDirectly(
   supabaseClient: any,
   intent: TradeIntent,
@@ -2839,78 +3003,189 @@ async function executeTradeDirectly(
         }
       }
     } else {
-      // STEP 3: PROVE WALLET/POSITION STATE for SELL orders
-      console.log('============ STEP 3: WALLET/POSITION STATE ============');
+      // =============================================================================
+      // STEP 3: PER-LOT SELL EXECUTION (UD=OFF path now uses same logic as UD=ON)
+      // =============================================================================
+      console.log('============ STEP 3: PER-LOT SELL EXECUTION ============');
       
-      // Query position aggregates for this symbol  
-      const { data: allTrades } = await supabaseClient
-        .from('mock_trades')
-        .select('trade_type, amount, cryptocurrency')
-        .eq('user_id', intent.userId)
-        .eq('strategy_id', intent.strategyId)
-        .in('cryptocurrency', [baseSymbol, `${baseSymbol}-EUR`]); // Check both forms for legacy compatibility
+      // Reconstruct open lots for this symbol
+      const openLots = await reconstructOpenLotsFromDb(
+        supabaseClient,
+        intent.userId,
+        intent.strategyId,
+        baseSymbol
+      );
       
-      let sumBuys = 0, sumSells = 0;
-      let buysBaseForm = 0, buysPairForm = 0, sellsBaseForm = 0, sellsPairForm = 0;
+      // Calculate net position from open lots
+      const netPosition = openLots.reduce((sum, lot) => sum + lot.remainingAmount, 0);
+      console.log('Open lots count:', openLots.length);
+      console.log('Net position from lots:', netPosition);
       
-      if (allTrades) {
-        allTrades.forEach(trade => {
-          const amount = parseFloat(trade.amount);
-          if (trade.cryptocurrency === baseSymbol) {
-            if (trade.trade_type === 'buy') {
-              buysBaseForm += amount;
-              sumBuys += amount;
-            } else {
-              sellsBaseForm += amount;
-              sumSells += amount;
-            }
-          } else if (trade.cryptocurrency === `${baseSymbol}-EUR`) {
-            if (trade.trade_type === 'buy') {
-              buysPairForm += amount;
-              sumBuys += amount;
-            } else {
-              sellsPairForm += amount; 
-              sumSells += amount;
-            }
-          }
-        });
-      }
-      
-      const netPosition = sumBuys - sumSells;
-      console.log('sum(buys):', sumBuys);
-      console.log('sum(sells):', sumSells);
-      console.log('net available_qty:', netPosition);
-      console.log('cryptocurrency key queried:', `both "${baseSymbol}" and "${baseSymbol}-EUR"`);
-      console.log(`Legacy data check: buys base=${buysBaseForm}, buys pair=${buysPairForm}, sells base=${sellsBaseForm}, sells pair=${sellsPairForm}`);
-      
-      if (netPosition <= 0) {
-        console.log(`🚫 DIRECT: SELL blocked - no position (net=${netPosition})`);
+      if (netPosition <= 0.00000001) {
+        console.log(`🚫 DIRECT: SELL blocked - no open lots (net=${netPosition})`);
         return { success: false, error: 'no_position_to_sell' };
       }
       
-      // For SELL orders, use the suggested quantity
-      qty = intent.qtySuggested || 0.001;
+      // Determine quantity to sell
+      const requestedQty = intent.qtySuggested || netPosition;
+      const sellQty = Math.min(requestedQty, netPosition);
+      
+      // Build per-lot SELL orders (FIFO)
+      const perLotOrders = buildPerLotSellOrdersForAmount(openLots, sellQty);
+      
+      if (perLotOrders.length === 0) {
+        console.log(`🚫 DIRECT: SELL blocked - no lots to close`);
+        return { success: false, error: 'no_lots_to_close' };
+      }
+      
+      // ANTI-REGRESSION GUARD: Verify all orders have original_trade_id
+      if (perLotOrders.some(o => !o.lotId)) {
+        throw new Error("INVALID SELL: original_trade_id (lotId) is mandatory - SELL contract violated");
+      }
+      
+      console.log(`[DIRECT] Generated ${perLotOrders.length} per-lot SELL orders for ${sellQty.toFixed(8)} ${baseSymbol}`);
+      perLotOrders.forEach((order, i) => {
+        console.log(`  [${i}] lotId=${order.lotId.substring(0, 8)}... amount=${order.amount.toFixed(8)} entry=€${order.entryPrice.toFixed(2)}`);
+      });
+      
+      // Build SELL rows with full FIFO fields
+      const executedAt = new Date().toISOString();
+      const sellRows = perLotOrders.map((order, index) => {
+        const exitValue = order.amount * realMarketPrice;
+        const realizedPnl = exitValue - order.entryValue;
+        const realizedPnlPct = order.entryValue > 0 ? (realizedPnl / order.entryValue) * 100 : 0;
+        
+        return {
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          trade_type: 'sell',
+          cryptocurrency: baseSymbol,
+          amount: order.amount,
+          price: realMarketPrice,
+          total_value: order.amount * realMarketPrice,
+          executed_at: executedAt,
+          is_test_mode: true,
+          notes: `Direct path: UD=OFF - Per-lot SELL [${index + 1}/${perLotOrders.length}]`,
+          strategy_trigger: `direct_${intent.source}|req:${requestId}|lot:${order.lotId.substring(0, 8)}`,
+          // MANDATORY FIFO FIELDS (SELL CONTRACT)
+          original_trade_id: order.lotId,
+          original_purchase_amount: order.amount,
+          original_purchase_price: order.entryPrice,
+          original_purchase_value: order.entryValue,
+          exit_value: Math.round(exitValue * 100) / 100,
+          realized_pnl: Math.round(realizedPnl * 100) / 100,
+          realized_pnl_pct: Math.round(realizedPnlPct * 100) / 100,
+        };
+      });
+      
+      // PHASE B: Dual-engine detection with origin tracking (log only, no blocking)
+      const currentOrigin = detectIntentOrigin(intent.metadata);
+      const dualCheck = await checkDualEngineConflict(supabaseClient, intent.userId, intent.strategyId, intent.symbol);
+      if (dualCheck.hasRecentTrade) {
+        logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
+      }
+      
+      // Insert all SELL rows
+      console.log('[DEBUG][executeTradeDirectly] Inserting', sellRows.length, 'per-lot SELL rows...');
+      const { data: insertResults, error: insertError } = await supabaseClient
+        .from('mock_trades')
+        .insert(sellRows)
+        .select('id');
+      
+      if (insertError) {
+        console.error('❌ DIRECT: Per-lot SELL insert failed:', insertError);
+        throw new Error(`Per-lot SELL insert failed: ${insertError.message}`);
+      }
+      
+      // Log success
+      console.log('============ STEP 4: PER-LOT WRITE SUCCESSFUL ============');
+      console.log(`Inserted ${insertResults?.length || 0} SELL rows for ${perLotOrders.length} lots`);
+      sellRows.forEach((row, i) => {
+        console.log(`  [${i}] lotId=${row.original_trade_id?.substring(0, 8)}... amount=${row.amount.toFixed(8)} pnl=€${row.realized_pnl?.toFixed(2)}`);
+      });
+      
+      const totalQty = sellRows.reduce((sum, r) => sum + r.amount, 0);
+      const totalPnl = sellRows.reduce((sum, r) => sum + (r.realized_pnl || 0), 0);
+      console.log(`📊 Total: qty=${totalQty.toFixed(8)}, pnl=€${totalPnl.toFixed(2)}`);
+      
+      // CASH LEDGER UPDATE: Credit SELL proceeds
+      const totalExitValue = sellRows.reduce((sum, r) => sum + (r.exit_value || r.total_value), 0);
+      const isTestMode = intent.metadata?.mode === 'mock' ||
+        strategyConfig?.is_test_mode === true ||
+        intent.metadata?.is_test_mode === true;
+      
+      const settleRes = await settleCashLedger(
+        supabaseClient,
+        intent.userId,
+        'SELL',
+        {
+          total_value: sellRows.reduce((sum, r) => sum + r.total_value, 0),
+          exit_value: totalExitValue,
+          fees: 0,
+          sell_fees: 0,
+        },
+        {
+          tradeId: insertResults?.[0]?.id,
+          path: 'direct_ud_off',
+          isTestMode,
+          strategyId: intent.strategyId,
+          symbol: baseSymbol,
+        }
+      );
+      
+      if (!settleRes?.success) {
+        console.error('❌ DIRECT: Cash ledger settlement failed:', settleRes);
+        
+        if (isTestMode) {
+          return { success: false, error: 'cash_ledger_settlement_failed' };
+        }
+        
+        // Log decision_event for audit
+        await supabaseClient.from('decision_events').insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          symbol: baseSymbol,
+          side: 'SELL',
+          source: 'coordinator_direct',
+          reason: 'cash_ledger_settle_failed',
+          decision_ts: new Date().toISOString(),
+          metadata: {
+            path: 'direct_ud_off',
+            trade_id: insertResults?.[0]?.id,
+            cash_before: settleRes?.cash_before,
+            delta: settleRes?.delta,
+            cash_after: settleRes?.cash_after,
+            error: settleRes?.error,
+            trade_inserted: true,
+            lots_sold: sellRows.length,
+          },
+        });
+      }
+      
+      qty = totalQty;
+      
+      console.log('✅ DIRECT: Per-lot SELL executed successfully');
+      console.log('============ STEP 5: FINAL DECISION ============');
+      console.log('decision.action: SELL');
+      console.log('decision.reason: unified_decisions_disabled_direct_path (per-lot)');
+      
+      return { success: true, qty: totalQty };
     }
     
+    // === BUY PATH CONTINUES HERE ===
     const totalValue = qty * realMarketPrice;
     
-    console.log(`💱 DIRECT: ${intent.side} ${qty} ${baseSymbol} at €${realMarketPrice} = €${totalValue}`);
+    console.log(`💱 DIRECT: BUY ${qty} ${baseSymbol} at €${realMarketPrice} = €${totalValue}`);
     
     // DEBUG INSTRUMENTATION: Track mock_trades insert attempt
-    console.log('[DEBUG][executeTradeDirectly] ========== MOCK_TRADES INSERT ==========');
-    console.log('[DEBUG][executeTradeDirectly] About to insert mock_trade');
-    console.log('[DEBUG][executeTradeDirectly] intent.side:', intent.side);
-    console.log('[DEBUG][executeTradeDirectly] qty:', qty);
-    console.log('[DEBUG][executeTradeDirectly] baseSymbol:', baseSymbol);
-    console.log('[DEBUG][executeTradeDirectly] realMarketPrice:', realMarketPrice);
-    console.log('[DEBUG][executeTradeDirectly] totalValue:', totalValue);
+    console.log('[DEBUG][executeTradeDirectly] ========== MOCK_TRADES BUY INSERT ==========');
     
-    // Insert trade record - store base symbol only
+    // Insert BUY trade record
     const mockTrade = {
       user_id: intent.userId,
       strategy_id: intent.strategyId,
-      trade_type: intent.side.toLowerCase(),
-      cryptocurrency: baseSymbol, // Store base symbol only
+      trade_type: 'buy',
+      cryptocurrency: baseSymbol,
       amount: qty,
       price: realMarketPrice,
       total_value: totalValue,
@@ -2919,9 +3194,6 @@ async function executeTradeDirectly(
       notes: `Direct path: UD=OFF`,
       strategy_trigger: `direct_${intent.source}|req:${requestId}`
     };
-
-    console.log('[DEBUG][executeTradeDirectly] mockTrade payload:', JSON.stringify(mockTrade, null, 2));
-    console.log('[DEBUG][executeTradeDirectly] Calling supabaseClient.from("mock_trades").insert()...');
 
     // PHASE B: Dual-engine detection with origin tracking (log only, no blocking)
     const currentOrigin = detectIntentOrigin(intent.metadata);
@@ -2935,8 +3207,6 @@ async function executeTradeDirectly(
       .insert(mockTrade)
       .select('id');
 
-    console.log('[DEBUG][executeTradeDirectly] Insert result - error:', error ? JSON.stringify(error) : 'null (success)');
-
     if (error) {
       console.log('============ STEP 4: WRITE FAILED ============');
       console.log('DB insert error:', error);
@@ -2945,58 +3215,39 @@ async function executeTradeDirectly(
 
     const insertedTradeId = insertResult?.[0]?.id ?? null;
 
-    // STEP 4: PROVE THE WRITE - log successful insert
-    console.log('============ STEP 4: WRITE SUCCESSFUL ============');
-    console.log('Inserted mockTrade:', JSON.stringify(mockTrade, null, 2));
+    // STEP 4: PROVE THE WRITE
+    console.log('============ STEP 4: BUY WRITE SUCCESSFUL ============');
     console.log('Inserted trade ID:', insertedTradeId ?? 'ID_NOT_RETURNED');
 
-    // Query back the inserted row for confirmation + settlement values (exit_value, fees)
+    // Query back the inserted row for settlement
     const { data: insertedRow, error: insertedReadError } = await supabaseClient
       .from('mock_trades')
-      .select('id, cryptocurrency, trade_type, amount, total_value, exit_value, fees, buy_fees, sell_fees')
-      .eq('user_id', intent.userId)
-      .eq('trade_type', intent.side.toLowerCase())
-      .order('executed_at', { ascending: false })
-      .limit(1);
+      .select('id, cryptocurrency, trade_type, amount, total_value, fees, buy_fees')
+      .eq('id', insertedTradeId)
+      .single();
 
-    if (insertedReadError) {
-      console.error('[DEBUG][executeTradeDirectly] Failed to read back inserted row:', insertedReadError);
-      if (intent.metadata?.is_test_mode === true || intent.metadata?.mode === 'mock' || strategyConfig?.is_test_mode) {
-        return { success: false, error: 'cash_ledger_settlement_failed' };
-      }
-    }
-
-    const tradeRow = insertedRow?.[0];
-
-    if (!tradeRow?.id) {
-      console.error('[DEBUG][executeTradeDirectly] Could not query back inserted row for settlement');
+    if (insertedReadError || !insertedRow?.id) {
+      console.error('[DEBUG][executeTradeDirectly] Failed to read back inserted row');
       if (intent.metadata?.is_test_mode === true || intent.metadata?.mode === 'mock' || strategyConfig?.is_test_mode) {
         return { success: false, error: 'cash_ledger_settlement_failed' };
       }
     } else {
-      console.log('Echo inserted fields:', tradeRow);
-
-      // ================= CASH LEDGER UPDATE (DIRECT / UD=OFF) =================
-      const isTestMode =
-        intent.metadata?.mode === 'mock' ||
+      // CASH LEDGER UPDATE (BUY)
+      const isTestMode = intent.metadata?.mode === 'mock' ||
         strategyConfig?.is_test_mode === true ||
         intent.metadata?.is_test_mode === true;
 
       const settleRes = await settleCashLedger(
         supabaseClient,
         intent.userId,
-        intent.side as 'BUY' | 'SELL',
+        'BUY',
         {
-          // BUY: actual_spent should be total_value (+fees if ever used)
-          // SELL: proceeds should use exit_value if available else total_value - fees
-          total_value: Number(tradeRow.total_value) || 0,
-          exit_value: tradeRow.exit_value ?? undefined,
-          fees: tradeRow.fees ?? 0,
-          buy_fees: tradeRow.buy_fees ?? 0,
-          sell_fees: tradeRow.sell_fees ?? 0,
+          total_value: Number(insertedRow.total_value) || 0,
+          fees: insertedRow.fees ?? 0,
+          buy_fees: insertedRow.buy_fees ?? 0,
         },
         {
-          tradeId: tradeRow.id,
+          tradeId: insertedRow.id,
           path: 'direct_ud_off',
           isTestMode,
           strategyId: intent.strategyId,
@@ -3006,40 +3257,15 @@ async function executeTradeDirectly(
 
       if (!settleRes?.success) {
         console.error('❌ DIRECT: Cash ledger settlement failed:', settleRes);
-
-        // CRITICAL: in TEST MODE, hard-fail so we never mask wrong balances
         if (isTestMode) {
           return { success: false, error: 'cash_ledger_settlement_failed' };
         }
-
-        // In non-test, log cash_ledger_settle_failed decision_event
-        await supabaseClient.from('decision_events').insert({
-          user_id: intent.userId,
-          strategy_id: intent.strategyId,
-          symbol: baseSymbol,
-          side: intent.side,
-          source: 'coordinator_direct',
-          reason: 'cash_ledger_settle_failed',
-          decision_ts: new Date().toISOString(),
-          metadata: {
-            path: 'direct_ud_off',
-            trade_id: tradeRow.id,
-            cash_before: settleRes?.cash_before,
-            delta: settleRes?.delta,
-            cash_after: settleRes?.cash_after,
-            error: settleRes?.error,
-            trade_inserted: true,
-          },
-        });
       }
-      // ================= END CASH LEDGER UPDATE =================
     }
 
-    console.log('✅ DIRECT: Trade executed successfully');
-
-    // STEP 5: FINAL DECISION - log for user
+    console.log('✅ DIRECT: BUY executed successfully');
     console.log('============ STEP 5: FINAL DECISION ============');
-    console.log('decision.action:', intent.side);
+    console.log('decision.action: BUY');
     console.log('decision.reason: unified_decisions_disabled_direct_path');
 
     return { success: true, qty };
