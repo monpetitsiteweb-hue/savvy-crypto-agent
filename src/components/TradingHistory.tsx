@@ -269,6 +269,16 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
         return;
       }
 
+      // Get live price from shared market data (required by coordinator fast-path)
+      const pairSymbol = toPairSymbol(base);
+      const liveData = marketData[pairSymbol];
+      const currentPrice = liveData?.price;
+      
+      if (!currentPrice || currentPrice <= 0) {
+        toast({ title: 'Sell Failed', description: 'Live market price not available. Please wait and try again.', variant: 'destructive' });
+        return;
+      }
+
       // Build payload - SELL entire position (not partial)
       const sellPayload = {
         userId: user.id,
@@ -287,6 +297,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           originalTradeId: trade.id, // Link to specific BUY trade
           uiTimestamp: new Date().toISOString(),
           force: true,
+          currentPrice, // CRITICAL: Required by coordinator fast-path
         },
         idempotencyKey: `manual_${user.id}_${trade.id}_${Date.now()}`,
       };
