@@ -1072,24 +1072,37 @@ serve(async (req) => {
 });
 
 // ============= PHASE S2: FETCH OPEN POSITIONS =============
+// IMPORTANT: Supabase caps queries at 1000 rows by default. Use pagination.
 async function fetchOpenPositions(supabaseClient: any, userId: string, strategyId: string): Promise<OpenPosition[]> {
   try {
-    const { data: aggregatedPositions, error: aggError } = await supabaseClient
-      .from('mock_trades')
-      .select('cryptocurrency, trade_type, amount, price, executed_at, id')
-      .eq('user_id', userId)
-      .eq('strategy_id', strategyId)
-      .eq('is_test_mode', true)
-      .order('executed_at', { ascending: true })
-      .limit(10000);
+    const PAGE_SIZE = 1000;
+    let allTrades: any[] = [];
+    let offset = 0;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const { data: pageTrades, error: pageError } = await supabaseClient
+        .from('mock_trades')
+        .select('cryptocurrency, trade_type, amount, price, executed_at, id')
+        .eq('user_id', userId)
+        .eq('strategy_id', strategyId)
+        .eq('is_test_mode', true)
+        .order('executed_at', { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1);
 
-    if (aggError) {
-      console.error('[fetchOpenPositions] Error fetching trades:', aggError);
-      return [];
+      if (pageError) {
+        console.error('[fetchOpenPositions] Error fetching trades page:', pageError);
+        break;
+      }
+      const fetchedCount = pageTrades?.length || 0;
+      if (fetchedCount > 0) allTrades = allTrades.concat(pageTrades);
+      hasMore = fetchedCount === PAGE_SIZE;
+      offset += PAGE_SIZE;
+      if (offset > 50000) break; // Safety limit
     }
 
-    const trades = aggregatedPositions || [];
-    console.log(`[fetchOpenPositions] Fetched ${trades.length} trades for strategy ${strategyId.substring(0, 8)}...`);
+    const trades = allTrades;
+    console.log(`[fetchOpenPositions] Fetched ${trades.length} trades (paginated) for strategy ${strategyId.substring(0, 8)}...`);
 
     if (trades.length === 0) {
       console.log('[fetchOpenPositions] No trades found');
