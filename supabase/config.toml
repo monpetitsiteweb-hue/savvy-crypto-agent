@@ -150,3 +150,15 @@ verify_jwt = true
 [functions.admin-reconcile-cash]
 verify_jwt = false
 
+# Execution wallet functions
+[functions.execution-wallet-create]
+verify_jwt = false
+
+[functions.execution-wallet-status]
+verify_jwt = false
+
+[functions.execution-wallet-funding-init]
+verify_jwt = false
+
+[functions.execution-wallet-funding-confirm]
+verify_jwt = false

@@ -1148,6 +1148,102 @@ export type Database = {
         }
         Relationships: []
       }
+      execution_wallet_secrets: {
+        Row: {
+          auth_tag: string
+          created_at: string
+          dek_auth_tag: string
+          dek_iv: string
+          encrypted_dek: string
+          encrypted_private_key: string
+          id: string
+          iv: string
+          kek_version: number
+          wallet_id: string
+        }
+        Insert: {
+          auth_tag: string
+          created_at?: string
+          dek_auth_tag: string
+          dek_iv: string
+          encrypted_dek: string
+          encrypted_private_key: string
+          id?: string
+          iv: string
+          kek_version?: number
+          wallet_id: string
+        }
+        Update: {
+          auth_tag?: string
+          created_at?: string
+          dek_auth_tag?: string
+          dek_iv?: string
+          encrypted_dek?: string
+          encrypted_private_key?: string
+          id?: string
+          iv?: string
+          kek_version?: number
+          wallet_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "execution_wallet_secrets_wallet_id_fkey"
+            columns: ["wallet_id"]
+            isOneToOne: true
+            referencedRelation: "execution_wallets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "execution_wallet_secrets_wallet_id_fkey"
+            columns: ["wallet_id"]
+            isOneToOne: true
+            referencedRelation: "user_wallet_info"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      execution_wallets: {
+        Row: {
+          chain_id: number
+          created_at: string
+          funded_amount_wei: string | null
+          funded_at: string | null
+          funding_tx_hash: string | null
+          id: string
+          is_active: boolean
+          is_funded: boolean
+          updated_at: string
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          chain_id?: number
+          created_at?: string
+          funded_amount_wei?: string | null
+          funded_at?: string | null
+          funding_tx_hash?: string | null
+          id?: string
+          is_active?: boolean
+          is_funded?: boolean
+          updated_at?: string
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          chain_id?: number
+          created_at?: string
+          funded_amount_wei?: string | null
+          funded_at?: string | null
+          funding_tx_hash?: string | null
+          id?: string
+          is_active?: boolean
+          is_funded?: boolean
+          updated_at?: string
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
       external_market_data: {
         Row: {
           category_context: Json | null
@@ -2552,6 +2648,51 @@ export type Database = {
         }
         Relationships: []
       }
+      user_onboarding_status: {
+        Row: {
+          coinbase_connected: boolean
+          completed_at: string | null
+          created_at: string
+          current_step: string
+          funding_confirmed: boolean
+          funding_initiated: boolean
+          id: string
+          rules_accepted: boolean
+          rules_accepted_at: string | null
+          updated_at: string
+          user_id: string
+          wallet_created: boolean
+        }
+        Insert: {
+          coinbase_connected?: boolean
+          completed_at?: string | null
+          created_at?: string
+          current_step?: string
+          funding_confirmed?: boolean
+          funding_initiated?: boolean
+          id?: string
+          rules_accepted?: boolean
+          rules_accepted_at?: string | null
+          updated_at?: string
+          user_id: string
+          wallet_created?: boolean
+        }
+        Update: {
+          coinbase_connected?: boolean
+          completed_at?: string | null
+          created_at?: string
+          current_step?: string
+          funding_confirmed?: boolean
+          funding_initiated?: boolean
+          id?: string
+          rules_accepted?: boolean
+          rules_accepted_at?: string | null
+          updated_at?: string
+          user_id?: string
+          wallet_created?: boolean
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -2617,6 +2758,87 @@ export type Database = {
           wallet_address?: string
         }
         Relationships: []
+      }
+      wallet_funding_requests: {
+        Row: {
+          block_number: number | null
+          chain_id: number
+          coinbase_withdrawal_id: string | null
+          confirmed_at: string | null
+          created_at: string
+          execution_wallet_id: string
+          expected_amount_wei: string | null
+          id: string
+          idempotency_key: string
+          initiated_at: string | null
+          received_amount_wei: string | null
+          requested_amount: string
+          requested_amount_wei: string | null
+          source_asset: string
+          status: string
+          status_message: string | null
+          tx_hash: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          block_number?: number | null
+          chain_id?: number
+          coinbase_withdrawal_id?: string | null
+          confirmed_at?: string | null
+          created_at?: string
+          execution_wallet_id: string
+          expected_amount_wei?: string | null
+          id?: string
+          idempotency_key: string
+          initiated_at?: string | null
+          received_amount_wei?: string | null
+          requested_amount: string
+          requested_amount_wei?: string | null
+          source_asset: string
+          status?: string
+          status_message?: string | null
+          tx_hash?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          block_number?: number | null
+          chain_id?: number
+          coinbase_withdrawal_id?: string | null
+          confirmed_at?: string | null
+          created_at?: string
+          execution_wallet_id?: string
+          expected_amount_wei?: string | null
+          id?: string
+          idempotency_key?: string
+          initiated_at?: string | null
+          received_amount_wei?: string | null
+          requested_amount?: string
+          requested_amount_wei?: string | null
+          source_asset?: string
+          status?: string
+          status_message?: string | null
+          tx_hash?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wallet_funding_requests_execution_wallet_id_fkey"
+            columns: ["execution_wallet_id"]
+            isOneToOne: false
+            referencedRelation: "execution_wallets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_funding_requests_execution_wallet_id_fkey"
+            columns: ["execution_wallet_id"]
+            isOneToOne: false
+            referencedRelation: "user_wallet_info"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       whale_signal_events: {
         Row: {
@@ -2914,6 +3136,45 @@ export type Database = {
         }
         Relationships: []
       }
+      user_wallet_info: {
+        Row: {
+          chain_id: number | null
+          created_at: string | null
+          funded_amount_wei: string | null
+          funded_at: string | null
+          id: string | null
+          is_active: boolean | null
+          is_funded: boolean | null
+          updated_at: string | null
+          user_id: string | null
+          wallet_address: string | null
+        }
+        Insert: {
+          chain_id?: number | null
+          created_at?: string | null
+          funded_amount_wei?: string | null
+          funded_at?: string | null
+          id?: string | null
+          is_active?: boolean | null
+          is_funded?: boolean | null
+          updated_at?: string | null
+          user_id?: string | null
+          wallet_address?: string | null
+        }
+        Update: {
+          chain_id?: number | null
+          created_at?: string | null
+          funded_amount_wei?: string | null
+          funded_at?: string | null
+          id?: string | null
+          is_active?: boolean | null
+          is_funded?: boolean | null
+          updated_at?: string | null
+          user_id?: string | null
+          wallet_address?: string | null
+        }
+        Relationships: []
+      }
       v_decision_mix_24h: {
         Row: {
           cnt: number | null
@@ -3090,6 +3351,21 @@ export type Database = {
           is_sandbox: boolean
         }[]
       }
+      get_execution_wallet_for_trading: {
+        Args: { p_user_id: string }
+        Returns: {
+          auth_tag: string
+          chain_id: number
+          dek_auth_tag: string
+          dek_iv: string
+          encrypted_dek: string
+          encrypted_private_key: string
+          iv: string
+          kek_version: number
+          wallet_address: string
+          wallet_id: string
+        }[]
+      }
       get_features_for_engine: {
         Args: { p_granularity: string; p_symbol: string }
         Returns: {
@@ -3264,6 +3540,10 @@ export type Database = {
           p_strategy_id: string
         }
         Returns: Json
+      }
+      user_has_execution_wallet: {
+        Args: { p_user_id: string }
+        Returns: boolean
       }
     }
     Enums: {
