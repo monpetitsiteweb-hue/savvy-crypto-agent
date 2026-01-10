@@ -5,7 +5,7 @@ import { AuthPage } from '@/components/auth/AuthPage';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { ConversationPanel } from '@/components/ConversationPanel';
-import { DebugPanel } from '@/components/DebugPanel';
+
 import { MergedPortfolioDisplay } from '@/components/MergedPortfolioDisplay';
 import { UnifiedPortfolioDisplay } from '@/components/UnifiedPortfolioDisplay';
 import { TradingHistory } from '@/components/TradingHistory';
@@ -329,10 +329,6 @@ function IndexComponent() {
       <Header />
       
       <div className="container mx-auto px-4 py-6 flex-1">
-        {/* Debug Panel */}
-        <div className="mb-6">
-          <DebugPanel />
-        </div>
         
         <div className={`${isStrategyFullWidth && activeTab === 'strategy' ? 'w-full' : 'grid grid-cols-1 lg:grid-cols-3 gap-6'} min-h-[calc(100vh-200px)]`}>
           {/* Left Panel - Conversation */}
