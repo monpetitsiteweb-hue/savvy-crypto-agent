@@ -4164,6 +4164,9 @@ async function detectConflicts(
       const DEFAULT_CONTEXT_EPSILON = 0.005; // 0.5%
       const contextDuplicateEpsilonPct = cfg.contextDuplicateEpsilonPct ?? DEFAULT_CONTEXT_EPSILON;
       
+      // Define isTestMode BEFORE it's used in queries below
+      const isTestModeForContext = intent.metadata?.is_test_mode ?? false;
+      
       console.log(`[CONTEXT_GUARD] Checking for duplicate context on ${baseSymbol}`);
       console.log(`[CONTEXT_GUARD] New context: trigger_type=${entryContext.trigger_type}, timeframe=${entryContext.timeframe}, anchor_price=${entryContext.anchor_price?.toFixed(4)}`);
       console.log(`[CONTEXT_GUARD] Epsilon: ${(contextDuplicateEpsilonPct * 100).toFixed(2)}% (from config: ${cfg.contextDuplicateEpsilonPct !== undefined})`);
@@ -4176,7 +4179,7 @@ async function detectConflicts(
         .eq('strategy_id', intent.strategyId)
         .in('cryptocurrency', symbolVariants)
         .eq('trade_type', 'buy')
-        .eq('is_test_mode', isTestMode);
+        .eq('is_test_mode', isTestModeForContext);
       
       // For each BUY, check if it's still open and has matching context
       for (const buyTrade of openBuysWithContext || []) {
