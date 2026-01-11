@@ -41,7 +41,8 @@ import {
   Trash2,
   MessageCircle,
   X,
-  Brain
+  Brain,
+  Lock
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTradeViewFilter';
@@ -64,8 +65,12 @@ import {
   HIGH_RISK_PRESET,
   PRESET_LOCKED_FIELDS,
   isFieldLocked,
+  SECTION_DESCRIPTIONS,
+  DIMENSION_INFO,
+  formatDuration,
   type StrategyPreset
 } from '@/utils/strategyPresets';
+import { RiskFieldLabel, SectionHeader, DimensionBadge } from './DimensionBadge';
 
 // ScalpSmart Strategy Configuration
 const SCALPSMART_PRESET = {
@@ -1690,55 +1695,53 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                     </div>
                   )}
 
-                  {/* Strategy Section - Risk & Limits (EFFECTIVE PARAMETERS ONLY) */}
+                  {/* Strategy Section - Risk & Limits (ALL 12 EFFECTIVE PARAMETERS) */}
                   {activeSection === 'strategy' && (
                     <div className="space-y-6">
                       <Card>
                         <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Target className="h-5 w-5" />
-                            Risk & Limits
-                          </CardTitle>
-                          <p className="text-sm text-muted-foreground">
-                            Core risk parameters that control position sizing and exposure. These settings directly impact trading behavior.
-                          </p>
+                          <SectionHeader
+                            title="Risk & Limits"
+                            description={SECTION_DESCRIPTIONS['strategy']?.description || 'Core risk parameters that control position sizing and exposure.'}
+                            dimension="risk"
+                            isActive={true}
+                          />
                           {formData.riskProfile !== 'custom' && (
-                            <Badge variant="outline" className="mt-2 w-fit">
-                              Using {formData.riskProfile.toUpperCase()} preset - switch to Custom to edit
-                            </Badge>
+                            <div className="flex items-center gap-2 mt-3 p-3 bg-muted/50 rounded-lg border">
+                              <Lock className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-sm text-muted-foreground">
+                                Using <strong>{formData.riskProfile.toUpperCase()}</strong> preset — switch to <strong>Custom</strong> to edit these fields.
+                              </span>
+                            </div>
                           )}
                         </CardHeader>
-                        <CardContent className="space-y-6">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-4">
+                        <CardContent className="space-y-8">
+                          {/* SECTION: Position Sizing (Risk Dimension) */}
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-2 pb-2 border-b">
+                              <DimensionBadge dimension="risk" size="md" />
+                              <h4 className="font-medium">Position Sizing</h4>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                               <div className="space-y-2">
-                                <TooltipField 
-                                  description="Cap how much of your capital this strategy is allowed to use."
-                                  examples={["Use up to 50% of my funds", "Don't go over 20%"]}
-                                >
+                                <RiskFieldLabel fieldName="maxWalletExposure" riskProfile={formData.riskProfile}>
                                   <Label>Max Wallet Exposure (%)</Label>
-                                </TooltipField>
+                                </RiskFieldLabel>
                                 <Slider
                                   value={[formData.maxWalletExposure]}
                                   onValueChange={([value]) => updateFormData('maxWalletExposure', value)}
                                   max={100}
                                   min={1}
                                   step={1}
-                                  className="w-full"
                                   disabled={formData.riskProfile !== 'custom'}
                                 />
-                                <div className="text-sm text-muted-foreground">
-                                  Current: {formData.maxWalletExposure}%
-                                </div>
+                                <div className="text-sm text-muted-foreground">{formData.maxWalletExposure}%</div>
                               </div>
 
                               <div className="space-y-2">
-                                <TooltipField 
-                                  description="Amount allocated per trade in EUR."
-                                  examples={["Invest €200 per trade", "Trade with €500 each time"]}
-                                >
-                                  <Label>Per Trade Allocation (€)</Label>
-                                </TooltipField>
+                                <RiskFieldLabel fieldName="perTradeAllocation" riskProfile={formData.riskProfile}>
+                                  <Label>Per Trade (€)</Label>
+                                </RiskFieldLabel>
                                 <Input
                                   type="number"
                                   step="10"
@@ -1751,12 +1754,9 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                               </div>
 
                               <div className="space-y-2">
-                                <TooltipField 
-                                  description="Maximum number of coins that can have open positions simultaneously."
-                                  examples={["Trade up to 4 coins at once", "Limit to 2 active positions"]}
-                                >
+                                <RiskFieldLabel fieldName="maxActiveCoins" riskProfile={formData.riskProfile}>
                                   <Label>Max Active Coins</Label>
-                                </TooltipField>
+                                </RiskFieldLabel>
                                 <Input
                                   type="number"
                                   step="1"
@@ -1768,15 +1768,76 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                 />
                               </div>
                             </div>
+                          </div>
 
-                            <div className="space-y-4">
+                          {/* SECTION: Exit Thresholds (Risk Dimension) */}
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-2 pb-2 border-b">
+                              <DimensionBadge dimension="risk" size="md" />
+                              <h4 className="font-medium">Exit Thresholds</h4>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                               <div className="space-y-2">
-                                <TooltipField 
-                                  description="Minimum confidence score required before entering a trade (0-1)."
-                                  examples={["Only trade when 70% confident", "Set confidence threshold to 0.65"]}
-                                >
-                                  <Label>Minimum Confidence</Label>
-                                </TooltipField>
+                                <RiskFieldLabel fieldName="takeProfitPercentage" riskProfile={formData.riskProfile}>
+                                  <Label>Take Profit (%)</Label>
+                                </RiskFieldLabel>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={formData.takeProfitPercentage}
+                                  onChange={(e) => updateFormData('takeProfitPercentage', parseFloat(e.target.value) || 2)}
+                                  min={0.1}
+                                  max={50}
+                                  disabled={formData.riskProfile !== 'custom'}
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                <RiskFieldLabel fieldName="stopLossPercentage" riskProfile={formData.riskProfile}>
+                                  <Label>Stop Loss (%)</Label>
+                                </RiskFieldLabel>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={formData.stopLossPercentage}
+                                  onChange={(e) => updateFormData('stopLossPercentage', parseFloat(e.target.value) || 2)}
+                                  min={0.1}
+                                  max={50}
+                                  disabled={formData.riskProfile !== 'custom'}
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                <RiskFieldLabel fieldName="trailingStopLossPercentage" riskProfile={formData.riskProfile}>
+                                  <Label>Trailing Stop (%)</Label>
+                                </RiskFieldLabel>
+                                <Input
+                                  type="number"
+                                  step="0.1"
+                                  value={formData.trailingStopLossPercentage}
+                                  onChange={(e) => updateFormData('trailingStopLossPercentage', parseFloat(e.target.value) || 2)}
+                                  min={0.1}
+                                  max={50}
+                                  disabled={formData.riskProfile !== 'custom'}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* SECTION: Signal Gates (Signals Dimension) */}
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-2 pb-2 border-b">
+                              <DimensionBadge dimension="signals" size="md" />
+                              <h4 className="font-medium">Signal Gates</h4>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              These thresholds control which market conditions qualify for trade entry.
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <RiskFieldLabel fieldName="min_confidence" riskProfile={formData.riskProfile}>
+                                  <Label>Min Confidence</Label>
+                                </RiskFieldLabel>
                                 <div className="flex items-center gap-4">
                                   <Slider
                                     value={[formData.min_confidence ?? 0.65]}
@@ -1793,34 +1854,175 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                 </div>
                               </div>
 
-                              {/* Daily Loss Limit - Coming Soon */}
-                              <div className="space-y-2 opacity-60">
-                                <div className="flex items-center gap-2">
-                                  <TooltipField 
-                                    description="Pause trading if this loss threshold is hit in a day. Circuit breaker to protect against losing streaks."
-                                    examples={["Limit daily loss to 2%", "Shut it down if I lose 5%"]}
-                                  >
-                                    <Label>Daily Loss Limit (%)</Label>
-                                  </TooltipField>
-                                  <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30">
-                                    Coming Soon
-                                  </Badge>
+                              <div className="space-y-2">
+                                <RiskFieldLabel fieldName="minTrendScoreForBuy" riskProfile={formData.riskProfile}>
+                                  <Label>Min Trend Score</Label>
+                                </RiskFieldLabel>
+                                <div className="flex items-center gap-4">
+                                  <Slider
+                                    value={[formData.minTrendScoreForBuy ?? 0.3]}
+                                    onValueChange={([value]) => updateFormData('minTrendScoreForBuy', value)}
+                                    min={0}
+                                    max={1}
+                                    step={0.05}
+                                    className="flex-1"
+                                    disabled={formData.riskProfile !== 'custom'}
+                                  />
+                                  <span className="text-sm font-medium w-12 text-right">
+                                    {((formData.minTrendScoreForBuy ?? 0.3) * 100).toFixed(0)}%
+                                  </span>
                                 </div>
-                                <Input
-                                  type="number"
-                                  step="0.1"
-                                  value={formData.dailyLossLimit}
-                                  onChange={(e) => updateFormData('dailyLossLimit', parseFloat(e.target.value) || 0)}
-                                  min={0}
-                                  max={100}
-                                  disabled={true}
-                                  className="cursor-not-allowed"
-                                />
-                                <p className="text-xs text-muted-foreground">
-                                  This circuit breaker feature is planned but not yet enforced by the backend.
-                                </p>
+                              </div>
+
+                              <div className="space-y-2">
+                                <RiskFieldLabel fieldName="minMomentumScoreForBuy" riskProfile={formData.riskProfile}>
+                                  <Label>Min Momentum Score</Label>
+                                </RiskFieldLabel>
+                                <div className="flex items-center gap-4">
+                                  <Slider
+                                    value={[formData.minMomentumScoreForBuy ?? 0.25]}
+                                    onValueChange={([value]) => updateFormData('minMomentumScoreForBuy', value)}
+                                    min={0}
+                                    max={1}
+                                    step={0.05}
+                                    className="flex-1"
+                                    disabled={formData.riskProfile !== 'custom'}
+                                  />
+                                  <span className="text-sm font-medium w-12 text-right">
+                                    {((formData.minMomentumScoreForBuy ?? 0.25) * 100).toFixed(0)}%
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <RiskFieldLabel fieldName="maxVolatilityScoreForBuy" riskProfile={formData.riskProfile}>
+                                  <Label>Max Volatility Score</Label>
+                                </RiskFieldLabel>
+                                <div className="flex items-center gap-4">
+                                  <Slider
+                                    value={[formData.maxVolatilityScoreForBuy ?? 0.65]}
+                                    onValueChange={([value]) => updateFormData('maxVolatilityScoreForBuy', value)}
+                                    min={0}
+                                    max={1}
+                                    step={0.05}
+                                    className="flex-1"
+                                    disabled={formData.riskProfile !== 'custom'}
+                                  />
+                                  <span className="text-sm font-medium w-12 text-right">
+                                    {((formData.maxVolatilityScoreForBuy ?? 0.65) * 100).toFixed(0)}%
+                                  </span>
+                                </div>
                               </div>
                             </div>
+                          </div>
+
+                          {/* SECTION: Timing Gates (Safety Dimension) */}
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-2 pb-2 border-b">
+                              <DimensionBadge dimension="safety" size="md" />
+                              <h4 className="font-medium">Timing Gates (Anti-Churn)</h4>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              These cooldowns prevent rapid-fire trading and death spirals.
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <div className="space-y-2">
+                                <RiskFieldLabel fieldName="stopLossCooldownMs" riskProfile={formData.riskProfile}>
+                                  <Label>SL Cooldown</Label>
+                                </RiskFieldLabel>
+                                <Select
+                                  value={String(formData.stopLossCooldownMs ?? 600000)}
+                                  onValueChange={(value) => updateFormData('stopLossCooldownMs', parseInt(value))}
+                                  disabled={formData.riskProfile !== 'custom'}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="60000">1 min</SelectItem>
+                                    <SelectItem value="300000">5 min</SelectItem>
+                                    <SelectItem value="600000">10 min</SelectItem>
+                                    <SelectItem value="900000">15 min</SelectItem>
+                                    <SelectItem value="1200000">20 min</SelectItem>
+                                    <SelectItem value="1800000">30 min</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">Wait after stop-loss before re-entry</p>
+                              </div>
+
+                              <div className="space-y-2">
+                                <RiskFieldLabel fieldName="minEntrySpacingMs" riskProfile={formData.riskProfile}>
+                                  <Label>Entry Spacing</Label>
+                                </RiskFieldLabel>
+                                <Select
+                                  value={String(formData.minEntrySpacingMs ?? 900000)}
+                                  onValueChange={(value) => updateFormData('minEntrySpacingMs', parseInt(value))}
+                                  disabled={formData.riskProfile !== 'custom'}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="60000">1 min</SelectItem>
+                                    <SelectItem value="300000">5 min</SelectItem>
+                                    <SelectItem value="600000">10 min</SelectItem>
+                                    <SelectItem value="900000">15 min</SelectItem>
+                                    <SelectItem value="1800000">30 min</SelectItem>
+                                    <SelectItem value="3600000">1 hour</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">Min time between buys on same symbol</p>
+                              </div>
+
+                              <div className="space-y-2">
+                                <RiskFieldLabel fieldName="minHoldPeriodMs" riskProfile={formData.riskProfile}>
+                                  <Label>Min Hold Period</Label>
+                                </RiskFieldLabel>
+                                <Select
+                                  value={String(formData.unifiedConfig?.minHoldPeriodMs ?? 120000)}
+                                  onValueChange={(value) => updateFormData('unifiedConfig', {
+                                    ...formData.unifiedConfig,
+                                    minHoldPeriodMs: parseInt(value)
+                                  })}
+                                  disabled={formData.riskProfile !== 'custom'}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="30000">30 sec</SelectItem>
+                                    <SelectItem value="60000">1 min</SelectItem>
+                                    <SelectItem value="120000">2 min</SelectItem>
+                                    <SelectItem value="300000">5 min</SelectItem>
+                                    <SelectItem value="600000">10 min</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">Min time before sell allowed</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Daily Loss Limit - Coming Soon */}
+                          <div className="space-y-2 p-4 bg-muted/30 rounded-lg border border-dashed">
+                            <div className="flex items-center gap-2">
+                              <Label className="text-muted-foreground">Daily Loss Limit (%)</Label>
+                              <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30">
+                                Coming Soon
+                              </Badge>
+                            </div>
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={formData.dailyLossLimit}
+                              onChange={(e) => updateFormData('dailyLossLimit', parseFloat(e.target.value) || 0)}
+                              min={0}
+                              max={100}
+                              disabled={true}
+                              className="cursor-not-allowed max-w-32"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Planned feature — currently not enforced by trading engine.
+                            </p>
                           </div>
                         </CardContent>
                       </Card>
