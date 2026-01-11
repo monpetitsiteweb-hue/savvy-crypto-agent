@@ -55,6 +55,15 @@ import { ExecutionSettingsPanel } from './ExecutionSettingsPanel';
 
 import { getAllSymbols } from '@/data/coinbaseCoins';
 import { getUnsupportedSymbols } from '@/utils/marketAvailability';
+import { 
+  getPresetByRiskProfile, 
+  applyPresetToFormData, 
+  RISK_PROFILE_DESCRIPTIONS,
+  LOW_RISK_PRESET,
+  MEDIUM_RISK_PRESET,
+  HIGH_RISK_PRESET,
+  type StrategyPreset
+} from '@/utils/strategyPresets';
 
 // ScalpSmart Strategy Configuration
 const SCALPSMART_PRESET = {
@@ -223,29 +232,8 @@ const CREATE_MODES = {
 
 type CreateMode = typeof CREATE_MODES[keyof typeof CREATE_MODES];
 
-const RISK_PRESETS = {
-  low: {
-    stopLossPercentage: 2,
-    takeProfitPercentage: 1.5,
-    maxTotalTrades: 100,
-    maxWalletExposure: 20,
-    dcaIntervalHours: 24
-  },
-  medium: {
-    stopLossPercentage: 3,
-    takeProfitPercentage: 2.5,
-    maxTotalTrades: 200,
-    maxWalletExposure: 50,
-    dcaIntervalHours: 12
-  },
-  high: {
-    stopLossPercentage: 5,
-    takeProfitPercentage: 4,
-    maxTotalTrades: 500,
-    maxWalletExposure: 80,
-    dcaIntervalHours: 6
-  }
-};
+// Risk presets now imported from strategyPresets.ts
+// Using the real 11 effective levers that actually control backend behavior
 
 const MENU_SECTIONS = [
   {
@@ -268,10 +256,9 @@ const MENU_SECTIONS = [
     id: 'buying',
     title: 'BUYING',
     items: [
-      { id: 'buy-settings', label: 'Buy settings', icon: TrendingUp },
       { id: 'coins-amounts', label: 'Coins and amounts', icon: Coins },
-      { id: 'strategy', label: 'Strategy', icon: Target },
-      { id: 'trailing-stop-buy', label: 'Trailing stop-buy', icon: Timer }
+      { id: 'strategy', label: 'Risk & Limits', icon: Target }
+      // Removed: buy-settings (order type cosmetic), trailing-stop-buy (not implemented)
     ]
   },
   {
@@ -279,33 +266,31 @@ const MENU_SECTIONS = [
     title: 'SELLING',
     items: [
       { id: 'sell-settings', label: 'Sell settings', icon: TrendingDown },
-      { id: 'sell-strategy', label: 'Sell strategy', icon: BarChart3 },
-      { id: 'pool-exit-management', label: 'Pool Exit Management', icon: Shield },
-      { id: 'shorting-settings', label: 'Shorting settings', icon: TrendingDown },
-      { id: 'dollar-cost-averaging', label: 'Dollar Cost Averaging', icon: DollarSign }
+      { id: 'pool-exit-management', label: 'Pool Exit Management', icon: Shield }
+      // Removed: sell-strategy (cosmetic), shorting-settings (not supported), dollar-cost-averaging (not implemented)
     ]
   },
-    {
-      id: 'decisions',
-      title: 'UNIFIED DECISIONS',
-      items: [
-        { id: 'unified-decisions', label: 'Unified Decisions', icon: Shield }
-      ]
-    },
-    {
-      id: 'execution',
-      title: 'EXECUTION',
-      items: [
-        { id: 'execution-settings', label: 'Execution Settings', icon: Settings }
-      ]
-    },
-    {
-      id: 'advanced',
-      title: 'ADVANCED',
-      items: [
-        { id: 'advanced-overrides', label: 'Per-Symbol Overrides & Safety', icon: Shield }
-      ]
-    }
+  {
+    id: 'decisions',
+    title: 'UNIFIED DECISIONS',
+    items: [
+      { id: 'unified-decisions', label: 'Unified Decisions', icon: Shield }
+    ]
+  },
+  {
+    id: 'execution',
+    title: 'EXECUTION',
+    items: [
+      { id: 'execution-settings', label: 'Execution Settings', icon: Settings }
+    ]
+  },
+  {
+    id: 'advanced',
+    title: 'ADVANCED',
+    items: [
+      { id: 'advanced-overrides', label: 'Per-Symbol Overrides & Safety', icon: Shield }
+    ]
+  }
 ];
 
 // Define TooltipField outside the component to prevent recreation on every render
@@ -534,20 +519,28 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     minDepthRatio: 0.2           // Low depth requirement
   });
 
-  // Apply risk profile presets
-  useEffect(() => {
-    if (formData.riskProfile !== 'custom') {
-      const preset = RISK_PRESETS[formData.riskProfile as keyof typeof RISK_PRESETS];
+  // Apply risk profile presets - uses real 11 effective levers
+  const handleRiskProfileChange = (riskProfile: 'low' | 'medium' | 'high' | 'custom') => {
+    const preset = getPresetByRiskProfile(riskProfile);
+    
+    if (preset) {
+      // Apply all 11 effective risk levers from preset
       setFormData(prev => ({
         ...prev,
-        stopLossPercentage: preset.stopLossPercentage,
-        takeProfitPercentage: preset.takeProfitPercentage,
-        maxTotalTrades: preset.maxTotalTrades,
+        riskProfile: preset.riskProfile,
         maxWalletExposure: preset.maxWalletExposure,
-        dcaIntervalHours: preset.dcaIntervalHours
+        perTradeAllocation: preset.perTradeAllocation,
+        maxActiveCoins: preset.maxActiveCoins,
+        takeProfitPercentage: preset.takeProfitPercentage,
+        stopLossPercentage: preset.stopLossPercentage,
+        trailingStopLossPercentage: preset.trailingStopLossPercentage,
+        min_confidence: preset.min_confidence
       }));
+    } else {
+      // Custom mode - just update the profile, keep all other values
+      setFormData(prev => ({ ...prev, riskProfile }));
     }
-  }, [formData.riskProfile]);
+  };
 
   // Load existing strategy data
   useEffect(() => {
@@ -1281,60 +1274,73 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                           <div className="space-y-4">
                             <TooltipField 
                               description="Choose a risk level to set your default stop-loss, take-profit, and position limits."
-                              examples={["I want a medium-risk setup", "Make it aggressive", "Use a conservative approach"]}
+                              examples={["I want a low-risk setup", "Make it aggressive", "Use a balanced approach"]}
                             >
                               <Label>Risk Profile</Label>
                             </TooltipField>
+                            <p className="text-sm text-muted-foreground mb-2">
+                              Select a preset to configure all risk parameters, or choose Custom to manually configure each setting.
+                            </p>
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                              {(['low', 'medium', 'high', 'custom'] as const).map((risk) => (
-                                <Card 
-                                  key={risk}
-                                  className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
-                                    formData.riskProfile === risk 
-                                      ? 'ring-2 ring-primary bg-primary/5' 
-                                      : 'hover:bg-muted/50'
-                                  }`}
-                                  onClick={() => updateFormData('riskProfile', risk)}
-                                >
-                                  <CardContent className="p-4 text-center">
-                                    <div className="mb-2">
-                                      <Badge 
-                                        variant={risk === 'high' ? 'destructive' : risk === 'medium' ? 'default' : risk === 'low' ? 'secondary' : 'outline'}
-                                        className="font-bold"
-                                      >
-                                        {risk.toUpperCase()}
-                                      </Badge>
-                                    </div>
-                                    <div className="text-xs text-muted-foreground space-y-1">
-                                      {risk === 'low' && (
-                                        <>
-                                          <div>Stop Loss: 2%</div>
-                                          <div>Take Profit: 1.5%</div>
-                                          <div>Max Total Trades: 100</div>
-                                        </>
-                                      )}
-                                      {risk === 'medium' && (
-                                        <>
-                                          <div>Stop Loss: 3%</div>
-                                          <div>Take Profit: 2.5%</div>
-                                          <div>Max Total Trades: 200</div>
-                                        </>
-                                      )}
-                                      {risk === 'high' && (
-                                        <>
-                                          <div>Stop Loss: 5%</div>
-                                          <div>Take Profit: 4%</div>
-                                          <div>Max Total Trades: 500</div>
-                                        </>
+                              {(['low', 'medium', 'high', 'custom'] as const).map((risk) => {
+                                const desc = RISK_PROFILE_DESCRIPTIONS[risk];
+                                const preset = risk !== 'custom' ? getPresetByRiskProfile(risk) : null;
+                                
+                                return (
+                                  <Card 
+                                    key={risk}
+                                    className={`cursor-pointer transition-all duration-200 hover:shadow-md ${
+                                      formData.riskProfile === risk 
+                                        ? 'ring-2 ring-primary bg-primary/5' 
+                                        : 'hover:bg-muted/50'
+                                    }`}
+                                    onClick={() => handleRiskProfileChange(risk)}
+                                  >
+                                    <CardContent className="p-4 text-center">
+                                      <div className="mb-2">
+                                        <Badge 
+                                          variant={risk === 'high' ? 'destructive' : risk === 'medium' ? 'default' : risk === 'low' ? 'secondary' : 'outline'}
+                                          className="font-bold"
+                                        >
+                                          {desc.title.toUpperCase()}
+                                        </Badge>
+                                      </div>
+                                      <p className="text-xs text-muted-foreground mb-2">{desc.description}</p>
+                                      {preset && (
+                                        <div className="text-xs text-muted-foreground space-y-1 border-t border-border pt-2 mt-2">
+                                          <div className="flex justify-between">
+                                            <span>TP/SL:</span>
+                                            <span className="font-medium">{preset.takeProfitPercentage}% / {preset.stopLossPercentage}%</span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                            <span>Exposure:</span>
+                                            <span className="font-medium">{preset.maxWalletExposure}%</span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                            <span>Per Trade:</span>
+                                            <span className="font-medium">€{preset.perTradeAllocation}</span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                            <span>Confidence:</span>
+                                            <span className="font-medium">{(preset.min_confidence * 100).toFixed(0)}%</span>
+                                          </div>
+                                        </div>
                                       )}
                                       {risk === 'custom' && (
-                                        <div>Manual configuration</div>
+                                        <div className="text-xs text-muted-foreground border-t border-border pt-2 mt-2">
+                                          <div>Edit all parameters manually</div>
+                                        </div>
                                       )}
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              ))}
+                                    </CardContent>
+                                  </Card>
+                                );
+                              })}
                             </div>
+                            {formData.riskProfile !== 'custom' && (
+                              <p className="text-xs text-muted-foreground mt-2">
+                                ✓ Preset applied. To customize individual settings, select "Custom".
+                              </p>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -1656,18 +1662,23 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                     </div>
                   )}
 
-                  {/* Strategy Section */}
+                  {/* Strategy Section - Risk & Limits (EFFECTIVE PARAMETERS ONLY) */}
                   {activeSection === 'strategy' && (
                     <div className="space-y-6">
                       <Card>
                         <CardHeader>
                           <CardTitle className="flex items-center gap-2">
                             <Target className="h-5 w-5" />
-                            Strategy Configuration
+                            Risk & Limits
                           </CardTitle>
                           <p className="text-sm text-muted-foreground">
-                            Core strategy parameters that define your trading approach, risk management, and position sizing. These settings form the foundation of your automated trading behavior.
+                            Core risk parameters that control position sizing and exposure. These settings directly impact trading behavior.
                           </p>
+                          {formData.riskProfile !== 'custom' && (
+                            <Badge variant="outline" className="mt-2 w-fit">
+                              Using {formData.riskProfile.toUpperCase()} preset - switch to Custom to edit
+                            </Badge>
+                          )}
                         </CardHeader>
                         <CardContent className="space-y-6">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1686,38 +1697,87 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                   min={1}
                                   step={1}
                                   className="w-full"
+                                  disabled={formData.riskProfile !== 'custom'}
                                 />
                                 <div className="text-sm text-muted-foreground">
                                   Current: {formData.maxWalletExposure}%
                                 </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <TooltipField 
+                                  description="Amount allocated per trade in EUR."
+                                  examples={["Invest €200 per trade", "Trade with €500 each time"]}
+                                >
+                                  <Label>Per Trade Allocation (€)</Label>
+                                </TooltipField>
+                                <Input
+                                  type="number"
+                                  step="10"
+                                  value={formData.perTradeAllocation}
+                                  onChange={(e) => updateFormData('perTradeAllocation', parseFloat(e.target.value) || 100)}
+                                  min={10}
+                                  max={10000}
+                                  disabled={formData.riskProfile !== 'custom'}
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                <TooltipField 
+                                  description="Maximum number of coins that can have open positions simultaneously."
+                                  examples={["Trade up to 4 coins at once", "Limit to 2 active positions"]}
+                                >
+                                  <Label>Max Active Coins</Label>
+                                </TooltipField>
+                                <Input
+                                  type="number"
+                                  step="1"
+                                  value={formData.maxActiveCoins}
+                                  onChange={(e) => updateFormData('maxActiveCoins', parseInt(e.target.value) || 4)}
+                                  min={1}
+                                  max={10}
+                                  disabled={formData.riskProfile !== 'custom'}
+                                />
                               </div>
                             </div>
 
                             <div className="space-y-4">
                               <div className="space-y-2">
                                 <TooltipField 
-                                  description="📊 PORTFOLIO-LEVEL DAILY TARGET: Stop all trading activity once your entire portfolio gains this percentage for the day. This is calculated across ALL positions, not individual trades."
-                                  examples={["Portfolio starts at €10,000 → Stop trading at €10,050 (+0.5%)", "Combined daily performance across all coins", "Prevents overtrading after reaching daily goal"]}
+                                  description="Minimum confidence score required before entering a trade (0-1)."
+                                  examples={["Only trade when 70% confident", "Set confidence threshold to 0.65"]}
                                 >
-                                  <Label>Daily Profit Target (Portfolio-Wide %)</Label>
+                                  <Label>Minimum Confidence</Label>
                                 </TooltipField>
-                                <Input
-                                  type="number"
-                                  step="0.1"
-                                  value={formData.dailyProfitTarget}
-                                  onChange={(e) => updateFormData('dailyProfitTarget', parseFloat(e.target.value) || 0)}
-                                  min={0}
-                                  max={100}
-                                />
+                                <div className="flex items-center gap-4">
+                                  <Slider
+                                    value={[formData.min_confidence ?? 0.65]}
+                                    onValueChange={([value]) => updateFormData('min_confidence', value)}
+                                    min={0}
+                                    max={1}
+                                    step={0.05}
+                                    className="flex-1"
+                                    disabled={formData.riskProfile !== 'custom'}
+                                  />
+                                  <span className="text-sm font-medium w-12 text-right">
+                                    {((formData.min_confidence ?? 0.65) * 100).toFixed(0)}%
+                                  </span>
+                                </div>
                               </div>
 
-                              <div className="space-y-2">
-                                <TooltipField 
-                                  description="Pause trading if this loss threshold is hit in a day."
-                                  examples={["Limit daily loss to 2%", "Shut it down if I lose 5%"]}
-                                >
-                                  <Label>Daily Loss Limit (%)</Label>
-                                </TooltipField>
+                              {/* Daily Loss Limit - Coming Soon */}
+                              <div className="space-y-2 opacity-60">
+                                <div className="flex items-center gap-2">
+                                  <TooltipField 
+                                    description="Pause trading if this loss threshold is hit in a day. Circuit breaker to protect against losing streaks."
+                                    examples={["Limit daily loss to 2%", "Shut it down if I lose 5%"]}
+                                  >
+                                    <Label>Daily Loss Limit (%)</Label>
+                                  </TooltipField>
+                                  <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30">
+                                    Coming Soon
+                                  </Badge>
+                                </div>
                                 <Input
                                   type="number"
                                   step="0.1"
@@ -1725,40 +1785,12 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                   onChange={(e) => updateFormData('dailyLossLimit', parseFloat(e.target.value) || 0)}
                                   min={0}
                                   max={100}
+                                  disabled={true}
+                                  className="cursor-not-allowed"
                                 />
-                              </div>
-
-                              <div className="space-y-2">
-                                <TooltipField 
-                                  description="Maximum number of trades allowed per day. Helps prevent overtrading and manage risk."
-                                  examples={["Limit to 20 trades per day", "Allow maximum 10 trades daily", "Set daily trade limit to 50"]}
-                                >
-                                  <Label>Max Trades Per Day</Label>
-                                </TooltipField>
-                                <Input
-                                  type="number"
-                                  step="1"
-                                  value={formData.maxTradesPerDay}
-                                  onChange={(e) => updateFormData('maxTradesPerDay', parseInt(e.target.value) || 50)}
-                                  min={1}
-                                  max={200}
-                                />
-                              </div>
-
-                              <div className="flex items-center justify-between">
-                                <div className="space-y-1">
-                                  <TooltipField 
-                                    description="Run the strategy on past market data to validate performance before going live."
-                                    examples={["Test this on historical charts", "Backtest it first"]}
-                                  >
-                                    <Label>Backtesting Mode</Label>
-                                  </TooltipField>
-                                  <p className="text-sm text-muted-foreground">Test on historical data</p>
-                                </div>
-                                <Switch
-                                  checked={formData.backtestingMode}
-                                  onCheckedChange={(checked) => updateFormData('backtestingMode', checked)}
-                                />
+                                <p className="text-xs text-muted-foreground">
+                                  This circuit breaker feature is planned but not yet enforced by the backend.
+                                </p>
                               </div>
                             </div>
                           </div>
