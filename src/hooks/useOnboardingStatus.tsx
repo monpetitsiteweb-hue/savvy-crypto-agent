@@ -66,13 +66,18 @@ export function useOnboardingStatus() {
 
   /**
    * Marks welcome as complete, transitioning to 'active' state.
+   * Uses optimistic update to prevent race conditions.
    * Idempotent: safe to call multiple times.
    */
   const completeWelcome = useCallback(async () => {
     if (!user?.id) return;
 
+    // Optimistic update: set local state immediately to prevent race conditions
+    // This ensures the modal cannot reappear even if component remounts during DB write
+    setStatus(prev => ({ ...prev, currentStep: 'active' }));
+
     try {
-      // Upsert to handle both existing and missing rows
+      // Persist to DB (fire-and-forget pattern with error logging)
       const { error } = await supabase
         .from('user_onboarding_status' as any)
         .upsert(
@@ -81,11 +86,10 @@ export function useOnboardingStatus() {
         );
 
       if (error) {
-        console.error('[useOnboardingStatus] Error completing welcome:', error);
-        return;
+        console.error('[useOnboardingStatus] Error persisting welcome completion:', error);
+        // Don't revert - user already dismissed, failing silently is better UX
+        // Next login will just show modal again if DB failed
       }
-
-      setStatus(prev => ({ ...prev, currentStep: 'active' }));
     } catch (err) {
       console.error('[useOnboardingStatus] Unexpected error:', err);
     }
