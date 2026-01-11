@@ -2590,6 +2590,8 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('❌ COORDINATOR: Error:', error);
+    console.error('❌ COORDINATOR: Error stack:', error?.stack || 'no stack');
+    console.error('❌ COORDINATOR: Error message:', error?.message || String(error));
     return respond('HOLD', 'internal_error', generateRequestId());
   }
 });
