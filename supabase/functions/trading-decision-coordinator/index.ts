@@ -66,6 +66,14 @@ const LOOKBACK_WINDOWS: Record<string, number> = {
   '24h': 48 * 60 * 60 * 1000
 };
 
+// ============= ANTI-CHURN PROTECTION =============
+// EXIT_FLOOR_RATIO: Minimum fraction of takeProfitPercentage required to allow a TAKE_PROFIT exit.
+// Rationale: Prevents "stupid trades" where micro-gains slip through due to rounding, timing, or 
+// volatility spikes. A trade must capture at least 25% of the intended TP threshold before exiting.
+// Example: If TP = 2.0%, the derived floor = 0.5%. A TP exit with pnl = 0.3% would be blocked.
+// ONLY affects TAKE_PROFIT exits. STOP_LOSS, TRAILING_STOP, and AUTO_CLOSE_TIME are unaffected.
+const EXIT_FLOOR_RATIO = 0.25;
+
 function normalizeSignalStrength(rawStrength: number): number {
   if (rawStrength <= 1) {
     return Math.max(0, Math.min(1, rawStrength));
@@ -3811,7 +3819,16 @@ async function evaluatePositionStatus(
 
     // Check if TP threshold is reached (using DYNAMIC threshold)
     if (pnlPct >= effectiveTpPct) {
-      console.log(`[DynamicTPSL] TP HIT for ${baseSymbol}: pnl=${pnlPct.toFixed(2)}% >= tp=${effectiveTpPct.toFixed(2)}%`);
+      // DERIVED ANTI-CHURN GUARD: Require minimum realized PnL relative to TP
+      // Uses EXIT_FLOOR_RATIO constant defined at top of file
+      const minExitPnlPct = baseTpPct * EXIT_FLOOR_RATIO;
+      
+      if (pnlPct < minExitPnlPct) {
+        console.log(`[DynamicTPSL] TP BLOCKED by anti-churn floor: pnl=${pnlPct.toFixed(2)}% < floor=${minExitPnlPct.toFixed(2)}% (${EXIT_FLOOR_RATIO * 100}% of TP=${baseTpPct}%)`);
+        return null; // Block micro-TP, wait for meaningful gain
+      }
+      
+      console.log(`[DynamicTPSL] TP HIT for ${baseSymbol}: pnl=${pnlPct.toFixed(2)}% >= tp=${effectiveTpPct.toFixed(2)}% (floor=${minExitPnlPct.toFixed(2)}% passed)`);
       return { 
         shouldSell: true, 
         pnlPct: parseFloat(pnlPct.toFixed(2)), 
