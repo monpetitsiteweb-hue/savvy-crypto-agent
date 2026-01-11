@@ -63,14 +63,13 @@ import {
   LOW_RISK_PRESET,
   MEDIUM_RISK_PRESET,
   HIGH_RISK_PRESET,
-  PRESET_LOCKED_FIELDS,
+  PRESET_RISK_FIELDS,
   isFieldLocked,
   SECTION_DESCRIPTIONS,
-  DIMENSION_INFO,
   formatDuration,
   type StrategyPreset
 } from '@/utils/strategyPresets';
-import { RiskFieldLabel, SectionHeader, DimensionBadge } from './DimensionBadge';
+import { RiskFieldLabel, SectionHeader } from './DimensionBadge';
 
 // ScalpSmart Strategy Configuration
 const SCALPSMART_PRESET = {
@@ -260,42 +259,28 @@ const MENU_SECTIONS = [
     ]
   },
   {
-    id: 'intelligence',
-    title: 'AI INTELLIGENCE',
+    id: 'signals',
+    title: 'SIGNALS',
     items: [
       { id: 'ai-intelligence', label: 'AI Intelligence Settings', icon: MessageCircle },
       { id: 'technical-indicators', label: 'Technical Indicators', icon: BarChart3 }
     ]
   },
   {
-    id: 'buying',
-    title: 'BUYING',
+    id: 'risk',
+    title: 'RISK (Preset-driven)',
     items: [
-      { id: 'coins-amounts', label: 'Coins and amounts', icon: Coins },
-      { id: 'strategy', label: 'Risk & Limits', icon: Target }
-      // Removed: buy-settings (order type cosmetic), trailing-stop-buy (not implemented)
-    ]
-  },
-  {
-    id: 'selling',
-    title: 'SELLING',
-    items: [
-      { id: 'sell-settings', label: 'Sell settings', icon: TrendingDown },
-      { id: 'pool-exit-management', label: 'Pool Exit Management', icon: Shield }
-      // Removed: sell-strategy (cosmetic), shorting-settings (not supported), dollar-cost-averaging (not implemented)
-    ]
-  },
-  {
-    id: 'decisions',
-    title: 'UNIFIED DECISIONS',
-    items: [
-      { id: 'unified-decisions', label: 'Unified Decisions', icon: Shield }
+      { id: 'coins-amounts', label: 'Coins & Amounts', icon: Coins },
+      { id: 'strategy', label: 'Risk & Limits', icon: Target },
+      { id: 'sell-settings', label: 'Sell Settings', icon: TrendingDown }
     ]
   },
   {
     id: 'execution',
     title: 'EXECUTION',
     items: [
+      { id: 'pool-exit-management', label: 'Pool Exit Management', icon: Shield },
+      { id: 'unified-decisions', label: 'Unified Decisions', icon: Shield },
       { id: 'execution-settings', label: 'Execution Settings', icon: Settings }
     ]
   },
@@ -1716,11 +1701,11 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                           )}
                         </CardHeader>
                         <CardContent className="space-y-8">
-                          {/* SECTION: Position Sizing (Risk Dimension) */}
+                          {/* SECTION: Position Sizing */}
                           <div className="space-y-4">
                             <div className="flex items-center gap-2 pb-2 border-b">
-                              <DimensionBadge dimension="risk" size="md" />
                               <h4 className="font-medium">Position Sizing</h4>
+                              <span className="text-xs text-muted-foreground">(3 of 12 Risk Profile fields)</span>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                               <div className="space-y-2">
@@ -1770,11 +1755,11 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             </div>
                           </div>
 
-                          {/* SECTION: Exit Thresholds (Risk Dimension) */}
+                          {/* SECTION: Exit Thresholds */}
                           <div className="space-y-4">
                             <div className="flex items-center gap-2 pb-2 border-b">
-                              <DimensionBadge dimension="risk" size="md" />
                               <h4 className="font-medium">Exit Thresholds</h4>
+                              <span className="text-xs text-muted-foreground">(3 of 12 Risk Profile fields)</span>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                               <div className="space-y-2">
@@ -1824,11 +1809,11 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             </div>
                           </div>
 
-                          {/* SECTION: Signal Gates (Signals Dimension) */}
+                          {/* SECTION: Signal Gates */}
                           <div className="space-y-4">
                             <div className="flex items-center gap-2 pb-2 border-b">
-                              <DimensionBadge dimension="signals" size="md" />
                               <h4 className="font-medium">Signal Gates</h4>
+                              <span className="text-xs text-muted-foreground">(4 of 12 Risk Profile fields)</span>
                             </div>
                             <p className="text-xs text-muted-foreground">
                               These thresholds control which market conditions qualify for trade entry.
@@ -1916,16 +1901,16 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             </div>
                           </div>
 
-                          {/* SECTION: Timing Gates (Safety Dimension) */}
+                          {/* SECTION: Timing Gates (2 of 12 fields, minHoldPeriodMs is EXECUTION, not Risk Profile) */}
                           <div className="space-y-4">
                             <div className="flex items-center gap-2 pb-2 border-b">
-                              <DimensionBadge dimension="safety" size="md" />
                               <h4 className="font-medium">Timing Gates (Anti-Churn)</h4>
+                              <span className="text-xs text-muted-foreground">(2 of 12 Risk Profile fields)</span>
                             </div>
                             <p className="text-xs text-muted-foreground">
                               These cooldowns prevent rapid-fire trading and death spirals.
                             </p>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div className="space-y-2">
                                 <RiskFieldLabel fieldName="stopLossCooldownMs" riskProfile={formData.riskProfile}>
                                   <Label>SL Cooldown</Label>
@@ -1973,33 +1958,10 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                 </Select>
                                 <p className="text-xs text-muted-foreground">Min time between buys on same symbol</p>
                               </div>
-
-                              <div className="space-y-2">
-                                <RiskFieldLabel fieldName="minHoldPeriodMs" riskProfile={formData.riskProfile}>
-                                  <Label>Min Hold Period</Label>
-                                </RiskFieldLabel>
-                                <Select
-                                  value={String(formData.unifiedConfig?.minHoldPeriodMs ?? 120000)}
-                                  onValueChange={(value) => updateFormData('unifiedConfig', {
-                                    ...formData.unifiedConfig,
-                                    minHoldPeriodMs: parseInt(value)
-                                  })}
-                                  disabled={formData.riskProfile !== 'custom'}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="30000">30 sec</SelectItem>
-                                    <SelectItem value="60000">1 min</SelectItem>
-                                    <SelectItem value="120000">2 min</SelectItem>
-                                    <SelectItem value="300000">5 min</SelectItem>
-                                    <SelectItem value="600000">10 min</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <p className="text-xs text-muted-foreground">Min time before sell allowed</p>
-                              </div>
                             </div>
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Note: Min Hold Period is in EXECUTION → Unified Decisions (not a Risk Profile field).
+                            </p>
                           </div>
 
                           {/* Daily Loss Limit - Coming Soon */}

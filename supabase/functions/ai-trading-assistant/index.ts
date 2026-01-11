@@ -112,8 +112,9 @@ const STRATEGY_PRESETS = {
   }
 };
 
-// Fields that are locked when using a preset (not 'custom' mode)
-// MUST be kept in sync with src/utils/strategyPresets.ts PRESET_LOCKED_FIELDS
+// THE 12 RISK PROFILE FIELDS - Fields locked when using a preset (not 'custom' mode)
+// MUST be kept in sync with src/utils/strategyPresets.ts PRESET_RISK_FIELDS
+// NOTE: minHoldPeriodMs is an EXECUTION field, NOT a Risk Profile field
 const PRESET_LOCKED_FIELDS = [
   'maxWalletExposure',
   'perTradeAllocation', 
@@ -127,7 +128,7 @@ const PRESET_LOCKED_FIELDS = [
   'maxVolatilityScoreForBuy',
   'stopLossCooldownMs',
   'minEntrySpacingMs',
-  'minHoldPeriodMs',
+  // NOTE: minHoldPeriodMs is NOT included - it's an execution field
 ];
 
 // =============================================

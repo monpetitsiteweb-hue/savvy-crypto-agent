@@ -1,12 +1,13 @@
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Lock } from 'lucide-react';
+import { Lock, Flame } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { 
   StrategyDimension, 
   DIMENSION_INFO, 
   getFieldDimension, 
-  isFieldLocked 
+  isFieldLocked,
+  PRESET_RISK_FIELDS
 } from '@/utils/strategyPresets';
 
 interface DimensionBadgeProps {
@@ -16,6 +17,7 @@ interface DimensionBadgeProps {
 
 /**
  * Visual badge indicating which dimension a field belongs to
+ * NOTE: Only used for informational display, NOT for Risk Profile fields
  */
 export const DimensionBadge: React.FC<DimensionBadgeProps> = ({ dimension, size = 'sm' }) => {
   const info = DIMENSION_INFO[dimension];
@@ -31,6 +33,48 @@ export const DimensionBadge: React.FC<DimensionBadgeProps> = ({ dimension, size 
       <TooltipContent side="top">
         <p className="font-medium">{info.label}</p>
         <p className="text-xs text-muted-foreground">{info.description}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+};
+
+interface RiskProfileBadgeProps {
+  fieldName: string;
+  riskProfile: string;
+}
+
+/**
+ * 🔥 Risk Profile badge - ONLY for the 12 Risk Profile fields
+ * Shows the badge AND lock indicator when field is preset-controlled
+ */
+export const RiskProfileBadge: React.FC<RiskProfileBadgeProps> = ({ 
+  fieldName, 
+  riskProfile 
+}) => {
+  const isRiskField = PRESET_RISK_FIELDS.includes(fieldName as any);
+  const locked = isFieldLocked(riskProfile, fieldName);
+  
+  if (!isRiskField) return null;
+  
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center gap-1">
+          <Flame className="h-3.5 w-3.5 text-orange-500" />
+          {locked && <Lock className="h-3 w-3 text-muted-foreground" />}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        <p className="font-medium">🔥 Risk Profile Field</p>
+        {locked ? (
+          <p className="text-xs text-muted-foreground">
+            Controlled by {riskProfile.toUpperCase()} preset. Switch to Custom to edit.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            This field affects trading risk. Currently editable in Custom mode.
+          </p>
+        )}
       </TooltipContent>
     </Tooltip>
   );
@@ -74,27 +118,22 @@ interface RiskFieldLabelProps {
   children: React.ReactNode;
   fieldName: string;
   riskProfile: string;
-  showDimension?: boolean;
 }
 
 /**
- * Combined label component for risk-impacting fields
- * Shows the label, dimension badge, and lock indicator
+ * Combined label component for the 12 Risk Profile fields
+ * Shows: Label + 🔥 badge + lock icon (if locked)
+ * NOTE: Does NOT show dimension badges - only the Risk Profile indicator
  */
 export const RiskFieldLabel: React.FC<RiskFieldLabelProps> = ({
   children,
   fieldName,
-  riskProfile,
-  showDimension = true
+  riskProfile
 }) => {
-  const dimension = getFieldDimension(fieldName);
-  const locked = isFieldLocked(riskProfile, fieldName);
-  
   return (
     <div className="flex items-center gap-2">
       {children}
-      {showDimension && dimension && <DimensionBadge dimension={dimension} size="sm" />}
-      {locked && <FieldLockIndicator fieldName={fieldName} riskProfile={riskProfile} />}
+      <RiskProfileBadge fieldName={fieldName} riskProfile={riskProfile} />
     </div>
   );
 };
@@ -107,7 +146,7 @@ interface SectionHeaderProps {
 }
 
 /**
- * Section header with dimension badge and micro-explanation
+ * Section header with optional dimension badge and micro-explanation
  */
 export const SectionHeader: React.FC<SectionHeaderProps> = ({
   title,
