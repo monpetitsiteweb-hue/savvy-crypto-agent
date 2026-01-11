@@ -62,7 +62,12 @@ export const DEFAULT_VALUES = {
   MIN_HOLD_PERIOD_MS: 60000,        // 1 minute minimum hold
   COOLDOWN_BETWEEN_ACTIONS_MS: 30000, // 30 seconds cooldown
   PRICE_STALE_MAX_MS: 60000,        // Price stale after 1 minute
-  EPSILON_PNL_BUFFER_PCT: 0.1       // 0.1% buffer
+  EPSILON_PNL_BUFFER_PCT: 0.1,      // 0.1% buffer
+  
+  // Pyramiding Model - Context Duplicate Detection
+  // Used to detect duplicate BUY contexts (same trigger_type + timeframe + anchor_price within ε)
+  // Allows legitimate pyramiding while blocking redundant entries
+  CONTEXT_DUPLICATE_EPSILON_PCT: 0.005,  // 0.5% default tolerance for anchor_price comparison
 } as const;
 
 export const ALLOWED_OVERRIDE_KEYS = [
