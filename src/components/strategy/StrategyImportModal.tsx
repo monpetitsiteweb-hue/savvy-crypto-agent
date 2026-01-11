@@ -61,6 +61,7 @@ export function StrategyImportModal({
         valid: false,
         errors: ['Only .json files are accepted'],
         warnings: [],
+        deprecatedFieldsDetected: [],
       });
       setStep('error');
       return;
@@ -85,6 +86,7 @@ export function StrategyImportModal({
         valid: false,
         errors: [(error as Error).message || 'Failed to parse file'],
         warnings: [],
+        deprecatedFieldsDetected: [],
       });
       setStep('error');
     } finally {
@@ -219,22 +221,22 @@ export function StrategyImportModal({
                 </div>
               ))}
             </div>
-          </ScrollArea>
+        </ScrollArea>
         </div>
         
-        {/* Selected Coins */}
-        {configuration.selectedCoins && configuration.selectedCoins.length > 0 && (
+        {/* Selected Coins - access from signals config in new structured format */}
+        {configuration.signals?.selectedCoins && configuration.signals.selectedCoins.length > 0 && (
           <div className="space-y-2">
             <span className="text-sm font-medium">Selected Coins</span>
             <div className="flex flex-wrap gap-1">
-              {configuration.selectedCoins.slice(0, 10).map((coin: string) => (
+              {configuration.signals.selectedCoins.slice(0, 10).map((coin: string) => (
                 <Badge key={coin} variant="outline" className="text-xs">
                   {coin}
                 </Badge>
               ))}
-              {configuration.selectedCoins.length > 10 && (
+              {configuration.signals.selectedCoins.length > 10 && (
                 <Badge variant="outline" className="text-xs">
-                  +{configuration.selectedCoins.length - 10} more
+                  +{configuration.signals.selectedCoins.length - 10} more
                 </Badge>
               )}
             </div>
