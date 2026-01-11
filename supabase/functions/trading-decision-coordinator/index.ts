@@ -4315,12 +4315,14 @@ async function detectConflicts(
 
   // =====================================================================
   // SELL VALIDATION: Position existence (all-time) + Hold period (time-based)
+  // CRITICAL FIX: minHoldPeriod applies to ALL SELLs including automatic exits
   // =====================================================================
   if (intent.side === 'SELL') {
     const isPositionManagement = intent.metadata?.position_management === true && intent.metadata?.entry_price != null;
     
+    // STEP 1: Check if position EXISTS (all-time net position > 0)
+    // Skip ONLY position existence check for position management SELLs (they validate via original_trade_id)
     if (!isPositionManagement) {
-      // STEP 1: Check if position EXISTS (all-time net position > 0)
       if (netPosition <= 0) {
         // Enhanced debug logging for positionNotFound
         console.log('[COORD][GUARD] positionNotFound - DETAILED DEBUG', {
@@ -4343,42 +4345,43 @@ async function detectConflicts(
         guardReport.positionNotFound = true;
         return { hasConflict: true, reason: 'no_position_found', guardReport };
       }
+    }
+    
+    // STEP 2: Check hold period - APPLIES TO ALL SELLs (manual, TP, SL, trailing)
+    // This is the primary anti-churn gate preventing "stupid trades"
+    const allBuysSorted = allTrades
+      .filter(t => t.trade_type === 'buy')
+      .sort((a, b) => new Date(b.executed_at ?? 0).getTime() - new Date(a.executed_at ?? 0).getTime());
+    
+    const lastBuy = allBuysSorted[0];
+    
+    if (lastBuy) {
+      const timeSinceBuy = Date.now() - new Date(lastBuy.executed_at as string).getTime();
       
-      // STEP 2: Check hold period using the MOST RECENT BUY from ALL trades (not just recent window)
-      const allBuysSorted = allTrades
-        .filter(t => t.trade_type === 'buy')
-        .sort((a, b) => new Date(b.executed_at ?? 0).getTime() - new Date(a.executed_at ?? 0).getTime());
-      
-      const lastBuy = allBuysSorted[0];
-      
-      if (lastBuy) {
-        const timeSinceBuy = Date.now() - new Date(lastBuy.executed_at as string).getTime();
-        
-        // FAIL-CLOSED: Required config must exist - NO || fallbacks
-        const minHoldPeriodMs = config.minHoldPeriodMs;
-        if (minHoldPeriodMs === undefined || minHoldPeriodMs === null) {
-          console.log(`🚫 COORDINATOR: SELL blocked - missing required config: minHoldPeriodMs`);
-          guardReport.missingConfig = 'minHoldPeriodMs';
-          return { hasConflict: true, reason: 'blocked_missing_config:minHoldPeriodMs', guardReport };
-        }
-        
-        if (timeSinceBuy < minHoldPeriodMs) {
-          console.log('[COORD][GUARD] holdPeriodNotMet', {
-            userId: intent.userId.substring(0, 8) + '...',
-            baseSymbol,
-            timeSinceBuyMs: timeSinceBuy,
-            minHoldPeriodMs,
-            lastBuyAt: lastBuy.executed_at,
-          });
-          guardReport.holdPeriodNotMet = true;
-          return { hasConflict: true, reason: 'hold_min_period_not_met', guardReport };
-        }
+      // FAIL-CLOSED: Required config must exist - NO || fallbacks
+      const minHoldPeriodMs = config.minHoldPeriodMs;
+      if (minHoldPeriodMs === undefined || minHoldPeriodMs === null) {
+        console.log(`🚫 COORDINATOR: SELL blocked - missing required config: minHoldPeriodMs`);
+        guardReport.missingConfig = 'minHoldPeriodMs';
+        return { hasConflict: true, reason: 'blocked_missing_config:minHoldPeriodMs', guardReport };
       }
       
-      console.log(`✅ COORDINATOR: SELL validated for ${baseSymbol} - position exists (net=${netPosition.toFixed(6)}) and hold period met`);
-    } else {
-      console.log(`✅ POSITION MANAGEMENT: Skipping FIFO validation for ${intent.symbol} SELL with entry_price=${intent.metadata.entry_price}`);
+      if (timeSinceBuy < minHoldPeriodMs) {
+        console.log('[COORD][GUARD] holdPeriodNotMet - BLOCKING SELL (all paths)', {
+          userId: intent.userId.substring(0, 8) + '...',
+          baseSymbol,
+          timeSinceBuyMs: timeSinceBuy,
+          minHoldPeriodMs,
+          lastBuyAt: lastBuy.executed_at,
+          exitTrigger: intent.metadata?.exit_trigger || intent.reason,
+          isPositionManagement,
+        });
+        guardReport.holdPeriodNotMet = true;
+        return { hasConflict: true, reason: 'hold_min_period_not_met', guardReport };
+      }
     }
+    
+    console.log(`✅ COORDINATOR: SELL validated for ${baseSymbol} - position exists (net=${netPosition.toFixed(6)}) and hold period met`);
   }
 
   // Check cooldown for opposite actions (no double penalty for automated BUYs)
