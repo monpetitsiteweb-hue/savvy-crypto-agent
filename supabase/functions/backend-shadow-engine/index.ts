@@ -850,18 +850,30 @@ serve(async (req) => {
           const computedConfidence = Math.min(0.95, Math.max(minConfidence, fusionScore));
 
           // ============= ENTRY CONTEXT FOR PYRAMIDING MODEL =============
-          // Derive trigger_type from dominant signal pattern
+          // Controlled vocabulary for trigger_type (NOT a DB enum - freeform for iteration)
+          // Categories: trend, momentum, whale, sentiment, composite
+          const TRIGGER_VOCABULARY = {
+            WHALE_MOMENTUM: 'whale_momentum',
+            MOMENTUM_CONTINUATION: 'momentum_continuation',
+            TREND_FOLLOW: 'trend_follow',
+            MOMENTUM_BREAKOUT: 'momentum_breakout',
+            SENTIMENT_DRIVEN: 'sentiment_driven',
+            FUSION_COMPOSITE: 'fusion_composite',
+          } as const;
+          
+          // Derive trigger_type from dominant signal pattern using controlled vocabulary
           const deriveTriggerType = (scores: SignalScores): string => {
-            // Determine dominant signal pattern for context classification
-            if (scores.whale > 0.5) return 'whale_momentum';
-            if (scores.momentum > 0.3 && scores.trend > 0.1) return 'momentum_continuation';
-            if (scores.trend > 0.3) return 'trend_follow';
-            if (scores.momentum > 0.2) return 'momentum_breakout';
-            if (signalScores.sentiment > 0.3) return 'sentiment_driven';
-            return 'fusion_composite';
+            // Priority order: whale > momentum+trend > pure trend > pure momentum > sentiment > composite
+            if (scores.whale > 0.5) return TRIGGER_VOCABULARY.WHALE_MOMENTUM;
+            if (scores.momentum > 0.3 && scores.trend > 0.1) return TRIGGER_VOCABULARY.MOMENTUM_CONTINUATION;
+            if (scores.trend > 0.3) return TRIGGER_VOCABULARY.TREND_FOLLOW;
+            if (scores.momentum > 0.2) return TRIGGER_VOCABULARY.MOMENTUM_BREAKOUT;
+            if (scores.sentiment > 0.3) return TRIGGER_VOCABULARY.SENTIMENT_DRIVEN;
+            return TRIGGER_VOCABULARY.FUSION_COMPOSITE;
           };
           
-          // Timeframe from strategy config, default to engine cadence
+          // Timeframe from strategy config / decision cadence (NOT from UI clocks)
+          // Engine cadence is the authoritative source
           const entryTimeframe = config.decisionCadence || config.entryTimeframe || '5m';
           
           const entryContext = {

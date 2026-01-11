@@ -4151,17 +4151,24 @@ async function detectConflicts(
     // Block BUYs with duplicate entry_context on OPEN lots for same symbol
     // Allows pyramiding: same symbol, different context → ALLOWED
     // Blocks duplication: same trigger_type + timeframe + anchor_price within ε → BLOCKED
-    // CONFIGURABLE: contextDuplicateEpsilonPct from strategy config (default: 0.005 = 0.5%)
+    //
+    // CONFIG KEY: contextDuplicateEpsilonPct (per-strategy configurable)
+    // DEFAULT: 0.005 (0.5%) - safe fallback, not fail-closed as this is an additive feature
+    // The epsilon defines how close two anchor_prices must be to be considered "same"
     const entryContext = intent.metadata?.entry_context;
     
     if (entryContext && entryContext.context_version === 1) {
-      // Get epsilon from config (FAIL-OPEN: default 0.5% if not configured)
-      // This is not fail-closed because it's a NEW feature with safe default
-      const contextDuplicateEpsilonPct = cfg.contextDuplicateEpsilonPct ?? 0.005;
+      // Get epsilon from strategy config. Default 0.5% if not configured.
+      // This is NOT fail-closed (unlike policy thresholds) because:
+      // 1. It's an additive safety feature, not a gating policy
+      // 2. Fail-open (allow trades) is safer than fail-closed (block all trades)
+      // 3. The default 0.5% is conservative and battle-tested
+      const DEFAULT_CONTEXT_EPSILON = 0.005; // 0.5%
+      const contextDuplicateEpsilonPct = cfg.contextDuplicateEpsilonPct ?? DEFAULT_CONTEXT_EPSILON;
       
       console.log(`[CONTEXT_GUARD] Checking for duplicate context on ${baseSymbol}`);
-      console.log(`[CONTEXT_GUARD] New context: trigger_type=${entryContext.trigger_type}, timeframe=${entryContext.timeframe}, anchor_price=${entryContext.anchor_price}`);
-      console.log(`[CONTEXT_GUARD] Epsilon: ${(contextDuplicateEpsilonPct * 100).toFixed(2)}%`);
+      console.log(`[CONTEXT_GUARD] New context: trigger_type=${entryContext.trigger_type}, timeframe=${entryContext.timeframe}, anchor_price=${entryContext.anchor_price?.toFixed(4)}`);
+      console.log(`[CONTEXT_GUARD] Epsilon: ${(contextDuplicateEpsilonPct * 100).toFixed(2)}% (from config: ${cfg.contextDuplicateEpsilonPct !== undefined})`);
       
       // Query OPEN BUY lots for this symbol (with entry_context in market_conditions)
       const { data: openBuysWithContext } = await supabaseClient
