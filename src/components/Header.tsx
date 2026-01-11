@@ -1,84 +1,79 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { Settings, Bell, User, LogOut, Shield, Link, CheckCircle, Menu, X } from 'lucide-react';
+import { Bell, User, LogOut, Shield, Link, CheckCircle, Menu, X, Wallet, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
+import { useUserTradingState } from '@/hooks/useUserTradingState';
 import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
 
 export const Header = () => {
   const { user, signOut } = useAuth();
   const { role } = useUserRole();
+  const { state: tradingState, isLoading: isTradingStateLoading, isCoinbaseConnected } = useUserTradingState();
   const { testMode, toggleTestMode } = useTestMode();
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const [showDropdown, setShowDropdown] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const [isConnectedToCoinbase, setIsConnectedToCoinbase] = useState(false);
-  const [isCheckingConnection, setIsCheckingConnection] = useState(true);
 
-  // Check Coinbase connection status
-  useEffect(() => {
-    const checkCoinbaseConnection = async () => {
-      if (!user) {
-        setIsCheckingConnection(false);
-        return;
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from('user_coinbase_connections')
-          .select('is_active, expires_at, access_token_encrypted, api_private_key_encrypted')
-          .eq('user_id', user.id)
-          .eq('is_active', true);
-
-        if (error) {
-          console.error('Error checking Coinbase connection:', error);
-          setIsConnectedToCoinbase(false);
-        } else {
-          // Check if any connection is valid (either API key or non-expired OAuth)
-          const hasValidConnection = data && data.some(conn => {
-            // API key connections (no expiry) are always valid if active
-            if (conn.api_private_key_encrypted) {
-              return true;
-            }
-            // OAuth connections must not be expired
-            if (conn.access_token_encrypted && conn.expires_at) {
-              return new Date(conn.expires_at) > new Date();
-            }
-            return false;
-          });
-          setIsConnectedToCoinbase(!!hasValidConnection);
-        }
-      } catch (error) {
-        console.error('Error checking Coinbase connection:', error);
-        setIsConnectedToCoinbase(false);
-      } finally {
-        setIsCheckingConnection(false);
-      }
-    };
-
-    checkCoinbaseConnection();
-  }, [user]);
-
-  const handleCoinbaseConnection = () => {
-    if (isConnectedToCoinbase) {
-      // If already connected, navigate to settings page to manage connections
-      navigate('/profile?tab=settings');
-    } else {
-      // If not connected, navigate to profile to set up connection
-      navigate('/profile?tab=settings');
+  // Derive CTA action based on trading state
+  const handleCoinbaseCTA = () => {
+    // Always route to Profile -> Coinbase Connections tab
+    navigate('/profile?tab=connections');
+    
+    if (!isCoinbaseConnected) {
       toast({
         title: "Connect to Coinbase",
         description: "Set up your Coinbase connection to enable live trading.",
       });
     }
   };
+
+  // Get CTA label and style based on trading state
+  const getCTAConfig = () => {
+    if (isTradingStateLoading) {
+      return { label: 'Checking...', icon: Loader2, variant: 'ghost' as const, className: 'text-slate-400' };
+    }
+    
+    switch (tradingState) {
+      case 'WALLET_FUNDED':
+        return { 
+          label: 'Wallet Ready', 
+          icon: CheckCircle, 
+          variant: 'outline' as const, 
+          className: 'bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/30' 
+        };
+      case 'WALLET_CREATED':
+        return { 
+          label: 'Fund Wallet', 
+          icon: Wallet, 
+          variant: 'default' as const, 
+          className: 'bg-amber-500 hover:bg-amber-600 text-white' 
+        };
+      case 'COINBASE_CONNECTED':
+        return { 
+          label: 'Create Wallet', 
+          icon: Wallet, 
+          variant: 'default' as const, 
+          className: 'bg-blue-500 hover:bg-blue-600 text-white' 
+        };
+      case 'TEST_ONLY':
+      default:
+        return { 
+          label: 'Connect Coinbase', 
+          icon: Link, 
+          variant: 'default' as const, 
+          className: 'bg-orange-500 hover:bg-orange-600 text-white' 
+        };
+    }
+  };
+
+  const ctaConfig = getCTAConfig();
 
   const handleSignOut = async () => {
     await signOut();
@@ -153,29 +148,17 @@ export const Header = () => {
               </>
             )}
 
-            {/* Coinbase Connection Button */}
-            {user && !isCheckingConnection && (
+            {/* Trading State CTA */}
+            {user && (
               <Button
-                onClick={handleCoinbaseConnection}
+                onClick={handleCoinbaseCTA}
                 size="sm"
-                className={`flex items-center gap-2 font-medium ${
-                  isConnectedToCoinbase 
-                    ? 'bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/30' 
-                    : 'bg-orange-500 hover:bg-orange-600 text-white'
-                }`}
-                variant={isConnectedToCoinbase ? "outline" : "default"}
+                className={`flex items-center gap-2 font-medium ${ctaConfig.className}`}
+                variant={ctaConfig.variant}
+                disabled={isTradingStateLoading}
               >
-                {isConnectedToCoinbase ? (
-                  <>
-                    <CheckCircle className="w-4 h-4" />
-                    <span>Connected to Coinbase</span>
-                  </>
-                ) : (
-                  <>
-                    <Link className="w-4 h-4" />
-                    <span>Connect to Coinbase</span>
-                  </>
-                )}
+                <ctaConfig.icon className={`w-4 h-4 ${isTradingStateLoading ? 'animate-spin' : ''}`} />
+                <span>{ctaConfig.label}</span>
               </Button>
             )}
 
@@ -262,32 +245,20 @@ export const Header = () => {
                 />
               </div>
 
-              {/* Coinbase Connection */}
-              {user && !isCheckingConnection && (
+              {/* Trading State CTA - Mobile */}
+              {user && (
                 <Button
                   onClick={() => {
-                    handleCoinbaseConnection();
+                    handleCoinbaseCTA();
                     setShowMobileMenu(false);
                   }}
                   size="sm"
-                  className={`w-full flex items-center gap-2 font-medium ${
-                    isConnectedToCoinbase 
-                      ? 'bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/30' 
-                      : 'bg-orange-500 hover:bg-orange-600 text-white'
-                  }`}
-                  variant={isConnectedToCoinbase ? "outline" : "default"}
+                  className={`w-full flex items-center gap-2 font-medium ${ctaConfig.className}`}
+                  variant={ctaConfig.variant}
+                  disabled={isTradingStateLoading}
                 >
-                  {isConnectedToCoinbase ? (
-                    <>
-                      <CheckCircle className="w-4 h-4" />
-                      <span>Connected to Coinbase</span>
-                    </>
-                  ) : (
-                    <>
-                      <Link className="w-4 h-4" />
-                      <span>Connect to Coinbase</span>
-                    </>
-                  )}
+                  <ctaConfig.icon className={`w-4 h-4 ${isTradingStateLoading ? 'animate-spin' : ''}`} />
+                  <span>{ctaConfig.label}</span>
                 </Button>
               )}
 
