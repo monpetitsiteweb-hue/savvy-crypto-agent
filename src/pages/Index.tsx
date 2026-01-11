@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef, memo } from 'react';
+import { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthPage } from '@/components/auth/AuthPage';
 import { Header } from '@/components/Header';
@@ -24,6 +24,8 @@ import { useMarketData } from '@/contexts/MarketDataContext';
 import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
+import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
+import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Link2 } from 'lucide-react';
@@ -234,6 +236,21 @@ function IndexComponent() {
   const { role, loading: roleLoading } = useUserRole();
   const { hasActiveStrategy } = useActiveStrategy();
   
+  // Onboarding: Welcome modal on first login
+  const { showWelcomeModal, completeWelcome } = useOnboardingStatus();
+  
+  // Handle welcome modal actions
+  const handleStartTestMode = useCallback(() => {
+    completeWelcome();
+  }, [completeWelcome]);
+  
+  const handleConnectCoinbase = useCallback(() => {
+    // Complete welcome first, then navigate to profile for Coinbase connection
+    completeWelcome();
+    // For now just dismiss - Phase 2 will add proper Coinbase OAuth flow
+    // The user can connect via header CTA or profile page later
+  }, [completeWelcome]);
+  
   // Step 9: Context change logging with version tracking
   const contextChangeLog = useRef(new Map<string, number>());
   useEffect(() => {
@@ -326,6 +343,13 @@ function IndexComponent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
+      {/* Welcome Modal - non-blocking, shown only on first login */}
+      <WelcomeModal
+        open={showWelcomeModal}
+        onStartTestMode={handleStartTestMode}
+        onConnectCoinbase={handleConnectCoinbase}
+      />
+      
       <Header />
       
       <div className="container mx-auto px-4 py-6 flex-1">
