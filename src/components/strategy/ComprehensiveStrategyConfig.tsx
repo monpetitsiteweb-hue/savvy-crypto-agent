@@ -62,6 +62,8 @@ import {
   LOW_RISK_PRESET,
   MEDIUM_RISK_PRESET,
   HIGH_RISK_PRESET,
+  PRESET_LOCKED_FIELDS,
+  isFieldLocked,
   type StrategyPreset
 } from '@/utils/strategyPresets';
 
@@ -204,6 +206,14 @@ interface StrategyFormData {
   spreadThresholdBps: number;    // Max allowed spread in basis points (0.1 - 200)
   priceStaleMaxMs: number;       // Max allowed price staleness in milliseconds (1000 - 60000)
   minDepthRatio: number;         // Min liquidity depth ratio (0 - 3)
+  
+  // === STABILIZATION GATES (consumed by coordinator) ===
+  minTrendScoreForBuy: number;       // 0-1, minimum trend score for BUY
+  minMomentumScoreForBuy: number;    // 0-1, minimum momentum score for BUY
+  maxVolatilityScoreForBuy: number;  // 0-1, maximum volatility score for BUY
+  stopLossCooldownMs: number;        // ms to wait after SL exit before re-entry
+  minEntrySpacingMs: number;         // ms minimum between entries on same symbol
+  
   // Execution Settings
   executionSettings: {
     execution_mode: 'COINBASE' | 'ONCHAIN';
@@ -516,25 +526,43 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     // Market Quality Gates - USER CONTROLLED (default: permissive but safe)
     spreadThresholdBps: 25,      // 25 bps = 0.25% max spread
     priceStaleMaxMs: 15000,      // 15 seconds max price staleness
-    minDepthRatio: 0.2           // Low depth requirement
+    minDepthRatio: 0.2,          // Low depth requirement
+    
+    // === STABILIZATION GATES (consumed by coordinator) ===
+    // These are the effective risk levers that control entry quality
+    minTrendScoreForBuy: MEDIUM_RISK_PRESET.minTrendScoreForBuy,       // 0-1 scale
+    minMomentumScoreForBuy: MEDIUM_RISK_PRESET.minMomentumScoreForBuy, // 0-1 scale
+    maxVolatilityScoreForBuy: MEDIUM_RISK_PRESET.maxVolatilityScoreForBuy, // 0-1 scale
+    stopLossCooldownMs: MEDIUM_RISK_PRESET.stopLossCooldownMs,         // 10 minutes
+    minEntrySpacingMs: MEDIUM_RISK_PRESET.minEntrySpacingMs,           // 15 minutes
   });
 
-  // Apply risk profile presets - uses real 11 effective levers
+  // Apply risk profile presets - uses ALL effective risk levers
   const handleRiskProfileChange = (riskProfile: 'low' | 'medium' | 'high' | 'custom') => {
     const preset = getPresetByRiskProfile(riskProfile);
     
     if (preset) {
-      // Apply all 11 effective risk levers from preset
+      // Apply ALL effective risk levers from preset
       setFormData(prev => ({
         ...prev,
         riskProfile: preset.riskProfile,
+        // Position Sizing
         maxWalletExposure: preset.maxWalletExposure,
         perTradeAllocation: preset.perTradeAllocation,
         maxActiveCoins: preset.maxActiveCoins,
+        // Exit Thresholds
         takeProfitPercentage: preset.takeProfitPercentage,
         stopLossPercentage: preset.stopLossPercentage,
         trailingStopLossPercentage: preset.trailingStopLossPercentage,
-        min_confidence: preset.min_confidence
+        // Confidence
+        min_confidence: preset.min_confidence,
+        // Signal Gates (CRITICAL - these are enforced by coordinator)
+        minTrendScoreForBuy: preset.minTrendScoreForBuy,
+        minMomentumScoreForBuy: preset.minMomentumScoreForBuy,
+        maxVolatilityScoreForBuy: preset.maxVolatilityScoreForBuy,
+        // Timing Gates
+        stopLossCooldownMs: preset.stopLossCooldownMs,
+        minEntrySpacingMs: preset.minEntrySpacingMs,
       }));
     } else {
       // Custom mode - just update the profile, keep all other values

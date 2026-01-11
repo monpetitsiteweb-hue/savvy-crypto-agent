@@ -1,16 +1,28 @@
 /**
  * Strategy Risk Presets - JSON-based risk profile configurations
  * 
- * These presets define the 11 effective risk levers that actually control
- * trading behavior in the backend engine.
+ * These presets define ALL effective risk levers that actually control
+ * trading behavior in the backend engine (trading-decision-coordinator).
  * 
- * Only parameters that are consumed by trading-decision-coordinator are included.
+ * CANONICAL LIST OF 11 EFFECTIVE LEVERS (consumed by coordinator):
+ * 1. maxWalletExposure - % of wallet that can be exposed
+ * 2. perTradeAllocation - EUR per trade
+ * 3. maxActiveCoins - Max concurrent positions
+ * 4. takeProfitPercentage - Take profit %
+ * 5. stopLossPercentage - Stop loss %
+ * 6. trailingStopLossPercentage - Trailing stop %
+ * 7. min_confidence - Minimum fusion confidence (0-1)
+ * 8. minTrendScoreForBuy - Minimum trend score gate (0-1)
+ * 9. minMomentumScoreForBuy - Minimum momentum score gate (0-1)
+ * 10. maxVolatilityScoreForBuy - Maximum volatility score gate (0-1)
+ * 11. stopLossCooldownMs - Cooldown after SL exit before re-entry
+ * 12. minEntrySpacingMs - Minimum time between entries on same symbol
  */
 
 export interface StrategyPreset {
-  riskProfile: 'low' | 'medium' | 'high' | 'custom';
+  riskProfile: 'low' | 'medium' | 'high';
   
-  // === EFFECTIVE RISK LEVERS (11 parameters that actually work) ===
+  // === ALL 11+ EFFECTIVE RISK LEVERS (consumed by coordinator) ===
   
   // Position Sizing & Exposure
   maxWalletExposure: number;          // % of wallet that can be exposed
@@ -22,92 +34,150 @@ export interface StrategyPreset {
   stopLossPercentage: number;          // Stop loss %
   trailingStopLossPercentage: number;  // Trailing stop %
   
-  // Signal Gate Thresholds
+  // Confidence Gate
+  min_confidence: number;              // 0-1, minimum fusion confidence
+  
+  // Signal Gate Thresholds (CRITICAL - enforced by coordinator)
   minTrendScoreForBuy: number;         // 0-1, minimum trend score
   minMomentumScoreForBuy: number;      // 0-1, minimum momentum score
   maxVolatilityScoreForBuy: number;    // 0-1, maximum volatility score
   
-  // Confidence Gate
-  min_confidence: number;              // 0-1, minimum fusion confidence
+  // Timing Gates (anti-churn)
+  stopLossCooldownMs: number;          // ms to wait after SL exit before re-entry
+  minEntrySpacingMs: number;           // ms minimum between entries on same symbol
 }
 
 /**
+ * Fields that are locked when a preset is selected (not 'custom' mode).
+ * This is the SINGLE SOURCE OF TRUTH used by both UI and AI agent.
+ * Keep this list in sync with StrategyPreset interface fields.
+ */
+export const PRESET_LOCKED_FIELDS = [
+  'maxWalletExposure',
+  'perTradeAllocation',
+  'maxActiveCoins',
+  'takeProfitPercentage',
+  'stopLossPercentage',
+  'trailingStopLossPercentage',
+  'min_confidence',
+  'minTrendScoreForBuy',
+  'minMomentumScoreForBuy',
+  'maxVolatilityScoreForBuy',
+  'stopLossCooldownMs',
+  'minEntrySpacingMs',
+] as const;
+
+export type PresetLockedField = typeof PRESET_LOCKED_FIELDS[number];
+
+/**
  * HIGH RISK PRESET
- * Based on current active production strategy.
- * Aggressive entry thresholds, tight TP/SL, high exposure.
+ * Based on CURRENT ACTIVE PRODUCTION STRATEGY (High Risk Momentum Trader).
+ * Extracted from DB: trading_strategies.configuration where strategy_name = 'High Risk Momentum Trader'
+ * 
+ * Characteristics:
+ * - Aggressive entry thresholds (low gate scores = more trades)
+ * - Tight TP/SL (scalping style)
+ * - High exposure (80% wallet)
+ * - Short cooldowns (quick re-entry)
  */
 export const HIGH_RISK_PRESET: StrategyPreset = {
   riskProfile: 'high',
   
-  // Position Sizing - Aggressive
+  // Position Sizing - Aggressive (from current live strategy)
   maxWalletExposure: 80,
   perTradeAllocation: 600,
   maxActiveCoins: 4,
   
-  // Exit Thresholds - Tight (scalping)
+  // Exit Thresholds - Tight scalping (from current live strategy)
   takeProfitPercentage: 0.7,
   stopLossPercentage: 0.7,
-  trailingStopLossPercentage: 0.6,
+  trailingStopLossPercentage: 1.0,
   
-  // Signal Gates - Very Permissive (more trades)
+  // Confidence - Lower threshold (from current live strategy)
+  min_confidence: 0.50,
+  
+  // Signal Gates - Very Permissive (from current live strategy)
   minTrendScoreForBuy: 0.1,
   minMomentumScoreForBuy: 0.1,
-  maxVolatilityScoreForBuy: 0.95,
+  maxVolatilityScoreForBuy: 0.8,
   
-  // Confidence - Lower threshold (more entries)
-  min_confidence: 0.50
+  // Timing - Short cooldowns (from current live strategy)
+  stopLossCooldownMs: 300000,    // 5 minutes
+  minEntrySpacingMs: 600000,     // 10 minutes
 };
 
 /**
  * MEDIUM RISK PRESET
- * Balanced approach with moderate gates and reasonable exposure.
+ * Derived from HIGH baseline with sensible risk reductions.
+ * 
+ * Changes from HIGH:
+ * - Less exposure (50% vs 80%)
+ * - Smaller positions (€350 vs €600)
+ * - Stricter entry gates (more selective trades)
+ * - Wider TP/SL (swing style vs scalping)
+ * - Longer cooldowns (less churn)
  */
 export const MEDIUM_RISK_PRESET: StrategyPreset = {
   riskProfile: 'medium',
   
   // Position Sizing - Moderate
-  maxWalletExposure: 50,
-  perTradeAllocation: 300,
-  maxActiveCoins: 3,
+  maxWalletExposure: 50,           // -30% from HIGH (less at risk)
+  perTradeAllocation: 350,         // -42% from HIGH (smaller bets)
+  maxActiveCoins: 3,               // -1 from HIGH (fewer concurrent)
   
-  // Exit Thresholds - Wider (swing)
-  takeProfitPercentage: 2.0,
-  stopLossPercentage: 1.5,
-  trailingStopLossPercentage: 1.0,
-  
-  // Signal Gates - Moderate (selective)
-  minTrendScoreForBuy: 0.35,
-  minMomentumScoreForBuy: 0.30,
-  maxVolatilityScoreForBuy: 0.70,
+  // Exit Thresholds - Wider (swing trading)
+  takeProfitPercentage: 1.8,       // +157% from HIGH (let winners run more)
+  stopLossPercentage: 1.2,         // +71% from HIGH (more room to breathe)
+  trailingStopLossPercentage: 1.5, // +50% from HIGH (wider trail)
   
   // Confidence - Moderate threshold
-  min_confidence: 0.65
+  min_confidence: 0.60,            // +20% from HIGH (more selective)
+  
+  // Signal Gates - Moderate (selective but not strict)
+  minTrendScoreForBuy: 0.30,       // +200% from HIGH (need clearer trend)
+  minMomentumScoreForBuy: 0.25,    // +150% from HIGH (need some momentum)
+  maxVolatilityScoreForBuy: 0.65,  // -19% from HIGH (avoid chop)
+  
+  // Timing - Moderate cooldowns
+  stopLossCooldownMs: 600000,      // 10 minutes (2x HIGH)
+  minEntrySpacingMs: 900000,       // 15 minutes (1.5x HIGH)
 };
 
 /**
  * LOW RISK PRESET
  * Conservative approach with strict gates and limited exposure.
+ * 
+ * Changes from HIGH:
+ * - Minimal exposure (25% vs 80%)
+ * - Small positions (€150 vs €600)
+ * - Very strict entry gates (quality over quantity)
+ * - Wide TP/SL (position trading)
+ * - Long cooldowns (minimal churn)
  */
 export const LOW_RISK_PRESET: StrategyPreset = {
   riskProfile: 'low',
   
   // Position Sizing - Conservative
-  maxWalletExposure: 25,
-  perTradeAllocation: 150,
-  maxActiveCoins: 2,
+  maxWalletExposure: 25,           // -69% from HIGH (minimal risk)
+  perTradeAllocation: 150,         // -75% from HIGH (small bets)
+  maxActiveCoins: 2,               // -50% from HIGH (very focused)
   
-  // Exit Thresholds - Wide with protection
-  takeProfitPercentage: 3.0,
-  stopLossPercentage: 1.0,
-  trailingStopLossPercentage: 0.8,
+  // Exit Thresholds - Wide (position trading)
+  takeProfitPercentage: 3.0,       // +329% from HIGH (let winners run)
+  stopLossPercentage: 1.5,         // +114% from HIGH (tight risk)
+  trailingStopLossPercentage: 2.0, // +100% from HIGH (wide trail)
+  
+  // Confidence - High threshold
+  min_confidence: 0.72,            // +44% from HIGH (high conviction only)
   
   // Signal Gates - Strict (quality trades only)
-  minTrendScoreForBuy: 0.55,
-  minMomentumScoreForBuy: 0.50,
-  maxVolatilityScoreForBuy: 0.50,
+  minTrendScoreForBuy: 0.50,       // +400% from HIGH (strong trend required)
+  minMomentumScoreForBuy: 0.45,    // +350% from HIGH (strong momentum required)
+  maxVolatilityScoreForBuy: 0.50,  // -38% from HIGH (avoid volatility)
   
-  // Confidence - High threshold (very selective)
-  min_confidence: 0.75
+  // Timing - Long cooldowns (no FOMO)
+  stopLossCooldownMs: 1200000,     // 20 minutes (4x HIGH)
+  minEntrySpacingMs: 1800000,      // 30 minutes (3x HIGH)
 };
 
 /**
@@ -129,7 +199,8 @@ export function getPresetByRiskProfile(riskProfile: string): StrategyPreset | nu
 }
 
 /**
- * Apply preset to form data - only updates the 11 effective levers
+ * Apply preset to form data - updates ALL effective levers
+ * Returns merged config with preset values applied
  */
 export function applyPresetToFormData(
   formData: Record<string, any>, 
@@ -149,20 +220,17 @@ export function applyPresetToFormData(
     stopLossPercentage: preset.stopLossPercentage,
     trailingStopLossPercentage: preset.trailingStopLossPercentage,
     
-    // Signal Gates - these go into nested config
-    aiIntelligenceConfig: {
-      ...formData.aiIntelligenceConfig,
-      features: {
-        ...formData.aiIntelligenceConfig?.features,
-        fusion: {
-          ...formData.aiIntelligenceConfig?.features?.fusion,
-          // Signal thresholds are mapped to fusion config
-        }
-      }
-    },
-    
     // Confidence
-    min_confidence: preset.min_confidence
+    min_confidence: preset.min_confidence,
+    
+    // Signal Gates
+    minTrendScoreForBuy: preset.minTrendScoreForBuy,
+    minMomentumScoreForBuy: preset.minMomentumScoreForBuy,
+    maxVolatilityScoreForBuy: preset.maxVolatilityScoreForBuy,
+    
+    // Timing Gates
+    stopLossCooldownMs: preset.stopLossCooldownMs,
+    minEntrySpacingMs: preset.minEntrySpacingMs,
   };
 }
 
@@ -179,7 +247,10 @@ export function detectCurrentRiskProfile(formData: Record<string, any>): 'low' |
       formData.maxActiveCoins === preset.maxActiveCoins &&
       formData.takeProfitPercentage === preset.takeProfitPercentage &&
       formData.stopLossPercentage === preset.stopLossPercentage &&
-      formData.min_confidence === preset.min_confidence;
+      formData.min_confidence === preset.min_confidence &&
+      formData.minTrendScoreForBuy === preset.minTrendScoreForBuy &&
+      formData.minMomentumScoreForBuy === preset.minMomentumScoreForBuy &&
+      formData.maxVolatilityScoreForBuy === preset.maxVolatilityScoreForBuy;
     
     if (matches) {
       return preset.riskProfile;
@@ -187,6 +258,16 @@ export function detectCurrentRiskProfile(formData: Record<string, any>): 'low' |
   }
   
   return 'custom';
+}
+
+/**
+ * Check if a field is locked in the current risk profile
+ */
+export function isFieldLocked(riskProfile: string, fieldName: string): boolean {
+  if (riskProfile === 'custom') {
+    return false;
+  }
+  return PRESET_LOCKED_FIELDS.includes(fieldName as PresetLockedField);
 }
 
 /**
