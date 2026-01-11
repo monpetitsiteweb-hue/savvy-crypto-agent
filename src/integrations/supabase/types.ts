@@ -3351,6 +3351,7 @@ export type Database = {
           is_sandbox: boolean
         }[]
       }
+      get_coinbase_connection_status: { Args: never; Returns: boolean }
       get_execution_wallet_for_trading: {
         Args: { p_user_id: string }
         Returns: {
