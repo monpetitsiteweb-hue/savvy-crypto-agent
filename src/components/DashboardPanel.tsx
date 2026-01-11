@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { useTestMode } from '@/hooks/useTestMode';
+import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { supabase } from '@/integrations/supabase/client';
 import { CoinbaseConnectionSelector } from './CoinbaseConnectionSelector';
 import { UnifiedPortfolioDisplay } from './UnifiedPortfolioDisplay';

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useMemo, useRef } from 'react';
 import { useMarketData } from '@/contexts/MarketDataContext';
 import { useAuth } from '@/hooks/useAuth';
-import { useTestMode } from '@/hooks/useTestMode';
+import { useTestMode } from '@/hooks/useTradeViewFilter';
 
 // Debug-only component to freeze context values for diagnosis
 // Only active when ?debug=history&freezeContexts=1

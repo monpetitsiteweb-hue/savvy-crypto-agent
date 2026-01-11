@@ -201,12 +201,11 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
 }
 
 function isSignalFusionEnabled(strategyConfig: any): boolean {
-  // PHASE 1B: Signal Fusion requires is_test_mode = true in strategy config
-  const isTestMode = strategyConfig?.configuration?.is_test_mode === true || 
-                    strategyConfig?.is_test_mode === true;
+  // Signal Fusion is enabled purely based on the enableSignalFusion flag
+  // execution_target (MOCK/REAL) controls execution mode, not signal fusion availability
   const fusionEnabled = strategyConfig?.configuration?.enableSignalFusion === true ||
                        strategyConfig?.enableSignalFusion === true;
-  return isTestMode && fusionEnabled;
+  return fusionEnabled;
 }
 
 // ============= END SIGNAL FUSION INTEGRATION =============
@@ -410,14 +409,14 @@ async function settleCashLedger(
   meta?: {
     tradeId?: string;
     path?: 'direct_ud_off' | 'standard' | 'manual' | 'per_lot';
-    isTestMode?: boolean;
+    isMockMode?: boolean; // Derived from execution_target === 'MOCK'
     strategyId?: string;
     symbol?: string;
   }
 ): Promise<CashSettlementResult> {
   const path = meta?.path ?? 'standard';
   const tradeId = meta?.tradeId ?? 'unknown_trade_id';
-  const isTestMode = meta?.isTestMode === true;
+  const isMockMode = meta?.isMockMode === true;
 
   try {
     // First, get current cash balance for logging
@@ -429,7 +428,7 @@ async function settleCashLedger(
 
     if (capitalError) {
       console.error(`❌ CASH LEDGER: Failed to read cash_before (path=${path}, trade_id=${tradeId})`, capitalError);
-      if (isTestMode) return { success: false, error: 'cash_before_read_failed' };
+      if (isMockMode) return { success: false, error: 'cash_before_read_failed' };
     }
 
     const cashBefore = capitalData?.cash_balance_eur ?? null;
@@ -481,7 +480,7 @@ async function settleCashLedger(
       const verifiedCash = verifyData?.cash_balance_eur ?? null;
       if (verifyError) {
         console.error(`⚠️ CASH LEDGER [BUY]: verify read failed (path=${path}, trade_id=${tradeId})`, verifyError);
-        if (isTestMode) {
+        if (isMockMode) {
           return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, error: 'cash_after_verify_failed' };
         }
       }
@@ -493,12 +492,12 @@ async function settleCashLedger(
         `✅ CASH LEDGER [BUY] path=${path} trade_id=${tradeId}: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€, verified=${verifiedCash?.toFixed(2) ?? 'N/A'}€, settle_drift=${settleDrift?.toFixed(2) ?? 'N/A'}€`
       );
 
-      if (isTestMode && (cashAfter === null || verifiedCash === null)) {
+      if (isMockMode && (cashAfter === null || verifiedCash === null)) {
         return { success: false, cash_before: cashBefore ?? undefined, delta: -buyNetSpent, cash_after: cashAfter ?? undefined, error: 'cash_after_missing' };
       }
 
-      // DRIFT DETECTION (NO AUTO-REPAIR): Fail hard in test mode if drift > €0.02
-      if (isTestMode && settleDrift !== null && settleDrift > 0.02) {
+      // DRIFT DETECTION (NO AUTO-REPAIR): Fail hard in MOCK mode if drift > €0.02
+      if (isMockMode && settleDrift !== null && settleDrift > 0.02) {
         console.error(`❌ CASH LEDGER [BUY]: DRIFT DETECTED > €0.02 (path=${path}, trade_id=${tradeId}, drift=${settleDrift.toFixed(2)}€)`);
 
         // Log decision_event for auditability
@@ -583,7 +582,7 @@ async function settleCashLedger(
     const verifiedCash = verifyData?.cash_balance_eur ?? null;
     if (verifyError) {
       console.error(`⚠️ CASH LEDGER [SELL]: verify read failed (path=${path}, trade_id=${tradeId})`, verifyError);
-      if (isTestMode) {
+      if (isMockMode) {
         return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, error: 'cash_after_verify_failed' };
       }
     }
@@ -594,12 +593,12 @@ async function settleCashLedger(
       `✅ CASH LEDGER [SELL] path=${path} trade_id=${tradeId}: cash_after=${cashAfter?.toFixed(2) ?? 'N/A'}€, verified=${verifiedCash?.toFixed(2) ?? 'N/A'}€, settle_drift=${settleDrift?.toFixed(2) ?? 'N/A'}€`
     );
 
-    if (isTestMode && (cashAfter === null || verifiedCash === null)) {
+    if (isMockMode && (cashAfter === null || verifiedCash === null)) {
       return { success: false, cash_before: cashBefore ?? undefined, delta: sellNetProceeds, cash_after: cashAfter ?? undefined, error: 'cash_after_missing' };
     }
 
-    // DRIFT DETECTION (NO AUTO-REPAIR): Fail hard in test mode if drift > €0.02
-    if (isTestMode && settleDrift !== null && settleDrift > 0.02) {
+    // DRIFT DETECTION (NO AUTO-REPAIR): Fail hard in MOCK mode if drift > €0.02
+    if (isMockMode && settleDrift !== null && settleDrift > 0.02) {
       console.error(`❌ CASH LEDGER [SELL]: DRIFT DETECTED > €0.02 (path=${path}, trade_id=${tradeId}, drift=${settleDrift.toFixed(2)}€)`);
 
       // Log decision_event for auditability
@@ -678,7 +677,7 @@ interface CanonicalConfig {
   minHoldPeriodMs: number;
   cooldownBetweenOppositeActionsMs: number;
   confidenceOverrideThreshold: number;
-  is_test_mode: boolean;
+  // NOTE: is_test_mode removed - execution mode is driven by strategy.execution_target
 }
 
 interface CanonicalConfigResult {
@@ -739,7 +738,6 @@ function resolveCanonicalConfig(strategyConfig: any): CanonicalConfigResult {
   
   // Optional keys with safe defaults
   const confidenceOverrideThreshold = cfg.confidenceOverrideThreshold ?? aiConfidenceThreshold;
-  const is_test_mode = cfg.is_test_mode === true;
   
   console.log(`✅ [CanonicalConfig] All 7 canonical keys resolved`);
   
@@ -754,7 +752,6 @@ function resolveCanonicalConfig(strategyConfig: any): CanonicalConfigResult {
       minHoldPeriodMs: Number(minHoldPeriodMs),
       cooldownBetweenOppositeActionsMs: Number(cooldownBetweenOppositeActionsMs),
       confidenceOverrideThreshold: Number(confidenceOverrideThreshold),
-      is_test_mode
     }
   };
 }
@@ -2300,8 +2297,9 @@ serve(async (req) => {
       console.log('🎯 UD_MODE=OFF → DIRECT EXECUTION: bypassing all locks and conflict detection');
       
       // Execute trade directly without any coordinator gating
+      // Pass execution_target so balance bypass can check MOCK mode
       console.log('[DEBUG][COORD] Calling executeTradeDirectly...');
-      const executionResult = await executeTradeDirectly(supabaseClient, intent, strategy.configuration, requestId);
+      const executionResult = await executeTradeDirectly(supabaseClient, intent, { ...strategy.configuration, execution_target: executionTarget }, requestId);
       console.log('[DEBUG][COORD] executeTradeDirectly result:', JSON.stringify(executionResult));
       
       if (executionResult.success) {
@@ -2572,7 +2570,8 @@ serve(async (req) => {
       }
 
       // No conflicts - proceed with execution using advisory lock ONLY for atomic section
-      const decision = await executeWithMinimalLock(supabaseClient, intent, unifiedConfig, strategy.configuration, requestId);
+      // Pass execution_target with config so downstream functions can check MOCK mode
+      const decision = await executeWithMinimalLock(supabaseClient, intent, unifiedConfig, { ...strategy.configuration, execution_target: executionTarget }, requestId);
       
       cacheDecision(idempotencyKey, decision);
       
@@ -2979,19 +2978,16 @@ async function executeTradeDirectly(
       console.log('[DEBUG][executeTradeDirectly] availableEur:', availableEur);
       console.log('[DEBUG][executeTradeDirectly] tradeAllocation:', tradeAllocation);
       
-    // TEST MODE: Bypass balance check for test mode trades (including UI-seeded test BUYs)
-    const isTestMode = intent.metadata?.mode === 'mock' 
-      || sc?.is_test_mode 
-      || intent.metadata?.is_test_mode === true;
+    // MOCK MODE: Bypass balance check for MOCK execution_target (paper trading)
+    // execution_target is the canonical source of truth for execution mode
+    const isMockMode = sc?.execution_target === 'MOCK' || sc?.execution_target === undefined; // Default to MOCK if not set
     
-    console.log('[DEBUG][executeTradeDirectly] isTestMode:', isTestMode);
-    console.log('[DEBUG][executeTradeDirectly] intent.metadata?.mode:', intent.metadata?.mode);
-    console.log('[DEBUG][executeTradeDirectly] sc?.is_test_mode:', sc?.is_test_mode);
-    console.log('[DEBUG][executeTradeDirectly] intent.metadata?.is_test_mode:', intent.metadata?.is_test_mode);
+    console.log('[DEBUG][executeTradeDirectly] isMockMode:', isMockMode);
+    console.log('[DEBUG][executeTradeDirectly] sc?.execution_target:', sc?.execution_target);
     
-    if (isTestMode) {
-      console.log('[DEBUG][executeTradeDirectly] TEST MODE - bypassing balance check');
-      console.log(`🧪 TEST MODE: Bypassing balance check - using virtual paper trading`);
+    if (isMockMode) {
+      console.log('[DEBUG][executeTradeDirectly] MOCK MODE - bypassing balance check');
+      console.log(`🧪 MOCK MODE: Bypassing balance check - using virtual paper trading`);
       qty = intent.qtySuggested || (tradeAllocation / realMarketPrice);
       console.log('[DEBUG][executeTradeDirectly] qty set to:', qty);
     } else {
@@ -4432,7 +4428,11 @@ async function executeWithMinimalLock(
     }
     
     const canonical = canonicalResult.config!;
-    const { priceStaleMaxMs, spreadThresholdBps, is_test_mode } = canonical;
+    const { priceStaleMaxMs, spreadThresholdBps } = canonical;
+    
+    // Derive execution mode from strategyConfig.execution_target (canonical source of truth)
+    const executionTarget = strategyConfig?.execution_target || 'MOCK';
+    const isMockMode = executionTarget === 'MOCK';
     
     const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
     
@@ -4443,17 +4443,15 @@ async function executeWithMinimalLock(
       return { action: 'DEFER', reason: 'insufficient_price_freshness', request_id: requestId, retry_in_ms: 0 };
     }
     
-    // Spread gate - BYPASS IN TEST MODE
-    const isTestModeForSpread = is_test_mode || intent.metadata?.is_test_mode === true;
-    
-    if (!isTestModeForSpread && priceData.spreadBps > spreadThresholdBps) {
+    // Spread gate - BYPASS IN MOCK MODE (paper trading)
+    if (!isMockMode && priceData.spreadBps > spreadThresholdBps) {
       console.log(`🚫 COORDINATOR: Trade blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
       logDecisionAsync(supabaseClient, intent, 'DEFER', 'spread_too_wide', config, requestId, undefined, undefined, priceData.price, strategyConfig);
       return { action: 'DEFER', reason: 'spread_too_wide', request_id: requestId, retry_in_ms: 0 };
     }
     
-    if (isTestModeForSpread && priceData.spreadBps > spreadThresholdBps) {
-      console.log(`🧪 TEST MODE: Bypassing spread gate (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
+    if (isMockMode && priceData.spreadBps > spreadThresholdBps) {
+      console.log(`🧪 MOCK MODE: Bypassing spread gate (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`);
     }
     
     // PHASE 3.1: PRE-EXECUTION CIRCUIT BREAKER GATE
@@ -4962,21 +4960,14 @@ async function executeTradeOrder(
       
       console.log(`💰 COORDINATOR: Available EUR balance: €${availableEur.toFixed(2)}`);
       
-      // TEST MODE: Bypass balance check for test mode trades
-      // Extract from strategy config (primary) or intent metadata (fallback)
-      const isTestMode = effectiveConfig?.configuration?.is_test_mode === true ||
-                        effectiveConfig?.is_test_mode === true ||
-                        intent.metadata?.is_test_mode === true ||
-                        intent.metadata?.mode === 'mock';
+      // MOCK MODE: Bypass balance check for MOCK execution_target (paper trading)
+      // execution_target is the canonical source of truth for execution mode
+      const executionTarget = strategyConfig?.execution_target || 'MOCK';
+      const isMockMode = executionTarget === 'MOCK';
                         
-      if (isTestMode) {
-        console.log(`🧪 TEST MODE: Bypassing balance check - using virtual paper trading`);
-        console.log(`🧪 TEST MODE source: ${
-          effectiveConfig?.configuration?.is_test_mode === true ? 'strategy.configuration.is_test_mode' :
-          effectiveConfig?.is_test_mode === true ? 'strategy.is_test_mode' :
-          intent.metadata?.is_test_mode === true ? 'intent.metadata.is_test_mode' :
-          'intent.metadata.mode=mock'
-        }`);
+      if (isMockMode) {
+        console.log(`🧪 MOCK MODE: Bypassing balance check - using virtual paper trading`);
+        console.log(`🧪 MOCK MODE source: execution_target=${executionTarget}`);
         qty = intent.qtySuggested || (tradeAllocation / realMarketPrice);
       } else {
         // Check if we have sufficient balance

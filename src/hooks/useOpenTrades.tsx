@@ -2,7 +2,7 @@
 // No lot/remaining_amount semantics - pure trade-based view
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { useTestMode } from '@/hooks/useTestMode';
+import { useTestMode } from '@/hooks/useTradeViewFilter';
 
 export interface OpenTrade {
   id: string;

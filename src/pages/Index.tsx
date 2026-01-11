@@ -21,7 +21,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useUserRole } from '@/hooks/useUserRole';
 import { ContextFreezeBarrier } from '@/components/ContextFreezeBarrier';
 import { useMarketData } from '@/contexts/MarketDataContext';
-import { useTestMode } from '@/hooks/useTestMode';
+import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
 import { Switch } from '@/components/ui/switch';
