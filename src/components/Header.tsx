@@ -1,79 +1,142 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { Bell, User, LogOut, Shield, Link, CheckCircle, Menu, X, Wallet, Loader2 } from 'lucide-react';
+import { Bell, User, LogOut, Link, CheckCircle, Menu, X, Wallet, Loader2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
-import { useUserTradingState } from '@/hooks/useUserTradingState';
+import { useUserTradingState, TradingState } from '@/hooks/useUserTradingState';
 import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
+import { WalletCreationModal } from '@/components/wallet/WalletCreationModal';
+import { FundingInstructions } from '@/components/wallet/FundingInstructions';
 
 export const Header = () => {
   const { user, signOut } = useAuth();
   const { role } = useUserRole();
-  const { state: tradingState, isLoading: isTradingStateLoading, isCoinbaseConnected } = useUserTradingState();
+  const { 
+    state: tradingState, 
+    isLoading: isTradingStateLoading, 
+    isCoinbaseConnected,
+    walletAddress,
+    refresh: refreshTradingState 
+  } = useUserTradingState();
   const { testMode, toggleTestMode } = useTestMode();
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const [showDropdown, setShowDropdown] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  
+  // Modal states
+  const [showWalletCreationModal, setShowWalletCreationModal] = useState(false);
+  const [showFundingInstructions, setShowFundingInstructions] = useState(false);
 
-  // Derive CTA action based on trading state
-  const handleCoinbaseCTA = () => {
-    // Always route to Profile -> Coinbase Connections tab
-    navigate('/profile?tab=connections');
-    
-    if (!isCoinbaseConnected) {
-      toast({
-        title: "Connect to Coinbase",
-        description: "Set up your Coinbase connection to enable live trading.",
-      });
+  /**
+   * CTA action handler - STRICT state-based routing
+   * No dead links, no inference, no duplication
+   */
+  const handleCTAClick = () => {
+    switch (tradingState) {
+      case 'TEST_ONLY':
+        // Route to Profile -> Connections tab (Coinbase is optional)
+        navigate('/profile?tab=connections');
+        break;
+        
+      case 'COINBASE_CONNECTED':
+        // Open wallet creation modal
+        setShowWalletCreationModal(true);
+        break;
+        
+      case 'WALLET_CREATED':
+        // Show funding instructions
+        setShowFundingInstructions(true);
+        break;
+        
+      case 'WALLET_FUNDED':
+        // Navigate to wallet management in profile
+        navigate('/profile?tab=wallet');
+        break;
     }
   };
 
-  // Get CTA label and style based on trading state
+  /**
+   * CTA config - EXACT mapping per requirements
+   * 
+   * State             | Label                        | Style
+   * ------------------|------------------------------|------------------
+   * TEST_ONLY         | Connect Coinbase (optional)  | ghost/outline
+   * COINBASE_CONNECTED| Create trading wallet        | primary (blue)
+   * WALLET_CREATED    | Fund trading wallet          | primary (amber)
+   * WALLET_FUNDED     | Wallet ready ✓               | success (green)
+   */
   const getCTAConfig = () => {
     if (isTradingStateLoading) {
-      return { label: 'Checking...', icon: Loader2, variant: 'ghost' as const, className: 'text-slate-400' };
+      return { 
+        label: 'Loading...', 
+        icon: Loader2, 
+        variant: 'ghost' as const, 
+        className: 'text-slate-400',
+        disabled: true
+      };
     }
     
     switch (tradingState) {
       case 'WALLET_FUNDED':
         return { 
-          label: 'Wallet Ready', 
+          label: 'Wallet ready ✓', 
           icon: CheckCircle, 
           variant: 'outline' as const, 
-          className: 'bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/30' 
+          className: 'bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600/30',
+          disabled: false
         };
       case 'WALLET_CREATED':
         return { 
-          label: 'Fund Wallet', 
+          label: 'Fund trading wallet', 
           icon: Wallet, 
           variant: 'default' as const, 
-          className: 'bg-amber-500 hover:bg-amber-600 text-white' 
+          className: 'bg-amber-500 hover:bg-amber-600 text-white',
+          disabled: false
         };
       case 'COINBASE_CONNECTED':
         return { 
-          label: 'Create Wallet', 
+          label: 'Create trading wallet', 
           icon: Wallet, 
           variant: 'default' as const, 
-          className: 'bg-blue-500 hover:bg-blue-600 text-white' 
+          className: 'bg-blue-500 hover:bg-blue-600 text-white',
+          disabled: false
         };
       case 'TEST_ONLY':
       default:
         return { 
-          label: 'Connect Coinbase', 
+          label: 'Connect Coinbase (optional)', 
           icon: Link, 
-          variant: 'default' as const, 
-          className: 'bg-orange-500 hover:bg-orange-600 text-white' 
+          variant: 'ghost' as const, 
+          className: 'text-slate-300 hover:text-white border border-slate-600 hover:border-slate-500',
+          disabled: false
         };
     }
   };
 
   const ctaConfig = getCTAConfig();
+
+  // Handlers for wallet flow
+  const handleWalletCreated = (address: string) => {
+    setShowWalletCreationModal(false);
+    // Refresh state to get new wallet info
+    refreshTradingState();
+    // Show funding instructions after wallet creation
+    setTimeout(() => setShowFundingInstructions(true), 300);
+  };
+
+  const handleFundingDetected = () => {
+    setShowFundingInstructions(false);
+    refreshTradingState();
+    toast({
+      title: "You're all set!",
+      description: "Your wallet is funded. You can now enable live trading.",
+    });
+  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -148,19 +211,33 @@ export const Header = () => {
               </>
             )}
 
-            {/* Trading State CTA */}
+            {/* Trading State CTA - Single source of truth from useUserTradingState */}
             {user && (
               <Button
-                onClick={handleCoinbaseCTA}
+                onClick={handleCTAClick}
                 size="sm"
                 className={`flex items-center gap-2 font-medium ${ctaConfig.className}`}
                 variant={ctaConfig.variant}
-                disabled={isTradingStateLoading}
+                disabled={ctaConfig.disabled}
               >
                 <ctaConfig.icon className={`w-4 h-4 ${isTradingStateLoading ? 'animate-spin' : ''}`} />
                 <span>{ctaConfig.label}</span>
               </Button>
             )}
+
+            {/* Wallet Modals */}
+            <WalletCreationModal
+              open={showWalletCreationModal}
+              onOpenChange={setShowWalletCreationModal}
+              onWalletCreated={handleWalletCreated}
+            />
+            <FundingInstructions
+              open={showFundingInstructions}
+              onOpenChange={setShowFundingInstructions}
+              walletAddress={walletAddress || ''}
+              isCoinbaseConnected={isCoinbaseConnected}
+              onFundingDetected={handleFundingDetected}
+            />
 
             {user && (
               <div className="relative">
@@ -249,13 +326,13 @@ export const Header = () => {
               {user && (
                 <Button
                   onClick={() => {
-                    handleCoinbaseCTA();
+                    handleCTAClick();
                     setShowMobileMenu(false);
                   }}
                   size="sm"
                   className={`w-full flex items-center gap-2 font-medium ${ctaConfig.className}`}
                   variant={ctaConfig.variant}
-                  disabled={isTradingStateLoading}
+                  disabled={ctaConfig.disabled}
                 >
                   <ctaConfig.icon className={`w-4 h-4 ${isTradingStateLoading ? 'animate-spin' : ''}`} />
                   <span>{ctaConfig.label}</span>
