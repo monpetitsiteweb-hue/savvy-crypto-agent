@@ -8,7 +8,7 @@ import { ArrowUpRight, ArrowDownLeft, Clock, Activity, RefreshCw, TrendingUp, Do
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/useAuth';
-import { useTestMode } from '@/hooks/useTestMode';
+import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { supabase } from '@/integrations/supabase/client';
 import { useMockWallet } from '@/hooks/useMockWallet';
 import { usePortfolioMetrics } from '@/hooks/usePortfolioMetrics';

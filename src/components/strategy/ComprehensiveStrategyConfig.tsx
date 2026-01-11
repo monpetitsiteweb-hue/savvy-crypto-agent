@@ -44,7 +44,7 @@ import {
   Brain
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useTestMode } from '@/hooks/useTestMode';
+import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import NaturalLanguageStrategy from './NaturalLanguageStrategy';

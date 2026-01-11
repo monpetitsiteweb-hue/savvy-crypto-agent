@@ -5,7 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Send, Bot, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useTestMode } from '@/hooks/useTestMode';
+import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 import { useTechnicalIndicators } from '@/hooks/useTechnicalIndicators';

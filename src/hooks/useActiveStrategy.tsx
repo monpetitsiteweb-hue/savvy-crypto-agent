@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { useTestMode } from '@/hooks/useTestMode';
+import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { supabase } from '@/integrations/supabase/client';
 import { logger } from '@/utils/logger';
 import { normalizeStrategy, StrategyData } from '@/types/strategy';

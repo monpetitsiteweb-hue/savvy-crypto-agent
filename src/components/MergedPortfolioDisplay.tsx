@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { RefreshCw, TestTube, TrendingUp, TrendingDown, RotateCcw } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useTestMode } from '@/hooks/useTestMode';
+import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { useMockWallet } from '@/hooks/useMockWallet';
 import { useRealTimeMarketData } from '@/hooks/useRealTimeMarketData';
 import { usePersistentDashboardData } from '@/hooks/usePersistentDashboardData';
