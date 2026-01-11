@@ -40,41 +40,73 @@ const VALID_COIN_SYMBOLS = COINBASE_COINS.map(coin => coin.symbol);
 // =============================================
 // STRATEGY RISK PRESETS
 // JSON-based configurations for Low/Medium/High risk profiles
+// MUST be kept in sync with src/utils/strategyPresets.ts
 // =============================================
 const STRATEGY_PRESETS = {
   low: {
     riskProfile: 'low',
+    // Position Sizing - Conservative
     maxWalletExposure: 25,
     perTradeAllocation: 150,
     maxActiveCoins: 2,
+    // Exit Thresholds - Wide (position trading)
     takeProfitPercentage: 3.0,
-    stopLossPercentage: 1.0,
-    trailingStopLossPercentage: 0.8,
-    min_confidence: 0.75
+    stopLossPercentage: 1.5,
+    trailingStopLossPercentage: 2.0,
+    // Confidence - High threshold
+    min_confidence: 0.72,
+    // Signal Gates - Strict (quality trades only)
+    minTrendScoreForBuy: 0.50,
+    minMomentumScoreForBuy: 0.45,
+    maxVolatilityScoreForBuy: 0.50,
+    // Timing - Long cooldowns (no FOMO)
+    stopLossCooldownMs: 1200000,  // 20 minutes
+    minEntrySpacingMs: 1800000,   // 30 minutes
   },
   medium: {
     riskProfile: 'medium',
+    // Position Sizing - Moderate
     maxWalletExposure: 50,
-    perTradeAllocation: 300,
+    perTradeAllocation: 350,
     maxActiveCoins: 3,
-    takeProfitPercentage: 2.0,
-    stopLossPercentage: 1.5,
-    trailingStopLossPercentage: 1.0,
-    min_confidence: 0.65
+    // Exit Thresholds - Wider (swing trading)
+    takeProfitPercentage: 1.8,
+    stopLossPercentage: 1.2,
+    trailingStopLossPercentage: 1.5,
+    // Confidence - Moderate threshold
+    min_confidence: 0.60,
+    // Signal Gates - Moderate (selective but not strict)
+    minTrendScoreForBuy: 0.30,
+    minMomentumScoreForBuy: 0.25,
+    maxVolatilityScoreForBuy: 0.65,
+    // Timing - Moderate cooldowns
+    stopLossCooldownMs: 600000,   // 10 minutes
+    minEntrySpacingMs: 900000,    // 15 minutes
   },
   high: {
     riskProfile: 'high',
+    // Position Sizing - Aggressive (from current live strategy)
     maxWalletExposure: 80,
     perTradeAllocation: 600,
     maxActiveCoins: 4,
+    // Exit Thresholds - Tight scalping (from current live strategy)
     takeProfitPercentage: 0.7,
     stopLossPercentage: 0.7,
-    trailingStopLossPercentage: 0.6,
-    min_confidence: 0.50
+    trailingStopLossPercentage: 1.0,
+    // Confidence - Lower threshold (from current live strategy)
+    min_confidence: 0.50,
+    // Signal Gates - Very Permissive (from current live strategy)
+    minTrendScoreForBuy: 0.1,
+    minMomentumScoreForBuy: 0.1,
+    maxVolatilityScoreForBuy: 0.8,
+    // Timing - Short cooldowns (from current live strategy)
+    stopLossCooldownMs: 300000,   // 5 minutes
+    minEntrySpacingMs: 600000,    // 10 minutes
   }
 };
 
 // Fields that are locked when using a preset (not 'custom' mode)
+// MUST be kept in sync with src/utils/strategyPresets.ts PRESET_LOCKED_FIELDS
 const PRESET_LOCKED_FIELDS = [
   'maxWalletExposure',
   'perTradeAllocation', 
@@ -82,7 +114,12 @@ const PRESET_LOCKED_FIELDS = [
   'takeProfitPercentage',
   'stopLossPercentage',
   'trailingStopLossPercentage',
-  'min_confidence'
+  'min_confidence',
+  'minTrendScoreForBuy',
+  'minMomentumScoreForBuy',
+  'maxVolatilityScoreForBuy',
+  'stopLossCooldownMs',
+  'minEntrySpacingMs',
 ];
 
 // =============================================
@@ -381,7 +418,54 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     description: 'Cooldown between trades in minutes'
   },
 
-  // === NOTIFICATIONS ===
+  // === STABILIZATION GATES (consumed by coordinator - CRITICAL) ===
+  minTrendScoreForBuy: {
+    key: 'minTrendScoreForBuy',
+    type: 'number',
+    range: [0, 1],
+    dbPath: 'configuration.minTrendScoreForBuy',
+    aiCanExecute: true,
+    phrases: ['min trend score', 'minimum trend', 'trend threshold', 'trend gate'],
+    description: 'Minimum trend score (0-1) required for BUY entry'
+  },
+  minMomentumScoreForBuy: {
+    key: 'minMomentumScoreForBuy',
+    type: 'number',
+    range: [0, 1],
+    dbPath: 'configuration.minMomentumScoreForBuy',
+    aiCanExecute: true,
+    phrases: ['min momentum score', 'minimum momentum', 'momentum threshold', 'momentum gate'],
+    description: 'Minimum momentum score (0-1) required for BUY entry'
+  },
+  maxVolatilityScoreForBuy: {
+    key: 'maxVolatilityScoreForBuy',
+    type: 'number',
+    range: [0, 1],
+    dbPath: 'configuration.maxVolatilityScoreForBuy',
+    aiCanExecute: true,
+    phrases: ['max volatility score', 'volatility limit', 'volatility threshold', 'volatility gate'],
+    description: 'Maximum volatility score (0-1) allowed for BUY entry'
+  },
+  stopLossCooldownMs: {
+    key: 'stopLossCooldownMs',
+    type: 'number',
+    range: [60000, 3600000],
+    dbPath: 'configuration.stopLossCooldownMs',
+    aiCanExecute: true,
+    phrases: ['stop loss cooldown', 'sl cooldown', 'wait after stop loss'],
+    description: 'Milliseconds to wait after a stop-loss exit before re-entry on same symbol'
+  },
+  minEntrySpacingMs: {
+    key: 'minEntrySpacingMs',
+    type: 'number',
+    range: [60000, 7200000],
+    dbPath: 'configuration.minEntrySpacingMs',
+    aiCanExecute: true,
+    phrases: ['entry spacing', 'min entry spacing', 'time between buys', 'buy spacing'],
+    description: 'Minimum milliseconds between BUY entries on the same symbol'
+  },
+
+
   notifyOnTrade: {
     key: 'notifyOnTrade',
     type: 'boolean',
