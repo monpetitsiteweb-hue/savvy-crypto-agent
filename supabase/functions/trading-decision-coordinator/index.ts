@@ -1369,7 +1369,9 @@ serve(async (req) => {
       
       console.log(`💱 UI TEST BUY: ${qty} ${baseSymbol} at €${price} = €${totalValue}`);
       
-      // Insert BUY mock trade
+      // Insert BUY mock trade with entry_context for pyramiding model
+      const entryContext = intent.metadata?.entry_context || null;
+      
       const mockTrade = {
         user_id: intent.userId,
         strategy_id: intent.strategyId,
@@ -1381,7 +1383,14 @@ serve(async (req) => {
         executed_at: new Date().toISOString(),
         is_test_mode: true,
         notes: 'Manual test BUY via UI',
-        strategy_trigger: `ui_manual_test_buy|req:${requestId}`
+        strategy_trigger: `ui_manual_test_buy|req:${requestId}`,
+        // PYRAMIDING MODEL: Store entry_context in market_conditions
+        market_conditions: {
+          entry_context: entryContext,
+          request_id: requestId,
+          origin: 'UI_MANUAL',
+          executed_at: new Date().toISOString(),
+        },
       };
       
       const { data: insertResult, error: insertError } = await supabaseClient
@@ -3180,7 +3189,9 @@ async function executeTradeDirectly(
     // DEBUG INSTRUMENTATION: Track mock_trades insert attempt
     console.log('[DEBUG][executeTradeDirectly] ========== MOCK_TRADES BUY INSERT ==========');
     
-    // Insert BUY trade record
+    // Insert BUY trade record with entry_context for pyramiding model
+    const entryContext = intent.metadata?.entry_context || null;
+    
     const mockTrade = {
       user_id: intent.userId,
       strategy_id: intent.strategyId,
@@ -3192,7 +3203,15 @@ async function executeTradeDirectly(
       executed_at: new Date().toISOString(),
       is_test_mode: true,
       notes: `Direct path: UD=OFF`,
-      strategy_trigger: `direct_${intent.source}|req:${requestId}`
+      strategy_trigger: `direct_${intent.source}|req:${requestId}`,
+      // PYRAMIDING MODEL: Store entry_context in market_conditions
+      market_conditions: {
+        entry_context: entryContext,
+        backend_request_id: intent.metadata?.backend_request_id,
+        origin: intent.metadata?.origin || 'BACKEND_LIVE',
+        executed_at: new Date().toISOString(),
+        latency_ms: Date.now() - (new Date(intent.ts || Date.now()).getTime()),
+      },
     };
 
     // PHASE B: Dual-engine detection with origin tracking (log only, no blocking)
@@ -3877,7 +3896,10 @@ async function detectConflicts(
     signalAlignmentFailed: false,
     highVolatilityBlocked: false,
     entrySpacingBlocked: false,
+    // PYRAMIDING CONTEXT GATE
+    duplicateContextBlocked: false,
     other: null as string | null,
+    missingConfig: null as string | null, // Track which config key is missing
   };
   
   // Get recent trades for this symbol
@@ -4123,6 +4145,74 @@ async function detectConflicts(
       console.log(`   Last BUY at ${recentBuysForSpacing[0].executed_at} for ${recentBuysForSpacing[0].cryptocurrency}, waiting ${Math.round((minEntrySpacingMs - timeSinceLastBuy)/1000)}s more`);
       guardReport.entrySpacingBlocked = true;
       return { hasConflict: true, reason: 'blocked_by_entry_spacing', guardReport };
+    }
+    
+    // ========= GATE 5: CONTEXT DUPLICATE DETECTION (PYRAMIDING MODEL) =========
+    // Block BUYs with duplicate entry_context on OPEN lots for same symbol
+    // Allows pyramiding: same symbol, different context → ALLOWED
+    // Blocks duplication: same trigger_type + timeframe + anchor_price within ε → BLOCKED
+    // CONFIGURABLE: contextDuplicateEpsilonPct from strategy config (default: 0.005 = 0.5%)
+    const entryContext = intent.metadata?.entry_context;
+    
+    if (entryContext && entryContext.context_version === 1) {
+      // Get epsilon from config (FAIL-OPEN: default 0.5% if not configured)
+      // This is not fail-closed because it's a NEW feature with safe default
+      const contextDuplicateEpsilonPct = cfg.contextDuplicateEpsilonPct ?? 0.005;
+      
+      console.log(`[CONTEXT_GUARD] Checking for duplicate context on ${baseSymbol}`);
+      console.log(`[CONTEXT_GUARD] New context: trigger_type=${entryContext.trigger_type}, timeframe=${entryContext.timeframe}, anchor_price=${entryContext.anchor_price}`);
+      console.log(`[CONTEXT_GUARD] Epsilon: ${(contextDuplicateEpsilonPct * 100).toFixed(2)}%`);
+      
+      // Query OPEN BUY lots for this symbol (with entry_context in market_conditions)
+      const { data: openBuysWithContext } = await supabaseClient
+        .from('mock_trades')
+        .select('id, market_conditions, amount, original_trade_id')
+        .eq('user_id', intent.userId)
+        .eq('strategy_id', intent.strategyId)
+        .in('cryptocurrency', symbolVariants)
+        .eq('trade_type', 'buy')
+        .eq('is_test_mode', isTestMode);
+      
+      // For each BUY, check if it's still open and has matching context
+      for (const buyTrade of openBuysWithContext || []) {
+        // Skip if no entry_context or legacy trade
+        const ctx = buyTrade.market_conditions?.entry_context;
+        if (!ctx || ctx.context_version !== 1) continue;
+        
+        // Check if this BUY is still open (remaining_amount > 0)
+        // Query sells that closed this specific BUY
+        const { data: sellsForBuy } = await supabaseClient
+          .from('mock_trades')
+          .select('original_purchase_amount')
+          .eq('original_trade_id', buyTrade.id)
+          .eq('trade_type', 'sell');
+        
+        const soldAmount = (sellsForBuy || []).reduce((sum: number, s: any) => 
+          sum + (parseFloat(s.original_purchase_amount) || 0), 0);
+        const remainingAmount = parseFloat(buyTrade.amount) - soldAmount;
+        
+        // Skip closed lots
+        if (remainingAmount <= 1e-8) continue;
+        
+        // Check context match
+        const sameType = ctx.trigger_type === entryContext.trigger_type;
+        const sameTimeframe = ctx.timeframe === entryContext.timeframe;
+        const priceDelta = Math.abs(ctx.anchor_price - entryContext.anchor_price) / ctx.anchor_price;
+        const priceMatch = priceDelta < contextDuplicateEpsilonPct;
+        
+        if (sameType && sameTimeframe && priceMatch) {
+          console.log(`🚫 COORDINATOR: BUY blocked - duplicate entry context on open lot`);
+          console.log(`   Existing lot ${buyTrade.id}: trigger_type=${ctx.trigger_type}, timeframe=${ctx.timeframe}, anchor_price=${ctx.anchor_price}`);
+          console.log(`   Price delta: ${(priceDelta * 100).toFixed(3)}% < epsilon ${(contextDuplicateEpsilonPct * 100).toFixed(2)}%`);
+          guardReport.duplicateContextBlocked = true;
+          return { hasConflict: true, reason: 'blocked_by_duplicate_context', guardReport };
+        }
+      }
+      
+      console.log(`✅ COORDINATOR: Context duplicate check passed - no matching open lots`);
+    } else if (!entryContext) {
+      // Legacy intent without entry_context - log warning but allow
+      console.log(`[CONTEXT_GUARD] Warning: BUY intent missing entry_context, skipping duplicate check`);
     }
     
     console.log(`✅ COORDINATOR: All stabilization gates passed for ${baseSymbol} BUY`);
@@ -5616,6 +5706,8 @@ async function executeTradeOrder(
           origin: isBackendLiveInsert ? 'BACKEND_LIVE' : null,
           backend_request_id: backendRequestId,
           idempotency_key: idempotencyKeyForInsert,
+          // PYRAMIDING MODEL: Store entry_context for context duplicate detection
+          entry_context: intent.metadata?.entry_context || null,
         },
         // GOAL 2.B: P&L at decision time for UI display
         pnl_at_decision_pct: pnlAtDecisionPct,

@@ -849,6 +849,33 @@ serve(async (req) => {
           const qtySuggested = tradeAllocation / currentPrice;
           const computedConfidence = Math.min(0.95, Math.max(minConfidence, fusionScore));
 
+          // ============= ENTRY CONTEXT FOR PYRAMIDING MODEL =============
+          // Derive trigger_type from dominant signal pattern
+          const deriveTriggerType = (scores: SignalScores): string => {
+            // Determine dominant signal pattern for context classification
+            if (scores.whale > 0.5) return 'whale_momentum';
+            if (scores.momentum > 0.3 && scores.trend > 0.1) return 'momentum_continuation';
+            if (scores.trend > 0.3) return 'trend_follow';
+            if (scores.momentum > 0.2) return 'momentum_breakout';
+            if (signalScores.sentiment > 0.3) return 'sentiment_driven';
+            return 'fusion_composite';
+          };
+          
+          // Timeframe from strategy config, default to engine cadence
+          const entryTimeframe = config.decisionCadence || config.entryTimeframe || '5m';
+          
+          const entryContext = {
+            trigger_type: deriveTriggerType(signalScores),
+            timeframe: entryTimeframe,
+            anchor_price: currentPrice,
+            anchor_ts: new Date().toISOString(),
+            trend_regime: signalScores.trend > 0.1 ? 'bull' : signalScores.trend < -0.1 ? 'bear' : 'neutral',
+            fusion_score: fusionScore,
+            confidence: computedConfidence,
+            context_version: 1, // Canonical model v1
+          };
+          // ============= END ENTRY CONTEXT =============
+
           const intentMetadata = {
             mode: 'mock',
             engine: 'intelligent',
@@ -861,6 +888,7 @@ serve(async (req) => {
             enterThreshold,
             isTrendPositive,
             isMomentumPositive,
+            entry_context: entryContext, // NEW: Entry context for pyramiding
           };
 
           const backendRequestId = crypto.randomUUID();

@@ -65,6 +65,16 @@ export function TestBuyModal({ open, onOpenChange, strategyId, onSuccess }: Test
 
       const qtySuggested = eurValue / price;
 
+      // Build entry_context for manual BUYs (never conflicts with automated contexts)
+      const entryContext = {
+        trigger_type: 'manual',
+        timeframe: 'instant',
+        anchor_price: price,
+        anchor_ts: new Date().toISOString(),
+        trend_regime: 'neutral',
+        context_version: 1,
+      };
+
       // Call coordinator with BUY intent
       const intent = {
         userId: user.id,
@@ -81,6 +91,7 @@ export function TestBuyModal({ open, onOpenChange, strategyId, onSuccess }: Test
           eur_amount: eurValue,
           price_used: price,
           seed_reason: 'ui_test_buy',
+          entry_context: entryContext, // NEW: Entry context for pyramiding
         },
         context: 'MANUAL',
       };
