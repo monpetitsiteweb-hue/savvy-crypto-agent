@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -6,14 +6,20 @@ import { supabase } from '@/integrations/supabase/client';
  * Canonical trading state progression:
  * TEST_ONLY -> COINBASE_CONNECTED -> WALLET_CREATED -> WALLET_FUNDED
  * 
+ * State resolution (non-negotiable order):
+ * 1. If execution wallet exists AND funded → WALLET_FUNDED
+ * 2. Else if wallet exists → WALLET_CREATED  
+ * 3. Else if Coinbase connection valid (via RPC) → COINBASE_CONNECTED
+ * 4. Else → TEST_ONLY
+ * 
  * This is the SINGLE SOURCE OF TRUTH for user trading readiness.
  * All components (Header, WelcomeModal, Portfolio) must use this hook.
  */
 export type TradingState = 
-  | 'TEST_ONLY'        // No Coinbase connection (default state)
-  | 'COINBASE_CONNECTED' // Has valid, non-expired Coinbase connection
-  | 'WALLET_CREATED'   // Has execution wallet created
-  | 'WALLET_FUNDED';   // Wallet is funded and ready for live trading
+  | 'TEST_ONLY'           // No Coinbase, no wallet (default)
+  | 'COINBASE_CONNECTED'  // Coinbase valid, no wallet
+  | 'WALLET_CREATED'      // Wallet exists, not funded
+  | 'WALLET_FUNDED';      // Wallet funded → REAL allowed
 
 export interface UserTradingStateResult {
   state: TradingState;
@@ -26,6 +32,9 @@ export interface UserTradingStateResult {
   isWalletFunded: boolean;
   canTradeLive: boolean;
   
+  // Wallet details (when available)
+  walletAddress: string | null;
+  
   // Refresh function
   refresh: () => Promise<void>;
 }
@@ -35,10 +44,12 @@ export function useUserTradingState(): UserTradingStateResult {
   const [state, setState] = useState<TradingState>('TEST_ONLY');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
 
-  const fetchState = async () => {
+  const fetchState = useCallback(async () => {
     if (!user?.id) {
       setState('TEST_ONLY');
+      setWalletAddress(null);
       setIsLoading(false);
       return;
     }
@@ -47,8 +58,35 @@ export function useUserTradingState(): UserTradingStateResult {
     setError(null);
 
     try {
-      // 1. Check Coinbase connection via canonical RPC (secure, non-leaky)
-      // Cast to any to bypass type checking since this RPC was just created
+      // STEP 1: Check execution wallet FIRST (higher priority in state resolution)
+      // Cast to bypass type checking - table exists but not in generated types
+      const walletQuery = supabase
+        .from('execution_wallets' as any)
+        .select('wallet_address, is_active, is_funded')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .maybeSingle();
+      
+      const { data: walletData, error: walletError } = await walletQuery as any;
+      
+      if (walletError) {
+        console.error('[useUserTradingState] Wallet query error:', walletError);
+      }
+      
+      // If wallet exists, determine state from wallet
+      if (walletData) {
+        setWalletAddress(walletData.wallet_address);
+        if (walletData.is_funded) {
+          setState('WALLET_FUNDED');
+        } else {
+          setState('WALLET_CREATED');
+        }
+        setIsLoading(false);
+        return;
+      }
+      
+      // STEP 2: No wallet - check Coinbase connection via canonical RPC
+      // Cast to bypass type checking - RPC exists but not in generated types
       const { data: coinbaseConnected, error: cbError } = await (supabase.rpc as any)(
         'get_coinbase_connection_status'
       );
@@ -58,56 +96,26 @@ export function useUserTradingState(): UserTradingStateResult {
         // If RPC fails, assume not connected
       }
       
-      const hasCoinbase = coinbaseConnected === true;
-      
-      if (!hasCoinbase) {
-        setState('TEST_ONLY');
-        setIsLoading(false);
-        return;
-      }
-      
-      // 2. Check execution wallet status
-      // Use explicit any cast for table not in generated types
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const walletResult: any = await (supabase as any)
-        .from('execution_wallets')
-        .select('is_active, is_funded')
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .maybeSingle();
-      
-      const walletData = walletResult?.data;
-      const walletError = walletResult?.error;
-      
-      if (walletError) {
-        console.error('[useUserTradingState] Wallet query error:', walletError);
-        // If query fails, assume no wallet
-      }
-      
-      if (!walletData) {
+      if (coinbaseConnected === true) {
         setState('COINBASE_CONNECTED');
-        setIsLoading(false);
-        return;
-      }
-      
-      if (walletData.is_funded) {
-        setState('WALLET_FUNDED');
       } else {
-        setState('WALLET_CREATED');
+        setState('TEST_ONLY');
       }
+      setWalletAddress(null);
       
     } catch (err) {
       console.error('[useUserTradingState] Unexpected error:', err);
       setError('Failed to determine trading state');
       setState('TEST_ONLY');
+      setWalletAddress(null);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user?.id]);
 
   useEffect(() => {
     fetchState();
-  }, [user?.id]);
+  }, [fetchState]);
 
   // Derived values
   const isCoinbaseConnected = state !== 'TEST_ONLY';
@@ -123,6 +131,7 @@ export function useUserTradingState(): UserTradingStateResult {
     hasWallet,
     isWalletFunded,
     canTradeLive,
+    walletAddress,
     refresh: fetchState,
   };
 }
