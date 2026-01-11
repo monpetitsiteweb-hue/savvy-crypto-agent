@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
-import { useTestMode } from './useTestMode';
+import { useTestMode } from './useTradeViewFilter';
 import { supabase } from '@/integrations/supabase/client';
 
 export interface PortfolioMetrics {
