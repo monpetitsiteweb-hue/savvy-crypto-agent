@@ -42,6 +42,10 @@ const VALID_COIN_SYMBOLS = COINBASE_COINS.map(coin => coin.symbol);
 // JSON-based configurations for Low/Medium/High risk profiles
 // MUST be kept in sync with src/utils/strategyPresets.ts
 // =============================================
+// STRATEGY RISK PRESETS
+// JSON-based configurations for Low/Medium/High risk profiles
+// MUST be kept in sync with src/utils/strategyPresets.ts
+// =============================================
 const STRATEGY_PRESETS = {
   low: {
     riskProfile: 'low',
@@ -62,6 +66,7 @@ const STRATEGY_PRESETS = {
     // Timing - Long cooldowns (no FOMO)
     stopLossCooldownMs: 1200000,  // 20 minutes
     minEntrySpacingMs: 1800000,   // 30 minutes
+    minHoldPeriodMs: 300000,      // 5 minutes
   },
   medium: {
     riskProfile: 'medium',
@@ -82,6 +87,7 @@ const STRATEGY_PRESETS = {
     // Timing - Moderate cooldowns
     stopLossCooldownMs: 600000,   // 10 minutes
     minEntrySpacingMs: 900000,    // 15 minutes
+    minHoldPeriodMs: 120000,      // 2 minutes
   },
   high: {
     riskProfile: 'high',
@@ -102,6 +108,7 @@ const STRATEGY_PRESETS = {
     // Timing - Short cooldowns (from current live strategy)
     stopLossCooldownMs: 300000,   // 5 minutes
     minEntrySpacingMs: 600000,    // 10 minutes
+    minHoldPeriodMs: 60000,       // 1 minute
   }
 };
 
@@ -120,6 +127,7 @@ const PRESET_LOCKED_FIELDS = [
   'maxVolatilityScoreForBuy',
   'stopLossCooldownMs',
   'minEntrySpacingMs',
+  'minHoldPeriodMs',
 ];
 
 // =============================================
@@ -464,8 +472,15 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     phrases: ['entry spacing', 'min entry spacing', 'time between buys', 'buy spacing'],
     description: 'Minimum milliseconds between BUY entries on the same symbol'
   },
-
-
+  minHoldPeriodMs: {
+    key: 'minHoldPeriodMs',
+    type: 'number',
+    range: [30000, 3600000],
+    dbPath: 'configuration.minHoldPeriodMs',
+    aiCanExecute: true,
+    phrases: ['min hold period', 'minimum hold', 'hold time', 'hold period', 'wait before sell'],
+    description: 'Minimum milliseconds to hold a position before selling is allowed'
+  },
   notifyOnTrade: {
     key: 'notifyOnTrade',
     type: 'boolean',

@@ -4,25 +4,26 @@
  * These presets define ALL effective risk levers that actually control
  * trading behavior in the backend engine (trading-decision-coordinator).
  * 
- * CANONICAL LIST OF 11 EFFECTIVE LEVERS (consumed by coordinator):
+ * CANONICAL LIST OF 12 EFFECTIVE LEVERS (consumed by coordinator):
  * 1. maxWalletExposure - % of wallet that can be exposed
  * 2. perTradeAllocation - EUR per trade
  * 3. maxActiveCoins - Max concurrent positions
  * 4. takeProfitPercentage - Take profit %
  * 5. stopLossPercentage - Stop loss %
- * 6. trailingStopLossPercentage - Trailing stop %
+ * 6. trailingStopLossPercentage - Trailing stop % (not in preset but used)
  * 7. min_confidence - Minimum fusion confidence (0-1)
  * 8. minTrendScoreForBuy - Minimum trend score gate (0-1)
  * 9. minMomentumScoreForBuy - Minimum momentum score gate (0-1)
  * 10. maxVolatilityScoreForBuy - Maximum volatility score gate (0-1)
  * 11. stopLossCooldownMs - Cooldown after SL exit before re-entry
  * 12. minEntrySpacingMs - Minimum time between entries on same symbol
+ * 13. minHoldPeriodMs - Minimum time to hold a position before selling
  */
 
 export interface StrategyPreset {
   riskProfile: 'low' | 'medium' | 'high';
   
-  // === ALL 11+ EFFECTIVE RISK LEVERS (consumed by coordinator) ===
+  // === ALL 12 EFFECTIVE RISK LEVERS (consumed by coordinator) ===
   
   // Position Sizing & Exposure
   maxWalletExposure: number;          // % of wallet that can be exposed
@@ -45,7 +46,70 @@ export interface StrategyPreset {
   // Timing Gates (anti-churn)
   stopLossCooldownMs: number;          // ms to wait after SL exit before re-entry
   minEntrySpacingMs: number;           // ms minimum between entries on same symbol
+  minHoldPeriodMs: number;             // ms minimum hold before sell allowed
 }
+
+/**
+ * Strategy Dimension Categories
+ * Each field belongs to exactly ONE dimension for UI organization
+ */
+export type StrategyDimension = 'risk' | 'signals' | 'execution' | 'safety';
+
+export const DIMENSION_INFO: Record<StrategyDimension, {
+  label: string;
+  icon: string;
+  color: string;
+  description: string;
+}> = {
+  risk: {
+    label: 'Risk',
+    icon: '🟥',
+    color: 'text-red-500',
+    description: 'Controls how much capital is exposed and how aggressive entries are.'
+  },
+  signals: {
+    label: 'Signals',
+    icon: '🟦',
+    color: 'text-blue-500',
+    description: 'Controls which market conditions are allowed to trigger trades.'
+  },
+  execution: {
+    label: 'Execution',
+    icon: '🟨',
+    color: 'text-yellow-500',
+    description: 'Controls how orders are placed and coordinated.'
+  },
+  safety: {
+    label: 'Safety',
+    icon: '🟩',
+    color: 'text-green-500',
+    description: 'Controls cooldowns, overrides, and conflict prevention.'
+  }
+};
+
+/**
+ * Field dimension mapping - assigns each risk field to a dimension
+ */
+export const FIELD_DIMENSIONS: Record<string, StrategyDimension> = {
+  // Risk dimension - capital exposure
+  maxWalletExposure: 'risk',
+  perTradeAllocation: 'risk',
+  maxActiveCoins: 'risk',
+  takeProfitPercentage: 'risk',
+  stopLossPercentage: 'risk',
+  trailingStopLossPercentage: 'risk',
+  
+  // Signals dimension - trade qualification
+  min_confidence: 'signals',
+  minTrendScoreForBuy: 'signals',
+  minMomentumScoreForBuy: 'signals',
+  maxVolatilityScoreForBuy: 'signals',
+  
+  // Safety dimension - protections
+  stopLossCooldownMs: 'safety',
+  minEntrySpacingMs: 'safety',
+  minHoldPeriodMs: 'safety',
+};
 
 /**
  * Fields that are locked when a preset is selected (not 'custom' mode).
@@ -65,6 +129,7 @@ export const PRESET_LOCKED_FIELDS = [
   'maxVolatilityScoreForBuy',
   'stopLossCooldownMs',
   'minEntrySpacingMs',
+  'minHoldPeriodMs',
 ] as const;
 
 export type PresetLockedField = typeof PRESET_LOCKED_FIELDS[number];
@@ -104,6 +169,7 @@ export const HIGH_RISK_PRESET: StrategyPreset = {
   // Timing - Short cooldowns (from current live strategy)
   stopLossCooldownMs: 300000,    // 5 minutes
   minEntrySpacingMs: 600000,     // 10 minutes
+  minHoldPeriodMs: 60000,        // 1 minute
 };
 
 /**
@@ -141,6 +207,7 @@ export const MEDIUM_RISK_PRESET: StrategyPreset = {
   // Timing - Moderate cooldowns
   stopLossCooldownMs: 600000,      // 10 minutes (2x HIGH)
   minEntrySpacingMs: 900000,       // 15 minutes (1.5x HIGH)
+  minHoldPeriodMs: 120000,         // 2 minutes (2x HIGH)
 };
 
 /**
@@ -178,6 +245,7 @@ export const LOW_RISK_PRESET: StrategyPreset = {
   // Timing - Long cooldowns (no FOMO)
   stopLossCooldownMs: 1200000,     // 20 minutes (4x HIGH)
   minEntrySpacingMs: 1800000,      // 30 minutes (3x HIGH)
+  minHoldPeriodMs: 300000,         // 5 minutes (5x HIGH)
 };
 
 /**
@@ -231,6 +299,7 @@ export function applyPresetToFormData(
     // Timing Gates
     stopLossCooldownMs: preset.stopLossCooldownMs,
     minEntrySpacingMs: preset.minEntrySpacingMs,
+    minHoldPeriodMs: preset.minHoldPeriodMs,
   };
 }
 
@@ -268,6 +337,13 @@ export function isFieldLocked(riskProfile: string, fieldName: string): boolean {
     return false;
   }
   return PRESET_LOCKED_FIELDS.includes(fieldName as PresetLockedField);
+}
+
+/**
+ * Get the dimension for a field
+ */
+export function getFieldDimension(fieldName: string): StrategyDimension | null {
+  return FIELD_DIMENSIONS[fieldName] || null;
 }
 
 /**
@@ -317,6 +393,66 @@ export const RISK_PROFILE_DESCRIPTIONS = {
 } as const;
 
 /**
+ * Section descriptions for UI micro-explanations
+ */
+export const SECTION_DESCRIPTIONS: Record<string, {
+  dimension: StrategyDimension;
+  description: string;
+  isActive: boolean;
+}> = {
+  'coins-amounts': {
+    dimension: 'risk',
+    description: 'Controls which coins to trade and how much capital to allocate per trade.',
+    isActive: true
+  },
+  'strategy': {
+    dimension: 'risk',
+    description: 'Controls how much capital is exposed and how aggressive entries are.',
+    isActive: true
+  },
+  'sell-settings': {
+    dimension: 'execution',
+    description: 'Controls take profit, stop loss, and trailing stop exit thresholds.',
+    isActive: true
+  },
+  'pool-exit-management': {
+    dimension: 'execution',
+    description: 'Controls partial profit-taking and runner position management.',
+    isActive: true
+  },
+  'unified-decisions': {
+    dimension: 'safety',
+    description: 'Controls cooldowns, overrides, and conflict prevention between signals.',
+    isActive: true
+  },
+  'execution-settings': {
+    dimension: 'execution',
+    description: 'Controls how orders are routed and executed (Coinbase vs On-chain).',
+    isActive: true
+  },
+  'advanced-overrides': {
+    dimension: 'safety',
+    description: 'Per-symbol safety overrides and circuit breaker configurations.',
+    isActive: true
+  },
+  'notifications': {
+    dimension: 'execution',
+    description: 'These settings do not directly change risk exposure.',
+    isActive: false
+  },
+  'technical-indicators': {
+    dimension: 'signals',
+    description: 'These settings do not directly change risk exposure.',
+    isActive: false
+  },
+  'ai-intelligence': {
+    dimension: 'signals',
+    description: 'AI configuration - some settings affect signal generation.',
+    isActive: false
+  }
+};
+
+/**
  * List of deprecated/legacy fields that should be hidden in UI
  * These fields exist in the form but have no backend effect
  */
@@ -349,3 +485,16 @@ export const DEPRECATED_FIELDS = [
 export const COMING_SOON_FIELDS = [
   'dailyLossLimit',  // Circuit breaker - planned but not enforced
 ] as const;
+
+/**
+ * Format milliseconds to human-readable duration
+ */
+export function formatDuration(ms: number): string {
+  if (ms >= 3600000) {
+    return `${(ms / 3600000).toFixed(1)}h`;
+  } else if (ms >= 60000) {
+    return `${Math.round(ms / 60000)}m`;
+  } else {
+    return `${Math.round(ms / 1000)}s`;
+  }
+}
