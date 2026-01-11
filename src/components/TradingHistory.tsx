@@ -189,23 +189,40 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   };
 
   // Fetch trading history - filter by is_test_mode consistently
+  // NOTE: Supabase PostgREST default limit is 1000 rows. For complete history,
+  // we fetch SELL trades separately (past positions) to ensure complete data.
   const fetchTradingHistory = async () => {
     if (!user) return;
 
     try {
       setLoading(true);
 
-      const { data, error } = await supabase
+      // Fetch SELL trades (past positions) - these are what we display in "SELL Trades" tab
+      const { data: sellData, error: sellError } = await supabase
         .from('mock_trades')
         .select('*')
         .eq('user_id', user.id)
+        .eq('trade_type', 'sell')
         .eq('is_test_mode', testMode)
         .eq('is_corrupted', false)
         .order('executed_at', { ascending: false });
 
-      if (error) throw error;
+      if (sellError) throw sellError;
 
-      setTrades(data || []);
+      // Fetch BUY trades separately for complete count display
+      const { data: buyData, error: buyError } = await supabase
+        .from('mock_trades')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('trade_type', 'buy')
+        .eq('is_test_mode', testMode)
+        .eq('is_corrupted', false)
+        .order('executed_at', { ascending: false });
+
+      if (buyError) throw buyError;
+
+      // Combine for legacy trade array (used for buyTrades count display)
+      setTrades([...(sellData || []), ...(buyData || [])]);
     } catch (error) {
       // Silent error - just stop loading
     } finally {
