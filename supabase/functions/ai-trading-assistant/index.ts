@@ -38,6 +38,54 @@ const COINBASE_COINS = [
 const VALID_COIN_SYMBOLS = COINBASE_COINS.map(coin => coin.symbol);
 
 // =============================================
+// STRATEGY RISK PRESETS
+// JSON-based configurations for Low/Medium/High risk profiles
+// =============================================
+const STRATEGY_PRESETS = {
+  low: {
+    riskProfile: 'low',
+    maxWalletExposure: 25,
+    perTradeAllocation: 150,
+    maxActiveCoins: 2,
+    takeProfitPercentage: 3.0,
+    stopLossPercentage: 1.0,
+    trailingStopLossPercentage: 0.8,
+    min_confidence: 0.75
+  },
+  medium: {
+    riskProfile: 'medium',
+    maxWalletExposure: 50,
+    perTradeAllocation: 300,
+    maxActiveCoins: 3,
+    takeProfitPercentage: 2.0,
+    stopLossPercentage: 1.5,
+    trailingStopLossPercentage: 1.0,
+    min_confidence: 0.65
+  },
+  high: {
+    riskProfile: 'high',
+    maxWalletExposure: 80,
+    perTradeAllocation: 600,
+    maxActiveCoins: 4,
+    takeProfitPercentage: 0.7,
+    stopLossPercentage: 0.7,
+    trailingStopLossPercentage: 0.6,
+    min_confidence: 0.50
+  }
+};
+
+// Fields that are locked when using a preset (not 'custom' mode)
+const PRESET_LOCKED_FIELDS = [
+  'maxWalletExposure',
+  'perTradeAllocation', 
+  'maxActiveCoins',
+  'takeProfitPercentage',
+  'stopLossPercentage',
+  'trailingStopLossPercentage',
+  'min_confidence'
+];
+
+// =============================================
 // COMPREHENSIVE FIELD DEFINITIONS - ALL 57 FIELDS
 // Based on complete cross-system field mapping analysis
 // =============================================
@@ -65,8 +113,9 @@ const FIELD_DEFINITIONS: Record<string, any> = {
     validValues: ['low', 'medium', 'high', 'custom'],
     dbPath: 'configuration.riskProfile',
     aiCanExecute: true,
-    phrases: ['risk profile', 'risk level', 'risk tolerance', 'low risk', 'medium risk', 'high risk'],
-    description: 'Risk profile (conservative, moderate, aggressive)'
+    appliesPreset: true, // Special flag: changing this applies a full preset
+    phrases: ['risk profile', 'risk level', 'risk tolerance', 'low risk', 'medium risk', 'high risk', 'conservative', 'aggressive', 'balanced', 'apply preset', 'use preset'],
+    description: 'Risk profile preset (low/medium/high) or custom mode for manual configuration'
   },
   maxWalletExposure: {
     key: 'maxWalletExposure',
@@ -1308,6 +1357,31 @@ class ConfigManager {
       if (!fieldDef.aiCanExecute) {
         const error = `AI cannot execute field: ${field} (safety restriction)`;
         console.log(`🚫 ${error}`);
+        errors.push(error);
+        continue;
+      }
+
+      // PRESET HANDLING: If changing riskProfile to low/medium/high, apply full preset
+      if (field === 'riskProfile' && value !== 'custom' && STRATEGY_PRESETS[value]) {
+        console.log(`🎯 APPLYING PRESET: ${value}`);
+        const preset = STRATEGY_PRESETS[value];
+        for (const [presetKey, presetValue] of Object.entries(preset)) {
+          const presetFieldDef = FIELD_DEFINITIONS[presetKey];
+          if (presetFieldDef) {
+            this.setNestedValue(strategyUpdates, presetFieldDef.dbPath, presetValue);
+          } else {
+            strategyUpdates.configuration[presetKey] = presetValue;
+          }
+        }
+        results.push({ field: 'riskProfile', action: 'set', oldValue: currentStrategy.configuration?.riskProfile, newValue: value, preset: true });
+        continue;
+      }
+
+      // CUSTOM MODE CHECK: If trying to modify preset-locked fields when not in custom mode
+      const currentRiskProfile = strategyUpdates.configuration?.riskProfile || currentStrategy.configuration?.riskProfile;
+      if (PRESET_LOCKED_FIELDS.includes(field) && currentRiskProfile !== 'custom') {
+        const error = `Cannot modify ${field} while using ${currentRiskProfile} preset. Switch to Custom mode first by saying "use custom risk profile"`;
+        console.log(`🔒 ${error}`);
         errors.push(error);
         continue;
       }
