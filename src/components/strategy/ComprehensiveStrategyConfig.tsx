@@ -53,6 +53,7 @@ import { AIIntelligenceSettings, AIIntelligenceConfig } from './AIIntelligenceSe
 import { TechnicalIndicatorSettings, TechnicalIndicatorConfig } from './TechnicalIndicatorSettings';
 import { PoolExitManagementPanel } from './PoolExitManagementPanel';
 import { ExecutionSettingsPanel } from './ExecutionSettingsPanel';
+import { DeprecatedFieldsPanel } from './DeprecatedFieldsPanel';
 
 import { getAllSymbols } from '@/data/coinbaseCoins';
 import { getUnsupportedSymbols } from '@/utils/marketAvailability';
@@ -288,7 +289,8 @@ const MENU_SECTIONS = [
     id: 'advanced',
     title: 'ADVANCED',
     items: [
-      { id: 'advanced-overrides', label: 'Per-Symbol Overrides & Safety', icon: Shield }
+      { id: 'advanced-overrides', label: 'Per-Symbol Overrides & Safety', icon: Shield },
+      { id: 'deprecated-features', label: 'Deprecated / Inactive Features', icon: AlertTriangle }
     ]
   }
 ];
@@ -2532,6 +2534,11 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                       defaultSlPct={formData.stopLossPercentage}
                       defaultMinConfidence={formData.aiIntelligenceConfig.aiConfidenceThreshold ? formData.aiIntelligenceConfig.aiConfidenceThreshold / 100 : 0.70}
                     />
+                  )}
+
+                  {/* Deprecated / Inactive Features Panel */}
+                  {activeSection === 'deprecated-features' && (
+                    <DeprecatedFieldsPanel />
                   )}
                 </form>
               </div>
