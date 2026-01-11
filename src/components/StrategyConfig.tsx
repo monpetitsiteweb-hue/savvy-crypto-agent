@@ -3,15 +3,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Plus, Settings, Activity, TrendingUp, Play, Pause, Edit, Copy, AlertTriangle, Trash2 } from 'lucide-react';
+import { Plus, Settings, Activity, TrendingUp, Play, Pause, Edit, Copy, AlertTriangle, Trash2, Download, Upload } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { useUserRole } from '@/hooks/useUserRole';
 import { supabase } from '@/integrations/supabase/client';
 import { logger } from '@/utils/logger';
 import { ComprehensiveStrategyConfig } from './strategy/ComprehensiveStrategyConfig';
+import { StrategyImportModal } from './strategy/StrategyImportModal';
 import { formatEuro, formatPercentage, formatDuration } from '@/utils/currencyFormatter';
 import { normalizeStrategy, StrategyData } from '@/types/strategy';
+import { serializeStrategy, generateExportFilename, downloadStrategyAsJson } from '@/utils/strategySerializer';
+import { useToast } from '@/hooks/use-toast';
 
 interface StrategyConfigProps {
   onLayoutChange?: (isFullWidth: boolean) => void;
@@ -28,6 +31,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const { isAdmin } = useUserRole();
+  const { toast } = useToast();
   const [strategies, setStrategies] = useState<StrategyData[]>([]);
   const [currentView, setCurrentView] = useState<'list' | 'create' | 'edit' | 'comprehensive'>('list');
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyData | null>(null);
@@ -35,6 +39,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
   const [showProductionActivationModal, setShowProductionActivationModal] = useState(false);
   const [strategyToActivate, setStrategyToActivate] = useState<StrategyData | null>(null);
   const [strategyPerformance, setStrategyPerformance] = useState<Record<string, StrategyPerformance>>({});
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importedFormData, setImportedFormData] = useState<Record<string, any> | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -311,17 +317,86 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     }
   };
 
+  // Handle export
+  const handleExportStrategy = (strategy: StrategyData) => {
+    try {
+      const exported = serializeStrategy({
+        strategy_name: strategy.strategy_name,
+        description: strategy.description || undefined,
+        configuration: (strategy.configuration as Record<string, any>) || {},
+        created_at: strategy.created_at,
+      });
+      const filename = generateExportFilename(strategy.strategy_name);
+      downloadStrategyAsJson(exported, filename);
+      
+      toast({
+        title: "Strategy exported",
+        description: `Downloaded ${filename}`,
+      });
+    } catch (error) {
+      logger.error('Error exporting strategy:', error);
+      toast({
+        title: "Export failed",
+        description: "Failed to export strategy. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle import callback
+  const handleImportStrategy = async (formData: Record<string, any>) => {
+    if (!user) return;
+    
+    try {
+      // Build configuration from imported data
+      const configuration = { ...formData };
+      delete configuration.strategyName;
+      delete configuration.notes;
+      
+      const strategyData = {
+        user_id: user.id,
+        strategy_name: formData.strategyName,
+        description: formData.notes || null,
+        configuration: configuration as any,
+        test_mode: true, // Always import to test mode
+        is_active: false,
+      };
+      
+      const { error } = await supabase
+        .from('trading_strategies')
+        .insert(strategyData);
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Strategy imported",
+        description: `"${formData.strategyName}" has been created in test mode.`,
+      });
+      
+      await fetchStrategies();
+    } catch (error) {
+      logger.error('Error importing strategy:', error);
+      toast({
+        title: "Import failed",
+        description: "Failed to create strategy from import. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (currentView === 'create' || currentView === 'comprehensive') {
     return (
       <ComprehensiveStrategyConfig
         onBack={() => {
           setCurrentView('list');
           setSelectedStrategy(null);
+          setImportedFormData(null);
           fetchStrategies();
         }}
         existingStrategy={currentView === 'comprehensive' ? selectedStrategy : null}
         isEditing={currentView === 'comprehensive'}
         isCollapsed={false}
+        initialFormData={importedFormData}
       />
     );
   }
@@ -336,6 +411,13 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
           </p>
         </div>
         <div className="flex gap-2">
+          <Button 
+            variant="outline"
+            onClick={() => setShowImportModal(true)}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Import
+          </Button>
           <Button 
             onClick={() => setCurrentView('create')}
             className="px-6 py-2 max-w-xs"
@@ -399,6 +481,14 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleExportStrategy(strategy)}
+                      title="Export Strategy"
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -575,6 +665,13 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
+      {/* Import Modal */}
+      <StrategyImportModal
+        open={showImportModal}
+        onOpenChange={setShowImportModal}
+        onImport={handleImportStrategy}
+      />
     </div>
   );
 };
