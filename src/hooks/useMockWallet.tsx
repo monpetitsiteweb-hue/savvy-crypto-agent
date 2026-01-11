@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { useTestMode } from './useTestMode';
+import { useTestMode } from './useTradeViewFilter';
 import { useAuth } from './useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { sharedPriceCache } from '@/utils/SharedPriceCache';

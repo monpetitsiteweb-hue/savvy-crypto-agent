@@ -2,7 +2,7 @@ import { logger } from "@/utils/logger";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
-import { TestModeProvider } from "@/hooks/useTestMode";
+import { TestModeProvider } from "@/hooks/useTradeViewFilter";
 import { MockWalletProvider } from "@/hooks/useMockWallet";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MarketDataProvider } from "@/contexts/MarketDataContext";

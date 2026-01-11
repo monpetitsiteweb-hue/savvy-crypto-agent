@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMockWallet } from "@/hooks/useMockWallet";
-import { useTestMode } from "@/hooks/useTestMode";
+import { useTradeViewFilter } from "@/hooks/useTradeViewFilter";
 import { useAuth } from "@/hooks/useAuth";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
@@ -55,7 +55,7 @@ interface PortfolioData {
 }
 
 export const UnifiedPortfolioDisplay = () => {
-  const { testMode } = useTestMode();
+  const { testMode } = useTradeViewFilter();
   const { user } = useAuth();
   
   const { resetPortfolio, isLoading: walletLoading } = useMockWallet();

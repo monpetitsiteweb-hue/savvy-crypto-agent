@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { useTestMode } from "@/hooks/useTestMode";
+import { useTradeViewFilter } from "@/hooks/useTradeViewFilter";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
 import { useMarketData } from "@/contexts/MarketDataContext";
@@ -36,7 +36,7 @@ interface PerformanceOverviewProps {
 
 export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: PerformanceOverviewProps) => {
   const { user } = useAuth();
-  const { testMode } = useTestMode();
+  const { testMode } = useTradeViewFilter();
   const { resetPortfolio, isLoading: walletLoading } = useMockWallet();
   const { 
     metrics, 

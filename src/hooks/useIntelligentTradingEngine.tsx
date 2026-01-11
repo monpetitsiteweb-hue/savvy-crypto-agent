@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useTestMode } from './useTestMode';
+import { useTestMode } from './useTradeViewFilter';
 import { useAuth } from './useAuth';
 import { useMockWallet } from './useMockWallet';
 import { supabase } from '@/integrations/supabase/client';
