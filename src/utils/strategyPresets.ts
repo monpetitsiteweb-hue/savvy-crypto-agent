@@ -1,52 +1,52 @@
 /**
  * Strategy Risk Presets - JSON-based risk profile configurations
  * 
- * These presets define ALL effective risk levers that actually control
+ * These presets define the 12 RISK PROFILE fields that control
  * trading behavior in the backend engine (trading-decision-coordinator).
  * 
- * CANONICAL LIST OF 12 EFFECTIVE LEVERS (consumed by coordinator):
+ * CANONICAL LIST OF 12 RISK PROFILE FIELDS:
  * 1. maxWalletExposure - % of wallet that can be exposed
  * 2. perTradeAllocation - EUR per trade
  * 3. maxActiveCoins - Max concurrent positions
  * 4. takeProfitPercentage - Take profit %
  * 5. stopLossPercentage - Stop loss %
- * 6. trailingStopLossPercentage - Trailing stop % (not in preset but used)
+ * 6. trailingStopLossPercentage - Trailing stop %
  * 7. min_confidence - Minimum fusion confidence (0-1)
  * 8. minTrendScoreForBuy - Minimum trend score gate (0-1)
  * 9. minMomentumScoreForBuy - Minimum momentum score gate (0-1)
  * 10. maxVolatilityScoreForBuy - Maximum volatility score gate (0-1)
  * 11. stopLossCooldownMs - Cooldown after SL exit before re-entry
  * 12. minEntrySpacingMs - Minimum time between entries on same symbol
- * 13. minHoldPeriodMs - Minimum time to hold a position before selling
+ * 
+ * NOTE: minHoldPeriodMs is an EXECUTION field, NOT a Risk Profile field.
  */
 
 export interface StrategyPreset {
   riskProfile: 'low' | 'medium' | 'high';
   
-  // === ALL 12 EFFECTIVE RISK LEVERS (consumed by coordinator) ===
+  // === THE 12 RISK PROFILE FIELDS ===
   
-  // Position Sizing & Exposure
+  // Position Sizing & Exposure (3 fields)
   maxWalletExposure: number;          // % of wallet that can be exposed
   perTradeAllocation: number;          // EUR per trade
   maxActiveCoins: number;              // Max concurrent positions
   
-  // Exit Thresholds (TP/SL)
+  // Exit Thresholds (3 fields)
   takeProfitPercentage: number;        // Take profit %
   stopLossPercentage: number;          // Stop loss %
   trailingStopLossPercentage: number;  // Trailing stop %
   
-  // Confidence Gate
+  // Confidence Gate (1 field)
   min_confidence: number;              // 0-1, minimum fusion confidence
   
-  // Signal Gate Thresholds (CRITICAL - enforced by coordinator)
+  // Signal Gate Thresholds (3 fields)
   minTrendScoreForBuy: number;         // 0-1, minimum trend score
   minMomentumScoreForBuy: number;      // 0-1, minimum momentum score
   maxVolatilityScoreForBuy: number;    // 0-1, maximum volatility score
   
-  // Timing Gates (anti-churn)
+  // Timing Gates (2 fields)
   stopLossCooldownMs: number;          // ms to wait after SL exit before re-entry
   minEntrySpacingMs: number;           // ms minimum between entries on same symbol
-  minHoldPeriodMs: number;             // ms minimum hold before sell allowed
 }
 
 /**
@@ -89,6 +89,7 @@ export const DIMENSION_INFO: Record<StrategyDimension, {
 
 /**
  * Field dimension mapping - assigns each risk field to a dimension
+ * NOTE: These are for informational display only, NOT for badge rendering
  */
 export const FIELD_DIMENSIONS: Record<string, StrategyDimension> = {
   // Risk dimension - capital exposure
@@ -105,18 +106,26 @@ export const FIELD_DIMENSIONS: Record<string, StrategyDimension> = {
   minMomentumScoreForBuy: 'signals',
   maxVolatilityScoreForBuy: 'signals',
   
-  // Safety dimension - protections
+  // Safety dimension - cooldowns (2 of them are Risk Profile fields)
   stopLossCooldownMs: 'safety',
   minEntrySpacingMs: 'safety',
-  minHoldPeriodMs: 'safety',
+  
+  // Execution dimension - NOT a Risk Profile field
+  minHoldPeriodMs: 'execution',
 };
 
 /**
- * Fields that are locked when a preset is selected (not 'custom' mode).
- * This is the SINGLE SOURCE OF TRUTH used by both UI and AI agent.
- * Keep this list in sync with StrategyPreset interface fields.
+ * THE 12 RISK PROFILE FIELDS - SINGLE SOURCE OF TRUTH
+ * These are the ONLY fields that:
+ * - Get the 🔥 Risk Profile badge
+ * - Are locked when preset != 'custom'
+ * - Are applied via presets
+ * 
+ * This constant is used by:
+ * - UI for locking/badge display
+ * - AI agent for locking logic
  */
-export const PRESET_LOCKED_FIELDS = [
+export const PRESET_RISK_FIELDS = [
   'maxWalletExposure',
   'perTradeAllocation',
   'maxActiveCoins',
@@ -129,8 +138,10 @@ export const PRESET_LOCKED_FIELDS = [
   'maxVolatilityScoreForBuy',
   'stopLossCooldownMs',
   'minEntrySpacingMs',
-  'minHoldPeriodMs',
 ] as const;
+
+// Alias for backward compatibility
+export const PRESET_LOCKED_FIELDS = PRESET_RISK_FIELDS;
 
 export type PresetLockedField = typeof PRESET_LOCKED_FIELDS[number];
 
@@ -169,7 +180,7 @@ export const HIGH_RISK_PRESET: StrategyPreset = {
   // Timing - Short cooldowns (from current live strategy)
   stopLossCooldownMs: 300000,    // 5 minutes
   minEntrySpacingMs: 600000,     // 10 minutes
-  minHoldPeriodMs: 60000,        // 1 minute
+  // NOTE: minHoldPeriodMs is an EXECUTION field, NOT part of Risk Profile
 };
 
 /**
@@ -207,7 +218,7 @@ export const MEDIUM_RISK_PRESET: StrategyPreset = {
   // Timing - Moderate cooldowns
   stopLossCooldownMs: 600000,      // 10 minutes (2x HIGH)
   minEntrySpacingMs: 900000,       // 15 minutes (1.5x HIGH)
-  minHoldPeriodMs: 120000,         // 2 minutes (2x HIGH)
+  // NOTE: minHoldPeriodMs is an EXECUTION field, NOT part of Risk Profile
 };
 
 /**
@@ -245,7 +256,7 @@ export const LOW_RISK_PRESET: StrategyPreset = {
   // Timing - Long cooldowns (no FOMO)
   stopLossCooldownMs: 1200000,     // 20 minutes (4x HIGH)
   minEntrySpacingMs: 1800000,      // 30 minutes (3x HIGH)
-  minHoldPeriodMs: 300000,         // 5 minutes (5x HIGH)
+  // NOTE: minHoldPeriodMs is an EXECUTION field, NOT part of Risk Profile
 };
 
 /**
@@ -267,8 +278,9 @@ export function getPresetByRiskProfile(riskProfile: string): StrategyPreset | nu
 }
 
 /**
- * Apply preset to form data - updates ALL effective levers
+ * Apply preset to form data - updates ONLY the 12 Risk Profile fields
  * Returns merged config with preset values applied
+ * NOTE: minHoldPeriodMs is NOT updated (it's an execution field, not risk profile)
  */
 export function applyPresetToFormData(
   formData: Record<string, any>, 
@@ -278,28 +290,27 @@ export function applyPresetToFormData(
     ...formData,
     riskProfile: preset.riskProfile,
     
-    // Position Sizing
+    // Position Sizing (3 fields)
     maxWalletExposure: preset.maxWalletExposure,
     perTradeAllocation: preset.perTradeAllocation,
     maxActiveCoins: preset.maxActiveCoins,
     
-    // Exit Thresholds
+    // Exit Thresholds (3 fields)
     takeProfitPercentage: preset.takeProfitPercentage,
     stopLossPercentage: preset.stopLossPercentage,
     trailingStopLossPercentage: preset.trailingStopLossPercentage,
     
-    // Confidence
+    // Confidence (1 field)
     min_confidence: preset.min_confidence,
     
-    // Signal Gates
+    // Signal Gates (3 fields)
     minTrendScoreForBuy: preset.minTrendScoreForBuy,
     minMomentumScoreForBuy: preset.minMomentumScoreForBuy,
     maxVolatilityScoreForBuy: preset.maxVolatilityScoreForBuy,
     
-    // Timing Gates
+    // Timing Gates (2 fields) - NOTE: minHoldPeriodMs is NOT included
     stopLossCooldownMs: preset.stopLossCooldownMs,
     minEntrySpacingMs: preset.minEntrySpacingMs,
-    minHoldPeriodMs: preset.minHoldPeriodMs,
   };
 }
 
