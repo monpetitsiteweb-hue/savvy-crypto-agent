@@ -307,6 +307,25 @@ const ProfilePage = () => {
               )}
             </div>
 
+            {/* State-specific explanation */}
+            {isWalletFunded ? (
+              <Card className="p-4 bg-green-500/10 border-green-500/30">
+                <h4 className="text-green-300 font-medium mb-2">Your trading wallet is funded</h4>
+                <p className="text-green-200/80 text-sm">
+                  You may now configure strategies to use REAL execution. 
+                  No strategy will trade real funds unless you explicitly switch its execution target.
+                </p>
+              </Card>
+            ) : (
+              <Card className="p-4 bg-slate-700/50 border-slate-600">
+                <h4 className="text-white font-medium mb-2">Dedicated Trading Wallet</h4>
+                <p className="text-slate-400 text-sm">
+                  This wallet is dedicated to automated trading only. 
+                  Funds sent here are controlled exclusively by the trading engine.
+                </p>
+              </Card>
+            )}
+
             {/* Wallet Address */}
             <Card className="p-6 bg-slate-700/30 border-slate-600">
               <div className="text-xs text-slate-400 mb-2">Wallet Address</div>
@@ -355,6 +374,21 @@ const ProfilePage = () => {
                 </ol>
               </Card>
             )}
+
+            {/* Irreversibility Warning - Always visible */}
+            <Card className="p-4 bg-amber-500/10 border-amber-500/30">
+              <div className="flex gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-200/80">
+                  <p className="font-medium text-amber-300 mb-1">Important Information</p>
+                  <ul className="list-disc pl-4 space-y-1">
+                    <li>This wallet cannot be changed or deleted</li>
+                    <li>It cannot be merged with your Coinbase account</li>
+                    <li>It is isolated by design for security</li>
+                  </ul>
+                </div>
+              </div>
+            </Card>
           </div>
         );
 
