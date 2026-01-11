@@ -42,8 +42,10 @@ import {
   MessageCircle,
   X,
   Brain,
-  Lock
+  Lock,
+  Download
 } from 'lucide-react';
+import { serializeStrategy, generateExportFilename, downloadStrategyAsJson } from '@/utils/strategySerializer';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { supabase } from '@/integrations/supabase/client';
@@ -237,6 +239,7 @@ interface ComprehensiveStrategyConfigProps {
   existingStrategy?: any;
   isEditing?: boolean;
   isCollapsed?: boolean;
+  initialFormData?: Record<string, any>; // For import functionality
 }
 
 // Create Strategy Mode Options
@@ -336,7 +339,8 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   onBack, 
   existingStrategy, 
   isEditing = false,
-  isCollapsed = false
+  isCollapsed = false,
+  initialFormData
 }) => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
@@ -561,6 +565,37 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       setFormData(prev => ({ ...prev, riskProfile }));
     }
   };
+
+  // Load initial form data from import (if provided)
+  useEffect(() => {
+    if (initialFormData && !existingStrategy) {
+      setFormData(prev => ({
+        ...prev,
+        ...initialFormData,
+        // Ensure nested configs are merged properly
+        aiIntelligenceConfig: {
+          ...prev.aiIntelligenceConfig,
+          ...initialFormData.aiIntelligenceConfig
+        },
+        technicalIndicatorConfig: {
+          ...prev.technicalIndicatorConfig,
+          ...initialFormData.technicalIndicatorConfig
+        },
+        poolExitConfig: {
+          ...prev.poolExitConfig,
+          ...initialFormData.poolExitConfig
+        },
+        executionSettings: {
+          ...prev.executionSettings,
+          ...initialFormData.executionSettings
+        },
+        unifiedConfig: {
+          ...prev.unifiedConfig,
+          ...initialFormData.unifiedConfig
+        },
+      }));
+    }
+  }, [initialFormData, existingStrategy]);
 
   // Load existing strategy data
   useEffect(() => {
@@ -1196,28 +1231,47 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
               
               <div className="flex items-center gap-4">
                 {isEditing && (
-                  <AlertDialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="outline" size="sm" className="text-red-500 border-red-500 hover:bg-red-500/10">
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Strategy</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Are you sure you want to delete this strategy? This action cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
-                          Delete Strategy
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const exported = serializeStrategy({
+                          strategy_name: formData.strategyName,
+                          description: formData.notes,
+                          configuration: formData as Record<string, any>,
+                        });
+                        const filename = generateExportFilename(formData.strategyName);
+                        downloadStrategyAsJson(exported, filename);
+                        toast({ title: "Strategy exported", description: `Downloaded ${filename}` });
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Export
+                    </Button>
+                    <AlertDialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="outline" size="sm" className="text-red-500 border-red-500 hover:bg-red-500/10">
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Strategy</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete this strategy? This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+                            Delete Strategy
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </>
                 )}
                 
                 <Button 
