@@ -5,8 +5,7 @@
  * FIXED: TTL cache to prevent refetch spam
  * FIXED: Proper error categorization (429/404/other)
  */
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useMarketData } from '@/contexts/MarketDataContext';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import type { OpenTrade } from '@/hooks/useOpenTrades';
 import type { MarketPrices } from '@/utils/portfolioMath';
@@ -29,8 +28,9 @@ interface UseHoldingsPricesResult {
   debugInfo: { holdingsPairs: string[]; fetchedCount: number; lastFetchTs: number };
 }
 
-// Cache for fetched prices with TTL
-interface PriceCache {
+// MODULE-LEVEL SINGLETON CACHE (shared across all hook instances)
+// Prevents duplicate fetches and ensures consistency across components
+interface PriceCacheEntry {
   prices: MarketPrices;
   timestamp: number;
   failed: FailedSymbol[];
@@ -40,16 +40,15 @@ const CACHE_TTL_MS = 15000; // 15 seconds TTL
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 500;
 
+// Singleton cache by holdingsKey (shared across all components)
+const globalPriceCache = new Map<string, PriceCacheEntry>();
+const globalFetchInProgress = new Map<string, boolean>();
+
 export function useHoldingsPrices(openTrades: OpenTrade[]): UseHoldingsPricesResult {
-  const { getCurrentData } = useMarketData();
   const [isLoadingPrices, setIsLoadingPrices] = useState(true);
   const [holdingsPrices, setHoldingsPrices] = useState<MarketPrices>({});
   const [failedSymbols, setFailedSymbols] = useState<FailedSymbol[]>([]);
   const [debugInfo, setDebugInfo] = useState({ holdingsPairs: [] as string[], fetchedCount: 0, lastFetchTs: 0 });
-  
-  const cacheRef = useRef<PriceCache | null>(null);
-  const fetchInProgressRef = useRef(false);
-  const lastHoldingsKeyRef = useRef<string>('');
 
   // Extract unique base symbols from open trades
   const holdingsSymbols = useMemo(() => {
@@ -74,8 +73,10 @@ export function useHoldingsPrices(openTrades: OpenTrade[]): UseHoldingsPricesRes
     const prices: MarketPrices = {};
     const failed: FailedSymbol[] = [];
 
-    // DEV LOG
-    console.log('[useHoldingsPrices] fetching pairs:', pairs);
+    // DEV LOG (only in development)
+    if (import.meta.env.DEV) {
+      console.log('[useHoldingsPrices] fetching pairs:', pairs);
+    }
 
     // Fetch each pair individually to get proper error categorization
     for (const pair of pairs) {
@@ -125,14 +126,16 @@ export function useHoldingsPrices(openTrades: OpenTrade[]): UseHoldingsPricesRes
       }
     }
 
-    // DEV LOG
-    console.log('[useHoldingsPrices] fetchedKeys:', Object.keys(prices).length);
-    console.log('[useHoldingsPrices] failedSymbols:', failed);
+    // DEV LOG (only in development)
+    if (import.meta.env.DEV) {
+      console.log('[useHoldingsPrices] fetchedKeys:', Object.keys(prices).length);
+      console.log('[useHoldingsPrices] failedSymbols:', failed);
+    }
 
     return { prices, failed };
   }, []);
 
-  // Main refresh function
+  // Main refresh function - uses global singleton cache for consistency
   const refreshPrices = useCallback(async () => {
     if (holdingsSymbols.length === 0) {
       setIsLoadingPrices(false);
@@ -141,33 +144,40 @@ export function useHoldingsPrices(openTrades: OpenTrade[]): UseHoldingsPricesRes
       return;
     }
 
-    // Check cache validity
     const now = Date.now();
-    const cache = cacheRef.current;
-    if (cache && (now - cache.timestamp) < CACHE_TTL_MS && lastHoldingsKeyRef.current === holdingsKey) {
-      // Cache still valid and holdings unchanged
-      setHoldingsPrices(cache.prices);
-      setFailedSymbols(cache.failed);
+    
+    // Check GLOBAL cache validity (shared across all components)
+    const cachedEntry = globalPriceCache.get(holdingsKey);
+    if (cachedEntry && (now - cachedEntry.timestamp) < CACHE_TTL_MS) {
+      // Cache still valid - use shared data
+      setHoldingsPrices(cachedEntry.prices);
+      setFailedSymbols(cachedEntry.failed);
       setIsLoadingPrices(false);
+      setDebugInfo({
+        holdingsPairs: holdingsSymbols.map(s => toPairSymbol(s)),
+        fetchedCount: Object.keys(cachedEntry.prices).length,
+        lastFetchTs: cachedEntry.timestamp
+      });
       return;
     }
 
-    // Prevent concurrent fetches
-    if (fetchInProgressRef.current) {
+    // Prevent concurrent fetches for same holdingsKey (global lock)
+    if (globalFetchInProgress.get(holdingsKey)) {
+      // Another component is fetching - wait briefly and re-check cache
+      setTimeout(() => refreshPrices(), 100);
       return;
     }
 
-    fetchInProgressRef.current = true;
+    globalFetchInProgress.set(holdingsKey, true);
     setIsLoadingPrices(true);
 
     try {
       const { prices, failed } = await fetchPricesForHoldings(holdingsSymbols);
       
-      // Update cache
-      cacheRef.current = { prices, failed, timestamp: now };
-      lastHoldingsKeyRef.current = holdingsKey;
+      // Update GLOBAL cache (shared across all components)
+      globalPriceCache.set(holdingsKey, { prices, failed, timestamp: now });
       
-      // Update state from fetched result (NOT from marketData state - avoids race)
+      // Update local state from fetched result
       setHoldingsPrices(prices);
       setFailedSymbols(failed);
       setDebugInfo({
@@ -180,7 +190,7 @@ export function useHoldingsPrices(openTrades: OpenTrade[]): UseHoldingsPricesRes
       setFailedSymbols(holdingsSymbols.map(s => ({ symbol: s, reason: 'network_error' as const })));
     } finally {
       setIsLoadingPrices(false);
-      fetchInProgressRef.current = false;
+      globalFetchInProgress.delete(holdingsKey);
     }
   }, [holdingsSymbols, holdingsKey, fetchPricesForHoldings]);
 

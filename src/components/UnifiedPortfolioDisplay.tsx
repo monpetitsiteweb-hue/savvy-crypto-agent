@@ -135,7 +135,7 @@ export const UnifiedPortfolioDisplay = () => {
     );
   }, [metrics, openTrades, effectivePrices, txCount, testMode]);
 
-  // Wallet asset display (positions breakdown) — price mapping must match portfolioMath
+  // Wallet asset display (positions breakdown) — use effectivePrices to stay consistent with valuation
   const liveAggregates = useMemo(() => {
     if (!testMode || !isInitialized || openTrades.length === 0) {
       return {
@@ -176,24 +176,26 @@ export const UnifiedPortfolioDisplay = () => {
     let costBasisEur = 0;
     let currentValueEur = 0;
 
-    const marketKeys = Object.keys(marketData || {});
+    // USE effectivePrices (not marketData) to stay consistent with portfolioValuation
+    const priceKeys = Object.keys(effectivePrices || {});
 
     const resolveLivePrice = (baseSymbol: string): number | null => {
       const base = toBaseSymbol(baseSymbol);
       const pair = toPairSymbol(base);
 
-      const direct = marketData[pair]?.price;
+      // Use effectivePrices (merged holdingsPrices + marketData) for consistency
+      const direct = effectivePrices[pair]?.price;
       if (typeof direct === 'number' && direct > 0) return direct;
 
-      const baseDirect = marketData[base]?.price;
+      const baseDirect = effectivePrices[base]?.price;
       if (typeof baseDirect === 'number' && baseDirect > 0) return baseDirect;
 
       const foundKey =
-        marketKeys.find((k) => k.toUpperCase() === pair.toUpperCase()) ||
-        marketKeys.find((k) => k.toUpperCase() === base.toUpperCase()) ||
+        priceKeys.find((k) => k.toUpperCase() === pair.toUpperCase()) ||
+        priceKeys.find((k) => k.toUpperCase() === base.toUpperCase()) ||
         null;
 
-      const p = foundKey ? marketData[foundKey]?.price : undefined;
+      const p = foundKey ? effectivePrices[foundKey]?.price : undefined;
       return typeof p === 'number' && p > 0 ? p : null;
     };
 
@@ -236,18 +238,20 @@ export const UnifiedPortfolioDisplay = () => {
     const hasMissingPrices = missingSymbols.length > 0;
 
     return { costBasisEur, currentValueEur, unrealizedEur, unrealizedPct, hasMissingPrices, missingSymbols, walletAssets };
-  }, [testMode, isInitialized, openTrades, marketData]);
+  }, [testMode, isInitialized, openTrades, effectivePrices]);
 
-  // STRUCTURED PROOF LOG: prove all runtime values
+  // STRUCTURED PROOF LOG: prove all runtime values (dev only)
   useEffect(() => {
+    if (!import.meta.env.DEV) return;
     if (!testMode || !isInitialized) return;
-    const keys = Object.keys(marketData || {});
+    
+    const keys = Object.keys(effectivePrices || {});
     const openSyms = openTrades.map((t) => toBaseSymbol(t.cryptocurrency));
 
     const resolveKey = (base: string): string | null => {
       const pair = toPairSymbol(base);
-      if (marketData[pair]?.price && marketData[pair]!.price > 0) return pair;
-      if (marketData[base]?.price && marketData[base]!.price > 0) return base;
+      if (effectivePrices[pair]?.price && effectivePrices[pair]!.price > 0) return pair;
+      if (effectivePrices[base]?.price && effectivePrices[base]!.price > 0) return base;
       return (
         keys.find((k) => k.toUpperCase() === pair.toUpperCase()) ||
         keys.find((k) => k.toUpperCase() === base.toUpperCase()) ||
@@ -260,7 +264,7 @@ export const UnifiedPortfolioDisplay = () => {
       const base = toBaseSymbol(a.symbol);
       const pairKey = toPairSymbol(base);
       const matchedKey = resolveKey(base);
-      const matchedPrice = matchedKey ? (marketData[matchedKey]?.price ?? null) : null;
+      const matchedPrice = matchedKey ? (effectivePrices[matchedKey]?.price ?? null) : null;
 
       return {
         symbol: a.symbol,
@@ -288,15 +292,15 @@ export const UnifiedPortfolioDisplay = () => {
       positions,
     });
 
-    // Log marketData keys (first 50) for reference
-    console.log('[portfolio-proof] marketData keys (first 50):', keys.slice(0, 50));
+    // Log effectivePrices keys (first 50) for reference
+    console.log('[portfolio-proof] effectivePrices keys (first 50):', keys.slice(0, 50));
     console.log('[portfolio-proof] lookup per symbol:', openSyms.map((s) => ({
       symbol: s,
       pairKey: toPairSymbol(s),
       matchedKey: resolveKey(s),
-      priceFound: resolveKey(s) ? marketData[resolveKey(s) as string]?.price : null,
+      priceFound: resolveKey(s) ? effectivePrices[resolveKey(s) as string]?.price : null,
     })));
-  }, [testMode, isInitialized, openTrades, marketData, portfolioValuation, liveAggregates]);
+  }, [testMode, isInitialized, openTrades, effectivePrices, portfolioValuation, liveAggregates, txCount]);
 
   // RUNTIME ASSERTION: Check if math adds up (test mode only)
   const mathMismatch = useMemo(() => {
@@ -584,8 +588,8 @@ export const UnifiedPortfolioDisplay = () => {
                   : `Price unavailable: ${portfolioValuation.missingSymbols.join(', ')}`
                 }
               </div>
-              {/* DEBUG: Temporary - remove after validation */}
-              {(failedSymbols.some(f => ['BTC', 'ETH', 'SOL'].includes(f.symbol))) && (
+              {/* DEBUG: Development only - remove after validation */}
+              {import.meta.env.DEV && (failedSymbols.some(f => ['BTC', 'ETH', 'SOL'].includes(f.symbol))) && (
                 <div className="text-xs text-red-400 mt-1 font-mono">
                   DEBUG: pairs={JSON.stringify(debugInfo.holdingsPairs)}, fetched={debugInfo.fetchedCount}
                 </div>

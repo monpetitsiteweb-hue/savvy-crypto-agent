@@ -686,8 +686,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                 ? failedSymbols.map(f => `${f.symbol}: ${f.reason.replace('_', ' ')}`).join(', ')
                 : `Price unavailable: ${portfolioValuation.missingSymbols.join(', ')}`}
             </div>
-            {/* DEBUG: Temporary - remove after validation */}
-            {(failedSymbols.some(f => ['BTC', 'ETH', 'SOL'].includes(f.symbol))) && (
+            {/* DEBUG: Development only - remove after validation */}
+            {import.meta.env.DEV && (failedSymbols.some(f => ['BTC', 'ETH', 'SOL'].includes(f.symbol))) && (
               <div className="text-xs text-red-400 mt-1 font-mono">
                 DEBUG: pairs={JSON.stringify(debugInfo.holdingsPairs)}, fetched={debugInfo.fetchedCount}
               </div>
