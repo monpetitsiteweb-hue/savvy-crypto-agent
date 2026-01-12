@@ -353,6 +353,22 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       delete configuration.strategyName;
       delete configuration.notes;
       
+      // Ensure required root-level config fields exist (coordinator requires these)
+      const REQUIRED_DEFAULTS = {
+        aiConfidenceThreshold: 0.5,
+        priceStaleMaxMs: 15000,
+        spreadThresholdBps: 150,
+        minHoldPeriodMs: configuration.unifiedConfig?.minHoldPeriodMs ?? 120000,
+        cooldownBetweenOppositeActionsMs: configuration.unifiedConfig?.cooldownBetweenOppositeActionsMs ?? 5000,
+      };
+      
+      // Apply defaults only if not already present
+      for (const [key, defaultValue] of Object.entries(REQUIRED_DEFAULTS)) {
+        if (configuration[key] === undefined || configuration[key] === null) {
+          configuration[key] = defaultValue;
+        }
+      }
+      
       const strategyData = {
         user_id: user.id,
         strategy_name: formData.strategyName,
