@@ -58,81 +58,82 @@ export const MarketDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       let hit429 = false;
+      const marketDataMap: Record<string, MarketData> = {};
       
-      const promises = validSymbols.map(async (symbol, index) => {
-        try {
-          if (index > 0) {
-            await new Promise(resolve => setTimeout(resolve, 300 * index));
-          }
-          
-          const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
-          if (response.ok) {
-            const data = await response.json();
-            const price = parseFloat(data.price || '0');
-            const bid = parseFloat(data.bid || '0');
-            const ask = parseFloat(data.ask || '0');
-            
-            sharedPriceCache.set(symbol, price, bid, ask);
-            
-            return {
-              [symbol]: {
+      // Fetch in batches of 5 with small delays to avoid rate limits
+      // Update state incrementally so prices appear as they arrive
+      const BATCH_SIZE = 5;
+      const BATCH_DELAY = 200;
+      
+      for (let i = 0; i < validSymbols.length; i += BATCH_SIZE) {
+        const batch = validSymbols.slice(i, i + BATCH_SIZE);
+        
+        const batchPromises = batch.map(async (symbol) => {
+          try {
+            const response = await fetch(`https://api.exchange.coinbase.com/products/${symbol}/ticker`);
+            if (response.ok) {
+              const data = await response.json();
+              const price = parseFloat(data.price || '0');
+              const bid = parseFloat(data.bid || '0');
+              const ask = parseFloat(data.ask || '0');
+              
+              sharedPriceCache.set(symbol, price, bid, ask);
+              
+              return {
                 symbol,
-                price,
-                bid,
-                ask,
-                volume: parseFloat(data.volume || '0'),
-                change_24h: '0',
-                change_percentage_24h: '0',
-                high_24h: data.high_24h || '0',
-                low_24h: data.low_24h || '0',
-                timestamp: new Date().toISOString(),
-                source: 'coinbase_singleton'
-              }
-            };
-          } else if (response.status === 429) {
-            hit429 = true;
-            return { [symbol]: null };
+                data: {
+                  symbol,
+                  price,
+                  bid,
+                  ask,
+                  volume: parseFloat(data.volume || '0'),
+                  change_24h: '0',
+                  change_percentage_24h: '0',
+                  high_24h: data.high_24h || '0',
+                  low_24h: data.low_24h || '0',
+                  timestamp: new Date().toISOString(),
+                  source: 'coinbase_singleton'
+                } as MarketData
+              };
+            } else if (response.status === 429) {
+              hit429 = true;
+              return { symbol, data: null };
+            }
+            return { symbol, data: null };
+          } catch {
+            return { symbol, data: null };
           }
-          return { [symbol]: null };
-        } catch {
-          return { [symbol]: null };
-        }
-      });
+        });
 
-      const results = await Promise.all(promises);
+        const batchResults = await Promise.all(batchPromises);
+        
+        // Update state immediately after each batch completes
+        const batchData: Record<string, MarketData> = {};
+        batchResults.forEach(result => {
+          if (result.data) {
+            batchData[result.symbol] = result.data;
+            marketDataMap[result.symbol] = result.data;
+          }
+        });
+        
+        if (Object.keys(batchData).length > 0) {
+          setMarketData(prev => {
+            const newData = { ...prev, ...batchData };
+            setContextVersion(v => v + 1);
+            return newData;
+          });
+          setError(null);
+          setIsConnected(true);
+        }
+        
+        // Small delay between batches
+        if (i + BATCH_SIZE < validSymbols.length) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
+        }
+      }
       
       if (hit429) {
         backoffUntilRef.current = Date.now() + 30000;
-      }
-      
-      const marketDataMap = results.reduce((acc, result) => {
-        const [symbol, data] = Object.entries(result)[0];
-        if (data) {
-          acc[symbol] = data;
-        }
-        return acc;
-      }, {} as Record<string, MarketData>);
-
-      if (Object.keys(marketDataMap).length > 0) {
-        setMarketData(prev => {
-          let hasChanged = false;
-          const newData = { ...prev };
-          
-          Object.entries(marketDataMap).forEach(([symbol, data]) => {
-            if (!prev[symbol] || prev[symbol].price !== data.price || prev[symbol].timestamp !== data.timestamp) {
-              hasChanged = true;
-              newData[symbol] = data;
-            }
-          });
-          
-          if (hasChanged) {
-            setContextVersion(v => v + 1);
-            return newData;
-          }
-          return prev;
-        });
-        setError(null);
-        setIsConnected(true);
       }
       
       return marketDataMap;
