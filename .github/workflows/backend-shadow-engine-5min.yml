@@ -32,68 +32,79 @@ jobs:
           
           echo "📊 Symbols JSON: $SYMBOLS_JSON"
           
-          # Query trading_strategies directly to get active user_id
-          echo "📋 Querying trading_strategies for active user..."
-          USER_ID_RAW=$(curl -s -X GET \
-            "${SUPABASE_URL}/rest/v1/trading_strategies?is_active=eq.true&select=user_id&limit=1" \
+          # Query trading_strategies to get ALL active user_ids
+          echo "📋 Querying trading_strategies for active users..."
+          USER_IDS_RAW=$(curl -s -X GET \
+            "${SUPABASE_URL}/rest/v1/trading_strategies?is_active=eq.true&select=user_id" \
             -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}")
           
-          echo "📋 Raw response: $USER_ID_RAW"
+          echo "📋 Raw response: $USER_IDS_RAW"
           
-          # Extract user_id and strip any extra quotes
-          USER_ID=$(echo "$USER_ID_RAW" | jq -r '.[0].user_id // empty')
+          # Extract unique user_ids
+          USER_IDS=$(echo "$USER_IDS_RAW" | jq -r '[.[].user_id] | unique | .[]')
           
-          if [ -z "$USER_ID" ] || [ "$USER_ID" = "null" ]; then
-            echo "❌ No active strategy found - skipping shadow run"
+          if [ -z "$USER_IDS" ]; then
+            echo "❌ No active strategies found - skipping shadow run"
             exit 0
           fi
           
-          echo "👤 Using userId: $USER_ID"
-          echo "📊 Symbols: $SYMBOLS"
+          USER_COUNT=$(echo "$USER_IDS" | wc -l)
+          echo "👥 Found $USER_COUNT active users"
           
-          # Build JSON body explicitly to avoid escaping issues
-          JSON_BODY=$(jq -n \
-            --arg userId "$USER_ID" \
-            --argjson symbols "$SYMBOLS_JSON" \
-            '{userId: $userId, symbols: $symbols}')
-          
-          echo "📦 Request body: $JSON_BODY"
-          
-          # Invoke backend-shadow-engine with SHADOW mode
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "${SUPABASE_URL}/functions/v1/backend-shadow-engine" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "$JSON_BODY")
-          
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
-          
-          echo "📡 Response code: $HTTP_CODE"
-          
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "✅ Shadow engine completed successfully"
-            echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
-            
-            # Extract summary stats
-            WOULD_BUY=$(echo "$BODY" | jq '.summary.wouldBuy // 0')
-            WOULD_SELL=$(echo "$BODY" | jq '.summary.wouldSell // 0')
-            WOULD_HOLD=$(echo "$BODY" | jq '.summary.wouldHold // 0')
-            TOTAL=$(echo "$BODY" | jq '.summary.total // 0')
-            ELAPSED=$(echo "$BODY" | jq '.elapsed_ms // 0')
-            
+          # Process each user
+          for USER_ID in $USER_IDS; do
             echo ""
-            echo "📊 SHADOW RUN SUMMARY"
-            echo "  Symbols evaluated: $TOTAL"
-            echo "  Would BUY: $WOULD_BUY"
-            echo "  Would SELL: $WOULD_SELL"  
-            echo "  Would HOLD: $WOULD_HOLD"
-            echo "  Elapsed: ${ELAPSED}ms"
-            echo ""
-            echo "⚠️  SHADOW MODE: No trades were inserted to mock_trades"
-          else
-            echo "❌ Shadow engine failed with code $HTTP_CODE"
-            echo "$BODY"
-            exit 1
-          fi
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "👤 Processing user: $USER_ID"
+            echo "📊 Symbols: $SYMBOLS"
+            
+            # Build JSON body explicitly to avoid escaping issues
+            JSON_BODY=$(jq -n \
+              --arg userId "$USER_ID" \
+              --argjson symbols "$SYMBOLS_JSON" \
+              '{userId: $userId, symbols: $symbols}')
+            
+            echo "📦 Request body: $JSON_BODY"
+            
+            # Invoke backend-shadow-engine with SHADOW mode
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              "${SUPABASE_URL}/functions/v1/backend-shadow-engine" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Content-Type: application/json" \
+              -d "$JSON_BODY")
+            
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+            
+            echo "📡 Response code: $HTTP_CODE"
+            
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "✅ Shadow engine completed for user $USER_ID"
+              echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+              
+              # Extract summary stats
+              WOULD_BUY=$(echo "$BODY" | jq '.summary.wouldBuy // 0')
+              WOULD_SELL=$(echo "$BODY" | jq '.summary.wouldSell // 0')
+              WOULD_HOLD=$(echo "$BODY" | jq '.summary.wouldHold // 0')
+              TOTAL=$(echo "$BODY" | jq '.summary.total // 0')
+              ELAPSED=$(echo "$BODY" | jq '.elapsed_ms // 0')
+              
+              echo ""
+              echo "📊 USER SUMMARY: $USER_ID"
+              echo "  Symbols evaluated: $TOTAL"
+              echo "  Would BUY: $WOULD_BUY"
+              echo "  Would SELL: $WOULD_SELL"  
+              echo "  Would HOLD: $WOULD_HOLD"
+              echo "  Elapsed: ${ELAPSED}ms"
+            else
+              echo "❌ Shadow engine failed for user $USER_ID with code $HTTP_CODE"
+              echo "$BODY"
+              # Continue to next user instead of failing entirely
+            fi
+          done
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ All users processed"
+          echo "⚠️  SHADOW MODE: No trades were inserted to mock_trades"
