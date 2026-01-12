@@ -8,6 +8,7 @@ import { useTradeViewFilter } from "@/hooks/useTradeViewFilter";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
 import { useMarketData } from "@/contexts/MarketDataContext";
+import { useHoldingsPrices } from "@/hooks/useHoldingsPrices";
 import { TrendingUp, TrendingDown, DollarSign, Activity, Target, TestTube, Percent, Fuel, AlertTriangle } from "lucide-react";
 import { NoActiveStrategyState } from "./NoActiveStrategyState";
 import { PortfolioNotInitialized } from "./PortfolioNotInitialized";
@@ -51,6 +52,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
   // TRADE-BASED: Use open trades for portfolio valuation
   const { openTrades, refresh: refreshOpenTrades } = useOpenTrades();
   const { marketData } = useMarketData();
+  const { holdingsPrices, isLoadingPrices, failedSymbols } = useHoldingsPrices(openTrades);
   const [localMetrics, setLocalMetrics] = useState<LocalMetrics>({
     winningTrades: 0,
     losingTrades: 0,
@@ -106,15 +108,26 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
   };
   
   // Compute portfolio valuation using shared utility
+  // Prefer holdingsPrices (specific to user holdings), fallback to marketData
+  const effectivePrices = useMemo(() => {
+    const merged: MarketPrices = { ...marketData as MarketPrices };
+    for (const [key, val] of Object.entries(holdingsPrices)) {
+      if (val && val.price > 0) {
+        merged[key] = val;
+      }
+    }
+    return merged;
+  }, [holdingsPrices, marketData]);
+
   const portfolioValuation: PortfolioValuation = useMemo(() => {
     return computeFullPortfolioValuation(
       metrics,
       openTrades,
-      marketData as MarketPrices,
+      effectivePrices,
       txCount,
       testMode
     );
-  }, [metrics, openTrades, marketData, txCount, testMode]);
+  }, [metrics, openTrades, effectivePrices, txCount, testMode]);
 
   useEffect(() => {
     if (user && testMode) {
@@ -176,13 +189,24 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {/* Partial Valuation Warning Badge */}
-        {portfolioValuation.hasMissingPrices && (
-          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
-            <span className="text-sm text-amber-400">
-              Partial valuation (missing: {portfolioValuation.missingSymbols.join(', ')})
-            </span>
+        {/* Partial Valuation Warning Badge - improved messaging */}
+        {isLoadingPrices && openTrades.length > 0 && (
+          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg flex items-center gap-2">
+            <Activity className="h-4 w-4 text-blue-400 animate-spin flex-shrink-0" />
+            <span className="text-sm text-blue-400">Loading prices...</span>
+          </div>
+        )}
+        {!isLoadingPrices && portfolioValuation.hasMissingPrices && (
+          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+              <span className="text-sm text-amber-400">Partial valuation — some positions excluded</span>
+            </div>
+            <div className="text-xs text-amber-400/70 ml-6">
+              {failedSymbols.length > 0 
+                ? failedSymbols.map(f => `${f.symbol}: ${f.reason}`).join(', ')
+                : `Price unavailable: ${portfolioValuation.missingSymbols.join(', ')}`}
+            </div>
           </div>
         )}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">

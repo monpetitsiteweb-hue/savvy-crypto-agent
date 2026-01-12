@@ -12,6 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
 import { useMarketData } from "@/contexts/MarketDataContext";
+import { useHoldingsPrices } from "@/hooks/useHoldingsPrices";
 import { supabase } from '@/integrations/supabase/client';
 import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw, AlertCircle, Fuel } from "lucide-react";
 import { logger } from '@/utils/logger';
@@ -74,8 +75,9 @@ export const UnifiedPortfolioDisplay = () => {
   // TRADE-BASED: Use open trades (not lots)
   const { openTrades, isLoading: tradesLoading, refresh: refreshOpenTrades } = useOpenTrades();
   
-  // Live price stream for per-asset display
+  // Holdings-driven pricing: fetch ONLY for positions held
   const { marketData } = useMarketData();
+  const { holdingsPrices, isLoadingPrices, failedSymbols } = useHoldingsPrices(openTrades);
   
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
@@ -111,15 +113,27 @@ export const UnifiedPortfolioDisplay = () => {
   }, [user, testMode, metrics]); // Re-fetch when metrics change (trade happened)
 
   // SINGLE SOURCE OF TRUTH: Use portfolioMath utility for all calculations
+  // Prefer holdingsPrices (specific to user holdings), fallback to marketData for broader coverage
+  const effectivePrices = useMemo(() => {
+    // Merge: holdingsPrices takes priority, then marketData for any missing
+    const merged: MarketPrices = { ...marketData as MarketPrices };
+    for (const [key, val] of Object.entries(holdingsPrices)) {
+      if (val && val.price > 0) {
+        merged[key] = val;
+      }
+    }
+    return merged;
+  }, [holdingsPrices, marketData]);
+
   const portfolioValuation: PortfolioValuation = useMemo(() => {
     return computeFullPortfolioValuation(
       metrics,
       openTrades,
-      marketData as MarketPrices,
+      effectivePrices,
       txCount,
       testMode
     );
-  }, [metrics, openTrades, marketData, txCount, testMode]);
+  }, [metrics, openTrades, effectivePrices, txCount, testMode]);
 
   // Wallet asset display (positions breakdown) — price mapping must match portfolioMath
   const liveAggregates = useMemo(() => {
@@ -547,13 +561,29 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
 
-          {/* Partial Valuation Warning Badge */}
-          {portfolioValuation.hasMissingPrices && (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-amber-400 flex-shrink-0" />
-              <span className="text-sm text-amber-400">
-                Partial valuation (missing: {portfolioValuation.missingSymbols.join(', ')})
+          {/* Partial Valuation Warning Badge - improved messaging */}
+          {isLoadingPrices && openTrades.length > 0 && (
+            <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg flex items-center gap-2">
+              <Loader2 className="h-4 w-4 text-blue-400 animate-spin flex-shrink-0" />
+              <span className="text-sm text-blue-400">
+                Loading prices for your positions...
               </span>
+            </div>
+          )}
+          {!isLoadingPrices && portfolioValuation.hasMissingPrices && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+                <span className="text-sm text-amber-400">
+                  Partial valuation — some positions excluded from totals
+                </span>
+              </div>
+              <div className="text-xs text-amber-400/70 ml-6">
+                {failedSymbols.length > 0 
+                  ? failedSymbols.map(f => `${f.symbol}: ${f.reason}`).join(', ')
+                  : `Price unavailable: ${portfolioValuation.missingSymbols.join(', ')}`
+                }
+              </div>
             </div>
           )}
 
