@@ -74,9 +74,10 @@ export const POOL_EXIT_FIELDS = [
 ] as const;
 
 /**
- * Market quality gate fields
+ * Market quality gate fields (coordinator-required root-level fields)
  */
 export const MARKET_QUALITY_FIELDS = [
+  'aiConfidenceThreshold',
   'spreadThresholdBps',
   'priceStaleMaxMs',
   'minDepthRatio',
@@ -214,6 +215,13 @@ const PoolExitConfigSchema = z.object({
   maxBullOverrideDurationMs: z.number().optional(),
 }).passthrough();
 
+const MarketQualityConfigSchema = z.object({
+  aiConfidenceThreshold: z.number().optional(),
+  spreadThresholdBps: z.number().optional(),
+  priceStaleMaxMs: z.number().optional(),
+  minDepthRatio: z.number().optional(),
+}).passthrough();
+
 /**
  * Exported strategy schema with Zod validation
  */
@@ -232,6 +240,7 @@ export const ExportedStrategySchema = z.object({
     execution: ExecutionConfigSchema.optional(),
     unifiedDecisions: UnifiedDecisionsConfigSchema.optional(),
     poolExit: PoolExitConfigSchema.optional(),
+    marketQuality: MarketQualityConfigSchema.optional(),
     symbolOverrides: z.record(z.string(), z.any()).optional(),
   }),
 });
@@ -305,6 +314,14 @@ export function serializeStrategy(strategy: {
     }
   }
   
+  // Extract market quality config (coordinator-required root-level fields)
+  const marketQuality: Record<string, any> = {};
+  for (const key of MARKET_QUALITY_FIELDS) {
+    if (config[key] !== undefined) {
+      marketQuality[key] = config[key];
+    }
+  }
+  
   // Extract symbol overrides if present
   const symbolOverrides = config.symbolOverrides || undefined;
   
@@ -323,6 +340,7 @@ export function serializeStrategy(strategy: {
       execution: Object.keys(execution).length > 0 ? execution : undefined,
       unifiedDecisions: Object.keys(unifiedDecisions).length > 0 ? unifiedDecisions : undefined,
       poolExit: Object.keys(poolExit).length > 0 ? poolExit : undefined,
+      marketQuality: Object.keys(marketQuality).length > 0 ? marketQuality : undefined,
       symbolOverrides,
     },
   };
@@ -477,6 +495,9 @@ export function exportedStrategyToFormData(exported: ExportedStrategy): Record<s
     
     // Flatten signals
     ...(configuration.signals || {}),
+    
+    // Flatten market quality fields to root level (coordinator requires these)
+    ...(configuration.marketQuality || {}),
     
     // Execution settings as nested object (UI expects this)
     executionSettings: configuration.execution,
