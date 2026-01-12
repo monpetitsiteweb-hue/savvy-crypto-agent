@@ -8,32 +8,33 @@ export interface CoinInfo {
   tradingPair: string; // EUR trading pair
 }
 
+// Only coins with verified working EUR pairs on Coinbase Exchange API
+// Removed: NEAR, IMX, OP, VET, SUI, ARB, FLOW, HBAR (404 - no EUR pair)
+// Removed: EOS, MATIC (400 - delisted)
 export const COINBASE_COINS: CoinInfo[] = [
-  // Major Cryptocurrencies
+  // Major Cryptocurrencies (PRIORITY - fetch first)
   { symbol: 'BTC', name: 'Bitcoin', category: 'major', tradingPair: 'BTC-EUR' },
   { symbol: 'ETH', name: 'Ethereum', category: 'major', tradingPair: 'ETH-EUR' },
   
-  // Top Altcoins
+  // Top Altcoins (commonly traded)
   { symbol: 'XRP', name: 'XRP', category: 'altcoin', tradingPair: 'XRP-EUR' },
   { symbol: 'ADA', name: 'Cardano', category: 'altcoin', tradingPair: 'ADA-EUR' },
   { symbol: 'SOL', name: 'Solana', category: 'altcoin', tradingPair: 'SOL-EUR' },
-  { symbol: 'DOT', name: 'Polkadot', category: 'altcoin', tradingPair: 'DOT-EUR' },
   { symbol: 'AVAX', name: 'Avalanche', category: 'altcoin', tradingPair: 'AVAX-EUR' },
+  { symbol: 'DOT', name: 'Polkadot', category: 'altcoin', tradingPair: 'DOT-EUR' },
   { symbol: 'LINK', name: 'Chainlink', category: 'altcoin', tradingPair: 'LINK-EUR' },
-  { symbol: 'UNI', name: 'Uniswap', category: 'defi', tradingPair: 'UNI-EUR' },
   
   // DeFi Tokens
+  { symbol: 'UNI', name: 'Uniswap', category: 'defi', tradingPair: 'UNI-EUR' },
   { symbol: 'AAVE', name: 'Aave', category: 'defi', tradingPair: 'AAVE-EUR' },
   { symbol: 'CRV', name: 'Curve DAO', category: 'defi', tradingPair: 'CRV-EUR' },
-  { symbol: 'COMP', name: 'Compound', category: 'defi', tradingPair: 'COMP-EUR' },
-  { symbol: 'SUSHI', name: 'SushiSwap', category: 'defi', tradingPair: 'SUSHI-EUR' },
+  { symbol: 'GRT', name: 'The Graph', category: 'defi', tradingPair: 'GRT-EUR' },
   
   // Stablecoins
   { symbol: 'USDC', name: 'USD Coin', category: 'stablecoin', tradingPair: 'USDC-EUR' },
   { symbol: 'USDT', name: 'Tether', category: 'stablecoin', tradingPair: 'USDT-EUR' },
-  { symbol: 'DAI', name: 'Dai', category: 'stablecoin', tradingPair: 'DAI-EUR' },
   
-  // Other Popular Coins
+  // Other Verified Coins
   { symbol: 'LTC', name: 'Litecoin', category: 'altcoin', tradingPair: 'LTC-EUR' },
   { symbol: 'BCH', name: 'Bitcoin Cash', category: 'altcoin', tradingPair: 'BCH-EUR' },
   { symbol: 'XLM', name: 'Stellar', category: 'altcoin', tradingPair: 'XLM-EUR' },
@@ -41,22 +42,8 @@ export const COINBASE_COINS: CoinInfo[] = [
   { symbol: 'ATOM', name: 'Cosmos', category: 'altcoin', tradingPair: 'ATOM-EUR' },
   { symbol: 'ICP', name: 'Internet Computer', category: 'altcoin', tradingPair: 'ICP-EUR' },
   { symbol: 'FIL', name: 'Filecoin', category: 'altcoin', tradingPair: 'FIL-EUR' },
-  
-  // Extended Altcoins (Coinbase + EODHD supported)
-  { symbol: 'APT', name: 'Aptos', category: 'altcoin', tradingPair: 'APT-EUR' },
-  { symbol: 'ARB', name: 'Arbitrum', category: 'altcoin', tradingPair: 'ARB-EUR' },
   { symbol: 'DOGE', name: 'Dogecoin', category: 'altcoin', tradingPair: 'DOGE-EUR' },
-  { symbol: 'EOS', name: 'EOS', category: 'altcoin', tradingPair: 'EOS-EUR' },
-  { symbol: 'FLOW', name: 'Flow', category: 'altcoin', tradingPair: 'FLOW-EUR' },
-  { symbol: 'GRT', name: 'The Graph', category: 'defi', tradingPair: 'GRT-EUR' },
-  { symbol: 'HBAR', name: 'Hedera', category: 'altcoin', tradingPair: 'HBAR-EUR' },
-  { symbol: 'IMX', name: 'Immutable X', category: 'altcoin', tradingPair: 'IMX-EUR' },
-  { symbol: 'MATIC', name: 'Polygon', category: 'altcoin', tradingPair: 'MATIC-EUR' },
-  { symbol: 'NEAR', name: 'NEAR Protocol', category: 'altcoin', tradingPair: 'NEAR-EUR' },
-  { symbol: 'OP', name: 'Optimism', category: 'altcoin', tradingPair: 'OP-EUR' },
   { symbol: 'SHIB', name: 'Shiba Inu', category: 'altcoin', tradingPair: 'SHIB-EUR' },
-  { symbol: 'SUI', name: 'Sui', category: 'altcoin', tradingPair: 'SUI-EUR' },
-  { symbol: 'VET', name: 'VeChain', category: 'altcoin', tradingPair: 'VET-EUR' },
   { symbol: 'XTZ', name: 'Tezos', category: 'altcoin', tradingPair: 'XTZ-EUR' },
 ];
 
