@@ -77,7 +77,7 @@ export const UnifiedPortfolioDisplay = () => {
   
   // Holdings-driven pricing: fetch ONLY for positions held
   const { marketData } = useMarketData();
-  const { holdingsPrices, isLoadingPrices, failedSymbols } = useHoldingsPrices(openTrades);
+  const { holdingsPrices, isLoadingPrices, failedSymbols, debugInfo } = useHoldingsPrices(openTrades);
   
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [fetchingPortfolio, setFetchingPortfolio] = useState(false);
@@ -570,7 +570,7 @@ export const UnifiedPortfolioDisplay = () => {
               </span>
             </div>
           )}
-          {!isLoadingPrices && portfolioValuation.hasMissingPrices && (
+          {!isLoadingPrices && (portfolioValuation.hasMissingPrices || failedSymbols.length > 0) && (
             <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex flex-col gap-1">
               <div className="flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-amber-400 flex-shrink-0" />
@@ -580,10 +580,16 @@ export const UnifiedPortfolioDisplay = () => {
               </div>
               <div className="text-xs text-amber-400/70 ml-6">
                 {failedSymbols.length > 0 
-                  ? failedSymbols.map(f => `${f.symbol}: ${f.reason}`).join(', ')
+                  ? failedSymbols.map(f => `${f.symbol}: ${f.reason.replace('_', ' ')}`).join(', ')
                   : `Price unavailable: ${portfolioValuation.missingSymbols.join(', ')}`
                 }
               </div>
+              {/* DEBUG: Temporary - remove after validation */}
+              {(failedSymbols.some(f => ['BTC', 'ETH', 'SOL'].includes(f.symbol))) && (
+                <div className="text-xs text-red-400 mt-1 font-mono">
+                  DEBUG: pairs={JSON.stringify(debugInfo.holdingsPairs)}, fetched={debugInfo.fetchedCount}
+                </div>
+              )}
             </div>
           )}
 
