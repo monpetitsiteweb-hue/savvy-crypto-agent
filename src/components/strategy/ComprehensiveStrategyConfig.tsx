@@ -509,6 +509,13 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         dPeriod: 3,
       },
     },
+    // Unified Decisions configuration (default values for coordinator)
+    unifiedConfig: {
+      enableUnifiedDecisions: true,
+      minHoldPeriodMs: 120000,  // 2 minutes
+      cooldownBetweenOppositeActionsMs: 30000, // 30 seconds
+      confidenceOverrideThreshold: 0.5,
+    },
     executionSettings: {
       execution_mode: 'COINBASE',
       chain_id: 8453,
