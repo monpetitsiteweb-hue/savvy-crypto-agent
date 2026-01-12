@@ -1,18 +1,25 @@
 /**
  * useHoldingsPrices - Fetch prices ONLY for currently held positions
  * 
- * FIXED: Uses returned data from fetch, not state after await (avoids race condition)
- * FIXED: TTL cache to prevent refetch spam
- * FIXED: Proper error categorization (429/404/other)
+ * V2: Uses price-proxy Edge Function instead of direct Coinbase calls
+ * This avoids ERR_CONNECTION_RESET issues in the browser.
+ * 
+ * FEATURES:
+ * - Fetches via Supabase Edge Function (server-side Coinbase calls)
+ * - TTL cache to prevent refetch spam
+ * - Proper error categorization (429/404/network_error/timeout)
  */
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import type { OpenTrade } from '@/hooks/useOpenTrades';
 import type { MarketPrices } from '@/utils/portfolioMath';
+import { fetchPricesForHoldings as fetchPricesViaProxy, toMarketPrices } from '@/api/priceProxy';
+import type { FailedSymbol as ProxyFailedSymbol } from '@/api/priceProxy';
 
 export interface FailedSymbol {
   symbol: string;
-  reason: 'rate_limited' | 'pair_not_found' | 'network_error' | 'unexpected';
+  pair?: string;
+  reason: 'rate_limited' | 'pair_not_found' | 'network_error' | 'connection_reset' | 'timeout' | 'unexpected';
 }
 
 interface UseHoldingsPricesResult {
@@ -37,12 +44,21 @@ interface PriceCacheEntry {
 }
 
 const CACHE_TTL_MS = 15000; // 15 seconds TTL
-const MAX_RETRIES = 3;
-const INITIAL_RETRY_DELAY_MS = 500;
 
 // Singleton cache by holdingsKey (shared across all components)
 const globalPriceCache = new Map<string, PriceCacheEntry>();
 const globalFetchInProgress = new Map<string, boolean>();
+
+/**
+ * Convert proxy FailedSymbol to local FailedSymbol format
+ */
+function mapFailedSymbol(f: ProxyFailedSymbol): FailedSymbol {
+  return {
+    symbol: f.symbol,
+    pair: f.pair,
+    reason: f.reason,
+  };
+}
 
 export function useHoldingsPrices(openTrades: OpenTrade[]): UseHoldingsPricesResult {
   const [isLoadingPrices, setIsLoadingPrices] = useState(true);
@@ -62,78 +78,6 @@ export function useHoldingsPrices(openTrades: OpenTrade[]): UseHoldingsPricesRes
 
   // Create a stable key for holdings to detect changes
   const holdingsKey = useMemo(() => holdingsSymbols.sort().join(','), [holdingsSymbols]);
-
-  // Fetch prices with proper error handling and retry logic
-  const fetchPricesForHoldings = useCallback(async (symbols: string[]): Promise<{ prices: MarketPrices; failed: FailedSymbol[] }> => {
-    if (symbols.length === 0) {
-      return { prices: {}, failed: [] };
-    }
-
-    const pairs = symbols.map(s => toPairSymbol(s));
-    const prices: MarketPrices = {};
-    const failed: FailedSymbol[] = [];
-
-    // DEV LOG (only in development)
-    if (import.meta.env.DEV) {
-      console.log('[useHoldingsPrices] fetching pairs:', pairs);
-    }
-
-    // Fetch each pair individually to get proper error categorization
-    for (const pair of pairs) {
-      const base = toBaseSymbol(pair.replace('-EUR', ''));
-      let success = false;
-      let retryCount = 0;
-      let lastError: FailedSymbol['reason'] = 'unexpected';
-
-      while (!success && retryCount < MAX_RETRIES) {
-        try {
-          const response = await fetch(`https://api.exchange.coinbase.com/products/${pair}/ticker`);
-          
-          if (response.ok) {
-            const data = await response.json();
-            const price = parseFloat(data.price || '0');
-            if (price > 0) {
-              prices[pair] = { price };
-              success = true;
-            } else {
-              lastError = 'unexpected';
-            }
-          } else if (response.status === 429) {
-            lastError = 'rate_limited';
-            // Exponential backoff
-            const delay = INITIAL_RETRY_DELAY_MS * Math.pow(2, retryCount);
-            console.log(`[useHoldingsPrices] 429 for ${pair}, retry ${retryCount + 1} after ${delay}ms`);
-            await new Promise(r => setTimeout(r, delay));
-            retryCount++;
-          } else if (response.status === 404) {
-            lastError = 'pair_not_found';
-            break; // No point retrying 404
-          } else {
-            lastError = 'unexpected';
-            break;
-          }
-        } catch (err) {
-          lastError = 'network_error';
-          retryCount++;
-          if (retryCount < MAX_RETRIES) {
-            await new Promise(r => setTimeout(r, INITIAL_RETRY_DELAY_MS * retryCount));
-          }
-        }
-      }
-
-      if (!success) {
-        failed.push({ symbol: base, reason: lastError });
-      }
-    }
-
-    // DEV LOG (only in development)
-    if (import.meta.env.DEV) {
-      console.log('[useHoldingsPrices] fetchedKeys:', Object.keys(prices).length);
-      console.log('[useHoldingsPrices] failedSymbols:', failed);
-    }
-
-    return { prices, failed };
-  }, []);
 
   // Main refresh function - uses global singleton cache for consistency
   const refreshPrices = useCallback(async () => {
@@ -172,7 +116,21 @@ export function useHoldingsPrices(openTrades: OpenTrade[]): UseHoldingsPricesRes
     setIsLoadingPrices(true);
 
     try {
-      const { prices, failed } = await fetchPricesForHoldings(holdingsSymbols);
+      // V2: Use Edge Function instead of direct Coinbase calls
+      if (import.meta.env.DEV) {
+        console.log('[useHoldingsPrices] fetching via price-proxy:', holdingsSymbols);
+      }
+
+      const { prices: proxyPrices, failed: proxyFailed } = await fetchPricesViaProxy(holdingsSymbols, 'EUR');
+      
+      // Convert to MarketPrices format
+      const prices = toMarketPrices(proxyPrices);
+      const failed = proxyFailed.map(mapFailedSymbol);
+      
+      if (import.meta.env.DEV) {
+        console.log('[useHoldingsPrices] fetchedKeys:', Object.keys(prices).length);
+        console.log('[useHoldingsPrices] failedSymbols:', failed);
+      }
       
       // Update GLOBAL cache (shared across all components)
       globalPriceCache.set(holdingsKey, { prices, failed, timestamp: now });
@@ -192,7 +150,7 @@ export function useHoldingsPrices(openTrades: OpenTrade[]): UseHoldingsPricesRes
       setIsLoadingPrices(false);
       globalFetchInProgress.delete(holdingsKey);
     }
-  }, [holdingsSymbols, holdingsKey, fetchPricesForHoldings]);
+  }, [holdingsSymbols, holdingsKey]);
 
   // Trigger fetch when holdings change (with cache check)
   useEffect(() => {

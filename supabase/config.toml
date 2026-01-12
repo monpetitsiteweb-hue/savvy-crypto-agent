@@ -162,3 +162,7 @@ verify_jwt = false
 
 [functions.execution-wallet-funding-confirm]
 verify_jwt = false
+
+# Price proxy (public, no JWT required for valuation)
+[functions.price-proxy]
+verify_jwt = false
