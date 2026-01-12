@@ -14,6 +14,7 @@ import { useMockWallet } from '@/hooks/useMockWallet';
 import { usePortfolioMetrics } from '@/hooks/usePortfolioMetrics';
 import { useOpenTrades, OpenTrade } from '@/hooks/useOpenTrades';
 import { useMarketData } from '@/contexts/MarketDataContext';
+import { useHoldingsPrices } from '@/hooks/useHoldingsPrices';
 import { OpenTradeCard } from '@/components/trading/OpenTradeCard';
 import { NoActiveStrategyState } from './NoActiveStrategyState';
 import { PortfolioNotInitialized } from './PortfolioNotInitialized';
@@ -92,8 +93,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   } = usePortfolioMetrics();
   // TRADE-BASED: Use open trades instead of lots
   const { openTrades, isLoading: tradesLoading, refresh: refreshOpenTrades } = useOpenTrades();
-  // Live prices for aggregate unrealized P&L calculation
+  // Holdings-driven pricing: fetch ONLY for positions held
   const { marketData } = useMarketData();
+  const { holdingsPrices, isLoadingPrices, failedSymbols } = useHoldingsPrices(openTrades);
   const { toast } = useToast();
   
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -127,15 +129,26 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
   }, [user, testMode, metrics]); // Re-fetch when metrics change (trade happened)
 
   // SINGLE SOURCE OF TRUTH: Use portfolioMath for consistent calculations
+  // Prefer holdingsPrices (specific to user holdings), fallback to marketData
+  const effectivePrices = useMemo(() => {
+    const merged: MarketPrices = { ...marketData as MarketPrices };
+    for (const [key, val] of Object.entries(holdingsPrices)) {
+      if (val && val.price > 0) {
+        merged[key] = val;
+      }
+    }
+    return merged;
+  }, [holdingsPrices, marketData]);
+
   const portfolioValuation: PortfolioValuation = useMemo(() => {
     return computeFullPortfolioValuation(
       metrics,
       openTrades,
-      marketData as MarketPrices,
+      effectivePrices,
       txCount,
       testMode
     );
-  }, [metrics, openTrades, marketData, txCount, testMode]);
+  }, [metrics, openTrades, effectivePrices, txCount, testMode]);
 
   // SINGLE SOURCE OF TRUTH: Past positions use DB snapshot fields only (no frontend calculation)
   const calculateTradePerformance = (trade: Trade): TradePerformance => {
@@ -655,13 +668,24 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           Portfolio Summary
         </h3>
         
-        {/* Partial Valuation Warning Badge */}
-        {portfolioValuation.hasMissingPrices && (
-          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
-            <span className="text-sm text-amber-400">
-              Partial valuation (missing: {portfolioValuation.missingSymbols.join(', ')})
-            </span>
+        {/* Partial Valuation Warning Badge - improved messaging */}
+        {isLoadingPrices && openTrades.length > 0 && (
+          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-blue-400 animate-spin flex-shrink-0" />
+            <span className="text-sm text-blue-400">Loading prices...</span>
+          </div>
+        )}
+        {!isLoadingPrices && portfolioValuation.hasMissingPrices && (
+          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+              <span className="text-sm text-amber-400">Partial valuation — some positions excluded</span>
+            </div>
+            <div className="text-xs text-amber-400/70 ml-6">
+              {failedSymbols.length > 0 
+                ? failedSymbols.map(f => `${f.symbol}: ${f.reason}`).join(', ')
+                : `Price unavailable: ${portfolioValuation.missingSymbols.join(', ')}`}
+            </div>
           </div>
         )}
         
