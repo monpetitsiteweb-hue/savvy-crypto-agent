@@ -617,8 +617,13 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       setFormData(prev => ({ 
         ...prev, 
         ...config,
-        // Market Quality Gates - use config values or safe defaults
-        spreadThresholdBps: config.spreadThresholdBps ?? prev.spreadThresholdBps ?? 25,
+        // CANONICAL CONFIG FIELDS - use config values or safe defaults
+        // These 7 fields are REQUIRED by trading-decision-coordinator
+        aiConfidenceThreshold: config.aiConfidenceThreshold ?? config.aiIntelligenceConfig?.aiConfidenceThreshold ?? prev.aiIntelligenceConfig?.aiConfidenceThreshold ?? 50,
+        priceStaleMaxMs: config.priceStaleMaxMs ?? prev.priceStaleMaxMs ?? 15000,
+        spreadThresholdBps: config.spreadThresholdBps ?? prev.spreadThresholdBps ?? 30,
+        minHoldPeriodMs: config.minHoldPeriodMs ?? config.unifiedConfig?.minHoldPeriodMs ?? 120000,
+        cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs ?? config.unifiedConfig?.cooldownBetweenOppositeActionsMs ?? 30000,
         minDepthRatio: config.minDepthRatio ?? prev.minDepthRatio ?? 0.2,
         // Properly merge the nested aiIntelligenceConfig with existing enableAIOverride
         aiIntelligenceConfig: {
