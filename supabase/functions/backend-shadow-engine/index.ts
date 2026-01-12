@@ -385,14 +385,14 @@ serve(async (req) => {
       });
     }
 
-    // PHASE B: Calculate effective shadow mode with allowlist check
-    const isUserAllowedForLive = !isModeConfiguredShadow && isUserAllowlisted(userId);
-    const effectiveShadowMode = isModeConfiguredShadow || !isUserAllowedForLive;
+    // PHASE B: Calculate effective shadow mode
+    // FIXED: Remove per-user allowlist gate. All users run in LIVE mode when env is LIVE.
+    // Shadow mode only applies when BACKEND_ENGINE_MODE='SHADOW' (globally forced).
+    // This ensures SELLs execute for all users, preventing the BUY-executes-SELL-shadows asymmetry.
+    const isUserAllowedForLive = !isModeConfiguredShadow; // All users allowed when mode is LIVE
+    const effectiveShadowMode = isModeConfiguredShadow; // Only shadow if globally configured
     
     // Log the mode computation for observability
-    if (BACKEND_ENGINE_MODE === 'LIVE' && !isUserAllowedForLive) {
-      console.log(`🌑 BACKEND_ENGINE_MODE=LIVE but user ${userId.substring(0, 8)}... is not in BACKEND_ENGINE_USER_ALLOWLIST – forcing SHADOW behavior`);
-    }
     console.log(`   → engineMode=${BACKEND_ENGINE_MODE}, effectiveShadowMode=${effectiveShadowMode}, userAllowedForLive=${isUserAllowedForLive}`);
 
     console.log(`🌑 ${BACKEND_ENGINE_MODE}: Evaluating for user ${userId}, strategyId=${strategyId || 'all'}`);

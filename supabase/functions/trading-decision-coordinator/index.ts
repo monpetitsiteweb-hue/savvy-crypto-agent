@@ -2988,35 +2988,32 @@ async function executeTradeDirectly(
       console.log('[DEBUG][executeTradeDirectly] availableEur:', availableEur);
       console.log('[DEBUG][executeTradeDirectly] tradeAllocation:', tradeAllocation);
       
-    // MOCK MODE: Bypass balance check for MOCK execution_target (paper trading)
-    // execution_target is the canonical source of truth for execution mode
+    // CAPITAL ENFORCEMENT: Always check balance, regardless of execution_target
+    // FIXED: Previously MOCK mode bypassed this check, causing "infinite capital" bug
+    // where users could buy with money they don't have. Now all modes enforce capital.
     const isMockMode = sc?.execution_target === 'MOCK' || sc?.execution_target === undefined; // Default to MOCK if not set
     
     console.log('[DEBUG][executeTradeDirectly] isMockMode:', isMockMode);
     console.log('[DEBUG][executeTradeDirectly] sc?.execution_target:', sc?.execution_target);
+    console.log('[DEBUG][executeTradeDirectly] availableEur:', availableEur, 'tradeAllocation:', tradeAllocation);
     
-    if (isMockMode) {
-      console.log('[DEBUG][executeTradeDirectly] MOCK MODE - bypassing balance check');
-      console.log(`🧪 MOCK MODE: Bypassing balance check - using virtual paper trading`);
-      qty = intent.qtySuggested || (tradeAllocation / realMarketPrice);
-      console.log('[DEBUG][executeTradeDirectly] qty set to:', qty);
-    } else {
-        // Check if we have sufficient balance
-        if (availableEur < tradeAllocation) {
-          const adjustedAllocation = Math.max(0, availableEur);
-          if (adjustedAllocation < 10) { // Minimum €10 trade
-            console.log(`🚫 DIRECT: Insufficient balance - €${availableEur.toFixed(2)} available, €${tradeAllocation} requested`);
-            return { 
-              success: false, 
-              error: `Insufficient EUR balance: €${availableEur.toFixed(2)} available, €${tradeAllocation} requested` 
-            };
-          }
-          console.log(`⚠️ DIRECT: Adjusting trade from €${tradeAllocation} to €${adjustedAllocation.toFixed(2)} (available balance)`);
-          qty = adjustedAllocation / realMarketPrice;
-        } else {
-          qty = tradeAllocation / realMarketPrice;
-        }
+    // Check if we have sufficient balance (applies to ALL modes including MOCK)
+    if (availableEur < tradeAllocation) {
+      const adjustedAllocation = Math.max(0, availableEur);
+      if (adjustedAllocation < 10) { // Minimum €10 trade
+        console.log(`🚫 DIRECT: Insufficient balance - €${availableEur.toFixed(2)} available, €${tradeAllocation} requested (isMockMode=${isMockMode})`);
+        return { 
+          success: false, 
+          error: 'blocked_by_insufficient_cash',
+          reason: 'blocked_by_insufficient_cash',
+          details: `Insufficient EUR balance: €${availableEur.toFixed(2)} available, €${tradeAllocation} requested`
+        };
       }
+      console.log(`⚠️ DIRECT: Adjusting trade from €${tradeAllocation} to €${adjustedAllocation.toFixed(2)} (available balance)`);
+      qty = adjustedAllocation / realMarketPrice;
+    } else {
+      qty = tradeAllocation / realMarketPrice;
+    }
     } else {
       // =============================================================================
       // STEP 3: PER-LOT SELL EXECUTION (UD=OFF path now uses same logic as UD=ON)
