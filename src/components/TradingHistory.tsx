@@ -828,13 +828,22 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
           ) : openTrades.length > 0 ? (
             <>
               <div className="space-y-4">
-                {paginatedOpenTrades.map(trade => (
-                  <OpenTradeCard
-                    key={trade.id}
-                    trade={trade}
-                    onRequestSell={(t) => setSellConfirmation({ open: true, trade: t })}
-                  />
-                ))}
+                {paginatedOpenTrades.map(trade => {
+                  // Resolve live price from effectivePrices (holdingsPrices + marketData)
+                  const base = toBaseSymbol(trade.cryptocurrency);
+                  const pair = toPairSymbol(base);
+                  const priceData = effectivePrices[pair] || effectivePrices[base];
+                  const livePrice = priceData?.price ?? null;
+                  
+                  return (
+                    <OpenTradeCard
+                      key={trade.id}
+                      trade={trade}
+                      livePrice={livePrice}
+                      onRequestSell={(t) => setSellConfirmation({ open: true, trade: t })}
+                    />
+                  );
+                })}
               </div>
               
               {/* Pagination for Open Trades */}
