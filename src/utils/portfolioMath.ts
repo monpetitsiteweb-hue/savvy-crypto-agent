@@ -5,11 +5,14 @@
  * Total P&L = Total Portfolio Value - Starting Capital
  * 
  * This must be used by ALL UI components displaying portfolio totals.
+ * 
+ * NOTE: This module delegates P&L computation to pnlEngine.ts (canonical formula).
  */
 
 import type { OpenTrade } from '@/hooks/useOpenTrades';
 import type { PortfolioMetrics } from '@/hooks/usePortfolioMetrics';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
+import { computeUnrealizedPnl, computeCostBasis, type PnlResult } from '@/utils/pnlEngine';
 
 // Fixed gas per transaction for mock mode (on-chain Base/EVM reality)
 export const MOCK_GAS_PER_TX_EUR = 0.10;
@@ -139,21 +142,21 @@ export function computeOpenTradesValueEur(
     return { price: null, matchedKey: null };
   };
 
-  // Compute values with live prices
+  // Compute values with live prices using CANONICAL pnlEngine
   for (const [symbol, data] of symbolMap) {
     const { price: livePrice, matchedKey } = resolveLivePrice(symbol);
 
     costBasis += data.cost;
 
-    let liveValue: number | null = null;
-    let unrealizedPnl: number | null = null;
-    let unrealizedPnlPct: number | null = null;
+    // Use canonical P&L computation from pnlEngine
+    const pnlResult: PnlResult = computeUnrealizedPnl({
+      amount: data.amount,
+      costBasis: data.cost,
+      currentPrice: livePrice,
+    });
 
-    if (livePrice !== null) {
-      liveValue = data.amount * livePrice;
-      unrealizedPnl = liveValue - data.cost;
-      unrealizedPnlPct = data.cost > 0 ? (unrealizedPnl / data.cost) * 100 : 0;
-      totalValue += liveValue;
+    if (pnlResult.hasPriceData && pnlResult.currentValue !== null) {
+      totalValue += pnlResult.currentValue;
       pricedCostBasis += data.cost;
     } else {
       // IMPORTANT: Never treat missing price as 0 or fallback to cost basis for TV.
@@ -168,10 +171,9 @@ export function computeOpenTradesValueEur(
       amount: data.amount,
       costBasis: data.cost,
       livePrice,
-      liveValue,
-      unrealizedPnl,
-      unrealizedPnlPct,
-      // NOTE: matchedKey is logged by UI debug block; keep model stable here.
+      liveValue: pnlResult.currentValue,
+      unrealizedPnl: pnlResult.pnlEur,
+      unrealizedPnlPct: pnlResult.pnlPct,
     });
 
     // (matchedKey is intentionally not returned to keep API stable)

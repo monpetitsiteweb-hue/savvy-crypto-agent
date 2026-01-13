@@ -163,6 +163,10 @@ verify_jwt = false
 [functions.execution-wallet-funding-confirm]
 verify_jwt = false
 
-# Price proxy (public, no JWT required for valuation)
+# Price proxy (public, reads from canonical price_snapshots)
 [functions.price-proxy]
+verify_jwt = false
+
+# Canonical price writer (runs every 5 min via cron)
+[functions.price-snapshot-refresh]
 verify_jwt = false

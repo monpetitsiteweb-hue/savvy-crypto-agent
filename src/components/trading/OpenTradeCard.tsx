@@ -1,6 +1,8 @@
 // TRADE-BASED MODEL: Each open BUY trade is one position
 // Per-trade LIVE P&L displayed (indicative only, not affecting accounting)
 // Final realized P&L is computed on SELL and stored in DB
+//
+// NOTE: P&L computation uses CANONICAL pnlEngine (no inline formulas)
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,24 +11,27 @@ import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { toBaseSymbol } from '@/utils/symbols';
 import { OpenTrade } from '@/hooks/useOpenTrades';
 import { TrendingUp, TrendingDown, Minus, Info } from 'lucide-react';
+import { computeUnrealizedPnl, computeCostBasis } from '@/utils/pnlEngine';
 
 interface OpenTradeCardProps {
   trade: OpenTrade;
   onRequestSell?: (trade: OpenTrade) => void;
-  /** Live price passed from parent (avoids stale marketData context issue) */
+  /** Live price passed from parent (from canonical price source) */
   livePrice?: number | null;
 }
 
 export function OpenTradeCard({ trade, onRequestSell, livePrice }: OpenTradeCardProps) {
-  // Cost basis (what we paid) — includes fees for accurate P&L
-  const costBasis = trade.total_value + (trade.fees || 0);
+  // Compute cost basis using CANONICAL formula
+  const costBasis = computeCostBasis(trade.amount, trade.price, trade.fees || 0);
   
-  // Current value and P&L (live calculation for display only)
-  const currentValue = livePrice ? trade.amount * livePrice : null;
-  const unrealizedPnl = currentValue !== null ? currentValue - costBasis : null;
-  const unrealizedPnlPct = unrealizedPnl !== null && costBasis > 0 
-    ? (unrealizedPnl / costBasis) * 100 
-    : null;
+  // Compute P&L using CANONICAL pnlEngine (single source of truth)
+  const pnlResult = computeUnrealizedPnl({
+    amount: trade.amount,
+    costBasis,
+    currentPrice: livePrice ?? null,
+  });
+  
+  const { currentValue, pnlEur: unrealizedPnl, pnlPct: unrealizedPnlPct } = pnlResult;
   
   const isProfit = unrealizedPnl !== null && unrealizedPnl > 0;
   const isLoss = unrealizedPnl !== null && unrealizedPnl < 0;
