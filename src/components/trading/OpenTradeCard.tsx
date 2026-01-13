@@ -6,24 +6,18 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
-import { useMarketData } from '@/contexts/MarketDataContext';
-import { toPairSymbol, toBaseSymbol } from '@/utils/symbols';
+import { toBaseSymbol } from '@/utils/symbols';
 import { OpenTrade } from '@/hooks/useOpenTrades';
 import { TrendingUp, TrendingDown, Minus, Info } from 'lucide-react';
 
 interface OpenTradeCardProps {
   trade: OpenTrade;
   onRequestSell?: (trade: OpenTrade) => void;
+  /** Live price passed from parent (avoids stale marketData context issue) */
+  livePrice?: number | null;
 }
 
-export function OpenTradeCard({ trade, onRequestSell }: OpenTradeCardProps) {
-  const { marketData } = useMarketData();
-  
-  // Get live price from shared market data
-  const pairSymbol = toPairSymbol(toBaseSymbol(trade.cryptocurrency));
-  const liveData = marketData[pairSymbol];
-  const livePrice = liveData?.price || null;
-  
+export function OpenTradeCard({ trade, onRequestSell, livePrice }: OpenTradeCardProps) {
   // Cost basis (what we paid) — includes fees for accurate P&L
   const costBasis = trade.total_value + (trade.fees || 0);
   
@@ -75,7 +69,7 @@ export function OpenTradeCard({ trade, onRequestSell }: OpenTradeCardProps) {
         <div>
           <p className="text-muted-foreground">Current Price</p>
           <p className="font-medium">
-            {livePrice !== null ? formatEuro(livePrice) : '—'}
+            {livePrice !== null && livePrice !== undefined ? formatEuro(livePrice) : '—'}
           </p>
         </div>
         
@@ -131,11 +125,6 @@ export function OpenTradeCard({ trade, onRequestSell }: OpenTradeCardProps) {
             )}
           </div>
         </div>
-        {liveData && (
-          <p className="text-xs text-muted-foreground mt-1">
-            Live price • Updated {new Date(liveData.timestamp).toLocaleTimeString()}
-          </p>
-        )}
       </div>
       
       {/* Footer with timestamp and sell button */}
