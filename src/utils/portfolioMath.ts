@@ -257,21 +257,19 @@ export function computeFullPortfolioValuation(
   // 3. Compute gas (mock mode uses fixed per-tx estimate)
   const gasSpentEur = isTestMode ? computeMockGasSpentEurByTx(txCount) : 0;
   
-  // 4. Compute unrealized P&L first (needed for total portfolio value)
-  const unrealizedPnlEur = openCalc.totalValue - openCalc.pricedCostBasis;
+  // 4. Compute total portfolio value (canonical formula)
+  // Cash includes realized profits; openPositionsValueEur is full market value of holdings
+  const totalPortfolioValueEur = cashEur + openPositionsValueEur - gasSpentEur;
   
-  // 5. Compute total portfolio value
-  // Formula: Cash + Unrealized P&L − Gas (NOT cash + open positions value)
-  const totalPortfolioValueEur = cashEur + unrealizedPnlEur - gasSpentEur;
+  // 5. Compute unrealized P&L (delta only, not principal)
+  const unrealizedPnlEur = openCalc.totalValue - openCalc.pricedCostBasis;
   
   // 6. Compute total P&L
   const startingCapitalEur = metrics.starting_capital_eur || 0;
   const { pnlEur: totalPnlEur, pnlPct: totalPnlPct } = computeTotalPnl(totalPortfolioValueEur, startingCapitalEur);
   
-  // Realized P&L (net) = raw SELL profits - gas spent
-  // This ensures: Total P&L = Realized P&L + Unrealized P&L
-  const rawRealizedPnlEur = metrics.realized_pnl_eur || 0;
-  const realizedPnlEur = rawRealizedPnlEur - gasSpentEur;
+  // Realized P&L from DB (raw SELL profits)
+  const realizedPnlEur = metrics.realized_pnl_eur || 0;
   
   return {
     cashEur,
