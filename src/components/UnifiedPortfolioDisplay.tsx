@@ -684,7 +684,7 @@ export const UnifiedPortfolioDisplay = () => {
               {/* ═══════════════════════════════════════════════════════════════════════
                   RIGHT COLUMN — WHERE YOUR MONEY IS NOW (Vertical Bar)
               ═══════════════════════════════════════════════════════════════════════ */}
-              <div className="p-4 bg-slate-800/40 rounded-lg border border-slate-600/30">
+              <div className="p-4 bg-slate-800/40 rounded-lg border border-slate-600/30 flex flex-col">
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Where Your Money Is Now</div>
                 
                 {(() => {
@@ -697,9 +697,9 @@ export const UnifiedPortfolioDisplay = () => {
                   const investedPct = total > 0 ? (invested / total) * 100 : 0;
                   
                   return (
-                    <div className="flex gap-4">
-                      {/* Vertical Stacked Bar */}
-                      <div className="w-10 h-32 rounded-md overflow-hidden flex flex-col bg-slate-900/50 border border-slate-600/30">
+                    <div className="flex gap-4 flex-1">
+                      {/* Vertical Stacked Bar - fills available height */}
+                      <div className="w-12 min-h-[140px] flex-1 rounded-md overflow-hidden flex flex-col bg-slate-900/50 border border-slate-600/30">
                         {/* Cash segment (green) - top */}
                         {cashPct > 0 && (
                           <TooltipProvider>
