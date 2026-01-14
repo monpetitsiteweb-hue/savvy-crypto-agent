@@ -462,7 +462,7 @@ export const UnifiedPortfolioDisplay = () => {
             <div className="text-right">
               <div className="text-xs text-slate-400">
                 {amount.toLocaleString(undefined, {
-                  maximumFractionDigits: currency === 'XRP' ? 0 : 6
+                  maximumFractionDigits: currency === 'XRP' ? 0 : 6,
                 })} {currency}
               </div>
             </div>
@@ -523,7 +523,7 @@ export const UnifiedPortfolioDisplay = () => {
       </CardHeader>
       
       <CardContent>
-        <div className="space-y-4">
+        <div className="space-y-6">
           {(metricsLoading || fetchingPortfolio) && (
             <div className="flex justify-center items-center p-4">
               <Loader2 className="h-6 w-6 animate-spin text-blue-400" />
@@ -567,231 +567,288 @@ export const UnifiedPortfolioDisplay = () => {
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════════
-              TOTAL PORTFOLIO VALUE HERO CARD
+              SECTION 1: YOUR CAPITAL
+              "This is the money you committed to trading."
           ═══════════════════════════════════════════════════════════════════════ */}
-          {(() => {
-            const pnlDisplay = formatPnlWithSign(portfolioValuation.totalPnlEur);
-            
-            return (
+          {testMode && isInitialized && (
+            <div className="space-y-3">
+              <div>
+                <div className="text-sm font-semibold text-white uppercase tracking-wider">Your Capital</div>
+                <div className="text-xs text-slate-400">This is the money you committed to trading.</div>
+              </div>
+              
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div className="flex justify-between items-center p-4 bg-slate-700/50 rounded-lg border border-slate-600/50 cursor-help">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-white">Total Live Portfolio Value</span>
-                        </div>
-                        {testMode && isInitialized && (
-                          <div className="text-xs text-slate-400 mt-1">
-                            Started with {formatEuro(portfolioValuation.startingCapitalEur)}
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <span className={`text-2xl font-bold ${pnlDisplay.colorClass}`}>
-                          {formatEuro(portfolioValuation.totalPortfolioValueEur)}
-                        </span>
-                        {testMode && isInitialized && portfolioValuation.startingCapitalEur > 0 && (
-                          <div className={`text-sm ${pnlDisplay.colorClass}`}>
-                            {pnlDisplay.sign}{pnlDisplay.value} ({formatPercentage(portfolioValuation.totalPnlPct)}) — {pnlDisplay.label}
-                          </div>
-                        )}
+                    <div className="p-4 bg-slate-700/50 rounded-lg border border-slate-600/50 cursor-help">
+                      <div className="text-xs text-slate-400 mb-1">Total Capital</div>
+                      <div className="text-3xl font-bold text-white">{formatEuro(portfolioValuation.startingCapitalEur)}</div>
+                      <div className="mt-2 flex gap-4 text-xs text-slate-500">
+                        <span>Starting Capital: {formatEuro(portfolioValuation.startingCapitalEur)}</span>
+                        <span>Additional Capital: {formatEuro(0)}</span>
                       </div>
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" className="max-w-xs">
-                    <p className="text-xs">Cash + market value of open positions − fees.</p>
+                    <p className="text-xs">Total amount of money you have put into the strategy (initial + later deposits).</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-            );
-          })()}
-
-          {/* ═══════════════════════════════════════════════════════════════════════
-              CAPITAL OVERVIEW SECTION
-              "I invested X → I currently have Y"
-          ═══════════════════════════════════════════════════════════════════════ */}
-          {testMode && isInitialized && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">Capital Overview</div>
-              <div className="grid grid-cols-2 gap-3">
-                {/* Starting Capital */}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help">
-                        <div className="text-xs text-slate-400">Starting Capital</div>
-                        <div className="text-lg font-semibold text-white">{formatEuro(portfolioValuation.startingCapitalEur)}</div>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs">
-                      <p className="text-xs">Initial amount deposited when the portfolio was created.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                
-                {/* Total Capital (same value for now, conceptual prep for future deposits) */}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help">
-                        <div className="text-xs text-slate-400">Total Capital</div>
-                        <div className="text-lg font-semibold text-white">{formatEuro(portfolioValuation.startingCapitalEur)}</div>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs">
-                      <p className="text-xs">Total amount deposited into the portfolio. Includes starting capital and any future deposits.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
             </div>
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════════
-              CURRENT ALLOCATION SECTION
-              "What's invested vs available"
+              SECTION 2: WHERE YOUR MONEY IS NOW
+              Horizontal stacked bar showing allocation
           ═══════════════════════════════════════════════════════════════════════ */}
           {testMode && isInitialized && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">Current Allocation</div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {/* Cash Available */}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help">
-                        <div className="text-xs text-slate-400">Cash Available</div>
-                        <div className="text-lg font-semibold text-white">{formatEuro(portfolioValuation.cashEur)}</div>
-                        {metrics.reserved_eur > 0 && (
-                          <div className="text-xs text-amber-400">Reserved: {formatEuro(metrics.reserved_eur)}</div>
+            <div className="space-y-3">
+              <div>
+                <div className="text-sm font-semibold text-white uppercase tracking-wider">Where Your Money Is Now</div>
+                <div className="text-xs text-slate-400">How your capital is currently split.</div>
+              </div>
+              
+              {/* Horizontal Stacked Bar */}
+              {(() => {
+                const cash = portfolioValuation.cashEur;
+                const invested = portfolioValuation.openPositionsValueEur;
+                const gas = portfolioValuation.gasSpentEur;
+                const total = cash + invested; // Gas is already deducted from cash conceptually
+                
+                // Calculate percentages (handle edge case of 0 total)
+                const cashPct = total > 0 ? (cash / total) * 100 : 100;
+                const investedPct = total > 0 ? (invested / total) * 100 : 0;
+                
+                return (
+                  <div className="space-y-3">
+                    {/* The stacked bar */}
+                    <div className="h-8 rounded-lg overflow-hidden flex bg-slate-900/50 border border-slate-600/30">
+                      {/* Cash segment (green) */}
+                      {cashPct > 0 && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div 
+                                className="bg-emerald-500/80 hover:bg-emerald-500 transition-colors flex items-center justify-center cursor-help"
+                                style={{ width: `${cashPct}%`, minWidth: cashPct > 5 ? '40px' : '0' }}
+                              >
+                                {cashPct > 15 && (
+                                  <span className="text-xs font-medium text-white/90">Cash</span>
+                                )}
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="text-xs font-medium">Cash (secured)</p>
+                              <p className="text-xs text-slate-300">Money not exposed to the market. Value does not fluctuate.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                      
+                      {/* Invested segment (blue) */}
+                      {investedPct > 0 && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div 
+                                className="bg-blue-500/80 hover:bg-blue-500 transition-colors flex items-center justify-center cursor-help"
+                                style={{ width: `${investedPct}%`, minWidth: investedPct > 5 ? '40px' : '0' }}
+                              >
+                                {investedPct > 15 && (
+                                  <span className="text-xs font-medium text-white/90">Invested</span>
+                                )}
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              <p className="text-xs font-medium">Invested (live)</p>
+                              <p className="text-xs text-slate-300">Money currently in open positions, exposed to price changes.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </div>
+                    
+                    {/* Labels below the bar */}
+                    <div className="flex flex-wrap justify-between gap-2 text-xs">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-2 cursor-help">
+                              <div className="w-3 h-3 rounded bg-emerald-500/80"></div>
+                              <span className="text-slate-300">Cash (secured)</span>
+                              <span className="font-semibold text-emerald-400">{formatEuro(cash)}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-xs">
+                            <p className="text-xs">Money not exposed to the market. Value does not fluctuate.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-2 cursor-help">
+                              <div className="w-3 h-3 rounded bg-blue-500/80"></div>
+                              <span className="text-slate-300">Invested (live)</span>
+                              <span className="font-semibold text-blue-400">{formatEuro(invested)}</span>
+                              {portfolioValuation.hasMissingPrices && (
+                                <AlertCircle className="h-3 w-3 text-amber-400" />
+                              )}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-xs">
+                            <p className="text-xs">Money currently in open positions, exposed to price changes.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-2 cursor-help">
+                              <Fuel className="h-3 w-3 text-amber-400" />
+                              <span className="text-slate-300">Costs (gas)</span>
+                              <span className="font-semibold text-amber-400">−{formatEuro(gas)}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-xs">
+                            <p className="text-xs">Execution costs paid so far.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    
+                    {/* Total Live Portfolio Value - centered below */}
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="mt-2 p-4 bg-slate-700/50 rounded-lg border border-slate-600/50 text-center cursor-help">
+                            <div className="text-xs text-slate-400 mb-1">Total Live Portfolio Value</div>
+                            {(() => {
+                              const pnlDisplay = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                              return (
+                                <>
+                                  <div className={`text-3xl font-bold ${pnlDisplay.colorClass}`}>
+                                    {formatEuro(portfolioValuation.totalPortfolioValueEur)}
+                                  </div>
+                                  <div className={`text-sm mt-1 ${pnlDisplay.colorClass}`}>
+                                    {pnlDisplay.sign}{pnlDisplay.value} ({formatPercentage(portfolioValuation.totalPnlPct)}) from start
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-xs">
+                          <p className="text-xs">Cash + current market value of open positions − costs.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════════════
+              SECTION 3: MARKET EFFECT (LIVE)
+              Shows unrealized P&L only
+          ═══════════════════════════════════════════════════════════════════════ */}
+          {testMode && isInitialized && openTrades.length > 0 && (
+            <div className="space-y-3">
+              <div className="text-sm font-semibold text-white uppercase tracking-wider">Market Effect (Live)</div>
+              
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="p-4 bg-slate-700/30 rounded-lg cursor-help">
+                      <div className="flex items-center gap-1 text-xs text-slate-400 mb-1">
+                        Unrealized P&L
+                        {portfolioValuation.hasMissingPrices && (
+                          <AlertCircle className="h-3 w-3 text-amber-400" />
                         )}
                       </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs">
-                      <p className="text-xs">Funds not currently invested.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                
-                {/* Open Positions (Invested Amount) */}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help">
-                        <div className="flex items-center gap-1 text-xs text-slate-400">
-                          Open Positions
-                          {portfolioValuation.hasMissingPrices && (
-                            <AlertCircle className="h-3 w-3 text-amber-400" />
-                          )}
-                        </div>
-                        <div className="text-lg font-semibold text-white">{formatEuro(portfolioValuation.openPositionsValueEur)}</div>
-                        <div className="text-xs text-slate-500">Cost basis: {formatEuro(liveAggregates.costBasisEur)}</div>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs">
-                      <p className="text-xs">Current market value of all active positions.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                
-                {/* Gas (mock) */}
-                <div className="p-3 bg-slate-700/30 rounded-lg">
-                  <div className="flex items-center gap-1 text-xs text-slate-400">
-                    <Fuel className="h-3 w-3" />
-                    Gas (mock)
-                  </div>
-                  <div className="text-lg font-semibold text-amber-400">−{formatEuro(portfolioValuation.gasSpentEur)}</div>
-                  <div className="text-xs text-slate-500">{txCount} transactions</div>
-                </div>
-              </div>
+                      {(() => {
+                        const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
+                        return (
+                          <div className={`text-2xl font-bold ${unrealPnl.colorClass}`}>
+                            {unrealPnl.sign}{unrealPnl.value}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs">
+                    <p className="text-xs">Gain or loss if all open positions were closed at current prices.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════════════
+              SECTION 4: RESULT
+              Total P&L with context
+          ═══════════════════════════════════════════════════════════════════════ */}
+          {testMode && isInitialized && (
+            <div className="space-y-3">
+              <div className="text-sm font-semibold text-white uppercase tracking-wider">Result</div>
+              
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="p-4 bg-slate-700/30 rounded-lg cursor-help">
+                      <div className="text-xs text-slate-400 mb-1">Total P&L</div>
+                      {(() => {
+                        const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                        return (
+                          <>
+                            <div className={`text-2xl font-bold ${pnl.colorClass}`}>
+                              {pnl.sign}{pnl.value}
+                              <span className="text-lg ml-2">({formatPercentage(portfolioValuation.totalPnlPct)})</span>
+                            </div>
+                            <div className="text-xs text-slate-500 mt-1">Compared to your total capital.</div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs">
+                    <p className="text-xs">Overall performance including cash, open positions, and costs.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           )}
           
           {/* ═══════════════════════════════════════════════════════════════════════
-              PERFORMANCE SECTION
-              "How am I doing?"
+              SECTION 5: OPEN POSITIONS (DETAIL)
+              Existing crypto holdings breakdown
           ═══════════════════════════════════════════════════════════════════════ */}
           {testMode && isInitialized && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">Performance</div>
-              <div className="grid grid-cols-2 gap-3">
-                {/* Unrealized P&L */}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help">
-                        <div className="flex items-center gap-1 text-xs text-slate-400">
-                          Unrealized P&L
-                          {portfolioValuation.hasMissingPrices && (
-                            <AlertCircle className="h-3 w-3 text-amber-400" />
-                          )}
-                        </div>
-                        {(() => {
-                          const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
-                          return (
-                            <div className={`text-lg font-semibold ${unrealPnl.colorClass}`}>
-                              {unrealPnl.sign}{unrealPnl.value}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs">
-                      <p className="text-xs">Potential profit or loss on open positions only.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                
-                {/* Total P&L */}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help">
-                        <div className="text-xs text-slate-400">Total P&L</div>
-                        {(() => {
-                          const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
-                          return (
-                            <div className={`text-lg font-semibold ${pnl.colorClass}`}>
-                              {pnl.sign}{pnl.value}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs">
-                      <p className="text-xs">Profit or loss compared to total capital deposited.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
+            <div className="space-y-3">
+              {liveAggregates.walletAssets.length > 0 && (
+                <>
+                  <div className="text-sm font-semibold text-white uppercase tracking-wider">Open Positions (Live)</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {liveAggregates.walletAssets.map(renderWalletAssetCard)}
+                  </div>
+                </>
+              )}
+              
+              {liveAggregates.walletAssets.length === 0 && !tradesLoading && (
+                <div className="text-center py-8">
+                  <p className="text-slate-300">
+                    No open positions. Start trading to see holdings.
+                  </p>
+                </div>
+              )}
             </div>
           )}
           
-          {/* P&L Breakdown Row - REMOVED: now integrated into the grid above */}
-
-          {/* Fees Summary */}
-          {testMode && isInitialized && (
-            <div className="flex justify-between items-center p-3 bg-slate-700/30 rounded-lg">
-              <div className="text-sm text-slate-400">Total Fees Paid</div>
-              <div className="text-sm text-slate-300">{formatEuro(metrics.total_fees_eur)}</div>
-            </div>
-          )}
-          
-          {/* WALLET VIEW: Crypto holdings breakdown by asset */}
-          {testMode ? (
-            liveAggregates.walletAssets.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {liveAggregates.walletAssets.map(renderWalletAssetCard)}
-              </div>
-            ) : isInitialized && !tradesLoading ? (
-              <div className="text-center py-8">
-                <p className="text-slate-300">
-                  No open positions. Start trading to see holdings.
-                </p>
-              </div>
-            ) : null
-          ) : (
+          {/* Production mode view */}
+          {!testMode && (
             portfolioData?.accounts && portfolioData.accounts.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {portfolioData.accounts.map(renderCoinCard)}
