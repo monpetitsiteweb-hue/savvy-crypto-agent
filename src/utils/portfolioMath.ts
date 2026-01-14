@@ -268,9 +268,8 @@ export function computeFullPortfolioValuation(
   const startingCapitalEur = metrics.starting_capital_eur || 0;
   const { pnlEur: totalPnlEur, pnlPct: totalPnlPct } = computeTotalPnl(totalPortfolioValueEur, startingCapitalEur);
   
-  // Realized P&L (gross from DB aggregates), NET of gas
-  const realizedPnlGross = metrics.realized_pnl_eur || 0;
-  const realizedPnlEur = realizedPnlGross - gasSpentEur;
+  // Realized P&L (NET, invariant-safe)
+  const realizedPnlEur = totalPnlEur - unrealizedPnlEur;
   
   return {
     cashEur,
