@@ -267,7 +267,11 @@ export function computeFullPortfolioValuation(
   // 6. Compute total P&L
   const startingCapitalEur = metrics.starting_capital_eur || 0;
   const { pnlEur: totalPnlEur, pnlPct: totalPnlPct } = computeTotalPnl(totalPortfolioValueEur, startingCapitalEur);
-  const realizedPnlEur = metrics.realized_pnl_eur || 0;
+  
+  // Realized P&L (net) = raw SELL profits - gas spent
+  // This ensures: Total P&L = Realized P&L + Unrealized P&L
+  const rawRealizedPnlEur = metrics.realized_pnl_eur || 0;
+  const realizedPnlEur = rawRealizedPnlEur - gasSpentEur;
   
   return {
     cashEur,
