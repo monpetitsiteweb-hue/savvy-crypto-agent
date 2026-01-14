@@ -303,25 +303,7 @@ export const UnifiedPortfolioDisplay = () => {
     })));
   }, [testMode, isInitialized, openTrades, effectivePrices, portfolioValuation, liveAggregates, txCount]);
 
-  // RUNTIME ASSERTION: Check if math adds up (test mode only)
-  // Formula: Total Portfolio Value = Cash + Unrealized P&L − Gas
-  const mathMismatch = useMemo(() => {
-    if (!testMode || !isInitialized) return null;
-    const expected = portfolioValuation.cashEur + portfolioValuation.unrealizedPnlEur - portfolioValuation.gasSpentEur;
-    const actual = portfolioValuation.totalPortfolioValueEur;
-    const diff = Math.abs(actual - expected);
-    if (diff > 0.01) {
-      return {
-        expected,
-        actual,
-        diff,
-        cash: portfolioValuation.cashEur,
-        unrealized: portfolioValuation.unrealizedPnlEur,
-        gas: portfolioValuation.gasSpentEur,
-      };
-    }
-    return null;
-  }, [testMode, isInitialized, portfolioValuation]);
+  // Math mismatch check removed per user request
 
   const fetchConnections = async () => {
     if (!user) return;
@@ -551,21 +533,6 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
           
-          {/* Math Mismatch Banner (test mode assertion) */}
-          {mathMismatch && (
-            <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex flex-col gap-1">
-              <div className="flex items-center gap-2 text-red-400 font-semibold">
-                <AlertCircle className="h-4 w-4" />
-                Portfolio math mismatch!
-              </div>
-              <div className="text-xs text-red-300 font-mono">
-                Expected: {mathMismatch.expected.toFixed(2)} (cash {mathMismatch.cash.toFixed(2)} + unrealized {mathMismatch.unrealized.toFixed(2)} - gas {mathMismatch.gas.toFixed(2)})
-              </div>
-              <div className="text-xs text-red-300 font-mono">
-                Actual totalPortfolioValueEur: {mathMismatch.actual.toFixed(2)} — Diff: {mathMismatch.diff.toFixed(2)}
-              </div>
-            </div>
-          )}
 
           {/* Partial Valuation Warning Badge - improved messaging */}
           {isLoadingPrices && openTrades.length > 0 && (
@@ -675,7 +642,7 @@ export const UnifiedPortfolioDisplay = () => {
           
           {/* P&L Breakdown Row */}
           {testMode && isInitialized && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {/* Unrealized P&L */}
               <div className="p-3 bg-slate-700/30 rounded-lg">
                 <div className="flex items-center gap-1 text-xs text-slate-400">
@@ -689,19 +656,6 @@ export const UnifiedPortfolioDisplay = () => {
                   return (
                     <div className={`text-lg font-semibold ${unrealPnl.colorClass}`}>
                       {unrealPnl.sign}{unrealPnl.value}
-                    </div>
-                  );
-                })()}
-              </div>
-              
-              {/* Realized P&L */}
-              <div className="p-3 bg-slate-700/30 rounded-lg">
-                <div className="text-xs text-slate-400">Realized P&L</div>
-                {(() => {
-                  const realPnl = formatPnlWithSign(portfolioValuation.realizedPnlEur);
-                  return (
-                    <div className={`text-lg font-semibold ${realPnl.colorClass}`}>
-                      {realPnl.sign}{realPnl.value}
                     </div>
                   );
                 })()}
