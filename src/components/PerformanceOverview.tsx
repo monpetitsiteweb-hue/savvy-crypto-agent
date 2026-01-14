@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useTradeViewFilter } from "@/hooks/useTradeViewFilter";
@@ -482,6 +483,73 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
                 </>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════════════════
+            SECTION 4: CAPITAL & PERFORMANCE CONTEXT
+            Didactic section explaining how performance relates to capital
+        ═══════════════════════════════════════════════════════════════════════ */}
+        <div className="mt-6 p-4 bg-slate-900/30 border border-slate-700/30 rounded-lg space-y-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-slate-300 border-b border-slate-700/50 pb-2">
+            <DollarSign className="h-4 w-4 text-slate-400" />
+            Capital & Performance Context
+          </div>
+          
+          <div className="grid grid-cols-3 gap-4">
+            {/* Starting Capital */}
+            <div className="text-center">
+              <div className="text-xs text-slate-500 mb-1">Starting Capital</div>
+              {metricsLoading ? (
+                <div className="w-16 h-6 bg-slate-700 animate-pulse rounded mx-auto"></div>
+              ) : (
+                <div className="text-lg font-semibold text-white">
+                  {formatEuro(portfolioValuation.startingCapitalEur)}
+                </div>
+              )}
+            </div>
+            
+            {/* Total Capital */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="text-center cursor-help">
+                  <div className="text-xs text-slate-500 mb-1">Total Capital</div>
+                  {metricsLoading ? (
+                    <div className="w-16 h-6 bg-slate-700 animate-pulse rounded mx-auto"></div>
+                  ) : (
+                    <div className="text-lg font-semibold text-white">
+                      {formatEuro(portfolioValuation.startingCapitalEur)}
+                    </div>
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                <p className="text-xs">Reference used to compute Total P&L.</p>
+              </TooltipContent>
+            </Tooltip>
+            
+            {/* Current Total P&L */}
+            <div className="text-center">
+              <div className="text-xs text-slate-500 mb-1">Current Total P&L</div>
+              {metricsLoading ? (
+                <div className="w-16 h-6 bg-slate-700 animate-pulse rounded mx-auto"></div>
+              ) : (
+                (() => {
+                  const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                  return (
+                    <div className={`text-lg font-semibold ${pnl.colorClass}`}>
+                      {pnl.sign}{pnl.value}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+          </div>
+          
+          {/* Explanatory copy */}
+          <div className="text-xs text-slate-500 leading-relaxed border-t border-slate-700/30 pt-3">
+            Performance is always calculated relative to the total capital deposited.
+            If additional funds are added later, total capital increases, but past performance remains unchanged.
           </div>
         </div>
       </CardContent>
