@@ -268,8 +268,10 @@ export function computeFullPortfolioValuation(
   const startingCapitalEur = metrics.starting_capital_eur || 0;
   const { pnlEur: totalPnlEur, pnlPct: totalPnlPct } = computeTotalPnl(totalPortfolioValueEur, startingCapitalEur);
   
-  // Realized P&L from DB (raw SELL profits)
-  const realizedPnlEur = metrics.realized_pnl_eur || 0;
+  // Realized P&L derived from cash flow (not DB aggregates)
+  // Formula: Cash - Starting Capital + Invested Principal of open positions
+  const investedPrincipalEur = openCalc.pricedCostBasis;
+  const realizedPnlEur = cashEur - startingCapitalEur + investedPrincipalEur;
   
   return {
     cashEur,
