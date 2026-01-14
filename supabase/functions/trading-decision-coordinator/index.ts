@@ -378,6 +378,13 @@ type Reason =
   | "blocked_liquidation_requires_batch_id"
   | "decision_events_insert_failed"
   | "cash_ledger_settle_failed"
+  // PHASE 1: REAL MODE EXECUTION
+  | "blocked_panic_active"
+  | "blocked_prerequisites_check_failed"
+  | "blocked_rules_not_accepted"
+  | "blocked_wallet_not_ready"
+  | "real_execution_job_queued"
+  | "execution_job_insert_failed"
   // TEMPLATE LITERAL PATTERNS for dynamic reasons
   | `blocked_missing_config:${string}`;
 
@@ -1647,7 +1654,7 @@ serve(async (req) => {
       // Fetch strategy config including state/policy fields
       const { data: strategyConfig, error: stratConfigError } = await supabaseClient
         .from('trading_strategies')
-        .select('unified_config, configuration, state, execution_target, on_disable_policy')
+        .select('unified_config, configuration, state, execution_target, on_disable_policy, panic_active')
         .eq('id', intent.strategyId)
         .eq('user_id', intent.userId)
         .single();
@@ -1660,13 +1667,22 @@ serve(async (req) => {
       // State/execution gate for intelligent trades (early check)
       const intStrategyState = strategyConfig.state || 'ACTIVE';
       const intExecutionTarget = strategyConfig.execution_target || 'MOCK';
+      const intPanicActive = strategyConfig.panic_active === true;
       
-      if (intExecutionTarget === 'REAL') {
-        console.log('🚫 INTELLIGENT: REAL mode not supported');
+      // Panic gate (hard blocker)
+      if (intPanicActive) {
+        console.log('🚫 INTELLIGENT: PANIC ACTIVE - trade blocked');
         return new Response(JSON.stringify({
           ok: true,
-          decision: { action: 'BLOCK', reason: 'blocked_real_mode_not_supported', request_id: requestId, retry_in_ms: 0 }
+          decision: { action: 'BLOCK', reason: 'blocked_panic_active', request_id: requestId, retry_in_ms: 0 }
         }), { headers: corsHeaders });
+      }
+      
+      // REAL mode: Let it fall through to the main REAL execution path below
+      // The main coordinator REAL gate handles prerequisites and execution_jobs insertion
+      if (intExecutionTarget === 'REAL') {
+        console.log('🔥 INTELLIGENT: REAL mode - falling through to main REAL execution path');
+        // Don't block here - let the main flow handle REAL mode with prerequisites check
       }
       
       if (intent.side === 'BUY' && intStrategyState !== 'ACTIVE') {
@@ -2093,10 +2109,10 @@ serve(async (req) => {
       return respond(cachedDecision.decision.action, cachedDecision.decision.reason, cachedDecision.decision.request_id, cachedDecision.decision.retry_in_ms, cachedDecision.decision.qty ? { qty: cachedDecision.decision.qty } : {});
     }
 
-    // Get strategy configuration including state/policy fields
+    // Get strategy configuration including state/policy fields + panic_active
     const { data: strategy, error: strategyError } = await supabaseClient
       .from('trading_strategies')
-      .select('unified_config, configuration, state, execution_target, on_disable_policy, liquidation_batch_id')
+      .select('unified_config, configuration, state, execution_target, on_disable_policy, liquidation_batch_id, panic_active')
       .eq('id', intent.strategyId)
       .eq('user_id', intent.userId)
       .single();
@@ -2107,10 +2123,26 @@ serve(async (req) => {
     }
 
     // ============= STRATEGY STATE & EXECUTION MODE ENFORCEMENT =============
-    // New columns: state, execution_target, on_disable_policy, liquidation_batch_id
+    // New columns: state, execution_target, on_disable_policy, liquidation_batch_id, panic_active
     const strategyState = strategy.state || 'ACTIVE'; // Default ACTIVE for legacy rows
     const executionTarget = strategy.execution_target || 'MOCK';
     const liquidationBatchId = strategy.liquidation_batch_id || null;
+    const panicActive = strategy.panic_active === true;
+    
+    // ============= PANIC GATE (hard blocker) =============
+    if (panicActive) {
+      console.log('🚫 COORDINATOR: PANIC ACTIVE - all trades blocked for this strategy');
+      return new Response(JSON.stringify({
+        ok: true,
+        decision: {
+          action: 'BLOCK',
+          reason: 'blocked_panic_active',
+          request_id: requestId,
+          retry_in_ms: 0,
+          message: 'Strategy panic mode is active. All trades are blocked until panic is cleared.'
+        }
+      }), { headers: corsHeaders });
+    }
     
     // FAIL-CLOSED: If state != ACTIVE and on_disable_policy IS NULL, BLOCK
     // No silent default to MANAGE_ONLY - require explicit policy
@@ -2130,20 +2162,157 @@ serve(async (req) => {
       }), { headers: corsHeaders });
     }
     
-    console.log('[Coordinator][StateGate] state:', strategyState, 'executionTarget:', executionTarget, 'policy:', onDisablePolicy || 'N/A (ACTIVE)');
+    console.log('[Coordinator][StateGate] state:', strategyState, 'executionTarget:', executionTarget, 'policy:', onDisablePolicy || 'N/A (ACTIVE)', 'panicActive:', panicActive);
     
-    // ============= REAL MODE GATE =============
-    // REAL mode is fully gated - no execution pipe yet
+    // ============= REAL MODE EXECUTION PATH (Phase 1) =============
+    // REAL mode: Check prerequisites, then route to execution_jobs (async)
     if (executionTarget === 'REAL') {
-      console.log('🚫 COORDINATOR: REAL mode is not yet supported - trade blocked');
+      console.log('🔥 COORDINATOR: REAL mode detected - checking prerequisites');
+      
+      // Check live trading prerequisites via RPC
+      const { data: prereqResult, error: prereqError } = await supabaseClient.rpc(
+        'check_live_trading_prerequisites',
+        { p_user_id: intent.userId }
+      );
+      
+      if (prereqError) {
+        console.error('❌ COORDINATOR: Prerequisites check failed:', prereqError);
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: {
+            action: 'BLOCK',
+            reason: 'blocked_prerequisites_check_failed',
+            request_id: requestId,
+            retry_in_ms: 0,
+            message: 'Failed to verify live trading prerequisites.'
+          }
+        }), { headers: corsHeaders });
+      }
+      
+      // Hard blocker: rules_accepted must be true
+      if (!prereqResult?.rules_accepted) {
+        console.log('🚫 COORDINATOR: REAL mode blocked - rules not accepted');
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: {
+            action: 'BLOCK',
+            reason: 'blocked_rules_not_accepted',
+            request_id: requestId,
+            retry_in_ms: 0,
+            message: 'You must accept trading rules before executing REAL trades.'
+          }
+        }), { headers: corsHeaders });
+      }
+      
+      // Hard blocker: wallet must be active and funded
+      if (!prereqResult?.wallet_ok) {
+        console.log('🚫 COORDINATOR: REAL mode blocked - wallet not ready');
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: {
+            action: 'BLOCK',
+            reason: 'blocked_wallet_not_ready',
+            request_id: requestId,
+            retry_in_ms: 0,
+            message: 'Your execution wallet is not active or funded.'
+          }
+        }), { headers: corsHeaders });
+      }
+      
+      // All prerequisites passed - insert execution_job (async execution)
+      console.log('✅ COORDINATOR: Prerequisites OK - inserting execution_job');
+      
+      // Get market price for the payload
+      const baseSymbol = toBaseSymbol(intent.symbol);
+      let marketPrice = null;
+      try {
+        const priceData = await getMarketPrice(baseSymbol, 15000);
+        marketPrice = priceData?.price;
+      } catch (err) {
+        console.warn('[Coordinator] Could not fetch price for REAL trade:', err?.message);
+        marketPrice = intent.metadata?.currentPrice || intent.metadata?.price || null;
+      }
+      
+      const qty = intent.qtySuggested || 0;
+      const totalValue = marketPrice && qty ? qty * marketPrice : null;
+      
+      // Generate idempotency key for REAL trades
+      const realIdempotencyKey = `real_${intent.strategyId}_${baseSymbol}_${intent.side}_${Date.now()}`;
+      
+      // Insert READY job into execution_jobs
+      const { data: jobResult, error: jobError } = await supabaseClient
+        .from('execution_jobs')
+        .insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          execution_target: 'REAL',
+          execution_mode: 'ONCHAIN', // Default; signer can override based on config
+          kind: 'SWAP',
+          side: intent.side,
+          symbol: baseSymbol,
+          amount: qty,
+          status: 'READY',
+          idempotency_key: realIdempotencyKey,
+          payload: {
+            intent_source: intent.source,
+            intent_reason: intent.reason,
+            confidence: intent.confidence,
+            market_price: marketPrice,
+            total_value_eur: totalValue,
+            wallet_address: prereqResult.wallet_address,
+            request_id: requestId,
+            metadata: intent.metadata,
+            created_at: new Date().toISOString()
+          }
+        })
+        .select('id')
+        .single();
+      
+      if (jobError) {
+        console.error('❌ COORDINATOR: Failed to insert execution_job:', jobError);
+        return new Response(JSON.stringify({
+          ok: true,
+          decision: {
+            action: 'DEFER',
+            reason: 'execution_job_insert_failed',
+            request_id: requestId,
+            retry_in_ms: 5000,
+            error: jobError.message
+          }
+        }), { headers: corsHeaders });
+      }
+      
+      console.log('✅ COORDINATOR: REAL execution_job inserted:', jobResult?.id);
+      
+      // Log decision_event for audit
+      await supabaseClient.from('decision_events').insert({
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        symbol: baseSymbol,
+        side: intent.side,
+        source: intent.source,
+        confidence: intent.confidence,
+        entry_price: marketPrice,
+        reason: 'real_execution_job_queued',
+        decision_ts: new Date().toISOString(),
+        metadata: {
+          execution_job_id: jobResult?.id,
+          idempotency_key: realIdempotencyKey,
+          wallet_address: prereqResult.wallet_address,
+          execution_status: 'QUEUED',
+          intent_side: intent.side
+        }
+      });
+      
       return new Response(JSON.stringify({
         ok: true,
         decision: {
-          action: 'BLOCK',
-          reason: 'blocked_real_mode_not_supported',
+          action: intent.side,
+          reason: 'real_execution_job_queued',
           request_id: requestId,
           retry_in_ms: 0,
-          message: 'REAL execution mode is not yet implemented. Use MOCK mode for testing.'
+          execution_job_id: jobResult?.id,
+          message: 'REAL trade queued for async execution.'
         }
       }), { headers: corsHeaders });
     }
