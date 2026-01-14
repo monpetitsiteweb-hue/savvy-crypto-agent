@@ -268,10 +268,11 @@ export function computeFullPortfolioValuation(
   const startingCapitalEur = metrics.starting_capital_eur || 0;
   const { pnlEur: totalPnlEur, pnlPct: totalPnlPct } = computeTotalPnl(totalPortfolioValueEur, startingCapitalEur);
   
-  // Realized P&L derived from cash flow (not DB aggregates)
-  // Formula: Cash - Starting Capital + Invested Principal of open positions
+  // Realized P&L derived from cash flow, NET of gas
+  // Formula: (Cash - Starting Capital + Invested Principal) - Gas
   const investedPrincipalEur = openCalc.pricedCostBasis;
-  const realizedPnlEur = cashEur - startingCapitalEur + investedPrincipalEur;
+  const realizedPnlGross = cashEur - startingCapitalEur + investedPrincipalEur;
+  const realizedPnlEur = realizedPnlGross - gasSpentEur;
   
   return {
     cashEur,
