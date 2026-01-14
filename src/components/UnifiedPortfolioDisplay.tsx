@@ -284,9 +284,10 @@ export const UnifiedPortfolioDisplay = () => {
       MOCK_GAS_PER_TX_EUR,
       gasSpentEur: portfolioValuation.gasSpentEur,
       cashEur: portfolioValuation.cashEur,
+      unrealizedPnlEur: portfolioValuation.unrealizedPnlEur,
       openPositionsValueEur: portfolioValuation.openPositionsValueEur,
       totalPortfolioValueEur: portfolioValuation.totalPortfolioValueEur,
-      equation: `${portfolioValuation.cashEur.toFixed(2)} + ${portfolioValuation.openPositionsValueEur.toFixed(2)} - ${portfolioValuation.gasSpentEur.toFixed(2)} = ${portfolioValuation.totalPortfolioValueEur.toFixed(2)}`,
+      equation: `${portfolioValuation.cashEur.toFixed(2)} + ${portfolioValuation.unrealizedPnlEur.toFixed(2)} - ${portfolioValuation.gasSpentEur.toFixed(2)} = ${portfolioValuation.totalPortfolioValueEur.toFixed(2)}`,
       totalPnlEur: portfolioValuation.totalPnlEur,
       missingSymbols: portfolioValuation.missingSymbols,
       positions,
@@ -303,9 +304,10 @@ export const UnifiedPortfolioDisplay = () => {
   }, [testMode, isInitialized, openTrades, effectivePrices, portfolioValuation, liveAggregates, txCount]);
 
   // RUNTIME ASSERTION: Check if math adds up (test mode only)
+  // Formula: Total Portfolio Value = Cash + Unrealized P&L − Gas
   const mathMismatch = useMemo(() => {
     if (!testMode || !isInitialized) return null;
-    const expected = portfolioValuation.cashEur + portfolioValuation.openPositionsValueEur - portfolioValuation.gasSpentEur;
+    const expected = portfolioValuation.cashEur + portfolioValuation.unrealizedPnlEur - portfolioValuation.gasSpentEur;
     const actual = portfolioValuation.totalPortfolioValueEur;
     const diff = Math.abs(actual - expected);
     if (diff > 0.01) {
@@ -314,7 +316,7 @@ export const UnifiedPortfolioDisplay = () => {
         actual,
         diff,
         cash: portfolioValuation.cashEur,
-        open: portfolioValuation.openPositionsValueEur,
+        unrealized: portfolioValuation.unrealizedPnlEur,
         gas: portfolioValuation.gasSpentEur,
       };
     }
@@ -557,7 +559,7 @@ export const UnifiedPortfolioDisplay = () => {
                 Portfolio math mismatch!
               </div>
               <div className="text-xs text-red-300 font-mono">
-                Expected: {mathMismatch.expected.toFixed(2)} (cash {mathMismatch.cash.toFixed(2)} + open {mathMismatch.open.toFixed(2)} - gas {mathMismatch.gas.toFixed(2)})
+                Expected: {mathMismatch.expected.toFixed(2)} (cash {mathMismatch.cash.toFixed(2)} + unrealized {mathMismatch.unrealized.toFixed(2)} - gas {mathMismatch.gas.toFixed(2)})
               </div>
               <div className="text-xs text-red-300 font-mono">
                 Actual totalPortfolioValueEur: {mathMismatch.actual.toFixed(2)} — Diff: {mathMismatch.diff.toFixed(2)}
@@ -629,181 +631,95 @@ export const UnifiedPortfolioDisplay = () => {
             );
           })()}
 
-          {/* Portfolio Breakdown - Clear accounting story */}
+          {/* Portfolio Breakdown - Using portfolioMath for consistent calculations */}
           {testMode && isInitialized && (
-            <>
-              {/* Formula explanation banner */}
-              <div className="p-2 bg-slate-700/20 rounded-lg border border-slate-700/50 mb-3">
-                <div className="text-xs text-slate-500 text-center font-mono">
-                  Total Portfolio = Cash (€{portfolioValuation.cashEur.toFixed(0)}) + Crypto Holdings (€{portfolioValuation.openPositionsValueEur.toFixed(0)}) − Gas (€{portfolioValuation.gasSpentEur.toFixed(0)}) = €{portfolioValuation.totalPortfolioValueEur.toFixed(0)}
-                </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* Starting Capital */}
+              <div className="p-3 bg-slate-700/30 rounded-lg">
+                <div className="text-xs text-slate-400">Starting Capital</div>
+                <div className="text-lg font-semibold text-white">{formatEuro(portfolioValuation.startingCapitalEur)}</div>
               </div>
               
-              {/* Main breakdown: What you OWN (additive components) */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                {/* Cash Available (EUR not invested) */}
-                <div className="p-3 bg-slate-700/30 rounded-lg border-l-2 border-blue-500/50">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="flex items-center gap-1 text-xs text-slate-400 cursor-help">
-                          Cash Available
-                          <AlertCircle className="h-3 w-3 text-slate-500" />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs max-w-xs">EUR balance not currently invested. Includes original capital plus/minus realized P&L from closed trades.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <div className="text-lg font-semibold text-white">{formatEuro(portfolioValuation.cashEur)}</div>
-                  {metrics.reserved_eur > 0 && (
-                    <div className="text-xs text-amber-400">Reserved: {formatEuro(metrics.reserved_eur)}</div>
+              {/* Cash Available */}
+              <div className="p-3 bg-slate-700/30 rounded-lg">
+                <div className="text-xs text-slate-400">Cash Available</div>
+                <div className="text-lg font-semibold text-white">{formatEuro(portfolioValuation.cashEur)}</div>
+                {metrics.reserved_eur > 0 && (
+                  <div className="text-xs text-amber-400">Reserved: {formatEuro(metrics.reserved_eur)}</div>
+                )}
+              </div>
+              
+              {/* Open Positions */}
+              <div className="p-3 bg-slate-700/30 rounded-lg">
+                <div className="flex items-center gap-1 text-xs text-slate-400">
+                  Open Positions
+                  {portfolioValuation.hasMissingPrices && (
+                    <AlertCircle className="h-3 w-3 text-amber-400" />
                   )}
                 </div>
-                
-                {/* Crypto Holdings (market value of open positions) */}
-                <div className="p-3 bg-slate-700/30 rounded-lg border-l-2 border-purple-500/50">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="flex items-center gap-1 text-xs text-slate-400 cursor-help">
-                          Crypto Holdings
-                          {portfolioValuation.hasMissingPrices && (
-                            <AlertCircle className="h-3 w-3 text-amber-400" />
-                          )}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs max-w-xs">Current market value of all open positions. This is capital that moved from Cash into crypto assets.</p>
-                        {portfolioValuation.hasMissingPrices && (
-                          <p className="text-xs text-amber-400 mt-1">Partial: {portfolioValuation.missingSymbols.join(', ')}</p>
-                        )}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <div className="text-lg font-semibold text-white">{formatEuro(portfolioValuation.openPositionsValueEur)}</div>
-                  <div className="text-xs text-slate-500">Invested: {formatEuro(liveAggregates.costBasisEur)}</div>
-                </div>
-                
-                {/* Gas Spent (deduction) */}
-                <div className="p-3 bg-slate-700/30 rounded-lg border-l-2 border-amber-500/50">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="flex items-center gap-1 text-xs text-slate-400 cursor-help">
-                          <Fuel className="h-3 w-3" />
-                          Gas Fees
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs max-w-xs">Transaction costs deducted from portfolio value. Mock estimate: €{MOCK_GAS_PER_TX_EUR.toFixed(2)} per transaction.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <div className="text-lg font-semibold text-amber-400">−{formatEuro(portfolioValuation.gasSpentEur)}</div>
-                  <div className="text-xs text-slate-500">{txCount} transactions</div>
-                </div>
+                <div className="text-lg font-semibold text-white">{formatEuro(portfolioValuation.openPositionsValueEur)}</div>
+                <div className="text-xs text-slate-500">Invested: {formatEuro(liveAggregates.costBasisEur)}</div>
               </div>
               
-              {/* Performance metrics row: P&L breakdown */}
-              <div className="grid grid-cols-3 gap-3 mt-3">
-                {/* Total P&L (vs starting capital) */}
-                <div className="p-3 bg-gradient-to-br from-slate-700/40 to-slate-700/20 rounded-lg border border-slate-600/50">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="text-xs text-slate-400 cursor-help">Total P&L (vs Start)</div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs max-w-xs">Total Portfolio Value minus Starting Capital (€{formatEuro(portfolioValuation.startingCapitalEur)}). This is your overall gain/loss.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  {(() => {
-                    const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
-                    return (
-                      <>
-                        <div className={`text-lg font-bold ${pnl.colorClass}`}>
-                          {pnl.sign}{pnl.value}
-                        </div>
-                        <div className={`text-xs ${pnl.colorClass}`}>
-                          {formatPercentage(portfolioValuation.totalPnlPct)} — {pnl.label}
-                        </div>
-                      </>
-                    );
-                  })()}
+              {/* Gas (mock) */}
+              <div className="p-3 bg-slate-700/30 rounded-lg">
+                <div className="flex items-center gap-1 text-xs text-slate-400">
+                  <Fuel className="h-3 w-3" />
+                  Gas (mock)
                 </div>
-                
-                {/* Unrealized P&L (open positions gain/loss) */}
-                <div className="p-3 bg-slate-700/30 rounded-lg">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="flex items-center gap-1 text-xs text-slate-400 cursor-help">
-                          Unrealized P&L
-                          {portfolioValuation.hasMissingPrices && (
-                            <AlertCircle className="h-3 w-3 text-amber-400" />
-                          )}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs max-w-xs">Gain/loss on open positions: Current Value − Cost Basis. Not yet locked in until you sell.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  {(() => {
-                    const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
-                    const unrealPct = liveAggregates.costBasisEur > 0 
-                      ? (portfolioValuation.unrealizedPnlEur / liveAggregates.costBasisEur) * 100 
-                      : 0;
-                    return (
-                      <>
-                        <div className={`text-lg font-semibold ${unrealPnl.colorClass}`}>
-                          {unrealPnl.sign}{unrealPnl.value}
-                        </div>
-                        <div className={`text-xs ${unrealPnl.colorClass}`}>
-                          {formatPercentage(unrealPct)} on invested
-                        </div>
-                      </>
-                    );
-                  })()}
+                <div className="text-lg font-semibold text-amber-400">−{formatEuro(portfolioValuation.gasSpentEur)}</div>
+                <div className="text-xs text-slate-500">{txCount} txs</div>
+              </div>
+            </div>
+          )}
+          
+          {/* P&L Breakdown Row */}
+          {testMode && isInitialized && (
+            <div className="grid grid-cols-3 gap-3">
+              {/* Unrealized P&L */}
+              <div className="p-3 bg-slate-700/30 rounded-lg">
+                <div className="flex items-center gap-1 text-xs text-slate-400">
+                  Unrealized P&L
+                  {portfolioValuation.hasMissingPrices && (
+                    <AlertCircle className="h-3 w-3 text-amber-400" />
+                  )}
                 </div>
-                
-                {/* Realized P&L (closed trades) */}
-                <div className="p-3 bg-slate-700/30 rounded-lg">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="text-xs text-slate-400 cursor-help">Realized P&L</div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs max-w-xs">Locked-in profit/loss from completed sell trades. This has already flowed back into Cash.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  {(() => {
-                    const realPnl = formatPnlWithSign(portfolioValuation.realizedPnlEur);
-                    return (
-                      <>
-                        <div className={`text-lg font-semibold ${realPnl.colorClass}`}>
-                          {realPnl.sign}{realPnl.value}
-                        </div>
-                        <div className={`text-xs ${realPnl.colorClass}`}>
-                          {formatPercentage(realizedPnlPct)} from closed
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
+                {(() => {
+                  const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
+                  return (
+                    <div className={`text-lg font-semibold ${unrealPnl.colorClass}`}>
+                      {unrealPnl.sign}{unrealPnl.value}
+                    </div>
+                  );
+                })()}
               </div>
               
-              {/* Reference: Starting Capital (small, de-emphasized) */}
-              <div className="flex justify-between items-center p-2 bg-slate-700/10 rounded-lg mt-3 border border-slate-700/30">
-                <div className="text-xs text-slate-500">Reference: Started with</div>
-                <div className="text-xs text-slate-400 font-medium">{formatEuro(portfolioValuation.startingCapitalEur)}</div>
+              {/* Realized P&L */}
+              <div className="p-3 bg-slate-700/30 rounded-lg">
+                <div className="text-xs text-slate-400">Realized P&L</div>
+                {(() => {
+                  const realPnl = formatPnlWithSign(portfolioValuation.realizedPnlEur);
+                  return (
+                    <div className={`text-lg font-semibold ${realPnl.colorClass}`}>
+                      {realPnl.sign}{realPnl.value}
+                    </div>
+                  );
+                })()}
               </div>
-            </>
+              
+              {/* Total P&L */}
+              <div className="p-3 bg-slate-700/30 rounded-lg">
+                <div className="text-xs text-slate-400">Total P&L</div>
+                {(() => {
+                  const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                  return (
+                    <div className={`text-lg font-semibold ${pnl.colorClass}`}>
+                      {pnl.sign}{pnl.value}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
           )}
           
           {/* P&L Breakdown Row - REMOVED: now integrated into the grid above */}
