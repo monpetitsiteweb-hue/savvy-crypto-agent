@@ -597,209 +597,207 @@ export const UnifiedPortfolioDisplay = () => {
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════════
-              SECTION 1 — WHERE YOUR MONEY IS NOW
-              Horizontal stacked bar showing allocation
+              MIDDLE SECTION — 2 COLUMNS
+              Left: Results (Performance logic) | Right: Where Your Money Is Now (Vertical bar)
           ═══════════════════════════════════════════════════════════════════════ */}
           {testMode && isInitialized && (
-            <div className="space-y-2">
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Where Your Money Is Now</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
-              {/* Horizontal Stacked Bar */}
-              {(() => {
-                const cash = portfolioValuation.cashEur;
-                const invested = portfolioValuation.openPositionsValueEur;
-                const gas = portfolioValuation.gasSpentEur;
-                const total = cash + invested;
+              {/* ═══════════════════════════════════════════════════════════════════════
+                  LEFT COLUMN — RESULTS (Performance Logic)
+              ═══════════════════════════════════════════════════════════════════════ */}
+              <div className="p-4 bg-slate-800/40 rounded-lg border border-slate-600/30 space-y-3">
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Results</div>
                 
-                const cashPct = total > 0 ? (cash / total) * 100 : 100;
-                const investedPct = total > 0 ? (invested / total) * 100 : 0;
-                
-                return (
-                  <div className="space-y-2">
-                    {/* The stacked bar */}
-                    <div className="h-6 rounded-md overflow-hidden flex bg-slate-900/50 border border-slate-600/30">
-                      {/* Cash segment (green) */}
-                      {cashPct > 0 && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div 
-                                className="bg-emerald-500/80 hover:bg-emerald-500 transition-colors flex items-center justify-center cursor-help"
-                                style={{ width: `${cashPct}%`, minWidth: cashPct > 5 ? '30px' : '0' }}
-                              >
-                                {cashPct > 20 && (
-                                  <span className="text-xs font-medium text-white/90">Cash</span>
-                                )}
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              <p className="text-xs">Funds not exposed to the market.</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                      
-                      {/* Invested segment (blue) */}
-                      {investedPct > 0 && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div 
-                                className="bg-blue-500/80 hover:bg-blue-500 transition-colors flex items-center justify-center cursor-help"
-                                style={{ width: `${investedPct}%`, minWidth: investedPct > 5 ? '30px' : '0' }}
-                              >
-                                {investedPct > 20 && (
-                                  <span className="text-xs font-medium text-white/90">Invested</span>
-                                )}
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              <p className="text-xs">Capital currently exposed to market price movements.</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </div>
-                    
-                    {/* Legend with values */}
-                    <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="flex items-center gap-1.5 cursor-help">
-                              <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/80"></div>
-                              <span className="text-slate-400">Cash (secured):</span>
-                              <span className="font-medium text-emerald-400">{formatEuro(cash)}</span>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="text-xs">Funds not exposed to the market.</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="flex items-center gap-1.5 cursor-help">
-                              <div className="w-2.5 h-2.5 rounded-sm bg-blue-500/80"></div>
-                              <span className="text-slate-400">Invested (live):</span>
-                              <span className="font-medium text-blue-400">{formatEuro(invested)}</span>
-                              {portfolioValuation.hasMissingPrices && (
-                                <AlertCircle className="h-3 w-3 text-amber-400" />
-                              )}
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="text-xs">Capital currently exposed to market price movements.</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="flex items-center gap-1.5 cursor-help">
-                              <Fuel className="h-3 w-3 text-amber-400" />
-                              <span className="text-slate-400">Costs (gas):</span>
-                              <span className="font-medium text-amber-400">−{formatEuro(gas)}</span>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="text-xs">Transaction costs already paid.</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* ═══════════════════════════════════════════════════════════════════════
-              SECTION 2 — RESULTS
-              2-column layout: Initial Capital | Composite P&L Block
-          ═══════════════════════════════════════════════════════════════════════ */}
-          {testMode && isInitialized && (
-            <div className="space-y-2">
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Results</div>
-              
-              <div className="grid grid-cols-2 gap-3">
-                {/* Left: Initial Capital (standalone baseline) */}
+                {/* Initial Capital - inline, compact */}
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help border border-slate-600/30 flex flex-col justify-center">
-                        <div className="text-xs text-slate-400 mb-1">Initial Capital</div>
-                        <div className="text-xl font-bold text-slate-200">{formatEuro(portfolioValuation.startingCapitalEur)}</div>
+                      <div className="flex items-center gap-2 cursor-help text-sm">
+                        <span className="text-slate-400">Initial Capital:</span>
+                        <span className="font-semibold text-slate-200">{formatEuro(portfolioValuation.startingCapitalEur)}</span>
                       </div>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p className="text-xs">Amount initially committed to trading (excluding market performance).</p>
+                      <p className="text-xs">Money initially committed to trading (excluding later deposits).</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
                 
-                {/* Right: Composite P&L Block (Total P&L + nested Unrealized) */}
-                <div className="p-3 bg-slate-700/50 rounded-lg border border-slate-500/40">
-                  {/* Primary: Total P&L */}
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="cursor-help">
-                          <div className="text-xs text-slate-400 mb-1">Total P&L</div>
-                          {(() => {
-                            const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
-                            return (
-                              <div className={`text-xl font-bold ${pnl.colorClass}`}>
-                                {pnl.sign}{pnl.value}
-                                <span className="text-sm font-semibold ml-1.5">({formatPercentage(portfolioValuation.totalPnlPct)})</span>
-                              </div>
-                            );
-                          })()}
-                          <div className="text-xs text-slate-500 mt-0.5">Overall performance vs Initial Capital</div>
+                {/* Divider */}
+                <div className="border-t border-slate-600/40"></div>
+                
+                {/* Total P&L - Primary, visually dominant */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="cursor-help">
+                        <div className="text-xs text-slate-400 mb-1">Total P&L</div>
+                        {(() => {
+                          const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                          return (
+                            <div className={`text-2xl font-bold ${pnl.colorClass}`}>
+                              {pnl.sign}{pnl.value}
+                              <span className="text-base font-semibold ml-1.5">({formatPercentage(portfolioValuation.totalPnlPct)})</span>
+                            </div>
+                          );
+                        })()}
+                        <div className="text-xs text-slate-500 mt-0.5">Overall performance vs Initial Capital</div>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Overall gain or loss compared to your initial capital.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                
+                {/* Unrealized P&L - nested, subordinate */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="ml-3 pl-3 border-l-2 border-slate-500/40 cursor-help py-1">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-400/80 mb-0.5">
+                          <span>Unrealized P&L</span>
+                          <span className="text-[10px] text-slate-500">(Live)</span>
+                          {portfolioValuation.hasMissingPrices && (
+                            <AlertCircle className="h-3 w-3 text-amber-400" />
+                          )}
                         </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs">Overall performance compared to your initial capital.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  
-                  {/* Divider */}
-                  <div className="border-t border-slate-500/30 my-2.5"></div>
-                  
-                  {/* Secondary: Unrealized P&L (nested, subordinate) */}
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="pl-2 border-l-2 border-slate-500/40 cursor-help">
-                          <div className="flex items-center gap-1.5 text-xs text-slate-400/80 mb-0.5">
-                            <span>Unrealized P&L</span>
-                            <span className="text-[10px] text-slate-500">(Live)</span>
-                            {portfolioValuation.hasMissingPrices && (
-                              <AlertCircle className="h-3 w-3 text-amber-400" />
-                            )}
-                          </div>
-                          {(() => {
-                            const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
-                            return (
-                              <div className={`text-base font-semibold ${unrealPnl.colorClass} opacity-90`}>
-                                {unrealPnl.sign}{unrealPnl.value}
-                              </div>
-                            );
-                          })()}
-                          <div className="text-[10px] text-slate-500 mt-0.5">Included in Total P&L · Trades in progress</div>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs">
-                        <p className="text-xs">This is the portion of Total P&L coming from open positions. It is already included in Total P&L.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
+                        {(() => {
+                          const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
+                          return (
+                            <div className={`text-lg font-semibold ${unrealPnl.colorClass} opacity-90`}>
+                              {unrealPnl.sign}{unrealPnl.value}
+                            </div>
+                          );
+                        })()}
+                        <div className="text-[10px] text-slate-500 mt-0.5">Included in Total P&L · Trades in progress</div>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p className="text-xs">Profit or loss on open trades. Included in Total P&L.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
+              
+              {/* ═══════════════════════════════════════════════════════════════════════
+                  RIGHT COLUMN — WHERE YOUR MONEY IS NOW (Vertical Bar)
+              ═══════════════════════════════════════════════════════════════════════ */}
+              <div className="p-4 bg-slate-800/40 rounded-lg border border-slate-600/30">
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Where Your Money Is Now</div>
+                
+                {(() => {
+                  const cash = portfolioValuation.cashEur;
+                  const invested = portfolioValuation.openPositionsValueEur;
+                  const gas = portfolioValuation.gasSpentEur;
+                  const total = cash + invested;
+                  
+                  const cashPct = total > 0 ? (cash / total) * 100 : 100;
+                  const investedPct = total > 0 ? (invested / total) * 100 : 0;
+                  
+                  return (
+                    <div className="flex gap-4">
+                      {/* Vertical Stacked Bar */}
+                      <div className="w-10 h-32 rounded-md overflow-hidden flex flex-col bg-slate-900/50 border border-slate-600/30">
+                        {/* Cash segment (green) - top */}
+                        {cashPct > 0 && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div 
+                                  className="bg-emerald-500/80 hover:bg-emerald-500 transition-colors cursor-help w-full"
+                                  style={{ height: `${cashPct}%`, minHeight: cashPct > 5 ? '8px' : '0' }}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                <p className="text-xs">Funds not currently invested.</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                        
+                        {/* Invested segment (blue) - bottom */}
+                        {investedPct > 0 && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div 
+                                  className="bg-blue-500/80 hover:bg-blue-500 transition-colors cursor-help w-full"
+                                  style={{ height: `${investedPct}%`, minHeight: investedPct > 5 ? '8px' : '0' }}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent side="right">
+                                <p className="text-xs">Current market value of open positions.</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
+                      
+                      {/* Legend with values */}
+                      <div className="flex flex-col justify-center gap-2 text-xs">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="flex items-center gap-2 cursor-help">
+                                <div className="w-3 h-3 rounded-sm bg-emerald-500/80"></div>
+                                <div>
+                                  <span className="text-slate-400">Cash (secured)</span>
+                                  <div className="font-semibold text-emerald-400">{formatEuro(cash)}</div>
+                                </div>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">Funds not currently invested.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="flex items-center gap-2 cursor-help">
+                                <div className="w-3 h-3 rounded-sm bg-blue-500/80"></div>
+                                <div>
+                                  <span className="text-slate-400">Invested (live)</span>
+                                  <div className="flex items-center gap-1 font-semibold text-blue-400">
+                                    {formatEuro(invested)}
+                                    {portfolioValuation.hasMissingPrices && (
+                                      <AlertCircle className="h-3 w-3 text-amber-400" />
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">Current market value of open positions.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="flex items-center gap-2 cursor-help">
+                                <Fuel className="w-3 h-3 text-amber-400" />
+                                <div>
+                                  <span className="text-slate-400">Costs (gas)</span>
+                                  <div className="font-semibold text-amber-400">−{formatEuro(gas)}</div>
+                                </div>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p className="text-xs">Estimated transaction costs.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+              
             </div>
           )}
           
