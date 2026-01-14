@@ -1040,6 +1040,80 @@ export type Database = {
         }
         Relationships: []
       }
+      execution_jobs: {
+        Row: {
+          amount: number
+          confirmed_at: string | null
+          created_at: string
+          error_message: string | null
+          execution_mode: string
+          execution_target: string
+          id: string
+          idempotency_key: string | null
+          kind: string
+          locked_at: string | null
+          payload: Json
+          side: string
+          status: string
+          strategy_id: string
+          submitted_at: string | null
+          symbol: string
+          tx_hash: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          confirmed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          execution_mode: string
+          execution_target: string
+          id?: string
+          idempotency_key?: string | null
+          kind: string
+          locked_at?: string | null
+          payload?: Json
+          side: string
+          status?: string
+          strategy_id: string
+          submitted_at?: string | null
+          symbol: string
+          tx_hash?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          confirmed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          execution_mode?: string
+          execution_target?: string
+          id?: string
+          idempotency_key?: string | null
+          kind?: string
+          locked_at?: string | null
+          payload?: Json
+          side?: string
+          status?: string
+          strategy_id?: string
+          submitted_at?: string | null
+          symbol?: string
+          tx_hash?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "execution_jobs_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       execution_locks: {
         Row: {
           acquired_at: string
@@ -1653,9 +1727,10 @@ export type Database = {
           gas_estimate_wei: number | null
           gas_used_wei: number | null
           id: string
+          idempotency_key: string | null
           integrity_reason: string | null
           is_corrupted: boolean
-          is_test_mode: boolean | null
+          is_test_mode: boolean
           market_conditions: Json | null
           mev_route: string | null
           notes: string | null
@@ -1704,9 +1779,10 @@ export type Database = {
           gas_estimate_wei?: number | null
           gas_used_wei?: number | null
           id?: string
+          idempotency_key?: string | null
           integrity_reason?: string | null
           is_corrupted?: boolean
-          is_test_mode?: boolean | null
+          is_test_mode?: boolean
           market_conditions?: Json | null
           mev_route?: string | null
           notes?: string | null
@@ -1755,9 +1831,10 @@ export type Database = {
           gas_estimate_wei?: number | null
           gas_used_wei?: number | null
           id?: string
+          idempotency_key?: string | null
           integrity_reason?: string | null
           is_corrupted?: boolean
-          is_test_mode?: boolean | null
+          is_test_mode?: boolean
           market_conditions?: Json | null
           mev_route?: string | null
           notes?: string | null
@@ -2530,6 +2607,9 @@ export type Database = {
           max_quote_age_ms: number | null
           mev_policy: string | null
           on_disable_policy: string | null
+          panic_activated_at: string | null
+          panic_active: boolean
+          panic_trigger_strategy_id: string | null
           preferred_providers: string[] | null
           slippage_bps_default: number | null
           state: string
@@ -2557,6 +2637,9 @@ export type Database = {
           max_quote_age_ms?: number | null
           mev_policy?: string | null
           on_disable_policy?: string | null
+          panic_activated_at?: string | null
+          panic_active?: boolean
+          panic_trigger_strategy_id?: string | null
           preferred_providers?: string[] | null
           slippage_bps_default?: number | null
           state?: string
@@ -2584,6 +2667,9 @@ export type Database = {
           max_quote_age_ms?: number | null
           mev_policy?: string | null
           on_disable_policy?: string | null
+          panic_activated_at?: string | null
+          panic_active?: boolean
+          panic_trigger_strategy_id?: string | null
           preferred_providers?: string[] | null
           slippage_bps_default?: number | null
           state?: string
@@ -2595,6 +2681,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "trading_strategies_panic_trigger_strategy_id_fkey"
+            columns: ["panic_trigger_strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "trading_strategies_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
@@ -2602,6 +2695,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      transfer_allowlist: {
+        Row: {
+          address: string
+          chain_id: number
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string | null
+          max_amount_wei: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address: string
+          chain_id?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          max_amount_wei?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address?: string
+          chain_id?: number
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          max_amount_wei?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       user_coinbase_connections: {
         Row: {
@@ -3297,6 +3426,36 @@ export type Database = {
       check_strategy_can_delete: {
         Args: { p_strategy_id: string }
         Returns: Json
+      }
+      claim_next_execution_job: {
+        Args: never
+        Returns: {
+          amount: number
+          confirmed_at: string | null
+          created_at: string
+          error_message: string | null
+          execution_mode: string
+          execution_target: string
+          id: string
+          idempotency_key: string | null
+          kind: string
+          locked_at: string | null
+          payload: Json
+          side: string
+          status: string
+          strategy_id: string
+          submitted_at: string | null
+          symbol: string
+          tx_hash: string | null
+          updated_at: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "execution_jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       dearmor: { Args: { "": string }; Returns: string }
       debug_decision_logs: {
