@@ -699,7 +699,7 @@ export const UnifiedPortfolioDisplay = () => {
                   return (
                     <div className="flex gap-4 flex-1">
                       {/* Vertical Stacked Bar - fills available height */}
-                      <div className="w-12 min-h-[140px] flex-1 rounded-md overflow-hidden flex flex-col bg-slate-900/50 border border-slate-600/30">
+                      <div className="w-7 min-h-[140px] flex-1 rounded-md overflow-hidden flex flex-col bg-slate-900/50 border border-slate-600/30">
                         {/* Cash segment (green) - top */}
                         {cashPct > 0 && (
                           <TooltipProvider>
