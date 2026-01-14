@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Plus, Settings, Activity, TrendingUp, Play, Pause, Edit, Copy, AlertTriangle, Trash2, Download, Upload } from 'lucide-react';
+import { Plus, Settings, Activity, TrendingUp, Play, Pause, Edit, Copy, AlertTriangle, Trash2, Download, Upload, Rocket } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -11,6 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { logger } from '@/utils/logger';
 import { ComprehensiveStrategyConfig } from './strategy/ComprehensiveStrategyConfig';
 import { StrategyImportModal } from './strategy/StrategyImportModal';
+import { PushToLiveModal } from './strategy/PushToLiveModal';
 import { formatEuro, formatPercentage, formatDuration } from '@/utils/currencyFormatter';
 import { normalizeStrategy, StrategyData } from '@/types/strategy';
 import { serializeStrategy, generateExportFilename, downloadStrategyAsJson } from '@/utils/strategySerializer';
@@ -41,6 +42,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
   const [strategyPerformance, setStrategyPerformance] = useState<Record<string, StrategyPerformance>>({});
   const [showImportModal, setShowImportModal] = useState(false);
   const [importedFormData, setImportedFormData] = useState<Record<string, any> | null>(null);
+  const [showPushToLiveModal, setShowPushToLiveModal] = useState(false);
+  const [strategyToPush, setStrategyToPush] = useState<StrategyData | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -234,49 +237,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     setCurrentView('comprehensive');
   };
 
-  const handlePushToProduction = async (strategy: StrategyData) => {
-    if (!user) return;
-
-    try {
-      // Ensure canonical keys are present when copying to production
-      const config = (strategy.configuration && typeof strategy.configuration === 'object' && !Array.isArray(strategy.configuration))
-        ? strategy.configuration as Record<string, any>
-        : {};
-      const unifiedConfig = (config.unifiedConfig && typeof config.unifiedConfig === 'object') ? config.unifiedConfig as Record<string, any> : {};
-      const aiConfig = (config.aiIntelligenceConfig && typeof config.aiIntelligenceConfig === 'object') ? config.aiIntelligenceConfig as Record<string, any> : {};
-
-      const configWithCanonicalKeys = {
-        ...config,
-        // Ensure canonical root keys exist with defaults if missing
-        minHoldPeriodMs: config.minHoldPeriodMs ?? unifiedConfig.minHoldPeriodMs ?? 120000,
-        cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs ?? unifiedConfig.cooldownBetweenOppositeActionsMs ?? 30000,
-        aiConfidenceThreshold: config.aiConfidenceThreshold ?? aiConfig.aiConfidenceThreshold ?? 50,
-        takeProfitPercentage: config.takeProfitPercentage ?? 2.5,
-        stopLossPercentage: config.stopLossPercentage ?? 3.0,
-      };
-
-      const productionStrategy = {
-        user_id: user.id,
-        strategy_name: strategy.strategy_name,
-        description: strategy.description,
-        configuration: configWithCanonicalKeys,
-        test_mode: false,
-        is_active: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      const { error } = await supabase
-        .from('trading_strategies')
-        .insert(productionStrategy);
-
-      if (error) throw error;
-
-      await fetchStrategies();
-    } catch (error) {
-      logger.error('Error pushing strategy to production:', error);
-    }
-  };
+  // Legacy handlePushToProduction removed - now using PushToLiveModal with RPC
 
   const handleCloneStrategy = async (strategy: StrategyData) => {
     if (!user) return;
@@ -549,48 +510,21 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                    {/* Push to Production button - only show for test strategies that are active */}
-                    {testMode && strategy.is_active_test && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="default"
-                            size="sm"
-                            className="bg-orange-600 hover:bg-orange-700 font-bold"
-                            title="Push to Production"
-                          >
-                            Push to Production
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle className="flex items-center gap-2">
-                              <AlertTriangle className="h-5 w-5 text-red-500" />
-                              Push Strategy to Production
-                            </AlertDialogTitle>
-                            <AlertDialogDescription className="space-y-3">
-                              <p className="font-bold text-red-600">
-                                ⚠️ This strategy will now be moved to Production.
-                              </p>
-                              <p className="text-sm text-muted-foreground">
-                                It will be visible in Live mode but not active until you manually activate it.
-                              </p>
-                              <p className="text-sm font-semibold text-red-600">
-                                You will be trading with real funds once activated.
-                              </p>
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel – Keep Testing</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handlePushToProduction(strategy)}
-                              className="bg-red-600 hover:bg-red-700"
-                            >
-                              Yes, Go Live with Real Money
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                    {/* Push to Live button - show for all MOCK strategies in test mode */}
+                    {testMode && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="bg-primary hover:bg-primary/90 font-semibold"
+                        title="Push to Live"
+                        onClick={() => {
+                          setStrategyToPush(strategy);
+                          setShowPushToLiveModal(true);
+                        }}
+                      >
+                        <Rocket className="h-4 w-4 mr-1" />
+                        Push to Live
+                      </Button>
                     )}
                     <Button
                       variant={strategy.is_active ? "destructive" : "default"}
@@ -687,6 +621,23 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
         open={showImportModal}
         onOpenChange={setShowImportModal}
         onImport={handleImportStrategy}
+      />
+      
+      {/* Push to Live Modal */}
+      <PushToLiveModal
+        open={showPushToLiveModal}
+        onOpenChange={setShowPushToLiveModal}
+        strategy={strategyToPush}
+        onSuccess={(newStrategyId) => {
+          logger.info('Strategy promoted to LIVE:', newStrategyId);
+          setShowPushToLiveModal(false);
+          setStrategyToPush(null);
+          fetchStrategies();
+          toast({
+            title: 'Strategy promoted!',
+            description: 'Switch to Live view to see your new strategy.',
+          });
+        }}
       />
     </div>
   );
