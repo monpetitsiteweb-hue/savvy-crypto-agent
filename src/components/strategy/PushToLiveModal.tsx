@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { AlertTriangle, Check, X, Loader2, Rocket, Shield, Wallet, FileCheck } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -36,8 +37,10 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
   const { toast } = useToast();
   const [step, setStep] = useState<ModalStep>('checking');
   const [checks, setChecks] = useState<PrerequisiteChecks | null>(null);
+  const [canTradeLive, setCanTradeLive] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [newStrategyId, setNewStrategyId] = useState<string | null>(null);
+  const [acknowledgedRealTrading, setAcknowledgedRealTrading] = useState(false);
 
   // Run pre-flight checks when modal opens
   useEffect(() => {
@@ -51,8 +54,10 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
     if (!open) {
       setStep('checking');
       setChecks(null);
+      setCanTradeLive(false);
       setErrorMessage('');
       setNewStrategyId(null);
+      setAcknowledgedRealTrading(false);
     }
   }, [open]);
 
@@ -76,8 +81,9 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
 
       const result = data as { ok: boolean; checks: PrerequisiteChecks; panic_active?: boolean };
       setChecks(result.checks);
+      setCanTradeLive(result.ok === true);
 
-      if (result.ok) {
+      if (result.ok === true) {
         setStep('confirm');
       } else {
         setStep('blocked');
@@ -90,7 +96,11 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
   };
 
   const handlePromote = async () => {
-    if (!user || !strategy) return;
+    // HARD BLOCK: Cannot promote without prerequisites AND acknowledgment
+    if (!user || !strategy || !canTradeLive || !acknowledgedRealTrading) {
+      logger.warn('Promotion blocked: prerequisites not met or not acknowledged');
+      return;
+    }
 
     setStep('promoting');
 
@@ -281,6 +291,24 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
                   </div>
                 </div>
               </div>
+              
+              {/* MANDATORY ACKNOWLEDGMENT CHECKBOX */}
+              <div className="border border-destructive/50 bg-destructive/5 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="acknowledge-real-trading"
+                    checked={acknowledgedRealTrading}
+                    onCheckedChange={(checked) => setAcknowledgedRealTrading(checked === true)}
+                    className="mt-0.5"
+                  />
+                  <label 
+                    htmlFor="acknowledge-real-trading" 
+                    className="text-sm font-medium text-destructive cursor-pointer select-none"
+                  >
+                    I understand this strategy will trade REAL money once activated
+                  </label>
+                </div>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={handleClose}>
@@ -288,6 +316,7 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
               </Button>
               <Button 
                 onClick={handlePromote}
+                disabled={!canTradeLive || !acknowledgedRealTrading}
                 className="bg-primary hover:bg-primary/90"
               >
                 <Rocket className="h-4 w-4 mr-2" />
