@@ -3422,6 +3422,10 @@ export type Database = {
         }[]
       }
       check_capital_access: { Args: { p_user_id: string }; Returns: boolean }
+      check_live_trading_prerequisites: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
       check_real_trading_prerequisites: { Args: never; Returns: Json }
       check_strategy_can_delete: {
         Args: { p_strategy_id: string }
@@ -3456,6 +3460,10 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      clear_panic_state: {
+        Args: { p_batch_id: string; p_user_id: string }
+        Returns: Json
       }
       dearmor: { Args: { "": string }; Returns: string }
       debug_decision_logs: {
@@ -3637,6 +3645,10 @@ export type Database = {
         Args: { "": string }
         Returns: Record<string, unknown>[]
       }
+      promote_strategy_to_live: {
+        Args: { p_strategy_id: string; p_user_id: string }
+        Returns: Json
+      }
       recalculate_cash_from_trades: {
         Args: { p_is_test_mode: boolean; p_user_id: string }
         Returns: Json
@@ -3691,6 +3703,10 @@ export type Database = {
       }
       settle_sell_trade: {
         Args: { p_proceeds_eur: number; p_user_id: string }
+        Returns: Json
+      }
+      trigger_panic_liquidation: {
+        Args: { p_reason?: string; p_strategy_id?: string; p_user_id: string }
         Returns: Json
       }
       update_strategy_state: {
