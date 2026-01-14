@@ -719,20 +719,20 @@ export const UnifiedPortfolioDisplay = () => {
 
           {/* ═══════════════════════════════════════════════════════════════════════
               SECTION 2 — RESULTS
-              3-column grid: Initial Capital | Total P&L | Unrealized P&L
+              2-column layout: Initial Capital | Composite P&L Block
           ═══════════════════════════════════════════════════════════════════════ */}
           {testMode && isInitialized && (
             <div className="space-y-2">
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Results</div>
               
-              <div className="grid grid-cols-3 gap-3">
-                {/* Left: Initial Capital */}
+              <div className="grid grid-cols-2 gap-3">
+                {/* Left: Initial Capital (standalone baseline) */}
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help border border-slate-600/30">
+                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help border border-slate-600/30 flex flex-col justify-center">
                         <div className="text-xs text-slate-400 mb-1">Initial Capital</div>
-                        <div className="text-lg font-bold text-slate-200">{formatEuro(portfolioValuation.startingCapitalEur)}</div>
+                        <div className="text-xl font-bold text-slate-200">{formatEuro(portfolioValuation.startingCapitalEur)}</div>
                       </div>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -741,58 +741,64 @@ export const UnifiedPortfolioDisplay = () => {
                   </Tooltip>
                 </TooltipProvider>
                 
-                {/* Middle: Total P&L (main performance metric) */}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="p-3 bg-slate-700/50 rounded-lg cursor-help border border-slate-500/40">
-                        <div className="text-xs text-slate-400 mb-1">Total P&L</div>
-                        {(() => {
-                          const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
-                          return (
-                            <div className={`text-lg font-bold ${pnl.colorClass}`}>
-                              {pnl.sign}{pnl.value}
-                              <span className="text-sm ml-1">({formatPercentage(portfolioValuation.totalPnlPct)})</span>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">Overall performance compared to your initial capital.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                
-                {/* Right: Unrealized P&L (Live) */}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help border border-slate-600/30">
-                        <div className="flex items-center gap-1 text-xs text-slate-400 mb-1">
-                          Unrealized P&L
-                          {portfolioValuation.hasMissingPrices && (
-                            <AlertCircle className="h-3 w-3 text-amber-400" />
-                          )}
+                {/* Right: Composite P&L Block (Total P&L + nested Unrealized) */}
+                <div className="p-3 bg-slate-700/50 rounded-lg border border-slate-500/40">
+                  {/* Primary: Total P&L */}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="cursor-help">
+                          <div className="text-xs text-slate-400 mb-1">Total P&L</div>
+                          {(() => {
+                            const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                            return (
+                              <div className={`text-xl font-bold ${pnl.colorClass}`}>
+                                {pnl.sign}{pnl.value}
+                                <span className="text-sm font-semibold ml-1.5">({formatPercentage(portfolioValuation.totalPnlPct)})</span>
+                              </div>
+                            );
+                          })()}
+                          <div className="text-xs text-slate-500 mt-0.5">Overall performance vs Initial Capital</div>
                         </div>
-                        {(() => {
-                          const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
-                          return (
-                            <>
-                              <div className={`text-lg font-bold ${unrealPnl.colorClass}`}>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Overall performance compared to your initial capital.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  
+                  {/* Divider */}
+                  <div className="border-t border-slate-500/30 my-2.5"></div>
+                  
+                  {/* Secondary: Unrealized P&L (nested, subordinate) */}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="pl-2 border-l-2 border-slate-500/40 cursor-help">
+                          <div className="flex items-center gap-1.5 text-xs text-slate-400/80 mb-0.5">
+                            <span>Unrealized P&L</span>
+                            <span className="text-[10px] text-slate-500">(Live)</span>
+                            {portfolioValuation.hasMissingPrices && (
+                              <AlertCircle className="h-3 w-3 text-amber-400" />
+                            )}
+                          </div>
+                          {(() => {
+                            const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
+                            return (
+                              <div className={`text-base font-semibold ${unrealPnl.colorClass} opacity-90`}>
                                 {unrealPnl.sign}{unrealPnl.value}
                               </div>
-                              <div className="text-xs text-slate-500 mt-0.5">Trades in progress</div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">Market gains or losses on open positions. This value changes in real time.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                            );
+                          })()}
+                          <div className="text-[10px] text-slate-500 mt-0.5">Included in Total P&L · Trades in progress</div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        <p className="text-xs">This is the portion of Total P&L coming from open positions. It is already included in Total P&L.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
               </div>
             </div>
           )}
