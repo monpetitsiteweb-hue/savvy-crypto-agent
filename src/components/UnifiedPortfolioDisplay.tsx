@@ -567,62 +567,57 @@ export const UnifiedPortfolioDisplay = () => {
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════════
-              SECTION 1: YOUR CAPITAL
-              "This is the money you committed to trading."
+              TOP — PRIMARY METRIC (FULL WIDTH)
+              Total Live Portfolio Value - the anchor metric
           ═══════════════════════════════════════════════════════════════════════ */}
           {testMode && isInitialized && (
-            <div className="space-y-3">
-              <div>
-                <div className="text-sm font-semibold text-white uppercase tracking-wider">Your Capital</div>
-                <div className="text-xs text-slate-400">This is the money you committed to trading.</div>
-              </div>
-              
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="p-4 bg-slate-700/50 rounded-lg border border-slate-600/50 cursor-help">
-                      <div className="text-xs text-slate-400 mb-1">Total Capital</div>
-                      <div className="text-3xl font-bold text-white">{formatEuro(portfolioValuation.startingCapitalEur)}</div>
-                      <div className="mt-2 flex gap-4 text-xs text-slate-500">
-                        <span>Starting Capital: {formatEuro(portfolioValuation.startingCapitalEur)}</span>
-                        <span>Additional Capital: {formatEuro(0)}</span>
-                      </div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="text-center cursor-help py-2">
+                    <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Total Live Portfolio Value</div>
+                    <div className={`text-4xl font-bold ${portfolioValuation.totalPnlEur >= 0 ? 'text-white' : 'text-red-400'}`}>
+                      {formatEuro(portfolioValuation.totalPortfolioValueEur)}
                     </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-xs">
-                    <p className="text-xs">Total amount of money you have put into the strategy (initial + later deposits).</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
+                    {(() => {
+                      const pnlDisplay = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                      return (
+                        <div className={`text-sm mt-1 ${pnlDisplay.colorClass}`}>
+                          {pnlDisplay.sign}{pnlDisplay.value} ({formatPercentage(portfolioValuation.totalPnlPct)}) vs Initial Capital
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  <p className="text-xs">Cash + current market value of open positions − costs.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════════
-              SECTION 2: WHERE YOUR MONEY IS NOW
+              SECTION 1 — WHERE YOUR MONEY IS NOW
               Horizontal stacked bar showing allocation
           ═══════════════════════════════════════════════════════════════════════ */}
           {testMode && isInitialized && (
-            <div className="space-y-3">
-              <div>
-                <div className="text-sm font-semibold text-white uppercase tracking-wider">Where Your Money Is Now</div>
-                <div className="text-xs text-slate-400">How your capital is currently split.</div>
-              </div>
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Where Your Money Is Now</div>
               
               {/* Horizontal Stacked Bar */}
               {(() => {
                 const cash = portfolioValuation.cashEur;
                 const invested = portfolioValuation.openPositionsValueEur;
                 const gas = portfolioValuation.gasSpentEur;
-                const total = cash + invested; // Gas is already deducted from cash conceptually
+                const total = cash + invested;
                 
-                // Calculate percentages (handle edge case of 0 total)
                 const cashPct = total > 0 ? (cash / total) * 100 : 100;
                 const investedPct = total > 0 ? (invested / total) * 100 : 0;
                 
                 return (
-                  <div className="space-y-3">
+                  <div className="space-y-2">
                     {/* The stacked bar */}
-                    <div className="h-8 rounded-lg overflow-hidden flex bg-slate-900/50 border border-slate-600/30">
+                    <div className="h-6 rounded-md overflow-hidden flex bg-slate-900/50 border border-slate-600/30">
                       {/* Cash segment (green) */}
                       {cashPct > 0 && (
                         <TooltipProvider>
@@ -630,16 +625,15 @@ export const UnifiedPortfolioDisplay = () => {
                             <TooltipTrigger asChild>
                               <div 
                                 className="bg-emerald-500/80 hover:bg-emerald-500 transition-colors flex items-center justify-center cursor-help"
-                                style={{ width: `${cashPct}%`, minWidth: cashPct > 5 ? '40px' : '0' }}
+                                style={{ width: `${cashPct}%`, minWidth: cashPct > 5 ? '30px' : '0' }}
                               >
-                                {cashPct > 15 && (
+                                {cashPct > 20 && (
                                   <span className="text-xs font-medium text-white/90">Cash</span>
                                 )}
                               </div>
                             </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs">
-                              <p className="text-xs font-medium">Cash (secured)</p>
-                              <p className="text-xs text-slate-300">Money not exposed to the market. Value does not fluctuate.</p>
+                            <TooltipContent side="top">
+                              <p className="text-xs">Funds not exposed to the market.</p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -652,35 +646,34 @@ export const UnifiedPortfolioDisplay = () => {
                             <TooltipTrigger asChild>
                               <div 
                                 className="bg-blue-500/80 hover:bg-blue-500 transition-colors flex items-center justify-center cursor-help"
-                                style={{ width: `${investedPct}%`, minWidth: investedPct > 5 ? '40px' : '0' }}
+                                style={{ width: `${investedPct}%`, minWidth: investedPct > 5 ? '30px' : '0' }}
                               >
-                                {investedPct > 15 && (
+                                {investedPct > 20 && (
                                   <span className="text-xs font-medium text-white/90">Invested</span>
                                 )}
                               </div>
                             </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs">
-                              <p className="text-xs font-medium">Invested (live)</p>
-                              <p className="text-xs text-slate-300">Money currently in open positions, exposed to price changes.</p>
+                            <TooltipContent side="top">
+                              <p className="text-xs">Capital currently exposed to market price movements.</p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                       )}
                     </div>
                     
-                    {/* Labels below the bar */}
-                    <div className="flex flex-wrap justify-between gap-2 text-xs">
+                    {/* Legend with values */}
+                    <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs">
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <div className="flex items-center gap-2 cursor-help">
-                              <div className="w-3 h-3 rounded bg-emerald-500/80"></div>
-                              <span className="text-slate-300">Cash (secured)</span>
-                              <span className="font-semibold text-emerald-400">{formatEuro(cash)}</span>
+                            <div className="flex items-center gap-1.5 cursor-help">
+                              <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/80"></div>
+                              <span className="text-slate-400">Cash (secured):</span>
+                              <span className="font-medium text-emerald-400">{formatEuro(cash)}</span>
                             </div>
                           </TooltipTrigger>
-                          <TooltipContent side="bottom" className="max-w-xs">
-                            <p className="text-xs">Money not exposed to the market. Value does not fluctuate.</p>
+                          <TooltipContent>
+                            <p className="text-xs">Funds not exposed to the market.</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -688,17 +681,17 @@ export const UnifiedPortfolioDisplay = () => {
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <div className="flex items-center gap-2 cursor-help">
-                              <div className="w-3 h-3 rounded bg-blue-500/80"></div>
-                              <span className="text-slate-300">Invested (live)</span>
-                              <span className="font-semibold text-blue-400">{formatEuro(invested)}</span>
+                            <div className="flex items-center gap-1.5 cursor-help">
+                              <div className="w-2.5 h-2.5 rounded-sm bg-blue-500/80"></div>
+                              <span className="text-slate-400">Invested (live):</span>
+                              <span className="font-medium text-blue-400">{formatEuro(invested)}</span>
                               {portfolioValuation.hasMissingPrices && (
                                 <AlertCircle className="h-3 w-3 text-amber-400" />
                               )}
                             </div>
                           </TooltipTrigger>
-                          <TooltipContent side="bottom" className="max-w-xs">
-                            <p className="text-xs">Money currently in open positions, exposed to price changes.</p>
+                          <TooltipContent>
+                            <p className="text-xs">Capital currently exposed to market price movements.</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -706,45 +699,18 @@ export const UnifiedPortfolioDisplay = () => {
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <div className="flex items-center gap-2 cursor-help">
+                            <div className="flex items-center gap-1.5 cursor-help">
                               <Fuel className="h-3 w-3 text-amber-400" />
-                              <span className="text-slate-300">Costs (gas)</span>
-                              <span className="font-semibold text-amber-400">−{formatEuro(gas)}</span>
+                              <span className="text-slate-400">Costs (gas):</span>
+                              <span className="font-medium text-amber-400">−{formatEuro(gas)}</span>
                             </div>
                           </TooltipTrigger>
-                          <TooltipContent side="bottom" className="max-w-xs">
-                            <p className="text-xs">Execution costs paid so far.</p>
+                          <TooltipContent>
+                            <p className="text-xs">Transaction costs already paid.</p>
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     </div>
-                    
-                    {/* Total Live Portfolio Value - centered below */}
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="mt-2 p-4 bg-slate-700/50 rounded-lg border border-slate-600/50 text-center cursor-help">
-                            <div className="text-xs text-slate-400 mb-1">Total Live Portfolio Value</div>
-                            {(() => {
-                              const pnlDisplay = formatPnlWithSign(portfolioValuation.totalPnlEur);
-                              return (
-                                <>
-                                  <div className={`text-3xl font-bold ${pnlDisplay.colorClass}`}>
-                                    {formatEuro(portfolioValuation.totalPortfolioValueEur)}
-                                  </div>
-                                  <div className={`text-sm mt-1 ${pnlDisplay.colorClass}`}>
-                                    {pnlDisplay.sign}{pnlDisplay.value} ({formatPercentage(portfolioValuation.totalPnlPct)}) from start
-                                  </div>
-                                </>
-                              );
-                            })()}
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" className="max-w-xs">
-                          <p className="text-xs">Cash + current market value of open positions − costs.</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
                   </div>
                 );
               })()}
@@ -752,96 +718,103 @@ export const UnifiedPortfolioDisplay = () => {
           )}
 
           {/* ═══════════════════════════════════════════════════════════════════════
-              SECTION 3: MARKET EFFECT (LIVE)
-              Shows unrealized P&L only
-          ═══════════════════════════════════════════════════════════════════════ */}
-          {testMode && isInitialized && openTrades.length > 0 && (
-            <div className="space-y-3">
-              <div className="text-sm font-semibold text-white uppercase tracking-wider">Market Effect (Live)</div>
-              
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="p-4 bg-slate-700/30 rounded-lg cursor-help">
-                      <div className="flex items-center gap-1 text-xs text-slate-400 mb-1">
-                        Unrealized P&L
-                        {portfolioValuation.hasMissingPrices && (
-                          <AlertCircle className="h-3 w-3 text-amber-400" />
-                        )}
-                      </div>
-                      {(() => {
-                        const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
-                        return (
-                          <div className={`text-2xl font-bold ${unrealPnl.colorClass}`}>
-                            {unrealPnl.sign}{unrealPnl.value}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-xs">
-                    <p className="text-xs">Gain or loss if all open positions were closed at current prices.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-          )}
-
-          {/* ═══════════════════════════════════════════════════════════════════════
-              SECTION 4: RESULT
-              Total P&L with context
+              SECTION 2 — RESULTS
+              3-column grid: Initial Capital | Total P&L | Unrealized P&L
           ═══════════════════════════════════════════════════════════════════════ */}
           {testMode && isInitialized && (
-            <div className="space-y-3">
-              <div className="text-sm font-semibold text-white uppercase tracking-wider">Result</div>
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Results</div>
               
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="p-4 bg-slate-700/30 rounded-lg cursor-help">
-                      <div className="text-xs text-slate-400 mb-1">Total P&L</div>
-                      {(() => {
-                        const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
-                        return (
-                          <>
-                            <div className={`text-2xl font-bold ${pnl.colorClass}`}>
+              <div className="grid grid-cols-3 gap-3">
+                {/* Left: Initial Capital */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help border border-slate-600/30">
+                        <div className="text-xs text-slate-400 mb-1">Initial Capital</div>
+                        <div className="text-lg font-bold text-slate-200">{formatEuro(portfolioValuation.startingCapitalEur)}</div>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Amount initially committed to trading (excluding market performance).</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                
+                {/* Middle: Total P&L (main performance metric) */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="p-3 bg-slate-700/50 rounded-lg cursor-help border border-slate-500/40">
+                        <div className="text-xs text-slate-400 mb-1">Total P&L</div>
+                        {(() => {
+                          const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                          return (
+                            <div className={`text-lg font-bold ${pnl.colorClass}`}>
                               {pnl.sign}{pnl.value}
-                              <span className="text-lg ml-2">({formatPercentage(portfolioValuation.totalPnlPct)})</span>
+                              <span className="text-sm ml-1">({formatPercentage(portfolioValuation.totalPnlPct)})</span>
                             </div>
-                            <div className="text-xs text-slate-500 mt-1">Compared to your total capital.</div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-xs">
-                    <p className="text-xs">Overall performance including cash, open positions, and costs.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+                          );
+                        })()}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Overall performance compared to your initial capital.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                
+                {/* Right: Unrealized P&L (Live) */}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="p-3 bg-slate-700/30 rounded-lg cursor-help border border-slate-600/30">
+                        <div className="flex items-center gap-1 text-xs text-slate-400 mb-1">
+                          Unrealized P&L
+                          {portfolioValuation.hasMissingPrices && (
+                            <AlertCircle className="h-3 w-3 text-amber-400" />
+                          )}
+                        </div>
+                        {(() => {
+                          const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
+                          return (
+                            <>
+                              <div className={`text-lg font-bold ${unrealPnl.colorClass}`}>
+                                {unrealPnl.sign}{unrealPnl.value}
+                              </div>
+                              <div className="text-xs text-slate-500 mt-0.5">Trades in progress</div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Market gains or losses on open positions. This value changes in real time.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
             </div>
           )}
           
           {/* ═══════════════════════════════════════════════════════════════════════
-              SECTION 5: OPEN POSITIONS (DETAIL)
+              OPEN POSITIONS
               Existing crypto holdings breakdown
           ═══════════════════════════════════════════════════════════════════════ */}
           {testMode && isInitialized && (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {liveAggregates.walletAssets.length > 0 && (
                 <>
-                  <div className="text-sm font-semibold text-white uppercase tracking-wider">Open Positions (Live)</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Open Positions</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {liveAggregates.walletAssets.map(renderWalletAssetCard)}
                   </div>
                 </>
               )}
               
               {liveAggregates.walletAssets.length === 0 && !tradesLoading && (
-                <div className="text-center py-8">
-                  <p className="text-slate-300">
-                    No open positions. Start trading to see holdings.
-                  </p>
+                <div className="text-center py-6">
+                  <p className="text-slate-400 text-sm">No open positions. Start trading to see holdings.</p>
                 </div>
               )}
             </div>
