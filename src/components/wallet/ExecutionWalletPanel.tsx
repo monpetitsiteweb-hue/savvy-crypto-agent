@@ -22,13 +22,17 @@ import {
   RefreshCw,
   Zap,
   FileCheck,
-  XCircle
+  XCircle,
+  ArrowUpRight
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/utils/logger';
 import { WalletBalanceDisplay } from './WalletBalanceDisplay';
+import { WalletCreationModal } from './WalletCreationModal';
+import { TradingRulesDialog } from './TradingRulesDialog';
+import { WithdrawDialog } from './WithdrawDialog';
 
 interface WalletData {
   id: string;
@@ -67,6 +71,12 @@ interface ActivateWalletResponse {
   };
 }
 
+interface WalletBalances {
+  ETH: { symbol: string; amount: number };
+  WETH: { symbol: string; amount: number };
+  USDC: { symbol: string; amount: number };
+}
+
 export function ExecutionWalletPanel() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -74,16 +84,27 @@ export function ExecutionWalletPanel() {
   // Wallet state
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isCreating, setIsCreating] = useState(false);
   
-  // Activation modal state
+  // Modal states
+  const [showCreationModal, setShowCreationModal] = useState(false);
   const [showActivationModal, setShowActivationModal] = useState(false);
+  const [showRulesDialog, setShowRulesDialog] = useState(false);
+  const [showWithdrawDialog, setShowWithdrawDialog] = useState(false);
+  
+  // Activation state
   const [isActivating, setIsActivating] = useState(false);
   const [acknowledgedActivation, setAcknowledgedActivation] = useState(false);
   
   // Prerequisites state
   const [prerequisites, setPrerequisites] = useState<PrerequisiteResult | null>(null);
   const [isCheckingPrereqs, setIsCheckingPrereqs] = useState(false);
+
+  // Wallet balances for withdraw dialog
+  const [walletBalances, setWalletBalances] = useState<WalletBalances>({
+    ETH: { symbol: 'ETH', amount: 0 },
+    WETH: { symbol: 'WETH', amount: 0 },
+    USDC: { symbol: 'USDC', amount: 0 },
+  });
 
   // Fetch wallet data
   const fetchWallet = useCallback(async () => {
@@ -134,50 +155,15 @@ export function ExecutionWalletPanel() {
     checkPrerequisites();
   }, [fetchWallet, checkPrerequisites]);
 
-  // Create wallet
-  const handleCreateWallet = async () => {
-    if (!user?.id) {
-      toast({
-        title: "Not Authenticated",
-        description: "Please log in to create a wallet",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    setIsCreating(true);
-    
-    try {
-      const { data, error } = await supabase.functions.invoke('execution-wallet-create', {
-        body: { user_id: user.id }
-      });
-      
-      if (error) {
-        throw new Error(error.message || 'Failed to create wallet');
-      }
-      
-      if (!data?.success) {
-        throw new Error(data?.error || 'Wallet creation failed');
-      }
-      
-      toast({
-        title: "Wallet Created",
-        description: "Your execution wallet has been created. Activate it to enable live trading.",
-      });
-      
-      // Refresh data
-      await fetchWallet();
-      await checkPrerequisites();
-    } catch (err) {
-      logger.error('Wallet creation error:', err);
-      toast({
-        title: "Creation Failed",
-        description: err instanceof Error ? err.message : 'Unknown error',
-        variant: "destructive",
-      });
-    } finally {
-      setIsCreating(false);
-    }
+  // Handle wallet created from modal
+  const handleWalletCreated = async (walletAddress: string) => {
+    setShowCreationModal(false);
+    toast({
+      title: "Wallet Created",
+      description: "Your execution wallet has been created. Activate it to enable live trading.",
+    });
+    await fetchWallet();
+    await checkPrerequisites();
   };
 
   // Activate wallet via RPC
@@ -253,6 +239,26 @@ export function ExecutionWalletPanel() {
     });
   };
 
+  // Handle balance update from WalletBalanceDisplay
+  const handleBalanceUpdate = (isFunded: boolean, totalValue: number, balances?: WalletBalances) => {
+    if (balances) {
+      setWalletBalances(balances);
+    }
+    if (isFunded !== wallet?.is_funded) {
+      fetchWallet();
+      checkPrerequisites();
+    }
+  };
+
+  // Handle rules accepted
+  const handleRulesAccepted = async () => {
+    await checkPrerequisites();
+    toast({
+      title: "Rules Accepted",
+      description: "You can now activate your wallet for live trading.",
+    });
+  };
+
   const getNetworkName = (chainId: number): string => {
     switch (chainId) {
       case 1: return 'Ethereum Mainnet';
@@ -274,9 +280,9 @@ export function ExecutionWalletPanel() {
   return (
     <div className="space-y-6">
       {/* Live Trading Readiness Panel */}
-      <Card className="p-6 bg-slate-800/50 border-slate-600">
+      <Card className="p-6 bg-card border-border">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
             <Shield className="w-5 h-5 text-primary" />
             Live Trading Readiness
           </h3>
@@ -285,7 +291,7 @@ export function ExecutionWalletPanel() {
             size="sm"
             onClick={handleRefresh}
             disabled={isCheckingPrereqs}
-            className="text-slate-400 hover:text-white"
+            className="text-muted-foreground hover:text-foreground"
           >
             {isCheckingPrereqs ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -298,75 +304,84 @@ export function ExecutionWalletPanel() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* Wallet Created */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks.has_wallet ? 'bg-green-500/10' : 'bg-slate-700/50'
+            prerequisites?.checks.has_wallet ? 'bg-green-500/10' : 'bg-muted/50'
           }`}>
             {prerequisites?.checks.has_wallet ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
-              <XCircle className="w-5 h-5 text-slate-500" />
+              <XCircle className="w-5 h-5 text-muted-foreground" />
             )}
-            <span className={prerequisites?.checks.has_wallet ? 'text-green-300' : 'text-slate-400'}>
+            <span className={prerequisites?.checks.has_wallet ? 'text-green-300' : 'text-muted-foreground'}>
               Wallet Created
             </span>
           </div>
           
           {/* Wallet Active */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks.wallet_active ? 'bg-green-500/10' : 'bg-slate-700/50'
+            prerequisites?.checks.wallet_active ? 'bg-green-500/10' : 'bg-muted/50'
           }`}>
             {prerequisites?.checks.wallet_active ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
-              <XCircle className="w-5 h-5 text-slate-500" />
+              <XCircle className="w-5 h-5 text-muted-foreground" />
             )}
-            <span className={prerequisites?.checks.wallet_active ? 'text-green-300' : 'text-slate-400'}>
+            <span className={prerequisites?.checks.wallet_active ? 'text-green-300' : 'text-muted-foreground'}>
               Wallet Activated
             </span>
           </div>
           
           {/* Wallet Funded */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks.wallet_funded ? 'bg-green-500/10' : 'bg-slate-700/50'
+            prerequisites?.checks.wallet_funded ? 'bg-green-500/10' : 'bg-muted/50'
           }`}>
             {prerequisites?.checks.wallet_funded ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
-              <XCircle className="w-5 h-5 text-slate-500" />
+              <XCircle className="w-5 h-5 text-muted-foreground" />
             )}
-            <span className={prerequisites?.checks.wallet_funded ? 'text-green-300' : 'text-slate-400'}>
+            <span className={prerequisites?.checks.wallet_funded ? 'text-green-300' : 'text-muted-foreground'}>
               Wallet Funded
             </span>
           </div>
           
-          {/* Rules Accepted */}
-          <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks.rules_accepted ? 'bg-green-500/10' : 'bg-slate-700/50'
-          }`}>
+          {/* Rules Accepted - NOW CLICKABLE */}
+          <button
+            onClick={() => !prerequisites?.checks.rules_accepted && setShowRulesDialog(true)}
+            disabled={prerequisites?.checks.rules_accepted}
+            className={`flex items-center gap-3 p-3 rounded-lg text-left transition-colors ${
+              prerequisites?.checks.rules_accepted 
+                ? 'bg-green-500/10 cursor-default' 
+                : 'bg-muted/50 hover:bg-muted cursor-pointer'
+            }`}
+          >
             {prerequisites?.checks.rules_accepted ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
-              <XCircle className="w-5 h-5 text-slate-500" />
+              <FileCheck className="w-5 h-5 text-amber-400" />
             )}
-            <span className={prerequisites?.checks.rules_accepted ? 'text-green-300' : 'text-slate-400'}>
+            <span className={prerequisites?.checks.rules_accepted ? 'text-green-300' : 'text-amber-300'}>
               Trading Rules Accepted
             </span>
-          </div>
+            {!prerequisites?.checks.rules_accepted && (
+              <span className="text-xs text-amber-400 ml-auto">Click to accept</span>
+            )}
+          </button>
           
           {/* Panic Status */}
           <div className={`flex items-center gap-3 p-3 rounded-lg md:col-span-2 ${
             prerequisites?.panic_active === false ? 'bg-green-500/10' : 
-            prerequisites?.panic_active === true ? 'bg-red-500/10' : 'bg-slate-700/50'
+            prerequisites?.panic_active === true ? 'bg-destructive/10' : 'bg-muted/50'
           }`}>
             {prerequisites?.panic_active === false ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : prerequisites?.panic_active === true ? (
-              <AlertTriangle className="w-5 h-5 text-red-400" />
+              <AlertTriangle className="w-5 h-5 text-destructive" />
             ) : (
-              <AlertCircle className="w-5 h-5 text-slate-500" />
+              <AlertCircle className="w-5 h-5 text-muted-foreground" />
             )}
             <span className={
               prerequisites?.panic_active === false ? 'text-green-300' : 
-              prerequisites?.panic_active === true ? 'text-red-300' : 'text-slate-400'
+              prerequisites?.panic_active === true ? 'text-destructive' : 'text-muted-foreground'
             }>
               {prerequisites?.panic_active ? 'Panic Mode Active (Trading Halted)' : 'No Panic Active'}
             </span>
@@ -374,7 +389,7 @@ export function ExecutionWalletPanel() {
         </div>
         
         {/* Overall Status */}
-        <div className="mt-4 pt-4 border-t border-slate-600">
+        <div className="mt-4 pt-4 border-t border-border">
           {prerequisites?.ok ? (
             <div className="flex items-center gap-2 text-green-400">
               <Zap className="w-5 h-5" />
@@ -392,11 +407,11 @@ export function ExecutionWalletPanel() {
       {/* Wallet Creation / Status Section */}
       {!wallet ? (
         // No wallet - show creation UI
-        <Card className="p-6 bg-slate-800/50 border-slate-600">
+        <Card className="p-6 bg-card border-border">
           <div className="text-center">
-            <Wallet className="w-16 h-16 text-slate-500 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-white mb-2">Create Execution Wallet</h3>
-            <p className="text-slate-400 mb-6 max-w-md mx-auto">
+            <Wallet className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-foreground mb-2">Create Execution Wallet</h3>
+            <p className="text-muted-foreground mb-6 max-w-md mx-auto">
               Create a dedicated wallet for automated trading. This wallet will be used by 
               strategies to execute real trades on your behalf.
             </p>
@@ -407,31 +422,21 @@ export function ExecutionWalletPanel() {
                 <div className="text-sm text-amber-200">
                   <p className="font-medium mb-2">Important:</p>
                   <ul className="list-disc pl-4 space-y-1 text-amber-200/80">
-                    <li>This wallet is dedicated to automated trading only</li>
-                    <li>Funds sent here are controlled by the trading engine</li>
+                    <li>You will receive your private key <strong>once only</strong></li>
+                    <li>Save the key immediately - it cannot be recovered</li>
+                    <li>This wallet is dedicated to automated trading</li>
                     <li>One wallet per account - cannot be changed</li>
-                    <li>You control activation and funding</li>
                   </ul>
                 </div>
               </div>
             </div>
             
             <Button 
-              onClick={handleCreateWallet}
-              disabled={isCreating}
+              onClick={() => setShowCreationModal(true)}
               className="bg-primary hover:bg-primary/90"
             >
-              {isCreating ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Creating Wallet...
-                </>
-              ) : (
-                <>
-                  <Wallet className="w-4 h-4 mr-2" />
-                  Create Execution Wallet
-                </>
-              )}
+              <Wallet className="w-4 h-4 mr-2" />
+              Create Execution Wallet
             </Button>
           </div>
         </Card>
@@ -439,9 +444,9 @@ export function ExecutionWalletPanel() {
         // Wallet exists - show status
         <div className="space-y-4">
           {/* Wallet Status Header */}
-          <Card className="p-6 bg-slate-800/50 border-slate-600">
+          <Card className="p-6 bg-card border-border">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Execution Wallet</h3>
+              <h3 className="text-lg font-semibold text-foreground">Execution Wallet</h3>
               <div className="flex items-center gap-2">
                 {wallet.is_funded && (
                   <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
@@ -455,7 +460,7 @@ export function ExecutionWalletPanel() {
                     Active
                   </Badge>
                 ) : (
-                  <Badge className="bg-slate-500/20 text-slate-400 border-slate-500/30">
+                  <Badge className="bg-muted text-muted-foreground border-border">
                     Inactive
                   </Badge>
                 )}
@@ -463,35 +468,49 @@ export function ExecutionWalletPanel() {
             </div>
             
             {/* Wallet Address */}
-            <div className="bg-slate-700/50 rounded-lg p-4 mb-4">
-              <div className="text-xs text-slate-400 mb-2">Wallet Address</div>
+            <div className="bg-muted/50 rounded-lg p-4 mb-4">
+              <div className="text-xs text-muted-foreground mb-2">Wallet Address</div>
               <div className="flex items-center gap-2">
-                <code className="text-green-400 font-mono text-sm break-all flex-1 bg-slate-800 p-3 rounded">
+                <code className="text-green-400 font-mono text-sm break-all flex-1 bg-background p-3 rounded">
                   {wallet.wallet_address}
                 </code>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={copyAddress}
-                  className="text-slate-400 hover:text-white flex-shrink-0"
+                  className="text-muted-foreground hover:text-foreground flex-shrink-0"
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
               </div>
             </div>
             
-            {/* Network Info */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-slate-700/30 rounded-lg p-3">
-                <div className="text-xs text-slate-400 mb-1">Network</div>
-                <div className="text-white font-medium">{getNetworkName(wallet.chain_id)}</div>
+            {/* Network Info + Actions */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-muted/30 rounded-lg p-3">
+                <div className="text-xs text-muted-foreground mb-1">Network</div>
+                <div className="text-foreground font-medium">{getNetworkName(wallet.chain_id)}</div>
               </div>
-              <div className="bg-slate-700/30 rounded-lg p-3">
-                <div className="text-xs text-slate-400 mb-1">Created</div>
-                <div className="text-white font-medium">
+              <div className="bg-muted/30 rounded-lg p-3">
+                <div className="text-xs text-muted-foreground mb-1">Created</div>
+                <div className="text-foreground font-medium">
                   {new Date(wallet.created_at).toLocaleDateString()}
                 </div>
               </div>
+              
+              {/* Withdraw Button */}
+              {wallet.is_active && wallet.is_funded && (
+                <div className="md:col-span-2 flex items-center justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowWithdrawDialog(true)}
+                    className="w-full md:w-auto"
+                  >
+                    <ArrowUpRight className="w-4 h-4 mr-2" />
+                    Withdraw
+                  </Button>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -545,12 +564,7 @@ export function ExecutionWalletPanel() {
           {wallet.is_active && (
             <WalletBalanceDisplay 
               walletAddress={wallet.wallet_address}
-              onBalanceUpdate={(isFunded) => {
-                if (isFunded !== wallet.is_funded) {
-                  fetchWallet();
-                  checkPrerequisites();
-                }
-              }}
+              onBalanceUpdate={handleBalanceUpdate}
             />
           )}
 
@@ -570,15 +584,15 @@ export function ExecutionWalletPanel() {
           )}
 
           {/* Permanent Warning */}
-          <Card className="p-4 bg-slate-700/30 border-slate-600">
+          <Card className="p-4 bg-muted/30 border-border">
             <div className="flex gap-3">
-              <Shield className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-slate-400">
-                <p className="font-medium text-slate-300 mb-1">Security Notice</p>
+              <Shield className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-muted-foreground">
+                <p className="font-medium text-foreground/80 mb-1">Security Notice</p>
                 <ul className="list-disc pl-4 space-y-1">
                   <li>This wallet cannot be changed or deleted</li>
-                  <li>Private keys are managed server-side for security</li>
-                  <li>Only automated strategies can trade from this wallet</li>
+                  <li>You can use the private key you saved to access funds externally</li>
+                  <li>Automated strategies can trade from this wallet</li>
                 </ul>
               </div>
             </div>
@@ -586,15 +600,41 @@ export function ExecutionWalletPanel() {
         </div>
       )}
 
+      {/* Wallet Creation Modal */}
+      <WalletCreationModal
+        open={showCreationModal}
+        onOpenChange={setShowCreationModal}
+        onWalletCreated={handleWalletCreated}
+      />
+
+      {/* Trading Rules Dialog */}
+      <TradingRulesDialog
+        open={showRulesDialog}
+        onOpenChange={setShowRulesDialog}
+        onAccepted={handleRulesAccepted}
+      />
+
+      {/* Withdraw Dialog */}
+      <WithdrawDialog
+        open={showWithdrawDialog}
+        onOpenChange={setShowWithdrawDialog}
+        walletAddress={wallet?.wallet_address || ''}
+        balances={walletBalances}
+        onWithdrawComplete={() => {
+          fetchWallet();
+          checkPrerequisites();
+        }}
+      />
+
       {/* Activation Confirmation Modal */}
       <Dialog open={showActivationModal} onOpenChange={setShowActivationModal}>
-        <DialogContent className="sm:max-w-md bg-slate-900 border-slate-700">
+        <DialogContent className="sm:max-w-md bg-background border-border">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-white">
+            <DialogTitle className="flex items-center gap-2 text-foreground">
               <Zap className="w-5 h-5 text-amber-400" />
               Activate Execution Wallet
             </DialogTitle>
-            <DialogDescription className="text-slate-400">
+            <DialogDescription className="text-muted-foreground">
               This action enables your wallet for live trading.
             </DialogDescription>
           </DialogHeader>
@@ -639,7 +679,7 @@ export function ExecutionWalletPanel() {
                 setShowActivationModal(false);
                 setAcknowledgedActivation(false);
               }}
-              className="text-slate-400 hover:text-white"
+              className="text-muted-foreground hover:text-foreground"
             >
               Cancel
             </Button>

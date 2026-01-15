@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -38,6 +38,14 @@ interface WalletBalanceDisplayProps {
   onBalanceUpdate?: (isFunded: boolean, totalValue: number) => void;
 }
 
+// Polling interval in ms
+const POLL_INTERVAL_MS = 30000;
+// Minimum time between fetches to prevent spam
+const MIN_FETCH_INTERVAL_MS = 5000;
+// Backoff multiplier on errors
+const ERROR_BACKOFF_MULTIPLIER = 2;
+const MAX_BACKOFF_MS = 120000;
+
 export function WalletBalanceDisplay({ walletAddress, onBalanceUpdate }: WalletBalanceDisplayProps) {
   const [balanceData, setBalanceData] = useState<WalletBalanceData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,12 +53,42 @@ export function WalletBalanceDisplay({ walletAddress, onBalanceUpdate }: WalletB
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
+  // Refs to prevent re-renders from causing loops
+  const isFetchingRef = useRef(false);
+  const lastFetchTimeRef = useRef(0);
+  const errorBackoffRef = useRef(POLL_INTERVAL_MS);
+  const intervalIdRef = useRef<NodeJS.Timeout | null>(null);
+  const onBalanceUpdateRef = useRef(onBalanceUpdate);
+  
+  // Keep callback ref updated without triggering effects
+  useEffect(() => {
+    onBalanceUpdateRef.current = onBalanceUpdate;
+  }, [onBalanceUpdate]);
+
   const fetchBalances = useCallback(async (showToast = false) => {
+    // In-flight lock: don't start a new fetch if one is running
+    if (isFetchingRef.current) {
+      console.log('[WalletBalanceDisplay] Fetch already in progress, skipping');
+      return;
+    }
+
+    // Rate limit: don't fetch if we fetched recently (unless manual refresh)
+    const now = Date.now();
+    if (!showToast && now - lastFetchTimeRef.current < MIN_FETCH_INTERVAL_MS) {
+      console.log('[WalletBalanceDisplay] Rate limited, skipping fetch');
+      return;
+    }
+
+    isFetchingRef.current = true;
+    lastFetchTimeRef.current = now;
+    
     if (showToast) {
       setIsRefreshing(true);
-    } else {
+    } else if (!balanceData) {
+      // Only show loading skeleton on initial load
       setIsLoading(true);
     }
+    
     setError(null);
 
     try {
@@ -67,9 +105,12 @@ export function WalletBalanceDisplay({ walletAddress, onBalanceUpdate }: WalletB
       }
 
       setBalanceData(data);
+      // Reset backoff on success
+      errorBackoffRef.current = POLL_INTERVAL_MS;
       
-      if (onBalanceUpdate) {
-        onBalanceUpdate(data.is_funded, data.total_value_usd);
+      // Call callback via ref (doesn't trigger re-render loop)
+      if (onBalanceUpdateRef.current) {
+        onBalanceUpdateRef.current(data.is_funded, data.total_value_usd);
       }
 
       if (showToast) {
@@ -80,20 +121,51 @@ export function WalletBalanceDisplay({ walletAddress, onBalanceUpdate }: WalletB
       }
     } catch (err) {
       console.error('[WalletBalanceDisplay] Error:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      
+      // Exponential backoff on errors
+      errorBackoffRef.current = Math.min(
+        errorBackoffRef.current * ERROR_BACKOFF_MULTIPLIER, 
+        MAX_BACKOFF_MS
+      );
+      console.log(`[WalletBalanceDisplay] Next retry in ${errorBackoffRef.current}ms`);
     } finally {
+      isFetchingRef.current = false;
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [onBalanceUpdate, toast]);
+  }, [balanceData, toast]); // Minimal deps - balanceData only for initial load check
 
+  // Setup polling on mount, cleanup on unmount
   useEffect(() => {
+    // Initial fetch
     fetchBalances();
     
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => fetchBalances(), 30000);
-    return () => clearInterval(interval);
-  }, [fetchBalances]);
+    // Setup interval for polling
+    const setupInterval = () => {
+      if (intervalIdRef.current) {
+        clearInterval(intervalIdRef.current);
+      }
+      intervalIdRef.current = setInterval(() => {
+        fetchBalances();
+      }, errorBackoffRef.current);
+    };
+    
+    setupInterval();
+    
+    // Cleanup on unmount
+    return () => {
+      if (intervalIdRef.current) {
+        clearInterval(intervalIdRef.current);
+        intervalIdRef.current = null;
+      }
+    };
+  }, []); // Empty deps - run once on mount
+
+  const handleManualRefresh = () => {
+    fetchBalances(true);
+  };
 
   const formatAmount = (amount: number, decimals = 6): string => {
     if (amount === 0) return '0';
@@ -122,9 +194,9 @@ export function WalletBalanceDisplay({ walletAddress, onBalanceUpdate }: WalletB
     }).format(amount);
   };
 
-  if (isLoading) {
+  if (isLoading && !balanceData) {
     return (
-      <Card className="p-6 bg-slate-800/50 border-slate-600">
+      <Card className="p-6 bg-card border-border">
         <div className="flex items-center justify-between mb-4">
           <Skeleton className="h-6 w-32" />
           <Skeleton className="h-8 w-8 rounded" />
@@ -141,16 +213,16 @@ export function WalletBalanceDisplay({ walletAddress, onBalanceUpdate }: WalletB
     );
   }
 
-  if (error) {
+  if (error && !balanceData) {
     return (
-      <Card className="p-6 bg-slate-800/50 border-slate-600">
-        <div className="flex items-center gap-3 text-red-400">
+      <Card className="p-6 bg-card border-border">
+        <div className="flex items-center gap-3 text-destructive">
           <AlertCircle className="w-5 h-5" />
           <span>Failed to load balances: {error}</span>
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => fetchBalances()}
+            onClick={handleManualRefresh}
             className="ml-auto"
           >
             <RefreshCw className="w-4 h-4" />
@@ -165,10 +237,10 @@ export function WalletBalanceDisplay({ walletAddress, onBalanceUpdate }: WalletB
   const { balances, total_value_usd, total_value_eur, is_funded } = balanceData;
 
   return (
-    <Card className="p-6 bg-slate-800/50 border-slate-600">
+    <Card className="p-6 bg-card border-border">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+        <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
           <Wallet className="w-5 h-5 text-primary" />
           Wallet Balances
         </h3>
@@ -185,9 +257,9 @@ export function WalletBalanceDisplay({ walletAddress, onBalanceUpdate }: WalletB
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => fetchBalances(true)}
+            onClick={handleManualRefresh}
             disabled={isRefreshing}
-            className="text-slate-400 hover:text-white"
+            className="text-muted-foreground hover:text-foreground"
           >
             {isRefreshing ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -205,73 +277,73 @@ export function WalletBalanceDisplay({ walletAddress, onBalanceUpdate }: WalletB
           <span className="text-xs font-medium uppercase tracking-wide">Total Portfolio Value</span>
         </div>
         <div className="flex items-baseline gap-3">
-          <span className="text-2xl font-bold text-white">{formatUsd(total_value_usd)}</span>
-          <span className="text-sm text-slate-400">{formatEur(total_value_eur)}</span>
+          <span className="text-2xl font-bold text-foreground">{formatUsd(total_value_usd)}</span>
+          <span className="text-sm text-muted-foreground">{formatEur(total_value_eur)}</span>
         </div>
       </div>
 
       {/* Token Balances */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         {/* ETH */}
-        <div className={`bg-slate-700/50 rounded-lg p-4 ${balances.ETH.amount > 0 ? 'border border-blue-500/30' : ''}`}>
+        <div className={`bg-muted/50 rounded-lg p-4 ${balances.ETH.amount > 0 ? 'border border-blue-500/30' : ''}`}>
           <div className="flex items-center gap-2 mb-2">
             <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center">
               <span className="text-xs font-bold text-blue-400">Ξ</span>
             </div>
-            <span className="font-medium text-white">ETH</span>
+            <span className="font-medium text-foreground">ETH</span>
           </div>
-          <div className="text-lg font-semibold text-white">
+          <div className="text-lg font-semibold text-foreground">
             {formatAmount(balances.ETH.amount, 6)}
           </div>
-          <div className="text-sm text-slate-400">
+          <div className="text-sm text-muted-foreground">
             {formatUsd(balances.ETH.value_usd)}
           </div>
-          <div className="text-xs text-slate-500 mt-1">
+          <div className="text-xs text-muted-foreground/70 mt-1">
             @ {formatUsd(balances.ETH.price_usd)}/ETH
           </div>
         </div>
 
         {/* WETH */}
-        <div className={`bg-slate-700/50 rounded-lg p-4 ${balances.WETH.amount > 0 ? 'border border-purple-500/30' : ''}`}>
+        <div className={`bg-muted/50 rounded-lg p-4 ${balances.WETH.amount > 0 ? 'border border-purple-500/30' : ''}`}>
           <div className="flex items-center gap-2 mb-2">
             <div className="w-6 h-6 rounded-full bg-purple-500/20 flex items-center justify-center">
               <span className="text-xs font-bold text-purple-400">W</span>
             </div>
-            <span className="font-medium text-white">WETH</span>
+            <span className="font-medium text-foreground">WETH</span>
           </div>
-          <div className="text-lg font-semibold text-white">
+          <div className="text-lg font-semibold text-foreground">
             {formatAmount(balances.WETH.amount, 6)}
           </div>
-          <div className="text-sm text-slate-400">
+          <div className="text-sm text-muted-foreground">
             {formatUsd(balances.WETH.value_usd)}
           </div>
-          <div className="text-xs text-slate-500 mt-1">
+          <div className="text-xs text-muted-foreground/70 mt-1">
             @ {formatUsd(balances.WETH.price_usd)}/WETH
           </div>
         </div>
 
         {/* USDC */}
-        <div className={`bg-slate-700/50 rounded-lg p-4 ${balances.USDC.amount > 0 ? 'border border-green-500/30' : ''}`}>
+        <div className={`bg-muted/50 rounded-lg p-4 ${balances.USDC.amount > 0 ? 'border border-green-500/30' : ''}`}>
           <div className="flex items-center gap-2 mb-2">
             <div className="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center">
               <DollarSign className="w-3 h-3 text-green-400" />
             </div>
-            <span className="font-medium text-white">USDC</span>
+            <span className="font-medium text-foreground">USDC</span>
           </div>
-          <div className="text-lg font-semibold text-white">
+          <div className="text-lg font-semibold text-foreground">
             {formatAmount(balances.USDC.amount, 2)}
           </div>
-          <div className="text-sm text-slate-400">
+          <div className="text-sm text-muted-foreground">
             {formatUsd(balances.USDC.value_usd)}
           </div>
-          <div className="text-xs text-slate-500 mt-1">
+          <div className="text-xs text-muted-foreground/70 mt-1">
             Stablecoin
           </div>
         </div>
       </div>
 
       {/* Last Updated */}
-      <div className="mt-4 text-xs text-slate-500 text-right">
+      <div className="mt-4 text-xs text-muted-foreground text-right">
         Last updated: {new Date(balanceData.fetched_at).toLocaleTimeString()}
       </div>
     </Card>
