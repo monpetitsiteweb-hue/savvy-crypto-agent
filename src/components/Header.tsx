@@ -235,7 +235,6 @@ export const Header = () => {
               open={showFundingInstructions}
               onOpenChange={setShowFundingInstructions}
               walletAddress={walletAddress || ''}
-              isCoinbaseConnected={isCoinbaseConnected}
               onFundingDetected={handleFundingDetected}
             />
 
