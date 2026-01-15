@@ -3373,6 +3373,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      activate_execution_wallet: {
+        Args: { p_user_id: string; p_wallet_id: string }
+        Returns: Json
+      }
       admin_get_connection_name: {
         Args: { connection_id: string }
         Returns: string
@@ -3422,10 +3426,9 @@ export type Database = {
         }[]
       }
       check_capital_access: { Args: { p_user_id: string }; Returns: boolean }
-      check_live_trading_prerequisites: {
-        Args: { p_user_id: string }
-        Returns: Json
-      }
+      check_live_trading_prerequisites:
+        | { Args: never; Returns: Json }
+        | { Args: { p_user_id: string }; Returns: Json }
       check_real_trading_prerequisites: { Args: never; Returns: Json }
       check_strategy_can_delete: {
         Args: { p_strategy_id: string }
