@@ -135,11 +135,20 @@ export function ExecutionWalletPanel() {
 
   // Create wallet
   const handleCreateWallet = async () => {
+    if (!user?.id) {
+      toast({
+        title: "Not Authenticated",
+        description: "Please log in to create a wallet",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setIsCreating(true);
     
     try {
       const { data, error } = await supabase.functions.invoke('execution-wallet-create', {
-        body: { user_id: user?.id }
+        body: { user_id: user.id }
       });
       
       if (error) {
