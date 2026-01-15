@@ -138,7 +138,9 @@ export function ExecutionWalletPanel() {
     setIsCreating(true);
     
     try {
-      const { data, error } = await supabase.functions.invoke('execution-wallet-create');
+      const { data, error } = await supabase.functions.invoke('execution-wallet-create', {
+        body: { user_id: user?.id }
+      });
       
       if (error) {
         throw new Error(error.message || 'Failed to create wallet');
