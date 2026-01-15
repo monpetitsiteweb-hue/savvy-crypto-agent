@@ -41,17 +41,38 @@ function getKEK(version: number): Uint8Array {
   const kekEnvVar = `EXECUTION_WALLET_KEK_V${version}`;
   const kekBase64 = Deno.env.get(kekEnvVar);
   
+  // DEBUG LOGGING - REMOVE AFTER FIX
+  console.log(`[DEBUG] getKEK called with version: ${version}`);
+  console.log(`[DEBUG] kekEnvVar name: ${kekEnvVar}`);
+  console.log(`[DEBUG] kekBase64 typeof: ${typeof kekBase64}`);
+  console.log(`[DEBUG] kekBase64 is undefined: ${kekBase64 === undefined}`);
+  console.log(`[DEBUG] kekBase64 is null: ${kekBase64 === null}`);
+  console.log(`[DEBUG] kekBase64 is empty: ${kekBase64 === ''}`);
+  console.log(`[DEBUG] kekBase64 length: ${kekBase64?.length ?? 'N/A'}`);
+  console.log(`[DEBUG] kekBase64 first 10 chars: ${kekBase64?.substring(0, 10) ?? 'N/A'}`);
+  
   if (!kekBase64) {
     throw new Error(`KEK version ${version} not found in environment`);
   }
   
-  const kek = base64ToBytes(kekBase64);
+  // Trim whitespace that might cause base64 decode issues
+  const trimmedKek = kekBase64.trim();
+  console.log(`[DEBUG] trimmedKek length: ${trimmedKek.length}`);
   
-  if (kek.length !== 32) {
-    throw new Error(`KEK must be 32 bytes, got ${kek.length}`);
+  try {
+    const kek = base64ToBytes(trimmedKek);
+    console.log(`[DEBUG] kek decoded successfully, length: ${kek.length}`);
+    
+    if (kek.length !== 32) {
+      throw new Error(`KEK must be 32 bytes, got ${kek.length}`);
+    }
+    
+    return kek;
+  } catch (e) {
+    console.error(`[DEBUG] base64ToBytes failed:`, e);
+    console.error(`[DEBUG] Raw value (may contain invalid chars): [${kekBase64}]`);
+    throw new Error(`Failed to decode base64 for ${kekEnvVar}: ${e.message}`);
   }
-  
-  return kek;
 }
 
 // Import key for AES-GCM
