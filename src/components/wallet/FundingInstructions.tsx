@@ -7,7 +7,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Wallet, Copy, ExternalLink, RefreshCw, CheckCircle, Loader2 } from 'lucide-react';
+import { 
+  Wallet, 
+  Copy, 
+  ExternalLink, 
+  RefreshCw, 
+  CheckCircle, 
+  Loader2,
+  AlertTriangle,
+  CircleDollarSign
+} from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -15,28 +24,37 @@ interface FundingInstructionsProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   walletAddress: string;
-  isCoinbaseConnected: boolean;
+  isCoinbaseConnected?: boolean;
   onFundingDetected: () => void;
 }
 
 interface WalletStatusResult {
-  success: boolean;
-  is_funded: boolean;
-  wallet_address?: string;
-  chain_id?: number;
-  funded_amount_wei?: string;
+  success?: boolean;
+  has_wallet?: boolean;
+  wallet?: {
+    wallet_address: string;
+    chain_id: number;
+    is_funded: boolean;
+    is_active: boolean;
+  };
   error?: string;
 }
+
+// Constants
+const BASE_CHAIN_ID = 8453;
+const POLL_INTERVAL_MS = 15000;
+const MIN_FUNDING_RECOMMENDED = "0.01 ETH or 25 USDC";
+
+type FundingStatus = 'waiting' | 'checking' | 'funded';
 
 export function FundingInstructions({ 
   open, 
   onOpenChange, 
   walletAddress,
-  isCoinbaseConnected,
   onFundingDetected 
 }: FundingInstructionsProps) {
-  const [isPolling, setIsPolling] = useState(false);
-  const [isFunded, setIsFunded] = useState(false);
+  const [fundingStatus, setFundingStatus] = useState<FundingStatus>('waiting');
+  const [isManualChecking, setIsManualChecking] = useState(false);
   const { toast } = useToast();
 
   // Poll for funding status
@@ -45,26 +63,31 @@ export function FundingInstructions({
 
     const checkFunding = async () => {
       try {
+        setFundingStatus('checking');
+        
         const { data, error } = await supabase.functions.invoke<WalletStatusResult>(
           'execution-wallet-status'
         );
 
         if (error) {
           console.error('[FundingInstructions] Status check error:', error);
+          setFundingStatus('waiting');
           return;
         }
 
-        if (data?.is_funded) {
-          setIsFunded(true);
-          setIsPolling(false);
+        if (data?.wallet?.is_funded) {
+          setFundingStatus('funded');
           onFundingDetected();
           toast({
             title: "Wallet Funded!",
             description: "Your trading wallet is now funded and ready for live trading.",
           });
+        } else {
+          setFundingStatus('waiting');
         }
       } catch (err) {
         console.error('[FundingInstructions] Poll error:', err);
+        setFundingStatus('waiting');
       }
     };
 
@@ -72,12 +95,10 @@ export function FundingInstructions({
     checkFunding();
 
     // Poll every 15 seconds
-    const interval = setInterval(checkFunding, 15000);
-    setIsPolling(true);
+    const interval = setInterval(checkFunding, POLL_INTERVAL_MS);
 
     return () => {
       clearInterval(interval);
-      setIsPolling(false);
     };
   }, [open, walletAddress, onFundingDetected, toast]);
 
@@ -90,6 +111,7 @@ export function FundingInstructions({
   };
 
   const manualRefresh = async () => {
+    setIsManualChecking(true);
     try {
       const { data, error } = await supabase.functions.invoke<WalletStatusResult>(
         'execution-wallet-status'
@@ -104,8 +126,8 @@ export function FundingInstructions({
         return;
       }
 
-      if (data?.is_funded) {
-        setIsFunded(true);
+      if (data?.wallet?.is_funded) {
+        setFundingStatus('funded');
         onFundingDetected();
         toast({
           title: "Wallet Funded!",
@@ -119,10 +141,26 @@ export function FundingInstructions({
       }
     } catch (err) {
       console.error('[FundingInstructions] Manual refresh error:', err);
+      toast({
+        title: "Error",
+        description: "Failed to check funding status",
+        variant: "destructive",
+      });
+    } finally {
+      setIsManualChecking(false);
     }
   };
 
-  if (isFunded) {
+  const openCoinbase = () => {
+    // Coinbase doesn't support URL params for pre-filled addresses
+    // Open the main send page and instruct user
+    window.open('https://www.coinbase.com/send', '_blank');
+  };
+
+  // ─────────────────────────────────────────────────────────────────
+  // SUCCESS STATE
+  // ─────────────────────────────────────────────────────────────────
+  if (fundingStatus === 'funded') {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-md bg-slate-900 border-slate-700">
@@ -144,106 +182,174 @@ export function FundingInstructions({
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // MAIN FUNDING POPUP
+  // ─────────────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg bg-slate-900 border-slate-700">
+      <DialogContent className="sm:max-w-lg bg-slate-900 border-slate-700 max-h-[90vh] overflow-y-auto">
+        {/* ───────────────────────────────────────────────────────────
+            1️⃣ HEADER
+        ─────────────────────────────────────────────────────────── */}
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-white">
             <Wallet className="w-5 h-5 text-amber-400" />
             Fund Your Trading Wallet
           </DialogTitle>
           <DialogDescription className="text-slate-400">
-            Send funds to your wallet to enable live trading.
+            Send funds to enable live trading
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 my-4">
-          {/* Wallet Address */}
-          <div className="bg-slate-800 rounded-lg p-4">
-            <div className="text-xs text-slate-400 mb-2">Send ETH or USDC to this address</div>
+          {/* ───────────────────────────────────────────────────────────
+              2️⃣ WALLET ADDRESS BLOCK
+          ─────────────────────────────────────────────────────────── */}
+          <div className="bg-slate-800 rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-400 uppercase tracking-wider">
+                Your Wallet Address
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                Base (8453)
+              </span>
+            </div>
+            
             <div className="flex items-center gap-2">
-              <code className="text-green-400 text-sm font-mono break-all flex-1 bg-slate-900/50 p-2 rounded">
+              <code className="text-green-400 text-sm font-mono break-all flex-1 bg-slate-900/50 p-3 rounded border border-slate-700">
                 {walletAddress}
               </code>
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={copyAddress}
-                className="text-slate-400 hover:text-white flex-shrink-0"
+                className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white flex-shrink-0"
               >
                 <Copy className="w-4 h-4" />
               </Button>
             </div>
-          </div>
 
-          {/* Network Info */}
-          <div className="bg-slate-800/50 rounded-lg p-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">Network</span>
-              <span className="text-white font-medium">Base (Chain ID: 8453)</span>
+            {/* Critical Warning */}
+            <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+              <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+              <p className="text-red-300 text-xs leading-relaxed">
+                <strong>Only send ETH or USDC on Base.</strong><br />
+                Sending on another network will result in permanent loss.
+              </p>
             </div>
           </div>
 
-          {/* Coinbase Transfer Option */}
-          {isCoinbaseConnected && (
-            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-              <h4 className="text-blue-300 font-medium mb-2 flex items-center gap-2">
-                <ExternalLink className="w-4 h-4" />
-                Transfer from Coinbase
-              </h4>
-              <p className="text-blue-200/80 text-sm mb-3">
-                You can send funds directly from your connected Coinbase account.
-              </p>
+          {/* Minimum Funding Recommendation */}
+          <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+            <CircleDollarSign className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <p className="text-amber-200 text-xs">
+              Recommended minimum: <strong>{MIN_FUNDING_RECOMMENDED}</strong>
+            </p>
+          </div>
+
+          {/* ───────────────────────────────────────────────────────────
+              3️⃣ SECTION A — COINBASE TRANSFER
+          ─────────────────────────────────────────────────────────── */}
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+            <h4 className="text-blue-300 font-medium mb-2 flex items-center gap-2">
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 4.8c3.976 0 7.2 3.224 7.2 7.2s-3.224 7.2-7.2 7.2-7.2-3.224-7.2-7.2S8.024 4.8 12 4.8zm-2.4 3.6v7.2h4.8v-1.8h-3v-5.4h-1.8z"/>
+              </svg>
+              Send from Coinbase
+            </h4>
+            <p className="text-blue-200/80 text-sm mb-3">
+              Use Coinbase "Send" to transfer ETH or USDC on Base.
+              Paste the destination address shown above.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-blue-500/50 text-blue-300 hover:bg-blue-500/20 w-full sm:w-auto"
+              onClick={openCoinbase}
+            >
+              Open Coinbase
+              <ExternalLink className="w-3 h-3 ml-2" />
+            </Button>
+          </div>
+
+          {/* ───────────────────────────────────────────────────────────
+              4️⃣ SECTION B — EXTERNAL WALLET
+          ─────────────────────────────────────────────────────────── */}
+          <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-4">
+            <h4 className="text-purple-300 font-medium mb-2 flex items-center gap-2">
+              <Wallet className="w-4 h-4" />
+              Send from External Wallet
+            </h4>
+            <p className="text-purple-200/80 text-sm mb-3">
+              Use MetaMask, Rabby, or any Web3 wallet.
+            </p>
+            <ol className="text-purple-200/70 text-sm space-y-1.5 list-decimal pl-4 mb-3">
+              <li>Open your wallet app</li>
+              <li>Select <strong>Base</strong> network</li>
+              <li>Send <strong>ETH</strong> or <strong>USDC</strong></li>
+              <li>Paste the destination address above</li>
+            </ol>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-purple-500/50 text-purple-300 hover:bg-purple-500/20 w-full sm:w-auto"
+              onClick={copyAddress}
+            >
+              <Copy className="w-3 h-3 mr-2" />
+              Copy Address
+            </Button>
+          </div>
+
+          {/* ───────────────────────────────────────────────────────────
+              5️⃣ FUNDING STATUS (LIVE)
+          ─────────────────────────────────────────────────────────── */}
+          <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {fundingStatus === 'checking' || isManualChecking ? (
+                  <>
+                    <div className="relative">
+                      <div className="w-3 h-3 bg-blue-400 rounded-full animate-pulse" />
+                      <div className="absolute inset-0 w-3 h-3 bg-blue-400 rounded-full animate-ping" />
+                    </div>
+                    <span className="text-blue-300 text-sm font-medium">
+                      🔄 Checking balance...
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-3 h-3 bg-amber-400 rounded-full animate-pulse" />
+                    <span className="text-amber-300 text-sm font-medium">
+                      ⏳ Waiting for funds...
+                    </span>
+                  </>
+                )}
+              </div>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                className="border-blue-500/50 text-blue-300 hover:bg-blue-500/20"
-                onClick={() => window.open('https://www.coinbase.com/wallet', '_blank')}
+                onClick={manualRefresh}
+                disabled={isManualChecking}
+                className="text-slate-400 hover:text-white"
               >
-                Open Coinbase <ExternalLink className="w-3 h-3 ml-2" />
+                {isManualChecking ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                <span className="ml-1.5">Refresh</span>
               </Button>
             </div>
-          )}
-
-          {/* Manual Transfer Instructions */}
-          {!isCoinbaseConnected && (
-            <div className="bg-slate-800/50 rounded-lg p-4">
-              <h4 className="text-white font-medium mb-2">Manual Transfer</h4>
-              <ol className="text-slate-400 text-sm space-y-2 list-decimal pl-4">
-                <li>Copy the wallet address above</li>
-                <li>Open your crypto wallet or exchange</li>
-                <li>Send ETH or USDC on the Base network</li>
-                <li>Wait for the transaction to confirm</li>
-              </ol>
-            </div>
-          )}
-
-          {/* Polling Status */}
-          <div className="flex items-center justify-between bg-slate-800/30 rounded-lg p-3">
-            <div className="flex items-center gap-2 text-sm">
-              {isPolling ? (
-                <>
-                  <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
-                  <span className="text-slate-400">Checking for funds...</span>
-                </>
-              ) : (
-                <span className="text-slate-500">Waiting for funds</span>
-              )}
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={manualRefresh}
-              className="text-slate-400 hover:text-white"
-            >
-              <RefreshCw className="w-4 h-4 mr-1" />
-              Refresh
-            </Button>
+            <p className="text-slate-500 text-xs mt-2">
+              Auto-checking every 15 seconds. May take a few minutes after transaction confirms.
+            </p>
           </div>
         </div>
 
-        <div className="text-xs text-slate-500 text-center">
-          Funds will be detected automatically. This may take a few minutes after confirmation.
+        {/* Footer Note */}
+        <div className="text-xs text-slate-500 text-center border-t border-slate-800 pt-4">
+          This wallet is dedicated to automated trading only.<br />
+          Funds sent here are controlled exclusively by the trading engine.
         </div>
       </DialogContent>
     </Dialog>
