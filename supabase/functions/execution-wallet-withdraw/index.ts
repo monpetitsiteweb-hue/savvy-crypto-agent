@@ -60,7 +60,7 @@ function hexToBytes(hex: string): Uint8Array {
   const h = hex.startsWith('0x') ? hex.slice(2) : hex;
   const bytes = new Uint8Array(h.length / 2);
   for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(h.substr(i * 2, 2), 16);
+    bytes[i] = parseInt(h.substring(i * 2, i * 2 + 2), 16);
   }
   return bytes;
 }
