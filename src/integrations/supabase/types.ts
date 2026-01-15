@@ -3028,6 +3028,57 @@ export type Database = {
           },
         ]
       }
+      withdrawal_audit_log: {
+        Row: {
+          amount: number
+          asset: string
+          created_at: string
+          id: string
+          status: string
+          to_address: string
+          tx_hash: string | null
+          user_id: string
+          wallet_id: string
+        }
+        Insert: {
+          amount: number
+          asset: string
+          created_at?: string
+          id?: string
+          status?: string
+          to_address: string
+          tx_hash?: string | null
+          user_id: string
+          wallet_id: string
+        }
+        Update: {
+          amount?: number
+          asset?: string
+          created_at?: string
+          id?: string
+          status?: string
+          to_address?: string
+          tx_hash?: string | null
+          user_id?: string
+          wallet_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "withdrawal_audit_log_wallet_id_fkey"
+            columns: ["wallet_id"]
+            isOneToOne: false
+            referencedRelation: "execution_wallets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "withdrawal_audit_log_wallet_id_fkey"
+            columns: ["wallet_id"]
+            isOneToOne: false
+            referencedRelation: "user_wallet_info"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       execution_quality_metrics_24h: {
