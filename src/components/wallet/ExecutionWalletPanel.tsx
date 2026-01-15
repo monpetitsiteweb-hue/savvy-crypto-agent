@@ -280,10 +280,10 @@ export function ExecutionWalletPanel() {
   return (
     <div className="space-y-6">
       {/* Live Trading Readiness Panel */}
-      <Card className="p-6 bg-card border-border">
+      <Card className="p-6 bg-slate-900 border-slate-700">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <Shield className="w-5 h-5 text-primary" />
+          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Shield className="w-5 h-5 text-blue-400" />
             Live Trading Readiness
           </h3>
           <Button
@@ -291,7 +291,7 @@ export function ExecutionWalletPanel() {
             size="sm"
             onClick={handleRefresh}
             disabled={isCheckingPrereqs}
-            className="text-muted-foreground hover:text-foreground"
+            className="text-slate-400 hover:text-white"
           >
             {isCheckingPrereqs ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -304,42 +304,42 @@ export function ExecutionWalletPanel() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* Wallet Created */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks.has_wallet ? 'bg-green-500/10' : 'bg-muted/50'
+            prerequisites?.checks.has_wallet ? 'bg-green-500/10' : 'bg-slate-800/50'
           }`}>
             {prerequisites?.checks.has_wallet ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
-              <XCircle className="w-5 h-5 text-muted-foreground" />
+              <XCircle className="w-5 h-5 text-slate-500" />
             )}
-            <span className={prerequisites?.checks.has_wallet ? 'text-green-300' : 'text-muted-foreground'}>
+            <span className={prerequisites?.checks.has_wallet ? 'text-green-300' : 'text-slate-400'}>
               Wallet Created
             </span>
           </div>
           
           {/* Wallet Active */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks.wallet_active ? 'bg-green-500/10' : 'bg-muted/50'
+            prerequisites?.checks.wallet_active ? 'bg-green-500/10' : 'bg-slate-800/50'
           }`}>
             {prerequisites?.checks.wallet_active ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
-              <XCircle className="w-5 h-5 text-muted-foreground" />
+              <XCircle className="w-5 h-5 text-slate-500" />
             )}
-            <span className={prerequisites?.checks.wallet_active ? 'text-green-300' : 'text-muted-foreground'}>
+            <span className={prerequisites?.checks.wallet_active ? 'text-green-300' : 'text-slate-400'}>
               Wallet Activated
             </span>
           </div>
           
           {/* Wallet Funded */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks.wallet_funded ? 'bg-green-500/10' : 'bg-muted/50'
+            prerequisites?.checks.wallet_funded ? 'bg-green-500/10' : 'bg-slate-800/50'
           }`}>
             {prerequisites?.checks.wallet_funded ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
-              <XCircle className="w-5 h-5 text-muted-foreground" />
+              <XCircle className="w-5 h-5 text-slate-500" />
             )}
-            <span className={prerequisites?.checks.wallet_funded ? 'text-green-300' : 'text-muted-foreground'}>
+            <span className={prerequisites?.checks.wallet_funded ? 'text-green-300' : 'text-slate-400'}>
               Wallet Funded
             </span>
           </div>
@@ -351,7 +351,7 @@ export function ExecutionWalletPanel() {
             className={`flex items-center gap-3 p-3 rounded-lg text-left transition-colors ${
               prerequisites?.checks.rules_accepted 
                 ? 'bg-green-500/10 cursor-default' 
-                : 'bg-muted/50 hover:bg-muted cursor-pointer'
+                : 'bg-slate-800/50 hover:bg-slate-700 cursor-pointer'
             }`}
           >
             {prerequisites?.checks.rules_accepted ? (
@@ -370,18 +370,18 @@ export function ExecutionWalletPanel() {
           {/* Panic Status */}
           <div className={`flex items-center gap-3 p-3 rounded-lg md:col-span-2 ${
             prerequisites?.panic_active === false ? 'bg-green-500/10' : 
-            prerequisites?.panic_active === true ? 'bg-destructive/10' : 'bg-muted/50'
+            prerequisites?.panic_active === true ? 'bg-red-500/10' : 'bg-slate-800/50'
           }`}>
             {prerequisites?.panic_active === false ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : prerequisites?.panic_active === true ? (
-              <AlertTriangle className="w-5 h-5 text-destructive" />
+              <AlertTriangle className="w-5 h-5 text-red-400" />
             ) : (
-              <AlertCircle className="w-5 h-5 text-muted-foreground" />
+              <AlertCircle className="w-5 h-5 text-slate-500" />
             )}
             <span className={
               prerequisites?.panic_active === false ? 'text-green-300' : 
-              prerequisites?.panic_active === true ? 'text-destructive' : 'text-muted-foreground'
+              prerequisites?.panic_active === true ? 'text-red-400' : 'text-slate-400'
             }>
               {prerequisites?.panic_active ? 'Panic Mode Active (Trading Halted)' : 'No Panic Active'}
             </span>
@@ -389,7 +389,7 @@ export function ExecutionWalletPanel() {
         </div>
         
         {/* Overall Status */}
-        <div className="mt-4 pt-4 border-t border-border">
+        <div className="mt-4 pt-4 border-t border-slate-700">
           {prerequisites?.ok ? (
             <div className="flex items-center gap-2 text-green-400">
               <Zap className="w-5 h-5" />
@@ -407,11 +407,11 @@ export function ExecutionWalletPanel() {
       {/* Wallet Creation / Status Section */}
       {!wallet ? (
         // No wallet - show creation UI
-        <Card className="p-6 bg-card border-border">
+        <Card className="p-6 bg-slate-900 border-slate-700">
           <div className="text-center">
-            <Wallet className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-foreground mb-2">Create Execution Wallet</h3>
-            <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+            <Wallet className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">Create Execution Wallet</h3>
+            <p className="text-slate-400 mb-6 max-w-md mx-auto">
               Create a dedicated wallet for automated trading. This wallet will be used by 
               strategies to execute real trades on your behalf.
             </p>
@@ -444,9 +444,9 @@ export function ExecutionWalletPanel() {
         // Wallet exists - show status
         <div className="space-y-4">
           {/* Wallet Status Header */}
-          <Card className="p-6 bg-card border-border">
+          <Card className="p-6 bg-slate-900 border-slate-700">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-foreground">Execution Wallet</h3>
+              <h3 className="text-lg font-semibold text-white">Execution Wallet</h3>
               <div className="flex items-center gap-2">
                 {wallet.is_funded && (
                   <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
@@ -468,10 +468,10 @@ export function ExecutionWalletPanel() {
             </div>
             
             {/* Wallet Address */}
-            <div className="bg-muted/50 rounded-lg p-4 mb-4">
-              <div className="text-xs text-muted-foreground mb-2">Wallet Address</div>
+            <div className="bg-slate-800/50 rounded-lg p-4 mb-4">
+              <div className="text-xs text-slate-400 mb-2">Wallet Address</div>
               <div className="flex items-center gap-2">
-                <code className="text-green-400 font-mono text-sm break-all flex-1 bg-background p-3 rounded">
+                <code className="text-green-400 font-mono text-sm break-all flex-1 bg-slate-950 p-3 rounded">
                   {wallet.wallet_address}
                 </code>
                 <Button
@@ -487,13 +487,13 @@ export function ExecutionWalletPanel() {
             
             {/* Network Info + Actions */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-muted/30 rounded-lg p-3">
-                <div className="text-xs text-muted-foreground mb-1">Network</div>
-                <div className="text-foreground font-medium">{getNetworkName(wallet.chain_id)}</div>
+              <div className="bg-slate-800/30 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">Network</div>
+                <div className="text-white font-medium">{getNetworkName(wallet.chain_id)}</div>
               </div>
-              <div className="bg-muted/30 rounded-lg p-3">
-                <div className="text-xs text-muted-foreground mb-1">Created</div>
-                <div className="text-foreground font-medium">
+              <div className="bg-slate-800/30 rounded-lg p-3">
+                <div className="text-xs text-slate-400 mb-1">Created</div>
+                <div className="text-white font-medium">
                   {new Date(wallet.created_at).toLocaleDateString()}
                 </div>
               </div>
@@ -501,11 +501,11 @@ export function ExecutionWalletPanel() {
             </div>
 
             {/* Action Buttons - Always visible when wallet exists */}
-            <div className="mt-4 pt-4 border-t border-border flex flex-wrap gap-3">
+            <div className="mt-4 pt-4 border-t border-slate-700 flex flex-wrap gap-3">
               <Button
                 variant="outline"
                 onClick={() => setShowWithdrawDialog(true)}
-                className="flex-1 min-w-[140px] border-primary/50 text-primary hover:bg-primary/10"
+                className="flex-1 min-w-[140px] border-blue-500/50 text-blue-400 hover:bg-blue-500/10"
               >
                 <ArrowUpRight className="w-4 h-4 mr-2" />
                 Send / Withdraw
