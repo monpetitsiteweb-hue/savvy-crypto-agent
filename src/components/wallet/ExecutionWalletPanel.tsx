@@ -615,6 +615,7 @@ export function ExecutionWalletPanel() {
       <WithdrawDialog
         open={showWithdrawDialog}
         onOpenChange={setShowWithdrawDialog}
+        walletId={wallet?.id || ''}
         walletAddress={wallet?.wallet_address || ''}
         balances={walletBalances}
         onWithdrawComplete={() => {
