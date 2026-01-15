@@ -157,6 +157,9 @@ verify_jwt = false
 [functions.execution-wallet-status]
 verify_jwt = false
 
+[functions.execution-wallet-balance]
+verify_jwt = false
+
 [functions.execution-wallet-funding-init]
 verify_jwt = false
 
