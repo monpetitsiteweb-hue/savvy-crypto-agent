@@ -47,10 +47,14 @@ interface WalletStatusResult {
   success?: boolean;
   has_wallet?: boolean;
   wallet?: {
-    wallet_address: string;
+    id?: string;
+    address?: string; // API returns 'address' not 'wallet_address'
+    wallet_address?: string; // Support both for safety
     chain_id: number;
     is_funded: boolean;
     is_active: boolean;
+    funded_at?: string;
+    funded_amount_wei?: string;
   };
   error?: string;
 }
@@ -91,7 +95,11 @@ export function FundingInstructions({
           return;
         }
 
-        if (data?.wallet?.is_funded) {
+        // Handle both 'address' and 'wallet_address' from API
+        const walletData = data?.wallet;
+        console.log('[FundingInstructions] Wallet status response:', data);
+        
+        if (walletData?.is_funded) {
           setFundingStatus('funded');
           onFundingDetected();
           toast({
@@ -144,7 +152,8 @@ export function FundingInstructions({
         return;
       }
 
-      if (data?.wallet?.is_funded) {
+      const walletData = data?.wallet;
+      if (walletData?.is_funded) {
         setFundingStatus('funded');
         onFundingDetected();
         toast({
