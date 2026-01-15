@@ -35,7 +35,11 @@ interface WalletBalanceData {
 
 interface WalletBalanceDisplayProps {
   walletAddress: string;
-  onBalanceUpdate?: (isFunded: boolean, totalValue: number) => void;
+  onBalanceUpdate?: (isFunded: boolean, totalValue: number, balances?: {
+    ETH: { symbol: string; amount: number };
+    WETH: { symbol: string; amount: number };
+    USDC: { symbol: string; amount: number };
+  }) => void;
 }
 
 // Polling interval in ms
@@ -110,7 +114,11 @@ export function WalletBalanceDisplay({ walletAddress, onBalanceUpdate }: WalletB
       
       // Call callback via ref (doesn't trigger re-render loop)
       if (onBalanceUpdateRef.current) {
-        onBalanceUpdateRef.current(data.is_funded, data.total_value_usd);
+        onBalanceUpdateRef.current(data.is_funded, data.total_value_usd, {
+          ETH: { symbol: 'ETH', amount: data.balances.ETH.amount },
+          WETH: { symbol: 'WETH', amount: data.balances.WETH.amount },
+          USDC: { symbol: 'USDC', amount: data.balances.USDC.amount },
+        });
       }
 
       if (showToast) {
