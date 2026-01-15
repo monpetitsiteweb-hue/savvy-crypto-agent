@@ -45,12 +45,25 @@ interface PrerequisiteChecks {
   wallet_active: boolean;
   wallet_funded: boolean;
   rules_accepted: boolean;
+  chain_consistent: boolean;
 }
 
 interface PrerequisiteResult {
   ok: boolean;
   checks: PrerequisiteChecks;
-  panic_active?: boolean;
+  panic_active: boolean;
+}
+
+interface ActivateWalletResponse {
+  success: boolean;
+  error?: string;
+  wallet?: {
+    id: string;
+    wallet_address: string;
+    chain_id: number;
+    is_active: boolean;
+    is_funded: boolean;
+  };
 }
 
 export function ExecutionWalletPanel() {
@@ -155,20 +168,31 @@ export function ExecutionWalletPanel() {
     }
   };
 
-  // Activate wallet
+  // Activate wallet via RPC
   const handleActivateWallet = async () => {
-    if (!wallet || !acknowledgedActivation) return;
+    if (!wallet || !user?.id || !acknowledgedActivation) return;
     
     setIsActivating(true);
     
     try {
-      const { error } = await (supabase
-        .from('execution_wallets' as any)
-        .update({ is_active: true, updated_at: new Date().toISOString() })
-        .eq('id', wallet.id) as any);
+      const { data, error } = await (supabase.rpc as any)('activate_execution_wallet', {
+        p_wallet_id: wallet.id,
+        p_user_id: user.id
+      });
       
       if (error) {
         throw new Error(error.message || 'Failed to activate wallet');
+      }
+      
+      const response = data as ActivateWalletResponse;
+      
+      if (!response.success) {
+        const errorMessages: Record<string, string> = {
+          unauthorized: 'You are not authorized to activate this wallet',
+          wallet_not_found: 'Wallet not found',
+          rules_not_accepted: 'You must accept the trading rules first'
+        };
+        throw new Error(errorMessages[response.error || ''] || response.error || 'Activation failed');
       }
       
       toast({
