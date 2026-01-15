@@ -3468,6 +3468,7 @@ export type Database = {
         Args: { p_batch_id: string; p_user_id: string }
         Returns: Json
       }
+      create_execution_wallet: { Args: { p_chain_id: number }; Returns: Json }
       dearmor: { Args: { "": string }; Returns: string }
       debug_decision_logs: {
         Args: { minutes_back?: number; my_user: string }
