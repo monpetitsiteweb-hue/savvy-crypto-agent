@@ -36,6 +36,7 @@ interface TokenBalance {
 interface WithdrawDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  walletId: string;
   walletAddress: string;
   balances: {
     ETH: TokenBalance;
@@ -50,6 +51,7 @@ type WithdrawStep = 'form' | 'confirm' | 'submitting' | 'success' | 'error';
 export function WithdrawDialog({ 
   open, 
   onOpenChange, 
+  walletId,
   walletAddress,
   balances,
   onWithdrawComplete 
@@ -133,6 +135,7 @@ export function WithdrawDialog({
     try {
       const { data, error: fnError } = await supabase.functions.invoke('execution-wallet-withdraw', {
         body: {
+          wallet_id: walletId,
           asset,
           to_address: toAddress,
           amount: parseFloat(amount),
@@ -140,7 +143,19 @@ export function WithdrawDialog({
       });
 
       if (fnError) {
-        throw new Error(fnError.message || 'Withdrawal failed');
+        // Supabase returns a generic message for non-2xx. Try to surface the function's JSON error.
+        let message = fnError.message || 'Withdrawal failed';
+        try {
+          const anyErr = fnError as any;
+          const resp: Response | undefined = anyErr?.context?.response;
+          if (resp) {
+            const payload = await resp.clone().json();
+            message = payload?.error || payload?.message || message;
+          }
+        } catch {
+          // ignore parse failures
+        }
+        throw new Error(message);
       }
 
       if (!data?.success) {
@@ -149,7 +164,7 @@ export function WithdrawDialog({
 
       setTxHash(data.tx_hash);
       setStep('success');
-      
+
       toast({
         title: "Withdrawal Submitted",
         description: "Your transaction has been submitted to the network",
