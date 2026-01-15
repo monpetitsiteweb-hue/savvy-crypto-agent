@@ -37,8 +37,15 @@ export function WalletCreationModal({ open, onOpenChange, onWalletCreated }: Wal
     setError(null);
 
     try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.id) {
+        throw new Error('User not authenticated');
+      }
+      
       const { data, error: fnError } = await supabase.functions.invoke<WalletCreationResult>(
-        'execution-wallet-create'
+        'execution-wallet-create',
+        { body: { user_id: user.id } }
       );
 
       if (fnError) {
