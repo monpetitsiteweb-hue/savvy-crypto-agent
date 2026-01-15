@@ -498,19 +498,18 @@ export function ExecutionWalletPanel() {
                 </div>
               </div>
               
-              {/* Withdraw Button */}
-              {wallet.is_active && wallet.is_funded && (
-                <div className="md:col-span-2 flex items-center justify-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowWithdrawDialog(true)}
-                    className="w-full md:w-auto"
-                  >
-                    <ArrowUpRight className="w-4 h-4 mr-2" />
-                    Withdraw
-                  </Button>
-                </div>
-              )}
+            </div>
+
+            {/* Action Buttons - Always visible when wallet exists */}
+            <div className="mt-4 pt-4 border-t border-border flex flex-wrap gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowWithdrawDialog(true)}
+                className="flex-1 min-w-[140px] border-primary/50 text-primary hover:bg-primary/10"
+              >
+                <ArrowUpRight className="w-4 h-4 mr-2" />
+                Send / Withdraw
+              </Button>
             </div>
           </Card>
 
@@ -560,13 +559,11 @@ export function ExecutionWalletPanel() {
             </Card>
           )}
 
-          {/* Wallet Balance Display - Show when wallet is active */}
-          {wallet.is_active && (
-            <WalletBalanceDisplay 
-              walletAddress={wallet.wallet_address}
-              onBalanceUpdate={handleBalanceUpdate}
-            />
-          )}
+          {/* Wallet Balance Display - Show when wallet exists (even inactive for visibility) */}
+          <WalletBalanceDisplay 
+            walletAddress={wallet.wallet_address}
+            onBalanceUpdate={handleBalanceUpdate}
+          />
 
           {/* All Ready */}
           {wallet.is_active && wallet.is_funded && (
