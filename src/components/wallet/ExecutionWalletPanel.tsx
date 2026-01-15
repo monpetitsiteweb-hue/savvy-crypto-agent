@@ -581,11 +581,11 @@ export function ExecutionWalletPanel() {
           )}
 
           {/* Permanent Warning */}
-          <Card className="p-4 bg-muted/30 border-border">
+          <Card className="p-4 bg-slate-800/30 border-slate-700">
             <div className="flex gap-3">
-              <Shield className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-muted-foreground">
-                <p className="font-medium text-foreground/80 mb-1">Security Notice</p>
+              <Shield className="w-5 h-5 text-white flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-white">
+                <p className="font-medium text-white mb-1">Security Notice</p>
                 <ul className="list-disc pl-4 space-y-1">
                   <li>This wallet cannot be changed or deleted</li>
                   <li>You can use the private key you saved to access funds externally</li>
