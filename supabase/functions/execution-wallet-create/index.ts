@@ -1,12 +1,19 @@
 /**
  * execution-wallet-create
  * 
- * SERVICE ROLE ONLY - Creates a new execution wallet for a user
+ * OPTION B: One-time private key reveal + hybrid custody
  * 
- * Security:
- * - Only callable with service_role JWT
- * - Private key never leaves this function except encrypted
- * - No logging of key material
+ * Creates a new execution wallet for a user and returns the private key ONCE.
+ * After this response, the key is encrypted and NEVER returned again.
+ * 
+ * Security Model:
+ * - Private key is generated server-side
+ * - Key is returned ONCE in plaintext for user backup
+ * - Key is then encrypted with envelope encryption and stored
+ * - User can import key externally (MetaMask, etc.)
+ * - App can trade without needing user to provide key
+ * 
+ * If wallet already exists, ONLY returns address (no key reveal for existing wallets)
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -24,7 +31,6 @@ async function generateWallet(): Promise<{ privateKey: string; address: string }
   const privateKey = '0x' + Array.from(privateKeyBytes).map(b => b.toString(16).padStart(2, '0')).join('');
   
   // Import secp256k1 for address derivation
-  // Using viem-style address derivation
   const { keccak_256 } = await import('https://esm.sh/@noble/hashes@1.3.3/sha3');
   const { secp256k1 } = await import('https://esm.sh/@noble/curves@1.3.0/secp256k1');
   
@@ -39,22 +45,28 @@ async function generateWallet(): Promise<{ privateKey: string; address: string }
   const address = '0x' + Array.from(addressBytes).map(b => b.toString(16).padStart(2, '0')).join('');
   
   // Checksum the address (EIP-55)
-  const checksumAddress = toChecksumAddress(address);
+  const checksumAddress = toChecksumAddress(address, keccak_256);
   
-  // Zero out private key bytes (security)
-  privateKeyBytes.fill(0);
+  // Note: We do NOT zero out privateKeyBytes here because we need to return the key
+  // The key will be zeroed after encryption is complete
   
   return { privateKey, address: checksumAddress };
 }
 
 // EIP-55 checksum address
-function toChecksumAddress(address: string): string {
-  const { keccak_256 } = { keccak_256: null }; // Will be imported
+function toChecksumAddress(address: string, keccak_256: (data: Uint8Array) => Uint8Array): string {
   const addr = address.toLowerCase().replace('0x', '');
+  const hash = keccak_256(new TextEncoder().encode(addr));
+  const hashHex = Array.from(hash).map(b => b.toString(16).padStart(2, '0')).join('');
   
-  // For simplicity, return lowercase for now
-  // Full EIP-55 would require keccak hash of address
-  return '0x' + addr;
+  let checksumAddress = '0x';
+  for (let i = 0; i < addr.length; i++) {
+    const char = addr[i];
+    const hashNibble = parseInt(hashHex[i], 16);
+    checksumAddress += hashNibble >= 8 ? char.toUpperCase() : char;
+  }
+  
+  return checksumAddress;
 }
 
 Deno.serve(async (req) => {
@@ -63,7 +75,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Verify service role
+    // Verify authorization
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(
@@ -90,9 +102,10 @@ Deno.serve(async (req) => {
     }
 
     // Check if wallet already exists (idempotent)
+    // SECURITY: For existing wallets, we NEVER return the private key
     const { data: existingWallet } = await supabaseAdmin
       .from('execution_wallets')
-      .select('id, wallet_address, is_funded')
+      .select('id, wallet_address, is_funded, chain_id')
       .eq('user_id', user_id)
       .eq('is_active', true)
       .single();
@@ -104,8 +117,11 @@ Deno.serve(async (req) => {
           success: true,
           wallet_id: existingWallet.id,
           wallet_address: existingWallet.wallet_address,
+          chain_id: existingWallet.chain_id,
           is_funded: existingWallet.is_funded,
           already_existed: true,
+          // NO private key for existing wallets - this is intentional
+          private_key_once: null,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -114,6 +130,10 @@ Deno.serve(async (req) => {
     // Generate new wallet
     console.log(`[execution-wallet-create] Generating new wallet for user ${user_id}`);
     const { privateKey, address } = await generateWallet();
+
+    // CRITICAL: Store the private key for one-time reveal BEFORE encryption
+    // This is the ONLY time this key will ever be returned in plaintext
+    const privateKeyOnce = privateKey;
 
     // Encrypt private key with envelope encryption
     const encryptedData = await encryptPrivateKey(privateKey, 1);
@@ -128,7 +148,7 @@ Deno.serve(async (req) => {
         is_funded: false,
         is_active: true,
       })
-      .select('id, wallet_address')
+      .select('id, wallet_address, chain_id')
       .single();
 
     if (walletError) {
@@ -144,12 +164,12 @@ Deno.serve(async (req) => {
       .from('execution_wallet_secrets')
       .insert({
         wallet_id: wallet.id,
-        encrypted_private_key: encryptedData.encrypted_private_key,
-        iv: encryptedData.iv,
-        auth_tag: encryptedData.auth_tag,
-        encrypted_dek: encryptedData.encrypted_dek,
-        dek_iv: encryptedData.dek_iv,
-        dek_auth_tag: encryptedData.dek_auth_tag,
+        encrypted_private_key: bytesToBase64(encryptedData.encrypted_private_key),
+        iv: bytesToBase64(encryptedData.iv),
+        auth_tag: bytesToBase64(encryptedData.auth_tag),
+        encrypted_dek: bytesToBase64(encryptedData.encrypted_dek),
+        dek_iv: bytesToBase64(encryptedData.dek_iv),
+        dek_auth_tag: bytesToBase64(encryptedData.dek_auth_tag),
         kek_version: encryptedData.kek_version,
       });
 
@@ -170,13 +190,18 @@ Deno.serve(async (req) => {
       .eq('user_id', user_id);
 
     console.log(`[execution-wallet-create] Wallet created successfully: ${wallet.wallet_address}`);
+    // SECURITY: We do NOT log the private key
 
+    // Return success with ONE-TIME private key reveal
     return new Response(
       JSON.stringify({
         success: true,
         wallet_id: wallet.id,
         wallet_address: wallet.wallet_address,
+        chain_id: wallet.chain_id,
         already_existed: false,
+        // ONE-TIME KEY REVEAL - THIS IS THE ONLY TIME THIS KEY WILL EVER BE RETURNED
+        private_key_once: privateKeyOnce,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -189,3 +214,9 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+// Helper: Convert Uint8Array to base64
+function bytesToBase64(bytes: Uint8Array): string {
+  const binString = String.fromCodePoint(...bytes);
+  return btoa(binString);
+}

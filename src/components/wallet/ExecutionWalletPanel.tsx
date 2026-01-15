@@ -28,6 +28,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/utils/logger';
+import { WalletBalanceDisplay } from './WalletBalanceDisplay';
 
 interface WalletData {
   id: string;
@@ -538,6 +539,19 @@ export function ExecutionWalletPanel() {
                 </div>
               </div>
             </Card>
+          )}
+
+          {/* Wallet Balance Display - Show when wallet is active */}
+          {wallet.is_active && (
+            <WalletBalanceDisplay 
+              walletAddress={wallet.wallet_address}
+              onBalanceUpdate={(isFunded) => {
+                if (isFunded !== wallet.is_funded) {
+                  fetchWallet();
+                  checkPrerequisites();
+                }
+              }}
+            />
           )}
 
           {/* All Ready */}
