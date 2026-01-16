@@ -433,6 +433,12 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
           allowedKeys: ["tpPct", "slPct", "enterThreshold", "exitThreshold"],
           bounds: { slPct: [0.15, 1.00], tpOverSlMin: 1.2 },
           ttlMs: 900000
+        },
+        entryQuality: {
+          trendAgeSoftThresholdHours: 6,
+          trendAgeHardThresholdHours: 12,
+          trendAgeSoftPenalty: -0.05,
+          trendAgeHardPenalty: -0.10,
         }
       },
       aiConfidenceThreshold: 70,
