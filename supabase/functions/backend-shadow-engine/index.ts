@@ -141,6 +141,171 @@ interface LiveSignal {
   data?: Record<string, any> | null;
 }
 
+// ============= ENTRY QUALITY: AGE COMPUTATION =============
+interface EntryQuality {
+  trend_age_hours: number;
+  momentum_age_hours: number;
+  volatility_score: number;
+  raw_fusion_score: number;
+  effective_fusion_score: number;
+  age_penalty_applied: number;
+}
+
+// Default entry quality configuration - these MUST be externalized/configurable
+interface EntryQualityConfig {
+  trendAgeSoftThresholdHours: number;
+  trendAgeHardThresholdHours: number;
+  trendAgeSoftPenalty: number;
+  trendAgeHardPenalty: number;
+  // Future: momentumAgeSoftThresholdHours, etc.
+}
+
+const DEFAULT_ENTRY_QUALITY_CONFIG: EntryQualityConfig = {
+  trendAgeSoftThresholdHours: 6,
+  trendAgeHardThresholdHours: 12,
+  trendAgeSoftPenalty: -0.05,
+  trendAgeHardPenalty: -0.10,
+};
+
+/**
+ * Compute trend age: consecutive hours where EMA20 > EMA50
+ * Scans backward through market_features_v0 until condition breaks
+ * Max lookback: 7 days (168 hours)
+ */
+async function computeTrendAge(
+  supabaseClient: any,
+  symbol: string,
+  granularity: string = '1h'
+): Promise<number> {
+  try {
+    const { data: features, error } = await supabaseClient
+      .from('market_features_v0')
+      .select('ema_20, ema_50, ts_utc')
+      .eq('symbol', symbol)
+      .eq('granularity', granularity)
+      .order('ts_utc', { ascending: false })
+      .limit(168); // 7 days max lookback
+
+    if (error || !features || features.length === 0) {
+      console.log(`[computeTrendAge] No features for ${symbol}: ${error?.message || 'no data'}`);
+      return 0;
+    }
+
+    let consecutiveHours = 0;
+    for (const f of features) {
+      if (f.ema_20 != null && f.ema_50 != null && f.ema_20 > f.ema_50) {
+        consecutiveHours++;
+      } else {
+        break; // Condition broken, stop counting
+      }
+    }
+    
+    console.log(`[computeTrendAge] ${symbol}: ${consecutiveHours}h consecutive EMA20 > EMA50`);
+    return consecutiveHours;
+  } catch (err) {
+    console.error(`[computeTrendAge] Error for ${symbol}:`, err);
+    return 0;
+  }
+}
+
+/**
+ * Compute momentum age: consecutive hours where MACD_hist > 0
+ * Scans backward through market_features_v0 until condition breaks
+ * Max lookback: 7 days (168 hours)
+ */
+async function computeMomentumAge(
+  supabaseClient: any,
+  symbol: string,
+  granularity: string = '1h'
+): Promise<number> {
+  try {
+    const { data: features, error } = await supabaseClient
+      .from('market_features_v0')
+      .select('macd_hist, ts_utc')
+      .eq('symbol', symbol)
+      .eq('granularity', granularity)
+      .order('ts_utc', { ascending: false })
+      .limit(168); // 7 days max lookback
+
+    if (error || !features || features.length === 0) {
+      console.log(`[computeMomentumAge] No features for ${symbol}: ${error?.message || 'no data'}`);
+      return 0;
+    }
+
+    let consecutiveHours = 0;
+    for (const f of features) {
+      if (f.macd_hist != null && f.macd_hist > 0) {
+        consecutiveHours++;
+      } else {
+        break; // Condition broken, stop counting
+      }
+    }
+    
+    console.log(`[computeMomentumAge] ${symbol}: ${consecutiveHours}h consecutive MACD_hist > 0`);
+    return consecutiveHours;
+  } catch (err) {
+    console.error(`[computeMomentumAge] Error for ${symbol}:`, err);
+    return 0;
+  }
+}
+
+/**
+ * Apply soft penalty for late entries based on trend age
+ * Returns the penalty to apply (negative number) or 0 if no penalty
+ */
+function computeAgePenalty(trendAgeHours: number, config: EntryQualityConfig): number {
+  if (trendAgeHours >= config.trendAgeHardThresholdHours) {
+    console.log(`[computeAgePenalty] Hard penalty: trendAge=${trendAgeHours}h >= ${config.trendAgeHardThresholdHours}h → ${config.trendAgeHardPenalty}`);
+    return config.trendAgeHardPenalty;
+  } else if (trendAgeHours >= config.trendAgeSoftThresholdHours) {
+    console.log(`[computeAgePenalty] Soft penalty: trendAge=${trendAgeHours}h >= ${config.trendAgeSoftThresholdHours}h → ${config.trendAgeSoftPenalty}`);
+    return config.trendAgeSoftPenalty;
+  }
+  return 0;
+}
+
+/**
+ * Resolve entry quality config from strategy configuration
+ * Falls back to defaults if not specified
+ */
+function resolveEntryQualityConfig(strategyConfig: any): EntryQualityConfig {
+  const aiConfig = strategyConfig?.aiIntelligenceConfig?.features?.entryQuality || {};
+  
+  return {
+    trendAgeSoftThresholdHours: aiConfig.trendAgeSoftThresholdHours ?? DEFAULT_ENTRY_QUALITY_CONFIG.trendAgeSoftThresholdHours,
+    trendAgeHardThresholdHours: aiConfig.trendAgeHardThresholdHours ?? DEFAULT_ENTRY_QUALITY_CONFIG.trendAgeHardThresholdHours,
+    trendAgeSoftPenalty: aiConfig.trendAgeSoftPenalty ?? DEFAULT_ENTRY_QUALITY_CONFIG.trendAgeSoftPenalty,
+    trendAgeHardPenalty: aiConfig.trendAgeHardPenalty ?? DEFAULT_ENTRY_QUALITY_CONFIG.trendAgeHardPenalty,
+  };
+}
+
+/**
+ * Derive whale contribution direction from signal data
+ * Returns: 1 (bullish), -1 (bearish), 0 (neutral/unknown)
+ */
+function deriveWhaleDirection(signalData: Record<string, any> | null | undefined): number {
+  if (!signalData) return 0;
+  
+  const fromOwnerType = signalData.from_owner_type?.toLowerCase() || '';
+  const toOwnerType = signalData.to_owner_type?.toLowerCase() || '';
+  
+  // Exchange inflow: from wallet → to exchange = bearish (potential selling)
+  if (toOwnerType.includes('exchange') && !fromOwnerType.includes('exchange')) {
+    console.log(`[deriveWhaleDirection] Exchange INFLOW detected (bearish): from=${fromOwnerType}, to=${toOwnerType}`);
+    return -1;
+  }
+  
+  // Exchange outflow: from exchange → to wallet = bullish (accumulation)
+  if (fromOwnerType.includes('exchange') && !toOwnerType.includes('exchange')) {
+    console.log(`[deriveWhaleDirection] Exchange OUTFLOW detected (bullish): from=${fromOwnerType}, to=${toOwnerType}`);
+    return 1;
+  }
+  
+  // Unknown/ambiguous: neutral contribution
+  console.log(`[deriveWhaleDirection] Neutral/unknown: from=${fromOwnerType || 'unknown'}, to=${toOwnerType || 'unknown'}`);
+  return 0;
+}
+
 /**
  * Compute signal scores from live_signals and market_features_v0
  * Returns normalized scores (-1 to +1) for each signal category
@@ -228,17 +393,29 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
       case 'momentum_neutral':
         break;
         
-      // Whale signals
+      // Whale signals - FIXED: whale_large_movement now uses directional logic
       case 'whale_large_movement':
-        scores.whale += strength * 0.7;
+        // CRITICAL FIX: Use from_owner_type/to_owner_type to determine direction
+        // DO NOT blindly add positive score for unknown direction
+        const whaleDirection = deriveWhaleDirection(sig.data);
+        if (whaleDirection === 1) {
+          // Bullish whale movement (exchange outflow / accumulation)
+          scores.whale += strength * 0.6;
+        } else if (whaleDirection === -1) {
+          // Bearish whale movement (exchange inflow / distribution)
+          scores.whale -= strength * 0.4;
+        } else {
+          // Unknown/neutral - DO NOT contribute to score
+          console.log(`[computeSignalScores] whale_large_movement with unknown direction - no contribution`);
+        }
         break;
       case 'whale_exchange_inflow':
         // Inflow to exchange = potential selling pressure (bearish)
-        scores.whale -= strength * 0.3;
+        scores.whale -= strength * 0.4;
         break;
       case 'whale_exchange_outflow':
         // Outflow from exchange = accumulation (bullish)
-        scores.whale += strength * 0.5;
+        scores.whale += strength * 0.6;
         break;
       
       default:
@@ -792,22 +969,45 @@ serve(async (req) => {
 
           // ============= COMPUTE FUSION SCORE =============
           const signalScores = computeSignalScores(liveSignals || [], features);
-          const fusionScore = computeFusionScore(signalScores, config);
+          const rawFusionScore = computeFusionScore(signalScores, config);
+
+          // ============= ENTRY QUALITY: COMPUTE TREND & MOMENTUM AGE =============
+          const entryQualityConfig = resolveEntryQualityConfig(config);
+          const trendAgeHours = await computeTrendAge(supabaseClient, symbol, '1h');
+          const momentumAgeHours = await computeMomentumAge(supabaseClient, symbol, '1h');
+          
+          // Compute age penalty (soft penalty for late entries)
+          const agePenalty = computeAgePenalty(trendAgeHours, entryQualityConfig);
+          
+          // Effective fusion score = raw score + age penalty (penalty is negative or 0)
+          const effectiveFusionScore = rawFusionScore + agePenalty;
+          
+          // Build entry quality object for metadata
+          const entryQuality: EntryQuality = {
+            trend_age_hours: trendAgeHours,
+            momentum_age_hours: momentumAgeHours,
+            volatility_score: signalScores.volatility,
+            raw_fusion_score: parseFloat(rawFusionScore.toFixed(4)),
+            effective_fusion_score: parseFloat(effectiveFusionScore.toFixed(4)),
+            age_penalty_applied: agePenalty,
+          };
+          
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} ENTRY_QUALITY → trendAge=${trendAgeHours}h, momentumAge=${momentumAgeHours}h, agePenalty=${agePenalty}, rawFusion=${rawFusionScore.toFixed(3)}, effectiveFusion=${effectiveFusionScore.toFixed(3)}`);
 
           // Get thresholds from config
           const enterThreshold = config.enterThreshold || 0.15;
           const minConfidence = config.minConfidence || 0.5;
 
-          // ============= ENTRY DECISION LOGIC =============
+          // ============= ENTRY DECISION LOGIC (uses EFFECTIVE fusion score) =============
           const isTrendPositive = signalScores.trend > -0.1;
           const isMomentumPositive = signalScores.momentum > 0;
           const isNotOverbought = signalScores.momentum > -0.5;
-          const meetsThreshold = fusionScore >= enterThreshold;
+          const meetsThreshold = effectiveFusionScore >= enterThreshold; // USE EFFECTIVE SCORE
           
           const shouldBuy = (meetsThreshold && isTrendPositive) || 
                            (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought);
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → fusion=${fusionScore.toFixed(3)}, threshold=${enterThreshold}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → rawFusion=${rawFusionScore.toFixed(3)}, effectiveFusion=${effectiveFusionScore.toFixed(3)}, threshold=${enterThreshold}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
 
           if (!shouldBuy) {
             let skipReason = 'conditions_not_met';
@@ -816,7 +1016,11 @@ serve(async (req) => {
             } else if (!isNotOverbought) {
               skipReason = `overbought_momentum_${signalScores.momentum.toFixed(3)}`;
             } else if (!meetsThreshold && !isMomentumPositive) {
-              skipReason = `fusion_${fusionScore.toFixed(3)}_below_${enterThreshold}_no_momentum`;
+              skipReason = `fusion_${effectiveFusionScore.toFixed(3)}_below_${enterThreshold}_no_momentum`;
+              // Add age penalty info if it was the cause
+              if (agePenalty < 0 && rawFusionScore >= enterThreshold) {
+                skipReason = `age_penalty_dropped_fusion_from_${rawFusionScore.toFixed(3)}_to_${effectiveFusionScore.toFixed(3)}`;
+              }
             }
             
             allDecisions.push({
@@ -824,8 +1028,8 @@ serve(async (req) => {
               side: 'HOLD',
               action: 'SKIP',
               reason: skipReason,
-              confidence: fusionScore,
-              fusionScore,
+              confidence: effectiveFusionScore,
+              fusionScore: effectiveFusionScore,
               wouldExecute: false,
               timestamp: new Date().toISOString(),
               metadata: {
@@ -835,6 +1039,9 @@ serve(async (req) => {
                 signals: signalScores,
                 enterThreshold,
                 engineMode: BACKEND_ENGINE_MODE,
+                // ============= ENTRY QUALITY (NEW) =============
+                entry_quality: entryQuality,
+                entry_quality_config: entryQualityConfig,
                 // ============= EXECUTION TRUTH FIELDS (SKIP/CONDITIONS) =============
                 intent_side: 'HOLD',
                 execution_status: 'SKIPPED',
@@ -882,9 +1089,10 @@ serve(async (req) => {
             anchor_price: currentPrice,
             anchor_ts: new Date().toISOString(),
             trend_regime: signalScores.trend > 0.1 ? 'bull' : signalScores.trend < -0.1 ? 'bear' : 'neutral',
-            fusion_score: fusionScore,
+            fusion_score: effectiveFusionScore,
+            raw_fusion_score: rawFusionScore,
             confidence: computedConfidence,
-            context_version: 1, // Canonical model v1
+            context_version: 2, // Upgraded to v2 with entry_quality
           };
           // ============= END ENTRY CONTEXT =============
 
@@ -895,12 +1103,16 @@ serve(async (req) => {
             context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
             backend_ts: new Date().toISOString(),
             currentPrice,
-            fusionScore,
+            fusionScore: effectiveFusionScore,
+            rawFusionScore,
             signalScores,
             enterThreshold,
             isTrendPositive,
             isMomentumPositive,
-            entry_context: entryContext, // NEW: Entry context for pyramiding
+            entry_context: entryContext,
+            // ============= ENTRY QUALITY (NEW) =============
+            entry_quality: entryQuality,
+            entry_quality_config: entryQualityConfig,
           };
 
           const backendRequestId = crypto.randomUUID();
@@ -914,7 +1126,7 @@ serve(async (req) => {
             side: 'BUY' as const,
             source: 'intelligent' as const,
             confidence: computedConfidence,
-            reason: `signal_confirmed_fusion_${fusionScore.toFixed(3)}`,
+            reason: `signal_confirmed_fusion_${effectiveFusionScore.toFixed(3)}${agePenalty < 0 ? `_age_adj_${agePenalty}` : ''}`,
             qtySuggested,
             metadata: {
               ...intentMetadata,
@@ -925,7 +1137,7 @@ serve(async (req) => {
             idempotencyKey,
           };
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNALS POSITIVE → calling coordinator (fusion=${fusionScore.toFixed(3)})`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNALS POSITIVE → calling coordinator (effectiveFusion=${effectiveFusionScore.toFixed(3)}, rawFusion=${rawFusionScore.toFixed(3)}, agePenalty=${agePenalty})`);
 
           const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
             'trading-decision-coordinator',
@@ -940,10 +1152,14 @@ serve(async (req) => {
               action: 'ERROR',
               reason: coordError.message || 'coordinator_error',
               confidence: computedConfidence,
-              fusionScore,
+              fusionScore: effectiveFusionScore,
               wouldExecute: false,
               timestamp: new Date().toISOString(),
-              metadata: { error: coordError, signals: signalScores }
+              metadata: { 
+                error: coordError, 
+                signals: signalScores,
+                entry_quality: entryQuality,
+              }
             });
             continue;
           }
@@ -986,7 +1202,7 @@ serve(async (req) => {
             action,
             reason,
             confidence: computedConfidence,
-            fusionScore,
+            fusionScore: effectiveFusionScore,
             wouldExecute,
             timestamp: new Date().toISOString(),
             metadata: {
@@ -999,6 +1215,9 @@ serve(async (req) => {
               engineMode: BACKEND_ENGINE_MODE,
               effectiveShadowMode,
               userAllowedForLive: isUserAllowedForLive,
+              // ============= ENTRY QUALITY (NEW) =============
+              entry_quality: entryQuality,
+              entry_quality_config: entryQualityConfig,
               // ============= EXECUTION TRUTH FIELDS =============
               execution_status,
               execution_reason,
