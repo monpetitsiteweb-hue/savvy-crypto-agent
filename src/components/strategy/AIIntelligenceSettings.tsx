@@ -446,6 +446,60 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
                 </div>
               </div>
 
+              {/* Entry Quality Parameters (Read-Only Display) */}
+              <div className="space-y-4 pt-4 border-t border-border/50">
+                <div className="flex items-center gap-2">
+                  <Eye className="h-4 w-4 text-muted-foreground" />
+                  <Label className="text-base font-medium">Entry Quality Parameters</Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  These parameters control late-entry detection. Soft penalty reduces fusion score for mature trends, 
+                  helping avoid entries at trend exhaustion points.
+                </p>
+                
+                <div className="grid grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Soft Threshold</Label>
+                    <div className="text-sm font-mono">
+                      {config.features.entryQuality?.trendAgeSoftThresholdHours ?? 6} hours
+                    </div>
+                    <p className="text-xs text-muted-foreground">Trend age when soft penalty starts</p>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Hard Threshold</Label>
+                    <div className="text-sm font-mono">
+                      {config.features.entryQuality?.trendAgeHardThresholdHours ?? 12} hours
+                    </div>
+                    <p className="text-xs text-muted-foreground">Trend age when hard penalty applies</p>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Soft Penalty</Label>
+                    <div className="text-sm font-mono text-amber-600">
+                      {config.features.entryQuality?.trendAgeSoftPenalty ?? -0.05}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Fusion score reduction (6-12h)</p>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Hard Penalty</Label>
+                    <div className="text-sm font-mono text-red-600">
+                      {config.features.entryQuality?.trendAgeHardPenalty ?? -0.10}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Fusion score reduction (12h+)</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded-md">
+                  <AlertTriangle className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                    <strong>Phase 1:</strong> These values are currently read-only defaults. 
+                    Editing will be enabled after calibration data validates the penalty model.
+                  </p>
+                </div>
+              </div>
+
             </div>
           )}
         </CardContent>
