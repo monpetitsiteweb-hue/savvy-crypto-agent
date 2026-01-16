@@ -53,6 +53,13 @@ export interface AIIntelligenceConfig {
       };
       ttlMs: number;
     };
+    // NEW: Entry Quality settings for late-entry detection
+    entryQuality: {
+      trendAgeSoftThresholdHours: number;
+      trendAgeHardThresholdHours: number;
+      trendAgeSoftPenalty: number;
+      trendAgeHardPenalty: number;
+    };
   };
   
   // Legacy fields (kept for compatibility)
@@ -124,6 +131,12 @@ const defaultConfig: AIIntelligenceConfig = {
         tpOverSlMin: 1.2
       },
       ttlMs: 900000
+    },
+    entryQuality: {
+      trendAgeSoftThresholdHours: 6,
+      trendAgeHardThresholdHours: 12,
+      trendAgeSoftPenalty: -0.05,
+      trendAgeHardPenalty: -0.10,
     }
   },
   
