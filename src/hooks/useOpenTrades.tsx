@@ -45,57 +45,58 @@ export function useOpenTrades(): UseOpenTradesResult {
         return;
       }
 
-      // Use RPC or raw query to avoid TypeScript deep instantiation issues
-      // For live mode, filter by execution_confirmed = true
-      const baseFilter = {
-        user_id: user.id,
-        trade_type: 'buy',
-        is_test_mode: testMode,
-        is_corrupted: false,
-      };
-
-      const { data: buyTrades, error: buyError } = await (supabase
+      // =====================================================================
+      // Fetch BUY trades - unified query for both Test and Live mode
+      // Live mode adds execution_confirmed = true filter
+      // Cast to any to avoid TS2589 deep instantiation error
+      // =====================================================================
+      const buyQuery = (supabase
         .from('mock_trades')
-        .select('id, cryptocurrency, amount, price, total_value, executed_at, strategy_id, fees, notes')
-        .match(baseFilter)
-        .order('executed_at', { ascending: false }) as unknown as Promise<{ data: any[] | null; error: any }>);
+        .select('id, cryptocurrency, amount, price, total_value, executed_at, strategy_id, fees, notes') as any)
+        .eq('user_id', user.id)
+        .eq('trade_type', 'buy')
+        .eq('is_test_mode', testMode)
+        .eq('is_corrupted', false);
+
+      // Live mode: only show confirmed real trades
+      const finalBuyQuery = testMode
+        ? buyQuery
+        : buyQuery.eq('execution_confirmed', true);
+
+      const { data: buyTrades, error: buyError } = await finalBuyQuery.order('executed_at', { ascending: false });
 
       if (buyError) throw buyError;
 
-      // Filter for execution_confirmed in live mode (post-query since TS is unhappy)
-      let filteredBuys = buyTrades || [];
-      if (!testMode) {
-        // Re-fetch with execution_confirmed filter for live mode
-        const { data: liveBuys, error: liveErr } = await (supabase
-          .from('mock_trades')
-          .select('id, cryptocurrency, amount, price, total_value, executed_at, strategy_id, fees, notes')
-          .eq('user_id', user.id)
-          .eq('trade_type', 'buy')
-          .eq('is_test_mode', false)
-          .eq('is_corrupted', false)
-          .eq('execution_confirmed', true)
-          .order('executed_at', { ascending: false }) as unknown as Promise<{ data: any[] | null; error: any }>);
-        if (liveErr) throw liveErr;
-        filteredBuys = liveBuys || [];
-      }
-
-      // Get SELL trades for linkage
-      const { data: sellTrades, error: sellError } = await (supabase
+      // =====================================================================
+      // Fetch SELL trades to find closed positions
+      // =====================================================================
+      const sellQuery = (supabase
         .from('mock_trades')
-        .select('original_trade_id')
+        .select('original_trade_id') as any)
         .eq('user_id', user.id)
         .eq('trade_type', 'sell')
         .eq('is_test_mode', testMode)
         .eq('is_corrupted', false)
-        .not('original_trade_id', 'is', null) as unknown as Promise<{ data: { original_trade_id: string }[] | null; error: any }>);
+        .not('original_trade_id', 'is', null);
+
+      // Live mode: only count confirmed sells
+      const finalSellQuery = testMode
+        ? sellQuery
+        : sellQuery.eq('execution_confirmed', true);
+
+      const { data: sellTrades, error: sellError } = await finalSellQuery;
 
       if (sellError) throw sellError;
 
-      const closedTradeIds = new Set((sellTrades || []).map(s => s.original_trade_id));
+      // Create a set of closed trade IDs
+      const closedTradeIds = new Set(
+        ((sellTrades || []) as { original_trade_id: string }[]).map(s => s.original_trade_id)
+      );
 
-      const open = filteredBuys
-        .filter((trade: any) => !closedTradeIds.has(trade.id))
-        .map((trade: any) => ({
+      // Filter to only open trades (BUYs without a matching SELL)
+      const open = ((buyTrades || []) as any[])
+        .filter(trade => !closedTradeIds.has(trade.id))
+        .map(trade => ({
           id: trade.id,
           cryptocurrency: trade.cryptocurrency,
           amount: trade.amount,
