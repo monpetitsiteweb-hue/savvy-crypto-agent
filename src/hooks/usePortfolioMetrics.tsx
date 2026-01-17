@@ -47,7 +47,11 @@ export function usePortfolioMetrics() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchMetrics = useCallback(async () => {
-    if (!user || !testMode) {
+    // =========================================================================
+    // UNIFIED LEDGER: Dashboard works the same in Test and Live mode
+    // The ONLY difference is the is_test_mode filter passed to the RPC
+    // =========================================================================
+    if (!user) {
       setMetrics(EMPTY_METRICS);
       setLoading(false);
       return;
@@ -57,8 +61,10 @@ export function usePortfolioMetrics() {
     setError(null);
 
     try {
+      // Pass is_test_mode to RPC so it filters correctly for Test vs Live
       const { data, error: rpcError } = await supabase.rpc('get_portfolio_metrics' as any, {
         p_user_id: user.id,
+        p_is_test_mode: testMode,
       });
 
       console.log('[usePortfolioMetrics] RPC result:', { data, error: rpcError });
@@ -102,7 +108,7 @@ export function usePortfolioMetrics() {
   useEffect(() => {
     fetchMetrics();
 
-    if (!user || !testMode) return;
+    if (!user) return;
 
     const channel = supabase
       .channel('portfolio_metrics_trades')
