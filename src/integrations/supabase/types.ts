@@ -1725,6 +1725,7 @@ export type Database = {
           exit_value: number | null
           fee_native_wei: number | null
           fees: number | null
+          gas_cost_eth: number | null
           gas_cost_eur: number | null
           gas_cost_pct: number | null
           gas_estimate_wei: number | null
@@ -1780,6 +1781,7 @@ export type Database = {
           exit_value?: number | null
           fee_native_wei?: number | null
           fees?: number | null
+          gas_cost_eth?: number | null
           gas_cost_eur?: number | null
           gas_cost_pct?: number | null
           gas_estimate_wei?: number | null
@@ -1835,6 +1837,7 @@ export type Database = {
           exit_value?: number | null
           fee_native_wei?: number | null
           fees?: number | null
+          gas_cost_eth?: number | null
           gas_cost_eur?: number | null
           gas_cost_pct?: number | null
           gas_estimate_wei?: number | null

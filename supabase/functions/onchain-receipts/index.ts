@@ -524,14 +524,14 @@ async function processReceipt(trade: any) {
     const executedPrice = decodedTrade.executedPrice;
     const totalValue = decodedTrade.totalValue;
     
-    // Calculate gas cost in EUR from receipt (gasUsed × effectiveGasPrice)
-    // TODO: Integrate real-time ETH price API for accurate gas_cost_eur
+    // ========================================================================
+    // GAS ACCOUNTING: Store ETH-native value only (Option A)
+    // EUR conversion happens in portfolio views, NOT at insertion time.
+    // This preserves on-chain truth and avoids time-of-execution FX ambiguity.
+    // ========================================================================
     const gasWei = BigInt(gasUsedDec) * BigInt(effectiveGasPrice || 0);
-    const gasEth = Number(gasWei) / 1e18;
-    // Placeholder: Use a reasonable ETH price estimate for gas cost
-    // In production, this should fetch current ETH/EUR price from price_snapshots
-    const estimatedEthPriceEur = 3000; // Conservative estimate
-    const gasCostEur = gasEth * estimatedEthPriceEur;
+    const gasCostEth = Number(gasWei) / 1e18;
+    // NO EUR CONVERSION HERE - ledger stores only on-chain observable values
     
     // Build the ledger record with STRICT invariants - ALL economics from receipt
     const ledgerRecord = {
@@ -563,7 +563,8 @@ async function processReceipt(trade: any) {
       execution_ts: blockTimestamp,
       tx_hash,
       chain_id,
-      gas_cost_eur: Math.round(gasCostEur * 100) / 100,  // FROM RECEIPT ONLY
+      gas_cost_eth: gasCostEth,  // ETH-NATIVE: FROM RECEIPT ONLY, no EUR conversion
+      // gas_cost_eur: null for real trades - compute in views via price_snapshots
       idempotency_key: idempotency_key || `onchain_${tx_hash}`,
     };
     
@@ -573,7 +574,7 @@ async function processReceipt(trade: any) {
       side,
       amount: filledAmount,
       price: executedPrice,
-      gas_cost_eur: ledgerRecord.gas_cost_eur,
+      gas_cost_eth: gasCostEth,
     });
     
     // Insert into unified ledger with idempotency protection
