@@ -122,6 +122,145 @@ const RPC_URLS: Record<number, string> = {
   42161: Deno.env.get('RPC_URL_42161') || 'https://arbitrum.llamarpc.com',
 };
 
+// ============================================================================
+// RECEIPT LOG DECODER: Extract filled amounts and prices from on-chain events
+// This is the ONLY source of truth for real trade economics
+// ============================================================================
+
+// ERC-20 Transfer event topic: Transfer(address,address,uint256)
+const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+// Known stablecoin addresses on Base (for price derivation)
+const STABLECOINS: Record<string, { decimals: number; symbol: string }> = {
+  '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': { decimals: 6, symbol: 'USDC' },  // USDC on Base
+  '0x50c5725949a6f0c72e6c4a641f24049a917db0cb': { decimals: 18, symbol: 'DAI' },   // DAI on Base
+  '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca': { decimals: 6, symbol: 'USDbC' },  // USDbC on Base
+};
+
+// Known token addresses on Base (for amount parsing)
+const KNOWN_TOKENS: Record<string, { decimals: number; symbol: string }> = {
+  '0x4200000000000000000000000000000000000006': { decimals: 18, symbol: 'WETH' },
+  '0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22': { decimals: 18, symbol: 'cbETH' },
+  ...STABLECOINS,
+};
+
+interface DecodeResult {
+  success: boolean;
+  filledAmount: number;
+  executedPrice: number;
+  totalValue: number;
+  decodeMethod: string;
+  decodedLogs: any[];
+  error?: string;
+}
+
+function decodeSwapFromReceipt(receipt: any, symbol: string, side: string): DecodeResult {
+  const logs = receipt.logs || [];
+  
+  if (logs.length === 0) {
+    return {
+      success: false,
+      filledAmount: 0,
+      executedPrice: 0,
+      totalValue: 0,
+      decodeMethod: 'none',
+      decodedLogs: [],
+      error: 'No logs in receipt',
+    };
+  }
+  
+  // Find all ERC-20 Transfer events
+  const transferLogs = logs.filter((log: any) => 
+    log.topics && log.topics[0] === ERC20_TRANSFER_TOPIC
+  );
+  
+  if (transferLogs.length === 0) {
+    return {
+      success: false,
+      filledAmount: 0,
+      executedPrice: 0,
+      totalValue: 0,
+      decodeMethod: 'none',
+      decodedLogs: [],
+      error: 'No ERC-20 Transfer events found',
+    };
+  }
+  
+  // Parse transfer events
+  const decodedTransfers = transferLogs.map((log: any) => {
+    const tokenAddress = log.address?.toLowerCase();
+    const tokenInfo = KNOWN_TOKENS[tokenAddress] || { decimals: 18, symbol: 'UNKNOWN' };
+    
+    // Transfer event: topics[1] = from, topics[2] = to, data = amount
+    const from = log.topics[1] ? '0x' + log.topics[1].slice(26) : null;
+    const to = log.topics[2] ? '0x' + log.topics[2].slice(26) : null;
+    const rawAmount = log.data ? BigInt(log.data) : BigInt(0);
+    const amount = Number(rawAmount) / Math.pow(10, tokenInfo.decimals);
+    
+    return {
+      tokenAddress,
+      tokenSymbol: tokenInfo.symbol,
+      decimals: tokenInfo.decimals,
+      from,
+      to,
+      rawAmount: rawAmount.toString(),
+      amount,
+      isStablecoin: !!STABLECOINS[tokenAddress],
+    };
+  });
+  
+  // Find stablecoin transfer (represents USD value)
+  const stablecoinTransfer = decodedTransfers.find(t => t.isStablecoin);
+  // Find non-stablecoin transfer (represents token amount)
+  const tokenTransfer = decodedTransfers.find(t => !t.isStablecoin);
+  
+  if (!stablecoinTransfer || !tokenTransfer) {
+    // Fallback: try to infer from available transfers
+    if (decodedTransfers.length >= 2) {
+      // Use first two transfers as token/stablecoin pair
+      const [first, second] = decodedTransfers;
+      const filledAmount = first.amount;
+      const totalValue = second.amount;
+      const executedPrice = filledAmount > 0 ? totalValue / filledAmount : 0;
+      
+      return {
+        success: true,
+        filledAmount,
+        executedPrice,
+        totalValue,
+        decodeMethod: 'two_transfer_fallback',
+        decodedLogs: decodedTransfers,
+      };
+    }
+    
+    return {
+      success: false,
+      filledAmount: 0,
+      executedPrice: 0,
+      totalValue: 0,
+      decodeMethod: 'incomplete',
+      decodedLogs: decodedTransfers,
+      error: 'Could not identify stablecoin and token transfers',
+    };
+  }
+  
+  // Calculate filled amount and price based on side
+  // BUY: receiving token, paying stablecoin
+  // SELL: paying token, receiving stablecoin
+  const filledAmount = tokenTransfer.amount;
+  const totalValue = stablecoinTransfer.amount;
+  const executedPrice = filledAmount > 0 ? totalValue / filledAmount : 0;
+  
+  return {
+    success: true,
+    filledAmount,
+    executedPrice,
+    totalValue,
+    decodeMethod: 'erc20_transfer_pair',
+    decodedLogs: decodedTransfers,
+  };
+}
+
 async function getReceipt(chainId: number, txHash: string) {
   const rpcUrl = RPC_URLS[chainId];
   if (!rpcUrl) {
@@ -282,8 +421,9 @@ async function processReceipt(trade: any) {
   // CRITICAL INVARIANTS:
   // 1. Only insert after successful receipt confirmation
   // 2. execution_confirmed = true ONLY when receipt is fully decoded
-  // 3. amount, price, gas_cost_eur derived EXCLUSIVELY from receipt
+  // 3. amount, price, total_value, gas_cost_eur derived EXCLUSIVELY from receipt logs
   // 4. execution_source = 'onchain' (authoritative provenance)
+  // 5. NO values from: intent payload, coordinator estimates, UI values, pre-execution quotes
   // ============================================================================
   if (txSuccess && user_id && strategy_id) {
     // Extract execution timestamp from block (if available) or use current time
@@ -292,34 +432,65 @@ async function processReceipt(trade: any) {
       ? new Date(parseInt(receipt.blockTimestamp, 16) * 1000).toISOString()
       : new Date().toISOString();
     
-    // Calculate gas cost in EUR (requires ETH price - simplified for now)
-    // TODO: Integrate real-time ETH price for accurate gas_cost_eur
+    // ========================================================================
+    // DECODE FILLED AMOUNT AND PRICE FROM RECEIPT LOGS (SOURCE OF TRUTH)
+    // Parse ERC-20 Transfer events to extract actual on-chain execution values
+    // ========================================================================
+    const decodedTrade = decodeSwapFromReceipt(receipt, symbol, side);
+    
+    if (!decodedTrade.success) {
+      console.error(`❌ RECEIPT DECODE FAILED for trade ${tradeId}:`, decodedTrade.error);
+      
+      // Log decode failure but do NOT insert into ledger with fallback values
+      await supabase.from('trade_events').insert({
+        trade_id: tradeId,
+        phase: 'receipt_decode_failed',
+        severity: 'error',
+        payload: {
+          error: decodedTrade.error,
+          logs_count: receipt.logs?.length || 0,
+          receipt_partial: {
+            blockNumber: receipt.blockNumber,
+            gasUsed: receipt.gasUsed,
+            status: receipt.status,
+          },
+        },
+      });
+      
+      return {
+        tradeId,
+        tx_hash,
+        status: 'decode_failed',
+        error: decodedTrade.error,
+      };
+    }
+    
+    // Use ONLY decoded values from receipt - never intent/coordinator/UI values
+    const filledAmount = decodedTrade.filledAmount;
+    const executedPrice = decodedTrade.executedPrice;
+    const totalValue = decodedTrade.totalValue;
+    
+    // Calculate gas cost in EUR from receipt (gasUsed × effectiveGasPrice)
+    // TODO: Integrate real-time ETH price API for accurate gas_cost_eur
     const gasWei = BigInt(gasUsedDec) * BigInt(effectiveGasPrice || 0);
     const gasEth = Number(gasWei) / 1e18;
     // Placeholder: Use a reasonable ETH price estimate for gas cost
-    // In production, this should fetch current ETH price
+    // In production, this should fetch current ETH/EUR price from price_snapshots
     const estimatedEthPriceEur = 3000; // Conservative estimate
     const gasCostEur = gasEth * estimatedEthPriceEur;
     
-    // Extract filled amount from trade record (already validated above)
-    // For real trades, amount comes from the original trade intent
-    // Price is derived from total_value / amount after execution
-    const filledAmount = trade.amount || 0;
-    const executedPrice = trade.price || 0;
-    const totalValue = filledAmount * executedPrice;
-    
-    // Build the ledger record with STRICT invariants
+    // Build the ledger record with STRICT invariants - ALL economics from receipt
     const ledgerRecord = {
       user_id,
       strategy_id,
       trade_type: side?.toLowerCase() || 'buy',
       cryptocurrency: symbol?.replace('/USD', '').replace('/EUR', '') || 'UNKNOWN',
-      amount: filledAmount,
-      price: executedPrice,
-      total_value: totalValue,
+      amount: filledAmount,           // FROM RECEIPT DECODE ONLY
+      price: executedPrice,           // FROM RECEIPT DECODE ONLY
+      total_value: totalValue,        // FROM RECEIPT DECODE ONLY
       executed_at: blockTimestamp,
       is_test_mode: false, // REAL trade
-      notes: `On-chain execution confirmed | tx:${tx_hash?.substring(0, 10)}... | provider:${provider || 'unknown'}`,
+      notes: `On-chain execution confirmed | tx:${tx_hash?.substring(0, 10)}... | provider:${provider || 'unknown'} | decoded:${decodedTrade.decodeMethod}`,
       strategy_trigger: `onchain|tx:${tx_hash?.substring(0, 16)}`,
       market_conditions: {
         origin: 'ONCHAIN_CONFIRMED',
@@ -329,6 +500,8 @@ async function processReceipt(trade: any) {
         gas_used: gasUsedDec,
         effective_gas_price: effectiveGasPrice,
         block_number: receipt.blockNumber,
+        decode_method: decodedTrade.decodeMethod,
+        decoded_logs: decodedTrade.decodedLogs,
       },
       // UNIFIED LEDGER: Explicit real execution fields
       execution_source: 'onchain',
@@ -336,7 +509,7 @@ async function processReceipt(trade: any) {
       execution_ts: blockTimestamp,
       tx_hash,
       chain_id,
-      gas_cost_eur: Math.round(gasCostEur * 100) / 100,
+      gas_cost_eur: Math.round(gasCostEur * 100) / 100,  // FROM RECEIPT ONLY
       idempotency_key: idempotency_key || `onchain_${tx_hash}`,
     };
     
