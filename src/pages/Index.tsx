@@ -28,8 +28,12 @@ import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
 import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
-import { Link2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Link2, Wallet } from 'lucide-react';
 import { Link } from 'react-router-dom';
+
+// Portfolio source type - 'app' (unified ledger) or 'coinbase' (external account view)
+type PortfolioSource = 'app' | 'coinbase';
 
 // Step 3 & 5: Parent debug gate and helpers
 const RUNTIME_DEBUG =
@@ -212,6 +216,10 @@ function IndexComponent() {
     traceSet('isStrategyFullWidth', 'layoutChange');
     setIsStrategyFullWidth(value);
   };
+  
+  // Portfolio source selector: 'app' (unified ledger) or 'coinbase' (external view)
+  // CRITICAL: Default MUST be 'app' regardless of Coinbase connection status
+  const [portfolioSource, setPortfolioSource] = useState<PortfolioSource>('app');
   
   // Step 3: Parent mount counter + rate limiting
   const parentMountCountRef = useRef(0);
@@ -466,8 +474,33 @@ function IndexComponent() {
               <div className="p-6 flex-1 overflow-y-auto min-h-0">
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6">
+                    {/* Portfolio Source Selector - Always show app data by default */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Wallet className="h-4 w-4 text-slate-400" />
+                        <span className="text-sm text-slate-400">Portfolio View:</span>
+                      </div>
+                      <Select
+                        value={portfolioSource}
+                        onValueChange={(value: PortfolioSource) => setPortfolioSource(value)}
+                      >
+                        <SelectTrigger className="w-[180px] bg-slate-700/50 border-slate-600">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-slate-800 border-slate-600 z-50">
+                          <SelectItem value="app" className="text-white hover:bg-slate-700">
+                            App Portfolio
+                          </SelectItem>
+                          <SelectItem value="coinbase" className="text-white hover:bg-slate-700">
+                            Coinbase Account
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    {/* Portfolio Display - based on portfolioSource, NOT testMode */}
                     <ErrorBoundary>
-                      {testMode ? (
+                      {portfolioSource === 'app' ? (
                         <UnifiedPortfolioDisplay />
                       ) : (
                         <MergedPortfolioDisplay
