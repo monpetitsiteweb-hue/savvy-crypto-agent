@@ -1924,6 +1924,7 @@ serve(async (req) => {
       const realizedPnLPct = totalPurchaseValue > 0 ? (realizedPnL / totalPurchaseValue) * 100 : 0;
 
       // Insert mock SELL with snapshot fields and original_trade_id
+      const executedAtTs = new Date().toISOString();
       const payload = {
         user_id: intent.userId,
         strategy_id: intent.strategyId,
@@ -1932,7 +1933,7 @@ serve(async (req) => {
         amount: sellAmount,
         price: exitPrice,
         total_value: exitValue,
-        executed_at: new Date().toISOString(),
+        executed_at: executedAtTs,
         original_trade_id: originalTradeIdToStore, // Link to specific BUY if targeted
         original_purchase_amount: totalPurchaseAmount,
         original_purchase_price: avgPurchasePrice,
@@ -1946,6 +1947,10 @@ serve(async (req) => {
           ? `Manual mock SELL via force override (coordinator fast-path) | original_trade_id=${originalTradeIdToStore}`
           : 'Manual mock SELL via force override (coordinator fast-path)',
         is_test_mode: true,
+        // UNIFIED LEDGER: Explicit mock execution fields
+        execution_source: 'mock_engine',
+        execution_confirmed: true,
+        execution_ts: executedAtTs,
       };
 
       // PHASE B: Dual-engine detection with origin tracking (log only, no blocking)
@@ -3256,6 +3261,10 @@ async function executeTradeDirectly(
           exit_value: Math.round(exitValue * 100) / 100,
           realized_pnl: Math.round(realizedPnl * 100) / 100,
           realized_pnl_pct: Math.round(realizedPnlPct * 100) / 100,
+          // UNIFIED LEDGER: Explicit mock execution fields
+          execution_source: 'mock_engine',
+          execution_confirmed: true,
+          execution_ts: executedAt,
         };
       });
       
@@ -3384,6 +3393,10 @@ async function executeTradeDirectly(
         executed_at: new Date().toISOString(),
         latency_ms: Date.now() - (new Date(intent.ts || Date.now()).getTime()),
       },
+      // UNIFIED LEDGER: Explicit mock execution fields
+      execution_source: 'mock_engine',
+      execution_confirmed: true,
+      execution_ts: new Date().toISOString(),
     };
 
     // PHASE B: Dual-engine detection with origin tracking (log only, no blocking)
@@ -5761,6 +5774,10 @@ async function executeTradeOrder(
             exit_value: exitValue,
             realized_pnl: Math.round(realizedPnl * 100) / 100,
             realized_pnl_pct: Math.round(realizedPnlPct * 100) / 100,
+            // UNIFIED LEDGER: Explicit mock execution fields
+            execution_source: 'mock_engine',
+            execution_confirmed: true,
+            execution_ts: executed_at,
           };
         });
 
@@ -5900,6 +5917,10 @@ async function executeTradeOrder(
         },
         // GOAL 2.B: P&L at decision time for UI display
         pnl_at_decision_pct: pnlAtDecisionPct,
+        // UNIFIED LEDGER: Explicit mock execution fields
+        execution_source: 'mock_engine',
+        execution_confirmed: true,
+        execution_ts: executed_at,
         ...fifoFields
       };
 
