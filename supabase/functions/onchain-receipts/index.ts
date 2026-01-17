@@ -126,6 +126,59 @@ const RPC_URLS: Record<number, string> = {
 // RECEIPT LOG DECODER: Extract filled amounts and prices from on-chain events
 // This is the ONLY source of truth for real trade economics
 // ============================================================================
+//
+// SUPPORTED SWAP PATTERNS & ROUTERS:
+// -----------------------------------
+// This decoder is router-agnostic. It works by analyzing ERC-20 Transfer events
+// emitted during swap execution, which means it supports ANY router that results
+// in standard ERC-20 transfers, including:
+//   - Uniswap V2/V3 (direct and via UniversalRouter)
+//   - 1inch Aggregation Protocol (all versions)
+//   - 0x API (ExchangeProxy, Settler)
+//   - CoW Protocol (GPv2Settlement)
+//   - Paraswap, Odos, KyberSwap, etc.
+//
+// ASSUMPTIONS:
+// -----------------------------------
+// 1. SINGLE-HOP PREFERRED: The decoder identifies the final token transfer pair
+//    (token <-> stablecoin). Multi-hop swaps (e.g., WETH->USDC->DAI) will decode
+//    correctly as long as the final pair includes a known stablecoin.
+//
+// 2. ERC-20 ONLY: Only standard ERC-20 Transfer events are parsed. Native ETH
+//    transfers are NOT captured (must be wrapped to WETH first via permit2/WETH).
+//
+// 3. FEE-ON-TRANSFER TOKENS: Tokens with transfer fees will show the RECEIVED
+//    amount (post-fee), which is the correct economic value for accounting.
+//    The decoder does not attempt to infer or add back fees.
+//
+// 4. STABLECOIN DETECTION: Price is derived from transfers involving known
+//    stablecoins (USDC, DAI, USDbC on Base). Swaps without stablecoin legs
+//    (e.g., WETH->cbETH) will use a two-transfer fallback with lower confidence.
+//
+// 5. TOKEN DECIMALS: Unknown tokens default to 18 decimals. For precise accounting
+//    of non-standard tokens, add them to KNOWN_TOKENS map.
+//
+// FAIL-CLOSED BEHAVIOR:
+// -----------------------------------
+// If the decoder CANNOT extract a valid (filledAmount, executedPrice, totalValue)
+// tuple from the receipt logs, it returns { success: false } with an error reason.
+// The caller (processReceipt) MUST refuse ledger insertion when success=false.
+// This ensures NO real trade is ever recorded with estimated/quoted values.
+//
+// UNRECOGNIZED PATTERNS:
+// -----------------------------------
+// The following will cause decoding to fail (success=false):
+//   - Transactions with no logs (internal calls only)
+//   - Transactions with no ERC-20 Transfer events
+//   - Swaps that don't involve any known stablecoins AND have <2 transfers
+//   - Failed/reverted transactions (no Transfer events emitted)
+//
+// When a new router pattern is encountered that fails decoding:
+//   1. The trade will NOT be recorded in the ledger (fail-closed)
+//   2. An error event is logged with decoded transfer details for debugging
+//   3. Extension requires adding pattern recognition here, not in caller
+//
+// ============================================================================
 
 // ERC-20 Transfer event topic: Transfer(address,address,uint256)
 const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
@@ -138,6 +191,7 @@ const STABLECOINS: Record<string, { decimals: number; symbol: string }> = {
 };
 
 // Known token addresses on Base (for amount parsing)
+// Add new tokens here to ensure correct decimal handling
 const KNOWN_TOKENS: Record<string, { decimals: number; symbol: string }> = {
   '0x4200000000000000000000000000000000000006': { decimals: 18, symbol: 'WETH' },
   '0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22': { decimals: 18, symbol: 'cbETH' },
@@ -149,9 +203,9 @@ interface DecodeResult {
   filledAmount: number;
   executedPrice: number;
   totalValue: number;
-  decodeMethod: string;
-  decodedLogs: any[];
-  error?: string;
+  decodeMethod: string;   // 'erc20_transfer_pair' | 'two_transfer_fallback' | 'none' | 'incomplete'
+  decodedLogs: any[];     // All parsed transfers for debugging
+  error?: string;         // Reason if success=false
 }
 
 function decodeSwapFromReceipt(receipt: any, symbol: string, side: string): DecodeResult {
