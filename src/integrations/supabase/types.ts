@@ -1718,7 +1718,10 @@ export type Database = {
           cryptocurrency: string
           effective_bps_cost: number | null
           executed_at: string
+          execution_confirmed: boolean | null
           execution_mode: string | null
+          execution_source: string | null
+          execution_ts: string | null
           exit_value: number | null
           fee_native_wei: number | null
           fees: number | null
@@ -1770,7 +1773,10 @@ export type Database = {
           cryptocurrency: string
           effective_bps_cost?: number | null
           executed_at?: string
+          execution_confirmed?: boolean | null
           execution_mode?: string | null
+          execution_source?: string | null
+          execution_ts?: string | null
           exit_value?: number | null
           fee_native_wei?: number | null
           fees?: number | null
@@ -1822,7 +1828,10 @@ export type Database = {
           cryptocurrency?: string
           effective_bps_cost?: number | null
           executed_at?: string
+          execution_confirmed?: boolean | null
           execution_mode?: string | null
+          execution_source?: string | null
+          execution_ts?: string | null
           exit_value?: number | null
           fee_native_wei?: number | null
           fees?: number | null
