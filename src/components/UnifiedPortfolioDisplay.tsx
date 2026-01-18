@@ -14,7 +14,8 @@ import { useOpenTrades } from "@/hooks/useOpenTrades";
 import { useMarketData } from "@/contexts/MarketDataContext";
 import { useHoldingsPrices } from "@/hooks/useHoldingsPrices";
 import { supabase } from '@/integrations/supabase/client';
-import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw, AlertCircle, Fuel } from "lucide-react";
+import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw, AlertCircle, Fuel, BarChart3 } from "lucide-react";
+import { WalletRealityPanel } from "@/components/wallet/WalletRealityPanel";
 import { logger } from '@/utils/logger';
 import { PortfolioNotInitialized } from "@/components/PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
@@ -824,19 +825,62 @@ export const UnifiedPortfolioDisplay = () => {
             </div>
           )}
           
-          {/* Production mode view */}
+          {/* ═══════════════════════════════════════════════════════════════════════
+              LIVE MODE: LEDGER VIEW (SYSTEM ACCOUNTING)
+              This is the existing dashboard view - unchanged, authoritative for trading
+          ═══════════════════════════════════════════════════════════════════════ */}
           {!testMode && (
-            portfolioData?.accounts && portfolioData.accounts.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {portfolioData.accounts.map(renderCoinCard)}
+            <div className="space-y-6">
+              {/* Ledger Label */}
+              <div className="flex items-center gap-2 border-b border-slate-700 pb-2">
+                <BarChart3 className="h-4 w-4 text-blue-400" />
+                <span className="text-sm font-medium text-slate-300">Ledger (System Accounting)</span>
+                <span className="text-xs text-slate-500">— Source of truth for trading decisions</span>
               </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-slate-300">
-                  No portfolio data available. Select a connection and refresh.
-                </p>
+              
+              {/* Ledger Total Value */}
+              <div className="text-center py-2">
+                <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Total Portfolio Value (Ledger)</div>
+                <div className="text-4xl font-bold text-white">
+                  {formatEuro(metrics.total_portfolio_value_eur)}
+                </div>
+                <div className="text-sm text-slate-400 mt-1">
+                  Cash: {formatEuro(metrics.cash_balance_eur)} • Positions: {formatEuro(metrics.current_position_value_eur)}
+                </div>
               </div>
-            )
+
+              {/* Coinbase Account View (if connected) */}
+              {portfolioData?.accounts && portfolioData.accounts.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    Connected Coinbase Account
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {portfolioData.accounts.map(renderCoinCard)}
+                  </div>
+                </div>
+              )}
+              
+              {!portfolioData?.accounts?.length && !fetchingPortfolio && (
+                <div className="text-center py-4">
+                  <p className="text-slate-400 text-sm">
+                    No Coinbase account connected. Ledger data shown above.
+                  </p>
+                </div>
+              )}
+
+              {/* ═══════════════════════════════════════════════════════════════════════
+                  LIVE MODE: WALLET REALITY VIEW (ON-CHAIN)
+                  Read-only view of actual on-chain wallet balances
+                  Shows drift between ledger and reality - NO AUTO-SYNC
+              ═══════════════════════════════════════════════════════════════════════ */}
+              <div className="mt-6 pt-4 border-t border-slate-700">
+                <WalletRealityPanel 
+                  ledgerTotalEur={metrics.total_portfolio_value_eur}
+                  openPositionSymbols={openTrades.map(t => t.cryptocurrency.replace('-EUR', '').replace('-USD', ''))}
+                />
+              </div>
+            </div>
           )}
 
           {/* Data source indicator */}
