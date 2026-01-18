@@ -119,28 +119,62 @@ async function getTokenBalance(
   return BigInt(data.result);
 }
 
-// Fetch prices from CoinGecko
-async function getPrices(): Promise<Record<string, number>> {
+// Fetch prices from price_snapshots table (single source of truth)
+async function getPricesFromSnapshots(
+  supabase: ReturnType<typeof createClient>
+): Promise<Record<string, number>> {
   try {
-    const response = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=ethereum,usd-coin,tether,wrapped-ether&vs_currencies=usd,eur',
-      { headers: { 'Accept': 'application/json' } }
-    );
+    // Fetch latest prices for ETH, WETH, USDC, USDT from price_snapshots
+    const symbols = ['ETH-EUR', 'ETH', 'WETH-EUR', 'WETH', 'USDC-EUR', 'USDC', 'USDT-EUR', 'USDT'];
     
-    const data = await response.json();
-    
-    return {
-      ETH: data.ethereum?.usd || 0,
-      ETH_EUR: data.ethereum?.eur || 0,
-      WETH: data['wrapped-ether']?.usd || data.ethereum?.usd || 0,
-      WETH_EUR: data['wrapped-ether']?.eur || data.ethereum?.eur || 0,
-      USDC: data['usd-coin']?.usd || 1,
-      USDC_EUR: data['usd-coin']?.eur || 0.92,
-      USDT: data.tether?.usd || 1,
-      USDT_EUR: data.tether?.eur || 0.92,
+    const { data: snapshots, error } = await supabase
+      .from('price_snapshots')
+      .select('symbol, price_eur, updated_at')
+      .in('symbol', symbols)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.error('[execution-wallet-balance] price_snapshots query error:', error);
+      throw error;
+    }
+
+    // Build price map from most recent entries per symbol
+    const priceMap: Record<string, number> = {};
+    const seenSymbols = new Set<string>();
+
+    for (const snap of snapshots || []) {
+      const baseSymbol = snap.symbol.replace('-EUR', '').replace('-USD', '');
+      if (!seenSymbols.has(baseSymbol) && snap.price_eur && snap.price_eur > 0) {
+        priceMap[baseSymbol] = snap.price_eur;
+        seenSymbols.add(baseSymbol);
+      }
+    }
+
+    // Calculate USD prices assuming ~1.08 EUR/USD rate if not available
+    // (This is approximate; the main view is EUR-based)
+    const eurToUsd = 1.08;
+
+    const result = {
+      ETH: (priceMap['ETH'] || 0) * eurToUsd,
+      ETH_EUR: priceMap['ETH'] || 0,
+      WETH: (priceMap['WETH'] || priceMap['ETH'] || 0) * eurToUsd,
+      WETH_EUR: priceMap['WETH'] || priceMap['ETH'] || 0,
+      USDC: 1,
+      USDC_EUR: priceMap['USDC'] || 0.92,
+      USDT: 1,
+      USDT_EUR: priceMap['USDT'] || 0.92,
     };
+
+    console.log('[execution-wallet-balance] Prices from price_snapshots:', {
+      ETH_EUR: result.ETH_EUR,
+      WETH_EUR: result.WETH_EUR,
+      USDC_EUR: result.USDC_EUR,
+    });
+
+    return result;
   } catch (e) {
-    console.error('[execution-wallet-balance] Price fetch error:', e);
+    console.error('[execution-wallet-balance] Price fetch error, using fallback:', e);
+    // Fallback values - should rarely be needed
     return {
       ETH: 3500,
       ETH_EUR: 3200,
@@ -219,12 +253,12 @@ Deno.serve(async (req) => {
 
     console.log(`[execution-wallet-balance] Fetching balances for ${walletAddress} on chain ${chainId}`);
 
-    // Fetch all balances in parallel
+    // Fetch all balances in parallel (prices now from price_snapshots)
     const [ethBalance, wethBalance, usdcBalance, prices] = await Promise.all([
       getEthBalance(rpcUrl, walletAddress),
       getTokenBalance(rpcUrl, TOKENS.WETH.address, walletAddress),
       getTokenBalance(rpcUrl, TOKENS.USDC.address, walletAddress),
-      getPrices(),
+      getPricesFromSnapshots(supabase),
     ]);
 
     // Format balances
