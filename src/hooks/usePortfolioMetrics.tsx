@@ -116,9 +116,17 @@ export function usePortfolioMetrics() {
           total_sell_fees_eur: m.total_sell_fees_eur ?? 0,
         };
 
-        setMetrics(next);
-        if (next.success === true) {
+        // CRITICAL: Only update if we have valid data with starting capital
+        // This prevents €0 from appearing when RPC returns partial data
+        if (next.success === true && next.starting_capital_eur > 0) {
           lastGoodMetrics.current = next;
+        }
+        
+        // Use lastGoodMetrics if available and current response lacks starting capital
+        if (next.starting_capital_eur === 0 && lastGoodMetrics.current && lastGoodMetrics.current.starting_capital_eur > 0) {
+          setMetrics({ ...next, starting_capital_eur: lastGoodMetrics.current.starting_capital_eur });
+        } else {
+          setMetrics(next);
         }
       } else {
         // Invalid response: restore last known-good state if available
