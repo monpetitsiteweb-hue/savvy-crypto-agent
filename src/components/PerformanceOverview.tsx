@@ -184,8 +184,15 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
     );
   }
 
-  // Show not initialized state
-  if (testMode && !metricsLoading && !isInitialized) {
+  // Show not initialized state ONLY when backend explicitly reports it.
+  // Never treat transient RPC errors as "not initialized".
+  const showPortfolioNotInitialized =
+    testMode &&
+    !metricsLoading &&
+    metrics?.success === false &&
+    (metrics as any)?.reason === 'portfolio_not_initialized';
+
+  if (showPortfolioNotInitialized) {
     return <PortfolioNotInitialized onReset={handleReset} isLoading={walletLoading} />;
   }
 

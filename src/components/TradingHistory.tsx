@@ -607,8 +607,15 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     );
   }
 
-  // Show not initialized state
-  if (testMode && !metricsLoading && !isInitialized) {
+  // Show not initialized state ONLY when backend explicitly reports it.
+  // Never treat transient RPC errors as "not initialized".
+  const showPortfolioNotInitialized =
+    testMode &&
+    !metricsLoading &&
+    metrics?.success === false &&
+    (metrics as any)?.reason === 'portfolio_not_initialized';
+
+  if (showPortfolioNotInitialized) {
     const handleReset = async () => {
       await resetPortfolio();
       // Refresh ALL data sources after hard reset
