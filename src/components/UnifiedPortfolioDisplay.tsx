@@ -578,7 +578,7 @@ export const UnifiedPortfolioDisplay = () => {
               TOP — PRIMARY METRIC (FULL WIDTH)
               Total Live Portfolio Value - the anchor metric
           ═══════════════════════════════════════════════════════════════════════ */}
-          {testMode && isInitialized && (
+          {testMode && !showPortfolioNotInitialized && !metricsLoading && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
