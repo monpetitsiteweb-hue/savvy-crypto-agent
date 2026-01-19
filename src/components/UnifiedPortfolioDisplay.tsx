@@ -59,6 +59,15 @@ interface PortfolioData {
 export const UnifiedPortfolioDisplay = () => {
   const { testMode } = useTradeViewFilter();
   const { user } = useAuth();
+
+  // Opt-in diagnostics: append ?debugPortfolio=1 to the URL
+  const DEBUG_PORTFOLIO = useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('debugPortfolio') === '1';
+    } catch {
+      return false;
+    }
+  }, []);
   
   const { resetPortfolio, isLoading: walletLoading } = useMockWallet();
   const { 
@@ -475,6 +484,34 @@ export const UnifiedPortfolioDisplay = () => {
 
   // Show not initialized state for test mode
   if (testMode && !metricsLoading && !isInitialized) {
+    // FACT LOG: show the exact gate inputs (helps pinpoint why this renders)
+    console.info('[UnifiedPortfolioDisplay] PortfolioNotInitialized gate', {
+      testMode,
+      metricsLoading,
+      isInitialized,
+      metricsSuccess: metrics?.success,
+      metricsReason: (metrics as any)?.reason,
+    });
+
+    // Optional UI dump for "facts only" debugging (opt-in via ?debugPortfolio=1)
+    if (DEBUG_PORTFOLIO) {
+      return (
+        <div className="space-y-3">
+          <PortfolioNotInitialized onReset={handleResetPortfolio} isLoading={walletLoading} />
+          <Card>
+            <CardContent className="p-4">
+              <pre className="text-xs whitespace-pre-wrap break-words">{JSON.stringify({
+                testMode,
+                metricsLoading,
+                isInitialized,
+                metrics,
+              }, null, 2)}</pre>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
     return <PortfolioNotInitialized onReset={handleResetPortfolio} isLoading={walletLoading} />;
   }
 

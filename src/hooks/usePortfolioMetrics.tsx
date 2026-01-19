@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './useAuth';
 import { useTestMode } from './useTradeViewFilter';
 import { supabase } from '@/integrations/supabase/client';
@@ -46,6 +46,9 @@ export function usePortfolioMetrics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Diagnostics (helps catch race/multiple calls)
+  const callSeq = useRef(0);
+
   const fetchMetrics = useCallback(async () => {
     // =========================================================================
     // UNIFIED LEDGER: Dashboard works the same in Test and Live mode
@@ -57,17 +60,31 @@ export function usePortfolioMetrics() {
       return;
     }
 
+    const seq = ++callSeq.current;
+
     setLoading(true);
     setError(null);
 
+    // FACT LOG (always): show exactly what we are sending
+    console.info('[usePortfolioMetrics] calling get_portfolio_metrics', {
+      seq,
+      userId: user.id,
+      p_is_test_mode: testMode,
+    });
+
     try {
-      // Pass is_test_mode to RPC so it filters correctly for Test vs Live
+      // p_is_test_mode is REQUIRED (single deterministic contract)
       const { data, error: rpcError } = await supabase.rpc('get_portfolio_metrics' as any, {
         p_user_id: user.id,
         p_is_test_mode: testMode,
       });
 
-      console.log('[usePortfolioMetrics] RPC result:', { data, error: rpcError });
+      // FACT LOG (always): show raw response
+      console.info('[usePortfolioMetrics] RPC result', {
+        seq,
+        data,
+        rpcError,
+      });
 
       if (rpcError) {
         throw rpcError;
@@ -96,7 +113,7 @@ export function usePortfolioMetrics() {
         setMetrics({ ...EMPTY_METRICS, reason: 'invalid_response' });
       }
     } catch (err: any) {
-      console.error('[usePortfolioMetrics] Error:', err);
+      console.error('[usePortfolioMetrics] Error', { seq, err });
       setError(err.message || 'Failed to fetch metrics');
       setMetrics({ ...EMPTY_METRICS, reason: 'error' });
     } finally {
@@ -134,22 +151,22 @@ export function usePortfolioMetrics() {
 
   // Computed values
   const isInitialized = metrics.success === true;
-  
+
   // Since start gain (€ and %)
   const sinceStartGainEur = metrics.total_portfolio_value_eur - metrics.starting_capital_eur;
-  const sinceStartGainPct = metrics.starting_capital_eur > 0 
-    ? (sinceStartGainEur / metrics.starting_capital_eur) * 100 
+  const sinceStartGainPct = metrics.starting_capital_eur > 0
+    ? (sinceStartGainEur / metrics.starting_capital_eur) * 100
     : 0;
 
   // P&L percentages (guard divide-by-zero)
   const unrealizedPnlPct = metrics.invested_cost_basis_eur > 0
     ? (metrics.unrealized_pnl_eur / metrics.invested_cost_basis_eur) * 100
     : 0;
-  
+
   const realizedPnlPct = metrics.starting_capital_eur > 0
     ? (metrics.realized_pnl_eur / metrics.starting_capital_eur) * 100
     : 0;
-  
+
   const totalPnlPct = metrics.starting_capital_eur > 0
     ? (metrics.total_pnl_eur / metrics.starting_capital_eur) * 100
     : 0;
