@@ -46,8 +46,9 @@ export function usePortfolioMetrics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Diagnostics (helps catch race/multiple calls)
+  // Diagnostics + stale-response protection
   const callSeq = useRef(0);
+  const lastGoodMetrics = useRef<PortfolioMetrics | null>(null);
 
   const fetchMetrics = useCallback(async () => {
     // =========================================================================
@@ -90,9 +91,14 @@ export function usePortfolioMetrics() {
         throw rpcError;
       }
 
+      // Ignore stale responses (if a newer call was started after this one)
+      if (seq !== callSeq.current) {
+        return;
+      }
+
       if (data && typeof data === 'object') {
         const m = data as PortfolioMetrics;
-        setMetrics({
+        const next: PortfolioMetrics = {
           success: m.success ?? false,
           reason: m.reason,
           starting_capital_eur: m.starting_capital_eur ?? 0,
@@ -108,16 +114,37 @@ export function usePortfolioMetrics() {
           total_fees_eur: m.total_fees_eur ?? 0,
           total_buy_fees_eur: m.total_buy_fees_eur ?? 0,
           total_sell_fees_eur: m.total_sell_fees_eur ?? 0,
-        });
+        };
+
+        setMetrics(next);
+        if (next.success === true) {
+          lastGoodMetrics.current = next;
+        }
       } else {
-        setMetrics({ ...EMPTY_METRICS, reason: 'invalid_response' });
+        // Invalid response should not wipe a previously known-good portfolio
+        if (!lastGoodMetrics.current) {
+          setMetrics({ ...EMPTY_METRICS, reason: 'invalid_response' });
+        }
       }
     } catch (err: any) {
       console.error('[usePortfolioMetrics] Error', { seq, err });
+
+      // Ignore stale failures (if a newer call was started after this one)
+      if (seq !== callSeq.current) {
+        return;
+      }
+
       setError(err.message || 'Failed to fetch metrics');
-      setMetrics({ ...EMPTY_METRICS, reason: 'error' });
+
+      // Never overwrite a known-good portfolio with EMPTY on transient failures
+      if (!lastGoodMetrics.current) {
+        setMetrics({ ...EMPTY_METRICS, reason: 'error' });
+      }
     } finally {
-      setLoading(false);
+      // Only clear loading for the latest call
+      if (seq === callSeq.current) {
+        setLoading(false);
+      }
     }
   }, [user, testMode]);
 
