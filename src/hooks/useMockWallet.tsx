@@ -58,13 +58,10 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
 
     setIsLoading(true);
     try {
-      const { data: metrics } = await supabase.rpc(
-        'get_portfolio_metrics' as any,
-        {
-          p_user_id: user.id,
-          p_is_test_mode: true,
-        }
-      );
+      const { data: metrics } = await supabase.rpc('get_portfolio_metrics' as any, {
+        p_user_id: user.id,
+        p_is_test_mode: true,
+      });
 
       const eur = metrics?.success === true ? metrics.cash_balance_eur : 0;
 
@@ -105,13 +102,10 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     try {
       await supabase.rpc('reset_portfolio_capital' as any, { p_user_id: user.id });
 
-      const { data: metrics } = await supabase.rpc(
-        'get_portfolio_metrics' as any,
-        {
-          p_user_id: user.id,
-          p_is_test_mode: true,
-        }
-      );
+      const { data: metrics } = await supabase.rpc('get_portfolio_metrics' as any, {
+        p_user_id: user.id,
+        p_is_test_mode: true,
+      });
 
       const eur = metrics?.success === true ? metrics.cash_balance_eur : 0;
       const wallet = [{ currency: 'EUR', amount: eur, value_in_base: eur }];
