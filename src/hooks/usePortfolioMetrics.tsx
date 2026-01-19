@@ -119,19 +119,26 @@ export function usePortfolioMetrics() {
         // FALLBACK: If RPC returns 0 for starting_capital_eur, query portfolio_capital directly
         // Note: portfolio_capital table has NO is_test_mode column - it's user-scoped only
         if (next.starting_capital_eur === 0 || next.starting_capital_eur === undefined) {
+          console.info('[usePortfolioMetrics] starting_capital_eur is 0/undefined from RPC, querying portfolio_capital table directly');
+          
           const { data: capitalRow, error: capitalError } = await (supabase as any)
             .from('portfolio_capital')
             .select('starting_capital_eur')
             .eq('user_id', user.id)
             .maybeSingle();
 
+          console.info('[usePortfolioMetrics] Fallback query result:', { capitalRow, capitalError });
+
           if (capitalError) {
             console.warn('[usePortfolioMetrics] Fallback capital query failed:', capitalError);
           } else if (capitalRow && capitalRow.starting_capital_eur > 0) {
             next.starting_capital_eur = capitalRow.starting_capital_eur;
+            console.info('[usePortfolioMetrics] Set starting_capital_eur from fallback:', next.starting_capital_eur);
           } else {
             console.warn('[usePortfolioMetrics] No portfolio_capital row found for user, starting_capital_eur remains 0');
           }
+        } else {
+          console.info('[usePortfolioMetrics] starting_capital_eur from RPC:', next.starting_capital_eur);
         }
 
         // Cache whenever we have valid starting capital (don't require success === true)
