@@ -58,19 +58,30 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
 
     setIsLoading(true);
     try {
-      const { data: metrics, error: metricsError } = await supabase.rpc('get_portfolio_metrics' as any, {
-        p_user_id: user.id,
-        p_is_test_mode: true,
-      });
+      const { data: metrics, error: metricsError } = await supabase.rpc(
+        'get_portfolio_metrics' as any,
+        {
+          p_user_id: user.id,
+          p_is_test_mode: true, // ✅ FIX
+        }
+      );
+
+      if (metricsError) {
+        console.error('[refreshFromDatabase] get_portfolio_metrics error:', metricsError);
+      }
 
       const eur = metrics?.success === true ? metrics.cash_balance_eur : 0;
 
-      const { data: trades } = await supabase
+      const { data: trades, error: tradesError } = await supabase
         .from('mock_trades')
         .select('*')
         .eq('user_id', user.id)
         .eq('is_test_mode', true)
         .order('executed_at', { ascending: true });
+
+      if (tradesError) {
+        console.error('[refreshFromDatabase] trades error:', tradesError);
+      }
 
       const crypto: Record<string, number> = {};
 
@@ -102,10 +113,17 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     try {
       await supabase.rpc('reset_portfolio_capital' as any, { p_user_id: user.id });
 
-      const { data: metrics, error: metricsError } = await supabase.rpc('get_portfolio_metrics' as any, {
-        p_user_id: user.id,
-        p_is_test_mode: true,
-      });
+      const { data: metrics, error: metricsError } = await supabase.rpc(
+        'get_portfolio_metrics' as any,
+        {
+          p_user_id: user.id,
+          p_is_test_mode: true, // ✅ FIX
+        }
+      );
+
+      if (metricsError) {
+        console.error('[resetPortfolio] get_portfolio_metrics error:', metricsError);
+      }
 
       const eur = metrics?.success === true ? metrics.cash_balance_eur : 0;
       const wallet = [{ currency: 'EUR', amount: eur, value_in_base: eur }];
