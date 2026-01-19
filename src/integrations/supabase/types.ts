@@ -3669,7 +3669,12 @@ export type Database = {
           user_id: string
         }[]
       }
-      get_portfolio_metrics: { Args: { p_user_id: string }; Returns: Json }
+      get_portfolio_metrics:
+        | { Args: { p_user_id: string }; Returns: Json }
+        | {
+            Args: { p_is_test_mode?: boolean; p_user_id: string }
+            Returns: Json
+          }
       get_strategy_open_position_count: {
         Args: { p_strategy_id: string }
         Returns: number
