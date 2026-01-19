@@ -46,9 +46,8 @@ export function usePortfolioMetrics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Diagnostics + stale-response protection
+  // Stale-response protection
   const callSeq = useRef(0);
-  const lastGoodMetrics = useRef<PortfolioMetrics | null>(null);
 
   const fetchMetrics = useCallback(async () => {
     // =========================================================================
@@ -116,49 +115,9 @@ export function usePortfolioMetrics() {
           total_sell_fees_eur: m.total_sell_fees_eur ?? 0,
         };
 
-        // FALLBACK: If RPC returns 0 for starting_capital_eur, query portfolio_capital directly
-        // Note: portfolio_capital table has NO is_test_mode column - it's user-scoped only
-        if (next.starting_capital_eur === 0 || next.starting_capital_eur === undefined) {
-          console.info('[usePortfolioMetrics] starting_capital_eur is 0/undefined from RPC, querying portfolio_capital table directly');
-          
-          const { data: capitalRow, error: capitalError } = await (supabase as any)
-            .from('portfolio_capital')
-            .select('starting_capital_eur')
-            .eq('user_id', user.id)
-            .maybeSingle();
-
-          console.info('[usePortfolioMetrics] Fallback query result:', { capitalRow, capitalError });
-
-          if (capitalError) {
-            console.warn('[usePortfolioMetrics] Fallback capital query failed:', capitalError);
-          } else if (capitalRow && capitalRow.starting_capital_eur > 0) {
-            next.starting_capital_eur = capitalRow.starting_capital_eur;
-            console.info('[usePortfolioMetrics] Set starting_capital_eur from fallback:', next.starting_capital_eur);
-          } else {
-            console.warn('[usePortfolioMetrics] No portfolio_capital row found for user, starting_capital_eur remains 0');
-          }
-        } else {
-          console.info('[usePortfolioMetrics] starting_capital_eur from RPC:', next.starting_capital_eur);
-        }
-
-        // Cache whenever we have valid starting capital (don't require success === true)
-        if (next.starting_capital_eur > 0) {
-          lastGoodMetrics.current = next;
-        }
-        
-        // Use lastGoodMetrics if available and current response still lacks starting capital
-        if (next.starting_capital_eur === 0 && lastGoodMetrics.current && lastGoodMetrics.current.starting_capital_eur > 0) {
-          setMetrics({ ...next, starting_capital_eur: lastGoodMetrics.current.starting_capital_eur });
-        } else {
-          setMetrics(next);
-        }
+        setMetrics(next);
       } else {
-        // Invalid response: restore last known-good state if available
-        if (lastGoodMetrics.current) {
-          setMetrics(lastGoodMetrics.current);
-        } else {
-          setMetrics({ ...EMPTY_METRICS, reason: 'invalid_response' });
-        }
+        setMetrics({ ...EMPTY_METRICS, reason: 'invalid_response' });
       }
     } catch (err: any) {
       console.error('[usePortfolioMetrics] Error', { seq, err });
@@ -169,13 +128,7 @@ export function usePortfolioMetrics() {
       }
 
       setError(err.message || 'Failed to fetch metrics');
-
-      // Restore last known-good state on transient failures
-      if (lastGoodMetrics.current) {
-        setMetrics(lastGoodMetrics.current);
-      } else {
-        setMetrics({ ...EMPTY_METRICS, reason: 'error' });
-      }
+      setMetrics({ ...EMPTY_METRICS, reason: 'error' });
     } finally {
       // Only clear loading for the latest call
       if (seq === callSeq.current) {
