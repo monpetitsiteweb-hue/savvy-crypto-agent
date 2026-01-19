@@ -116,13 +116,30 @@ export function usePortfolioMetrics() {
           total_sell_fees_eur: m.total_sell_fees_eur ?? 0,
         };
 
-        // CRITICAL: Only update if we have valid data with starting capital
-        // This prevents €0 from appearing when RPC returns partial data
-        if (next.success === true && next.starting_capital_eur > 0) {
+        // FALLBACK: If RPC returns 0 for starting_capital_eur, query portfolio_capital directly
+        if (next.starting_capital_eur === 0 || next.starting_capital_eur === undefined) {
+          const { data: capitalRow, error: capitalError } = await (supabase as any)
+            .from('portfolio_capital')
+            .select('starting_capital_eur')
+            .eq('user_id', user.id)
+            .eq('is_test_mode', testMode)
+            .maybeSingle();
+
+          if (capitalError) {
+            console.warn('[usePortfolioMetrics] Fallback capital query failed:', capitalError);
+          } else if (capitalRow && capitalRow.starting_capital_eur > 0) {
+            next.starting_capital_eur = capitalRow.starting_capital_eur;
+          } else {
+            console.warn('[usePortfolioMetrics] No portfolio_capital row found for user, starting_capital_eur remains 0');
+          }
+        }
+
+        // Cache whenever we have valid starting capital (don't require success === true)
+        if (next.starting_capital_eur > 0) {
           lastGoodMetrics.current = next;
         }
         
-        // Use lastGoodMetrics if available and current response lacks starting capital
+        // Use lastGoodMetrics if available and current response still lacks starting capital
         if (next.starting_capital_eur === 0 && lastGoodMetrics.current && lastGoodMetrics.current.starting_capital_eur > 0) {
           setMetrics({ ...next, starting_capital_eur: lastGoodMetrics.current.starting_capital_eur });
         } else {
