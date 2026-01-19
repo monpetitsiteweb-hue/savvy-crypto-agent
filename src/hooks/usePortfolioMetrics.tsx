@@ -121,8 +121,10 @@ export function usePortfolioMetrics() {
           lastGoodMetrics.current = next;
         }
       } else {
-        // Invalid response should not wipe a previously known-good portfolio
-        if (!lastGoodMetrics.current) {
+        // Invalid response: restore last known-good state if available
+        if (lastGoodMetrics.current) {
+          setMetrics(lastGoodMetrics.current);
+        } else {
           setMetrics({ ...EMPTY_METRICS, reason: 'invalid_response' });
         }
       }
@@ -136,8 +138,10 @@ export function usePortfolioMetrics() {
 
       setError(err.message || 'Failed to fetch metrics');
 
-      // Never overwrite a known-good portfolio with EMPTY on transient failures
-      if (!lastGoodMetrics.current) {
+      // Restore last known-good state on transient failures
+      if (lastGoodMetrics.current) {
+        setMetrics(lastGoodMetrics.current);
+      } else {
         setMetrics({ ...EMPTY_METRICS, reason: 'error' });
       }
     } finally {

@@ -219,6 +219,7 @@ function IndexComponent() {
   
   // Portfolio source selector: 'app' (unified ledger) or 'coinbase' (external view)
   // CRITICAL: Default MUST be 'app' regardless of Coinbase connection status
+  // In TEST mode, portfolioSource is ALWAYS 'app' (enforced via effect after testMode is declared)
   const [portfolioSource, setPortfolioSource] = useState<PortfolioSource>('app');
   
   // Step 3: Parent mount counter + rate limiting
@@ -259,6 +260,13 @@ function IndexComponent() {
     // The user can connect via header CTA or profile page later
   }, [completeWelcome]);
   
+  // ENFORCE: In Test mode, always use 'app' portfolio source (no Coinbase contamination)
+  useEffect(() => {
+    if (testMode && portfolioSource !== 'app') {
+      setPortfolioSource('app');
+    }
+  }, [testMode, portfolioSource]);
+
   // Step 9: Context change logging with version tracking
   const contextChangeLog = useRef(new Map<string, number>());
   useEffect(() => {
@@ -474,29 +482,32 @@ function IndexComponent() {
               <div className="p-6 flex-1 overflow-y-auto min-h-0">
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6">
-                    {/* Portfolio Source Selector - Always show app data by default */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Wallet className="h-4 w-4 text-slate-400" />
-                        <span className="text-sm text-slate-400">Portfolio View:</span>
+                    {/* Portfolio Source Selector - Only show in LIVE mode (testMode=false) */}
+                    {/* In TEST mode, always use App Portfolio - no Coinbase option */}
+                    {!testMode && (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Wallet className="h-4 w-4 text-slate-400" />
+                          <span className="text-sm text-slate-400">Portfolio View:</span>
+                        </div>
+                        <Select
+                          value={portfolioSource}
+                          onValueChange={(value: PortfolioSource) => setPortfolioSource(value)}
+                        >
+                          <SelectTrigger className="w-[180px] bg-slate-700/50 border-slate-600">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-slate-800 border-slate-600 z-50">
+                            <SelectItem value="app" className="text-white hover:bg-slate-700">
+                              App Portfolio
+                            </SelectItem>
+                            <SelectItem value="coinbase" className="text-white hover:bg-slate-700">
+                              Coinbase Account
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
-                      <Select
-                        value={portfolioSource}
-                        onValueChange={(value: PortfolioSource) => setPortfolioSource(value)}
-                      >
-                        <SelectTrigger className="w-[180px] bg-slate-700/50 border-slate-600">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-slate-800 border-slate-600 z-50">
-                          <SelectItem value="app" className="text-white hover:bg-slate-700">
-                            App Portfolio
-                          </SelectItem>
-                          <SelectItem value="coinbase" className="text-white hover:bg-slate-700">
-                            Coinbase Account
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    )}
                     
                     {/* Portfolio Display - based on portfolioSource, NOT testMode */}
                     <ErrorBoundary>
