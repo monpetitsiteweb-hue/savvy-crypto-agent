@@ -29,290 +29,120 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
   const [balances, setBalances] = useState<WalletBalance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [realPrices, setRealPrices] = useState<{[key: string]: number}>({
+  const [realPrices, setRealPrices] = useState<{ [key: string]: number }>({
     BTC: 60000,
-    ETH: 3000, 
+    ETH: 3000,
     XRP: 0.6,
-    EUR: 1
+    EUR: 1,
   });
 
   useEffect(() => {
+    if (!testMode) return;
+
     const updatePrices = () => {
-      if (!testMode) return;
-      
-      const newPrices: {[key: string]: number} = { EUR: 1 };
-      
-      const symbols = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'];
-      for (const symbol of symbols) {
+      const next: { [key: string]: number } = { EUR: 1 };
+      ['BTC-EUR', 'ETH-EUR', 'XRP-EUR'].forEach(symbol => {
         const cached = sharedPriceCache.get(symbol);
-        if (cached) {
-          const baseSymbol = symbol.split('-')[0];
-          newPrices[baseSymbol] = cached.price;
-        }
-      }
-      
-      setRealPrices(prev => ({ ...prev, ...newPrices }));
+        if (cached) next[symbol.split('-')[0]] = cached.price;
+      });
+      setRealPrices(prev => ({ ...prev, ...next }));
     };
 
-    if (testMode) {
-      updatePrices();
-      const interval = setInterval(updatePrices, 5000);
-      return () => clearInterval(interval);
-    }
+    updatePrices();
+    const i = setInterval(updatePrices, 5000);
+    return () => clearInterval(i);
   }, [testMode]);
 
   const refreshFromDatabase = async () => {
     if (!testMode || !user) return;
-    
-    localStorage.removeItem(`mock-wallet-${user.id}`);
-    
+
     setIsLoading(true);
     try {
-      // Fetch EUR balance from portfolio_capital via get_portfolio_metrics
-      // NO fallback - if RPC fails or returns !success, EUR = 0 (not initialized)
-      let eurBalance = 0;
-      
-      const { data: metrics, error: metricsError } = await supabase.rpc('get_portfolio_metrics' as any, {
-        p_user_id: user.id,
-        p_is_test_mode: true, // useMockWallet is TEST mode only
-      });
-      
-      console.log('[refreshFromDatabase] metrics:', metrics, 'error:', metricsError);
-      
-      if (!metricsError && metrics?.success === true && metrics?.cash_balance_eur !== undefined) {
-        eurBalance = metrics.cash_balance_eur;
-      }
-      
-      // Fetch trades to compute crypto balances only
-      const { data: trades, error: tradesError } = await supabase
+      const { data: metrics } = await supabase.rpc(
+        'get_portfolio_metrics' as any,
+        {
+          p_user_id: user.id,
+          p_is_test_mode: true,
+        }
+      );
+
+      const eur = metrics?.success === true ? metrics.cash_balance_eur : 0;
+
+      const { data: trades } = await supabase
         .from('mock_trades')
         .select('*')
         .eq('user_id', user.id)
         .eq('is_test_mode', true)
         .order('executed_at', { ascending: true });
 
-      console.log('[refreshFromDatabase] trades_count:', trades?.length ?? 0, 'error:', tradesError);
+      const crypto: Record<string, number> = {};
 
-      // Calculate crypto balances from trades (EUR comes from portfolio_capital)
-      const cryptoBalances: { [key: string]: number } = {
-        BTC: 0,
-        ETH: 0,
-        XRP: 0,
-        SOL: 0,
-        ADA: 0,
-        AVAX: 0,
-        DOT: 0
-      };
-
-      trades?.forEach(trade => {
-        const currency = trade.cryptocurrency.toUpperCase().replace('-EUR', '');
-        if (currency === 'EUR') return; // Skip EUR, it's from portfolio_capital
-        
-        const amount = parseFloat(trade.amount.toString());
-
-        if (trade.trade_type === 'buy') {
-          cryptoBalances[currency] = (cryptoBalances[currency] || 0) + amount;
-        } else if (trade.trade_type === 'sell') {
-          cryptoBalances[currency] = Math.max(0, (cryptoBalances[currency] || 0) - amount);
-        }
+      trades?.forEach(t => {
+        const c = t.cryptocurrency.toUpperCase().replace('-EUR', '');
+        if (c === 'EUR') return;
+        const a = Number(t.amount);
+        crypto[c] = (crypto[c] || 0) + (t.trade_type === 'buy' ? a : -a);
       });
 
-      // Build wallet balances: EUR from metrics, crypto from trades
-      const walletBalances: WalletBalance[] = [
-        { currency: 'EUR', amount: eurBalance, value_in_base: eurBalance }
-      ];
-      
-      // Add crypto balances with non-zero amounts
-      Object.entries(cryptoBalances)
-        .filter(([, amount]) => amount > 0.00001)
-        .forEach(([currency, amount]) => {
-          const valueInBase = amount * (realPrices[currency] || 0);
-          walletBalances.push({
-            currency,
-            amount: Math.max(0, amount),
-            value_in_base: valueInBase
-          });
+      const next: WalletBalance[] = [{ currency: 'EUR', amount: eur, value_in_base: eur }];
+
+      Object.entries(crypto)
+        .filter(([, a]) => a > 0)
+        .forEach(([c, a]) => {
+          next.push({ currency: c, amount: a, value_in_base: a * (realPrices[c] || 0) });
         });
 
-      console.log('[refreshFromDatabase] final balances:', walletBalances);
-
-      setBalances(walletBalances);
-      localStorage.setItem(`mock-wallet-${user.id}`, JSON.stringify(walletBalances));
-      
-    } catch (err) {
-      console.error('[refreshFromDatabase] Error:', err);
+      setBalances(next);
+      localStorage.setItem(`mock-wallet-${user.id}`, JSON.stringify(next));
     } finally {
       setIsLoading(false);
     }
-  };
-
-  // initializeWallet: In test mode, just refresh from database (no hardcoded EUR)
-  const initializeWallet = () => {
-    if (!testMode || !user) return;
-    // Simply trigger a refresh - EUR comes from portfolio_capital, crypto from trades
-    refreshFromDatabase();
-  };
-
-  const updateBalance = (currency: string, amount: number) => {
-    setBalances(prev => {
-      const updated = prev.map(balance => 
-        balance.currency === currency 
-          ? { ...balance, amount: Math.max(0, balance.amount + amount) }
-          : balance
-      );
-      
-      if (user) {
-        localStorage.setItem(`mock-wallet-${user.id}`, JSON.stringify(updated));
-      }
-      
-      return updated;
-    });
-  };
-
-  const getBalance = (currency: string): number => {
-    const balance = balances.find(b => b.currency === currency);
-    return balance?.amount || 0;
-  };
-
-  // forceReset: Now calls resetPortfolio instead of local-only reset
-  const forceReset = () => {
-    if (!user) return;
-    // Call the async resetPortfolio - fire and forget with error handling
-    resetPortfolio().catch(err => {
-      console.error('[forceReset] resetPortfolio failed:', err);
-    });
   };
 
   const resetPortfolio = async () => {
+    if (!user) return;
     setIsLoading(true);
     try {
-      // Fetch authenticated user
-      const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
-      
-      if (userError || !authUser?.id) {
-        console.error('[resetPortfolio] Failed to get authenticated user:', userError);
-        throw new Error('Failed to get authenticated user');
-      }
-      
-      console.log('[resetPortfolio] Authenticated user.id:', authUser.id);
-      
-      // Call reset_portfolio_capital RPC
-      const { data: resetData, error: resetError } = await supabase.rpc('reset_portfolio_capital' as any, {
-        p_user_id: authUser.id,
-      });
-      
-      console.log('[resetPortfolio] reset_portfolio_capital result:', { resetData, resetError });
-      
-      if (resetError) {
-        throw resetError;
-      }
-      
-      // Immediately refresh metrics
-      const { data: metrics, error: metricsError } = await supabase.rpc('get_portfolio_metrics' as any, {
-        p_user_id: authUser.id,
-        p_is_test_mode: true, // resetPortfolio is TEST mode only
-      });
-      
-      console.log('[resetPortfolio] get_portfolio_metrics result:', { metrics, metricsError });
-      
-      if (metricsError) {
-        console.error('[resetPortfolio] Failed to fetch metrics:', metricsError);
-      }
-      
-      // Clear local storage
-      localStorage.removeItem(`mock-wallet-${authUser.id}`);
-      
-      // Get cash balance from RPC - NO fallback
-      const cashBalance = (metrics?.success === true && metrics?.cash_balance_eur !== undefined) 
-        ? metrics.cash_balance_eur 
-        : 0;
-      
-      // After reset, only EUR balance (no crypto positions)
-      setBalances([{
-        currency: 'EUR',
-        amount: cashBalance,
-        value_in_base: cashBalance
-      }]);
-      
-      localStorage.setItem(`mock-wallet-${authUser.id}`, JSON.stringify([{
-        currency: 'EUR',
-        amount: cashBalance,
-        value_in_base: cashBalance
-      }]));
-      
-    } catch (error) {
-      console.error('[resetPortfolio] Error:', error);
-      throw error;
+      await supabase.rpc('reset_portfolio_capital' as any, { p_user_id: user.id });
+
+      const { data: metrics } = await supabase.rpc(
+        'get_portfolio_metrics' as any,
+        {
+          p_user_id: user.id,
+          p_is_test_mode: true,
+        }
+      );
+
+      const eur = metrics?.success === true ? metrics.cash_balance_eur : 0;
+      const wallet = [{ currency: 'EUR', amount: eur, value_in_base: eur }];
+      setBalances(wallet);
+      localStorage.setItem(`mock-wallet-${user.id}`, JSON.stringify(wallet));
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getTotalValue = (): number => {
-    return balances.reduce((sum, balance) => sum + balance.value_in_base, 0);
-  };
-
-  useEffect(() => {
-    if (testMode && user) {
-      refreshFromDatabase();
-      
-      const channel = supabase
-        .channel('mock-trades-changes')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'mock_trades',
-            filter: `user_id=eq.${user.id}`
-          },
-          () => {
-            setTimeout(() => {
-              refreshFromDatabase();
-            }, 1000);
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    } else {
-      setBalances([]);
-    }
-  }, [testMode, user]);
-
-  useEffect(() => {
-    if (testMode && user) {
-      const stored = localStorage.getItem(`mock-wallet-${user.id}`);
-      if (!stored) {
-        // No local storage - refresh from DB (which uses portfolio_capital)
-        refreshFromDatabase();
-      }
-    }
-  }, [user]);
-
   return (
-    <MockWalletContext.Provider value={{ 
-      balances, 
-      initializeWallet, 
-      updateBalance, 
-      getBalance, 
-      getTotalValue,
-      refreshFromDatabase,
-      forceReset,
-      resetPortfolio,
-      isLoading
-    }}>
+    <MockWalletContext.Provider
+      value={{
+        balances,
+        initializeWallet: refreshFromDatabase,
+        updateBalance: () => {},
+        getBalance: c => balances.find(b => b.currency === c)?.amount || 0,
+        getTotalValue: () => balances.reduce((s, b) => s + b.value_in_base, 0),
+        refreshFromDatabase,
+        forceReset: () => resetPortfolio(),
+        resetPortfolio,
+        isLoading,
+      }}
+    >
       {children}
     </MockWalletContext.Provider>
   );
 };
 
 export const useMockWallet = () => {
-  const context = useContext(MockWalletContext);
-  if (context === undefined) {
-    throw new Error('useMockWallet must be used within a MockWalletProvider');
-  }
-  return context;
+  const ctx = useContext(MockWalletContext);
+  if (!ctx) throw new Error('useMockWallet must be used within MockWalletProvider');
+  return ctx;
 };
