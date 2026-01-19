@@ -138,7 +138,13 @@ export const UnifiedPortfolioDisplay = () => {
 
   // Wallet asset display (positions breakdown) — use effectivePrices to stay consistent with valuation
   const liveAggregates = useMemo(() => {
-    if (!testMode || !isInitialized || openTrades.length === 0) {
+    const isNotInitialized =
+      testMode &&
+      !metricsLoading &&
+      metrics?.success === false &&
+      (metrics as any)?.reason === 'portfolio_not_initialized';
+
+    if (!testMode || isNotInitialized || metricsLoading || openTrades.length === 0) {
       return {
         costBasisEur: 0,
         currentValueEur: 0,
@@ -239,7 +245,7 @@ export const UnifiedPortfolioDisplay = () => {
     const hasMissingPrices = missingSymbols.length > 0;
 
     return { costBasisEur, currentValueEur, unrealizedEur, unrealizedPct, hasMissingPrices, missingSymbols, walletAssets };
-  }, [testMode, isInitialized, openTrades, effectivePrices]);
+  }, [testMode, metricsLoading, metrics, openTrades, effectivePrices]);
 
   // STRUCTURED PROOF LOG: prove all runtime values (dev only)
   useEffect(() => {
@@ -608,7 +614,7 @@ export const UnifiedPortfolioDisplay = () => {
               MIDDLE SECTION — 2 COLUMNS
               Left: Results (Performance logic) | Right: Where Your Money Is Now (Vertical bar)
           ═══════════════════════════════════════════════════════════════════════ */}
-          {testMode && isInitialized && (
+          {testMode && !showPortfolioNotInitialized && !metricsLoading && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
               {/* ═══════════════════════════════════════════════════════════════════════
@@ -813,7 +819,7 @@ export const UnifiedPortfolioDisplay = () => {
               OPEN POSITIONS
               Existing crypto holdings breakdown
           ═══════════════════════════════════════════════════════════════════════ */}
-          {testMode && isInitialized && (
+          {testMode && !showPortfolioNotInitialized && !metricsLoading && (
             <div className="space-y-2">
               {liveAggregates.walletAssets.length > 0 && (
                 <>
@@ -891,7 +897,7 @@ export const UnifiedPortfolioDisplay = () => {
           )}
 
           {/* Data source indicator */}
-          {testMode && isInitialized && (
+          {testMode && !showPortfolioNotInitialized && !metricsLoading && (
             <div className="text-xs text-slate-400 text-center mt-2">
               📊 Live prices from market stream • Trades-only model
             </div>
