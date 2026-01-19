@@ -117,12 +117,12 @@ export function usePortfolioMetrics() {
         };
 
         // FALLBACK: If RPC returns 0 for starting_capital_eur, query portfolio_capital directly
+        // Note: portfolio_capital table has NO is_test_mode column - it's user-scoped only
         if (next.starting_capital_eur === 0 || next.starting_capital_eur === undefined) {
           const { data: capitalRow, error: capitalError } = await (supabase as any)
             .from('portfolio_capital')
             .select('starting_capital_eur')
             .eq('user_id', user.id)
-            .eq('is_test_mode', testMode)
             .maybeSingle();
 
           if (capitalError) {
