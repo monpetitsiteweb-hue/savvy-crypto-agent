@@ -12,11 +12,30 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 );
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "https://crypto.mon-petit-site-web.fr",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
   try {
+    // Only allow POST
+    if (req.method !== "POST") {
+      return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
+    }
+
     const { user_id } = await req.json();
     if (!user_id) {
-      return new Response("Missing user_id", { status: 400 });
+      return new Response(JSON.stringify({ error: "Missing user_id" }), { 
+        status: 400, 
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      });
     }
 
     // 1. Get execution wallet
@@ -27,7 +46,10 @@ serve(async (req) => {
       .single();
 
     if (walletErr || !wallet) {
-      return new Response("Wallet not found", { status: 404 });
+      return new Response(JSON.stringify({ error: "Wallet not found" }), { 
+        status: 404, 
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      });
     }
 
     // 2. Fetch on-chain balances (ETH + ERC20 already normalized elsewhere)
@@ -69,10 +91,13 @@ serve(async (req) => {
         total_value_eur: totalValueEur,
         balances: detailed,
       }),
-      { headers: { "Content-Type": "application/json" } }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
     console.error("[execution-wallet-balance]", err);
-    return new Response("Internal error", { status: 500 });
+    return new Response(JSON.stringify({ error: "Internal error" }), { 
+      status: 500, 
+      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    });
   }
 });
