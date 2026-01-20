@@ -511,7 +511,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
                 <div className="w-16 h-6 bg-slate-700 animate-pulse rounded mx-auto"></div>
               ) : (
                 <div className="text-lg font-semibold text-white">
-                  {formatEuro(metrics.starting_capital_eur)}
+                  {formatEuro(portfolioValuation.startingCapitalEur)}
                 </div>
               )}
             </div>
@@ -525,7 +525,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
                     <div className="w-16 h-6 bg-slate-700 animate-pulse rounded mx-auto"></div>
                   ) : (
                     <div className="text-lg font-semibold text-white">
-                      {formatEuro(metrics.starting_capital_eur)}
+                      {formatEuro(portfolioValuation.startingCapitalEur)}
                     </div>
                   )}
                 </div>

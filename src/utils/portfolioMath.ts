@@ -265,9 +265,7 @@ export function computeFullPortfolioValuation(
   const unrealizedPnlEur = openCalc.totalValue - openCalc.pricedCostBasis;
   
   // 6. Compute total P&L
-  // INVARIANT: Initial capital is a ledger value, not a derived metric.
-  // Trades never modify it. It comes ONLY from portfolio_capital.starting_capital_eur.
-  const startingCapitalEur = metrics.starting_capital_eur;
+  const startingCapitalEur = metrics.starting_capital_eur || 0;
   const { pnlEur: totalPnlEur, pnlPct: totalPnlPct } = computeTotalPnl(totalPortfolioValueEur, startingCapitalEur);
   
   // Realized P&L (NET, invariant-safe)

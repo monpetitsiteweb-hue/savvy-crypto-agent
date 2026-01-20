@@ -46,8 +46,9 @@ export function usePortfolioMetrics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Stale-response protection
+  // Diagnostics + stale-response protection
   const callSeq = useRef(0);
+  const lastGoodMetrics = useRef<PortfolioMetrics | null>(null);
 
   const fetchMetrics = useCallback(async () => {
     // =========================================================================
@@ -116,8 +117,16 @@ export function usePortfolioMetrics() {
         };
 
         setMetrics(next);
+        if (next.success === true) {
+          lastGoodMetrics.current = next;
+        }
       } else {
-        setMetrics({ ...EMPTY_METRICS, reason: 'invalid_response' });
+        // Invalid response: restore last known-good state if available
+        if (lastGoodMetrics.current) {
+          setMetrics(lastGoodMetrics.current);
+        } else {
+          setMetrics({ ...EMPTY_METRICS, reason: 'invalid_response' });
+        }
       }
     } catch (err: any) {
       console.error('[usePortfolioMetrics] Error', { seq, err });
@@ -128,7 +137,13 @@ export function usePortfolioMetrics() {
       }
 
       setError(err.message || 'Failed to fetch metrics');
-      setMetrics({ ...EMPTY_METRICS, reason: 'error' });
+
+      // Restore last known-good state on transient failures
+      if (lastGoodMetrics.current) {
+        setMetrics(lastGoodMetrics.current);
+      } else {
+        setMetrics({ ...EMPTY_METRICS, reason: 'error' });
+      }
     } finally {
       // Only clear loading for the latest call
       if (seq === callSeq.current) {

@@ -629,7 +629,7 @@ export const UnifiedPortfolioDisplay = () => {
                     <TooltipTrigger asChild>
                       <div className="flex items-center gap-2 cursor-help text-sm">
                         <span className="text-slate-400">Initial Capital:</span>
-                        <span className="font-semibold text-slate-200">{formatEuro(metrics.starting_capital_eur)}</span>
+                        <span className="font-semibold text-slate-200">{formatEuro(portfolioValuation.startingCapitalEur)}</span>
                       </div>
                     </TooltipTrigger>
                     <TooltipContent>
