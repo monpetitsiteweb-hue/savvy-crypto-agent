@@ -3586,6 +3586,15 @@ export type Database = {
         }[]
       }
       get_coinbase_connection_status: { Args: never; Returns: boolean }
+      get_execution_wallet_balances: {
+        Args: { p_wallet_address: string }
+        Returns: {
+          amount: number
+          decimals: number
+          symbol: string
+          token_address: string
+        }[]
+      }
       get_execution_wallet_for_trading: {
         Args: { p_user_id: string }
         Returns: {
