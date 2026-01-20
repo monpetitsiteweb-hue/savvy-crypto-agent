@@ -76,8 +76,8 @@ export function usePortfolioMetrics() {
     try {
       // p_is_test_mode is REQUIRED (single deterministic contract)
       const { data, error: rpcError } = await supabase.rpc('get_portfolio_metrics' as any, {
-        p_user_id: user.id,
         p_is_test_mode: testMode,
+        p_user_id: user.id,
       });
 
       // FACT LOG (always): show raw response
