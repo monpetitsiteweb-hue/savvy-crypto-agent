@@ -1270,38 +1270,59 @@ export type Database = {
       execution_wallet_secrets: {
         Row: {
           auth_tag: string
+          auth_tag_b64: string | null
           created_at: string
           dek_auth_tag: string
+          dek_auth_tag_b64: string | null
           dek_iv: string
+          dek_iv_b64: string | null
           encrypted_dek: string
+          encrypted_dek_b64: string | null
           encrypted_private_key: string
+          encrypted_private_key_b64: string | null
           id: string
           iv: string
+          iv_b64: string | null
           kek_version: number
+          secrets_format: string | null
           wallet_id: string
         }
         Insert: {
           auth_tag: string
+          auth_tag_b64?: string | null
           created_at?: string
           dek_auth_tag: string
+          dek_auth_tag_b64?: string | null
           dek_iv: string
+          dek_iv_b64?: string | null
           encrypted_dek: string
+          encrypted_dek_b64?: string | null
           encrypted_private_key: string
+          encrypted_private_key_b64?: string | null
           id?: string
           iv: string
+          iv_b64?: string | null
           kek_version?: number
+          secrets_format?: string | null
           wallet_id: string
         }
         Update: {
           auth_tag?: string
+          auth_tag_b64?: string | null
           created_at?: string
           dek_auth_tag?: string
+          dek_auth_tag_b64?: string | null
           dek_iv?: string
+          dek_iv_b64?: string | null
           encrypted_dek?: string
+          encrypted_dek_b64?: string | null
           encrypted_private_key?: string
+          encrypted_private_key_b64?: string | null
           id?: string
           iv?: string
+          iv_b64?: string | null
           kek_version?: number
+          secrets_format?: string | null
           wallet_id?: string
         }
         Relationships: [
