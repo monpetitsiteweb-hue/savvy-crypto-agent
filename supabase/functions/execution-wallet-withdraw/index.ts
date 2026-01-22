@@ -489,13 +489,15 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string> 
     return ab;
   };
 
-  // 1) KEK decode (base64/base64url OR hex)
-  let kekBytes: Uint8Array;
-  try {
-    kekBytes = base64ToBytes(kekEnv);
-  } catch {
-    kekBytes = hexToBytes(kekEnv);
+  // 1) KEK decode — FORCE HEX (your KEK is 64 hex chars = 32 bytes)
+  const raw = String(kekEnv).trim();
+
+  if (!/^[0-9a-fA-F]{64}$/.test(raw)) {
+    throw new Error("KEK must be 64 hex characters (32 bytes). Do not base64-decode it.");
   }
+
+  const kekBytes = hexToBytes(raw);
+
   if (kekBytes.length !== 32) {
     throw new Error(`Invalid KEK length=${kekBytes.length} (expected 32)`);
   }
@@ -659,7 +661,7 @@ async function signAndSendTransaction(
   // RLP encode signed tx
   const signedRlp = rlpEncode([tx.nonce, tx.gasPrice, tx.gasLimit, tx.to, tx.value, tx.data, v, r, s]);
 
-  const rawTx = "0x" + bytesToHexLocal(signedRlp);
+  const rawTx = "0x" + bytesToHex(signedRlp);
 
   const response = await fetch(BASE_RPC, {
     method: "POST",
