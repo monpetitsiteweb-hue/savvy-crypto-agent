@@ -138,6 +138,33 @@ function decodeBase64Field(name: string, value: string): Uint8Array {
   return out;
 }
 
+//decodeStoredBytes
+function decodeStoredBytes(name: string, value: any): Uint8Array {
+  // Case 1: Node Buffer JSON { type: "Buffer", data: [...] }
+  if (typeof value === "object" && value !== null && value.type === "Buffer" && Array.isArray(value.data)) {
+    return new Uint8Array(value.data);
+  }
+
+  // Case 2: base64 / base64url string
+  if (typeof value === "string") {
+    const normalized = value
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(value.length / 4) * 4, "=");
+
+    try {
+      const bin = atob(normalized);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    } catch {
+      throw new Error(`Invalid base64 in field: ${name}`);
+    }
+  }
+
+  throw new Error(`Unsupported encoding in field: ${name}`);
+}
+
 Deno.serve(async (req) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
@@ -440,12 +467,9 @@ Deno.serve(async (req) => {
 });
 
 // Decrypt private key from wallet secrets
-async function decryptPrivateKey(secrets: Record<string, string>): Promise<string | null> {
+async function decryptPrivateKey(secrets: Record<string, any>): Promise<string | null> {
   const kek = Deno.env.get("EXECUTION_WALLET_KEK_V1");
-  if (!kek) {
-    logStep("decrypt_key", { message: "KEK not configured" });
-    return null;
-  }
+  if (!kek) throw new Error("KEK not configured");
 
   const toArrayBuffer = (u8: Uint8Array): ArrayBuffer => {
     const ab = new ArrayBuffer(u8.byteLength);
@@ -453,41 +477,33 @@ async function decryptPrivateKey(secrets: Record<string, string>): Promise<strin
     return ab;
   };
 
-  const toU8 = (u8: Uint8Array): Uint8Array => new Uint8Array(u8);
-
-  // Import KEK
-  // Import KEK (BASE64 — MUST BE 32 BYTES)
-  const raw = kek.trim();
-
+  // ─────────────────────────────────────────────
+  // 1. Decode KEK (env) — base64 OR hex
+  // ─────────────────────────────────────────────
   let kekBytes: Uint8Array;
-
-  // 1️⃣ Try BASE64URL → normalize to base64
   try {
-    const normalized = raw
+    const normalized = kek
+      .trim()
       .replace(/-/g, "+")
       .replace(/_/g, "/")
-      .padEnd(Math.ceil(raw.length / 4) * 4, "=");
-
+      .padEnd(Math.ceil(kek.length / 4) * 4, "=");
     kekBytes = base64ToBytes(normalized);
   } catch {
-    // 2️⃣ Try HEX
-    try {
-      kekBytes = hexToBytes(raw);
-    } catch {
-      throw new Error("KEK is not valid base64, base64url, or hex");
-    }
+    kekBytes = hexToBytes(kek.trim());
   }
 
   if (kekBytes.length !== 32) {
-    throw new Error(`Invalid key length: KEK bytes=${kekBytes.length} (expected 32)`);
+    throw new Error(`Invalid KEK length: ${kekBytes.length}`);
   }
 
   const kekKey = await crypto.subtle.importKey("raw", toArrayBuffer(kekBytes), { name: "AES-GCM" }, false, ["decrypt"]);
 
-  // Decrypt DEK
-  const encryptedDek = decodeBase64Field("encrypted_dek", secrets.encrypted_dek);
-  const dekIv = decodeBase64Field("dek_iv", secrets.dek_iv);
-  const dekAuthTag = decodeBase64Field("dek_auth_tag", secrets.dek_auth_tag);
+  // ─────────────────────────────────────────────
+  // 2. Decrypt DEK  ✅ BUFFER-AWARE
+  // ─────────────────────────────────────────────
+  const encryptedDek = decodeStoredBytes("encrypted_dek", secrets.encrypted_dek);
+  const dekIv = decodeStoredBytes("dek_iv", secrets.dek_iv);
+  const dekAuthTag = decodeStoredBytes("dek_auth_tag", secrets.dek_auth_tag);
 
   const dekWithTag = new Uint8Array(encryptedDek.length + dekAuthTag.length);
   dekWithTag.set(encryptedDek);
@@ -495,13 +511,14 @@ async function decryptPrivateKey(secrets: Record<string, string>): Promise<strin
 
   const dekBytes = await crypto.subtle.decrypt({ name: "AES-GCM", iv: dekIv }, kekKey, toArrayBuffer(dekWithTag));
 
-  // Import DEK
   const dekKey = await crypto.subtle.importKey("raw", dekBytes, { name: "AES-GCM" }, false, ["decrypt"]);
 
-  // Decrypt private key
-  const encryptedKey = decodeBase64Field("encrypted_private_key", secrets.encrypted_private_key);
-  const keyIv = decodeBase64Field("iv", secrets.iv);
-  const keyAuthTag = decodeBase64Field("auth_tag", secrets.auth_tag);
+  // ─────────────────────────────────────────────
+  // 3. Decrypt private key ✅ BUFFER-AWARE
+  // ─────────────────────────────────────────────
+  const encryptedKey = decodeStoredBytes("encrypted_private_key", secrets.encrypted_private_key);
+  const keyIv = decodeStoredBytes("iv", secrets.iv);
+  const keyAuthTag = decodeStoredBytes("auth_tag", secrets.auth_tag);
 
   const keyWithTag = new Uint8Array(encryptedKey.length + keyAuthTag.length);
   keyWithTag.set(encryptedKey);
