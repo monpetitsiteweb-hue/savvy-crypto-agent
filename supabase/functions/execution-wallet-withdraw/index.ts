@@ -145,21 +145,46 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
   }
 
   // Case 1: Supabase "Buffer" object
+  // ---------- Case A: Buffer JSON object ----------
   if (typeof value === "object" && value?.type === "Buffer" && Array.isArray(value.data)) {
-    const bytes = new Uint8Array(value.data);
+    const outerBytes = new Uint8Array(value.data);
 
-    // 🔥 IMPORTANT: unwrap JSON-inside-buffer
-    if (bytes.length > 0 && bytes[0] === 123 /* '{' */) {
-      const text = new TextDecoder().decode(bytes);
-      const parsed = JSON.parse(text);
+    // If this is ASCII JSON (starts with '{')
+    if (outerBytes.length > 0 && outerBytes[0] === 123) {
+      const ascii = new TextDecoder().decode(outerBytes);
 
-      if (typeof parsed === "object") {
-        const keys = Object.keys(parsed).sort((a, b) => Number(a) - Number(b));
-        return new Uint8Array(keys.map((k) => parsed[k]));
+      let parsed: any;
+      try {
+        parsed = JSON.parse(ascii);
+      } catch {
+        throw new Error(`Corrupt Buffer JSON in field: ${name}`);
       }
+
+      // {"0":185,"1":91,...}
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        Object.keys(parsed).every((k) => /^\d+$/.test(k))
+      ) {
+        const keys = Object.keys(parsed).sort((a, b) => Number(a) - Number(b));
+        const realBytes = new Uint8Array(keys.length);
+        for (let i = 0; i < keys.length; i++) {
+          realBytes[i] = parsed[keys[i]];
+        }
+        return realBytes;
+      }
+
+      // {"type":"Buffer","data":[...]} nested AGAIN
+      if (parsed?.type === "Buffer" && Array.isArray(parsed.data)) {
+        return new Uint8Array(parsed.data);
+      }
+
+      throw new Error(`Unsupported nested JSON encoding in field: ${name}`);
     }
 
-    return bytes;
+    // Normal Buffer case
+    return outerBytes;
   }
 
   // Case 2: already numeric-key object
