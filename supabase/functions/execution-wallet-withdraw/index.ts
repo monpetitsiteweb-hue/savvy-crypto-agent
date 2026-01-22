@@ -144,52 +144,29 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
     throw new Error(`Missing field: ${name}`);
   }
 
-  // Case 1: Proper Buffer JSON { type: "Buffer", data: [..] }
-  if (typeof value === "object" && value !== null && value.type === "Buffer" && Array.isArray(value.data)) {
+  // Case 1: Supabase "Buffer" object
+  if (typeof value === "object" && value?.type === "Buffer" && Array.isArray(value.data)) {
     const bytes = new Uint8Array(value.data);
 
-    // 🚨 Detect DOUBLE-ENCODED Buffer (ASCII JSON inside)
-    if (bytes[0] === 123 /* '{' */) {
-      try {
-        const inner = JSON.parse(new TextDecoder().decode(bytes));
-        if (inner?.type === "Buffer" && Array.isArray(inner.data)) {
-          return new Uint8Array(inner.data);
-        }
-      } catch {
-        throw new Error(`Corrupted double-encoded buffer in field: ${name}`);
+    // 🔥 IMPORTANT: unwrap JSON-inside-buffer
+    if (bytes.length > 0 && bytes[0] === 123 /* '{' */) {
+      const text = new TextDecoder().decode(bytes);
+      const parsed = JSON.parse(text);
+
+      if (typeof parsed === "object") {
+        const keys = Object.keys(parsed).sort((a, b) => Number(a) - Number(b));
+        return new Uint8Array(keys.map((k) => parsed[k]));
       }
     }
 
     return bytes;
   }
 
-  // Case 2: String
-  if (typeof value === "string") {
-    const raw = value.trim();
-
-    // Postgres bytea
-    if (raw.startsWith("\\x")) {
-      return hexToBytes(raw.slice(2));
-    }
-
-    // Hex
-    if (raw.startsWith("0x") || /^[0-9a-fA-F]+$/.test(raw)) {
-      return hexToBytes(raw);
-    }
-
-    // Base64
-    const normalized = raw
-      .replace(/-/g, "+")
-      .replace(/_/g, "/")
-      .padEnd(Math.ceil(raw.length / 4) * 4, "=");
-
-    try {
-      const bin = atob(normalized);
-      const out = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-      return out;
-    } catch {
-      throw new Error(`Invalid encoding in field: ${name}`);
+  // Case 2: already numeric-key object
+  if (typeof value === "object") {
+    const keys = Object.keys(value).sort((a, b) => Number(a) - Number(b));
+    if (keys.every((k) => /^\d+$/.test(k))) {
+      return new Uint8Array(keys.map((k) => value[k]));
     }
   }
 
@@ -544,6 +521,19 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string |
   const dekIv = decodeStoredBytes("dek_iv", secrets.dek_iv);
   const dekAuthTag = decodeStoredBytes("dek_auth_tag", secrets.dek_auth_tag);
 
+  if (dekIv.length !== 12 && dekIv.length !== 16) {
+    throw new Error(`DEK IV invalid length: ${dekIv.length}`);
+  }
+  if (dekAuthTag.length !== 16) {
+    throw new Error(`DEK auth tag invalid length: ${dekAuthTag.length}`);
+  }
+
+  logStep("dek_parts_len", {
+    encrypted_dek_len: encryptedDek.length,
+    dek_iv_len: dekIv.length,
+    dek_auth_tag_len: dekAuthTag.length,
+  });
+
   const dekWithTag = new Uint8Array(encryptedDek.length + dekAuthTag.length);
   dekWithTag.set(encryptedDek);
   dekWithTag.set(dekAuthTag, encryptedDek.length);
@@ -558,6 +548,13 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string |
   const encryptedKey = decodeStoredBytes("encrypted_private_key", secrets.encrypted_private_key);
   const keyIv = decodeStoredBytes("iv", secrets.iv);
   const keyAuthTag = decodeStoredBytes("auth_tag", secrets.auth_tag);
+
+  if (keyIv.length !== 12 && keyIv.length !== 16) {
+    throw new Error(`PK IV invalid length: ${keyIv.length}`);
+  }
+  if (keyAuthTag.length !== 16) {
+    throw new Error(`PK auth tag invalid length: ${keyAuthTag.length}`);
+  }
 
   const keyWithTag = new Uint8Array(encryptedKey.length + keyAuthTag.length);
   keyWithTag.set(encryptedKey);
