@@ -144,68 +144,122 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
     throw new Error(`Missing field: ${name}`);
   }
 
-  // ---------- Case A: Uint8Array already ----------
-  if (value instanceof Uint8Array) {
-    return value;
+  // 0) Direct Uint8Array
+  if (value instanceof Uint8Array) return value;
+
+  // 1) If it's an object wrapper, many libs nest payload in .data (NOT always Buffer)
+  //    Recurse into .data if present.
+  if (typeof value === "object" && value !== null && !Array.isArray(value) && "data" in value) {
+    return decodeStoredBytes(name, (value as any).data);
   }
 
-  // ---------- Case B: any object that has .data = number[] ----------
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    Array.isArray((value as any).data) &&
-    (value as any).data.every((n: any) => typeof n === "number")
-  ) {
-    const outerBytes = new Uint8Array((value as any).data);
+  // Helpers
+  const isNumericKeyObjectLoose = (obj: any) => {
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+    const keys = Object.keys(obj);
+    if (keys.length === 0) return false;
+    return (
+      keys.every((k) => /^\d+$/.test(k)) &&
+      keys.every((k) => {
+        const v = obj[k];
+        return typeof v === "number" || (typeof v === "string" && /^\d+$/.test(v));
+      })
+    );
+  };
 
-    // If this is ASCII JSON (starts with '{')
-    if (outerBytes.length > 0 && outerBytes[0] === 123 /* '{' */) {
-      const ascii = new TextDecoder().decode(outerBytes);
+  const fromNumericKeyObjectLoose = (obj: Record<string, any>) => {
+    const keys = Object.keys(obj).sort((a, b) => Number(a) - Number(b));
+    const out = new Uint8Array(keys.length);
+    for (let i = 0; i < keys.length; i++) out[i] = Number(obj[keys[i]]);
+    return out;
+  };
 
-      let parsed: any;
-      try {
-        parsed = JSON.parse(ascii);
-      } catch {
-        throw new Error(`Corrupt nested JSON bytes in field: ${name}`);
-      }
+  const tryParseJsonBytes = (raw: string): Uint8Array | null => {
+    const s = raw.trim();
+    if (!(s.startsWith("{") || s.startsWith("["))) return null;
 
-      // {"0":185,"1":91,...}
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        !Array.isArray(parsed) &&
-        Object.keys(parsed).length > 0 &&
-        Object.keys(parsed).every((k) => /^\d+$/.test(k))
-      ) {
-        const keys = Object.keys(parsed).sort((a, b) => Number(a) - Number(b));
-        const realBytes = new Uint8Array(keys.length);
-        for (let i = 0; i < keys.length; i++) {
-          realBytes[i] = parsed[keys[i]];
-        }
-        return realBytes;
-      }
-
-      // {"type":"Buffer","data":[...]} nested AGAIN
-      if (parsed?.data && Array.isArray(parsed.data) && parsed.data.every((n: any) => typeof n === "number")) {
-        return new Uint8Array(parsed.data);
-      }
-
-      throw new Error(`Unsupported nested JSON structure in field: ${name}`);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(s);
+    } catch {
+      return null;
     }
 
-    // Normal binary
-    return outerBytes;
-  }
+    // {"0":185,"1":"91",...}
+    if (isNumericKeyObjectLoose(parsed)) return fromNumericKeyObjectLoose(parsed);
 
-  // Case 2: already numeric-key object
-  if (typeof value === "object") {
-    const keys = Object.keys(value).sort((a, b) => Number(a) - Number(b));
-    if (keys.every((k) => /^\d+$/.test(k))) {
-      return new Uint8Array(keys.map((k) => value[k]));
+    // ["185",91,...] or [185,91,...]
+    if (
+      Array.isArray(parsed) &&
+      parsed.every((n) => typeof n === "number" || (typeof n === "string" && /^\d+$/.test(n)))
+    ) {
+      return new Uint8Array(parsed.map((n: any) => Number(n)));
     }
+
+    // {"type":"Buffer","data":[...]} style
+    if (parsed && typeof parsed === "object" && "data" in parsed) {
+      return decodeStoredBytes(name, (parsed as any).data);
+    }
+
+    return null;
+  };
+
+  // 2) Numeric-key object directly
+  if (isNumericKeyObjectLoose(value)) {
+    return fromNumericKeyObjectLoose(value as Record<string, any>);
   }
 
-  throw new Error(`Unsupported encoding in field: ${name}`);
+  // 3) Array of numbers/number-strings
+  if (Array.isArray(value) && value.every((n) => typeof n === "number" || (typeof n === "string" && /^\d+$/.test(n)))) {
+    return new Uint8Array(value.map((n: any) => Number(n)));
+  }
+
+  // 4) String cases
+  if (typeof value === "string") {
+    const raw = value.trim();
+
+    // JSON string containing bytes (numeric keys / array / {data:...})
+    const jsonBytes = tryParseJsonBytes(raw);
+    if (jsonBytes) return jsonBytes;
+
+    // Postgres bytea commonly "\\x...."
+    if (raw.startsWith("\\x")) return hexToBytes(raw.slice(2));
+
+    // Hex
+    if (raw.startsWith("0x")) return hexToBytes(raw);
+
+    // Base64/base64url
+    const normalized = raw
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(raw.length / 4) * 4, "=");
+
+    try {
+      const bin = atob(normalized);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    } catch {
+      // fallthrough
+    }
+
+    // Naked hex
+    if (/^[0-9a-fA-F]+$/.test(raw) && raw.length % 2 === 0) return hexToBytes(raw);
+
+    throw new Error(`Unsupported string encoding in field: ${name}`);
+  }
+
+  // 5) If we got here, we still don't recognize it — log shape in error
+  const shape = (() => {
+    try {
+      if (typeof value === "object") return { keys: Object.keys(value).slice(0, 20) };
+      return { type: typeof value };
+    } catch {
+      return { type: typeof value };
+    }
+  })();
+
+  throw new Error(`Unsupported encoding in field: ${name} (${JSON.stringify(shape)})`);
 }
 
 Deno.serve(async (req) => {
@@ -362,6 +416,21 @@ Deno.serve(async (req) => {
     if (!secrets) {
       return jsonError(409, "Wallet has no secrets", { step: "decrypt_key" });
     }
+
+    logStep("secrets_shape", {
+      encrypted_dek_type: typeof (secrets as any).encrypted_dek,
+      encrypted_dek_keys:
+        (secrets as any).encrypted_dek && typeof (secrets as any).encrypted_dek === "object"
+          ? Object.keys((secrets as any).encrypted_dek).slice(0, 20)
+          : null,
+      encrypted_dek_preview: (() => {
+        const v = (secrets as any).encrypted_dek;
+        if (typeof v === "string") return v.slice(0, 80);
+        if (Array.isArray(v)) return `array(len=${v.length})`;
+        if (v && typeof v === "object") return JSON.stringify(v).slice(0, 120);
+        return String(v);
+      })(),
+    });
 
     let privateKey: string;
     try {
