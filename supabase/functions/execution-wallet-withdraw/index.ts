@@ -74,8 +74,25 @@ function bytesToHexLocal(bytes: Uint8Array): string {
 }
 
 // Helper: base64 to bytes
-function base64ToBytes(b64: string): Uint8Array {
-  const binString = atob(b64);
+function base64ToBytes(input: string): Uint8Array {
+  if (!input || typeof input !== "string") {
+    throw new Error("Invalid base64 input");
+  }
+
+  // Normalize base64url → base64
+  const normalized = input
+    .trim()
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(input.length / 4) * 4, "=");
+
+  let binString: string;
+  try {
+    binString = atob(normalized);
+  } catch {
+    throw new Error("Failed to decode base64");
+  }
+
   const bytes = new Uint8Array(binString.length);
   for (let i = 0; i < binString.length; i++) {
     bytes[i] = binString.charCodeAt(i);
