@@ -8,6 +8,7 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { decryptPrivateKey as decryptPrivateKeyEnvelope } from '../_shared/envelope-encryption.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -101,8 +102,8 @@ Deno.serve(async (req) => {
   try {
     console.log('[execution-wallet-withdraw] Request received');
 
-    // 1. Validate auth header
-    const authHeader = req.headers.get('Authorization');
+    // 1. Validate auth header (case-insensitive)
+    const authHeader = req.headers.get('authorization') ?? req.headers.get('Authorization');
     if (!authHeader) {
       return jsonError(401, 'Missing authorization header');
     }
@@ -226,29 +227,43 @@ Deno.serve(async (req) => {
 
     const { data: secrets, error: secretsError } = await supabaseAdmin
       .from('execution_wallet_secrets')
-      .select('encrypted_dek, dek_iv, dek_auth_tag, encrypted_private_key, iv, auth_tag')
+      .select('encrypted_dek, dek_iv, dek_auth_tag, encrypted_private_key, iv, auth_tag, kek_version')
       .eq('wallet_id', wallet_id)
       .maybeSingle();
 
     if (secretsError) {
-      return jsonError(500, 'Failed to fetch wallet secrets', { step: 'decrypt_key' });
+      return jsonError(500, 'Failed to fetch wallet secrets', { step: 'fetch_wallet_secrets' });
     }
 
     if (!secrets) {
-      return jsonError(409, 'Wallet has no secrets', { step: 'decrypt_key' });
+      return jsonError(409, 'Wallet has no secrets', { step: 'fetch_wallet_secrets' });
     }
+
+    // Convert DB base64 strings to Uint8Array for canonical decrypt
+    const encryptedData = {
+      encrypted_private_key: base64ToBytes(secrets.encrypted_private_key),
+      iv: base64ToBytes(secrets.iv),
+      auth_tag: base64ToBytes(secrets.auth_tag),
+      encrypted_dek: base64ToBytes(secrets.encrypted_dek),
+      dek_iv: base64ToBytes(secrets.dek_iv),
+      dek_auth_tag: base64ToBytes(secrets.dek_auth_tag),
+      kek_version: Number(secrets.kek_version ?? 1),
+    };
 
     let privateKey: string;
     try {
-      const decrypted = await decryptPrivateKey(secrets as unknown as Record<string, string>);
-      if (!decrypted) {
-        return jsonError(500, 'Failed to decrypt wallet', { step: 'decrypt_key' });
-      }
-      privateKey = decrypted;
+      privateKey = await decryptPrivateKeyEnvelope(encryptedData);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Wallet decryption failed';
-      return jsonError(500, msg, { step: 'decrypt_key' });
+      return jsonError(500, msg, { step: 'decrypt_private_key' });
     }
+
+    // Validate decrypted key format (must be 0x-prefixed hex)
+    if (!privateKey || typeof privateKey !== 'string' || !privateKey.startsWith('0x')) {
+      return jsonError(500, 'decrypt_private_key_invalid_format', { step: 'decrypt_private_key' });
+    }
+
+    logStep('decrypt_ok', { pk_format_ok: privateKey.startsWith('0x'), pk_len: privateKey.length });
 
     // 8. Crypto + signer init
     logStep('signer_init');
@@ -386,74 +401,6 @@ Deno.serve(async (req) => {
     return jsonError(500, message);
   }
 });
-
-// Decrypt private key from wallet secrets
-async function decryptPrivateKey(secrets: Record<string, string>): Promise<string | null> {
-  const kek = Deno.env.get('EXECUTION_WALLET_KEK_V1');
-  if (!kek) {
-    logStep('decrypt_key', { message: 'KEK not configured' });
-    return null;
-  }
-
-  const toArrayBuffer = (u8: Uint8Array): ArrayBuffer => {
-    const ab = new ArrayBuffer(u8.byteLength);
-    new Uint8Array(ab).set(u8);
-    return ab;
-  };
-
-  const toU8 = (u8: Uint8Array): Uint8Array => new Uint8Array(u8);
-
-  // Import KEK
-  const kekBytes = hexToBytes(kek);
-  const kekKey = await crypto.subtle.importKey(
-    'raw',
-    toArrayBuffer(kekBytes),
-    { name: 'AES-GCM' },
-    false,
-    ['decrypt']
-  );
-
-  // Decrypt DEK
-  const encryptedDek = base64ToBytes(secrets.encrypted_dek);
-  const dekIv = toU8(base64ToBytes(secrets.dek_iv));
-  const dekAuthTag = base64ToBytes(secrets.dek_auth_tag);
-
-  const dekWithTag = new Uint8Array(encryptedDek.length + dekAuthTag.length);
-  dekWithTag.set(encryptedDek);
-  dekWithTag.set(dekAuthTag, encryptedDek.length);
-
-  const dekBytes = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: dekIv },
-    kekKey,
-    toArrayBuffer(dekWithTag)
-  );
-
-  // Import DEK
-  const dekKey = await crypto.subtle.importKey(
-    'raw',
-    dekBytes,
-    { name: 'AES-GCM' },
-    false,
-    ['decrypt']
-  );
-
-  // Decrypt private key
-  const encryptedKey = base64ToBytes(secrets.encrypted_private_key);
-  const keyIv = toU8(base64ToBytes(secrets.iv));
-  const keyAuthTag = base64ToBytes(secrets.auth_tag);
-
-  const keyWithTag = new Uint8Array(encryptedKey.length + keyAuthTag.length);
-  keyWithTag.set(encryptedKey);
-  keyWithTag.set(keyAuthTag, encryptedKey.length);
-
-  const privateKeyBytes = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: keyIv },
-    dekKey,
-    toArrayBuffer(keyWithTag)
-  );
-
-  return new TextDecoder().decode(privateKeyBytes);
-}
 
 async function getNonce(address: string): Promise<bigint> {
   const response = await fetch(BASE_RPC, {
