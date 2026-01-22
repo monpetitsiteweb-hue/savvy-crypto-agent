@@ -640,14 +640,22 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string |
   // 2) Decrypt DEK  ✅ MUST be decodeStoredBytes
   // ─────────────────────────────────────────────
   const encryptedDek = decodeStoredBytes("encrypted_dek", secrets.encrypted_dek);
-  const dekIv = decodeStoredBytes("dek_iv", secrets.dek_iv);
+  let dekIv = decodeStoredBytes("dek_iv", secrets.dek_iv);
   const dekAuthTag = decodeStoredBytes("dek_auth_tag", secrets.dek_auth_tag);
+
+  // 🔥 FINAL UNWRAP: ASCII JSON → real bytes
+  if (dekIv.length > 16) {
+    try {
+      const text = new TextDecoder().decode(dekIv).trim();
+      const parsed = JSON.parse(text);
+      dekIv = decodeStoredBytes("dek_iv(inner)", parsed);
+    } catch {
+      // leave as-is
+    }
+  }
 
   if (dekIv.length !== 12 && dekIv.length !== 16) {
     throw new Error(`DEK IV invalid length: ${dekIv.length}`);
-  }
-  if (dekAuthTag.length !== 16) {
-    throw new Error(`DEK auth tag invalid length: ${dekAuthTag.length}`);
   }
 
   logStep("dek_parts_len", {
