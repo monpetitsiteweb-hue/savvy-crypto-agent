@@ -112,6 +112,32 @@ function concatBytes(arrays: Uint8Array[]): Uint8Array {
   return result;
 }
 
+//Helper decodeBase64Field
+function decodeBase64Field(name: string, value: string): Uint8Array {
+  if (!value || typeof value !== "string") {
+    throw new Error(`Missing base64 field: ${name}`);
+  }
+
+  const normalized = value
+    .trim()
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+
+  let bin: string;
+  try {
+    bin = atob(normalized);
+  } catch {
+    throw new Error(`Invalid base64 in field: ${name}`);
+  }
+
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) {
+    out[i] = bin.charCodeAt(i);
+  }
+  return out;
+}
+
 Deno.serve(async (req) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
@@ -459,9 +485,9 @@ async function decryptPrivateKey(secrets: Record<string, string>): Promise<strin
   const kekKey = await crypto.subtle.importKey("raw", toArrayBuffer(kekBytes), { name: "AES-GCM" }, false, ["decrypt"]);
 
   // Decrypt DEK
-  const encryptedDek = base64ToBytes(secrets.encrypted_dek);
-  const dekIv = toU8(base64ToBytes(secrets.dek_iv));
-  const dekAuthTag = base64ToBytes(secrets.dek_auth_tag);
+  const encryptedDek = decodeBase64Field("encrypted_dek", secrets.encrypted_dek);
+  const dekIv = decodeBase64Field("dek_iv", secrets.dek_iv);
+  const dekAuthTag = decodeBase64Field("dek_auth_tag", secrets.dek_auth_tag);
 
   const dekWithTag = new Uint8Array(encryptedDek.length + dekAuthTag.length);
   dekWithTag.set(encryptedDek);
@@ -473,9 +499,9 @@ async function decryptPrivateKey(secrets: Record<string, string>): Promise<strin
   const dekKey = await crypto.subtle.importKey("raw", dekBytes, { name: "AES-GCM" }, false, ["decrypt"]);
 
   // Decrypt private key
-  const encryptedKey = base64ToBytes(secrets.encrypted_private_key);
-  const keyIv = toU8(base64ToBytes(secrets.iv));
-  const keyAuthTag = base64ToBytes(secrets.auth_tag);
+  const encryptedKey = decodeBase64Field("encrypted_private_key", secrets.encrypted_private_key);
+  const keyIv = decodeBase64Field("iv", secrets.iv);
+  const keyAuthTag = decodeBase64Field("auth_tag", secrets.auth_tag);
 
   const keyWithTag = new Uint8Array(encryptedKey.length + keyAuthTag.length);
   keyWithTag.set(encryptedKey);
