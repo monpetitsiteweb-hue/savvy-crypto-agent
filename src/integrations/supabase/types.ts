@@ -1222,6 +1222,51 @@ export type Database = {
         }
         Relationships: []
       }
+      execution_wallet_balance_snapshots: {
+        Row: {
+          balance: number
+          balance_raw: string
+          chain_id: number
+          created_at: string
+          decimals: number
+          id: string
+          observed_at: string
+          source: string
+          symbol: string
+          token_address: string | null
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          balance: number
+          balance_raw: string
+          chain_id?: number
+          created_at?: string
+          decimals?: number
+          id?: string
+          observed_at?: string
+          source?: string
+          symbol: string
+          token_address?: string | null
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          balance?: number
+          balance_raw?: string
+          chain_id?: number
+          created_at?: string
+          decimals?: number
+          id?: string
+          observed_at?: string
+          source?: string
+          symbol?: string
+          token_address?: string | null
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
       execution_wallet_secrets: {
         Row: {
           auth_tag: string
@@ -2855,51 +2900,6 @@ export type Database = {
         }
         Relationships: []
       }
-      wallet_balance_snapshots: {
-        Row: {
-          balance: number
-          balance_raw: string
-          chain_id: number
-          created_at: string
-          decimals: number
-          id: string
-          observed_at: string
-          source: string
-          symbol: string
-          token_address: string | null
-          user_id: string
-          wallet_address: string
-        }
-        Insert: {
-          balance: number
-          balance_raw: string
-          chain_id?: number
-          created_at?: string
-          decimals?: number
-          id?: string
-          observed_at?: string
-          source?: string
-          symbol: string
-          token_address?: string | null
-          user_id: string
-          wallet_address: string
-        }
-        Update: {
-          balance?: number
-          balance_raw?: string
-          chain_id?: number
-          created_at?: string
-          decimals?: number
-          id?: string
-          observed_at?: string
-          source?: string
-          symbol?: string
-          token_address?: string | null
-          user_id?: string
-          wallet_address?: string
-        }
-        Relationships: []
-      }
       wallet_funding_requests: {
         Row: {
           block_number: number | null
@@ -3586,11 +3586,12 @@ export type Database = {
         }[]
       }
       get_coinbase_connection_status: { Args: never; Returns: boolean }
-      get_execution_wallet_balances: {
-        Args: { p_wallet_address: string }
+      get_execution_wallet_balance_snapshots: {
+        Args: { p_from?: string; p_to?: string; p_wallet_address: string }
         Returns: {
-          amount: number
+          balance: number
           decimals: number
+          observed_at: string
           symbol: string
           token_address: string
         }[]
@@ -3608,6 +3609,16 @@ export type Database = {
           kek_version: number
           wallet_address: string
           wallet_id: string
+        }[]
+      }
+      get_execution_wallet_latest_snapshot: {
+        Args: { p_wallet_address: string }
+        Returns: {
+          balance: number
+          decimals: number
+          observed_at: string
+          symbol: string
+          token_address: string
         }[]
       }
       get_features_for_engine: {
