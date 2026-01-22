@@ -322,7 +322,7 @@ Deno.serve(async (req) => {
 
     let privateKey: string;
     try {
-      const decrypted = await decryptPrivateKey(secrets as unknown as Record<string, string>);
+      const decrypted = await decryptPrivateKey(secrets as unknown as Record<string, any>);
       if (!decrypted) {
         return jsonError(500, "Failed to decrypt wallet", { step: "decrypt_key" });
       }
@@ -467,9 +467,13 @@ Deno.serve(async (req) => {
 });
 
 // Decrypt private key from wallet secrets
+// Decrypt private key from wallet secrets
 async function decryptPrivateKey(secrets: Record<string, any>): Promise<string | null> {
   const kek = Deno.env.get("EXECUTION_WALLET_KEK_V1");
-  if (!kek) throw new Error("KEK not configured");
+  if (!kek) {
+    logStep("decrypt_key", { message: "KEK not configured" });
+    return null;
+  }
 
   const toArrayBuffer = (u8: Uint8Array): ArrayBuffer => {
     const ab = new ArrayBuffer(u8.byteLength);
@@ -478,28 +482,32 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string |
   };
 
   // ─────────────────────────────────────────────
-  // 1. Decode KEK (env) — base64 OR hex
+  // 1) Decode KEK (env) — base64/base64url OR hex
   // ─────────────────────────────────────────────
+  const raw = String(kek).trim();
   let kekBytes: Uint8Array;
+
+  // Try base64/base64url first
   try {
-    const normalized = kek
-      .trim()
+    const normalized = raw
       .replace(/-/g, "+")
       .replace(/_/g, "/")
-      .padEnd(Math.ceil(kek.length / 4) * 4, "=");
+      .padEnd(Math.ceil(raw.length / 4) * 4, "=");
+
     kekBytes = base64ToBytes(normalized);
   } catch {
-    kekBytes = hexToBytes(kek.trim());
+    // Fallback to hex
+    kekBytes = hexToBytes(raw);
   }
 
   if (kekBytes.length !== 32) {
-    throw new Error(`Invalid KEK length: ${kekBytes.length}`);
+    throw new Error(`Invalid key length: KEK bytes=${kekBytes.length} (expected 32)`);
   }
 
   const kekKey = await crypto.subtle.importKey("raw", toArrayBuffer(kekBytes), { name: "AES-GCM" }, false, ["decrypt"]);
 
   // ─────────────────────────────────────────────
-  // 2. Decrypt DEK  ✅ BUFFER-AWARE
+  // 2) Decrypt DEK  ✅ MUST be decodeStoredBytes
   // ─────────────────────────────────────────────
   const encryptedDek = decodeStoredBytes("encrypted_dek", secrets.encrypted_dek);
   const dekIv = decodeStoredBytes("dek_iv", secrets.dek_iv);
@@ -514,7 +522,7 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string |
   const dekKey = await crypto.subtle.importKey("raw", dekBytes, { name: "AES-GCM" }, false, ["decrypt"]);
 
   // ─────────────────────────────────────────────
-  // 3. Decrypt private key ✅ BUFFER-AWARE
+  // 3) Decrypt private key ✅ MUST be decodeStoredBytes
   // ─────────────────────────────────────────────
   const encryptedKey = decodeStoredBytes("encrypted_private_key", secrets.encrypted_private_key);
   const keyIv = decodeStoredBytes("iv", secrets.iv);
