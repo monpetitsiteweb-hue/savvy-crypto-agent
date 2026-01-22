@@ -3746,6 +3746,10 @@ export type Database = {
         Returns: boolean
       }
       initiate_liquidation: { Args: { p_strategy_id: string }; Returns: Json }
+      legacy_bytea_jsonmap_to_bytea: {
+        Args: { input: string }
+        Returns: string
+      }
       log_connection_access: {
         Args: { access_type?: string; connection_id: string }
         Returns: undefined
@@ -3820,6 +3824,7 @@ export type Database = {
         Args: { p_reason?: string; p_strategy_id?: string; p_user_id: string }
         Returns: Json
       }
+      unwrap_legacy_buffer_to_bytea: { Args: { v: Json }; Returns: string }
       update_strategy_state: {
         Args: {
           p_new_state: string
