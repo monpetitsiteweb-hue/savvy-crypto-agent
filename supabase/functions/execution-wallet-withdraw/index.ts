@@ -144,20 +144,29 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
     throw new Error(`Missing field: ${name}`);
   }
 
-  // Case 1: Supabase "Buffer" object
-  // ---------- Case A: Buffer JSON object ----------
-  if (typeof value === "object" && value?.type === "Buffer" && Array.isArray(value.data)) {
-    const outerBytes = new Uint8Array(value.data);
+  // ---------- Case A: Uint8Array already ----------
+  if (value instanceof Uint8Array) {
+    return value;
+  }
+
+  // ---------- Case B: any object that has .data = number[] ----------
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    Array.isArray((value as any).data) &&
+    (value as any).data.every((n: any) => typeof n === "number")
+  ) {
+    const outerBytes = new Uint8Array((value as any).data);
 
     // If this is ASCII JSON (starts with '{')
-    if (outerBytes.length > 0 && outerBytes[0] === 123) {
+    if (outerBytes.length > 0 && outerBytes[0] === 123 /* '{' */) {
       const ascii = new TextDecoder().decode(outerBytes);
 
       let parsed: any;
       try {
         parsed = JSON.parse(ascii);
       } catch {
-        throw new Error(`Corrupt Buffer JSON in field: ${name}`);
+        throw new Error(`Corrupt nested JSON bytes in field: ${name}`);
       }
 
       // {"0":185,"1":91,...}
@@ -165,6 +174,7 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
         parsed &&
         typeof parsed === "object" &&
         !Array.isArray(parsed) &&
+        Object.keys(parsed).length > 0 &&
         Object.keys(parsed).every((k) => /^\d+$/.test(k))
       ) {
         const keys = Object.keys(parsed).sort((a, b) => Number(a) - Number(b));
@@ -176,14 +186,14 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
       }
 
       // {"type":"Buffer","data":[...]} nested AGAIN
-      if (parsed?.type === "Buffer" && Array.isArray(parsed.data)) {
+      if (parsed?.data && Array.isArray(parsed.data) && parsed.data.every((n: any) => typeof n === "number")) {
         return new Uint8Array(parsed.data);
       }
 
-      throw new Error(`Unsupported nested JSON encoding in field: ${name}`);
+      throw new Error(`Unsupported nested JSON structure in field: ${name}`);
     }
 
-    // Normal Buffer case
+    // Normal binary
     return outerBytes;
   }
 
