@@ -413,7 +413,13 @@ async function decryptPrivateKey(secrets: Record<string, string>): Promise<strin
   const toU8 = (u8: Uint8Array): Uint8Array => new Uint8Array(u8);
 
   // Import KEK
-  const kekBytes = hexToBytes(kek);
+  // Import KEK (BASE64 — MUST BE 32 BYTES)
+  const kekBytes = base64ToBytes(kek.trim());
+
+  if (kekBytes.length !== 32) {
+    throw new Error(`Invalid key length: KEK bytes=${kekBytes.length} (expected 32)`);
+  }
+
   const kekKey = await crypto.subtle.importKey("raw", toArrayBuffer(kekBytes), { name: "AES-GCM" }, false, ["decrypt"]);
 
   // Decrypt DEK
