@@ -140,17 +140,46 @@ function decodeBase64Field(name: string, value: string): Uint8Array {
 
 //decodeStoredBytes
 function decodeStoredBytes(name: string, value: any): Uint8Array {
-  // Case 1: Node Buffer JSON { type: "Buffer", data: [...] }
+  if (value === null || value === undefined) {
+    throw new Error(`Missing field: ${name}`);
+  }
+
+  // Case 1: Node Buffer JSON
   if (typeof value === "object" && value !== null && value.type === "Buffer" && Array.isArray(value.data)) {
     return new Uint8Array(value.data);
   }
 
-  // Case 2: base64 / base64url string
   if (typeof value === "string") {
-    const normalized = value
+    const raw = value.trim();
+
+    // Case 2a: Postgres bytea "\\x..."
+    if (raw.startsWith("\\x")) {
+      return hexToBytes(raw.slice(2));
+    }
+
+    // Case 2b: 0x-prefixed hex
+    if (raw.startsWith("0x") && /^[0-9a-fA-F]+$/.test(raw.slice(2))) {
+      return hexToBytes(raw);
+    }
+
+    // Case 2c: plain hex
+    if (/^[0-9a-fA-F]+$/.test(raw) && raw.length % 2 === 0) {
+      return hexToBytes(raw);
+    }
+
+    // Case 2d: JSON-stringified Buffer
+    if (raw.startsWith("{") && raw.includes('"type"') && raw.includes('"Buffer"')) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.type === "Buffer" && Array.isArray(parsed?.data)) {
+        return new Uint8Array(parsed.data);
+      }
+    }
+
+    // Case 2e: base64 / base64url
+    const normalized = raw
       .replace(/-/g, "+")
       .replace(/_/g, "/")
-      .padEnd(Math.ceil(value.length / 4) * 4, "=");
+      .padEnd(Math.ceil(raw.length / 4) * 4, "=");
 
     try {
       const bin = atob(normalized);
@@ -158,7 +187,7 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
       for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
       return out;
     } catch {
-      throw new Error(`Invalid base64 in field: ${name}`);
+      throw new Error(`Invalid encoding in field: ${name}`);
     }
   }
 
