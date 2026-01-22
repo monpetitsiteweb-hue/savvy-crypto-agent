@@ -144,38 +144,40 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
     throw new Error(`Missing field: ${name}`);
   }
 
-  // Case 1: Node Buffer JSON
+  // Case 1: Proper Buffer JSON { type: "Buffer", data: [..] }
   if (typeof value === "object" && value !== null && value.type === "Buffer" && Array.isArray(value.data)) {
-    return new Uint8Array(value.data);
+    const bytes = new Uint8Array(value.data);
+
+    // 🚨 Detect DOUBLE-ENCODED Buffer (ASCII JSON inside)
+    if (bytes[0] === 123 /* '{' */) {
+      try {
+        const inner = JSON.parse(new TextDecoder().decode(bytes));
+        if (inner?.type === "Buffer" && Array.isArray(inner.data)) {
+          return new Uint8Array(inner.data);
+        }
+      } catch {
+        throw new Error(`Corrupted double-encoded buffer in field: ${name}`);
+      }
+    }
+
+    return bytes;
   }
 
+  // Case 2: String
   if (typeof value === "string") {
     const raw = value.trim();
 
-    // Case 2a: Postgres bytea "\\x..."
+    // Postgres bytea
     if (raw.startsWith("\\x")) {
       return hexToBytes(raw.slice(2));
     }
 
-    // Case 2b: 0x-prefixed hex
-    if (raw.startsWith("0x") && /^[0-9a-fA-F]+$/.test(raw.slice(2))) {
+    // Hex
+    if (raw.startsWith("0x") || /^[0-9a-fA-F]+$/.test(raw)) {
       return hexToBytes(raw);
     }
 
-    // Case 2c: plain hex
-    if (/^[0-9a-fA-F]+$/.test(raw) && raw.length % 2 === 0) {
-      return hexToBytes(raw);
-    }
-
-    // Case 2d: JSON-stringified Buffer
-    if (raw.startsWith("{") && raw.includes('"type"') && raw.includes('"Buffer"')) {
-      const parsed = JSON.parse(raw);
-      if (parsed?.type === "Buffer" && Array.isArray(parsed?.data)) {
-        return new Uint8Array(parsed.data);
-      }
-    }
-
-    // Case 2e: base64 / base64url
+    // Base64
     const normalized = raw
       .replace(/-/g, "+")
       .replace(/_/g, "/")
