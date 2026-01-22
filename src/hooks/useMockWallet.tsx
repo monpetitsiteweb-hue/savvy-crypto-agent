@@ -74,6 +74,7 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       
       const { data: metrics, error: metricsError } = await supabase.rpc('get_portfolio_metrics' as any, {
         p_user_id: user.id,
+        p_is_test_mode: testMode,
       });
       
       console.log('[refreshFromDatabase] metrics:', metrics, 'error:', metricsError);
@@ -209,6 +210,7 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       // Immediately refresh metrics
       const { data: metrics, error: metricsError } = await supabase.rpc('get_portfolio_metrics' as any, {
         p_user_id: authUser.id,
+        p_is_test_mode: true,
       });
       
       console.log('[resetPortfolio] get_portfolio_metrics result:', { metrics, metricsError });
