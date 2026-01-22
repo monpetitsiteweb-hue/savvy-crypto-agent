@@ -147,10 +147,28 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
   // 0) Direct Uint8Array
   if (value instanceof Uint8Array) return value;
 
-  // 1) If it's an object wrapper, many libs nest payload in .data (NOT always Buffer)
-  //    Recurse into .data if present.
-  if (typeof value === "object" && value !== null && !Array.isArray(value) && "data" in value) {
-    return decodeStoredBytes(name, (value as any).data);
+  // 1) Explicit Buffer shape: { type: "Buffer", data: [...] }
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    (value as any).type === "Buffer" &&
+    Array.isArray((value as any).data)
+  ) {
+    const bytes = new Uint8Array((value as any).data);
+
+    // CRITICAL: buffer contains ASCII JSON → parse AGAIN
+    const text = new TextDecoder().decode(bytes).trim();
+    const inner = (() => {
+      try {
+        const parsed = JSON.parse(text);
+        return decodeStoredBytes(name, parsed);
+      } catch {
+        return null;
+      }
+    })();
+
+    if (inner) return inner;
+    return bytes;
   }
 
   // Helpers
