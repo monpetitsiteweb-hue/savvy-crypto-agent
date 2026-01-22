@@ -8,11 +8,11 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { decryptPrivateKey as decryptPrivateKeyEnvelope } from "../_shared/envelope-encryption.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 // Token addresses on Base
@@ -98,16 +98,19 @@ function concatBytes(arrays: Uint8Array[]): Uint8Array {
 Deno.serve(async (req) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders,
+    });
   }
 
   try {
     console.log("[execution-wallet-withdraw] Request received");
 
-    // 1. Validate auth header (case-insensitive)
-    const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization");
+    // 1. Validate auth header
+    const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return jsonError(401, "Missing authorization header", { step: "auth" });
+      return jsonError(401, "Missing authorization header");
     }
 
     // 2. Parse and validate request body (STRICT CONTRACT)
@@ -115,35 +118,40 @@ Deno.serve(async (req) => {
     try {
       body = await req.json();
     } catch {
-      return jsonError(400, "Invalid JSON body", { step: "request_body" });
+      return jsonError(400, "Invalid JSON body");
     }
 
     const { wallet_id, asset, to_address, amount } = body;
+
     logStep("request_payload", { wallet_id, asset, to_address, amount });
 
+    // Validate wallet_id
     if (!wallet_id || typeof wallet_id !== "string") {
-      return jsonError(400, "Missing or invalid wallet_id", { step: "validate" });
+      return jsonError(400, "Missing or invalid wallet_id");
     }
 
+    // Validate asset
     if (!asset || typeof asset !== "string") {
-      return jsonError(400, "Missing or invalid asset", { step: "validate" });
+      return jsonError(400, "Missing or invalid asset");
     }
     if (!["ETH", "WETH", "USDC"].includes(asset)) {
-      return jsonError(400, "Invalid asset. Must be ETH, WETH, or USDC", { step: "validate" });
+      return jsonError(400, "Invalid asset. Must be ETH, WETH, or USDC");
     }
 
+    // Validate destination address
     if (!to_address || typeof to_address !== "string") {
-      return jsonError(400, "Missing destination address", { step: "validate" });
+      return jsonError(400, "Missing destination address");
     }
     if (!/^0x[a-fA-F0-9]{40}$/.test(to_address)) {
-      return jsonError(400, "Invalid destination address format", { step: "validate" });
+      return jsonError(400, "Invalid destination address format");
     }
 
+    // Validate amount
     if (amount === undefined || amount === null || typeof amount !== "number") {
-      return jsonError(400, "Missing or invalid amount", { step: "validate" });
+      return jsonError(400, "Missing or invalid amount");
     }
     if (!Number.isFinite(amount) || amount <= 0) {
-      return jsonError(400, "Amount must be a finite number > 0", { step: "validate" });
+      return jsonError(400, "Amount must be a finite number > 0");
     }
 
     // 3. Create anon client to verify user identity
@@ -152,7 +160,7 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
-      return jsonError(500, "Server configuration error", { step: "config" });
+      return jsonError(500, "Server configuration error");
     }
 
     const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
@@ -164,20 +172,22 @@ Deno.serve(async (req) => {
       data: { user },
       error: userError,
     } = await supabaseUser.auth.getUser();
-
     if (userError || !user) {
-      return jsonError(401, "Unauthorized", { step: "auth" });
+      return jsonError(401, "Unauthorized");
     }
 
     logStep("auth_ok", { user_id: user.id });
 
-    // 4. Create service-role client for privileged operations
+    // 4. Create service-role client for privileged operations (NO ANON CLIENT FOR DB/KEY/AUDIT)
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
       db: { schema: "public" },
     });
 
-    // 5. Wallet lookup
+    // 5. Wallet lookup (EXPLICIT wallet_id only)
     logStep("wallet_lookup", { wallet_id });
 
     const { data: wallet, error: walletError } = await supabaseAdmin
@@ -189,18 +199,24 @@ Deno.serve(async (req) => {
     if (walletError) {
       return jsonError(500, "Failed to fetch wallet", { step: "wallet_lookup" });
     }
+
     if (!wallet || wallet.user_id !== user.id) {
       return jsonError(404, "Wallet not found", { step: "wallet_lookup" });
     }
+
     if (!wallet.is_active) {
       return jsonError(409, "Wallet is not active", { step: "wallet_lookup" });
     }
+
+    // Chain validation (Base only)
     if (wallet.chain_id !== 8453) {
       return jsonError(400, "Invalid wallet chain (expected Base / 8453)", {
         step: "wallet_lookup",
         chain_id: wallet.chain_id,
       });
     }
+
+    // Block self-transfers
     if (to_address.toLowerCase() === wallet.wallet_address.toLowerCase()) {
       return jsonError(400, "Cannot send to the same wallet", { step: "wallet_lookup" });
     }
@@ -214,63 +230,43 @@ Deno.serve(async (req) => {
       .limit(1);
 
     if (!rateLimitError && recentWithdrawals && recentWithdrawals.length > 0) {
-      return jsonError(429, "Rate limited. Please wait 1 minute between withdrawals.", {
-        step: "rate_limit",
-      });
+      return jsonError(429, "Rate limited. Please wait 1 minute between withdrawals.", { step: "rate_limit" });
     }
 
-    // 7. Fetch wallet secrets (must include kek_version)
-    logStep("fetch_wallet_secrets", { wallet_id });
+    // 7. Fetch wallet secrets (explicit)
+    logStep("decrypt_key", { wallet_id });
 
     const { data: secrets, error: secretsError } = await supabaseAdmin
       .from("execution_wallet_secrets")
-      .select("encrypted_dek, dek_iv, dek_auth_tag, encrypted_private_key, iv, auth_tag, kek_version")
+      .select("encrypted_dek, dek_iv, dek_auth_tag, encrypted_private_key, iv, auth_tag")
       .eq("wallet_id", wallet_id)
       .maybeSingle();
 
     if (secretsError) {
-      return jsonError(500, "Failed to fetch wallet secrets", { step: "fetch_wallet_secrets" });
-    }
-    if (!secrets) {
-      return jsonError(409, "Wallet has no secrets", { step: "fetch_wallet_secrets" });
+      return jsonError(500, "Failed to fetch wallet secrets", { step: "decrypt_key" });
     }
 
-    // 8. Decrypt private key using shared envelope-encryption (single source of truth)
-    logStep("decrypt_private_key", { wallet_id, kek_version: secrets.kek_version });
+    if (!secrets) {
+      return jsonError(409, "Wallet has no secrets", { step: "decrypt_key" });
+    }
 
     let privateKey: string;
     try {
-      const encryptedData = {
-        encrypted_private_key: base64ToBytes(String(secrets.encrypted_private_key)),
-        iv: base64ToBytes(String(secrets.iv)),
-        auth_tag: base64ToBytes(String(secrets.auth_tag)),
-        encrypted_dek: base64ToBytes(String(secrets.encrypted_dek)),
-        dek_iv: base64ToBytes(String(secrets.dek_iv)),
-        dek_auth_tag: base64ToBytes(String(secrets.dek_auth_tag)),
-        kek_version: Number(secrets.kek_version ?? 1),
-      };
-
-      privateKey = await decryptPrivateKeyEnvelope(encryptedData);
-
-      // Format invariant
-      const pkFormatOk = typeof privateKey === "string" && privateKey.startsWith("0x");
-      logStep("decrypt_ok", { pk_format_ok: pkFormatOk, pk_len: privateKey?.length ?? 0 });
-
-      if (!pkFormatOk) {
-        return jsonError(500, "decrypt_private_key_invalid_format", { step: "post_decrypt_validation" });
+      const decrypted = await decryptPrivateKey(secrets as unknown as Record<string, string>);
+      if (!decrypted) {
+        return jsonError(500, "Failed to decrypt wallet", { step: "decrypt_key" });
       }
+      privateKey = decrypted;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Wallet decryption failed";
-      return jsonError(500, msg, { step: "decrypt_private_key" });
+      return jsonError(500, msg, { step: "decrypt_key" });
     }
 
-    // 9. Crypto + signer init
+    // 8. Crypto + signer init
     logStep("signer_init");
 
     let keccak_256: (data: Uint8Array) => Uint8Array;
-    let secp256k1: {
-      sign: (hash: Uint8Array, privKey: Uint8Array) => { r: bigint; s: bigint; recovery: number };
-    };
+    let secp256k1: { sign: (hash: Uint8Array, privKey: Uint8Array) => { r: bigint; s: bigint; recovery: number } };
 
     try {
       const sha3Module = await import("https://esm.sh/@noble/hashes@1.3.3/sha3");
@@ -282,7 +278,7 @@ Deno.serve(async (req) => {
       return jsonError(500, "Failed to load crypto libraries", { step: "signer_init" });
     }
 
-    // 10. Fetch on-chain state
+    // 9. Fetch on-chain state
     logStep("tx_build", { asset });
 
     let nonce: bigint;
@@ -296,14 +292,13 @@ Deno.serve(async (req) => {
       return jsonError(500, msg, { step: "tx_build" });
     }
 
-    // 11. Balance checks
+    // 10. Balance checks (422 on insufficient funds)
     const gasLimit = asset === "ETH" ? 21000n : 100000n;
 
     if (asset === "ETH") {
       const amountWei = BigInt(Math.floor(amount * 1e18));
       const balanceWei = await getEthBalance(wallet.wallet_address);
       const requiredWei = amountWei + gasLimit * gasPrice;
-
       if (balanceWei < requiredWei) {
         return jsonError(422, "Insufficient ETH for amount + gas", {
           step: "tx_build",
@@ -315,7 +310,6 @@ Deno.serve(async (req) => {
       const token = TOKENS[asset];
       const amountRaw = BigInt(Math.floor(amount * 10 ** token.decimals));
       const tokenBal = await getErc20Balance(token.address, wallet.wallet_address);
-
       if (tokenBal < amountRaw) {
         return jsonError(422, `Insufficient ${asset} balance`, {
           step: "tx_build",
@@ -323,19 +317,15 @@ Deno.serve(async (req) => {
           required_raw: amountRaw.toString(),
         });
       }
-
+      // Also ensure enough ETH to pay gas
       const balanceWei = await getEthBalance(wallet.wallet_address);
       const gasWei = gasLimit * gasPrice;
-
       if (balanceWei < gasWei) {
-        return jsonError(422, "Insufficient ETH to pay gas", {
-          step: "tx_build",
-          required_wei: gasWei.toString(),
-        });
+        return jsonError(422, "Insufficient ETH to pay gas", { step: "tx_build", required_wei: gasWei.toString() });
       }
     }
 
-    // 12. Build + sign + send
+    // 11. Build + sign + send
     logStep("tx_send", { asset });
 
     let txHash: string;
@@ -382,7 +372,7 @@ Deno.serve(async (req) => {
 
     logStep("tx_send_ok", { tx_hash: txHash });
 
-    // 13. Audit log (best-effort)
+    // 12. Audit log (service-role)
     try {
       await supabaseAdmin.from("withdrawal_audit_log").insert({
         user_id: user.id,
@@ -394,6 +384,7 @@ Deno.serve(async (req) => {
         status: "submitted",
       });
     } catch (e) {
+      // Don't fail withdrawal on audit logging failures
       logStep("audit_log_failed", { message: e instanceof Error ? e.message : String(e) });
     }
 
@@ -401,17 +392,72 @@ Deno.serve(async (req) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Internal server error";
     console.error("[execution-wallet-withdraw] Unhandled error:", error);
-    return jsonError(500, message, { step: "unhandled" });
+    return jsonError(500, message);
   }
 });
 
-// --- RPC helpers ---
+// Decrypt private key from wallet secrets
+async function decryptPrivateKey(secrets: Record<string, string>): Promise<string | null> {
+  const kek = Deno.env.get("EXECUTION_WALLET_KEK_V1");
+  if (!kek) {
+    logStep("decrypt_key", { message: "KEK not configured" });
+    return null;
+  }
+
+  const toArrayBuffer = (u8: Uint8Array): ArrayBuffer => {
+    const ab = new ArrayBuffer(u8.byteLength);
+    new Uint8Array(ab).set(u8);
+    return ab;
+  };
+
+  const toU8 = (u8: Uint8Array): Uint8Array => new Uint8Array(u8);
+
+  // Import KEK
+  const kekBytes = hexToBytes(kek);
+  const kekKey = await crypto.subtle.importKey("raw", toArrayBuffer(kekBytes), { name: "AES-GCM" }, false, ["decrypt"]);
+
+  // Decrypt DEK
+  const encryptedDek = base64ToBytes(secrets.encrypted_dek);
+  const dekIv = toU8(base64ToBytes(secrets.dek_iv));
+  const dekAuthTag = base64ToBytes(secrets.dek_auth_tag);
+
+  const dekWithTag = new Uint8Array(encryptedDek.length + dekAuthTag.length);
+  dekWithTag.set(encryptedDek);
+  dekWithTag.set(dekAuthTag, encryptedDek.length);
+
+  const dekBytes = await crypto.subtle.decrypt({ name: "AES-GCM", iv: dekIv }, kekKey, toArrayBuffer(dekWithTag));
+
+  // Import DEK
+  const dekKey = await crypto.subtle.importKey("raw", dekBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+
+  // Decrypt private key
+  const encryptedKey = base64ToBytes(secrets.encrypted_private_key);
+  const keyIv = toU8(base64ToBytes(secrets.iv));
+  const keyAuthTag = base64ToBytes(secrets.auth_tag);
+
+  const keyWithTag = new Uint8Array(encryptedKey.length + keyAuthTag.length);
+  keyWithTag.set(encryptedKey);
+  keyWithTag.set(keyAuthTag, encryptedKey.length);
+
+  const privateKeyBytes = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: keyIv },
+    dekKey,
+    toArrayBuffer(keyWithTag),
+  );
+
+  return new TextDecoder().decode(privateKeyBytes);
+}
 
 async function getNonce(address: string): Promise<bigint> {
   const response = await fetch(BASE_RPC, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionCount", params: [address, "latest"] }),
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_getTransactionCount",
+      params: [address, "latest"],
+    }),
   });
   const data = await response.json();
   if (data.error) throw new Error(data.error.message);
@@ -422,7 +468,12 @@ async function getEthBalance(address: string): Promise<bigint> {
   const response = await fetch(BASE_RPC, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBalance", params: [address, "latest"] }),
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_getBalance",
+      params: [address, "latest"],
+    }),
   });
   const data = await response.json();
   if (data.error) throw new Error(data.error.message);
@@ -433,16 +484,23 @@ async function getGasPrice(): Promise<bigint> {
   const response = await fetch(BASE_RPC, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_gasPrice", params: [] }),
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_gasPrice",
+      params: [],
+    }),
   });
   const data = await response.json();
   if (data.error) throw new Error(data.error.message);
+  // Add 10% buffer
   const basePrice = BigInt(data.result || "0x1");
-  return basePrice + basePrice / 10n; // +10% buffer
+  return basePrice + basePrice / 10n;
 }
 
 async function getErc20Balance(tokenAddress: string, holder: string): Promise<bigint> {
-  const selector = "70a08231"; // balanceOf(address)
+  // balanceOf(address) selector 0x70a08231
+  const selector = "70a08231";
   const paddedHolder = holder.slice(2).toLowerCase().padStart(64, "0");
   const dataField = "0x" + selector + paddedHolder;
 
@@ -459,63 +517,60 @@ async function getErc20Balance(tokenAddress: string, holder: string): Promise<bi
 
   const data = await response.json();
   if (data.error) throw new Error(data.error.message);
-  return BigInt(data.result || "0x0");
+  const hex = data.result || "0x0";
+  return BigInt(hex);
 }
 
 async function signAndSendTransaction(
-  tx: {
-    nonce: bigint;
-    gasPrice: bigint;
-    gasLimit: bigint;
-    to: string;
-    value: bigint;
-    data: string;
-    chainId: bigint;
-  },
+  tx: { nonce: bigint; gasPrice: bigint; gasLimit: bigint; to: string; value: bigint; data: string; chainId: bigint },
   privateKey: string,
   keccak_256: (data: Uint8Array) => Uint8Array,
-  secp256k1: {
-    sign: (hash: Uint8Array, privKey: Uint8Array) => { r: bigint; s: bigint; recovery: number };
-  },
+  secp256k1: { sign: (hash: Uint8Array, privKey: Uint8Array) => { r: bigint; s: bigint; recovery: number } },
 ): Promise<string> {
+  // RLP encode for signing (legacy tx format)
   const rlpForSigning = rlpEncode([tx.nonce, tx.gasPrice, tx.gasLimit, tx.to, tx.value, tx.data, tx.chainId, 0n, 0n]);
 
+  // Hash for signing
   const txHash = keccak_256(rlpForSigning);
 
+  // Sign with private key
   const pkBytes = hexToBytes(privateKey.replace("0x", ""));
   const signature = secp256k1.sign(txHash, pkBytes);
 
+  const r = signature.r;
+  const s = signature.s;
   const v = tx.chainId * 2n + 35n + BigInt(signature.recovery);
 
-  const signedRlp = rlpEncode([
-    tx.nonce,
-    tx.gasPrice,
-    tx.gasLimit,
-    tx.to,
-    tx.value,
-    tx.data,
-    v,
-    signature.r,
-    signature.s,
-  ]);
+  // RLP encode signed transaction
+  const signedRlp = rlpEncode([tx.nonce, tx.gasPrice, tx.gasLimit, tx.to, tx.value, tx.data, v, r, s]);
 
   const rawTx = "0x" + bytesToHexLocal(signedRlp);
 
+  // Send transaction
   const response = await fetch(BASE_RPC, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_sendRawTransaction", params: [rawTx] }),
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_sendRawTransaction",
+      params: [rawTx],
+    }),
   });
 
   const result = await response.json();
-  if (result.error) throw new Error(result.error.message || "eth_sendRawTransaction failed");
-  if (!result.result) throw new Error("No transaction hash returned");
+  if (result.error) {
+    throw new Error(result.error.message || "eth_sendRawTransaction failed");
+  }
+
+  if (!result.result) {
+    throw new Error("No transaction hash returned");
+  }
 
   return result.result;
 }
 
-// --- RLP encoding ---
-
+// RLP encoding
 function rlpEncode(items: (bigint | string | number)[]): Uint8Array {
   const encoded = items.map((item) => encodeRlpItem(item));
   const totalLength = encoded.reduce((acc, e) => acc + e.length, 0);
