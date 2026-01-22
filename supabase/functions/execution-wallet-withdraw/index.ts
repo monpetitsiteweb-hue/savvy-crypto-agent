@@ -1,10 +1,9 @@
 /**
  * execution-wallet-withdraw
  *
- * Withdraws ETH or ERC20 tokens from the user's execution wallet.
- * Uses server-side encrypted private key to sign and submit transaction.
- *
- * CRITICAL: Uses service_role key for all DB operations that require elevated access.
+ * Withdraw ETH or ERC20 tokens from an execution wallet (Base).
+ * Uses server-side encrypted private key (KEK → DEK → PK).
+ * All privileged DB access uses service_role.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -15,22 +14,25 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// Token addresses on Base
+// ─────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────
+
+const BASE_RPC = "https://mainnet.base.org";
+const RATE_LIMIT_MS = 60_000;
+
 const TOKENS: Record<string, { address: string; decimals: number }> = {
   ETH: { address: "0x0000000000000000000000000000000000000000", decimals: 18 },
   WETH: { address: "0x4200000000000000000000000000000000000006", decimals: 18 },
   USDC: { address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 },
 };
 
-// Rate limit: 1 withdrawal per minute
-const RATE_LIMIT_MS = 60000;
+const ERC20_TRANSFER_SELECTOR = "0xa9059cbb";
 
-// ERC20 transfer function selector
-const ERC20_TRANSFER_SELECTOR = "0xa9059cbb"; // transfer(address,uint256)
+// ─────────────────────────────────────────────────────────────
+// Small helpers
+// ─────────────────────────────────────────────────────────────
 
-const BASE_RPC = "https://mainnet.base.org";
-
-// Helper: structured log
 function logStep(step: string, data: Record<string, unknown> = {}) {
   try {
     console.log("[execution-wallet-withdraw]", JSON.stringify({ step, ...data }));
@@ -39,7 +41,6 @@ function logStep(step: string, data: Record<string, unknown> = {}) {
   }
 }
 
-// Helper: JSON error response
 function jsonError(status: number, message: string, meta: Record<string, unknown> = {}) {
   logStep("error", { status, message, ...meta });
   return new Response(JSON.stringify({ success: false, error: message, ...meta }), {
@@ -48,7 +49,6 @@ function jsonError(status: number, message: string, meta: Record<string, unknown
   });
 }
 
-// Helper: JSON success response
 function jsonSuccess(data: Record<string, unknown>) {
   return new Response(JSON.stringify({ success: true, ...data }), {
     status: 200,
@@ -56,73 +56,39 @@ function jsonSuccess(data: Record<string, unknown>) {
   });
 }
 
-// Helper: hex string to bytes
 function hexToBytes(hex: string): Uint8Array {
   const h = hex.startsWith("0x") ? hex.slice(2) : hex;
-  const bytes = new Uint8Array(h.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(h.substring(i * 2, i * 2 + 2), 16);
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
   }
-  return bytes;
+  return out;
 }
 
-// Helper: bytes to hex
-function bytesToHexLocal(bytes: Uint8Array): string {
+function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
-
-// Helper: base64 to bytes
-function base64ToBytes(input: string): Uint8Array {
-  if (!input || typeof input !== "string") {
-    throw new Error("Invalid base64 input");
+function concatBytes(arrays: Uint8Array[]): Uint8Array {
+  const total = arrays.reduce((acc, a) => acc + a.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const a of arrays) {
+    out.set(a, off);
+    off += a.length;
   }
+  return out;
+}
 
-  // Normalize base64url → base64
+function base64ToBytesStrict(name: string, input: string): Uint8Array {
+  if (!input || typeof input !== "string") throw new Error(`Missing base64 field: ${name}`);
+
   const normalized = input
     .trim()
     .replace(/-/g, "+")
     .replace(/_/g, "/")
     .padEnd(Math.ceil(input.length / 4) * 4, "=");
-
-  let binString: string;
-  try {
-    binString = atob(normalized);
-  } catch {
-    throw new Error("Failed to decode base64");
-  }
-
-  const bytes = new Uint8Array(binString.length);
-  for (let i = 0; i < binString.length; i++) {
-    bytes[i] = binString.charCodeAt(i);
-  }
-  return bytes;
-}
-
-// Helper: concat byte arrays
-function concatBytes(arrays: Uint8Array[]): Uint8Array {
-  const total = arrays.reduce((acc, arr) => acc + arr.length, 0);
-  const result = new Uint8Array(total);
-  let offset = 0;
-  for (const arr of arrays) {
-    result.set(arr, offset);
-    offset += arr.length;
-  }
-  return result;
-}
-
-//Helper decodeBase64Field
-function decodeBase64Field(name: string, value: string): Uint8Array {
-  if (!value || typeof value !== "string") {
-    throw new Error(`Missing base64 field: ${name}`);
-  }
-
-  const normalized = value
-    .trim()
-    .replace(/-/g, "+")
-    .replace(/_/g, "/")
-    .padEnd(Math.ceil(value.length / 4) * 4, "=");
 
   let bin: string;
   try {
@@ -132,22 +98,28 @@ function decodeBase64Field(name: string, value: string): Uint8Array {
   }
 
   const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) {
-    out[i] = bin.charCodeAt(i);
-  }
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
 
-//decodeStoredBytes
+/**
+ * decodeStoredBytes:
+ * Accepts many shapes (bytea "\\x..", hex "0x..", base64, arrays, numeric-key objects,
+ * Buffer-like {type:"Buffer",data:[...]}, and nested wrappers {data: ...}.
+ * Also handles "double-encoded" cases where bytes are ASCII JSON that itself describes bytes.
+ */
 function decodeStoredBytes(name: string, value: any): Uint8Array {
-  if (value === null || value === undefined) {
-    throw new Error(`Missing field: ${name}`);
-  }
+  if (value === null || value === undefined) throw new Error(`Missing field: ${name}`);
 
   // 0) Direct Uint8Array
   if (value instanceof Uint8Array) return value;
 
-  // 1) Explicit Buffer shape: { type: "Buffer", data: [...] }
+  // 1) Wrapper { data: ... }
+  if (typeof value === "object" && value !== null && !Array.isArray(value) && "data" in value) {
+    return decodeStoredBytes(name, (value as any).data);
+  }
+
+  // 2) Buffer-like { type:"Buffer", data:[...] }
   if (
     typeof value === "object" &&
     value !== null &&
@@ -155,24 +127,19 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
     Array.isArray((value as any).data)
   ) {
     const bytes = new Uint8Array((value as any).data);
-
-    // CRITICAL: buffer contains ASCII JSON → parse AGAIN
-    const text = new TextDecoder().decode(bytes).trim();
-    const inner = (() => {
+    const txt = new TextDecoder().decode(bytes).trim();
+    if (txt.startsWith("{") || txt.startsWith("[")) {
       try {
-        const parsed = JSON.parse(text);
+        const parsed = JSON.parse(txt);
         return decodeStoredBytes(name, parsed);
       } catch {
-        return null;
+        // fallthrough
       }
-    })();
-
-    if (inner) return inner;
+    }
     return bytes;
   }
 
-  // Helpers
-  const isNumericKeyObjectLoose = (obj: any) => {
+  const isNumericKeyObject = (obj: any) => {
     if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
     const keys = Object.keys(obj);
     if (keys.length === 0) return false;
@@ -185,78 +152,44 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
     );
   };
 
-  const fromNumericKeyObjectLoose = (obj: Record<string, any>) => {
+  const fromNumericKeyObject = (obj: Record<string, any>) => {
     const keys = Object.keys(obj).sort((a, b) => Number(a) - Number(b));
     const out = new Uint8Array(keys.length);
     for (let i = 0; i < keys.length; i++) out[i] = Number(obj[keys[i]]);
     return out;
   };
 
-  const tryParseJsonBytes = (raw: string): Uint8Array | null => {
-    const s = raw.trim();
-    if (!(s.startsWith("{") || s.startsWith("["))) return null;
+  // 3) Numeric-key object directly
+  if (isNumericKeyObject(value)) return fromNumericKeyObject(value as Record<string, any>);
 
-    let parsed: any;
-    try {
-      parsed = JSON.parse(s);
-    } catch {
-      return null;
-    }
-
-    // {"0":185,"1":"91",...}
-    if (isNumericKeyObjectLoose(parsed)) return fromNumericKeyObjectLoose(parsed);
-
-    // ["185",91,...] or [185,91,...]
-    if (
-      Array.isArray(parsed) &&
-      parsed.every((n) => typeof n === "number" || (typeof n === "string" && /^\d+$/.test(n)))
-    ) {
-      return new Uint8Array(parsed.map((n: any) => Number(n)));
-    }
-
-    // {"type":"Buffer","data":[...]} style
-    if (parsed && typeof parsed === "object" && "data" in parsed) {
-      return decodeStoredBytes(name, (parsed as any).data);
-    }
-
-    return null;
-  };
-
-  // 2) Numeric-key object directly
-  if (isNumericKeyObjectLoose(value)) {
-    return fromNumericKeyObjectLoose(value as Record<string, any>);
+  // 4) Array of numbers (or numeric strings)
+  if (Array.isArray(value) && value.every((v) => typeof v === "number" || (typeof v === "string" && /^\d+$/.test(v)))) {
+    return new Uint8Array(value.map((v: any) => Number(v)));
   }
 
-  // 3) Array of numbers/number-strings
-  if (Array.isArray(value) && value.every((n) => typeof n === "number" || (typeof n === "string" && /^\d+$/.test(n)))) {
-    return new Uint8Array(value.map((n: any) => Number(n)));
-  }
-
-  // 4) String cases
+  // 5) String cases
   if (typeof value === "string") {
     const raw = value.trim();
 
-    // JSON string containing bytes (numeric keys / array / {data:...})
-    const jsonBytes = tryParseJsonBytes(raw);
-    if (jsonBytes) return jsonBytes;
+    // JSON string that describes bytes
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(raw);
+        return decodeStoredBytes(name, parsed);
+      } catch {
+        // fallthrough
+      }
+    }
 
-    // Postgres bytea commonly "\\x...."
+    // Postgres bytea: "\\x...."
     if (raw.startsWith("\\x")) return hexToBytes(raw.slice(2));
 
-    // Hex
+    // Hex: "0x...."
     if (raw.startsWith("0x")) return hexToBytes(raw);
 
     // Base64/base64url
-    const normalized = raw
-      .replace(/-/g, "+")
-      .replace(/_/g, "/")
-      .padEnd(Math.ceil(raw.length / 4) * 4, "=");
-
     try {
-      const bin = atob(normalized);
-      const out = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-      return out;
+      return base64ToBytesStrict(name, raw);
     } catch {
       // fallthrough
     }
@@ -267,11 +200,10 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
     throw new Error(`Unsupported string encoding in field: ${name}`);
   }
 
-  // 5) If we got here, we still don't recognize it — log shape in error
+  // Unknown
   const shape = (() => {
     try {
-      if (typeof value === "object") return { keys: Object.keys(value).slice(0, 20) };
-      return { type: typeof value };
+      return typeof value === "object" ? { keys: Object.keys(value).slice(0, 20) } : { type: typeof value };
     } catch {
       return { type: typeof value };
     }
@@ -280,25 +212,25 @@ function decodeStoredBytes(name: string, value: any): Uint8Array {
   throw new Error(`Unsupported encoding in field: ${name} (${JSON.stringify(shape)})`);
 }
 
+function toArrayBuffer(u8: Uint8Array): ArrayBuffer {
+  const ab = new ArrayBuffer(u8.byteLength);
+  new Uint8Array(ab).set(u8);
+  return ab;
+}
 Deno.serve(async (req) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: corsHeaders,
-    });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   try {
     console.log("[execution-wallet-withdraw] Request received");
 
-    // 1. Validate auth header
+    // 1) Validate auth header
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return jsonError(401, "Missing authorization header");
-    }
+    if (!authHeader) return jsonError(401, "Missing authorization header");
 
-    // 2. Parse and validate request body (STRICT CONTRACT)
+    // 2) Parse + validate body
     let body: { wallet_id?: string; asset?: string; to_address?: string; amount?: number };
     try {
       body = await req.json();
@@ -307,46 +239,24 @@ Deno.serve(async (req) => {
     }
 
     const { wallet_id, asset, to_address, amount } = body;
-
     logStep("request_payload", { wallet_id, asset, to_address, amount });
 
-    // Validate wallet_id
-    if (!wallet_id || typeof wallet_id !== "string") {
-      return jsonError(400, "Missing or invalid wallet_id");
-    }
+    if (!wallet_id || typeof wallet_id !== "string") return jsonError(400, "Missing or invalid wallet_id");
+    if (!asset || typeof asset !== "string") return jsonError(400, "Missing or invalid asset");
+    if (!["ETH", "WETH", "USDC"].includes(asset)) return jsonError(400, "Invalid asset. Must be ETH, WETH, or USDC");
 
-    // Validate asset
-    if (!asset || typeof asset !== "string") {
-      return jsonError(400, "Missing or invalid asset");
-    }
-    if (!["ETH", "WETH", "USDC"].includes(asset)) {
-      return jsonError(400, "Invalid asset. Must be ETH, WETH, or USDC");
-    }
+    if (!to_address || typeof to_address !== "string") return jsonError(400, "Missing destination address");
+    if (!/^0x[a-fA-F0-9]{40}$/.test(to_address)) return jsonError(400, "Invalid destination address format");
 
-    // Validate destination address
-    if (!to_address || typeof to_address !== "string") {
-      return jsonError(400, "Missing destination address");
-    }
-    if (!/^0x[a-fA-F0-9]{40}$/.test(to_address)) {
-      return jsonError(400, "Invalid destination address format");
-    }
-
-    // Validate amount
-    if (amount === undefined || amount === null || typeof amount !== "number") {
+    if (amount === undefined || amount === null || typeof amount !== "number")
       return jsonError(400, "Missing or invalid amount");
-    }
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return jsonError(400, "Amount must be a finite number > 0");
-    }
+    if (!Number.isFinite(amount) || amount <= 0) return jsonError(400, "Amount must be a finite number > 0");
 
-    // 3. Create anon client to verify user identity
+    // 3) Clients
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) {
-      return jsonError(500, "Server configuration error");
-    }
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceKey) return jsonError(500, "Server configuration error");
 
     const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
@@ -357,22 +267,15 @@ Deno.serve(async (req) => {
       data: { user },
       error: userError,
     } = await supabaseUser.auth.getUser();
-    if (userError || !user) {
-      return jsonError(401, "Unauthorized");
-    }
-
+    if (userError || !user) return jsonError(401, "Unauthorized");
     logStep("auth_ok", { user_id: user.id });
 
-    // 4. Create service-role client for privileged operations (NO ANON CLIENT FOR DB/KEY/AUDIT)
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
+      auth: { persistSession: false, autoRefreshToken: false },
       db: { schema: "public" },
     });
 
-    // 5. Wallet lookup (EXPLICIT wallet_id only)
+    // 4) Wallet lookup
     logStep("wallet_lookup", { wallet_id });
 
     const { data: wallet, error: walletError } = await supabaseAdmin
@@ -381,32 +284,20 @@ Deno.serve(async (req) => {
       .eq("id", wallet_id)
       .maybeSingle();
 
-    if (walletError) {
-      return jsonError(500, "Failed to fetch wallet", { step: "wallet_lookup" });
-    }
-
-    if (!wallet || wallet.user_id !== user.id) {
-      return jsonError(404, "Wallet not found", { step: "wallet_lookup" });
-    }
-
-    if (!wallet.is_active) {
-      return jsonError(409, "Wallet is not active", { step: "wallet_lookup" });
-    }
-
-    // Chain validation (Base only)
-    if (wallet.chain_id !== 8453) {
+    if (walletError) return jsonError(500, "Failed to fetch wallet", { step: "wallet_lookup" });
+    if (!wallet || wallet.user_id !== user.id) return jsonError(404, "Wallet not found", { step: "wallet_lookup" });
+    if (!wallet.is_active) return jsonError(409, "Wallet is not active", { step: "wallet_lookup" });
+    if (wallet.chain_id !== 8453)
       return jsonError(400, "Invalid wallet chain (expected Base / 8453)", {
         step: "wallet_lookup",
         chain_id: wallet.chain_id,
       });
-    }
 
-    // Block self-transfers
     if (to_address.toLowerCase() === wallet.wallet_address.toLowerCase()) {
       return jsonError(400, "Cannot send to the same wallet", { step: "wallet_lookup" });
     }
 
-    // 6. Rate limit check
+    // 5) Rate limit
     const { data: recentWithdrawals, error: rateLimitError } = await supabaseAdmin
       .from("withdrawal_audit_log")
       .select("created_at")
@@ -418,51 +309,36 @@ Deno.serve(async (req) => {
       return jsonError(429, "Rate limited. Please wait 1 minute between withdrawals.", { step: "rate_limit" });
     }
 
-    // 7. Fetch wallet secrets (explicit)
+    // 6) Fetch wallet secrets (b64 columns)
     logStep("decrypt_key", { wallet_id });
 
     const { data: secrets, error: secretsError } = await supabaseAdmin
       .from("execution_wallet_secrets")
-      .select("encrypted_dek, dek_iv, dek_auth_tag, encrypted_private_key, iv, auth_tag")
+      .select(
+        "encrypted_dek_b64, dek_iv_b64, dek_auth_tag_b64, encrypted_private_key_b64, iv_b64, auth_tag_b64, secrets_format",
+      )
       .eq("wallet_id", wallet_id)
       .maybeSingle();
 
-    if (secretsError) {
-      return jsonError(500, "Failed to fetch wallet secrets", { step: "decrypt_key" });
-    }
+    if (secretsError) return jsonError(500, "Failed to fetch wallet secrets", { step: "decrypt_key" });
+    if (!secrets) return jsonError(409, "Wallet has no secrets", { step: "decrypt_key" });
 
-    if (!secrets) {
-      return jsonError(409, "Wallet has no secrets", { step: "decrypt_key" });
-    }
-
-    logStep("secrets_shape", {
-      encrypted_dek_type: typeof (secrets as any).encrypted_dek,
-      encrypted_dek_keys:
-        (secrets as any).encrypted_dek && typeof (secrets as any).encrypted_dek === "object"
-          ? Object.keys((secrets as any).encrypted_dek).slice(0, 20)
-          : null,
-      encrypted_dek_preview: (() => {
-        const v = (secrets as any).encrypted_dek;
-        if (typeof v === "string") return v.slice(0, 80);
-        if (Array.isArray(v)) return `array(len=${v.length})`;
-        if (v && typeof v === "object") return JSON.stringify(v).slice(0, 120);
-        return String(v);
-      })(),
+    logStep("secrets_format", {
+      secrets_format: (secrets as any).secrets_format,
+      has_b64: Boolean((secrets as any).encrypted_dek_b64 && (secrets as any).dek_iv_b64),
     });
 
     let privateKey: string;
     try {
       const decrypted = await decryptPrivateKey(secrets as unknown as Record<string, any>);
-      if (!decrypted) {
-        return jsonError(500, "Failed to decrypt wallet", { step: "decrypt_key" });
-      }
+      if (!decrypted) return jsonError(500, "Failed to decrypt wallet", { step: "decrypt_key" });
       privateKey = decrypted;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Wallet decryption failed";
       return jsonError(500, msg, { step: "decrypt_key" });
     }
 
-    // 8. Crypto + signer init
+    // 7) Load crypto libs
     logStep("signer_init");
 
     let keccak_256: (data: Uint8Array) => Uint8Array;
@@ -478,7 +354,7 @@ Deno.serve(async (req) => {
       return jsonError(500, "Failed to load crypto libraries", { step: "signer_init" });
     }
 
-    // 9. Fetch on-chain state
+    // 8) Chain state
     logStep("tx_build", { asset });
 
     let nonce: bigint;
@@ -491,14 +367,14 @@ Deno.serve(async (req) => {
       const msg = e instanceof Error ? e.message : "Failed to fetch blockchain state";
       return jsonError(500, msg, { step: "tx_build" });
     }
-
-    // 10. Balance checks (422 on insufficient funds)
+    // 9) Balance checks
     const gasLimit = asset === "ETH" ? 21000n : 100000n;
 
     if (asset === "ETH") {
       const amountWei = BigInt(Math.floor(amount * 1e18));
       const balanceWei = await getEthBalance(wallet.wallet_address);
       const requiredWei = amountWei + gasLimit * gasPrice;
+
       if (balanceWei < requiredWei) {
         return jsonError(422, "Insufficient ETH for amount + gas", {
           step: "tx_build",
@@ -509,6 +385,7 @@ Deno.serve(async (req) => {
     } else {
       const token = TOKENS[asset];
       const amountRaw = BigInt(Math.floor(amount * 10 ** token.decimals));
+
       const tokenBal = await getErc20Balance(token.address, wallet.wallet_address);
       if (tokenBal < amountRaw) {
         return jsonError(422, `Insufficient ${asset} balance`, {
@@ -517,15 +394,18 @@ Deno.serve(async (req) => {
           required_raw: amountRaw.toString(),
         });
       }
-      // Also ensure enough ETH to pay gas
+
       const balanceWei = await getEthBalance(wallet.wallet_address);
       const gasWei = gasLimit * gasPrice;
       if (balanceWei < gasWei) {
-        return jsonError(422, "Insufficient ETH to pay gas", { step: "tx_build", required_wei: gasWei.toString() });
+        return jsonError(422, "Insufficient ETH to pay gas", {
+          step: "tx_build",
+          required_wei: gasWei.toString(),
+        });
       }
     }
 
-    // 11. Build + sign + send
+    // 10) Build + sign + send tx
     logStep("tx_send", { asset });
 
     let txHash: string;
@@ -572,7 +452,7 @@ Deno.serve(async (req) => {
 
     logStep("tx_send_ok", { tx_hash: txHash });
 
-    // 12. Audit log (service-role)
+    // 11) Audit log (best effort)
     try {
       await supabaseAdmin.from("withdrawal_audit_log").insert({
         user_id: user.id,
@@ -584,8 +464,9 @@ Deno.serve(async (req) => {
         status: "submitted",
       });
     } catch (e) {
-      // Don't fail withdrawal on audit logging failures
-      logStep("audit_log_failed", { message: e instanceof Error ? e.message : String(e) });
+      logStep("audit_log_failed", {
+        message: e instanceof Error ? e.message : String(e),
+      });
     }
 
     return jsonSuccess({ tx_hash: txHash });
@@ -595,67 +476,42 @@ Deno.serve(async (req) => {
     return jsonError(500, message);
   }
 });
+// ─────────────────────────────────────────────────────────────
+// Decrypt private key from wallet secrets (STRICT b64 pipeline)
+// ─────────────────────────────────────────────────────────────
+async function decryptPrivateKey(secrets: Record<string, any>): Promise<string> {
+  const kekEnv = Deno.env.get("EXECUTION_WALLET_KEK_V1");
+  if (!kekEnv) throw new Error("KEK not configured");
 
-// Decrypt private key from wallet secrets
-// Decrypt private key from wallet secrets
-async function decryptPrivateKey(secrets: Record<string, any>): Promise<string | null> {
-  const kek = Deno.env.get("EXECUTION_WALLET_KEK_V1");
-  if (!kek) {
-    logStep("decrypt_key", { message: "KEK not configured" });
-    return null;
-  }
-
-  const toArrayBuffer = (u8: Uint8Array): ArrayBuffer => {
+  const toAB = (u8: Uint8Array): ArrayBuffer => {
     const ab = new ArrayBuffer(u8.byteLength);
     new Uint8Array(ab).set(u8);
     return ab;
   };
 
-  // ─────────────────────────────────────────────
-  // 1) Decode KEK (env) — base64/base64url OR hex
-  // ─────────────────────────────────────────────
-  const raw = String(kek).trim();
+  // 1) KEK decode (base64/base64url OR hex)
   let kekBytes: Uint8Array;
-
-  // Try base64/base64url first
   try {
-    const normalized = raw
-      .replace(/-/g, "+")
-      .replace(/_/g, "/")
-      .padEnd(Math.ceil(raw.length / 4) * 4, "=");
-
-    kekBytes = base64ToBytes(normalized);
+    kekBytes = base64ToBytes(kekEnv);
   } catch {
-    // Fallback to hex
-    kekBytes = hexToBytes(raw);
+    kekBytes = hexToBytes(kekEnv);
   }
-
   if (kekBytes.length !== 32) {
-    throw new Error(`Invalid key length: KEK bytes=${kekBytes.length} (expected 32)`);
+    throw new Error(`Invalid KEK length=${kekBytes.length} (expected 32)`);
   }
 
-  const kekKey = await crypto.subtle.importKey("raw", toArrayBuffer(kekBytes), { name: "AES-GCM" }, false, ["decrypt"]);
+  const kekKey = await crypto.subtle.importKey("raw", toAB(kekBytes), { name: "AES-GCM" }, false, ["decrypt"]);
 
-  // ─────────────────────────────────────────────
-  // 2) Decrypt DEK  ✅ MUST be decodeStoredBytes
-  // ─────────────────────────────────────────────
-  const encryptedDek = decodeStoredBytes("encrypted_dek", secrets.encrypted_dek);
-  let dekIv = decodeStoredBytes("dek_iv", secrets.dek_iv);
-  const dekAuthTag = decodeStoredBytes("dek_auth_tag", secrets.dek_auth_tag);
-
-  // 🔥 FINAL UNWRAP: ASCII JSON → real bytes
-  if (dekIv.length > 16) {
-    try {
-      const text = new TextDecoder().decode(dekIv).trim();
-      const parsed = JSON.parse(text);
-      dekIv = decodeStoredBytes("dek_iv(inner)", parsed);
-    } catch {
-      // leave as-is
-    }
-  }
+  // 2) Decrypt DEK (ALL *_b64 — NO GUESSING)
+  const encryptedDek = base64ToBytesStrict("encrypted_dek_b64", secrets.encrypted_dek_b64);
+  const dekIv = base64ToBytesStrict("dek_iv_b64", secrets.dek_iv_b64);
+  const dekAuthTag = base64ToBytesStrict("dek_auth_tag_b64", secrets.dek_auth_tag_b64);
 
   if (dekIv.length !== 12 && dekIv.length !== 16) {
-    throw new Error(`DEK IV invalid length: ${dekIv.length}`);
+    throw new Error(`DEK IV invalid length=${dekIv.length}`);
+  }
+  if (dekAuthTag.length !== 16) {
+    throw new Error(`DEK auth tag invalid length=${dekAuthTag.length}`);
   }
 
   logStep("dek_parts_len", {
@@ -668,37 +524,32 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string |
   dekWithTag.set(encryptedDek);
   dekWithTag.set(dekAuthTag, encryptedDek.length);
 
-  const dekBytes = await crypto.subtle.decrypt({ name: "AES-GCM", iv: dekIv }, kekKey, toArrayBuffer(dekWithTag));
+  const dekBytes = new Uint8Array(
+    await crypto.subtle.decrypt({ name: "AES-GCM", iv: dekIv }, kekKey, toAB(dekWithTag)),
+  );
 
-  const dekKey = await crypto.subtle.importKey("raw", dekBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+  const dekKey = await crypto.subtle.importKey("raw", toAB(dekBytes), { name: "AES-GCM" }, false, ["decrypt"]);
 
-  // ─────────────────────────────────────────────
-  // 3) Decrypt private key ✅ MUST be decodeStoredBytes
-  // ─────────────────────────────────────────────
-  const encryptedKey = decodeStoredBytes("encrypted_private_key", secrets.encrypted_private_key);
-  const keyIv = decodeStoredBytes("iv", secrets.iv);
-  const keyAuthTag = decodeStoredBytes("auth_tag", secrets.auth_tag);
+  // 3) Decrypt private key (ALL *_b64 — NO GUESSING)
+  const encryptedKey = base64ToBytesStrict("encrypted_private_key_b64", secrets.encrypted_private_key_b64);
+  const keyIv = base64ToBytesStrict("iv_b64", secrets.iv_b64);
+  const keyAuthTag = base64ToBytesStrict("auth_tag_b64", secrets.auth_tag_b64);
 
   if (keyIv.length !== 12 && keyIv.length !== 16) {
-    throw new Error(`PK IV invalid length: ${keyIv.length}`);
+    throw new Error(`PK IV invalid length=${keyIv.length}`);
   }
   if (keyAuthTag.length !== 16) {
-    throw new Error(`PK auth tag invalid length: ${keyAuthTag.length}`);
+    throw new Error(`PK auth tag invalid length=${keyAuthTag.length}`);
   }
 
   const keyWithTag = new Uint8Array(encryptedKey.length + keyAuthTag.length);
   keyWithTag.set(encryptedKey);
   keyWithTag.set(keyAuthTag, encryptedKey.length);
 
-  const privateKeyBytes = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: keyIv },
-    dekKey,
-    toArrayBuffer(keyWithTag),
-  );
+  const pkBytes = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: keyIv }, dekKey, toAB(keyWithTag)));
 
-  return new TextDecoder().decode(privateKeyBytes);
+  return new TextDecoder().decode(pkBytes);
 }
-
 async function getNonce(address: string): Promise<bigint> {
   const response = await fetch(BASE_RPC, {
     method: "POST",
@@ -710,8 +561,9 @@ async function getNonce(address: string): Promise<bigint> {
       params: [address, "latest"],
     }),
   });
+
   const data = await response.json();
-  if (data.error) throw new Error(data.error.message);
+  if (data?.error) throw new Error(data.error.message || "eth_getTransactionCount failed");
   return BigInt(data.result || "0x0");
 }
 
@@ -726,8 +578,9 @@ async function getEthBalance(address: string): Promise<bigint> {
       params: [address, "latest"],
     }),
   });
+
   const data = await response.json();
-  if (data.error) throw new Error(data.error.message);
+  if (data?.error) throw new Error(data.error.message || "eth_getBalance failed");
   return BigInt(data.result || "0x0");
 }
 
@@ -742,8 +595,10 @@ async function getGasPrice(): Promise<bigint> {
       params: [],
     }),
   });
+
   const data = await response.json();
-  if (data.error) throw new Error(data.error.message);
+  if (data?.error) throw new Error(data.error.message || "eth_gasPrice failed");
+
   // Add 10% buffer
   const basePrice = BigInt(data.result || "0x1");
   return basePrice + basePrice / 10n;
@@ -767,37 +622,45 @@ async function getErc20Balance(tokenAddress: string, holder: string): Promise<bi
   });
 
   const data = await response.json();
-  if (data.error) throw new Error(data.error.message);
-  const hex = data.result || "0x0";
-  return BigInt(hex);
-}
+  if (data?.error) throw new Error(data.error.message || "eth_call balanceOf failed");
 
+  return BigInt(data.result || "0x0");
+}
 async function signAndSendTransaction(
-  tx: { nonce: bigint; gasPrice: bigint; gasLimit: bigint; to: string; value: bigint; data: string; chainId: bigint },
+  tx: {
+    nonce: bigint;
+    gasPrice: bigint;
+    gasLimit: bigint;
+    to: string;
+    value: bigint;
+    data: string;
+    chainId: bigint;
+  },
   privateKey: string,
   keccak_256: (data: Uint8Array) => Uint8Array,
-  secp256k1: { sign: (hash: Uint8Array, privKey: Uint8Array) => { r: bigint; s: bigint; recovery: number } },
+  secp256k1: {
+    sign: (hash: Uint8Array, privKey: Uint8Array) => { r: bigint; s: bigint; recovery: number };
+  },
 ): Promise<string> {
-  // RLP encode for signing (legacy tx format)
+  // RLP encode for signing (legacy tx)
   const rlpForSigning = rlpEncode([tx.nonce, tx.gasPrice, tx.gasLimit, tx.to, tx.value, tx.data, tx.chainId, 0n, 0n]);
 
-  // Hash for signing
+  // Hash
   const txHash = keccak_256(rlpForSigning);
 
-  // Sign with private key
-  const pkBytes = hexToBytes(privateKey.replace("0x", ""));
-  const signature = secp256k1.sign(txHash, pkBytes);
+  // Sign
+  const pkBytes = hexToBytes(privateKey.replace(/^0x/, ""));
+  const sig = secp256k1.sign(txHash, pkBytes);
 
-  const r = signature.r;
-  const s = signature.s;
-  const v = tx.chainId * 2n + 35n + BigInt(signature.recovery);
+  const r = sig.r;
+  const s = sig.s;
+  const v = tx.chainId * 2n + 35n + BigInt(sig.recovery);
 
-  // RLP encode signed transaction
+  // RLP encode signed tx
   const signedRlp = rlpEncode([tx.nonce, tx.gasPrice, tx.gasLimit, tx.to, tx.value, tx.data, v, r, s]);
 
   const rawTx = "0x" + bytesToHexLocal(signedRlp);
 
-  // Send transaction
   const response = await fetch(BASE_RPC, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -810,22 +673,23 @@ async function signAndSendTransaction(
   });
 
   const result = await response.json();
-  if (result.error) {
+  if (result?.error) {
     throw new Error(result.error.message || "eth_sendRawTransaction failed");
   }
-
-  if (!result.result) {
+  if (!result?.result) {
     throw new Error("No transaction hash returned");
   }
-
-  return result.result;
+  return result.result as string;
 }
 
-// RLP encoding
+// ─────────────────────────────────────────────
+// RLP encoding helpers
+// ─────────────────────────────────────────────
+
 function rlpEncode(items: (bigint | string | number)[]): Uint8Array {
-  const encoded = items.map((item) => encodeRlpItem(item));
-  const totalLength = encoded.reduce((acc, e) => acc + e.length, 0);
-  return concatBytes([rlpLength(totalLength, 0xc0), ...encoded]);
+  const encodedItems = items.map(encodeRlpItem);
+  const totalLen = encodedItems.reduce((acc, b) => acc + b.length, 0);
+  return concatBytes([rlpLength(totalLen, 0xc0), ...encodedItems]);
 }
 
 function encodeRlpItem(item: bigint | string | number): Uint8Array {
@@ -839,10 +703,10 @@ function encodeRlpItem(item: bigint | string | number): Uint8Array {
   }
 
   if (typeof item === "string") {
-    if (item === "0x" || item === "") return new Uint8Array([0x80]);
-    const cleanHex = item.startsWith("0x") ? item.slice(2) : item;
-    if (cleanHex === "") return new Uint8Array([0x80]);
-    const bytes = hexToBytes(cleanHex);
+    if (item === "" || item === "0x") return new Uint8Array([0x80]);
+    const clean = item.startsWith("0x") ? item.slice(2) : item;
+    if (clean === "") return new Uint8Array([0x80]);
+    const bytes = hexToBytes(clean);
     if (bytes.length === 1 && bytes[0] < 0x80) return bytes;
     return concatBytes([rlpLength(bytes.length, 0x80), bytes]);
   }
