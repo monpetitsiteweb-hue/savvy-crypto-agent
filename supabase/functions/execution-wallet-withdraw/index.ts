@@ -414,7 +414,21 @@ async function decryptPrivateKey(secrets: Record<string, string>): Promise<strin
 
   // Import KEK
   // Import KEK (BASE64 — MUST BE 32 BYTES)
-  const kekBytes = base64ToBytes(kek.trim());
+  const kekRaw = kek.trim();
+
+  let kekBytes: Uint8Array;
+
+  // Case 1 — Base64
+  try {
+    kekBytes = base64ToBytes(kekRaw);
+  } catch {
+    // Case 2 — Hex (with or without 0x)
+    try {
+      kekBytes = hexToBytes(kekRaw);
+    } catch {
+      throw new Error("KEK is neither valid base64 nor valid hex");
+    }
+  }
 
   if (kekBytes.length !== 32) {
     throw new Error(`Invalid key length: KEK bytes=${kekBytes.length} (expected 32)`);
