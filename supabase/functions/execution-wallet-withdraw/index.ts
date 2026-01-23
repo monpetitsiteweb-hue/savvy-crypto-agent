@@ -345,6 +345,9 @@ Deno.serve(async (req) => {
       const decrypted = await decryptPrivateKey(secrets as unknown as Record<string, any>);
       if (!decrypted) return jsonError(500, "Failed to decrypt wallet", { step: "decrypt_key" });
       privateKey = decrypted;
+      if (!/^[0-9a-fA-F]{64}$/.test(privateKey)) {
+        return jsonError(500, "Decrypted private key is not 32-byte hex", { step: "decrypt_key" });
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Wallet decryption failed";
       return jsonError(500, msg, { step: "decrypt_key" });
@@ -578,6 +581,12 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string> 
 
   const pkBytes = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: keyIv }, dekKey, toAB(keyWithTag)));
 
+  // ✅ KEY FIX: if stored as raw 32 bytes, convert to 64-hex and return
+  if (pkBytes.length === 32) {
+    return bytesToHexLocal(pkBytes); // or bytesToHex(pkBytes) — both exist in your file
+  }
+
+  // Otherwise, attempt text formats (legacy / json / hex string)
   const decoded = new TextDecoder().decode(pkBytes).trim();
 
   // Case 1: JSON wrapper
@@ -599,7 +608,7 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string> 
     return decoded.replace(/^0x/, "");
   }
 
-  throw new Error(`Decrypted private key has invalid format: ${decoded.slice(0, 40)}`);
+  throw new Error(`Decrypted private key has invalid format: len=${pkBytes.length} head=${decoded.slice(0, 40)}`);
 }
 async function getNonce(address: string): Promise<bigint> {
   const response = await fetch(BASE_RPC, {
@@ -729,9 +738,6 @@ async function signAndSendTransaction(
   }
   if (!result?.result) {
     throw new Error("No transaction hash returned");
-  }
-  if (!/^[0-9a-fA-F]{64}$/.test(privateKey)) {
-    throw new Error("Private key is not 32-byte hex");
   }
 
   return result.result as string;
