@@ -33,6 +33,18 @@ const ERC20_TRANSFER_SELECTOR = "0xa9059cbb";
 // Small helpers
 // ─────────────────────────────────────────────────────────────
 
+function bytesToHexLocal(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return bytesToHexLocal(new Uint8Array(digest));
+}
+
 function logStep(step: string, data: Record<string, unknown> = {}) {
   try {
     console.log("[execution-wallet-withdraw]", JSON.stringify({ step, ...data }));
@@ -490,16 +502,32 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string> 
   };
 
   // 1) KEK decode — FORCE HEX (your KEK is 64 hex chars = 32 bytes)
-  const raw = String(kekEnv).trim();
 
-  if (!/^[0-9a-fA-F]{64}$/.test(raw)) {
-    throw new Error("KEK must be 64 hex characters (32 bytes). Do not base64-decode it.");
+  // 1) KEK: prove what we’re using + decode (accept HEX or BASE64)
+  const raw = String(kekEnv); // DO NOT trim first for the digest proof
+  const digestHex = await sha256Hex(raw);
+  logStep("kek_digest_sha256", { digestHex }); // compare with Supabase “DIGEST (SHA-256)”
+
+  const cleaned = raw.trim(); // NOW trim for decoding
+
+  let kekBytes: Uint8Array | null = null;
+
+  // a) 64-hex chars -> 32 bytes
+  if (/^[0-9a-fA-F]{64}$/.test(cleaned)) {
+    kekBytes = hexToBytes(cleaned);
+    logStep("kek_decode", { format: "hex", bytes: kekBytes.length });
+  } else {
+    // b) base64/base64url -> must decode to 32 bytes
+    try {
+      kekBytes = base64ToBytesStrict("EXECUTION_WALLET_KEK_V1", cleaned);
+      logStep("kek_decode", { format: "base64", bytes: kekBytes.length });
+    } catch (e) {
+      logStep("kek_decode_failed", { message: e instanceof Error ? e.message : String(e) });
+    }
   }
 
-  const kekBytes = hexToBytes(raw);
-
-  if (kekBytes.length !== 32) {
-    throw new Error(`Invalid KEK length=${kekBytes.length} (expected 32)`);
+  if (!kekBytes || kekBytes.length !== 32) {
+    throw new Error(`KEK must decode to 32 bytes. Got ${kekBytes ? kekBytes.length : "null"}.`);
   }
 
   const kekKey = await crypto.subtle.importKey("raw", toAB(kekBytes), { name: "AES-GCM" }, false, ["decrypt"]);
