@@ -578,7 +578,28 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string> 
 
   const pkBytes = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: keyIv }, dekKey, toAB(keyWithTag)));
 
-  return new TextDecoder().decode(pkBytes);
+  const decoded = new TextDecoder().decode(pkBytes).trim();
+
+  // Case 1: JSON wrapper
+  if (decoded.startsWith("{")) {
+    const obj = JSON.parse(decoded);
+    if (typeof obj.privateKey === "string") {
+      return obj.privateKey.replace(/^0x/, "");
+    }
+    throw new Error("Decrypted PK is JSON but missing privateKey field");
+  }
+
+  // Case 2: quoted string
+  if ((decoded.startsWith('"') && decoded.endsWith('"')) || (decoded.startsWith("'") && decoded.endsWith("'"))) {
+    return decoded.slice(1, -1).replace(/^0x/, "");
+  }
+
+  // Case 3: raw hex
+  if (/^(0x)?[0-9a-fA-F]{64}$/.test(decoded)) {
+    return decoded.replace(/^0x/, "");
+  }
+
+  throw new Error(`Decrypted private key has invalid format: ${decoded.slice(0, 40)}`);
 }
 async function getNonce(address: string): Promise<bigint> {
   const response = await fetch(BASE_RPC, {
@@ -709,6 +730,10 @@ async function signAndSendTransaction(
   if (!result?.result) {
     throw new Error("No transaction hash returned");
   }
+  if (!/^[0-9a-fA-F]{64}$/.test(privateKey)) {
+    throw new Error("Private key is not 32-byte hex");
+  }
+
   return result.result as string;
 }
 
