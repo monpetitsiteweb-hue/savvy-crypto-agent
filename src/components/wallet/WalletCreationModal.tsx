@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { AlertTriangle, Wallet, Loader2, CheckCircle, Copy, Shield, Eye, EyeOff, Key } from 'lucide-react';
+import { AlertTriangle, Wallet, Loader2, CheckCircle, Copy, Shield, Eye, EyeOff, Key, ArrowRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -30,6 +30,18 @@ interface WalletCreationResult {
 
 type Step = 'confirm' | 'creating' | 'key_reveal' | 'success';
 
+/**
+ * Decodes a base64-encoded private key to 64-character lowercase hex.
+ * Pure transformation - no side effects, no logging.
+ */
+function base64ToHex(b64: string): string {
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  if (bytes.length !== 32) {
+    throw new Error(`Invalid private key length: ${bytes.length} bytes (expected 32)`);
+  }
+  return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export function WalletCreationModal({ open, onOpenChange, onWalletCreated }: WalletCreationModalProps) {
   const [step, setStep] = useState<Step>('confirm');
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
@@ -39,6 +51,9 @@ export function WalletCreationModal({ open, onOpenChange, onWalletCreated }: Wal
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
   const [keyAcknowledged, setKeyAcknowledged] = useState(false);
+  const [decodedHexKey, setDecodedHexKey] = useState<string | null>(null);
+  const [hexDecodeError, setHexDecodeError] = useState<string | null>(null);
+  const [hexKeyCopied, setHexKeyCopied] = useState(false);
   const { toast } = useToast();
 
   const handleConfirmCreate = async () => {
@@ -114,6 +129,35 @@ export function WalletCreationModal({ open, onOpenChange, onWalletCreated }: Wal
     }
   };
 
+  /**
+   * Decodes the base64 private key to hex on explicit user click only.
+   * No logging, no persistence, no side effects.
+   */
+  const handleDecodeToHex = () => {
+    if (!privateKey) return;
+    
+    setHexDecodeError(null);
+    setDecodedHexKey(null);
+    
+    try {
+      const hex = base64ToHex(privateKey);
+      setDecodedHexKey(hex);
+    } catch (err) {
+      setHexDecodeError(err instanceof Error ? err.message : 'Decode failed');
+    }
+  };
+
+  const copyHexKey = () => {
+    if (decodedHexKey) {
+      navigator.clipboard.writeText(decodedHexKey);
+      setHexKeyCopied(true);
+      toast({
+        title: "Hex Key Copied",
+        description: "64-character hex key copied - import into MetaMask/Rabby",
+      });
+    }
+  };
+
   const handleKeyAcknowledged = () => {
     if (!keyCopied || !keyAcknowledged) {
       toast({
@@ -124,8 +168,9 @@ export function WalletCreationModal({ open, onOpenChange, onWalletCreated }: Wal
       return;
     }
 
-    // Clear the private key from memory
+    // Clear the private key and decoded hex from memory
     setPrivateKey(null);
+    setDecodedHexKey(null);
     setStep('success');
     
     toast({
@@ -166,6 +211,9 @@ export function WalletCreationModal({ open, onOpenChange, onWalletCreated }: Wal
         setStep('confirm');
         setWalletAddress(null);
         setPrivateKey(null);
+        setDecodedHexKey(null);
+        setHexDecodeError(null);
+        setHexKeyCopied(false);
         setError(null);
         setShowPrivateKey(false);
         setKeyCopied(false);
@@ -317,6 +365,66 @@ export function WalletCreationModal({ open, onOpenChange, onWalletCreated }: Wal
               {keyCopied && (
                 <div className="text-xs text-green-400 mt-2 flex items-center gap-1">
                   <CheckCircle className="w-3 h-3" /> Key copied to clipboard
+                </div>
+              )}
+            </div>
+
+            {/* Decode to Hex Section */}
+            <div className="bg-slate-800/50 rounded-lg p-4 mb-3 border border-slate-600">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-slate-300 font-medium">
+                  Import to MetaMask / Rabby
+                </div>
+              </div>
+              
+              {!decodedHexKey && !hexDecodeError && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDecodeToHex}
+                  className="w-full border-slate-600 text-slate-300 hover:text-white hover:bg-slate-700"
+                >
+                  <ArrowRight className="w-4 h-4 mr-2" />
+                  Decode to Private Key (hex)
+                </Button>
+              )}
+
+              {hexDecodeError && (
+                <div className="text-xs text-red-400 bg-red-500/10 p-3 rounded border border-red-500/30">
+                  {hexDecodeError}
+                </div>
+              )}
+
+              {decodedHexKey && (
+                <div className="space-y-3">
+                  <div className="text-xs text-slate-400">
+                    Ethereum Private Key (64-hex)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={decodedHexKey}
+                      className="flex-1 bg-slate-900 text-green-400 text-xs font-mono p-3 rounded border border-slate-600 outline-none"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={copyHexKey}
+                      className={`flex-shrink-0 ${hexKeyCopied ? 'text-green-400' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      {hexKeyCopied ? <CheckCircle className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                    </Button>
+                  </div>
+                  {hexKeyCopied && (
+                    <div className="text-xs text-green-400 flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3" /> Hex key copied - paste into MetaMask/Rabby
+                    </div>
+                  )}
+                  {/* Security Warning */}
+                  <div className="bg-red-500/10 border border-red-500/30 rounded p-2 text-xs text-red-300">
+                    ⚠️ Never share this key. Anyone with it can fully control your funds.
+                  </div>
                 </div>
               )}
             </div>
