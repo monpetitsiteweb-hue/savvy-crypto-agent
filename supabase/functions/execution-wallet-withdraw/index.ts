@@ -114,6 +114,39 @@ function base64ToBytesStrict(name: string, input: string): Uint8Array {
   return out;
 }
 
+function looksLikeBase64AsciiBytes(u8: Uint8Array): boolean {
+  for (const b of u8) {
+    if (b < 0x20 || b > 0x7e) return false; // printable ASCII only
+  }
+  const s = new TextDecoder().decode(u8).trim();
+  if (s.length < 8) return false;
+  if (s.length % 4 !== 0) return false;
+  return /^[A-Za-z0-9+/_-]+={0,2}$/.test(s);
+}
+
+function base64ToBytesMaybeDouble(name: string, input: string): Uint8Array {
+  const once = base64ToBytesStrict(name, input);
+
+  if (!looksLikeBase64AsciiBytes(once)) {
+    return once;
+  }
+
+  const inner = new TextDecoder().decode(once).trim();
+
+  try {
+    const twice = base64ToBytesStrict(`${name}(double)`, inner);
+    logStep("b64_double_decode", {
+      field: name,
+      outer_len: once.length,
+      inner_len: inner.length,
+      final_len: twice.length,
+    });
+    return twice;
+  } catch {
+    return once;
+  }
+}
+
 /**
  * decodeStoredBytes:
  * Accepts many shapes (bytea "\\x..", hex "0x..", base64, arrays, numeric-key objects,
@@ -536,9 +569,9 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string> 
   const kekKey = await crypto.subtle.importKey("raw", toAB(kekBytes), { name: "AES-GCM" }, false, ["decrypt"]);
 
   // 2) Decrypt DEK (ALL *_b64 — NO GUESSING)
-  const encryptedDek = base64ToBytesStrict("encrypted_dek_b64", secrets.encrypted_dek_b64);
-  const dekIv = base64ToBytesStrict("dek_iv_b64", secrets.dek_iv_b64);
-  const dekAuthTag = base64ToBytesStrict("dek_auth_tag_b64", secrets.dek_auth_tag_b64);
+  const encryptedDek = base64ToBytesMaybeDouble("encrypted_dek_b64", secrets.encrypted_dek_b64);
+  const dekIv = base64ToBytesMaybeDouble("dek_iv_b64", secrets.dek_iv_b64);
+  const dekAuthTag = base64ToBytesMaybeDouble("dek_auth_tag_b64", secrets.dek_auth_tag_b64);
 
   if (dekIv.length !== 12 && dekIv.length !== 16) {
     throw new Error(`DEK IV invalid length=${dekIv.length}`);
@@ -564,9 +597,9 @@ async function decryptPrivateKey(secrets: Record<string, any>): Promise<string> 
   const dekKey = await crypto.subtle.importKey("raw", toAB(dekBytes), { name: "AES-GCM" }, false, ["decrypt"]);
 
   // 3) Decrypt private key (ALL *_b64 — NO GUESSING)
-  const encryptedKey = base64ToBytesStrict("encrypted_private_key_b64", secrets.encrypted_private_key_b64);
-  const keyIv = base64ToBytesStrict("iv_b64", secrets.iv_b64);
-  const keyAuthTag = base64ToBytesStrict("auth_tag_b64", secrets.auth_tag_b64);
+  const encryptedKey = base64ToBytesMaybeDouble("encrypted_private_key_b64", secrets.encrypted_private_key_b64);
+  const keyIv = base64ToBytesMaybeDouble("iv_b64", secrets.iv_b64);
+  const keyAuthTag = base64ToBytesMaybeDouble("auth_tag_b64", secrets.auth_tag_b64);
 
   if (keyIv.length !== 12 && keyIv.length !== 16) {
     throw new Error(`PK IV invalid length=${keyIv.length}`);
