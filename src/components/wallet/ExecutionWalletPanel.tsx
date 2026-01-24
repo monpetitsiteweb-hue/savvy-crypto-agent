@@ -23,8 +23,10 @@ import {
   Zap,
   FileCheck,
   XCircle,
-  ArrowUpRight
+  ArrowUpRight,
+  Key
 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -105,6 +107,65 @@ export function ExecutionWalletPanel() {
     WETH: { symbol: 'WETH', amount: 0 },
     USDC: { symbol: 'USDC', amount: 0 },
   });
+
+  // Key decode state (for manual base64 -> hex conversion)
+  const [base64KeyInput, setBase64KeyInput] = useState('');
+  const [decodedHexKey, setDecodedHexKey] = useState<string | null>(null);
+  const [hexDecodeError, setHexDecodeError] = useState<string | null>(null);
+  const [hexKeyCopied, setHexKeyCopied] = useState(false);
+
+  /**
+   * Decodes a base64-encoded private key to 64-character lowercase hex.
+   * Pure transformation - no side effects, no logging, no persistence.
+   */
+  const base64ToHex = (b64: string): string => {
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    if (bytes.length !== 32) {
+      throw new Error(`Invalid private key length: ${bytes.length} bytes (expected 32)`);
+    }
+    return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+  };
+
+  /**
+   * Decodes the pasted base64 key to hex on explicit user click only.
+   * No logging, no persistence, no backend calls.
+   */
+  const handleDecodeToHex = () => {
+    const trimmed = base64KeyInput.trim();
+    if (!trimmed) {
+      setHexDecodeError('Please paste your base64 key first');
+      return;
+    }
+    
+    setHexDecodeError(null);
+    setDecodedHexKey(null);
+    setHexKeyCopied(false);
+    
+    try {
+      const hex = base64ToHex(trimmed);
+      setDecodedHexKey(hex);
+    } catch (err) {
+      setHexDecodeError(err instanceof Error ? err.message : 'Decode failed');
+    }
+  };
+
+  const copyHexKey = () => {
+    if (decodedHexKey) {
+      navigator.clipboard.writeText(decodedHexKey);
+      setHexKeyCopied(true);
+      toast({
+        title: "Hex Key Copied",
+        description: "64-character hex key copied - import into MetaMask/Rabby",
+      });
+    }
+  };
+
+  const clearDecodeState = () => {
+    setBase64KeyInput('');
+    setDecodedHexKey(null);
+    setHexDecodeError(null);
+    setHexKeyCopied(false);
+  };
 
   // Fetch wallet data
   const fetchWallet = useCallback(async () => {
@@ -592,6 +653,85 @@ export function ExecutionWalletPanel() {
                   <li>Automated strategies can trade from this wallet</li>
                 </ul>
               </div>
+            </div>
+          </Card>
+
+          {/* Private Key Decoder (base64 -> hex) */}
+          <Card className="p-4 bg-slate-800/30 border-slate-700">
+            <div className="flex items-center gap-2 mb-3">
+              <Key className="w-5 h-5 text-slate-400" />
+              <span className="text-sm font-medium text-white">Import Key to MetaMask / Rabby</span>
+            </div>
+            <p className="text-xs text-slate-400 mb-3">
+              If you saved your private key during wallet creation, paste it below to convert to the format wallets expect.
+            </p>
+            
+            <div className="space-y-3">
+              <Input
+                type="text"
+                placeholder="Paste your base64 private key here..."
+                value={base64KeyInput}
+                onChange={(e) => setBase64KeyInput(e.target.value)}
+                className="bg-slate-900 border-slate-600 text-white font-mono text-xs"
+              />
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDecodeToHex}
+                disabled={!base64KeyInput.trim()}
+                className="w-full border-slate-600 text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-50"
+              >
+                <Key className="w-4 h-4 mr-2" />
+                Decode to Private Key (hex)
+              </Button>
+
+              {hexDecodeError && (
+                <div className="text-xs text-red-400 bg-red-500/10 p-3 rounded border border-red-500/30">
+                  {hexDecodeError}
+                </div>
+              )}
+
+              {decodedHexKey && (
+                <div className="space-y-3">
+                  <div className="text-xs text-slate-400">
+                    Ethereum Private Key (64-hex)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={decodedHexKey}
+                      className="flex-1 bg-slate-900 text-green-400 text-xs font-mono p-3 rounded border border-slate-600 outline-none"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={copyHexKey}
+                      className={`flex-shrink-0 ${hexKeyCopied ? 'text-green-400' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      {hexKeyCopied ? <CheckCircle className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                    </Button>
+                  </div>
+                  {hexKeyCopied && (
+                    <div className="text-xs text-green-400 flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3" /> Hex key copied - paste into MetaMask/Rabby
+                    </div>
+                  )}
+                  {/* Security Warning */}
+                  <div className="bg-red-500/10 border border-red-500/30 rounded p-2 text-xs text-red-300">
+                    ⚠️ Never share this key. Anyone with it can fully control your funds.
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearDecodeState}
+                    className="text-slate-500 hover:text-white text-xs"
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
             </div>
           </Card>
         </div>
