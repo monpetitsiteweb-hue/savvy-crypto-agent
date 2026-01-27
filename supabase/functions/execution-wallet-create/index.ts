@@ -1,19 +1,16 @@
 /**
  * execution-wallet-create
  * 
- * OPTION B: One-time private key reveal + hybrid custody
- * 
- * Creates a new execution wallet for a user and returns the private key ONCE.
- * After this response, the key is encrypted and NEVER returned again.
+ * SYSTEM-CUSTODIED execution wallet creation.
  * 
  * Security Model:
  * - Private key is generated server-side
- * - Key is returned ONCE in plaintext for user backup
- * - Key is then encrypted with envelope encryption and stored
- * - User can import key externally (MetaMask, etc.)
- * - App can trade without needing user to provide key
+ * - Key is encrypted with envelope encryption and stored
+ * - Key NEVER leaves the server - no export, no reveal, no backup
+ * - Only the system can sign transactions using this wallet
  * 
- * If wallet already exists, ONLY returns address (no key reveal for existing wallets)
+ * Returns ONLY metadata (wallet_id, wallet_address, chain_id, is_funded)
+ * Private keys are NEVER returned to the client.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -120,8 +117,6 @@ Deno.serve(async (req) => {
           chain_id: existingWallet.chain_id,
           is_funded: existingWallet.is_funded,
           already_existed: true,
-          // NO private key for existing wallets - this is intentional
-          private_key_once: null,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -131,11 +126,8 @@ Deno.serve(async (req) => {
     console.log(`[execution-wallet-create] Generating new wallet for user ${user_id}`);
     const { privateKey, address } = await generateWallet();
 
-    // CRITICAL: Store the private key for one-time reveal BEFORE encryption
-    // This is the ONLY time this key will ever be returned in plaintext
-    const privateKeyOnce = privateKey;
-
     // Encrypt private key with envelope encryption
+    // Key NEVER leaves the server - system-custodied
     const encryptedData = await encryptPrivateKey(privateKey, 1);
 
     // Insert wallet metadata
@@ -172,7 +164,6 @@ Deno.serve(async (req) => {
         dek_iv_b64: bytesToBase64(encryptedData.dek_iv),
         dek_auth_tag_b64: bytesToBase64(encryptedData.dek_auth_tag),
         kek_version: encryptedData.kek_version,
-        secrets_format: 'base64_v1',
       });
 
     if (secretsError) {
@@ -192,18 +183,18 @@ Deno.serve(async (req) => {
       .eq('user_id', user_id);
 
     console.log(`[execution-wallet-create] Wallet created successfully: ${wallet.wallet_address}`);
-    // SECURITY: We do NOT log the private key
+    // SECURITY: Private key is NEVER logged or returned
 
-    // Return success with ONE-TIME private key reveal
+    // Return success with ONLY metadata - system-custodied wallet
     return new Response(
       JSON.stringify({
         success: true,
         wallet_id: wallet.id,
         wallet_address: wallet.wallet_address,
         chain_id: wallet.chain_id,
+        is_funded: false,
         already_existed: false,
-        // ONE-TIME KEY REVEAL - THIS IS THE ONLY TIME THIS KEY WILL EVER BE RETURNED
-        private_key_once: privateKeyOnce,
+        // Private key is NEVER returned - system-custodied
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
