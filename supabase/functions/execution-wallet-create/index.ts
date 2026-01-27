@@ -159,18 +159,20 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Insert encrypted secrets
+    // Insert encrypted secrets (ONLY *_b64 columns - new schema)
     const { error: secretsError } = await supabaseAdmin
       .from('execution_wallet_secrets')
       .insert({
         wallet_id: wallet.id,
-        encrypted_private_key: bytesToBase64(encryptedData.encrypted_private_key),
-        iv: bytesToBase64(encryptedData.iv),
-        auth_tag: bytesToBase64(encryptedData.auth_tag),
-        encrypted_dek: bytesToBase64(encryptedData.encrypted_dek),
-        dek_iv: bytesToBase64(encryptedData.dek_iv),
-        dek_auth_tag: bytesToBase64(encryptedData.dek_auth_tag),
+        // New schema: use ONLY *_b64 columns
+        encrypted_private_key_b64: bytesToBase64(encryptedData.encrypted_private_key),
+        iv_b64: bytesToBase64(encryptedData.iv),
+        auth_tag_b64: bytesToBase64(encryptedData.auth_tag),
+        encrypted_dek_b64: bytesToBase64(encryptedData.encrypted_dek),
+        dek_iv_b64: bytesToBase64(encryptedData.dek_iv),
+        dek_auth_tag_b64: bytesToBase64(encryptedData.dek_auth_tag),
         kek_version: encryptedData.kek_version,
+        secrets_format: 'base64_v1',
       });
 
     if (secretsError) {
