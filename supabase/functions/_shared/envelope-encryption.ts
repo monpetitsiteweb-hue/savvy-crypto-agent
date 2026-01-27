@@ -1,11 +1,19 @@
 /**
  * Envelope Encryption for Execution Wallet Private Keys
  * 
+ * SYSTEM-CUSTODIED MODEL - Keys never leave the server.
+ * 
  * Architecture:
  * - DEK (Data Encryption Key): Random 32-byte key, unique per wallet
- * - KEK (Key Encryption Key): Master key from env var, versioned
+ * - KEK (Key Encryption Key): Master key from env var, BASE64 ONLY, versioned
  * - Private Key encrypted with DEK (AES-256-GCM)
  * - DEK encrypted with KEK (AES-256-GCM)
+ * 
+ * INVARIANTS:
+ * - KEK format: Base64 only, exactly 32 bytes after decode
+ * - No hex support, no fallback, no format detection
+ * - One encryption path, one decryption path
+ * - No export functionality
  * 
  * SECURITY: Never log any key material, ciphertext, or IVs
  */
@@ -37,35 +45,26 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 // Get KEK from environment by version
+// LOCKED TO BASE64 ONLY - no hex support, no fallback, no format detection
 function getKEK(version: number): Uint8Array {
-  const kekEnvVar = `EXECUTION_WALLET_KEK_V${version}`;
-  const kekRaw = Deno.env.get(kekEnvVar);
+  const envVar = `EXECUTION_WALLET_KEK_V${version}`;
+  const raw = Deno.env.get(envVar);
   
-  if (!kekRaw) {
-    throw new Error(`KEK version ${version} not found in environment`);
+  if (!raw) {
+    throw new Error(`Missing KEK version ${version}`);
   }
-  
-  const trimmed = kekRaw.trim();
-  
-  // Support both hex (64 chars) and base64 (44 chars) KEK formats
+
   let kek: Uint8Array;
-  
-  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
-    // Hex format: 64 hex chars = 32 bytes
-    kek = hexToBytes(trimmed);
-  } else {
-    // Base64 format
-    try {
-      kek = base64ToBytes(trimmed);
-    } catch (e) {
-      throw new Error(`Failed to decode KEK: ${e.message}`);
-    }
+  try {
+    kek = base64ToBytes(raw.trim());
+  } catch {
+    throw new Error("KEK must be valid base64");
   }
-  
+
   if (kek.length !== 32) {
-    throw new Error(`KEK must be 32 bytes, got ${kek.length}`);
+    throw new Error(`KEK must be exactly 32 bytes, got ${kek.length}`);
   }
-  
+
   return kek;
 }
 
@@ -223,61 +222,8 @@ export async function decryptPrivateKey(
   return privateKey;
 }
 
-/**
- * Re-encrypt DEK with a new KEK version (for key rotation)
- * Does NOT require decrypting the private key itself
- */
-export async function rotateDekEncryption(
-  encryptedData: {
-    encrypted_dek: Uint8Array;
-    dek_iv: Uint8Array;
-    dek_auth_tag: Uint8Array;
-    kek_version: number;
-  },
-  newKekVersion: number
-): Promise<{
-  encrypted_dek: Uint8Array;
-  dek_iv: Uint8Array;
-  dek_auth_tag: Uint8Array;
-  kek_version: number;
-}> {
-  // Get old KEK and decrypt DEK
-  const oldKek = getKEK(encryptedData.kek_version);
-  const oldKekKey = await importKey(oldKek);
-  
-  const encryptedDekWithTag = new Uint8Array([
-    ...encryptedData.encrypted_dek,
-    ...encryptedData.dek_auth_tag,
-  ]);
-  
-  const dekBytes = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: encryptedData.dek_iv },
-    oldKekKey,
-    encryptedDekWithTag
-  );
-  
-  const dek = new Uint8Array(dekBytes);
-  
-  // Encrypt DEK with new KEK
-  const newKek = getKEK(newKekVersion);
-  const newKekKey = await importKey(newKek);
-  const newDekIv = randomBytes(12);
-  
-  const newEncryptedDekWithTag = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: newDekIv },
-    newKekKey,
-    dek
-  );
-  
-  const newEncryptedDekFull = new Uint8Array(newEncryptedDekWithTag);
-  
-  // Zero out DEK
-  dek.fill(0);
-  
-  return {
-    encrypted_dek: newEncryptedDekFull.slice(0, -16),
-    dek_iv: newDekIv,
-    dek_auth_tag: newEncryptedDekFull.slice(-16),
-    kek_version: newKekVersion,
-  };
-}
+// NOTE: rotateDekEncryption is intentionally NOT exported.
+// KEK rotation is out of scope for MVP and would violate the
+// "no encryption changes post-creation" invariant.
+// If rotation is needed in the future, it must be a separate,
+// carefully planned migration with explicit operator approval.
