@@ -152,12 +152,23 @@ export default function WalletDrillPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          wallet_id: withdrawWalletId,
-          asset: withdrawAsset,
-          to_address: withdrawDestination,
-          amount: withdrawAmount,
-        }),
+        const parsedAmount = Number(
+        withdrawAmount
+          .replace(',', '.')
+          .trim()
+      );
+      
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        throw new Error("Invalid amount");
+      }
+      
+      body: JSON.stringify({
+        wallet_id: withdrawWalletId,
+        asset: withdrawAsset,
+        to_address: withdrawDestination,
+        amount: parsedAmount,
+      }),
+
       });
 
       const result = await response.json();
