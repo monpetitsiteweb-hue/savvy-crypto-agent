@@ -15,6 +15,7 @@ import { DevExecutionPage } from "./pages/DevExecutionPage";
 import ExecutionQualityPage from "./pages/ExecutionQualityPage";
 import Calibration from "./pages/Calibration";
 import WalletDrillPage from "./pages/WalletDrillPage";
+import WalletDrillOldPage from "./pages/WalletDrillOldPage";
 import NotFound from "./pages/NotFound";
 
 // Step 5: Parent key scanner (prod-safe, default OFF)
@@ -52,6 +53,7 @@ function AppInternal() {
                     <Route path="/" element={<Index />} />
                     <Route path="/admin" element={<AdminPage />} />
                     <Route path="/admin/wallet-drill" element={<WalletDrillPage />} />
+                    <Route path="/admin/wallet-drill-old" element={<WalletDrillOldPage />} />
                     <Route path="/profile" element={<ProfilePage />} />
                     <Route path="/validation" element={<ValidationPage />} />
                     <Route path="/calibration" element={<Calibration />} />
