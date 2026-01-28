@@ -1269,6 +1269,47 @@ export type Database = {
       }
       execution_wallet_secrets: {
         Row: {
+          auth_tag_b64: string
+          dek_auth_tag_b64: string
+          dek_iv_b64: string
+          encrypted_dek_b64: string
+          encrypted_private_key_b64: string
+          iv_b64: string
+          kek_version: number
+          wallet_id: string
+        }
+        Insert: {
+          auth_tag_b64: string
+          dek_auth_tag_b64: string
+          dek_iv_b64: string
+          encrypted_dek_b64: string
+          encrypted_private_key_b64: string
+          iv_b64: string
+          kek_version?: number
+          wallet_id: string
+        }
+        Update: {
+          auth_tag_b64?: string
+          dek_auth_tag_b64?: string
+          dek_iv_b64?: string
+          encrypted_dek_b64?: string
+          encrypted_private_key_b64?: string
+          iv_b64?: string
+          kek_version?: number
+          wallet_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "execution_wallet_secrets_wallet_id_fkey1"
+            columns: ["wallet_id"]
+            isOneToOne: true
+            referencedRelation: "execution_wallets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      execution_wallet_secrets_old: {
+        Row: {
           auth_tag: string
           auth_tag_b64: string | null
           created_at: string
@@ -1330,7 +1371,7 @@ export type Database = {
             foreignKeyName: "execution_wallet_secrets_wallet_id_fkey"
             columns: ["wallet_id"]
             isOneToOne: true
-            referencedRelation: "execution_wallets"
+            referencedRelation: "execution_wallets_old"
             referencedColumns: ["id"]
           },
           {
@@ -1343,6 +1384,45 @@ export type Database = {
         ]
       }
       execution_wallets: {
+        Row: {
+          chain_id: number
+          created_at: string
+          funded_amount_wei: string | null
+          funded_at: string | null
+          id: string
+          is_active: boolean
+          is_funded: boolean
+          updated_at: string
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          chain_id?: number
+          created_at?: string
+          funded_amount_wei?: string | null
+          funded_at?: string | null
+          id?: string
+          is_active?: boolean
+          is_funded?: boolean
+          updated_at?: string
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          chain_id?: number
+          created_at?: string
+          funded_amount_wei?: string | null
+          funded_at?: string | null
+          id?: string
+          is_active?: boolean
+          is_funded?: boolean
+          updated_at?: string
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
+      execution_wallets_old: {
         Row: {
           chain_id: number
           created_at: string
@@ -2990,7 +3070,7 @@ export type Database = {
             foreignKeyName: "wallet_funding_requests_execution_wallet_id_fkey"
             columns: ["execution_wallet_id"]
             isOneToOne: false
-            referencedRelation: "execution_wallets"
+            referencedRelation: "execution_wallets_old"
             referencedColumns: ["id"]
           },
           {
@@ -3100,7 +3180,7 @@ export type Database = {
             foreignKeyName: "withdrawal_audit_log_wallet_id_fkey"
             columns: ["wallet_id"]
             isOneToOne: false
-            referencedRelation: "execution_wallets"
+            referencedRelation: "execution_wallets_old"
             referencedColumns: ["id"]
           },
           {

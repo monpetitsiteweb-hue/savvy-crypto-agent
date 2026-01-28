@@ -146,29 +146,26 @@ export default function WalletDrillPage() {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
 
+      const parsedAmount = Number(
+        withdrawAmount.replace(',', '.').trim()
+      );
+      
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        throw new Error("Invalid amount");
+      }
+
       const response = await fetch(`https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/execution-wallet-withdraw`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        const parsedAmount = Number(
-        withdrawAmount
-          .replace(',', '.')
-          .trim()
-      );
-      
-      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-        throw new Error("Invalid amount");
-      }
-      
-      body: JSON.stringify({
-        wallet_id: withdrawWalletId,
-        asset: withdrawAsset,
-        to_address: withdrawDestination,
-        amount: parsedAmount,
-      }),
-
+        body: JSON.stringify({
+          wallet_id: withdrawWalletId,
+          asset: withdrawAsset,
+          to_address: withdrawDestination,
+          amount: parsedAmount,
+        }),
       });
 
       const result = await response.json();
