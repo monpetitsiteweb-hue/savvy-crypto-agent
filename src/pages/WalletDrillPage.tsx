@@ -155,8 +155,8 @@ export default function WalletDrillPage() {
         body: JSON.stringify({
           wallet_id: withdrawWalletId,
           asset: withdrawAsset,
-          amount: Number(withdrawAmount),
           to_address: withdrawDestination,
+          amount: withdrawAmount,
         }),
       });
 
