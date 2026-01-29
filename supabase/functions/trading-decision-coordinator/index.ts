@@ -2381,6 +2381,7 @@ serve(async (req) => {
 
     console.log(`[coordinator] CANONICAL EXECUTION MODE: ${canonicalExecutionMode} (is_test_mode=${canonicalIsTestMode})`);
     console.log(`[coordinator] Derived from: source=${intent.source}, wallet=${intent.metadata?.execution_wallet_id}, strategy_target=${strategyExecutionTarget}`);
+    console.log(`[coordinator] DEBUG metadata keys:`, Object.keys(intent.metadata || {}));
 
     // ============= PANIC GATE (hard blocker) =============
     if (panicActive) {
@@ -5778,35 +5779,46 @@ async function executeTradeOrder(
 
       console.log(`💰 COORDINATOR: Available EUR balance: €${availableEur.toFixed(2)}`);
 
+      // =============================================================================
+      // BUY QUANTITY COMPUTATION (CRITICAL)
+      // =============================================================================
+      // For BUY orders: intent.metadata.eurAmount is the CANONICAL EUR amount
+      // We ALWAYS derive qty from EUR amount / price
+      // NEVER use qtySuggested for BUY - that would cause 5 EUR → 5 ETH bug
+      // =============================================================================
+      const eurAmountFromIntent = intent.metadata?.eurAmount;
+      const effectiveEurAmount = eurAmountFromIntent ?? tradeAllocation;
+      
+      console.log(`[coordinator] BUY sizing: eurAmountFromIntent=${eurAmountFromIntent}, tradeAllocation=${tradeAllocation}, effectiveEurAmount=${effectiveEurAmount}`);
+
       // MOCK MODE: Bypass balance check for MOCK execution (paper trading)
       // isMockMode is derived from canonical execution mode at top of function
       if (isMockMode) {
         console.log(`🧪 MOCK MODE: Bypassing balance check - using virtual paper trading`);
         console.log(`🧪 MOCK MODE source: canonicalExecutionMode=${executionMode}`);
-        // For BUY: intent.amount is always EUR, compute quantity from price
-        // qtySuggested should ONLY be used if explicitly set and represents asset quantity
-        const eurAmount = intent.metadata?.eurAmount || tradeAllocation;
-        qty = intent.qtySuggested || (eurAmount / realMarketPrice);
+        // Compute quantity from EUR amount - NEVER use qtySuggested for BUY
+        qty = effectiveEurAmount / realMarketPrice;
       } else {
-        // Check if we have sufficient balance
-        if (availableEur < tradeAllocation) {
+        // REAL MODE: Check if we have sufficient balance
+        if (availableEur < effectiveEurAmount) {
           const adjustedAllocation = Math.max(0, availableEur);
           if (adjustedAllocation < 10) {
             // Minimum €10 trade
             console.log(
-              `🚫 COORDINATOR: Insufficient balance - €${availableEur.toFixed(2)} available, €${tradeAllocation} requested`,
+              `🚫 COORDINATOR: Insufficient balance - €${availableEur.toFixed(2)} available, €${effectiveEurAmount} requested`,
             );
             return {
               success: false,
-              error: `Insufficient EUR balance: €${availableEur.toFixed(2)} available, €${tradeAllocation} requested`,
+              error: `Insufficient EUR balance: €${availableEur.toFixed(2)} available, €${effectiveEurAmount} requested`,
             };
           }
           console.log(
-            `⚠️ COORDINATOR: Adjusting trade from €${tradeAllocation} to €${adjustedAllocation.toFixed(2)} (available balance)`,
+            `⚠️ COORDINATOR: Adjusting trade from €${effectiveEurAmount} to €${adjustedAllocation.toFixed(2)} (available balance)`,
           );
           qty = adjustedAllocation / realMarketPrice;
         } else {
-          qty = tradeAllocation / realMarketPrice;
+          // Compute quantity from EUR amount - NEVER use qtySuggested for BUY
+          qty = effectiveEurAmount / realMarketPrice;
         }
       }
     } else {
