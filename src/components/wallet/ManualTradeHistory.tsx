@@ -30,8 +30,8 @@ interface ManualTradeHistoryProps {
 }
 
 export function ManualTradeHistory({ userId, refreshTrigger }: ManualTradeHistoryProps) {
-  const [trades, setTrades] = useState<ManualTrade[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [trades, setTrades] = useState<ManualTrade[]>([]); // Initialized as empty array
+  const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchTrades = useCallback(async () => {
@@ -123,7 +123,7 @@ export function ManualTradeHistory({ userId, refreshTrigger }: ManualTradeHistor
                 </tr>
               </thead>
               <tbody>
-                {trades.map((trade) => (
+                {Array.isArray(trades) && trades.map((trade) => (
                   <tr key={trade.id} className="border-b border-border/50 hover:bg-muted/50">
                     <td className="py-2 text-xs">{formatTime(trade.executed_at)}</td>
                     <td className="py-2">

@@ -169,7 +169,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {TRADEABLE_TOKENS.map((t) => (
+                {Array.isArray(TRADEABLE_TOKENS) && TRADEABLE_TOKENS.map((t) => (
                   <SelectItem key={t.symbol} value={t.symbol}>
                     {t.symbol} - {t.name}
                   </SelectItem>
@@ -200,7 +200,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SLIPPAGE_OPTIONS.map((s) => (
+                {Array.isArray(SLIPPAGE_OPTIONS) && SLIPPAGE_OPTIONS.map((s) => (
                   <SelectItem key={s} value={s.toString()}>
                     {s}%
                   </SelectItem>
