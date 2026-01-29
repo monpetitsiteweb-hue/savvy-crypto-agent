@@ -1,9 +1,13 @@
 /**
  * Manual Trade Card - BUY or SELL with confirmation modal
  * Routes through trading-decision-coordinator
+ * 
+ * REAL vs MOCK is determined by wallet presence:
+ * - If user has execution_wallet → REAL trade (on-chain)
+ * - If no wallet → MOCK trade (paper trading)
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ArrowUpCircle, ArrowDownCircle, AlertTriangle, ExternalLink } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, AlertTriangle, ExternalLink, Zap, FlaskConical } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { SUPABASE_URL, MANUAL_STRATEGY_ID, TRADEABLE_TOKENS, SLIPPAGE_OPTIONS } from './ManualTradeConstants';
 
@@ -43,6 +47,12 @@ interface ExecutionResult {
   reason?: string;
 }
 
+interface ExecutionWallet {
+  id: string;
+  wallet_address: string;
+  is_active: boolean;
+}
+
 interface ManualTradeCardProps {
   side: 'BUY' | 'SELL';
   userId: string;
@@ -56,9 +66,45 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
   const [loading, setLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
+  
+  // Execution wallet state - determines REAL vs MOCK
+  const [executionWallet, setExecutionWallet] = useState<ExecutionWallet | null>(null);
+  const [walletLoading, setWalletLoading] = useState(true);
 
   const isBuy = side === 'BUY';
   const Icon = isBuy ? ArrowUpCircle : ArrowDownCircle;
+  
+  // Derived: Is this a REAL trade?
+  const isRealTrade = !!executionWallet?.id && executionWallet.is_active;
+
+  // Fetch execution wallet on mount
+  useEffect(() => {
+    const fetchWallet = async () => {
+      setWalletLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('execution_wallets')
+          .select('id, wallet_address, is_active')
+          .eq('user_id', userId)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (error) {
+          console.error('Failed to fetch execution wallet:', error);
+        } else {
+          setExecutionWallet(data);
+        }
+      } catch (err) {
+        console.error('Error fetching wallet:', err);
+      } finally {
+        setWalletLoading(false);
+      }
+    };
+
+    if (userId) {
+      fetchWallet();
+    }
+  }, [userId]);
 
   const handleSubmit = () => {
     const parsedAmount = parseFloat(amount.replace(',', '.'));
@@ -84,6 +130,22 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
 
       const parsedAmount = parseFloat(amount.replace(',', '.'));
 
+      // Build metadata - include execution_wallet_id for REAL trades
+      const metadata: Record<string, any> = {
+        context: 'MANUAL',
+        slippage_bps: parseFloat(slippage) * 100,
+        bypass_volatility_gate: true,
+        force: true,
+        // For BUY: amount is in EUR, coordinator should convert to qty
+        eurAmount: isBuy ? parsedAmount : undefined,
+      };
+
+      // CRITICAL: Include execution_wallet_id to trigger REAL mode
+      if (executionWallet?.id) {
+        metadata.execution_wallet_id = executionWallet.id;
+        metadata.wallet_address = executionWallet.wallet_address;
+      }
+
       // Call trading-decision-coordinator with source='manual'
       const response = await fetch(`${SUPABASE_URL}/functions/v1/trading-decision-coordinator`, {
         method: 'POST',
@@ -99,14 +161,11 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
             side,
             source: 'manual',
             confidence: 1.0,
-            qtySuggested: parsedAmount,
+            // For SELL: qtySuggested is token amount
+            // For BUY: qtySuggested should be computed by coordinator from eurAmount
+            qtySuggested: isBuy ? undefined : parsedAmount,
             reason: `Manual ${side} from operator panel`,
-            metadata: {
-              context: 'MANUAL',
-              slippage_bps: parseFloat(slippage) * 100,
-              bypass_volatility_gate: true,
-              force: true, // Allow manual override of gates
-            },
+            metadata,
           },
         }),
       });
@@ -118,20 +177,20 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
       }
 
       setResult({
-        success: data.success === true,
-        tradeId: data.tradeId,
+        success: data.success === true || data.decision?.action === side,
+        tradeId: data.tradeId || data.decision?.trade_id,
         executed_at: data.executed_at,
         executed_price: data.executed_price,
-        qty: data.qty,
+        qty: data.qty || data.decision?.qty,
         tx_hash: data.tx_hash,
         gas_used_wei: data.gas_used_wei,
         gas_cost_eth: data.gas_cost_eth,
         gas_cost_eur: data.gas_cost_eur,
         error: data.error,
-        reason: data.reason,
+        reason: data.reason || data.decision?.reason,
       });
 
-      if (data.success) {
+      if (data.success || data.decision?.action === side) {
         setAmount('');
         onTradeComplete?.();
       }
@@ -155,9 +214,23 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
           <CardTitle className={`text-lg flex items-center gap-2 ${isBuy ? 'text-green-500' : 'text-red-500'}`}>
             <Icon className="h-5 w-5" />
             Manual {side}
+            {/* Mode indicator */}
+            {!walletLoading && (
+              <span className={`ml-auto text-xs px-2 py-1 rounded flex items-center gap-1 ${
+                isRealTrade 
+                  ? 'bg-yellow-500/20 text-yellow-600 border border-yellow-500/30' 
+                  : 'bg-blue-500/20 text-blue-600 border border-blue-500/30'
+              }`}>
+                {isRealTrade ? <Zap className="h-3 w-3" /> : <FlaskConical className="h-3 w-3" />}
+                {isRealTrade ? 'REAL' : 'TEST'}
+              </span>
+            )}
           </CardTitle>
           <CardDescription>
-            {isBuy ? 'Buy tokens using execution wallet funds' : 'Sell tokens from execution wallet'}
+            {isRealTrade 
+              ? (isBuy ? 'Buy tokens using execution wallet funds (ON-CHAIN)' : 'Sell tokens from execution wallet (ON-CHAIN)')
+              : (isBuy ? 'Paper trade - no real funds used' : 'Paper trade - simulated sell')
+            }
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -212,11 +285,11 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
           {/* Submit button */}
           <Button
             onClick={handleSubmit}
-            disabled={loading || !amount}
+            disabled={loading || !amount || walletLoading}
             className="w-full"
             variant={isBuy ? 'default' : 'destructive'}
           >
-            {loading ? 'Processing...' : `${side} ${token}`}
+            {loading ? 'Processing...' : `${side} ${token}${isRealTrade ? ' (REAL)' : ' (TEST)'}`}
           </Button>
 
           {/* Execution result inline display */}
@@ -248,7 +321,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
                       <span className="font-mono text-xs truncate max-w-[200px]">
                         {result.tx_hash}
                       </span>
-                      <a
+                      
                         href={`https://basescan.org/tx/${result.tx_hash}`}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -279,19 +352,28 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-yellow-500" />
-              Confirm Manual {side}
+              <AlertTriangle className={`h-5 w-5 ${isRealTrade ? 'text-yellow-500' : 'text-blue-500'}`} />
+              Confirm Manual {side} {isRealTrade ? '(REAL)' : '(TEST)'}
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
-              <p>You are about to execute a manual {side.toLowerCase()} trade:</p>
+              <p>You are about to execute a {isRealTrade ? 'REAL' : 'TEST'} {side.toLowerCase()} trade:</p>
               <ul className="list-disc list-inside text-sm">
                 <li>Token: <strong>{token}</strong></li>
-                <li>Amount: <strong>{amount}</strong></li>
+                <li>Amount: <strong>{amount}</strong> {isBuy ? 'EUR' : token}</li>
                 <li>Slippage: <strong>{slippage}%</strong></li>
+                <li>Mode: <strong className={isRealTrade ? 'text-yellow-600' : 'text-blue-600'}>
+                  {isRealTrade ? 'REAL (On-Chain)' : 'TEST (Paper Trading)'}
+                </strong></li>
               </ul>
-              <p className="text-yellow-600 font-medium">
-                This will use real funds from the execution wallet on Base mainnet.
-              </p>
+              {isRealTrade ? (
+                <p className="text-yellow-600 font-medium">
+                  ⚠️ This will use REAL funds from the execution wallet on Base mainnet.
+                </p>
+              ) : (
+                <p className="text-blue-600 font-medium">
+                  🧪 This is a TEST trade. No real funds will be used.
+                </p>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
