@@ -3,15 +3,17 @@
  *
  * INTERNAL SAFETY TOOL — NOT A PRODUCT FEATURE
  *
- * This page exists ONLY to verify the custody system works:
+ * This page exists to verify and operate the custody system:
  * 1. Create wallet (server-side, system-custodied)
  * 2. Display address for manual funding
  * 3. Withdraw funds
+ * 4. Manual BUY/SELL trades (routed through coordinator)
+ * 5. View trade history
  *
  * NO private keys. NO automation. NO onboarding logic.
  */
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,6 +22,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Copy, Wallet, ArrowDownToLine, AlertTriangle } from "lucide-react";
+import { WalletBalanceCard } from "@/components/wallet/WalletBalanceCard";
+import { ManualTradeCard } from "@/components/wallet/ManualTradeCard";
+import { ManualTradeHistory } from "@/components/wallet/ManualTradeHistory";
 
 interface WalletInfo {
   wallet_id: string;
@@ -51,6 +56,9 @@ export default function WalletDrillPage() {
   const [withdrawDestination, setWithdrawDestination] = useState("");
   const [withdrawLoading, setWithdrawLoading] = useState(false);
   const [withdrawResult, setWithdrawResult] = useState<WithdrawResult | null>(null);
+
+  // Trade history refresh trigger
+  const [tradeRefreshTrigger, setTradeRefreshTrigger] = useState(0);
 
   // Loading state
   if (roleLoading) {
@@ -196,9 +204,16 @@ export default function WalletDrillPage() {
     }
   };
 
+  // ─────────────────────────────────────────────────────────────
+  // Callback to refresh trade history after a trade
+  // ─────────────────────────────────────────────────────────────
+  const handleTradeComplete = useCallback(() => {
+    setTradeRefreshTrigger((prev) => prev + 1);
+  }, []);
+
   return (
     <div className="min-h-screen bg-background p-8">
-      <div className="max-w-2xl mx-auto space-y-8">
+      <div className="max-w-4xl mx-auto space-y-8">
         {/* Header */}
         <div className="border-b border-border pb-4">
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
@@ -210,10 +225,29 @@ export default function WalletDrillPage() {
           </p>
         </div>
 
+        {/* WALLET BALANCES (new section) */}
+        <WalletBalanceCard />
+
+        {/* MANUAL TRADING SECTION */}
+        {user && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <ManualTradeCard
+              side="BUY"
+              userId={user.id}
+              onTradeComplete={handleTradeComplete}
+            />
+            <ManualTradeCard
+              side="SELL"
+              userId={user.id}
+              onTradeComplete={handleTradeComplete}
+            />
+          </div>
+        )}
+
         {/* SECTION 1: Create Wallet */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">1. Create Execution Wallet</CardTitle>
+            <CardTitle className="text-lg">Create Execution Wallet</CardTitle>
             <CardDescription>System-custodied wallet. Private key never leaves server.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -250,7 +284,7 @@ export default function WalletDrillPage() {
         {/* SECTION 2: Fund Wallet (Manual) */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">2. Fund Wallet (Manual)</CardTitle>
+            <CardTitle className="text-lg">Fund Wallet (Manual)</CardTitle>
             <CardDescription>Send a small amount (e.g. 0.001 ETH) from an external wallet.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -277,7 +311,7 @@ export default function WalletDrillPage() {
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <ArrowDownToLine className="h-5 w-5" />
-              3. Withdraw Funds
+              Withdraw Funds
             </CardTitle>
             <CardDescription>Emergency exit. Works regardless of UI or automation state.</CardDescription>
           </CardHeader>
@@ -361,6 +395,11 @@ export default function WalletDrillPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* MANUAL TRADE HISTORY */}
+        {user && (
+          <ManualTradeHistory userId={user.id} refreshTrigger={tradeRefreshTrigger} />
+        )}
 
         {/* Footer warning */}
         <div className="text-xs text-muted-foreground text-center pt-4 border-t border-border">
