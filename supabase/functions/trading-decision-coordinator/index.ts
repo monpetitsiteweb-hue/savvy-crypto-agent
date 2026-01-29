@@ -5121,6 +5121,7 @@ async function executeWithMinimalLock(
     if (isForceOverride) {
       console.log("🔥 MANUAL FORCE: Using default config for manual trade override");
     }
+
     const { priceStaleMaxMs, spreadThresholdBps } = canonical;
 
     // Derive execution mode from strategyConfig.execution_target (canonical source of truth)
