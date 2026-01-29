@@ -2007,7 +2007,7 @@ serve(async (req) => {
     // - If metadata.originalTradeId is provided, we close THAT specific BUY.
     // - We pre-fill original_purchase_* from that BUY.
     // - mt_on_sell_snapshot will treat this as a targeted close, not global FIFO.
-    if (intent.side === "SELL" && intent.source === "manual" && (intent.metadata?.force === true || mode === "mock")) {
+    if (intent.source === "manual" && (intent.metadata?.force === true || mode === "mock")) {
       console.log("[coordinator] fast-path triggered for manual/mock/force");
 
       const exitPrice = Number(intent?.metadata?.currentPrice);
@@ -5093,22 +5093,34 @@ async function executeWithMinimalLock(
     // Use resolveCanonicalConfig for BOTH executeWithMinimalLock AND executeTradeOrder
     // =========================================================================
     const baseSymbol = toBaseSymbol(intent.symbol);
+
     const canonicalResult = resolveCanonicalConfig(strategyConfig);
 
-    if (!canonicalResult.success) {
+    // Allow force override to bypass config validation for manual trades
+    const isForceOverride = intent.metadata?.force === true && intent.source === "manual";
+    if (!canonicalResult.success && !isForceOverride) {
       const missingKey = canonicalResult.missingKeys?.[0] || "unknown";
       console.log(
-        `🚫 COORDINATOR: Trade blocked - missing canonical config: ${canonicalResult.missingKeys?.join(", ")}`,
+        `🚫 COORDINATOR: executeTradeOrder blocked - missing config: ${canonicalResult.missingKeys?.join(", ")}`,
       );
-      return {
-        action: "BLOCK",
-        reason: `blocked_missing_config:${missingKey}` as Reason,
-        request_id: requestId,
-        retry_in_ms: 0,
-      };
+      return { success: false, error: `blocked_missing_config:${missingKey}` };
     }
 
-    const canonical = canonicalResult.config!;
+    // Use defaults when force override with no config
+    const canonical = canonicalResult.config || {
+      takeProfitPercentage: 2.0,
+      stopLossPercentage: 2.0,
+      aiConfidenceThreshold: 50,
+      priceStaleMaxMs: 60000,
+      spreadThresholdBps: 100,
+      minHoldPeriodMs: 60000,
+      cooldownBetweenOppositeActionsMs: 60000,
+      confidenceOverrideThreshold: 50,
+    };
+
+    if (isForceOverride) {
+      console.log("🔥 MANUAL FORCE: Using default config for manual trade override");
+    }
     const { priceStaleMaxMs, spreadThresholdBps } = canonical;
 
     // Derive execution mode from strategyConfig.execution_target (canonical source of truth)
