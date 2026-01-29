@@ -2428,7 +2428,7 @@ serve(async (req) => {
       "[Coordinator][StateGate] state:",
       strategyState,
       "executionTarget:",
-      executionTarget,
+      strategyExecutionTarget,
       "policy:",
       onDisablePolicy || "N/A (ACTIVE)",
       "panicActive:",
@@ -3449,6 +3449,14 @@ async function executeTradeDirectly(
     const baseSymbol = toBaseSymbol(intent.symbol);
     const sc = strategyConfig || {};
 
+    // Use canonical execution mode from passed config (set at request entry)
+    // This is declared ONCE at function scope for use in ALL branches (BUY and SELL)
+    const isMockExecution = sc?.canonicalIsTestMode === true;
+    const localCanonicalExecutionMode = sc?.canonicalExecutionMode || "MOCK";
+
+    console.log("[DEBUG][executeTradeDirectly] localCanonicalExecutionMode:", localCanonicalExecutionMode);
+    console.log("[DEBUG][executeTradeDirectly] isMockExecution:", isMockExecution);
+
     // FAIL-CLOSED: Required config must exist - NO || fallbacks
     const priceStaleMaxMs = sc.priceStaleMaxMs;
     const spreadThresholdBps = sc.spreadThresholdBps;
@@ -3560,12 +3568,7 @@ async function executeTradeDirectly(
     if (intent.side === "BUY") {
       console.log("[DEBUG][executeTradeDirectly] ENTERED BUY branch");
 
-      // Use canonical execution mode from passed config (set at request entry)
-      const isMockExecution = sc?.canonicalIsTestMode === true;
-      const canonicalExecutionMode = sc?.canonicalExecutionMode || "MOCK";
-
-      console.log("[DEBUG][executeTradeDirectly] canonicalExecutionMode:", canonicalExecutionMode);
-      console.log("[DEBUG][executeTradeDirectly] isMockExecution:", isMockExecution);
+      // isMockExecution and localCanonicalExecutionMode already declared at function scope (line ~3453)
 
       // Calculate current EUR balance from all trades (filter by canonical test mode)
       const { data: allTrades } = await supabaseClient
