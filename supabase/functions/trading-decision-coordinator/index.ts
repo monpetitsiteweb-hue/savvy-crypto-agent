@@ -804,6 +804,19 @@ function resolveCanonicalConfig(strategyConfig: any): CanonicalConfigResult {
   const spreadThresholdBps = cfg.spreadThresholdBps;
   const minHoldPeriodMs = cfg.minHoldPeriodMs;
   const cooldownBetweenOppositeActionsMs = cfg.cooldownBetweenOppositeActionsMs;
+  // ─────────────────────────────────────────────
+  // MANUAL TRADE SAFE DEFAULTS
+  // Applied BEFORE canonical validation
+  // ─────────────────────────────────────────────
+  if (intent.source === "manual") {
+    cfg.takeProfitPercentage ??= 5;
+    cfg.stopLossPercentage ??= 3;
+    cfg.aiConfidenceThreshold ??= 0;
+    cfg.priceStaleMaxMs ??= 60_000;
+    cfg.spreadThresholdBps ??= 50;
+    cfg.minHoldPeriodMs ??= 0;
+    cfg.cooldownBetweenOppositeActionsMs ??= 0;
+  }
 
   // Check which canonical keys are missing
   if (takeProfitPercentage === undefined || takeProfitPercentage === null) {
@@ -1176,18 +1189,6 @@ serve(async (req) => {
     // ============= END DEBUG ENDPOINT =============
 
     const intent: TradeIntent = body.intent || body;
-
-    // ─────────────────────────────────────────────
-    // EXECUTION MODE (LOCKED — SINGLE SOURCE OF TRUTH)
-    // ─────────────────────────────────────────────
-    const executionMode: "real" | "mock" =
-      intent.source === "manual" && intent.execution_wallet_id
-        ? "real"
-        : intent.metadata?.is_test_mode === true
-          ? "mock"
-          : "real";
-
-    console.log("[Coordinator] EXECUTION_MODE =", executionMode);
 
     // ============= PHASE D: BLOCK FRONTEND AUTOMATIC BUYs =============
     // Frontend intelligent engine is NO LONGER allowed to generate automatic BUYs.
@@ -2019,7 +2020,9 @@ serve(async (req) => {
     // - If metadata.originalTradeId is provided, we close THAT specific BUY.
     // - We pre-fill original_purchase_* from that BUY.
     // - mt_on_sell_snapshot will treat this as a targeted close, not global FIFO.
-    if (executionMode === "mock") {
+    if (intent.source === "manual" && (intent.metadata?.force === true || mode === "mock")) {
+      console.log("[coordinator] fast-path triggered for manual/mock/force");
+
       const exitPrice = Number(intent?.metadata?.currentPrice);
       if (!Number.isFinite(exitPrice) || exitPrice <= 0) {
         return new Response(JSON.stringify({ ok: false, error: "missing/invalid currentPrice for mock sell" }), {
