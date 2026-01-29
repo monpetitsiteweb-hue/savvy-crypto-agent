@@ -428,7 +428,7 @@ async function settleCashLedger(
 ): Promise<CashSettlementResult> {
   const path = meta?.path ?? "standard";
   const tradeId = meta?.tradeId ?? "unknown_trade_id";
-  const isMockMode = meta?.isMockMode === true;
+  const metaIsMockMode = meta?.isMockMode === true;
 
   try {
     // First, get current cash balance for logging
@@ -440,7 +440,7 @@ async function settleCashLedger(
 
     if (capitalError) {
       console.error(`❌ CASH LEDGER: Failed to read cash_before (path=${path}, trade_id=${tradeId})`, capitalError);
-      if (isMockMode) return { success: false, error: "cash_before_read_failed" };
+      if (metaIsMockMode) return { success: false, error: "cash_before_read_failed" };
     }
 
     const cashBefore = capitalData?.cash_balance_eur ?? null;
@@ -508,7 +508,7 @@ async function settleCashLedger(
       const verifiedCash = verifyData?.cash_balance_eur ?? null;
       if (verifyError) {
         console.error(`⚠️ CASH LEDGER [BUY]: verify read failed (path=${path}, trade_id=${tradeId})`, verifyError);
-        if (isMockMode) {
+        if (metaIsMockMode) {
           return {
             success: false,
             cash_before: cashBefore ?? undefined,
@@ -525,7 +525,7 @@ async function settleCashLedger(
         `✅ CASH LEDGER [BUY] path=${path} trade_id=${tradeId}: cash_after=${cashAfter?.toFixed(2) ?? "N/A"}€, verified=${verifiedCash?.toFixed(2) ?? "N/A"}€, settle_drift=${settleDrift?.toFixed(2) ?? "N/A"}€`,
       );
 
-      if (isMockMode && (cashAfter === null || verifiedCash === null)) {
+      if (metaIsMockMode && (cashAfter === null || verifiedCash === null)) {
         return {
           success: false,
           cash_before: cashBefore ?? undefined,
@@ -536,7 +536,7 @@ async function settleCashLedger(
       }
 
       // DRIFT DETECTION (NO AUTO-REPAIR): Fail hard in MOCK mode if drift > €0.02
-      if (isMockMode && settleDrift !== null && settleDrift > 0.02) {
+      if (metaIsMockMode && settleDrift !== null && settleDrift > 0.02) {
         console.error(
           `❌ CASH LEDGER [BUY]: DRIFT DETECTED > €0.02 (path=${path}, trade_id=${tradeId}, drift=${settleDrift.toFixed(2)}€)`,
         );
@@ -654,7 +654,7 @@ async function settleCashLedger(
     const verifiedCash = verifyData?.cash_balance_eur ?? null;
     if (verifyError) {
       console.error(`⚠️ CASH LEDGER [SELL]: verify read failed (path=${path}, trade_id=${tradeId})`, verifyError);
-      if (isMockMode) {
+      if (metaIsMockMode) {
         return {
           success: false,
           cash_before: cashBefore ?? undefined,
@@ -671,7 +671,7 @@ async function settleCashLedger(
       `✅ CASH LEDGER [SELL] path=${path} trade_id=${tradeId}: cash_after=${cashAfter?.toFixed(2) ?? "N/A"}€, verified=${verifiedCash?.toFixed(2) ?? "N/A"}€, settle_drift=${settleDrift?.toFixed(2) ?? "N/A"}€`,
     );
 
-    if (isMockMode && (cashAfter === null || verifiedCash === null)) {
+    if (metaIsMockMode && (cashAfter === null || verifiedCash === null)) {
       return {
         success: false,
         cash_before: cashBefore ?? undefined,
@@ -682,7 +682,7 @@ async function settleCashLedger(
     }
 
     // DRIFT DETECTION (NO AUTO-REPAIR): Fail hard in MOCK mode if drift > €0.02
-    if (isMockMode && settleDrift !== null && settleDrift > 0.02) {
+    if (metaIsMockMode && settleDrift !== null && settleDrift > 0.02) {
       console.error(
         `❌ CASH LEDGER [SELL]: DRIFT DETECTED > €0.02 (path=${path}, trade_id=${tradeId}, drift=${settleDrift.toFixed(2)}€)`,
       );
@@ -2377,11 +2377,13 @@ serve(async (req) => {
           : "MOCK";
 
     // Derive is_test_mode from canonical execution mode ONLY - no other source allowed
-    const canonicalIsTestMode = canonicalExecutionMode === "MOCK";
+    const isMockMode = canonicalExecutionMode === "MOCK";
+    const canonicalIsTestMode = isMockMode;
 
-    console.log(`[coordinator] CANONICAL EXECUTION MODE: ${canonicalExecutionMode} (is_test_mode=${canonicalIsTestMode})`);
-    console.log(`[coordinator] Derived from: source=${intent.source}, wallet=${intent.metadata?.execution_wallet_id}, strategy_target=${strategyExecutionTarget}`);
-    console.log(`[coordinator] DEBUG metadata keys:`, Object.keys(intent.metadata || {}));
+    console.log("[Coordinator] MODE =", canonicalExecutionMode, {
+      execution_wallet_id: intent.metadata?.execution_wallet_id,
+      execution_target: strategyExecutionTarget,
+    });
 
     // ============= PANIC GATE (hard blocker) =============
     if (panicActive) {
@@ -3559,18 +3561,18 @@ async function executeTradeDirectly(
       console.log("[DEBUG][executeTradeDirectly] ENTERED BUY branch");
 
       // Use canonical execution mode from passed config (set at request entry)
-      const isMockMode = sc?.canonicalIsTestMode === true;
+      const isMockExecution = sc?.canonicalIsTestMode === true;
       const canonicalExecutionMode = sc?.canonicalExecutionMode || "MOCK";
 
       console.log("[DEBUG][executeTradeDirectly] canonicalExecutionMode:", canonicalExecutionMode);
-      console.log("[DEBUG][executeTradeDirectly] isMockMode:", isMockMode);
+      console.log("[DEBUG][executeTradeDirectly] isMockExecution:", isMockExecution);
 
       // Calculate current EUR balance from all trades (filter by canonical test mode)
       const { data: allTrades } = await supabaseClient
         .from("mock_trades")
         .select("trade_type, total_value")
         .eq("user_id", intent.userId)
-        .eq("is_test_mode", isMockMode);
+        .eq("is_test_mode", isMockExecution);
 
       console.log("[DEBUG][executeTradeDirectly] allTrades count:", allTrades?.length || 0);
 
@@ -3597,7 +3599,7 @@ async function executeTradeDirectly(
         if (adjustedAllocation < 10) {
           // Minimum €10 trade
           console.log(
-            `🚫 DIRECT: Insufficient balance - €${availableEur.toFixed(2)} available, €${tradeAllocation} requested (isMockMode=${isMockMode})`,
+            `🚫 DIRECT: Insufficient balance - €${availableEur.toFixed(2)} available, €${tradeAllocation} requested (isMockExecution=${isMockExecution})`,
           );
           return {
             success: false,
@@ -3674,7 +3676,7 @@ async function executeTradeDirectly(
           price: realMarketPrice,
           total_value: order.amount * realMarketPrice,
           executed_at: executedAt,
-          is_test_mode: isMockMode,
+          is_test_mode: isMockExecution,
           notes: `Direct path: UD=OFF - Per-lot SELL [${index + 1}/${perLotOrders.length}]`,
           strategy_trigger: `direct_${intent.source}|req:${requestId}|lot:${order.lotId.substring(0, 8)}`,
           // MANDATORY FIFO FIELDS (SELL CONTRACT)
@@ -3741,7 +3743,7 @@ async function executeTradeDirectly(
         {
           tradeId: insertResults?.[0]?.id,
           path: "direct_ud_off",
-          isMockMode, // Use canonical execution mode
+          isMockMode: isMockExecution, // Use canonical execution mode
           strategyId: intent.strategyId,
           symbol: baseSymbol,
         },
@@ -3750,7 +3752,7 @@ async function executeTradeDirectly(
       if (!settleRes?.success) {
         console.error("❌ DIRECT: Cash ledger settlement failed:", settleRes);
 
-        if (isMockMode) {
+        if (isMockExecution) {
           return { success: false, error: "cash_ledger_settlement_failed" };
         }
 
@@ -3806,7 +3808,7 @@ async function executeTradeDirectly(
       price: realMarketPrice,
       total_value: totalValue,
       executed_at: new Date().toISOString(),
-      is_test_mode: isMockMode,
+      is_test_mode: isMockExecution,
       notes: `Direct path: UD=OFF`,
       strategy_trigger: `direct_${intent.source}|req:${requestId}`,
       // PYRAMIDING MODEL: Store entry_context in market_conditions
@@ -3853,7 +3855,7 @@ async function executeTradeDirectly(
 
     if (insertedReadError || !insertedRow?.id) {
       console.error("[DEBUG][executeTradeDirectly] Failed to read back inserted row");
-      if (isMockMode) {
+      if (isMockExecution) {
         return { success: false, error: "cash_ledger_settlement_failed" };
       }
     } else {
@@ -3870,7 +3872,7 @@ async function executeTradeDirectly(
         {
           tradeId: insertedRow.id,
           path: "direct_ud_off",
-          isMockMode, // Use canonical execution mode
+          isMockMode: isMockExecution, // Use canonical execution mode
           strategyId: intent.strategyId,
           symbol: baseSymbol,
         },
@@ -3878,7 +3880,7 @@ async function executeTradeDirectly(
 
       if (!settleRes?.success) {
         console.error("❌ DIRECT: Cash ledger settlement failed:", settleRes);
-        if (isMockMode) {
+        if (isMockExecution) {
           return { success: false, error: "cash_ledger_settlement_failed" };
         }
       }
@@ -5134,9 +5136,8 @@ async function executeWithMinimalLock(
 
     const { priceStaleMaxMs, spreadThresholdBps } = canonical;
 
-    // Derive execution mode from strategyConfig.execution_target (canonical source of truth)
-    const executionTarget = strategyConfig?.execution_target || "MOCK";
-    const isMockMode = executionTarget === "MOCK";
+    // NOTE: Execution mode is canonical at request entry; use passed-through canonical flag only.
+    const isMockExecution = strategyConfig?.canonicalIsTestMode === true;
 
     const priceData = await getMarketPrice(baseSymbol, priceStaleMaxMs);
 
@@ -5161,7 +5162,7 @@ async function executeWithMinimalLock(
     }
 
     // Spread gate - BYPASS IN MOCK MODE (paper trading)
-    if (!isMockMode && priceData.spreadBps > spreadThresholdBps) {
+    if (!isMockExecution && priceData.spreadBps > spreadThresholdBps) {
       console.log(
         `🚫 COORDINATOR: Trade blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`,
       );
@@ -5180,7 +5181,7 @@ async function executeWithMinimalLock(
       return { action: "DEFER", reason: "spread_too_wide", request_id: requestId, retry_in_ms: 0 };
     }
 
-    if (isMockMode && priceData.spreadBps > spreadThresholdBps) {
+    if (isMockExecution && priceData.spreadBps > spreadThresholdBps) {
       console.log(
         `🧪 MOCK MODE: Bypassing spread gate (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`,
       );
@@ -5734,8 +5735,8 @@ async function executeTradeOrder(
     // PHASE 5: Use canonical execution mode from strategyConfig (NOT from ENV)
     // This ensures all execution paths use the same source of truth
     const executionMode = strategyConfig?.canonicalExecutionMode || "MOCK";
-    const isMockMode = executionMode === "MOCK";
-    console.log(`[coordinator] CANONICAL_EXECUTION_MODE=${executionMode} (isMockMode=${isMockMode}) for ${intent.side} ${baseSymbol}`);
+    const isMockExecution = executionMode === "MOCK";
+    console.log(`[coordinator] CANONICAL_EXECUTION_MODE=${executionMode} (isMockExecution=${isMockExecution}) for ${intent.side} ${baseSymbol}`);
     console.log(`💱 COORDINATOR: Executing ${intent.side} order for ${intent.symbol}`);
 
     // Use provided price data or fetch new price
@@ -5786,39 +5787,44 @@ async function executeTradeOrder(
       // We ALWAYS derive qty from EUR amount / price
       // NEVER use qtySuggested for BUY - that would cause 5 EUR → 5 ETH bug
       // =============================================================================
-      const eurAmountFromIntent = intent.metadata?.eurAmount;
-      const effectiveEurAmount = eurAmountFromIntent ?? tradeAllocation;
-      
-      console.log(`[coordinator] BUY sizing: eurAmountFromIntent=${eurAmountFromIntent}, tradeAllocation=${tradeAllocation}, effectiveEurAmount=${effectiveEurAmount}`);
+      const eurAmount = Number(intent.metadata?.eurAmount);
+      if (!Number.isFinite(eurAmount) || eurAmount <= 0) {
+        return {
+          success: false,
+          error: "Missing EUR amount for BUY",
+        };
+      }
+
+      console.log(`[coordinator] BUY sizing: eurAmount=${eurAmount}`);
 
       // MOCK MODE: Bypass balance check for MOCK execution (paper trading)
       // isMockMode is derived from canonical execution mode at top of function
-      if (isMockMode) {
+      if (isMockExecution) {
         console.log(`🧪 MOCK MODE: Bypassing balance check - using virtual paper trading`);
         console.log(`🧪 MOCK MODE source: canonicalExecutionMode=${executionMode}`);
         // Compute quantity from EUR amount - NEVER use qtySuggested for BUY
-        qty = effectiveEurAmount / realMarketPrice;
+        qty = eurAmount / realMarketPrice;
       } else {
         // REAL MODE: Check if we have sufficient balance
-        if (availableEur < effectiveEurAmount) {
+        if (availableEur < eurAmount) {
           const adjustedAllocation = Math.max(0, availableEur);
           if (adjustedAllocation < 10) {
             // Minimum €10 trade
             console.log(
-              `🚫 COORDINATOR: Insufficient balance - €${availableEur.toFixed(2)} available, €${effectiveEurAmount} requested`,
+              `🚫 COORDINATOR: Insufficient balance - €${availableEur.toFixed(2)} available, €${eurAmount} requested`,
             );
             return {
               success: false,
-              error: `Insufficient EUR balance: €${availableEur.toFixed(2)} available, €${effectiveEurAmount} requested`,
+              error: `Insufficient EUR balance: €${availableEur.toFixed(2)} available, €${eurAmount} requested`,
             };
           }
           console.log(
-            `⚠️ COORDINATOR: Adjusting trade from €${effectiveEurAmount} to €${adjustedAllocation.toFixed(2)} (available balance)`,
+            `⚠️ COORDINATOR: Adjusting trade from €${eurAmount} to €${adjustedAllocation.toFixed(2)} (available balance)`,
           );
           qty = adjustedAllocation / realMarketPrice;
         } else {
           // Compute quantity from EUR amount - NEVER use qtySuggested for BUY
-          qty = effectiveEurAmount / realMarketPrice;
+          qty = eurAmount / realMarketPrice;
         }
       }
     } else {
@@ -6417,8 +6423,8 @@ async function executeTradeOrder(
 
     // PHASE 5: Branch execution based on canonical mode
     // executionMode is derived from strategyConfig.canonicalExecutionMode at function entry
-    const isMockMode = executionMode === "MOCK";
-    if (isMockMode) {
+    const isMockExecution = executionMode === "MOCK";
+    if (isMockExecution) {
       // MOCK mode → mock_trades with is_test_mode=true
       console.log(`[coordinator] MOCK MODE: Writing to mock_trades (is_test_mode=true)`);
 
@@ -6446,7 +6452,7 @@ async function executeTradeOrder(
             price: realMarketPrice,
             total_value: order.amount * realMarketPrice,
             executed_at,
-            is_test_mode: isMockMode, // Use canonical execution mode
+            is_test_mode: isMockExecution, // Use canonical execution mode
             notes: `Coordinator: UD=ON (TEST) - Per-lot SELL [${index + 1}/${perLotSellOrders.length}]`,
             strategy_trigger:
               intent.source === "coordinator_tp"
@@ -6528,7 +6534,7 @@ async function executeTradeOrder(
           {
             tradeId: insertResults?.[0]?.id,
             path: "per_lot",
-            isMockMode, // Use canonical execution mode
+            isMockMode: isMockExecution, // Use canonical execution mode
             strategyId: intent.strategyId,
             symbol: baseSymbol,
           },
@@ -6598,7 +6604,7 @@ async function executeTradeOrder(
         price: realMarketPrice,
         total_value: totalValue,
         executed_at,
-        is_test_mode: isMockMode, // Use canonical execution mode
+        is_test_mode: isMockExecution, // Use canonical execution mode
         notes: tradeNotes,
         // PHASE E: Include idempotencyKey in strategy_trigger for dedup checking
         strategy_trigger:
@@ -6680,7 +6686,7 @@ async function executeTradeOrder(
         {
           tradeId: insertResult?.[0]?.id,
           path: "standard",
-          isMockMode, // Use canonical execution mode
+          isMockMode: isMockExecution, // Use canonical execution mode
           strategyId: intent.strategyId,
           symbol: baseSymbol,
         },
