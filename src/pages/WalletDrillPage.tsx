@@ -46,21 +46,26 @@ export default function WalletDrillPage() {
 
   // Section 1: Create wallet state
   const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
-  const [createLoading, setCreateLoading] = useState(false);
+  const [createLoading, setCreateLoading] = useState<boolean>(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
   // Section 3: Withdraw state
-  const [withdrawWalletId, setWithdrawWalletId] = useState("");
+  const [withdrawWalletId, setWithdrawWalletId] = useState<string>("");
   const [withdrawAsset, setWithdrawAsset] = useState<"ETH" | "USDC">("ETH");
-  const [withdrawAmount, setWithdrawAmount] = useState("");
-  const [withdrawDestination, setWithdrawDestination] = useState("");
-  const [withdrawLoading, setWithdrawLoading] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState<string>("");
+  const [withdrawDestination, setWithdrawDestination] = useState<string>("");
+  const [withdrawLoading, setWithdrawLoading] = useState<boolean>(false);
   const [withdrawResult, setWithdrawResult] = useState<WithdrawResult | null>(null);
 
   // Trade history refresh trigger
-  const [tradeRefreshTrigger, setTradeRefreshTrigger] = useState(0);
+  const [tradeRefreshTrigger, setTradeRefreshTrigger] = useState<number>(0);
 
-  // Loading state
+  // Callback MUST be declared before any conditional returns (React hooks rule)
+  const handleTradeComplete = useCallback(() => {
+    setTradeRefreshTrigger((prev) => prev + 1);
+  }, []);
+
+  // Loading state - AFTER all hooks
   if (roleLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -69,7 +74,7 @@ export default function WalletDrillPage() {
     );
   }
 
-  // Admin-only access
+  // Admin-only access - AFTER all hooks
   if (!isAdmin) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -205,11 +210,8 @@ export default function WalletDrillPage() {
   };
 
   // ─────────────────────────────────────────────────────────────
-  // Callback to refresh trade history after a trade
+  // handleTradeComplete is declared above (before conditional returns)
   // ─────────────────────────────────────────────────────────────
-  const handleTradeComplete = useCallback(() => {
-    setTradeRefreshTrigger((prev) => prev + 1);
-  }, []);
 
   return (
     <div className="min-h-screen bg-background p-8">
