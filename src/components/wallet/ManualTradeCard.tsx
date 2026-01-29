@@ -83,7 +83,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
       setWalletLoading(true);
       try {
         const { data, error } = await supabase
-          .from('execution_wallets')
+          .from('execution_wallets' as any)
           .select('id, wallet_address, is_active')
           .eq('user_id', userId)
           .eq('is_active', true)
@@ -92,7 +92,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
         if (error) {
           console.error('Failed to fetch execution wallet:', error);
         } else {
-          setExecutionWallet(data);
+          setExecutionWallet(data as unknown as ExecutionWallet | null);
         }
       } catch (err) {
         console.error('Error fetching wallet:', err);
@@ -321,7 +321,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
                       <span className="font-mono text-xs truncate max-w-[200px]">
                         {result.tx_hash}
                       </span>
-                      
+                      <a
                         href={`https://basescan.org/tx/${result.tx_hash}`}
                         target="_blank"
                         rel="noopener noreferrer"
