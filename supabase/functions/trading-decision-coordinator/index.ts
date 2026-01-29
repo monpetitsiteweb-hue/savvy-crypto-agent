@@ -804,19 +804,6 @@ function resolveCanonicalConfig(strategyConfig: any): CanonicalConfigResult {
   const spreadThresholdBps = cfg.spreadThresholdBps;
   const minHoldPeriodMs = cfg.minHoldPeriodMs;
   const cooldownBetweenOppositeActionsMs = cfg.cooldownBetweenOppositeActionsMs;
-  // ─────────────────────────────────────────────
-  // MANUAL TRADE SAFE DEFAULTS
-  // Applied BEFORE canonical validation
-  // ─────────────────────────────────────────────
-  if (intent.source === "manual") {
-    cfg.takeProfitPercentage ??= 5;
-    cfg.stopLossPercentage ??= 3;
-    cfg.aiConfidenceThreshold ??= 0;
-    cfg.priceStaleMaxMs ??= 60_000;
-    cfg.spreadThresholdBps ??= 50;
-    cfg.minHoldPeriodMs ??= 0;
-    cfg.cooldownBetweenOppositeActionsMs ??= 0;
-  }
 
   // Check which canonical keys are missing
   if (takeProfitPercentage === undefined || takeProfitPercentage === null) {
@@ -2020,7 +2007,7 @@ serve(async (req) => {
     // - If metadata.originalTradeId is provided, we close THAT specific BUY.
     // - We pre-fill original_purchase_* from that BUY.
     // - mt_on_sell_snapshot will treat this as a targeted close, not global FIFO.
-    if (intent.source === "manual" && intent.side === "SELL" && intent.metadata?.force === true) {
+    if (intent.source === "manual" && (intent.metadata?.force === true || mode === "mock")) {
       console.log("[coordinator] fast-path triggered for manual/mock/force");
 
       const exitPrice = Number(intent?.metadata?.currentPrice);
@@ -5722,19 +5709,7 @@ async function executeTradeOrder(
     });
 
     // PHASE 5: Read execution mode for branching
-    // ─────────────────────────────────────────────
-    // EXECUTION MODE (INTENT-DRIVEN, LOCKED)
-    // ─────────────────────────────────────────────
-
-    const executionMode: "real" | "mock" =
-      intent.source === "manual" && intent.execution_wallet_id
-        ? "real"
-        : intent.metadata?.is_test_mode === true
-          ? "mock"
-          : "real";
-
-    console.log("[Coordinator] EXECUTION_MODE =", executionMode);
-
+    const executionMode = Deno.env.get("EXECUTION_MODE") || "TEST";
     console.log(`[coordinator] EXECUTION_MODE=${executionMode} for ${intent.side} ${baseSymbol}`);
     console.log(`💱 COORDINATOR: Executing ${intent.side} order for ${intent.symbol}`);
 
@@ -6664,7 +6639,7 @@ async function executeTradeOrder(
         {
           tradeId: insertResult?.[0]?.id,
           path: "standard",
-          isTestMode: executionMode === "TEST",
+          isTestMode: true,
           strategyId: intent.strategyId,
           symbol: baseSymbol,
         },
