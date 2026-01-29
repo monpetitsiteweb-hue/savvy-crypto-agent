@@ -2007,11 +2007,7 @@ serve(async (req) => {
     // - If metadata.originalTradeId is provided, we close THAT specific BUY.
     // - We pre-fill original_purchase_* from that BUY.
     // - mt_on_sell_snapshot will treat this as a targeted close, not global FIFO.
-    if (
-      intent.execution_source === "manual" &&
-      (mode === "mock" || intent.metadata?.force === true) &&
-      intent.metadata?.executionMode === "mock"
-    ) {
+    if (intent.source === "manual" && (intent.metadata?.force === true || mode === "mock")) {
       console.log("[coordinator] fast-path triggered for manual/mock/force");
 
       const exitPrice = Number(intent?.metadata?.currentPrice);
