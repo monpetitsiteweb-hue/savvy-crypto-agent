@@ -625,6 +625,9 @@ Deno.serve(async (req) => {
     const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
     const OX_PROXY = "0xDef1C0ded9bec7F1a1670819833240f027b25EfF" as const;
     
+    // Declare tradeId early so it can be used in Permit2 logging (will be set after trade insert)
+    let tradeId: string = 'pending';
+    
     // Determine which token we're selling and whether to auto-sign Permit2
     const isSellWeth = side === 'SELL' && (base === 'ETH' || base === 'WETH');
     const isBuyWithUsdc = side === 'BUY' && quote === 'USDC';
@@ -756,7 +759,6 @@ Deno.serve(async (req) => {
     };
 
     // Guard: only persist if persist !== false
-    let tradeId: string;
     if (body.persist !== false) {
       const { data: insertedTrade, error: insertError } = await supabase
         .from('trades')
