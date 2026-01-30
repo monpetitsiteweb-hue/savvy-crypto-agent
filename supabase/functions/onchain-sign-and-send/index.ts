@@ -233,12 +233,21 @@ Deno.serve(async (req) => {
     if (!body.tradeId && body.symbol && body.side && body.amount && body.taker) {
       console.log('🚀 [sign-and-send] RAW PARAMS PATH - building trade first');
       
+      // Clamp slippage to builder maximum (0x enforces 50 bps max)
+      const BUILDER_MAX_SLIPPAGE_BPS = 50;
+      const requestedSlippageBps = body.slippageBps ?? BUILDER_MAX_SLIPPAGE_BPS;
+      const effectiveSlippageBps = Math.min(requestedSlippageBps, BUILDER_MAX_SLIPPAGE_BPS);
+      
+      if (requestedSlippageBps > BUILDER_MAX_SLIPPAGE_BPS) {
+        console.warn(`⚠️ [sign-and-send] Slippage clamped: requested=${requestedSlippageBps}bps, effective=${effectiveSlippageBps}bps (builder max=${BUILDER_MAX_SLIPPAGE_BPS}bps)`);
+      }
+      
       const buildResult = await buildTrade({
         symbol: body.symbol,
         side: body.side,
         amount: body.amount,
         taker: body.taker,
-        slippageBps: body.slippageBps,
+        slippageBps: effectiveSlippageBps,
       });
 
       // CRITICAL: Handle build failure BEFORE accessing tradeId

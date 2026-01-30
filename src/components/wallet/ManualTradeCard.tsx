@@ -267,7 +267,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
 
           {/* Slippage selection */}
           <div className="space-y-2">
-            <Label>Slippage Tolerance</Label>
+            <Label>Slippage Tolerance (max 0.5%)</Label>
             <Select value={slippage} onValueChange={setSlippage}>
               <SelectTrigger>
                 <SelectValue />

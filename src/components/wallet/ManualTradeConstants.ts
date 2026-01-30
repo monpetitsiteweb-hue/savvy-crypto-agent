@@ -14,8 +14,8 @@ export const TRADEABLE_TOKENS = [
   { symbol: 'USDC', name: 'USD Coin', decimals: 6 },
 ] as const;
 
-// Default slippage options (in percentage)
-export const SLIPPAGE_OPTIONS = [0.5, 1.0, 2.0, 3.0] as const;
+// Slippage options (in percentage) - Builder max is 50 bps (0.5%)
+export const SLIPPAGE_OPTIONS = [0.1, 0.2, 0.3, 0.4, 0.5] as const;
 
 // Supabase project URL for edge functions
 export const SUPABASE_URL = 'https://fuieplftlcxdfkxyqzlt.supabase.co';
