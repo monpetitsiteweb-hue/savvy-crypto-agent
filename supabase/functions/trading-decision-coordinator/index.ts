@@ -2438,11 +2438,22 @@ serve(async (req) => {
     );
 
     // ============= REAL MODE EXECUTION PATH (Phase 1) =============
-    // REAL mode: Check prerequisites, then route to execution_jobs (async)
+    // REAL mode: Check prerequisites, then execute
+    // MANUAL trades with execution_wallet_id → DIRECT SYNCHRONOUS EXECUTION
+    // AUTOMATED trades → route to execution_jobs (async) for worker processing
     if (canonicalExecutionMode === "REAL") {
-      console.log("🔥 COORDINATOR: REAL mode detected - checking prerequisites");
+      const isManualIntent = intent.source === "manual" || intent.metadata?.context === "MANUAL";
+      const hasWalletId = !!intent.metadata?.execution_wallet_id;
+      
+      console.log("🔥 COORDINATOR: REAL mode detected", {
+        isManualIntent,
+        hasWalletId,
+        execution_wallet_id: intent.metadata?.execution_wallet_id,
+        request_id: requestId,
+      });
 
       // Check live trading prerequisites via RPC
+      console.log("📋 COORDINATOR: Checking prerequisites...");
       const { data: prereqResult, error: prereqError } = await supabaseClient.rpc("check_live_trading_prerequisites", {
         p_user_id: intent.userId,
       });
@@ -2451,7 +2462,9 @@ serve(async (req) => {
         console.error("❌ COORDINATOR: Prerequisites check failed:", prereqError);
         return new Response(
           JSON.stringify({
-            ok: true,
+            ok: false,
+            success: false,
+            error: "blocked_prerequisites_check_failed",
             decision: {
               action: "BLOCK",
               reason: "blocked_prerequisites_check_failed",
@@ -2460,16 +2473,26 @@ serve(async (req) => {
               message: "Failed to verify live trading prerequisites.",
             },
           }),
-          { headers: corsHeaders },
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
 
+      console.log("📋 COORDINATOR: Prerequisites result:", prereqResult);
+
+      // The RPC returns: { ok: bool, checks: { rules_accepted, has_wallet, wallet_active, wallet_funded, ... }, panic_active, wallet_chain_id }
+      const checksObj = prereqResult?.checks || prereqResult || {};
+      const rulesAccepted = checksObj?.rules_accepted === true;
+      const walletReady = checksObj?.has_wallet === true && checksObj?.wallet_active === true && checksObj?.wallet_funded === true;
+      const allPrereqsOk = prereqResult?.ok === true;
+
       // Hard blocker: rules_accepted must be true
-      if (!prereqResult?.rules_accepted) {
-        console.log("🚫 COORDINATOR: REAL mode blocked - rules not accepted");
+      if (!rulesAccepted) {
+        console.log("🚫 COORDINATOR: REAL mode blocked - rules not accepted", { checksObj });
         return new Response(
           JSON.stringify({
-            ok: true,
+            ok: false,
+            success: false,
+            error: "blocked_rules_not_accepted",
             decision: {
               action: "BLOCK",
               reason: "blocked_rules_not_accepted",
@@ -2478,30 +2501,425 @@ serve(async (req) => {
               message: "You must accept trading rules before executing REAL trades.",
             },
           }),
-          { headers: corsHeaders },
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
 
       // Hard blocker: wallet must be active and funded
-      if (!prereqResult?.wallet_ok) {
-        console.log("🚫 COORDINATOR: REAL mode blocked - wallet not ready");
+      if (!walletReady) {
+        console.log("🚫 COORDINATOR: REAL mode blocked - wallet not ready", { checksObj });
         return new Response(
           JSON.stringify({
-            ok: true,
+            ok: false,
+            success: false,
+            error: "blocked_wallet_not_ready",
             decision: {
               action: "BLOCK",
               reason: "blocked_wallet_not_ready",
               request_id: requestId,
               retry_in_ms: 0,
               message: "Your execution wallet is not active or funded.",
+              wallet_checks: checksObj,
             },
           }),
-          { headers: corsHeaders },
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
 
-      // All prerequisites passed - insert execution_job (async execution)
-      console.log("✅ COORDINATOR: Prerequisites OK - inserting execution_job");
+      // Get wallet address from execution_wallets table
+      const { data: walletData, error: walletError } = await supabaseClient
+        .from("execution_wallets")
+        .select("id, wallet_address, chain_id")
+        .eq("user_id", intent.userId)
+        .eq("is_active", true)
+        .single();
+
+      if (walletError || !walletData?.wallet_address) {
+        console.error("❌ COORDINATOR: Could not fetch wallet address:", walletError);
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            success: false,
+            error: "blocked_wallet_not_found",
+            decision: {
+              action: "BLOCK",
+              reason: "blocked_wallet_not_found",
+              request_id: requestId,
+              message: "Could not retrieve execution wallet address.",
+            },
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      const walletAddress = walletData.wallet_address;
+      console.log("✅ COORDINATOR: Prerequisites OK - wallet_address:", walletAddress);
+
+      // =============================================================================
+      // MANUAL FAST-PATH: Direct synchronous on-chain execution
+      // This path is triggered by: intent.source === "manual" + execution_wallet_id
+      // It bypasses the async execution_jobs queue and executes immediately.
+      // This SAME flow will be used by automated trades once they're trusted.
+      // =============================================================================
+      if (isManualIntent && hasWalletId) {
+        console.log("🚀 COORDINATOR: MANUAL FAST-PATH - Direct on-chain execution");
+        
+        const baseSymbol = toBaseSymbol(intent.symbol);
+        const slippageBps = intent.metadata?.slippage_bps || 100; // Default 1%
+        
+        // Determine amount based on side
+        // BUY: eurAmount is EUR to spend, need to calculate token qty
+        // SELL: qtySuggested is token amount to sell
+        let tradeAmount: number;
+        let tradeBase: string;
+        let tradeQuote: string;
+        
+        if (intent.side === "BUY") {
+          const eurAmount = intent.metadata?.eurAmount;
+          if (!eurAmount || eurAmount <= 0) {
+            console.error("❌ COORDINATOR: BUY requires eurAmount in metadata");
+            return new Response(
+              JSON.stringify({
+                ok: false,
+                success: false,
+                error: "blocked_missing_eur_amount",
+                decision: {
+                  action: "BLOCK",
+                  reason: "blocked_missing_eur_amount",
+                  request_id: requestId,
+                  message: "BUY orders require eurAmount in metadata.",
+                },
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+          // For BUY ETH with USDC: sell USDC, buy ETH
+          // Amount is in quote currency (USDC/EUR equivalent)
+          tradeAmount = eurAmount;
+          tradeBase = baseSymbol; // ETH
+          tradeQuote = "USDC";
+        } else {
+          // SELL: amount is in base token
+          const sellQty = intent.qtySuggested;
+          if (!sellQty || sellQty <= 0) {
+            console.error("❌ COORDINATOR: SELL requires qtySuggested");
+            return new Response(
+              JSON.stringify({
+                ok: false,
+                success: false,
+                error: "blocked_missing_sell_qty",
+                decision: {
+                  action: "BLOCK",
+                  reason: "blocked_missing_sell_qty",
+                  request_id: requestId,
+                  message: "SELL orders require qtySuggested.",
+                },
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+          tradeAmount = sellQty;
+          tradeBase = baseSymbol;
+          tradeQuote = "USDC";
+        }
+
+        const PROJECT_URL = Deno.env.get("SB_URL") || Deno.env.get("SUPABASE_URL");
+        const SERVICE_ROLE = Deno.env.get("SB_SERVICE_ROLE") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+        // ========== STEP 1: Get Quote ==========
+        console.log("📊 COORDINATOR: [1/3] Getting quote...", {
+          chainId: 8453,
+          base: tradeBase,
+          quote: tradeQuote,
+          side: intent.side,
+          amount: tradeAmount,
+          slippageBps,
+          taker: walletAddress,
+        });
+
+        let quoteData: any;
+        try {
+          const quoteResponse = await fetch(`${PROJECT_URL}/functions/v1/onchain-quote`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${SERVICE_ROLE}`,
+              apikey: SERVICE_ROLE!,
+            },
+            body: JSON.stringify({
+              chainId: 8453, // Base
+              base: tradeBase,
+              quote: tradeQuote,
+              side: intent.side,
+              amount: tradeAmount,
+              slippageBps,
+              provider: "0x",
+              taker: walletAddress,
+            }),
+          });
+
+          if (!quoteResponse.ok) {
+            const errorText = await quoteResponse.text();
+            console.error("❌ COORDINATOR: Quote failed:", errorText);
+            throw new Error(`Quote failed: ${errorText}`);
+          }
+
+          quoteData = await quoteResponse.json();
+          console.log("✅ COORDINATOR: Quote received:", {
+            provider: quoteData.provider,
+            price: quoteData.price,
+            minOut: quoteData.minOut,
+          });
+        } catch (quoteError: any) {
+          console.error("❌ COORDINATOR: Quote error:", quoteError.message);
+          
+          // Log decision_event for audit
+          await supabaseClient.from("decision_events").insert({
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            symbol: baseSymbol,
+            side: intent.side,
+            source: intent.source,
+            confidence: intent.confidence,
+            reason: "manual_execution_quote_failed",
+            decision_ts: new Date().toISOString(),
+            metadata: {
+              error: quoteError.message,
+              request_id: requestId,
+              fast_path: "MANUAL",
+            },
+          });
+
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "quote_failed",
+              reason: quoteError.message,
+              decision: {
+                action: "DEFER",
+                reason: "manual_execution_quote_failed",
+                request_id: requestId,
+                message: `Quote failed: ${quoteError.message}`,
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
+        // ========== STEP 2: Build Trade ==========
+        console.log("🔨 COORDINATOR: [2/3] Building trade...");
+
+        let buildData: any;
+        try {
+          const buildResponse = await fetch(`${PROJECT_URL}/functions/v1/onchain-execute`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${SERVICE_ROLE}`,
+              apikey: SERVICE_ROLE!,
+            },
+            body: JSON.stringify({
+              chainId: 8453,
+              base: tradeBase,
+              quote: tradeQuote,
+              side: intent.side,
+              amount: tradeAmount,
+              slippageBps,
+              provider: "0x",
+              taker: walletAddress,
+              mode: "build",
+              preflight: true,
+            }),
+          });
+
+          if (!buildResponse.ok) {
+            const errorText = await buildResponse.text();
+            console.error("❌ COORDINATOR: Build failed:", errorText);
+            throw new Error(`Build failed: ${errorText}`);
+          }
+
+          buildData = await buildResponse.json();
+          
+          if (!buildData.ok || !buildData.tradeId) {
+            console.error("❌ COORDINATOR: Build response invalid:", buildData);
+            throw new Error(buildData.error?.message || "Build returned invalid response");
+          }
+
+          console.log("✅ COORDINATOR: Trade built:", {
+            tradeId: buildData.tradeId,
+            status: buildData.trade?.status,
+          });
+        } catch (buildError: any) {
+          console.error("❌ COORDINATOR: Build error:", buildError.message);
+          
+          // Log decision_event for audit
+          await supabaseClient.from("decision_events").insert({
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            symbol: baseSymbol,
+            side: intent.side,
+            source: intent.source,
+            confidence: intent.confidence,
+            reason: "manual_execution_build_failed",
+            decision_ts: new Date().toISOString(),
+            metadata: {
+              error: buildError.message,
+              request_id: requestId,
+              fast_path: "MANUAL",
+            },
+          });
+
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "build_failed",
+              reason: buildError.message,
+              decision: {
+                action: "DEFER",
+                reason: "manual_execution_build_failed",
+                request_id: requestId,
+                message: `Build failed: ${buildError.message}`,
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
+        // ========== STEP 3: Sign and Send ==========
+        console.log("✍️ COORDINATOR: [3/3] Signing and sending...", { tradeId: buildData.tradeId });
+
+        let signData: any;
+        try {
+          const signResponse = await fetch(`${PROJECT_URL}/functions/v1/onchain-sign-and-send`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${SERVICE_ROLE}`,
+              apikey: SERVICE_ROLE!,
+            },
+            body: JSON.stringify({
+              tradeId: buildData.tradeId,
+            }),
+          });
+
+          if (!signResponse.ok) {
+            const errorText = await signResponse.text();
+            console.error("❌ COORDINATOR: Sign/send failed:", errorText);
+            throw new Error(`Sign/send failed: ${errorText}`);
+          }
+
+          signData = await signResponse.json();
+          
+          if (!signData.ok || !signData.tx_hash) {
+            console.error("❌ COORDINATOR: Sign/send response invalid:", signData);
+            throw new Error(signData.error?.message || signData.error?.code || "Sign/send returned invalid response");
+          }
+
+          console.log("✅ COORDINATOR: Transaction submitted:", {
+            txHash: signData.tx_hash,
+            network: signData.network,
+          });
+        } catch (signError: any) {
+          console.error("❌ COORDINATOR: Sign/send error:", signError.message);
+          
+          // Log decision_event for audit
+          await supabaseClient.from("decision_events").insert({
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            symbol: baseSymbol,
+            side: intent.side,
+            source: intent.source,
+            confidence: intent.confidence,
+            reason: "manual_execution_sign_failed",
+            decision_ts: new Date().toISOString(),
+            metadata: {
+              error: signError.message,
+              trade_id: buildData?.tradeId,
+              request_id: requestId,
+              fast_path: "MANUAL",
+            },
+          });
+
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "sign_send_failed",
+              reason: signError.message,
+              tradeId: buildData?.tradeId,
+              decision: {
+                action: "DEFER",
+                reason: "manual_execution_sign_failed",
+                request_id: requestId,
+                message: `Sign/send failed: ${signError.message}`,
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
+        // ========== SUCCESS: Trade Submitted ==========
+        console.log("🎉 COORDINATOR: MANUAL TRADE EXECUTED SUCCESSFULLY", {
+          tradeId: buildData.tradeId,
+          txHash: signData.tx_hash,
+          symbol: baseSymbol,
+          side: intent.side,
+          amount: tradeAmount,
+        });
+
+        // Log decision_event for audit
+        await supabaseClient.from("decision_events").insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          symbol: baseSymbol,
+          side: intent.side,
+          source: intent.source,
+          confidence: intent.confidence,
+          entry_price: quoteData?.price,
+          reason: "manual_execution_submitted",
+          decision_ts: new Date().toISOString(),
+          trade_id: buildData.tradeId,
+          metadata: {
+            tx_hash: signData.tx_hash,
+            trade_id: buildData.tradeId,
+            wallet_address: walletAddress,
+            execution_status: "SUBMITTED",
+            fast_path: "MANUAL",
+            quote_price: quoteData?.price,
+            amount: tradeAmount,
+            slippage_bps: slippageBps,
+            request_id: requestId,
+          },
+        });
+
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            success: true,
+            tradeId: buildData.tradeId,
+            tx_hash: signData.tx_hash,
+            executed_price: quoteData?.price,
+            qty: tradeAmount,
+            decision: {
+              action: intent.side,
+              reason: "manual_execution_submitted",
+              request_id: requestId,
+              trade_id: buildData.tradeId,
+              tx_hash: signData.tx_hash,
+              message: "REAL trade submitted on-chain.",
+            },
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // =============================================================================
+      // AUTOMATED PATH: Route to execution_jobs for async worker processing
+      // This path is for automated trades from backend-shadow-engine
+      // =============================================================================
+      console.log("📋 COORDINATOR: AUTOMATED PATH - inserting execution_job");
 
       // Get market price for the payload
       const baseSymbol = toBaseSymbol(intent.symbol);
@@ -2509,7 +2927,7 @@ serve(async (req) => {
       try {
         const priceData = await getMarketPrice(baseSymbol, 15000);
         marketPrice = priceData?.price;
-      } catch (err) {
+      } catch (err: any) {
         console.warn("[Coordinator] Could not fetch price for REAL trade:", err?.message);
         marketPrice = intent.metadata?.currentPrice || intent.metadata?.price || null;
       }
@@ -2540,7 +2958,7 @@ serve(async (req) => {
             confidence: intent.confidence,
             market_price: marketPrice,
             total_value_eur: totalValue,
-            wallet_address: prereqResult.wallet_address,
+            wallet_address: walletAddress,
             request_id: requestId,
             metadata: intent.metadata,
             created_at: new Date().toISOString(),
@@ -2553,7 +2971,9 @@ serve(async (req) => {
         console.error("❌ COORDINATOR: Failed to insert execution_job:", jobError);
         return new Response(
           JSON.stringify({
-            ok: true,
+            ok: false,
+            success: false,
+            error: "execution_job_insert_failed",
             decision: {
               action: "DEFER",
               reason: "execution_job_insert_failed",
@@ -2562,7 +2982,7 @@ serve(async (req) => {
               error: jobError.message,
             },
           }),
-          { headers: corsHeaders },
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
 
@@ -2582,7 +3002,7 @@ serve(async (req) => {
         metadata: {
           execution_job_id: jobResult?.id,
           idempotency_key: realIdempotencyKey,
-          wallet_address: prereqResult.wallet_address,
+          wallet_address: walletAddress,
           execution_status: "QUEUED",
           intent_side: intent.side,
         },
@@ -2591,6 +3011,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           ok: true,
+          success: true,
           decision: {
             action: intent.side,
             reason: "real_execution_job_queued",
@@ -2600,7 +3021,7 @@ serve(async (req) => {
             message: "REAL trade queued for async execution.",
           },
         }),
-        { headers: corsHeaders },
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
