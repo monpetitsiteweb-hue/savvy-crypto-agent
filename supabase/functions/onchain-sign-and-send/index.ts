@@ -223,7 +223,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    let tradeId: string;
+    let tradeId: string | undefined;
     let executedPrice: number | undefined;
 
     // ========================================================================
@@ -241,19 +241,26 @@ Deno.serve(async (req) => {
         slippageBps: body.slippageBps,
       });
 
+      // CRITICAL: Handle build failure BEFORE accessing tradeId
       if (!buildResult.ok) {
+        console.error('❌ [sign-and-send] BUILD FAILED (raw result):', JSON.stringify(buildResult, null, 2));
         return new Response(JSON.stringify({
           ok: false,
-          error: { code: 'BUILD_FAILED', message: buildResult.error },
+          error: { 
+            code: 'BUILD_FAILED', 
+            message: buildResult.error ?? 'Unknown build error',
+            rawBuildResult: buildResult,
+          },
         }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
+      // Only access tradeId AFTER confirming build succeeded
       tradeId = buildResult.tradeId;
       executedPrice = buildResult.price;
-      console.log('✅ [sign-and-send] Trade built, proceeding to sign+send:', tradeId);
+      console.log('✅ [sign-and-send] Trade built successfully:', { tradeId, executedPrice });
     }
     // ========================================================================
     // PATH B: tradeId provided (existing behavior)
@@ -271,6 +278,18 @@ Deno.serve(async (req) => {
         error: 'Either tradeId OR (symbol, side, amount, taker) required' 
       }), {
         status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Final guard: tradeId must be defined at this point
+    if (!tradeId) {
+      console.error('❌ [sign-and-send] Unexpected state: tradeId is undefined after path routing');
+      return new Response(JSON.stringify({
+        ok: false,
+        error: { code: 'INTERNAL_ERROR', message: 'tradeId not set after path routing' },
+      }), {
+        status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
