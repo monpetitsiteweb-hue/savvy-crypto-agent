@@ -5966,6 +5966,10 @@ async function executeTradeOrder(
         confidenceOverrideThreshold: 50,
       };
 
+    // Define local execution mode variables (same pattern as executeWithMinimalLock)
+    const localIsMockExecution = strategyConfig?.canonicalIsTestMode === true;
+    const localExecutionMode = localIsMockExecution ? "MOCK" : "REAL";
+
     if (isForceOverride) {
       console.log(
         "🔥 MANUAL FORCE: Using default config for manual trade override in executeTradeOrder",
