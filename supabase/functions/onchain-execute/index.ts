@@ -624,9 +624,42 @@ Deno.serve(async (req) => {
     const WETH_BASE = "0x4200000000000000000000000000000000000006" as const;
     const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
     const OX_PROXY = "0xDef1C0ded9bec7F1a1670819833240f027b25EfF" as const;
+    const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as const;
     
     // Declare tradeId early so Permit2 logic can reference it safely (set after trade insert)
     let tradeId: string | undefined;
+    
+    // Helper: Check Permit2 allowance directly on-chain (no Edge Function call)
+    async function getPermit2Allowance(owner: string, token: string, spender: string): Promise<bigint> {
+      const RPC_URL = Deno.env.get('RPC_URL_8453') || 'https://base.llamarpc.com';
+      // function allowance(address owner, address token, address spender) returns ((uint160 amount, uint48 expiration, uint48 nonce))
+      const allowanceData = `0x927da105${
+        owner.slice(2).padStart(64, '0')}${
+        token.slice(2).padStart(64, '0')}${
+        spender.slice(2).padStart(64, '0')}`;
+      
+      try {
+        const response = await fetch(RPC_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'eth_call',
+            params: [{ to: PERMIT2, data: allowanceData }, 'latest']
+          })
+        });
+        const json = await response.json();
+        if (json.error || !json.result || json.result === '0x') {
+          return 0n;
+        }
+        // Parse uint160 from first 32 bytes of result
+        return BigInt('0x' + json.result.slice(2, 66));
+      } catch (e) {
+        console.error('getPermit2Allowance error:', e);
+        return 0n;
+      }
+    }
     
     // Determine which token we're selling and whether to auto-sign Permit2
     const isSellWeth = side === 'SELL' && (base === 'ETH' || base === 'WETH');
@@ -637,62 +670,99 @@ Deno.serve(async (req) => {
       // Determine the token address for Permit2
       const permit2Token = isSellWeth ? WETH_BASE : USDC_BASE;
       const tokenName = isSellWeth ? 'WETH' : 'USDC';
+      const requiredAmount = BigInt(quoteData.raw.sellAmount);
       
-      try {
-        logger.info('onchain_execute.permit2_status', { tradeId: tradeId ?? 'pending', action: 'signing', token: tokenName, side });
-        
-        const sellAmountWei = quoteData.raw.sellAmount;
-        const sigDeadlineSec = Math.floor(Date.now() / 1000) + 1800; // 30 minutes
-        
-        const permitPayload = makePermit2Payload({
-          token: permit2Token,
-          amountWei: sellAmountWei,
-          spender: OX_PROXY,
-          sigDeadlineSec,
-        });
-        
-        const { signer, signature } = await signPermit2Single(permitPayload);
-        
-        permit2Data = {
-          signature,
-          details: permitPayload.message.details,
-          spender: permitPayload.message.spender,
-          sigDeadline: permitPayload.message.sigDeadline,
-          signer,
-        };
-        
-        logger.info('onchain_execute.permit2_status', { 
+      // Step 1: Check existing Permit2 allowance on-chain
+      const existingAllowance = await getPermit2Allowance(taker, permit2Token, OX_PROXY);
+      
+      logger.info('onchain_execute.permit2_allowance_check', {
+        tradeId: tradeId ?? 'pending',
+        token: tokenName,
+        existingAllowance: existingAllowance.toString(),
+        requiredAmount: requiredAmount.toString(),
+        sufficient: existingAllowance >= requiredAmount,
+      });
+      
+      if (existingAllowance >= requiredAmount) {
+        // ✅ Allowance sufficient - SKIP Permit2 signing entirely
+        console.log(`✅ Permit2 skipped: existing allowance sufficient for ${tokenName}`);
+        logger.info('onchain_execute.permit2_status', {
           tradeId: tradeId ?? 'pending',
-          action: 'complete',
+          action: 'skipped',
           token: tokenName,
-          signer, 
-          amount: sellAmountWei,
-          deadline: sigDeadlineSec 
+          reason: 'existing_allowance_sufficient',
+          existingAllowance: existingAllowance.toString(),
+          requiredAmount: requiredAmount.toString(),
         });
-        
-        // Log successful Permit2 generation
-        await addTradeEvent(tradeId || 'pending', 'permit2', 'info', { 
-          signer,
-          token: tokenName,
-          tokenAddress: permit2Token,
-          amount: sellAmountWei,
-          sigDeadline: sigDeadlineSec,
-          note: `Permit2 signature generated successfully for ${tokenName}`
-        });
-        
-      } catch (error) {
-        logger.error('onchain_execute.permit2_status', { 
-          tradeId: tradeId ?? 'pending',
-          action: 'error',
-          token: tokenName,
-          error: String(error) 
-        });
-        await addTradeEvent(tradeId ?? 'pending', 'permit2', 'error', {
-          token: tokenName,
-          error: String(error),
-          note: `Permit2 signing failed for ${tokenName}, continuing without it` 
-        });
-        // Continue without Permit2 - let the transaction fail naturally if approval is required
+        // IMPORTANT: do NOT set permit2Data - allowance already exists
+      } else {
+        // ❌ Allowance insufficient - MUST sign Permit2
+        try {
+          logger.info('onchain_execute.permit2_status', { tradeId: tradeId ?? 'pending', action: 'signing', token: tokenName, side });
+          
+          const sellAmountWei = quoteData.raw.sellAmount;
+          const sigDeadlineSec = Math.floor(Date.now() / 1000) + 1800; // 30 minutes
+          
+          const permitPayload = makePermit2Payload({
+            token: permit2Token,
+            amountWei: sellAmountWei,
+            spender: OX_PROXY,
+            sigDeadlineSec,
+          });
+          
+          const { signer, signature } = await signPermit2Single(permitPayload);
+          
+          permit2Data = {
+            signature,
+            details: permitPayload.message.details,
+            spender: permitPayload.message.spender,
+            sigDeadline: permitPayload.message.sigDeadline,
+            signer,
+          };
+          
+          logger.info('onchain_execute.permit2_status', { 
+            tradeId: tradeId ?? 'pending',
+            action: 'complete',
+            token: tokenName,
+            signer, 
+            amount: sellAmountWei,
+            deadline: sigDeadlineSec 
+          });
+          
+          // Log successful Permit2 generation
+          await addTradeEvent(tradeId || 'pending', 'permit2', 'info', { 
+            signer,
+            token: tokenName,
+            tokenAddress: permit2Token,
+            amount: sellAmountWei,
+            sigDeadline: sigDeadlineSec,
+            note: `Permit2 signature generated successfully for ${tokenName}`
+          });
+          
+        } catch (error) {
+          // CRITICAL: Do NOT continue without Permit2 if allowance is insufficient
+          logger.error('onchain_execute.permit2_status', { 
+            tradeId: tradeId ?? 'pending',
+            action: 'error',
+            token: tokenName,
+            error: String(error),
+            existingAllowance: existingAllowance.toString(),
+            requiredAmount: requiredAmount.toString(),
+          });
+          
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error: 'Permit2 signing failed and existing allowance is insufficient',
+              token: tokenName,
+              existingAllowance: existingAllowance.toString(),
+              requiredAmount: requiredAmount.toString(),
+              signingError: String(error),
+              resolution: 'Either fix Permit2 signing or approve USDC/WETH to Permit2 manually',
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
       }
     }
 
