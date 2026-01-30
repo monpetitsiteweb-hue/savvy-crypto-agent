@@ -210,6 +210,14 @@ async function runPreflight(
   }
 
   // Check Permit2 allowance for the sell token
+  // SKIP Permit2 preflight check if server-side signing is available (BOT_PK set)
+  // The Permit2 will be auto-signed later in the flow
+  const serverSignerAvailable = !!Deno.env.get('BOT_PK');
+  if (serverSignerAvailable) {
+    console.log(`Preflight: Skipping Permit2 check - server signer available (will auto-sign)`);
+    return null; // All checks passed, Permit2 will be handled by auto-sign block
+  }
+
   console.log(`Checking Permit2 allowance for ${tokenToCheck}...`);
   const permit2Response = await fetch(`${PROJECT_URL}/functions/v1/wallet-permit2-status`, {
     method: 'POST',
@@ -232,7 +240,7 @@ async function runPreflight(
 
   const permit2Data = await permit2Response.json();
   if (permit2Data.action === 'permit2-sign') {
-    console.log('Permit2 approval required');
+    console.log('Permit2 approval required (no server signer)');
     return {
       status: 'preflight_required',
       reason: 'permit2_required',
@@ -609,28 +617,32 @@ Deno.serve(async (req) => {
     });
 
     // ========== Permit2 Signing Integration ==========
-    // For SELL ETH/WETH on Base with 0x provider, sign Permit2 approval
+    // Auto-sign Permit2 approval for server-signed trades on Base with 0x provider
+    // Supports: SELL WETH/ETH, BUY (spending USDC)
     let permit2Data: any = null;
     
     const WETH_BASE = "0x4200000000000000000000000000000000000006" as const;
+    const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
     const OX_PROXY = "0xDef1C0ded9bec7F1a1670819833240f027b25EfF" as const;
     
-    if (
-      provider === '0x' && 
-      chainId === BASE_CHAIN_ID && 
-      side === 'SELL' && 
-      (base === 'ETH' || base === 'WETH') &&
-      taker &&
-      quoteData.raw?.sellAmount
-    ) {
+    // Determine which token we're selling and whether to auto-sign Permit2
+    const isSellWeth = side === 'SELL' && (base === 'ETH' || base === 'WETH');
+    const isBuyWithUsdc = side === 'BUY' && quote === 'USDC';
+    const shouldAutoSignPermit2 = provider === '0x' && chainId === BASE_CHAIN_ID && taker && quoteData.raw?.sellAmount && (isSellWeth || isBuyWithUsdc);
+    
+    if (shouldAutoSignPermit2) {
+      // Determine the token address for Permit2
+      const permit2Token = isSellWeth ? WETH_BASE : USDC_BASE;
+      const tokenName = isSellWeth ? 'WETH' : 'USDC';
+      
       try {
-        logger.info('onchain_execute.permit2_status', { tradeId, action: 'signing' });
+        logger.info('onchain_execute.permit2_status', { tradeId, action: 'signing', token: tokenName, side });
         
         const sellAmountWei = quoteData.raw.sellAmount;
         const sigDeadlineSec = Math.floor(Date.now() / 1000) + 1800; // 30 minutes
         
         const permitPayload = makePermit2Payload({
-          token: WETH_BASE,
+          token: permit2Token,
           amountWei: sellAmountWei,
           spender: OX_PROXY,
           sigDeadlineSec,
@@ -649,6 +661,7 @@ Deno.serve(async (req) => {
         logger.info('onchain_execute.permit2_status', { 
           tradeId,
           action: 'complete',
+          token: tokenName,
           signer, 
           amount: sellAmountWei,
           deadline: sigDeadlineSec 
@@ -657,24 +670,24 @@ Deno.serve(async (req) => {
         // Log successful Permit2 generation
         await addTradeEvent(tradeId || 'pending', 'permit2', 'info', { 
           signer,
+          token: tokenName,
+          tokenAddress: permit2Token,
           amount: sellAmountWei,
           sigDeadline: sigDeadlineSec,
-          note: 'Permit2 signature generated successfully'
+          note: `Permit2 signature generated successfully for ${tokenName}`
         });
-        
-        // Store permit2 data for potential use in 0x /swap/permit2/quote endpoint
-        // (Implementation note: Current 0x v2 integration uses /swap/quote which handles Permit2 internally.
-        //  If switching to /swap/permit2/quote, include permit2Data in the quote request.)
         
       } catch (error) {
         logger.error('onchain_execute.permit2_status', { 
           tradeId,
           action: 'error',
+          token: tokenName,
           error: String(error) 
         });
         await addTradeEvent(tradeId, 'permit2', 'error', {
+          token: tokenName,
           error: String(error),
-          note: 'Permit2 signing failed, continuing without it' 
+          note: `Permit2 signing failed for ${tokenName}, continuing without it` 
         });
         // Continue without Permit2 - let the transaction fail naturally if approval is required
       }
