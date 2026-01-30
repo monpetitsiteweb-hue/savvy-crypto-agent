@@ -59,18 +59,42 @@ async function buildTrade(params: {
 
     if (!buildResponse.ok) {
       const errorText = await buildResponse.text();
-      console.error('❌ [sign-and-send] Build failed:', errorText);
+      console.error('❌ [sign-and-send] Build HTTP failed:', errorText);
       return { ok: false, error: `Build failed: ${errorText}` };
     }
 
     const buildData = await buildResponse.json();
     
-    if (!buildData.ok || !buildData.tradeId) {
-      console.error('❌ [sign-and-send] Build response invalid:', buildData);
-      return { ok: false, error: buildData.error?.message || 'Build returned invalid response' };
+    // Log full raw build response for debugging
+    console.log('📦 [sign-and-send] Raw build response:', JSON.stringify(buildData, null, 2));
+    
+    // Handle preflight_required responses (Permit2, WETH wrap, etc.)
+    if (buildData.status === 'preflight_required') {
+      console.error('❌ [sign-and-send] Preflight required:', {
+        reason: buildData.reason,
+        note: buildData.note,
+        tradeId: buildData.tradeId,
+      });
+      return { 
+        ok: false, 
+        error: `Preflight required: ${buildData.reason}. ${buildData.note || ''}`,
+        preflightData: buildData,
+      };
+    }
+    
+    // Check for tradeId (the key success indicator from build mode)
+    if (!buildData.tradeId) {
+      console.error('❌ [sign-and-send] Build response missing tradeId:', buildData);
+      return { ok: false, error: buildData.error?.message || 'Build returned invalid response (no tradeId)' };
+    }
+    
+    // Check trade status - must be 'built' to proceed
+    if (buildData.status && buildData.status !== 'built' && buildData.status !== 'ok') {
+      console.error('❌ [sign-and-send] Build returned non-built status:', buildData.status);
+      return { ok: false, error: `Build returned status: ${buildData.status}` };
     }
 
-    console.log('✅ [sign-and-send] Trade built:', { tradeId: buildData.tradeId });
+    console.log('✅ [sign-and-send] Trade built:', { tradeId: buildData.tradeId, status: buildData.status });
     return { ok: true, tradeId: buildData.tradeId, price: buildData.price };
   } catch (err: any) {
     console.error('❌ [sign-and-send] Build exception:', err.message);
