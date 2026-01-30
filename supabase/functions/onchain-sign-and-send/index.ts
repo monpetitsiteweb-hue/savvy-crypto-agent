@@ -1,12 +1,82 @@
 /**
  * Headless sign & send endpoint
- * Signs a previously built trade and broadcasts it
+ * 
+ * SINGLE ENTRY POINT for all on-chain trade execution.
+ * 
+ * Accepts EITHER:
+ * 1. tradeId - for pre-built trades (existing behavior)
+ * 2. Raw trade params - internally builds then signs+sends
+ *    Required: symbol, side, amount, taker (wallet address)
+ *    Optional: slippageBps (default 100 = 1%)
+ * 
+ * This function is the ONLY place that:
+ * - Signs transactions via getSigner()
+ * - Broadcasts via eth_sendRawTransaction
+ * - Updates trades table to status=submitted
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 import { getSigner } from '../_shared/signer.ts';
 import { ALLOWED_TO_ADDRESSES } from '../_shared/addresses.ts';
 import { corsHeaders } from '../_shared/cors.ts';
+
+const PROJECT_URL = Deno.env.get('SB_URL') ?? Deno.env.get('SUPABASE_URL');
+const SERVICE_ROLE = Deno.env.get('SB_SERVICE_ROLE') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+// ========================================================================
+// Build Trade (internal helper - calls onchain-execute in build mode)
+// ========================================================================
+async function buildTrade(params: {
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  amount: number;
+  taker: string;
+  slippageBps?: number;
+}): Promise<{ ok: true; tradeId: string; price?: number } | { ok: false; error: string }> {
+  console.log('🔨 [sign-and-send] Building trade internally...', params);
+  
+  try {
+    const buildResponse = await fetch(`${PROJECT_URL}/functions/v1/onchain-execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${SERVICE_ROLE}`,
+        apikey: SERVICE_ROLE!,
+      },
+      body: JSON.stringify({
+        chainId: 8453, // Base
+        base: params.symbol,
+        quote: 'USDC',
+        side: params.side,
+        amount: params.amount,
+        slippageBps: params.slippageBps || 100,
+        provider: '0x',
+        taker: params.taker,
+        mode: 'build',
+        preflight: true,
+      }),
+    });
+
+    if (!buildResponse.ok) {
+      const errorText = await buildResponse.text();
+      console.error('❌ [sign-and-send] Build failed:', errorText);
+      return { ok: false, error: `Build failed: ${errorText}` };
+    }
+
+    const buildData = await buildResponse.json();
+    
+    if (!buildData.ok || !buildData.tradeId) {
+      console.error('❌ [sign-and-send] Build response invalid:', buildData);
+      return { ok: false, error: buildData.error?.message || 'Build returned invalid response' };
+    }
+
+    console.log('✅ [sign-and-send] Trade built:', { tradeId: buildData.tradeId });
+    return { ok: true, tradeId: buildData.tradeId, price: buildData.price };
+  } catch (err: any) {
+    console.error('❌ [sign-and-send] Build exception:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
 
 // ========================================================================
 // Notification Helper
@@ -128,10 +198,54 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { tradeId } = await req.json();
+    const body = await req.json();
+    let tradeId: string;
+    let executedPrice: number | undefined;
 
-    if (!tradeId) {
-      return new Response(JSON.stringify({ ok: false, error: 'tradeId required' }), {
+    // ========================================================================
+    // PATH A: Raw trade params provided (symbol, side, amount, taker)
+    // Build the trade first, then proceed to sign+send
+    // ========================================================================
+    if (!body.tradeId && body.symbol && body.side && body.amount && body.taker) {
+      console.log('🚀 [sign-and-send] RAW PARAMS PATH - building trade first');
+      
+      const buildResult = await buildTrade({
+        symbol: body.symbol,
+        side: body.side,
+        amount: body.amount,
+        taker: body.taker,
+        slippageBps: body.slippageBps,
+      });
+
+      if (!buildResult.ok) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: { code: 'BUILD_FAILED', message: buildResult.error },
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      tradeId = buildResult.tradeId;
+      executedPrice = buildResult.price;
+      console.log('✅ [sign-and-send] Trade built, proceeding to sign+send:', tradeId);
+    }
+    // ========================================================================
+    // PATH B: tradeId provided (existing behavior)
+    // ========================================================================
+    else if (body.tradeId) {
+      tradeId = body.tradeId;
+      console.log('🔐 [sign-and-send] TRADE_ID PATH - signing existing trade:', tradeId);
+    }
+    // ========================================================================
+    // Neither path - error
+    // ========================================================================
+    else {
+      return new Response(JSON.stringify({ 
+        ok: false, 
+        error: 'Either tradeId OR (symbol, side, amount, taker) required' 
+      }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -533,6 +647,9 @@ Deno.serve(async (req) => {
         tradeId,
         tx_hash: txHash,
         network: 'base',
+        executedPrice: executedPrice || trade.price,
+        symbol: trade.base || trade.symbol,
+        side: trade.side,
       }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
