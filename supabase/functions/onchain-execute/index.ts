@@ -625,8 +625,8 @@ Deno.serve(async (req) => {
     const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
     const OX_PROXY = "0xDef1C0ded9bec7F1a1670819833240f027b25EfF" as const;
     
-    // Declare tradeId early so it can be used in Permit2 logging (will be set after trade insert)
-    let tradeId: string = 'pending';
+    // Declare tradeId early so Permit2 logic can reference it safely (set after trade insert)
+    let tradeId: string | undefined;
     
     // Determine which token we're selling and whether to auto-sign Permit2
     const isSellWeth = side === 'SELL' && (base === 'ETH' || base === 'WETH');
@@ -639,7 +639,7 @@ Deno.serve(async (req) => {
       const tokenName = isSellWeth ? 'WETH' : 'USDC';
       
       try {
-        logger.info('onchain_execute.permit2_status', { tradeId, action: 'signing', token: tokenName, side });
+        logger.info('onchain_execute.permit2_status', { tradeId: tradeId ?? 'pending', action: 'signing', token: tokenName, side });
         
         const sellAmountWei = quoteData.raw.sellAmount;
         const sigDeadlineSec = Math.floor(Date.now() / 1000) + 1800; // 30 minutes
@@ -662,7 +662,7 @@ Deno.serve(async (req) => {
         };
         
         logger.info('onchain_execute.permit2_status', { 
-          tradeId,
+          tradeId: tradeId ?? 'pending',
           action: 'complete',
           token: tokenName,
           signer, 
@@ -682,12 +682,12 @@ Deno.serve(async (req) => {
         
       } catch (error) {
         logger.error('onchain_execute.permit2_status', { 
-          tradeId,
+          tradeId: tradeId ?? 'pending',
           action: 'error',
           token: tokenName,
           error: String(error) 
         });
-        await addTradeEvent(tradeId, 'permit2', 'error', {
+        await addTradeEvent(tradeId ?? 'pending', 'permit2', 'error', {
           token: tokenName,
           error: String(error),
           note: `Permit2 signing failed for ${tokenName}, continuing without it` 
