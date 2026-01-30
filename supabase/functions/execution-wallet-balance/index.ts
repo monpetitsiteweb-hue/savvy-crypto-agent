@@ -135,7 +135,7 @@ serve(async (req) => {
     // ---- WALLET LOOKUP ----
     const { data: wallet, error: walletErr } = await supabaseAdmin
       .from("execution_wallets")
-      .select("wallet_address")
+      .select("wallet_address, funded_at")
       .eq("user_id", userId)
       .single();
 
@@ -174,6 +174,27 @@ serve(async (req) => {
       getErc20Balance(TOKENS.WETH, walletAddress),
       getErc20Balance(TOKENS.USDC, walletAddress),
     ]);
+
+    // ---- SYNC is_funded FROM LIVE BALANCE (fixes direct deposit case) ----
+    // Threshold: 0.001 ETH = 1e15 wei (enough for gas)
+    const MIN_GAS_THRESHOLD = BigInt("1000000000000000");
+    const liveIsFunded = ethWei >= MIN_GAS_THRESHOLD;
+
+    // Update execution_wallets.is_funded to match live state
+    const { error: syncError } = await supabaseAdmin
+      .from("execution_wallets")
+      .update({
+        is_funded: liveIsFunded,
+        ...(liveIsFunded && !wallet.funded_at ? { funded_at: new Date().toISOString() } : {}),
+        ...(liveIsFunded ? { funded_amount_wei: ethWei.toString() } : {}),
+      })
+      .eq("user_id", userId);
+
+    if (syncError) {
+      console.warn("[execution-wallet-balance] Failed to sync is_funded:", syncError.message);
+    } else {
+      console.log("[execution-wallet-balance] Synced is_funded:", { liveIsFunded, ethWei: ethWei.toString() });
+    }
 
     const ethAmount = atomicToNumber(ethWei, DECIMALS.ETH);
     const wethAmount = atomicToNumber(wethWei, DECIMALS.WETH);
