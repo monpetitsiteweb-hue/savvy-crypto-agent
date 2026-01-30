@@ -2284,8 +2284,11 @@ serve(async (req) => {
     }
 
     // STEP 4: GATE OVERRIDES FOR MANUAL SELL (force debugging path)
+    // NOTE: Do NOT intercept REAL manual trades - those must go to MANUAL FAST-PATH
     const force = intent.source === "manual" && intent.metadata?.force === true;
-    if (force) {
+    const isRealManualTrade =
+      intent.source === "manual" && !!intent.metadata?.execution_wallet_id;
+    if (force && !isRealManualTrade) {
       console.log("🔥 MANUAL FORCE OVERRIDE: bypassing all gates for debugging");
       const base = toBaseSymbol(intent.symbol);
       const qty = intent.qtySuggested || 0.001;
