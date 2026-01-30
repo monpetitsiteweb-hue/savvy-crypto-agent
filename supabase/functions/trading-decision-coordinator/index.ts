@@ -5941,9 +5941,11 @@ async function executeTradeOrder(
     const baseSymbol = toBaseSymbol(intent.symbol);
     const canonicalResult = resolveCanonicalConfig(strategyConfig);
 
-    // Note: Config should already be validated in executeWithMinimalLock,
-    // but we check again for safety in case this function is called directly
-    if (!canonicalResult.success) {
+    // Allow force override to bypass config validation for manual trades
+    const isForceOverride =
+      intent.metadata?.force === true && intent.source === "manual";
+
+    if (!canonicalResult.success && !isForceOverride) {
       const missingKey = canonicalResult.missingKeys?.[0] || "unknown";
       console.log(
         `🚫 COORDINATOR: executeTradeOrder blocked - missing config: ${canonicalResult.missingKeys?.join(", ")}`,
@@ -5951,7 +5953,24 @@ async function executeTradeOrder(
       return { success: false, error: `blocked_missing_config:${missingKey}` };
     }
 
-    const canonical = canonicalResult.config!;
+    // Use defaults when force override with no config
+    const canonical =
+      canonicalResult.config || {
+        takeProfitPercentage: 2.0,
+        stopLossPercentage: 2.0,
+        aiConfidenceThreshold: 50,
+        priceStaleMaxMs: 60000,
+        spreadThresholdBps: 100,
+        minHoldPeriodMs: 60000,
+        cooldownBetweenOppositeActionsMs: 60000,
+        confidenceOverrideThreshold: 50,
+      };
+
+    if (isForceOverride) {
+      console.log(
+        "🔥 MANUAL FORCE: Using default config for manual trade override in executeTradeOrder",
+      );
+    }
 
     // PHASE 4: Load optimized parameters (override canonical config)
     const params = await loadStrategyParameters(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
