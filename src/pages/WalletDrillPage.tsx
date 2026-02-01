@@ -1,19 +1,25 @@
 /**
- * Execution Wallet – Operator Panel
+ * Custodial Execution – Operator Panel
  *
  * INTERNAL SAFETY TOOL — NOT A PRODUCT FEATURE
  *
- * This page exists to verify and operate the custody system:
- * 1. Create wallet (server-side, system-custodied)
- * 2. Display address for manual funding
- * 3. Withdraw funds
- * 4. Manual BUY/SELL trades (routed through coordinator)
- * 5. View trade history
+ * CUSTODIAL MODEL:
+ * - ONE SYSTEM WALLET (BOT_ADDRESS) holds ALL real on-chain funds
+ * - Users own DATABASE balances, not on-chain funds
+ * - User wallets are for DEPOSIT + AUDIT only, never used for trading
+ * - All REAL trades execute from BOT_ADDRESS
  *
- * NO private keys. NO automation. NO onboarding logic.
+ * This page validates:
+ * 1. System wallet identity and status
+ * 2. User deposit wallets (audit only)
+ * 3. Manual BUY/SELL (routed to system wallet)
+ * 4. Withdrawals (from system wallet to external)
+ * 5. Trade history
+ *
+ * NO private keys exposed. NO automation. NO onboarding logic.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Copy, Wallet, ArrowDownToLine, AlertTriangle } from "lucide-react";
+import { Copy, Wallet, ArrowDownToLine, AlertTriangle, Server, User, Shield, Info } from "lucide-react";
 import { WalletBalanceCard } from "@/components/wallet/WalletBalanceCard";
 import { ManualTradeCard } from "@/components/wallet/ManualTradeCard";
 import { ManualTradeHistory } from "@/components/wallet/ManualTradeHistory";
@@ -40,17 +46,31 @@ interface WithdrawResult {
   error?: string;
 }
 
+interface SystemWalletInfo {
+  address: string | null;
+  match: boolean;
+  loading: boolean;
+  error: string | null;
+}
+
 export default function WalletDrillPage() {
   const { user } = useAuth();
   const { isAdmin, loading: roleLoading } = useUserRole();
 
-  // Section 1: Create wallet state
+  // Section: System wallet info
+  const [systemWallet, setSystemWallet] = useState<SystemWalletInfo>({
+    address: null,
+    match: false,
+    loading: true,
+    error: null,
+  });
+
+  // Section: User deposit wallet state
   const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
   const [createLoading, setCreateLoading] = useState<boolean>(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // Section 3: Withdraw state
-  const [withdrawWalletId, setWithdrawWalletId] = useState<string>("");
+  // Section: Withdraw state
   const [withdrawAsset, setWithdrawAsset] = useState<"ETH" | "USDC">("ETH");
   const [withdrawAmount, setWithdrawAmount] = useState<string>("");
   const [withdrawDestination, setWithdrawDestination] = useState<string>("");
@@ -63,6 +83,58 @@ export default function WalletDrillPage() {
   // Callback MUST be declared before any conditional returns (React hooks rule)
   const handleTradeComplete = useCallback(() => {
     setTradeRefreshTrigger((prev) => prev + 1);
+  }, []);
+
+  // Fetch system wallet info on mount
+  useEffect(() => {
+    const fetchSystemWallet = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+
+        if (!token) {
+          setSystemWallet({ address: null, match: false, loading: false, error: "Not authenticated" });
+          return;
+        }
+
+        const response = await fetch(
+          `https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/debug-bot-address`,
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        const result = await response.json();
+
+        if (result.ok) {
+          setSystemWallet({
+            address: result.derivedAddress || result.envBotAddress,
+            match: result.match === true,
+            loading: false,
+            error: null,
+          });
+        } else {
+          setSystemWallet({
+            address: null,
+            match: false,
+            loading: false,
+            error: result.error || "Failed to fetch system wallet",
+          });
+        }
+      } catch (err: any) {
+        setSystemWallet({
+          address: null,
+          match: false,
+          loading: false,
+          error: err.message || "Network error",
+        });
+      }
+    };
+
+    fetchSystemWallet();
   }, []);
 
   // Loading state - AFTER all hooks
@@ -88,7 +160,7 @@ export default function WalletDrillPage() {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // SECTION 1: Create Wallet
+  // SECTION: Create User Deposit Wallet
   // ─────────────────────────────────────────────────────────────
   const handleCreateWallet = async () => {
     if (!user) return;
@@ -127,8 +199,6 @@ export default function WalletDrillPage() {
           is_funded: result.is_funded,
           already_existed: result.already_existed,
         });
-        // Prefill withdraw wallet ID
-        setWithdrawWalletId(result.wallet_id);
       } else {
         throw new Error(result.error || "Unknown error");
       }
@@ -140,17 +210,17 @@ export default function WalletDrillPage() {
   };
 
   // ─────────────────────────────────────────────────────────────
-  // SECTION 2: Copy address helper
+  // Copy address helper
   // ─────────────────────────────────────────────────────────────
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
 
   // ─────────────────────────────────────────────────────────────
-  // SECTION 3: Withdraw Funds
+  // SECTION: Withdraw Funds (from SYSTEM wallet to external)
   // ─────────────────────────────────────────────────────────────
   const handleWithdraw = async () => {
-    if (!user || !withdrawWalletId || !withdrawAmount || !withdrawDestination) return;
+    if (!user || !withdrawAmount || !withdrawDestination) return;
 
     setWithdrawLoading(true);
     setWithdrawResult(null);
@@ -159,27 +229,28 @@ export default function WalletDrillPage() {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
 
-      const parsedAmount = Number(
-        withdrawAmount.replace(',', '.').trim()
-      );
-      
+      const parsedAmount = Number(withdrawAmount.replace(",", ".").trim());
+
       if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
         throw new Error("Invalid amount");
       }
 
-      const response = await fetch(`https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/execution-wallet-withdraw`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          wallet_id: withdrawWalletId,
-          asset: withdrawAsset,
-          to_address: withdrawDestination,
-          amount: parsedAmount,
-        }),
-      });
+      const response = await fetch(
+        `https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/execution-wallet-withdraw`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            // NOTE: wallet_id removed - withdrawals are from SYSTEM wallet
+            asset: withdrawAsset,
+            to_address: withdrawDestination,
+            amount: parsedAmount,
+          }),
+        }
+      );
 
       const result = await response.json();
 
@@ -209,52 +280,130 @@ export default function WalletDrillPage() {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────
-  // handleTradeComplete is declared above (before conditional returns)
-  // ─────────────────────────────────────────────────────────────
-
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="max-w-4xl mx-auto space-y-8">
         {/* Header */}
         <div className="border-b border-border pb-4">
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Wallet className="h-6 w-6" />
-            Execution Wallet – Operator Panel
+            <Shield className="h-6 w-6" />
+            Custodial Execution – Operator Panel
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Internal safety verification tool. NOT a product feature.
+            Internal safety verification tool. Validates REAL on-chain execution under custodial model.
           </p>
         </div>
 
-        {/* WALLET BALANCES (new section) */}
+        {/* CUSTODIAL MODEL EXPLAINER */}
+        <Card className="border-blue-500/30 bg-blue-500/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2 text-blue-600">
+              <Info className="h-5 w-5" />
+              Custodial Model – How It Works
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground space-y-2">
+            <p>
+              <strong>System Wallet (BOT_ADDRESS):</strong> Holds ALL real on-chain funds. Executes all
+              trades, Permit2 approvals, and withdrawals. Not user-specific.
+            </p>
+            <p>
+              <strong>User Wallets:</strong> For DEPOSIT and AUDIT only. Funds deposited here are swept to
+              the system wallet. Users own DATABASE balances, not on-chain balances.
+            </p>
+            <p>
+              <strong>Manual Trades:</strong> Execute from the SYSTEM wallet. The user wallet ID is passed
+              for authorization, but execution happens from BOT_ADDRESS.
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* SECTION A: SYSTEM WALLET (READ-ONLY) */}
+        <Card className="border-yellow-500/30 bg-yellow-500/5">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2 text-yellow-600">
+              <Server className="h-5 w-5" />
+              System Trading Wallet
+            </CardTitle>
+            <CardDescription>
+              Executes all REAL trades and withdrawals. Holds pooled on-chain funds.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {systemWallet.loading ? (
+              <div className="text-muted-foreground text-sm">Loading system wallet...</div>
+            ) : systemWallet.error ? (
+              <div className="p-3 bg-destructive/10 border border-destructive/20 rounded text-sm text-destructive">
+                Error: {systemWallet.error}
+              </div>
+            ) : (
+              <div className="p-4 bg-muted rounded space-y-2 font-mono text-sm">
+                <div className="flex items-center gap-2">
+                  <strong>Address:</strong>
+                  <span className="break-all">{systemWallet.address || "Not configured"}</span>
+                  {systemWallet.address && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => copyToClipboard(systemWallet.address!)}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+                <div>
+                  <strong>Chain:</strong> Base (8453)
+                </div>
+                <div>
+                  <strong>Purpose:</strong> All REAL BUY/SELL, Permit2, Withdrawals
+                </div>
+                <div className={systemWallet.match ? "text-green-600" : "text-destructive"}>
+                  <strong>Key Match:</strong> {systemWallet.match ? "✓ Verified" : "✗ Mismatch"}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* WALLET BALANCES (system wallet balances) */}
         <WalletBalanceCard />
 
         {/* MANUAL TRADING SECTION */}
-        {user && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <ManualTradeCard
-              side="BUY"
-              userId={user.id}
-              onTradeComplete={handleTradeComplete}
-            />
-            <ManualTradeCard
-              side="SELL"
-              userId={user.id}
-              onTradeComplete={handleTradeComplete}
-            />
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <AlertTriangle className="h-4 w-4 text-yellow-500" />
+            <span className="text-sm font-medium">
+              Trades execute from the SYSTEM wallet (custodial model). User wallet is for authorization only.
+            </span>
           </div>
-        )}
+          {user && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <ManualTradeCard side="BUY" userId={user.id} onTradeComplete={handleTradeComplete} />
+              <ManualTradeCard side="SELL" userId={user.id} onTradeComplete={handleTradeComplete} />
+            </div>
+          )}
+        </div>
 
-        {/* SECTION 1: Create Wallet */}
+        {/* SECTION B: USER DEPOSIT WALLET (AUDIT ONLY) */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Create Execution Wallet</CardTitle>
-            <CardDescription>System-custodied wallet. Private key never leaves server.</CardDescription>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <User className="h-5 w-5" />
+              User Deposit Wallet (Audit Only)
+            </CardTitle>
+            <CardDescription>
+              System-custodied wallet for deposits. NOT used for trading. Funds are swept to system wallet.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Button onClick={handleCreateWallet} disabled={createLoading} className="w-full">
-              {createLoading ? "Creating..." : "Create execution wallet"}
+            <div className="p-3 bg-muted/50 border border-border rounded text-xs text-muted-foreground">
+              <strong>Note:</strong> This address is for receiving deposits only. Trading balance is tracked
+              in the DATABASE, not on-chain. All trades execute from the system wallet.
+            </div>
+
+            <Button onClick={handleCreateWallet} disabled={createLoading} className="w-full" variant="outline">
+              {createLoading ? "Creating..." : "Create / Fetch User Deposit Wallet"}
             </Button>
 
             {createError && (
@@ -268,65 +417,48 @@ export default function WalletDrillPage() {
                 <div>
                   <strong>wallet_id:</strong> {walletInfo.wallet_id}
                 </div>
-                <div>
-                  <strong>wallet_address:</strong> {walletInfo.wallet_address}
+                <div className="flex items-center gap-2">
+                  <strong>deposit_address:</strong>
+                  <span className="break-all">{walletInfo.wallet_address}</span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => copyToClipboard(walletInfo.wallet_address)}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
                 </div>
                 <div>
-                  <strong>chain_id:</strong> {walletInfo.chain_id}
+                  <strong>chain_id:</strong> {walletInfo.chain_id} (Base)
                 </div>
                 <div>
-                  <strong>is_funded:</strong> {walletInfo.is_funded ? "true" : "false"}
+                  <strong>has_received_deposit:</strong> {walletInfo.is_funded ? "true" : "false"}
                 </div>
                 {walletInfo.already_existed && <div className="text-muted-foreground">(wallet already existed)</div>}
+                <div className="mt-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded text-yellow-600 text-xs">
+                  ⚠️ Deposits to this address are for audit/tracking. Actual trading uses system wallet.
+                </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* SECTION 2: Fund Wallet (Manual) */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Fund Wallet (Manual)</CardTitle>
-            <CardDescription>Send a small amount (e.g. 0.001 ETH) from an external wallet.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {walletInfo ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <Input value={walletInfo.wallet_address} readOnly className="font-mono text-sm" />
-                  <Button variant="outline" size="icon" onClick={() => copyToClipboard(walletInfo.wallet_address)}>
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  <strong>Network:</strong> Base (Chain ID: 8453)
-                </div>
-              </>
-            ) : (
-              <p className="text-muted-foreground text-sm">Create a wallet first to see the funding address.</p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* SECTION 3: Withdraw Funds */}
+        {/* SECTION: Withdraw Funds */}
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <ArrowDownToLine className="h-5 w-5" />
               Withdraw Funds
             </CardTitle>
-            <CardDescription>Emergency exit. Works regardless of UI or automation state.</CardDescription>
+            <CardDescription>
+              Emergency exit. Sends from SYSTEM wallet to external address. User wallet is NOT involved.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="wallet-id">Wallet ID</Label>
-              <Input
-                id="wallet-id"
-                value={withdrawWalletId}
-                onChange={(e) => setWithdrawWalletId(e.target.value)}
-                placeholder="UUID of the wallet"
-                className="font-mono text-sm"
-              />
+            <div className="p-3 bg-muted/50 border border-border rounded text-xs text-muted-foreground">
+              <strong>How withdrawals work:</strong> Funds are sent FROM the system wallet (BOT_ADDRESS) TO
+              the destination address you specify. The user's database balance is debited accordingly.
             </div>
 
             <div className="space-y-2">
@@ -354,7 +486,7 @@ export default function WalletDrillPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="destination">Destination Address</Label>
+              <Label htmlFor="destination">Destination Address (External)</Label>
               <Input
                 id="destination"
                 value={withdrawDestination}
@@ -366,11 +498,11 @@ export default function WalletDrillPage() {
 
             <Button
               onClick={handleWithdraw}
-              disabled={withdrawLoading || !withdrawWalletId || !withdrawAmount || !withdrawDestination}
+              disabled={withdrawLoading || !withdrawAmount || !withdrawDestination}
               className="w-full"
               variant="destructive"
             >
-              {withdrawLoading ? "Processing..." : "Withdraw"}
+              {withdrawLoading ? "Processing..." : "Withdraw from System Wallet"}
             </Button>
 
             {withdrawResult && (
@@ -399,14 +531,12 @@ export default function WalletDrillPage() {
         </Card>
 
         {/* MANUAL TRADE HISTORY */}
-        {user && (
-          <ManualTradeHistory userId={user.id} refreshTrigger={tradeRefreshTrigger} />
-        )}
+        {user && <ManualTradeHistory userId={user.id} refreshTrigger={tradeRefreshTrigger} />}
 
         {/* Footer warning */}
         <div className="text-xs text-muted-foreground text-center pt-4 border-t border-border">
           <AlertTriangle className="h-4 w-4 inline mr-1" />
-          Operator-only safety tool. Not for production use.
+          Operator-only safety tool. Validates REAL on-chain execution under custodial model.
         </div>
       </div>
     </div>
