@@ -227,11 +227,33 @@ Deno.serve(async (req) => {
     let executedPrice: number | undefined;
 
     // ========================================================================
-    // PATH A: Raw trade params provided (symbol, side, amount, taker)
-    // Build the trade first, then proceed to sign+send
+    // CUSTODIAL MODEL: All trades execute from SYSTEM wallet (BOT_ADDRESS)
     // ========================================================================
-    if (!body.tradeId && body.symbol && body.side && body.amount && body.taker) {
-      console.log('🚀 [sign-and-send] RAW PARAMS PATH - building trade first');
+    const signer = getSigner();
+    const systemBotAddress = signer.getAddress();
+    
+    if (!systemBotAddress) {
+      return new Response(JSON.stringify({ 
+        ok: false, 
+        error: 'SYSTEM signer not configured (BOT_ADDRESS/BOT_PRIVATE_KEY missing)',
+        signerType: signer.type,
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ========================================================================
+    // PATH A: Raw trade params provided (symbol, side, amount)
+    // taker is ALWAYS BOT_ADDRESS in custodial model
+    // ========================================================================
+    if (!body.tradeId && body.symbol && body.side && body.amount) {
+      console.log('🚀 [sign-and-send] RAW PARAMS PATH - building trade for SYSTEM wallet');
+      
+      // Log if caller provided a different taker (ignored in custodial model)
+      if (body.taker && body.taker.toLowerCase() !== systemBotAddress.toLowerCase()) {
+        console.warn(`⚠️ [sign-and-send] CUSTODIAL MODEL: Ignoring provided taker (${body.taker}), using SYSTEM wallet (${systemBotAddress})`);
+      }
       
       // Clamp slippage to builder maximum (0x enforces 50 bps max)
       const BUILDER_MAX_SLIPPAGE_BPS = 50;
@@ -246,7 +268,7 @@ Deno.serve(async (req) => {
         symbol: body.symbol,
         side: body.side,
         amount: body.amount,
-        taker: body.taker,
+        taker: systemBotAddress, // ALWAYS use SYSTEM wallet in custodial model
         slippageBps: effectiveSlippageBps,
       });
 
@@ -284,7 +306,7 @@ Deno.serve(async (req) => {
     else {
       return new Response(JSON.stringify({ 
         ok: false, 
-        error: 'Either tradeId OR (symbol, side, amount, taker) required' 
+        error: 'Either tradeId OR (symbol, side, amount) required. taker is enforced to SYSTEM wallet.' 
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
