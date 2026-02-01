@@ -42,14 +42,19 @@ Deno.serve(async (req) => {
     }
 
     return json({ ok: true, derivedAddress, envBotAddress }, 200);
-  } catch (_err) {
+  } catch (err) {
     // Fail closed but keep response format stable.
+    const errMessage = err instanceof Error ? err.message : String(err);
     return json(
       {
         ok: false,
         derivedAddress: "",
         envBotAddress: Deno.env.get("BOT_ADDRESS") ?? "",
-        error: "SIGNER_ADDRESS_MISMATCH",
+        signerMode: Deno.env.get("SERVER_SIGNER_MODE") ?? "webhook (default)",
+        hasBotPK: !!Deno.env.get("BOT_PRIVATE_KEY"),
+        hasWebhookUrl: !!Deno.env.get("SIGNER_WEBHOOK_URL"),
+        hasWebhookAuth: !!Deno.env.get("SIGNER_WEBHOOK_AUTH"),
+        error: errMessage,
       },
       200
     );

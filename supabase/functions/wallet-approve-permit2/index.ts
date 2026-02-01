@@ -1,11 +1,21 @@
 /**
  * wallet-approve-permit2
  * 
- * One-time server-side ERC20 approval to Permit2 for system-custodied wallets.
- * This unblocks Permit2-based swaps without exposing private keys.
+ * SYSTEM WALLET approval to Permit2 contract on Base.
+ * This is a SYSTEM operation - approves BOT_ADDRESS tokens to Permit2/0x.
+ * 
+ * CUSTODIAL MODEL:
+ * - ALL trading funds are held in the SYSTEM wallet (BOT_ADDRESS)
+ * - User wallets are ONLY for withdrawal authorization
+ * - This endpoint uses BOT_PRIVATE_KEY via getSigner()
+ * 
+ * Request: POST { token: "USDC" | "WETH" }
+ * 
+ * Performs TWO approvals:
+ * 1. ERC20 approval: token → Permit2 (MaxUint256)
+ * 2. Permit2 internal allowance: token → 0x Router (MaxUint160)
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2?target=deno";
 import { corsHeaders } from "../_shared/cors.ts";
 import { getSigner, TxPayload } from "../_shared/signer.ts";
 import { logger } from "../_shared/logger.ts";
@@ -52,9 +62,19 @@ function jsonResponse(data: Record<string, unknown>, status = 200) {
   });
 }
 
-function jsonError(status: number, message: string) {
-  logger.error("wallet-approve-permit2.error", { status, message });
-  return jsonResponse({ ok: false, error: message }, status);
+function jsonError(status: number, message: string, meta: Record<string, unknown> = {}) {
+  logger.error("wallet-approve-permit2.error", { status, message, ...meta });
+  return jsonResponse({ ok: false, error: message, ...meta }, status);
+}
+
+async function getEthBalance(address: string): Promise<bigint> {
+  const res = await fetch(BASE_RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBalance", params: [address, "latest"] }),
+  });
+  const data = await res.json();
+  return BigInt(data.result || "0x0");
 }
 
 async function getCurrentAllowance(token: string, owner: string, spender: string): Promise<bigint> {
@@ -107,7 +127,6 @@ async function getPermit2InternalAllowance(owner: string, token: string, spender
   if (!result || typeof result !== "string" || result === "0x") return 0n;
 
   // First 32 bytes contain amount (uint160 right-padded in ABI word)
-  // result is hex string with 0x prefix
   const word0 = result.slice(2, 66);
   if (!word0 || word0.length !== 64) return 0n;
   return BigInt(`0x${word0}`);
@@ -141,11 +160,7 @@ Deno.serve(async (req) => {
 
     // Parse and validate input
     const body = await req.json();
-    const { wallet_id, token } = body;
-
-    if (!wallet_id || typeof wallet_id !== "string") {
-      return jsonError(400, "wallet_id is required");
-    }
+    const { token } = body;
 
     if (!token || typeof token !== "string") {
       return jsonError(400, "token is required (USDC or WETH)");
@@ -157,52 +172,46 @@ Deno.serve(async (req) => {
       return jsonError(400, "Invalid token. Only USDC or WETH allowed.");
     }
 
-    logger.info("wallet-approve-permit2.params", { wallet_id, token: tokenUpper });
+    logger.info("wallet-approve-permit2.params", { token: tokenUpper });
 
-    // Initialize Supabase admin client
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
+    // =====================================================================
+    // CUSTODIAL MODEL: Use SYSTEM wallet (BOT_ADDRESS) for all approvals
+    // =====================================================================
+    const signer = getSigner();
+    const botAddress = signer.getAddress();
+
+    if (!botAddress) {
+      return jsonError(500, "SYSTEM signer not configured", {
+        hint: "BOT_ADDRESS and BOT_PRIVATE_KEY (or webhook) must be configured",
+        signerType: signer.type,
+      });
+    }
+
+    logger.info("wallet-approve-permit2.system_wallet", { 
+      botAddress, 
+      signerType: signer.type,
+      token: tokenUpper,
     });
 
-    // Fetch wallet
-    const { data: wallet, error: walletError } = await supabase
-      .from("execution_wallets")
-      .select("id, wallet_address, is_active, chain_id")
-      .eq("id", wallet_id)
-      .maybeSingle();
+    // Check ETH balance for gas
+    const ethBalance = await getEthBalance(botAddress);
+    const MIN_ETH_FOR_GAS = BigInt("100000000000000"); // 0.0001 ETH
 
-    if (walletError) {
-      logger.error("wallet-approve-permit2.wallet_fetch_error", { error: walletError.message });
-      return jsonError(500, "Failed to fetch wallet");
+    if (ethBalance < MIN_ETH_FOR_GAS) {
+      return jsonError(422, "Insufficient ETH for gas in SYSTEM wallet", {
+        balance_wei: ethBalance.toString(),
+        required_wei: MIN_ETH_FOR_GAS.toString(),
+        botAddress,
+      });
     }
-
-    if (!wallet) {
-      return jsonError(404, "Wallet not found");
-    }
-
-    if (!wallet.is_active) {
-      return jsonError(400, "Wallet is not active");
-    }
-
-    if (wallet.chain_id !== CHAIN_ID) {
-      return jsonError(400, `Wallet chain_id mismatch. Expected ${CHAIN_ID}, got ${wallet.chain_id}`);
-    }
-
-    const walletAddress = wallet.wallet_address;
-    logger.info("wallet-approve-permit2.wallet_found", { wallet_address: walletAddress });
-
-    // Get signer once (used for any tx we end up sending)
-    const signer = getSigner();
-    logger.info("wallet-approve-permit2.signer_type", { type: signer.type });
 
     // =====================================================================
-    // STEP 1: ERC20 approval (token -> Permit2)
+    // STEP 1: ERC20 approval (token -> Permit2) from SYSTEM wallet
     // =====================================================================
-    const currentAllowance = await getCurrentAllowance(tokenAddress, walletAddress, PERMIT2);
+    const currentAllowance = await getCurrentAllowance(tokenAddress, botAddress, PERMIT2);
     logger.info("wallet-approve-permit2.current_allowance", {
       token: tokenUpper,
+      botAddress,
       allowance: currentAllowance.toString(),
       threshold: HALF_MAX.toString(),
     });
@@ -219,17 +228,18 @@ Deno.serve(async (req) => {
         data: approveData,
         value: "0",
         gas: "100000", // ERC20 approve typically uses ~50k gas
-        from: walletAddress,
+        from: botAddress,
       };
 
       logger.info("wallet-approve-permit2.building_erc20_tx", {
         to: tokenAddress,
+        from: botAddress,
         spender: PERMIT2,
         token: tokenUpper,
       });
 
       const signedTx = await signer.sign(txPayload, CHAIN_ID);
-      logger.info("wallet-approve-permit2.erc20_tx_signed", {});
+      logger.info("wallet-approve-permit2.erc20_tx_signed", { from: botAddress });
 
       // Broadcast transaction
       const sendRes = await fetch(BASE_RPC, {
@@ -253,10 +263,11 @@ Deno.serve(async (req) => {
       logger.info("wallet-approve-permit2.erc20_approved", {
         tx_hash: erc20TxHash,
         token: tokenUpper,
+        from: botAddress,
         spender: PERMIT2,
       });
     } else {
-      logger.info("wallet-approve-permit2.erc20_already_approved", { token: tokenUpper });
+      logger.info("wallet-approve-permit2.erc20_already_approved", { token: tokenUpper, botAddress });
     }
 
     // =====================================================================
@@ -264,12 +275,14 @@ Deno.serve(async (req) => {
     // =====================================================================
     logger.info("wallet-approve-permit2.checking_permit2_internal", {
       token: tokenUpper,
+      owner: botAddress,
       spender: OX_PROXY,
     });
 
-    const permit2InternalAllowance = await getPermit2InternalAllowance(walletAddress, tokenAddress, OX_PROXY);
+    const permit2InternalAllowance = await getPermit2InternalAllowance(botAddress, tokenAddress, OX_PROXY);
     logger.info("wallet-approve-permit2.permit2_internal_allowance", {
       token: tokenUpper,
+      botAddress,
       allowance: permit2InternalAllowance.toString(),
       threshold: HALF_MAX_UINT160.toString(),
     });
@@ -280,6 +293,7 @@ Deno.serve(async (req) => {
     if (!permit2AlreadyApproved) {
       logger.info("wallet-approve-permit2.building_permit2_internal_tx", {
         token: tokenUpper,
+        from: botAddress,
         spender: OX_PROXY,
       });
 
@@ -290,11 +304,11 @@ Deno.serve(async (req) => {
         data: permit2ApproveData,
         value: "0",
         gas: "80000",
-        from: walletAddress,
+        from: botAddress,
       };
 
       const signedPermit2Tx = await signer.sign(permit2TxPayload, CHAIN_ID);
-      logger.info("wallet-approve-permit2.permit2_internal_tx_signed", {});
+      logger.info("wallet-approve-permit2.permit2_internal_tx_signed", { from: botAddress });
 
       const sendRes = await fetch(BASE_RPC, {
         method: "POST",
@@ -317,10 +331,11 @@ Deno.serve(async (req) => {
       logger.info("wallet-approve-permit2.permit2_internal_approved", {
         tx_hash: permit2TxHash,
         token: tokenUpper,
+        from: botAddress,
         spender: OX_PROXY,
       });
     } else {
-      logger.info("wallet-approve-permit2.permit2_internal_already_approved", { token: tokenUpper });
+      logger.info("wallet-approve-permit2.permit2_internal_already_approved", { token: tokenUpper, botAddress });
     }
 
     const fullyApproved = erc20AlreadyApproved && permit2AlreadyApproved;
@@ -329,13 +344,14 @@ Deno.serve(async (req) => {
       ok: true,
       status: fullyApproved ? "already_approved" : "approved",
       token: tokenUpper,
+      botAddress,
       permit2_contract: PERMIT2,
       spender: OX_PROXY,
       erc20_tx_hash: erc20TxHash,
       permit2_tx_hash: permit2TxHash,
       message: fullyApproved
-        ? `${tokenUpper} already fully approved (ERC20->Permit2 and Permit2->0x).`
-        : `${tokenUpper} fully approved: ERC20->Permit2 and Permit2->0x.`,
+        ? `${tokenUpper} already fully approved for SYSTEM wallet (${botAddress}).`
+        : `${tokenUpper} fully approved for SYSTEM wallet (${botAddress}): ERC20->Permit2 and Permit2->0x.`,
     });
 
   } catch (error) {
