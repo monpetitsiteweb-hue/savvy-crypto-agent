@@ -2651,6 +2651,7 @@ serve(async (req) => {
               amount: tradeAmount,
               taker: walletAddress,
               slippageBps,
+              source: intent.source, // Pass source for auto-wrap policy
             }),
           });
 
