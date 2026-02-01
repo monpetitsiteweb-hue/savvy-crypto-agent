@@ -120,9 +120,9 @@ async function updateTradeStatus(tradeId: string, status: string, updates: Parti
  */
 async function runPreflight(
   quoteData: any,
-  params: { chainId: number; side: string; base: string; quote: string; taker: string }
+  params: { chainId: number; side: string; base: string; quote: string; taker: string; source?: string }
 ): Promise<any | null> {
-  const { chainId, side, base, quote, taker } = params;
+  const { chainId, side, base, quote, taker, source } = params;
 
   // Only run on Base for now
   if (chainId !== BASE_CHAIN_ID) {
@@ -142,8 +142,13 @@ async function runPreflight(
   console.log(`Preflight: checking ${sellToken} for ${sellAmountAtomic} wei`);
 
   // Check if auto-wrap is enabled via policy/config
-  const autoWrapEnabled = Deno.env.get('ENABLE_AUTO_WRAP') === 'true';
-  console.log(`preflight.config: autoWrapEnabled=${autoWrapEnabled}`);
+  // Auto-wrap is enabled if:
+  // 1. ENABLE_AUTO_WRAP env var is 'true', OR
+  // 2. source is 'system_operator' (operator trades auto-wrap for seamless execution)
+  const envAutoWrap = Deno.env.get('ENABLE_AUTO_WRAP') === 'true';
+  const isSystemOperator = source === 'system_operator';
+  const autoWrapEnabled = envAutoWrap || isSystemOperator;
+  console.log(`preflight.config: autoWrapEnabled=${autoWrapEnabled} (env=${envAutoWrap}, isSystemOperator=${isSystemOperator})`);
 
   // If selling ETH on Base, check WETH balance
   let tokenToCheck = sellToken;
@@ -438,7 +443,7 @@ Deno.serve(async (req) => {
     
     // Otherwise, proceed with full build/execute flow
     const isDebug = debugMode || debugFromBody;
-    const { chainId, base, quote, side, amount, slippageBps = 50, provider = '0x', taker, mode = 'build', simulateOnly = false, signedTx, preflight = true } = body;
+    const { chainId, base, quote, side, amount, slippageBps = 50, provider = '0x', taker, mode = 'build', simulateOnly = false, signedTx, preflight = true, source } = body;
     const preflightEnabled = preflight !== false && url.searchParams.get('preflight') !== '0';
 
     if (!chainId || !base || !quote || !side || !amount) {
@@ -856,8 +861,8 @@ Deno.serve(async (req) => {
 
     // Run preflight checks if enabled and taker is present
     if (preflightEnabled && taker) {
-      console.log('Running preflight checks...');
-      const preflightResult = await runPreflight(quoteData, { chainId, side, base, quote, taker });
+      console.log('Running preflight checks...', { source });
+      const preflightResult = await runPreflight(quoteData, { chainId, side, base, quote, taker, source });
       if (preflightResult) {
         console.log('Preflight failed:', preflightResult.reason);
         await addTradeEvent(tradeId, 'preflight', 'warn', preflightResult);

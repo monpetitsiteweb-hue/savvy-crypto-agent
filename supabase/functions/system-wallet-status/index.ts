@@ -67,14 +67,14 @@ async function getEthBalance(address: string): Promise<string> {
   return ethValue.toFixed(6);
 }
 
-async function getTokenBalance(tokenAddress: string, walletAddress: string, decimals: number): Promise<string> {
+async function getTokenBalance(tokenAddress: string, walletAddress: string, decimals: number, displayPrecision: number = 2): Promise<string> {
   const addressPadded = walletAddress.slice(2).toLowerCase().padStart(64, "0");
   const calldata = `${BALANCE_OF_SELECTOR}${addressPadded}`;
 
   const result = await rpcCall("eth_call", [{ to: tokenAddress, data: calldata }, "latest"]);
   const raw = BigInt((result as string) || "0x0");
   const value = Number(raw) / Math.pow(10, decimals);
-  return value.toFixed(2);
+  return value.toFixed(displayPrecision);
 }
 
 async function getErc20Allowance(tokenAddress: string, owner: string, spender: string): Promise<bigint> {
@@ -134,8 +134,8 @@ Deno.serve(async (req) => {
       permit2WethTo0x,
     ] = await Promise.all([
       getEthBalance(botAddress),
-      getTokenBalance(USDC_BASE, botAddress, 6),
-      getTokenBalance(WETH_BASE, botAddress, 18),
+      getTokenBalance(USDC_BASE, botAddress, 6, 2),  // USDC: 2 decimals for dollars
+      getTokenBalance(WETH_BASE, botAddress, 18, 6), // WETH: 6 decimals to show small balances
       getErc20Allowance(USDC_BASE, botAddress, PERMIT2),
       getErc20Allowance(WETH_BASE, botAddress, PERMIT2),
       getPermit2InternalAllowance(botAddress, USDC_BASE, OX_PROXY),
