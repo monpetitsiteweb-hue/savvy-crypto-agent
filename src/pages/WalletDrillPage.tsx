@@ -112,11 +112,18 @@ export default function WalletDrillPage() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   // Section: Withdraw state
+  const [withdrawWalletSource, setWithdrawWalletSource] = useState<"user" | "admin">("user");
+  const [withdrawAdminWalletId, setWithdrawAdminWalletId] = useState<string>("");
   const [withdrawAsset, setWithdrawAsset] = useState<"ETH" | "USDC">("ETH");
   const [withdrawAmount, setWithdrawAmount] = useState<string>("");
   const [withdrawDestination, setWithdrawDestination] = useState<string>("");
   const [withdrawLoading, setWithdrawLoading] = useState<boolean>(false);
   const [withdrawResult, setWithdrawResult] = useState<WithdrawResult | null>(null);
+
+  // Compute the effective wallet ID for withdrawal
+  const effectiveWithdrawWalletId = withdrawWalletSource === "user" 
+    ? walletInfo?.wallet_id 
+    : withdrawAdminWalletId || null;
 
   // Trade history refresh trigger
   const [tradeRefreshTrigger, setTradeRefreshTrigger] = useState<number>(0);
@@ -324,7 +331,7 @@ export default function WalletDrillPage() {
   // SECTION: Withdraw Funds (from SYSTEM wallet to external)
   // ─────────────────────────────────────────────────────────────
   const handleWithdraw = async () => {
-    if (!user || !withdrawAmount || !withdrawDestination || !walletInfo?.wallet_id) return;
+    if (!user || !withdrawAmount || !withdrawDestination || !effectiveWithdrawWalletId) return;
 
     setWithdrawLoading(true);
     setWithdrawResult(null);
@@ -348,7 +355,7 @@ export default function WalletDrillPage() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            wallet_id: walletInfo.wallet_id,
+            wallet_id: effectiveWithdrawWalletId,
             asset: withdrawAsset,
             to_address: withdrawDestination,
             amount: parsedAmount,
@@ -721,13 +728,51 @@ export default function WalletDrillPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="p-3 bg-muted/50 border border-border rounded text-xs text-muted-foreground">
-              <strong>How withdrawals work:</strong> Funds are sent FROM the user's deposit wallet
-              TO the destination address you specify. You must first create/fetch the deposit wallet above.
+              <strong>How withdrawals work:</strong> Funds are sent FROM the selected wallet
+              TO the destination address you specify.
             </div>
 
-            {!walletInfo && (
-              <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded text-sm text-yellow-600">
-                ⚠️ Please create or fetch a user deposit wallet first (section above) before withdrawing.
+            {/* Wallet Source Dropdown */}
+            <div className="space-y-2">
+              <Label htmlFor="wallet-source">Wallet Source</Label>
+              <select
+                id="wallet-source"
+                value={withdrawWalletSource}
+                onChange={(e) => setWithdrawWalletSource(e.target.value as "user" | "admin")}
+                className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
+              >
+                <option value="user">User Deposit Wallet</option>
+                <option value="admin">Admin/System Wallet (Manual ID)</option>
+              </select>
+            </div>
+
+            {/* Conditional: User wallet info or Admin wallet ID input */}
+            {withdrawWalletSource === "user" ? (
+              <div className="p-3 bg-muted rounded text-xs">
+                {walletInfo ? (
+                  <>
+                    <div><strong>Using:</strong> {walletInfo.wallet_id}</div>
+                    <div className="text-muted-foreground truncate">{walletInfo.wallet_address}</div>
+                  </>
+                ) : (
+                  <div className="text-yellow-600">
+                    ⚠️ No user wallet found. Create/fetch one above first.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="admin-wallet-id">Admin Wallet ID</Label>
+                <Input
+                  id="admin-wallet-id"
+                  value={withdrawAdminWalletId}
+                  onChange={(e) => setWithdrawAdminWalletId(e.target.value)}
+                  placeholder="Enter wallet UUID..."
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Paste the wallet_id from execution_wallets table for testing.
+                </p>
               </div>
             )}
 
@@ -768,11 +813,11 @@ export default function WalletDrillPage() {
 
             <Button
               onClick={handleWithdraw}
-              disabled={withdrawLoading || !withdrawAmount || !withdrawDestination || !walletInfo?.wallet_id}
+              disabled={withdrawLoading || !withdrawAmount || !withdrawDestination || !effectiveWithdrawWalletId}
               className="w-full"
               variant="destructive"
             >
-              {withdrawLoading ? "Processing..." : "Withdraw from Deposit Wallet"}
+              {withdrawLoading ? "Processing..." : `Withdraw from ${withdrawWalletSource === "user" ? "User" : "Admin"} Wallet`}
             </Button>
 
             {withdrawResult && (
