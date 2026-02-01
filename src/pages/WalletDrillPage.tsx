@@ -27,8 +27,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Copy, Wallet, ArrowDownToLine, AlertTriangle, Server, User, Shield, Info } from "lucide-react";
-import { WalletBalanceCard } from "@/components/wallet/WalletBalanceCard";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Copy, ArrowDownToLine, AlertTriangle, Server, User, Shield, Info, RefreshCw, CheckCircle, XCircle } from "lucide-react";
 import { ManualTradeCard } from "@/components/wallet/ManualTradeCard";
 import { ManualTradeHistory } from "@/components/wallet/ManualTradeHistory";
 
@@ -46,23 +46,64 @@ interface WithdrawResult {
   error?: string;
 }
 
-interface SystemWalletInfo {
+interface SystemWalletStatus {
   address: string | null;
-  match: boolean;
+  chainId: number;
+  chainName: string;
+  balances: {
+    eth: string;
+    usdc: string;
+    weth: string;
+  };
+  approvals: {
+    usdc: { erc20_to_permit2: boolean; permit2_to_0x: boolean; ready: boolean };
+    weth: { erc20_to_permit2: boolean; permit2_to_0x: boolean; ready: boolean };
+  };
+  hasGas: boolean;
+  readyToTrade: boolean;
   loading: boolean;
   error: string | null;
+}
+
+interface ApprovalResult {
+  loading: boolean;
+  error: string | null;
+  success: boolean;
+  txHashes: { erc20?: string; permit2?: string };
 }
 
 export default function WalletDrillPage() {
   const { user } = useAuth();
   const { isAdmin, loading: roleLoading } = useUserRole();
 
-  // Section: System wallet info
-  const [systemWallet, setSystemWallet] = useState<SystemWalletInfo>({
+  // Section: System wallet status (from new endpoint)
+  const [systemWallet, setSystemWallet] = useState<SystemWalletStatus>({
     address: null,
-    match: false,
+    chainId: 8453,
+    chainName: "Base",
+    balances: { eth: "0", usdc: "0", weth: "0" },
+    approvals: {
+      usdc: { erc20_to_permit2: false, permit2_to_0x: false, ready: false },
+      weth: { erc20_to_permit2: false, permit2_to_0x: false, ready: false },
+    },
+    hasGas: false,
+    readyToTrade: false,
     loading: true,
     error: null,
+  });
+
+  // Approval state
+  const [usdcApproval, setUsdcApproval] = useState<ApprovalResult>({
+    loading: false,
+    error: null,
+    success: false,
+    txHashes: {},
+  });
+  const [wethApproval, setWethApproval] = useState<ApprovalResult>({
+    loading: false,
+    error: null,
+    success: false,
+    txHashes: {},
   });
 
   // Section: User deposit wallet state
@@ -85,57 +126,121 @@ export default function WalletDrillPage() {
     setTradeRefreshTrigger((prev) => prev + 1);
   }, []);
 
-  // Fetch system wallet info on mount
-  useEffect(() => {
-    const fetchSystemWallet = async () => {
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const token = sessionData?.session?.access_token;
+  // Fetch system wallet status
+  const fetchSystemWalletStatus = useCallback(async () => {
+    setSystemWallet((prev) => ({ ...prev, loading: true, error: null }));
 
-        if (!token) {
-          setSystemWallet({ address: null, match: false, loading: false, error: "Not authenticated" });
-          return;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      if (!token) {
+        setSystemWallet((prev) => ({ ...prev, loading: false, error: "Not authenticated" }));
+        return;
+      }
+
+      const response = await fetch(
+        `https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/system-wallet-status`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         }
+      );
 
-        const response = await fetch(
-          `https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/debug-bot-address`,
-          {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+      const result = await response.json();
 
-        const result = await response.json();
-
-        if (result.ok) {
-          setSystemWallet({
-            address: result.derivedAddress || result.envBotAddress,
-            match: result.match === true,
-            loading: false,
-            error: null,
-          });
-        } else {
-          setSystemWallet({
-            address: null,
-            match: false,
-            loading: false,
-            error: result.error || "Failed to fetch system wallet",
-          });
-        }
-      } catch (err: any) {
+      if (result.ok) {
         setSystemWallet({
-          address: null,
-          match: false,
+          address: result.system_wallet?.address || null,
+          chainId: result.system_wallet?.chain_id || 8453,
+          chainName: result.system_wallet?.chain_name || "Base",
+          balances: {
+            eth: result.balances?.eth || "0",
+            usdc: result.balances?.usdc || "0",
+            weth: result.balances?.weth || "0",
+          },
+          approvals: {
+            usdc: result.approvals?.usdc || { erc20_to_permit2: false, permit2_to_0x: false, ready: false },
+            weth: result.approvals?.weth || { erc20_to_permit2: false, permit2_to_0x: false, ready: false },
+          },
+          hasGas: result.has_gas || false,
+          readyToTrade: result.ready_to_trade || false,
           loading: false,
-          error: err.message || "Network error",
+          error: null,
+        });
+      } else {
+        setSystemWallet((prev) => ({
+          ...prev,
+          loading: false,
+          error: result.error || "Failed to fetch system wallet status",
+        }));
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Network error";
+      setSystemWallet((prev) => ({ ...prev, loading: false, error: message }));
+    }
+  }, []);
+
+  // Fetch on mount
+  useEffect(() => {
+    fetchSystemWalletStatus();
+  }, [fetchSystemWalletStatus]);
+
+  // Setup Permit2 approvals
+  const setupPermit2Approval = async (token: "USDC" | "WETH") => {
+    const setApproval = token === "USDC" ? setUsdcApproval : setWethApproval;
+    setApproval({ loading: true, error: null, success: false, txHashes: {} });
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        setApproval({ loading: false, error: "Not authenticated", success: false, txHashes: {} });
+        return;
+      }
+
+      const response = await fetch(
+        `https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/wallet-approve-permit2`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ token }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (result.ok) {
+        setApproval({
+          loading: false,
+          error: null,
+          success: true,
+          txHashes: {
+            erc20: result.erc20_tx_hash || undefined,
+            permit2: result.permit2_tx_hash || undefined,
+          },
+        });
+        // Refresh status after approval
+        setTimeout(fetchSystemWalletStatus, 3000);
+      } else {
+        setApproval({
+          loading: false,
+          error: result.error || "Approval failed",
+          success: false,
+          txHashes: {},
         });
       }
-    };
-
-    fetchSystemWallet();
-  }, []);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Network error";
+      setApproval({ loading: false, error: message, success: false, txHashes: {} });
+    }
+  };
 
   // Loading state - AFTER all hooks
   if (roleLoading) {
@@ -202,16 +307,15 @@ export default function WalletDrillPage() {
       } else {
         throw new Error(result.error || "Unknown error");
       }
-    } catch (err: any) {
-      setCreateError(err.message || "Failed to create wallet");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to create wallet";
+      setCreateError(message);
     } finally {
       setCreateLoading(false);
     }
   };
 
-  // ─────────────────────────────────────────────────────────────
   // Copy address helper
-  // ─────────────────────────────────────────────────────────────
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
@@ -244,7 +348,6 @@ export default function WalletDrillPage() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            // NOTE: wallet_id removed - withdrawals are from SYSTEM wallet
             asset: withdrawAsset,
             to_address: withdrawDestination,
             amount: parsedAmount,
@@ -264,21 +367,32 @@ export default function WalletDrillPage() {
           success: true,
           tx_hash: result.tx_hash,
         });
+        // Refresh balances after withdrawal
+        setTimeout(fetchSystemWalletStatus, 3000);
       } else {
         setWithdrawResult({
           success: false,
           error: result.error || "Unknown error",
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to withdraw";
       setWithdrawResult({
         success: false,
-        error: err.message || "Failed to withdraw",
+        error: message,
       });
     } finally {
       setWithdrawLoading(false);
     }
   };
+
+  // Render approval status icon
+  const ApprovalIcon = ({ approved }: { approved: boolean }) =>
+    approved ? (
+      <CheckCircle className="h-4 w-4 text-green-500" />
+    ) : (
+      <XCircle className="h-4 w-4 text-destructive" />
+    );
 
   return (
     <div className="min-h-screen bg-background p-8">
@@ -295,14 +409,10 @@ export default function WalletDrillPage() {
         </div>
 
         {/* CUSTODIAL MODEL EXPLAINER */}
-        <Card className="border-blue-500/30 bg-blue-500/5">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg flex items-center gap-2 text-blue-600">
-              <Info className="h-5 w-5" />
-              Custodial Model – How It Works
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground space-y-2">
+        <Alert className="border-blue-500/30 bg-blue-500/5">
+          <Info className="h-5 w-5 text-blue-600" />
+          <AlertTitle className="text-blue-600">Custodial Model – How It Works</AlertTitle>
+          <AlertDescription className="text-sm text-muted-foreground space-y-1 mt-2">
             <p>
               <strong>System Wallet (BOT_ADDRESS):</strong> Holds ALL real on-chain funds. Executes all
               trades, Permit2 approvals, and withdrawals. Not user-specific.
@@ -311,72 +421,225 @@ export default function WalletDrillPage() {
               <strong>User Wallets:</strong> For DEPOSIT and AUDIT only. Funds deposited here are swept to
               the system wallet. Users own DATABASE balances, not on-chain balances.
             </p>
-            <p>
-              <strong>Manual Trades:</strong> Execute from the SYSTEM wallet. The user wallet ID is passed
-              for authorization, but execution happens from BOT_ADDRESS.
-            </p>
-          </CardContent>
-        </Card>
+          </AlertDescription>
+        </Alert>
 
-        {/* SECTION A: SYSTEM WALLET (READ-ONLY) */}
+        {/* SECTION A: SYSTEM WALLET STATUS (PRIMARY) */}
         <Card className="border-yellow-500/30 bg-yellow-500/5">
           <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2 text-yellow-600">
-              <Server className="h-5 w-5" />
-              System Trading Wallet
-            </CardTitle>
-            <CardDescription>
-              Executes all REAL trades and withdrawals. Holds pooled on-chain funds.
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-lg flex items-center gap-2 text-yellow-600">
+                  <Server className="h-5 w-5" />
+                  🏦 System Trading Wallet
+                </CardTitle>
+                <CardDescription>
+                  Executes all REAL trades and withdrawals. Holds pooled on-chain funds.
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchSystemWalletStatus}
+                disabled={systemWallet.loading}
+              >
+                <RefreshCw className={`h-4 w-4 mr-1 ${systemWallet.loading ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {systemWallet.loading ? (
-              <div className="text-muted-foreground text-sm">Loading system wallet...</div>
+              <div className="text-muted-foreground text-sm">Loading system wallet status...</div>
             ) : systemWallet.error ? (
               <div className="p-3 bg-destructive/10 border border-destructive/20 rounded text-sm text-destructive">
                 Error: {systemWallet.error}
               </div>
             ) : (
-              <div className="p-4 bg-muted rounded space-y-2 font-mono text-sm">
-                <div className="flex items-center gap-2">
-                  <strong>Address:</strong>
-                  <span className="break-all">{systemWallet.address || "Not configured"}</span>
-                  {systemWallet.address && (
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={() => copyToClipboard(systemWallet.address!)}
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button>
+              <>
+                {/* Address and Chain */}
+                <div className="p-4 bg-muted rounded space-y-2 font-mono text-sm">
+                  <div className="flex items-center gap-2">
+                    <strong>Address:</strong>
+                    <span className="break-all">{systemWallet.address || "Not configured"}</span>
+                    {systemWallet.address && (
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => copyToClipboard(systemWallet.address!)}
+                      >
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                  <div>
+                    <strong>Chain:</strong> {systemWallet.chainName} ({systemWallet.chainId})
+                  </div>
+                </div>
+
+                {/* Balances */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="p-3 bg-muted rounded text-center">
+                    <div className="text-xs text-muted-foreground">ETH (Gas)</div>
+                    <div className="font-mono font-semibold">{systemWallet.balances.eth}</div>
+                    {!systemWallet.hasGas && (
+                      <div className="text-xs text-destructive mt-1">⚠️ Low gas</div>
+                    )}
+                  </div>
+                  <div className="p-3 bg-muted rounded text-center">
+                    <div className="text-xs text-muted-foreground">USDC</div>
+                    <div className="font-mono font-semibold">{systemWallet.balances.usdc}</div>
+                  </div>
+                  <div className="p-3 bg-muted rounded text-center">
+                    <div className="text-xs text-muted-foreground">WETH</div>
+                    <div className="font-mono font-semibold">{systemWallet.balances.weth}</div>
+                  </div>
+                </div>
+
+                {/* Permit2 Approvals Status */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium">Permit2 Approvals</h4>
+
+                  {/* USDC Approvals */}
+                  <div className="p-3 bg-muted rounded space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">USDC</span>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded ${
+                          systemWallet.approvals.usdc.ready
+                            ? "bg-green-500/20 text-green-600"
+                            : "bg-destructive/20 text-destructive"
+                        }`}
+                      >
+                        {systemWallet.approvals.usdc.ready ? "Ready" : "Not Ready"}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground flex items-center gap-4">
+                      <span className="flex items-center gap-1">
+                        <ApprovalIcon approved={systemWallet.approvals.usdc.erc20_to_permit2} />
+                        ERC20 → Permit2
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <ApprovalIcon approved={systemWallet.approvals.usdc.permit2_to_0x} />
+                        Permit2 → 0x
+                      </span>
+                    </div>
+                    {!systemWallet.approvals.usdc.ready && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full mt-2"
+                        onClick={() => setupPermit2Approval("USDC")}
+                        disabled={usdcApproval.loading}
+                      >
+                        {usdcApproval.loading ? "Approving..." : "Setup USDC Permit2"}
+                      </Button>
+                    )}
+                    {usdcApproval.error && (
+                      <div className="text-xs text-destructive mt-1">{usdcApproval.error}</div>
+                    )}
+                    {usdcApproval.success && (
+                      <div className="text-xs text-green-600 mt-1">
+                        ✓ Approval submitted
+                        {usdcApproval.txHashes.erc20 && (
+                          <span className="block font-mono">ERC20 tx: {usdcApproval.txHashes.erc20.slice(0, 18)}...</span>
+                        )}
+                        {usdcApproval.txHashes.permit2 && (
+                          <span className="block font-mono">Permit2 tx: {usdcApproval.txHashes.permit2.slice(0, 18)}...</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* WETH Approvals */}
+                  <div className="p-3 bg-muted rounded space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">WETH</span>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded ${
+                          systemWallet.approvals.weth.ready
+                            ? "bg-green-500/20 text-green-600"
+                            : "bg-destructive/20 text-destructive"
+                        }`}
+                      >
+                        {systemWallet.approvals.weth.ready ? "Ready" : "Not Ready"}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground flex items-center gap-4">
+                      <span className="flex items-center gap-1">
+                        <ApprovalIcon approved={systemWallet.approvals.weth.erc20_to_permit2} />
+                        ERC20 → Permit2
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <ApprovalIcon approved={systemWallet.approvals.weth.permit2_to_0x} />
+                        Permit2 → 0x
+                      </span>
+                    </div>
+                    {!systemWallet.approvals.weth.ready && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full mt-2"
+                        onClick={() => setupPermit2Approval("WETH")}
+                        disabled={wethApproval.loading}
+                      >
+                        {wethApproval.loading ? "Approving..." : "Setup WETH Permit2"}
+                      </Button>
+                    )}
+                    {wethApproval.error && (
+                      <div className="text-xs text-destructive mt-1">{wethApproval.error}</div>
+                    )}
+                    {wethApproval.success && (
+                      <div className="text-xs text-green-600 mt-1">
+                        ✓ Approval submitted
+                        {wethApproval.txHashes.erc20 && (
+                          <span className="block font-mono">ERC20 tx: {wethApproval.txHashes.erc20.slice(0, 18)}...</span>
+                        )}
+                        {wethApproval.txHashes.permit2 && (
+                          <span className="block font-mono">Permit2 tx: {wethApproval.txHashes.permit2.slice(0, 18)}...</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Overall Status */}
+                <div
+                  className={`p-4 rounded text-center ${
+                    systemWallet.readyToTrade
+                      ? "bg-green-500/10 border border-green-500/20 text-green-600"
+                      : "bg-destructive/10 border border-destructive/20 text-destructive"
+                  }`}
+                >
+                  {systemWallet.readyToTrade ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <CheckCircle className="h-5 w-5" />
+                      <span className="font-medium">System Wallet Ready for Trading</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-2">
+                      <XCircle className="h-5 w-5" />
+                      <span className="font-medium">System Wallet NOT Ready</span>
+                    </div>
                   )}
                 </div>
-                <div>
-                  <strong>Chain:</strong> Base (8453)
-                </div>
-                <div>
-                  <strong>Purpose:</strong> All REAL BUY/SELL, Permit2, Withdrawals
-                </div>
-                <div className={systemWallet.match ? "text-green-600" : "text-destructive"}>
-                  <strong>Key Match:</strong> {systemWallet.match ? "✓ Verified" : "✗ Mismatch"}
-                </div>
-              </div>
+              </>
             )}
           </CardContent>
         </Card>
 
-        {/* WALLET BALANCES (system wallet balances) */}
-        <WalletBalanceCard />
-
         {/* MANUAL TRADING SECTION */}
         <div className="space-y-4">
-          <div className="flex items-center gap-2 text-muted-foreground">
+          <Alert className="border-yellow-500/30 bg-yellow-500/5">
             <AlertTriangle className="h-4 w-4 text-yellow-500" />
-            <span className="text-sm font-medium">
-              Trades execute from the SYSTEM wallet (custodial model). User wallet is for authorization only.
-            </span>
-          </div>
+            <AlertTitle>Custodial Execution</AlertTitle>
+            <AlertDescription className="text-sm">
+              Trades execute from the SYSTEM wallet. User database balance is checked before execution and
+              updated after confirmation. The user wallet is NOT involved in trading.
+            </AlertDescription>
+          </Alert>
+
           {user && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <ManualTradeCard side="BUY" userId={user.id} onTradeComplete={handleTradeComplete} />

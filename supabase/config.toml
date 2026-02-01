@@ -180,3 +180,11 @@ verify_jwt = false
 # Canonical price writer (runs every 5 min via cron)
 [functions.price-snapshot-refresh]
 verify_jwt = false
+
+# System wallet status (operator panel)
+[functions.system-wallet-status]
+verify_jwt = false
+
+# System wallet Permit2 approvals
+[functions.wallet-approve-permit2]
+verify_jwt = false
