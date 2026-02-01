@@ -93,7 +93,7 @@ verify_jwt = false
 [functions.onchain-signer-debug]
 verify_jwt = false
 
-[functions.debug-signer-identity]
+[functions.debug-bot-address]
 verify_jwt = false
 
 [functions.onchain-execute]
