@@ -132,6 +132,21 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
 
       const parsedAmount = parseFloat(amount.replace(',', '.'));
 
+      // For SELL: fetch current price from Coinbase (required by coordinator for mock sells)
+      let currentPrice: number | undefined;
+      if (!isBuy) {
+        try {
+          const pair = `${token}-EUR`;
+          const priceRes = await fetch(`https://api.exchange.coinbase.com/products/${pair}/ticker`);
+          if (priceRes.ok) {
+            const priceData = await priceRes.json();
+            currentPrice = parseFloat(priceData.price);
+          }
+        } catch (priceErr) {
+          console.warn('Failed to fetch current price:', priceErr);
+        }
+      }
+
       // Build metadata - include execution_wallet_id for REAL trades
       const metadata: Record<string, any> = {
         context: 'MANUAL',
@@ -140,6 +155,8 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
         force: true,
         // For BUY: amount is in EUR, coordinator should convert to qty
         eurAmount: isBuy ? parsedAmount : undefined,
+        // For SELL: include currentPrice for mock sell valuation
+        currentPrice: !isBuy ? currentPrice : undefined,
       };
 
       // CRITICAL: Include execution_wallet_id to trigger REAL mode
