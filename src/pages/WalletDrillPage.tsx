@@ -328,10 +328,15 @@ export default function WalletDrillPage() {
   };
 
   // ─────────────────────────────────────────────────────────────
-  // SECTION: Withdraw Funds (from SYSTEM wallet to external)
+  // SECTION: Withdraw Funds
+  // - Admin wallet: uses system-wallet-withdraw (BOT_PRIVATE_KEY)
+  // - User wallet: uses execution-wallet-withdraw (encrypted user key)
   // ─────────────────────────────────────────────────────────────
   const handleWithdraw = async () => {
-    if (!user || !withdrawAmount || !withdrawDestination || !effectiveWithdrawWalletId) return;
+    // For admin wallet, no wallet_id needed
+    // For user wallet, need effectiveWithdrawWalletId
+    if (!user || !withdrawAmount || !withdrawDestination) return;
+    if (withdrawWalletSource === "user" && !walletInfo?.wallet_id) return;
 
     setWithdrawLoading(true);
     setWithdrawResult(null);
@@ -346,22 +351,34 @@ export default function WalletDrillPage() {
         throw new Error("Invalid amount");
       }
 
-      const response = await fetch(
-        `https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/execution-wallet-withdraw`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            wallet_id: effectiveWithdrawWalletId,
+      // Choose endpoint based on wallet source
+      const isAdminWallet = withdrawWalletSource === "admin";
+      const endpoint = isAdminWallet
+        ? `https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/system-wallet-withdraw`
+        : `https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/execution-wallet-withdraw`;
+
+      // Build request body
+      const requestBody = isAdminWallet
+        ? {
             asset: withdrawAsset,
             to_address: withdrawDestination,
             amount: parsedAmount,
-          }),
-        }
-      );
+          }
+        : {
+            wallet_id: walletInfo?.wallet_id,
+            asset: withdrawAsset,
+            to_address: withdrawDestination,
+            amount: parsedAmount,
+          };
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(requestBody),
+      });
 
       const result = await response.json();
 
@@ -742,11 +759,11 @@ export default function WalletDrillPage() {
                 className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
               >
                 <option value="user">User Deposit Wallet</option>
-                <option value="admin">Admin/System Wallet (Manual ID)</option>
+                <option value="admin">Admin/System Wallet (BOT_ADDRESS)</option>
               </select>
             </div>
 
-            {/* Conditional: User wallet info or Admin wallet ID input */}
+            {/* Conditional: Show wallet info based on selection */}
             {withdrawWalletSource === "user" ? (
               <div className="p-3 bg-muted rounded text-xs">
                 {walletInfo ? (
@@ -761,18 +778,14 @@ export default function WalletDrillPage() {
                 )}
               </div>
             ) : (
-              <div className="space-y-2">
-                <Label htmlFor="admin-wallet-id">Admin Wallet ID</Label>
-                <Input
-                  id="admin-wallet-id"
-                  value={withdrawAdminWalletId}
-                  onChange={(e) => setWithdrawAdminWalletId(e.target.value)}
-                  placeholder="Enter wallet UUID..."
-                  className="font-mono text-sm"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Paste the wallet_id from execution_wallets table for testing.
-                </p>
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded text-xs">
+                <div className="text-yellow-600 font-medium">🏦 System Wallet (Admin Only)</div>
+                <div className="text-muted-foreground mt-1">
+                  Uses <code className="bg-muted px-1 rounded">BOT_PRIVATE_KEY</code> from environment.
+                  {systemWallet.address && (
+                    <span className="block mt-1 font-mono truncate">{systemWallet.address}</span>
+                  )}
+                </div>
               </div>
             )}
 
