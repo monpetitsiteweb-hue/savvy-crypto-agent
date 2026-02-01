@@ -2559,8 +2559,8 @@ serve(async (req) => {
       console.log("✅ COORDINATOR: Prerequisites OK - wallet_address:", walletAddress);
 
       // =============================================================================
-      // MANUAL FAST-PATH: Direct synchronous on-chain execution
-      // This path is triggered by: intent.source === "manual" + execution_wallet_id
+      // MANUAL/SYSTEM_OPERATOR FAST-PATH: Direct synchronous on-chain execution
+      // This path is triggered by: (source === "manual" || source === "system_operator") + execution_wallet_id
       // It bypasses the async execution_jobs queue and executes immediately.
       // This SAME flow will be used by automated trades once they're trusted.
       //
@@ -2568,8 +2568,9 @@ serve(async (req) => {
       // onchain-sign-and-send internally handles: quote → build → sign → broadcast
       // This ensures ONE execution path for both MANUAL and future AUTO trades.
       // =============================================================================
-      if (isManualIntent && hasWalletId) {
-        console.log("🚀 COORDINATOR: MANUAL FAST-PATH - calling onchain-sign-and-send");
+      const isDirectExecutionSource = intent.source === "manual" || intent.source === "system_operator";
+      if (isDirectExecutionSource && hasWalletId) {
+        console.log(`🚀 COORDINATOR: ${intent.source.toUpperCase()} FAST-PATH - calling onchain-sign-and-send`);
         
         const baseSymbol = toBaseSymbol(intent.symbol);
         const slippageBps = intent.metadata?.slippage_bps || 100; // Default 1%
@@ -6135,6 +6136,8 @@ async function executeTradeOrder(
       const isPoolExit = intent.source === "pool";
       const isPositionManaged = !!intent.metadata?.position_management && !!intent.metadata?.position_id;
       const isManualSell = intent.metadata?.context === "MANUAL" && intent.metadata?.originalTradeId;
+      // NEW: System operator trades bypass coverage entirely (real on-chain tokens from SYSTEM wallet)
+      const isSystemOperatorTrade = intent.source === "system_operator" && !!intent.metadata?.execution_wallet_id;
 
       console.log("[Coordinator][SELL] Incoming intent", {
         userId: intent.userId,
@@ -6146,13 +6149,15 @@ async function executeTradeOrder(
         position_id: intent.metadata?.position_id ?? null,
         originalTradeId: intent.metadata?.originalTradeId ?? null,
         context: intent.metadata?.context ?? null,
+        execution_wallet_id: intent.metadata?.execution_wallet_id ?? null,
       });
 
       console.log("[Coordinator][SELL] Branch selection", {
         isPositionManaged,
         isPoolExit,
         isManualSell,
-        branch: isPositionManaged ? "position" : isPoolExit ? "pool" : isManualSell ? "manual" : "symbol",
+        isSystemOperatorTrade,
+        branch: isPositionManaged ? "position" : isPoolExit ? "pool" : isSystemOperatorTrade ? "system_operator" : isManualSell ? "manual" : "symbol",
       });
 
       // ========= BRANCH A: POSITION-MANAGED SELL (per position_id) =========
@@ -6305,7 +6310,19 @@ async function executeTradeOrder(
 
         // Pool exits bypass coverage enforcement - pool manager handles quantity validation
 
-        // ========= BRANCH C: MANUAL SELL BYPASS =========
+        // ========= BRANCH C: SYSTEM OPERATOR SELL (no coverage check) =========
+      } else if (isSystemOperatorTrade) {
+        console.log(`🔧 COORDINATOR: System operator SELL detected - BYPASSING coverage gate`);
+        console.log(`   Source: ${intent.source}, ExecutionWalletId: ${intent.metadata.execution_wallet_id}`);
+        
+        // System operator trades sell real on-chain tokens from SYSTEM wallet
+        // No FIFO/coverage needed - the system wallet balance is the source of truth
+        // Just set empty FIFO fields (P&L tracking not applicable for system trades)
+        fifoFields = {};
+        
+        // Skip coverage enforcement - proceed directly to execution
+
+        // ========= BRANCH D: MANUAL SELL BYPASS =========
       } else if (isManualSell) {
         console.log(`🔓 COORDINATOR: Manual SELL with originalTradeId detected - BYPASSING coverage gate`);
         console.log(`   Context: ${intent.metadata.context}, OriginalTradeId: ${intent.metadata.originalTradeId}`);
@@ -6369,7 +6386,7 @@ async function executeTradeOrder(
 
         // Skip coverage enforcement - allow manual SELL to proceed
 
-        // ========= BRANCH D: PER-LOT SELL LOGIC (HYBRID TP/SL MODEL) =========
+        // ========= BRANCH E: PER-LOT SELL LOGIC (HYBRID TP/SL MODEL) =========
         // Architecture: Pooled triggers, per-lot execution
         // CloseMode from intent metadata determines which lots to close:
         //   - TP_SELECTIVE: Only close lots where lot P&L >= TP threshold AND age >= minHold
