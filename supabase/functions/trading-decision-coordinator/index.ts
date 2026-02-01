@@ -263,7 +263,7 @@ interface TradeIntent {
   strategyId: string;
   symbol: string;
   side: "BUY" | "SELL";
-  source: "automated" | "intelligent" | "pool" | "manual" | "news" | "whale";
+  source: "automated" | "intelligent" | "pool" | "manual" | "news" | "whale" | "system_operator";
   confidence: number;
   reason?: string;
   qtySuggested?: number;
@@ -1471,7 +1471,7 @@ serve(async (req) => {
     //   - 'news'        : legacy news-based signals
     //   - 'whale'       : legacy whale signals
     // ==============================================================
-    const allowedSourcesToProcess = ["intelligent", "manual"];
+    const allowedSourcesToProcess = ["intelligent", "manual", "system_operator"];
     if (!allowedSourcesToProcess.includes(intent.source)) {
       console.warn("🚫 COORDINATOR: Rejecting deprecated source", {
         source: intent.source,
