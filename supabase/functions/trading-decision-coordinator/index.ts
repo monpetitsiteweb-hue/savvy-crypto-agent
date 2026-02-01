@@ -2448,114 +2448,135 @@ serve(async (req) => {
       const isManualIntent = intent.source === "manual" || intent.metadata?.context === "MANUAL";
       const hasWalletId = !!intent.metadata?.execution_wallet_id;
       
+      // System operator trades use SYSTEM wallet (BOT_ADDRESS), not user wallet
+      // These bypass user wallet prerequisite checks entirely
+      const isSystemOperator = intent.source === "system_operator";
+      
       console.log("🔥 COORDINATOR: REAL mode detected", {
         isManualIntent,
+        isSystemOperator,
         hasWalletId,
         execution_wallet_id: intent.metadata?.execution_wallet_id,
         request_id: requestId,
       });
 
-      // Check live trading prerequisites via RPC
-      console.log("📋 COORDINATOR: Checking prerequisites...");
-      const { data: prereqResult, error: prereqError } = await supabaseClient.rpc("check_live_trading_prerequisites", {
-        p_user_id: intent.userId,
-      });
+      // For system_operator: skip user wallet checks (uses SYSTEM wallet)
+      if (isSystemOperator) {
+        console.log("🔧 COORDINATOR: system_operator - skipping user wallet prerequisite checks (uses SYSTEM wallet)");
+      } else {
+        // Check live trading prerequisites via RPC (for regular manual trades)
+        console.log("📋 COORDINATOR: Checking prerequisites...");
+        const { data: prereqResult, error: prereqError } = await supabaseClient.rpc("check_live_trading_prerequisites", {
+          p_user_id: intent.userId,
+        });
 
-      if (prereqError) {
-        console.error("❌ COORDINATOR: Prerequisites check failed:", prereqError);
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            success: false,
-            error: "blocked_prerequisites_check_failed",
-            decision: {
-              action: "BLOCK",
-              reason: "blocked_prerequisites_check_failed",
-              request_id: requestId,
-              retry_in_ms: 0,
-              message: "Failed to verify live trading prerequisites.",
-            },
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        if (prereqError) {
+          console.error("❌ COORDINATOR: Prerequisites check failed:", prereqError);
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "blocked_prerequisites_check_failed",
+              decision: {
+                action: "BLOCK",
+                reason: "blocked_prerequisites_check_failed",
+                request_id: requestId,
+                retry_in_ms: 0,
+                message: "Failed to verify live trading prerequisites.",
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
+        console.log("📋 COORDINATOR: Prerequisites result:", prereqResult);
+
+        // The RPC returns: { ok: bool, checks: { rules_accepted, has_wallet, wallet_active, wallet_funded, ... }, panic_active, wallet_chain_id }
+        const checksObj = prereqResult?.checks || prereqResult || {};
+        const rulesAccepted = checksObj?.rules_accepted === true;
+        const walletReady = checksObj?.has_wallet === true && checksObj?.wallet_active === true && checksObj?.wallet_funded === true;
+        const allPrereqsOk = prereqResult?.ok === true;
+
+        // Hard blocker: rules_accepted must be true
+        if (!rulesAccepted) {
+          console.log("🚫 COORDINATOR: REAL mode blocked - rules not accepted", { checksObj });
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "blocked_rules_not_accepted",
+              decision: {
+                action: "BLOCK",
+                reason: "blocked_rules_not_accepted",
+                request_id: requestId,
+                retry_in_ms: 0,
+                message: "You must accept trading rules before executing REAL trades.",
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
+        // Hard blocker: wallet must be active and funded (for regular manual trades only)
+        if (!walletReady) {
+          console.log("🚫 COORDINATOR: REAL mode blocked - wallet not ready", { checksObj });
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "blocked_wallet_not_ready",
+              decision: {
+                action: "BLOCK",
+                reason: "blocked_wallet_not_ready",
+                request_id: requestId,
+                retry_in_ms: 0,
+                message: "Your execution wallet is not active or funded.",
+                wallet_checks: checksObj,
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
       }
 
-      console.log("📋 COORDINATOR: Prerequisites result:", prereqResult);
+      // Get wallet address - for system_operator use metadata or skip user lookup
+      let walletAddress: string;
+      
+      if (isSystemOperator) {
+        // System operator trades use BOT_ADDRESS (SYSTEM wallet)
+        // The actual signing happens in onchain-sign-and-send which reads BOT_ADDRESS
+        // We can use a placeholder here or the metadata wallet_address if provided
+        walletAddress = intent.metadata?.wallet_address || "SYSTEM_WALLET";
+        console.log("🔧 COORDINATOR: system_operator - using SYSTEM wallet for execution");
+      } else {
+        // Regular manual trades - fetch user's execution wallet
+        const { data: walletData, error: walletError } = await supabaseClient
+          .from("execution_wallets")
+          .select("id, wallet_address, chain_id")
+          .eq("user_id", intent.userId)
+          .eq("is_active", true)
+          .single();
 
-      // The RPC returns: { ok: bool, checks: { rules_accepted, has_wallet, wallet_active, wallet_funded, ... }, panic_active, wallet_chain_id }
-      const checksObj = prereqResult?.checks || prereqResult || {};
-      const rulesAccepted = checksObj?.rules_accepted === true;
-      const walletReady = checksObj?.has_wallet === true && checksObj?.wallet_active === true && checksObj?.wallet_funded === true;
-      const allPrereqsOk = prereqResult?.ok === true;
-
-      // Hard blocker: rules_accepted must be true
-      if (!rulesAccepted) {
-        console.log("🚫 COORDINATOR: REAL mode blocked - rules not accepted", { checksObj });
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            success: false,
-            error: "blocked_rules_not_accepted",
-            decision: {
-              action: "BLOCK",
-              reason: "blocked_rules_not_accepted",
-              request_id: requestId,
-              retry_in_ms: 0,
-              message: "You must accept trading rules before executing REAL trades.",
-            },
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        if (walletError || !walletData?.wallet_address) {
+          console.error("❌ COORDINATOR: Could not fetch wallet address:", walletError);
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "blocked_wallet_not_found",
+              decision: {
+                action: "BLOCK",
+                reason: "blocked_wallet_not_found",
+                request_id: requestId,
+                message: "Could not retrieve execution wallet address.",
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+        walletAddress = walletData.wallet_address;
       }
-
-      // Hard blocker: wallet must be active and funded
-      if (!walletReady) {
-        console.log("🚫 COORDINATOR: REAL mode blocked - wallet not ready", { checksObj });
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            success: false,
-            error: "blocked_wallet_not_ready",
-            decision: {
-              action: "BLOCK",
-              reason: "blocked_wallet_not_ready",
-              request_id: requestId,
-              retry_in_ms: 0,
-              message: "Your execution wallet is not active or funded.",
-              wallet_checks: checksObj,
-            },
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-
-      // Get wallet address from execution_wallets table
-      const { data: walletData, error: walletError } = await supabaseClient
-        .from("execution_wallets")
-        .select("id, wallet_address, chain_id")
-        .eq("user_id", intent.userId)
-        .eq("is_active", true)
-        .single();
-
-      if (walletError || !walletData?.wallet_address) {
-        console.error("❌ COORDINATOR: Could not fetch wallet address:", walletError);
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            success: false,
-            error: "blocked_wallet_not_found",
-            decision: {
-              action: "BLOCK",
-              reason: "blocked_wallet_not_found",
-              request_id: requestId,
-              message: "Could not retrieve execution wallet address.",
-            },
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-
-      const walletAddress = walletData.wallet_address;
+      
       console.log("✅ COORDINATOR: Prerequisites OK - wallet_address:", walletAddress);
 
       // =============================================================================
