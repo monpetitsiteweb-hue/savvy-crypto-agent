@@ -549,9 +549,7 @@ Deno.serve(async (req) => {
       symbol: trade.symbol,
       side: trade.side,
     });
-
-    // Get signer
-    const signer = getSigner();
+    // signer already declared at top of handler via getSigner()
     
     // If local mode, verify taker matches signer address
     if (signer.type === 'local') {
