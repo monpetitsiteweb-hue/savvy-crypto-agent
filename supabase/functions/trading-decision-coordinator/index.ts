@@ -6162,11 +6162,11 @@ async function executeTradeOrder(
       const isPoolExit = intent.source === "pool";
       const isPositionManaged = !!intent.metadata?.position_management && !!intent.metadata?.position_id;
       const isManualSell = intent.metadata?.context === "MANUAL" && intent.metadata?.originalTradeId;
-      // System operator MODE: manual source + flag + execution_wallet_id
-      // These trades bypass coverage entirely (real on-chain tokens from SYSTEM wallet)
+      // System operator MODE: manual source + flag only
+      // These trades bypass coverage entirely (real on-chain tokens from SYSTEM wallet via BOT_ADDRESS)
+      // NOTE: No execution_wallet_id required - system operator uses BOT_ADDRESS directly
       const isSystemOperatorMode = intent.source === "manual" && 
-                                   intent.metadata?.system_operator_mode === true && 
-                                   !!intent.metadata?.execution_wallet_id;
+                                   intent.metadata?.system_operator_mode === true;
 
       console.log("[Coordinator][SELL] Incoming intent", {
         userId: intent.userId,
@@ -6343,7 +6343,7 @@ async function executeTradeOrder(
         // ========= BRANCH C: SYSTEM OPERATOR MODE SELL (no coverage check) =========
       } else if (isSystemOperatorMode) {
         console.log(`🔧 COORDINATOR: System operator mode SELL detected - BYPASSING coverage gate`);
-        console.log(`   Flag: system_operator_mode=true, ExecutionWalletId: ${intent.metadata.execution_wallet_id}`);
+        console.log(`   Flag: system_operator_mode=true (uses BOT_ADDRESS system wallet)`);
         
         // System operator trades sell real on-chain tokens from SYSTEM wallet
         // No FIFO/coverage needed - the system wallet balance is the source of truth
