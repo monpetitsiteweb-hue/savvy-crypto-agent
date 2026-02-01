@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { ArrowUpCircle, ArrowDownCircle, AlertTriangle, ExternalLink, Zap, FlaskConical } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { SUPABASE_URL, MANUAL_STRATEGY_ID, TRADEABLE_TOKENS, SLIPPAGE_OPTIONS } from './ManualTradeConstants';
+import { SUPABASE_URL, MANUAL_STRATEGY_ID, MANUAL_STRATEGY_OWNER_ID, TRADEABLE_TOKENS, SLIPPAGE_OPTIONS } from './ManualTradeConstants';
 
 interface ExecutionResult {
   success: boolean;
@@ -174,7 +174,9 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
         },
         body: JSON.stringify({
           intent: {
-            userId,
+            // CRITICAL: Use the strategy owner's user_id for FIFO BUY coverage to work
+            // The MANUAL_STRATEGY_ID belongs to MANUAL_STRATEGY_OWNER_ID, not the logged-in user
+            userId: MANUAL_STRATEGY_OWNER_ID,
             strategyId: MANUAL_STRATEGY_ID,
             symbol: token,
             side,

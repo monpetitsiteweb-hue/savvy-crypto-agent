@@ -7,6 +7,10 @@
 // This strategy has execution_target = 'REAL' in the database
 export const MANUAL_STRATEGY_ID = '31aeb45a-bc44-48a1-8090-8a706129653f';
 
+// The user_id that owns the MANUAL_STRATEGY_ID
+// All trades for this strategy MUST use this user_id for FIFO BUY coverage to work
+export const MANUAL_STRATEGY_OWNER_ID = '25a0c221-1f0e-431d-8d79-db9fb4db9cb3';
+
 // Tokens available for manual trading on Base (chain_id = 8453)
 export const TRADEABLE_TOKENS = [
   { symbol: 'ETH', name: 'Ethereum', decimals: 18 },
