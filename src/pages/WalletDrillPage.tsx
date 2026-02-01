@@ -324,7 +324,7 @@ export default function WalletDrillPage() {
   // SECTION: Withdraw Funds (from SYSTEM wallet to external)
   // ─────────────────────────────────────────────────────────────
   const handleWithdraw = async () => {
-    if (!user || !withdrawAmount || !withdrawDestination) return;
+    if (!user || !withdrawAmount || !withdrawDestination || !walletInfo?.wallet_id) return;
 
     setWithdrawLoading(true);
     setWithdrawResult(null);
@@ -348,6 +348,7 @@ export default function WalletDrillPage() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
+            wallet_id: walletInfo.wallet_id,
             asset: withdrawAsset,
             to_address: withdrawDestination,
             amount: parsedAmount,
@@ -715,14 +716,20 @@ export default function WalletDrillPage() {
               Withdraw Funds
             </CardTitle>
             <CardDescription>
-              Emergency exit. Sends from SYSTEM wallet to external address. User wallet is NOT involved.
+              Emergency exit. Sends funds from the user's deposit wallet to an external address.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="p-3 bg-muted/50 border border-border rounded text-xs text-muted-foreground">
-              <strong>How withdrawals work:</strong> Funds are sent FROM the system wallet (BOT_ADDRESS) TO
-              the destination address you specify. The user's database balance is debited accordingly.
+              <strong>How withdrawals work:</strong> Funds are sent FROM the user's deposit wallet
+              TO the destination address you specify. You must first create/fetch the deposit wallet above.
             </div>
+
+            {!walletInfo && (
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded text-sm text-yellow-600">
+                ⚠️ Please create or fetch a user deposit wallet first (section above) before withdrawing.
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="asset">Asset</Label>
@@ -761,11 +768,11 @@ export default function WalletDrillPage() {
 
             <Button
               onClick={handleWithdraw}
-              disabled={withdrawLoading || !withdrawAmount || !withdrawDestination}
+              disabled={withdrawLoading || !withdrawAmount || !withdrawDestination || !walletInfo?.wallet_id}
               className="w-full"
               variant="destructive"
             >
-              {withdrawLoading ? "Processing..." : "Withdraw from System Wallet"}
+              {withdrawLoading ? "Processing..." : "Withdraw from Deposit Wallet"}
             </Button>
 
             {withdrawResult && (
