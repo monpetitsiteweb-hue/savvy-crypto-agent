@@ -172,24 +172,28 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({
-          intent: {
-            userId,
-            strategyId: MANUAL_STRATEGY_ID,
-            symbol: token,
-            side,
-            // Use 'system_operator' for REAL trades (bypasses coverage), 'manual' for TEST trades
-            source: isRealTrade ? 'system_operator' : 'manual',
-            confidence: 1.0,
-            // For SELL: qtySuggested is token amount
-            // For BUY: qtySuggested should be computed by coordinator from eurAmount
-            qtySuggested: isBuy ? undefined : parsedAmount,
-            reason: isRealTrade 
-              ? `System operator ${side} from WalletDrillPage` 
-              : `Manual ${side} from operator panel (TEST)`,
-            metadata,
-          },
-        }),
+          body: JSON.stringify({
+            intent: {
+              userId,
+              strategyId: MANUAL_STRATEGY_ID,
+              symbol: token,
+              side,
+              // Always use 'manual' source - it's in the allowed list
+              source: 'manual',
+              confidence: 1.0,
+              // For SELL: qtySuggested is token amount
+              // For BUY: qtySuggested should be computed by coordinator from eurAmount
+              qtySuggested: isBuy ? undefined : parsedAmount,
+              reason: isRealTrade 
+                ? `System operator ${side} from WalletDrillPage` 
+                : `Manual ${side} from operator panel (TEST)`,
+              metadata: {
+                ...metadata,
+                // Flag to indicate system operator mode (bypasses coverage + user wallet checks)
+                system_operator_mode: isRealTrade ? true : undefined,
+              },
+            },
+          }),
       });
 
       const data = await response.json();

@@ -32,7 +32,7 @@ async function buildTrade(params: {
   amount: number;
   taker: string;
   slippageBps?: number;
-  source?: string;
+  system_operator_mode?: boolean;
 }): Promise<{ ok: true; tradeId: string; price?: number } | { ok: false; error: string }> {
   console.log('🔨 [sign-and-send] Building trade internally...', params);
   
@@ -55,7 +55,7 @@ async function buildTrade(params: {
         taker: params.taker,
         mode: 'build',
         preflight: true,
-        source: params.source, // Pass source for auto-wrap policy
+        system_operator_mode: params.system_operator_mode, // Pass flag for auto-wrap policy
       }),
     });
 
@@ -272,7 +272,7 @@ Deno.serve(async (req) => {
         amount: body.amount,
         taker: systemBotAddress, // ALWAYS use SYSTEM wallet in custodial model
         slippageBps: effectiveSlippageBps,
-        source: body.source, // Pass source for auto-wrap policy
+        system_operator_mode: body.system_operator_mode, // Pass flag for auto-wrap policy
       });
 
       // CRITICAL: Handle build failure BEFORE accessing tradeId
