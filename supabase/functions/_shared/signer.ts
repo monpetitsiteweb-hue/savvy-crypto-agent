@@ -21,6 +21,7 @@ export interface TxPayload {
 export interface Signer {
   type: 'webhook' | 'local';
   sign(txPayload: TxPayload, chainId: number): Promise<string>;
+  getAddress(): string | null;
 }
 
 /**
@@ -30,6 +31,7 @@ class WebhookSigner implements Signer {
   type: 'webhook' = 'webhook';
   private url: string;
   private authToken: string;
+  private botAddress: string | null;
 
   constructor() {
     const url = Deno.env.get('SIGNER_WEBHOOK_URL');
@@ -41,6 +43,11 @@ class WebhookSigner implements Signer {
     
     this.url = url;
     this.authToken = auth;
+    this.botAddress = Deno.env.get('BOT_ADDRESS') || null;
+  }
+
+  getAddress(): string | null {
+    return this.botAddress;
   }
 
   async sign(txPayload: TxPayload, chainId: number): Promise<string> {
@@ -118,6 +125,10 @@ class LocalSigner implements Signer {
       throw new Error('RPC_URL_8453 must be set for local signer');
     }
     this.rpcUrl = rpcUrl;
+  }
+
+  getAddress(): string {
+    return this.account.address;
   }
 
   async sign(txPayload: TxPayload, chainId: number): Promise<string> {

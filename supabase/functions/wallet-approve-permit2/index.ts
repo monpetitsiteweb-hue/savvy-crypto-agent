@@ -195,7 +195,9 @@ Deno.serve(async (req) => {
 
     // Get signer once (used for any tx we end up sending)
     const signer = getSigner();
-    logger.info("wallet-approve-permit2.signer_type", { type: signer.type });
+    const signerAddress = signer.getAddress();
+    console.log("SIGNER_DERIVED_ADDRESS", signerAddress);
+    logger.info("wallet-approve-permit2.signer_type", { type: signer.type, signerAddress });
 
     // =====================================================================
     // STEP 1: ERC20 approval (token -> Permit2)
