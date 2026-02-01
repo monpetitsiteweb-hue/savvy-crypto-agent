@@ -346,7 +346,8 @@ async function getReceipt(chainId: number, txHash: string) {
 }
 
 async function processReceipt(trade: any) {
-  const { id: tradeId, chain_id, tx_hash, provider, symbol, side, user_id, strategy_id, idempotency_key } = trade;
+  // CRITICAL: Extract is_system_operator from trade record - this is the durable execution class
+  const { id: tradeId, chain_id, tx_hash, provider, symbol, side, user_id, strategy_id, idempotency_key, is_system_operator } = trade;
 
   console.log(`Polling receipt for trade ${tradeId}, tx ${tx_hash}`);
 
@@ -533,10 +534,20 @@ async function processReceipt(trade: any) {
     const gasCostEth = Number(gasWei) / 1e18;
     // NO EUR CONVERSION HERE - ledger stores only on-chain observable values
     
+    // ==========================================================================
+    // EXECUTION CLASS: Written explicitly at ledger INSERT time
+    // is_system_operator comes from the trades table (transport layer)
+    // This is the ONLY source of truth for the mt_on_sell_snapshot trigger
+    // ==========================================================================
+    const isSystemOperator = is_system_operator === true;
+    
+    console.log(`📊 Ledger insert: is_system_operator=${isSystemOperator}, strategy_id=${isSystemOperator ? null : strategy_id}`);
+    
     // Build the ledger record with STRICT invariants - ALL economics from receipt
     const ledgerRecord = {
       user_id,
-      strategy_id,
+      // INVARIANT: system operator trades have no strategy ownership
+      strategy_id: isSystemOperator ? null : strategy_id,
       trade_type: side?.toLowerCase() || 'buy',
       cryptocurrency: symbol?.replace('/USD', '').replace('/EUR', '') || 'UNKNOWN',
       amount: filledAmount,           // FROM RECEIPT DECODE ONLY
@@ -544,6 +555,8 @@ async function processReceipt(trade: any) {
       total_value: totalValue,        // FROM RECEIPT DECODE ONLY
       executed_at: blockTimestamp,
       is_test_mode: false, // REAL trade
+      // EXECUTION CLASS: Written once at ledger INSERT, never inferred again
+      is_system_operator: isSystemOperator,
       notes: `On-chain execution confirmed | tx:${tx_hash?.substring(0, 10)}... | provider:${provider || 'unknown'} | decoded:${decodedTrade.decodeMethod}`,
       strategy_trigger: `onchain|tx:${tx_hash?.substring(0, 16)}`,
       market_conditions: {
@@ -556,6 +569,8 @@ async function processReceipt(trade: any) {
         block_number: receipt.blockNumber,
         decode_method: decodedTrade.decodeMethod,
         decoded_logs: decodedTrade.decodedLogs,
+        // JSON is informational only, trigger uses column
+        system_operator_mode: isSystemOperator,
       },
       // UNIFIED LEDGER: Explicit real execution fields
       execution_source: 'onchain',
