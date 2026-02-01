@@ -188,3 +188,7 @@ verify_jwt = false
 # System wallet Permit2 approvals
 [functions.wallet-approve-permit2]
 verify_jwt = false
+
+# System wallet withdrawal (uses BOT_PRIVATE_KEY)
+[functions.system-wallet-withdraw]
+verify_jwt = false
