@@ -2,9 +2,11 @@
  * Manual Trade Card - BUY or SELL with confirmation modal
  * Routes through trading-decision-coordinator
  * 
- * REAL vs MOCK is determined by wallet presence:
- * - If user has execution_wallet → REAL trade (on-chain)
- * - If no wallet → MOCK trade (paper trading)
+ * CUSTODIAL MODEL:
+ * - ALL real trades execute from SYSTEM wallet (BOT_ADDRESS)
+ * - User wallet existence triggers REAL mode (for authorization)
+ * - User wallet is NOT the trading wallet - it's for deposit/audit only
+ * - If no user wallet → MOCK trade (paper trading)
  */
 
 import { useState, useEffect } from 'react';
@@ -228,7 +230,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
           </CardTitle>
           <CardDescription>
             {isRealTrade 
-              ? (isBuy ? 'Buy tokens using execution wallet funds (ON-CHAIN)' : 'Sell tokens from execution wallet (ON-CHAIN)')
+              ? (isBuy ? 'Buy tokens via SYSTEM wallet (custodial on-chain)' : 'Sell tokens via SYSTEM wallet (custodial on-chain)')
               : (isBuy ? 'Paper trade - no real funds used' : 'Paper trade - simulated sell')
             }
           </CardDescription>
@@ -367,7 +369,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
               </ul>
               {isRealTrade ? (
                 <p className="text-yellow-600 font-medium">
-                  ⚠️ This will use REAL funds from the execution wallet on Base mainnet.
+                  ⚠️ This will use REAL funds from the SYSTEM wallet (BOT_ADDRESS) on Base mainnet.
                 </p>
               ) : (
                 <p className="text-blue-600 font-medium">
