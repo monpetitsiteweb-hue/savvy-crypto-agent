@@ -806,7 +806,10 @@ Deno.serve(async (req) => {
     }
 
     // Step 2: Insert trade record
-    const tradeRecord: Omit<TradeRecord, 'id'> = {
+    // CRITICAL: is_system_operator is written explicitly to propagate execution class
+    const isSystemOperator = system_operator_mode === true;
+    
+    const tradeRecord: Omit<TradeRecord, 'id'> & { is_system_operator: boolean; user_id: string | null; strategy_id: string | null } = {
       chain_id: chainId,
       base,
       quote,
@@ -830,7 +833,13 @@ Deno.serve(async (req) => {
       gas_wei: null,
       total_network_fee: null,
       notes: permit2Data ? `Permit2 signed: ${permit2Data.signer}` : null,
+      // EXECUTION CLASS: Written once at trade creation, read by onchain-receipts for ledger insertion
+      is_system_operator: isSystemOperator,
+      user_id: body.user_id || null,
+      strategy_id: isSystemOperator ? null : (body.strategy_id || null),
     };
+    
+    console.log(`onchain_execute.trade_record: is_system_operator=${isSystemOperator}, strategy_id=${tradeRecord.strategy_id}`);
 
     // Guard: only persist if persist !== false
     if (body.persist !== false) {

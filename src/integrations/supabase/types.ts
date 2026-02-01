@@ -2592,6 +2592,7 @@ export type Database = {
           gas_quote: number | null
           gas_wei: number | null
           id: string
+          is_system_operator: boolean
           min_out: string | null
           mode: string
           notes: string | null
@@ -2604,11 +2605,13 @@ export type Database = {
           simulate_only: boolean
           slippage_bps: number
           status: string
+          strategy_id: string | null
           taker: string | null
           total_network_fee: string | null
           tx_hash: string | null
           tx_payload: Json | null
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           amount: number
@@ -2619,6 +2622,7 @@ export type Database = {
           gas_quote?: number | null
           gas_wei?: number | null
           id?: string
+          is_system_operator?: boolean
           min_out?: string | null
           mode?: string
           notes?: string | null
@@ -2631,11 +2635,13 @@ export type Database = {
           simulate_only?: boolean
           slippage_bps?: number
           status?: string
+          strategy_id?: string | null
           taker?: string | null
           total_network_fee?: string | null
           tx_hash?: string | null
           tx_payload?: Json | null
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           amount?: number
@@ -2646,6 +2652,7 @@ export type Database = {
           gas_quote?: number | null
           gas_wei?: number | null
           id?: string
+          is_system_operator?: boolean
           min_out?: string | null
           mode?: string
           notes?: string | null
@@ -2658,11 +2665,13 @@ export type Database = {
           simulate_only?: boolean
           slippage_bps?: number
           status?: string
+          strategy_id?: string | null
           taker?: string | null
           total_network_fee?: string | null
           tx_hash?: string | null
           tx_payload?: Json | null
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: []
       }
