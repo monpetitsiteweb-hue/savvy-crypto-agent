@@ -59,9 +59,15 @@ interface ManualTradeCardProps {
   side: 'BUY' | 'SELL';
   userId: string;
   onTradeComplete?: () => void;
+  /** 
+   * SYSTEM OPERATOR MODE: When true, trades execute via the system wallet (BOT_ADDRESS)
+   * This bypasses user-specific execution wallet requirements and all coverage checks.
+   * Should only be true on the admin WalletDrillPage.
+   */
+  isSystemOperator?: boolean;
 }
 
-export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCardProps) {
+export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperator = false }: ManualTradeCardProps) {
   const [token, setToken] = useState<string>('ETH');
   const [amount, setAmount] = useState<string>('');
   const [slippage, setSlippage] = useState<string>('1.0');
@@ -69,7 +75,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
   const [showConfirm, setShowConfirm] = useState(false);
   const [result, setResult] = useState<ExecutionResult | null>(null);
   
-  // Execution wallet state - determines REAL vs MOCK
+  // Execution wallet state - used for user-specific trades (non-system-operator mode)
   const [executionWallet, setExecutionWallet] = useState<ExecutionWallet | null>(null);
   const [walletLoading, setWalletLoading] = useState(true);
 
@@ -77,7 +83,9 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
   const Icon = isBuy ? ArrowUpCircle : ArrowDownCircle;
   
   // Derived: Is this a REAL trade?
-  const isRealTrade = !!executionWallet?.id && executionWallet.is_active;
+  // System operator mode ALWAYS means real trade (uses system wallet)
+  // Otherwise, require user-specific execution wallet
+  const isRealTrade = isSystemOperator || (!!executionWallet?.id && executionWallet.is_active);
 
   // Fetch execution wallet on mount
   useEffect(() => {
@@ -147,7 +155,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
         }
       }
 
-      // Build metadata - include execution_wallet_id for REAL trades
+      // Build metadata
       const metadata: Record<string, any> = {
         context: 'MANUAL',
         slippage_bps: parseFloat(slippage) * 100,
@@ -159,8 +167,14 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
         currentPrice: !isBuy ? currentPrice : undefined,
       };
 
-      // CRITICAL: Include execution_wallet_id to trigger REAL mode
-      if (executionWallet?.id) {
+      // SYSTEM OPERATOR MODE: Use prop directly (admin page), don't require user wallet
+      // For non-system-operator mode, fall back to user-specific execution wallet
+      if (isSystemOperator) {
+        // System operator uses BOT_ADDRESS - no execution_wallet_id needed
+        // The coordinator will use the system wallet directly
+        metadata.system_operator_mode = true;
+      } else if (executionWallet?.id) {
+        // Regular user with their own execution wallet
         metadata.execution_wallet_id = executionWallet.id;
         metadata.wallet_address = executionWallet.wallet_address;
       }
@@ -184,14 +198,11 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
               // For SELL: qtySuggested is token amount
               // For BUY: qtySuggested should be computed by coordinator from eurAmount
               qtySuggested: isBuy ? undefined : parsedAmount,
-              reason: isRealTrade 
+              reason: isSystemOperator 
                 ? `System operator ${side} from WalletDrillPage` 
                 : `Manual ${side} from operator panel (TEST)`,
-              metadata: {
-                ...metadata,
-                // Flag to indicate system operator mode (bypasses coverage + user wallet checks)
-                system_operator_mode: isRealTrade ? true : undefined,
-              },
+              // Metadata already contains system_operator_mode if isSystemOperator prop is true
+              metadata,
             },
           }),
       });

@@ -667,8 +667,8 @@ export default function WalletDrillPage() {
 
           {user && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <ManualTradeCard side="BUY" userId={user.id} onTradeComplete={handleTradeComplete} />
-              <ManualTradeCard side="SELL" userId={user.id} onTradeComplete={handleTradeComplete} />
+              <ManualTradeCard side="BUY" userId={user.id} onTradeComplete={handleTradeComplete} isSystemOperator={true} />
+              <ManualTradeCard side="SELL" userId={user.id} onTradeComplete={handleTradeComplete} isSystemOperator={true} />
             </div>
           )}
         </div>
