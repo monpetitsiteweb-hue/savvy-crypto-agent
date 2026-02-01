@@ -174,19 +174,19 @@ export function ManualTradeCard({ side, userId, onTradeComplete }: ManualTradeCa
         },
         body: JSON.stringify({
           intent: {
-            // IMPORTANT: Manual BUY and SELL must use the same ledger scope.
-            // The system trading wallet (BOT) is enforced server-side on the REAL path;
-            // here we must keep userId consistent with the existing manual BUY records.
             userId,
             strategyId: MANUAL_STRATEGY_ID,
             symbol: token,
             side,
-            source: 'manual',
+            // Use 'system_operator' for REAL trades (bypasses coverage), 'manual' for TEST trades
+            source: isRealTrade ? 'system_operator' : 'manual',
             confidence: 1.0,
             // For SELL: qtySuggested is token amount
             // For BUY: qtySuggested should be computed by coordinator from eurAmount
             qtySuggested: isBuy ? undefined : parsedAmount,
-            reason: `Manual ${side} from operator panel`,
+            reason: isRealTrade 
+              ? `System operator ${side} from WalletDrillPage` 
+              : `Manual ${side} from operator panel (TEST)`,
             metadata,
           },
         }),
