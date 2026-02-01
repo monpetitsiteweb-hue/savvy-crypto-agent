@@ -263,7 +263,7 @@ interface TradeIntent {
   strategyId: string;
   symbol: string;
   side: "BUY" | "SELL";
-  source: "automated" | "intelligent" | "pool" | "manual" | "news" | "whale" | "system_operator";
+  source: "automated" | "intelligent" | "pool" | "manual" | "news" | "whale";
   confidence: number;
   reason?: string;
   qtySuggested?: number;
@@ -1471,7 +1471,7 @@ serve(async (req) => {
     //   - 'news'        : legacy news-based signals
     //   - 'whale'       : legacy whale signals
     // ==============================================================
-    const allowedSourcesToProcess = ["intelligent", "manual", "system_operator"];
+    const allowedSourcesToProcess = ["intelligent", "manual"];
     if (!allowedSourcesToProcess.includes(intent.source)) {
       console.warn("🚫 COORDINATOR: Rejecting deprecated source", {
         source: intent.source,
@@ -2448,21 +2448,24 @@ serve(async (req) => {
       const isManualIntent = intent.source === "manual" || intent.metadata?.context === "MANUAL";
       const hasWalletId = !!intent.metadata?.execution_wallet_id;
       
-      // System operator trades use SYSTEM wallet (BOT_ADDRESS), not user wallet
-      // These bypass user wallet prerequisite checks entirely
-      const isSystemOperator = intent.source === "system_operator";
+      // System operator MODE: manual source + flag + execution_wallet_id
+      // These trades use SYSTEM wallet (BOT_ADDRESS), not user wallet
+      const isSystemOperatorMode = intent.source === "manual" && 
+                                   intent.metadata?.system_operator_mode === true && 
+                                   hasWalletId;
       
       console.log("🔥 COORDINATOR: REAL mode detected", {
         isManualIntent,
-        isSystemOperator,
+        isSystemOperatorMode,
         hasWalletId,
         execution_wallet_id: intent.metadata?.execution_wallet_id,
+        system_operator_mode: intent.metadata?.system_operator_mode,
         request_id: requestId,
       });
 
-      // For system_operator: skip user wallet checks (uses SYSTEM wallet)
-      if (isSystemOperator) {
-        console.log("🔧 COORDINATOR: system_operator - skipping user wallet prerequisite checks (uses SYSTEM wallet)");
+      // For system_operator_mode: skip user wallet checks (uses SYSTEM wallet)
+      if (isSystemOperatorMode) {
+        console.log("🔧 COORDINATOR: system_operator_mode - skipping user wallet prerequisite checks (uses SYSTEM wallet)");
       } else {
         // Check live trading prerequisites via RPC (for regular manual trades)
         console.log("📋 COORDINATOR: Checking prerequisites...");
@@ -2539,15 +2542,15 @@ serve(async (req) => {
         }
       }
 
-      // Get wallet address - for system_operator use metadata or skip user lookup
+      // Get wallet address - for system_operator_mode use metadata or skip user lookup
       let walletAddress: string;
       
-      if (isSystemOperator) {
+      if (isSystemOperatorMode) {
         // System operator trades use BOT_ADDRESS (SYSTEM wallet)
         // The actual signing happens in onchain-sign-and-send which reads BOT_ADDRESS
         // We can use a placeholder here or the metadata wallet_address if provided
         walletAddress = intent.metadata?.wallet_address || "SYSTEM_WALLET";
-        console.log("🔧 COORDINATOR: system_operator - using SYSTEM wallet for execution");
+        console.log("🔧 COORDINATOR: system_operator_mode - using SYSTEM wallet for execution");
       } else {
         // Regular manual trades - fetch user's execution wallet
         const { data: walletData, error: walletError } = await supabaseClient
@@ -2580,8 +2583,8 @@ serve(async (req) => {
       console.log("✅ COORDINATOR: Prerequisites OK - wallet_address:", walletAddress);
 
       // =============================================================================
-      // MANUAL/SYSTEM_OPERATOR FAST-PATH: Direct synchronous on-chain execution
-      // This path is triggered by: (source === "manual" || source === "system_operator") + execution_wallet_id
+      // MANUAL FAST-PATH: Direct synchronous on-chain execution
+      // This path is triggered by: source === "manual" + execution_wallet_id
       // It bypasses the async execution_jobs queue and executes immediately.
       // This SAME flow will be used by automated trades once they're trusted.
       //
@@ -2589,9 +2592,9 @@ serve(async (req) => {
       // onchain-sign-and-send internally handles: quote → build → sign → broadcast
       // This ensures ONE execution path for both MANUAL and future AUTO trades.
       // =============================================================================
-      const isDirectExecutionSource = intent.source === "manual" || intent.source === "system_operator";
-      if (isDirectExecutionSource && hasWalletId) {
-        console.log(`🚀 COORDINATOR: ${intent.source.toUpperCase()} FAST-PATH - calling onchain-sign-and-send`);
+      if (intent.source === "manual" && hasWalletId) {
+        const modeLabel = isSystemOperatorMode ? "SYSTEM_OPERATOR" : "MANUAL";
+        console.log(`🚀 COORDINATOR: ${modeLabel} FAST-PATH - calling onchain-sign-and-send`);
         
         const baseSymbol = toBaseSymbol(intent.symbol);
         const slippageBps = intent.metadata?.slippage_bps || 100; // Default 1%
@@ -2672,7 +2675,8 @@ serve(async (req) => {
               amount: tradeAmount,
               taker: walletAddress,
               slippageBps,
-              source: intent.source, // Pass source for auto-wrap policy
+              // Pass system_operator_mode flag for auto-wrap policy
+              system_operator_mode: isSystemOperatorMode,
             }),
           });
 
@@ -6158,8 +6162,11 @@ async function executeTradeOrder(
       const isPoolExit = intent.source === "pool";
       const isPositionManaged = !!intent.metadata?.position_management && !!intent.metadata?.position_id;
       const isManualSell = intent.metadata?.context === "MANUAL" && intent.metadata?.originalTradeId;
-      // NEW: System operator trades bypass coverage entirely (real on-chain tokens from SYSTEM wallet)
-      const isSystemOperatorTrade = intent.source === "system_operator" && !!intent.metadata?.execution_wallet_id;
+      // System operator MODE: manual source + flag + execution_wallet_id
+      // These trades bypass coverage entirely (real on-chain tokens from SYSTEM wallet)
+      const isSystemOperatorMode = intent.source === "manual" && 
+                                   intent.metadata?.system_operator_mode === true && 
+                                   !!intent.metadata?.execution_wallet_id;
 
       console.log("[Coordinator][SELL] Incoming intent", {
         userId: intent.userId,
@@ -6167,6 +6174,7 @@ async function executeTradeOrder(
         symbol: intent.symbol,
         side: intent.side,
         source: intent.source,
+        system_operator_mode: intent.metadata?.system_operator_mode ?? false,
         position_management: intent.metadata?.position_management ?? false,
         position_id: intent.metadata?.position_id ?? null,
         originalTradeId: intent.metadata?.originalTradeId ?? null,
@@ -6178,8 +6186,8 @@ async function executeTradeOrder(
         isPositionManaged,
         isPoolExit,
         isManualSell,
-        isSystemOperatorTrade,
-        branch: isPositionManaged ? "position" : isPoolExit ? "pool" : isSystemOperatorTrade ? "system_operator" : isManualSell ? "manual" : "symbol",
+        isSystemOperatorMode,
+        branch: isPositionManaged ? "position" : isPoolExit ? "pool" : isSystemOperatorMode ? "system_operator_mode" : isManualSell ? "manual" : "symbol",
       });
 
       // ========= BRANCH A: POSITION-MANAGED SELL (per position_id) =========
@@ -6332,10 +6340,10 @@ async function executeTradeOrder(
 
         // Pool exits bypass coverage enforcement - pool manager handles quantity validation
 
-        // ========= BRANCH C: SYSTEM OPERATOR SELL (no coverage check) =========
-      } else if (isSystemOperatorTrade) {
-        console.log(`🔧 COORDINATOR: System operator SELL detected - BYPASSING coverage gate`);
-        console.log(`   Source: ${intent.source}, ExecutionWalletId: ${intent.metadata.execution_wallet_id}`);
+        // ========= BRANCH C: SYSTEM OPERATOR MODE SELL (no coverage check) =========
+      } else if (isSystemOperatorMode) {
+        console.log(`🔧 COORDINATOR: System operator mode SELL detected - BYPASSING coverage gate`);
+        console.log(`   Flag: system_operator_mode=true, ExecutionWalletId: ${intent.metadata.execution_wallet_id}`);
         
         // System operator trades sell real on-chain tokens from SYSTEM wallet
         // No FIFO/coverage needed - the system wallet balance is the source of truth
