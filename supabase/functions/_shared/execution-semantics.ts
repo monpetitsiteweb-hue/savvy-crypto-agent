@@ -28,8 +28,8 @@
 //
 // INVARIANT: All trades with is_system_operator=true MUST use this user_id.
 // This is enforced by:
-//   1. resolveExecutionUserId() guard function (code)
-//   2. CHECK constraint on real_trades table (database)
+//   1. resolveExecutionUserId() guard function (code) - CANONICAL SOURCE OF TRUTH
+//   2. NOT NULL constraint on real_trades.user_id (database) - fail-closed safety
 //
 // DO NOT CHANGE THIS VALUE. Existing records depend on it.
 // =============================================================================

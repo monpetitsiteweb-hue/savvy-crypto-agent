@@ -2239,7 +2239,7 @@ export type Database = {
           total_value: number | null
           trade_id: string
           tx_hash: string
-          user_id: string | null
+          user_id: string
         }
         Insert: {
           amount: number
@@ -2266,7 +2266,7 @@ export type Database = {
           total_value?: number | null
           trade_id: string
           tx_hash: string
-          user_id?: string | null
+          user_id: string
         }
         Update: {
           amount?: number
@@ -2293,7 +2293,7 @@ export type Database = {
           total_value?: number | null
           trade_id?: string
           tx_hash?: string
-          user_id?: string | null
+          user_id?: string
         }
         Relationships: [
           {
