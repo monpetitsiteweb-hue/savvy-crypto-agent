@@ -114,7 +114,8 @@ The system operates a **CUSTODIAL EXCHANGE MODEL**:
 - `decision_events` (audit trail)
 
 **Invariants Enforced:**
-- **NONE** — system operator bypasses all gates
+- **No strategy, coverage, FIFO, or risk gates** — system operator bypasses all business logic gates
+- Still subject to: chain validity, receipt decoding, and fail-closed execution
 - `strategy_id = NULL` (no strategy ownership)
 - P&L fields set to 0 (no accounting contamination)
 
@@ -138,6 +139,22 @@ The system operates a **CUSTODIAL EXCHANGE MODEL**:
 ---
 
 ## 3. Execution-Class Rules (CRITICAL)
+
+### 3.0 Single Source of Truth Rule
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              SINGLE SOURCE OF TRUTH HIERARCHY                   │
+├─────────────────────────────────────────────────────────────────┤
+│ 1. Intent / Coordinator data  →  ADVISORY (can be overridden)  │
+│ 2. trades table               →  TRANSPORT (intermediate state)│
+│ 3. mock_trades table          →  AUTHORITATIVE LEDGER          │
+│ 4. Database triggers          →  ENFORCE FINAL INVARIANTS      │
+├─────────────────────────────────────────────────────────────────┤
+│ When in doubt: the ledger (mock_trades) wins.                   │
+│ Triggers are the last line of defense.                          │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ### 3.1 The `is_system_operator` Column
 
@@ -497,15 +514,13 @@ metadata: {
 
 ### 8.1 ExecutionClass Enum (Phase 1)
 
-**Planned:** Collapse all execution class flags into a single enum:
-```typescript
-enum ExecutionClass {
-  MOCK_USER = 'MOCK_USER',
-  MOCK_SYSTEM = 'MOCK_SYSTEM',
-  REAL_USER = 'REAL_USER',
-  REAL_SYSTEM = 'REAL_SYSTEM',
-}
-```
+**Planned:** Collapse all execution class flags into structured enums.
+
+> ⚠️ **Design Note:** The original proposal mixed two orthogonal dimensions (environment × authority), which caused semantic overload. The enum will likely be split into:
+> - `execution_class`: `USER_MANUAL` | `USER_AUTOMATED` | `SYSTEM_OPERATOR`
+> - `execution_target`: `MOCK` | `REAL`
+> 
+> This separation prevents the entanglement that caused earlier bugs.
 
 **Status:** NOT IMPLEMENTED — requires migration of existing data
 
@@ -519,6 +534,40 @@ enum ExecutionClass {
 - Circuit breakers tested in production
 
 **Status:** NOT IMPLEMENTED — all automated trades remain MOCK
+
+---
+
+## 9. Minimal Observability Requirements
+
+Given the complexity of the asynchronous execution pipeline, the following alerts/monitors are **required** before enabling real automated trading:
+
+### 9.1 Critical Alerts (Must Have)
+
+| Alert | Condition | Why |
+|-------|-----------|-----|
+| **Receipt decode failure** | `execution_confirmed = false` after 10 min | Trade executed but not recorded correctly |
+| **Trigger exception** | Any error in `mt_on_sell_snapshot` | FIFO/coverage logic broken |
+| **trades → mock_trades mismatch** | Count divergence over 1 hour | Receipts not processing |
+| **Permit2 signature failure** | Any `permit2.eip712` present but signature missing | Transactions will revert |
+| **Transaction revert rate** | >20% of broadcast txs revert | Systemic execution issue |
+
+### 9.2 Health Indicators
+
+| Metric | Healthy State |
+|--------|---------------|
+| `trades` with `status='submitted'` older than 5 min | 0 |
+| `mock_trades` with `execution_confirmed=false` older than 10 min | 0 |
+| Time since last successful real trade | < 24h (when trading enabled) |
+| Circuit breaker trip count (24h) | < 3 |
+
+### 9.3 Debugging Checklist
+
+When a trade fails, check in order:
+1. **Edge function logs** — Did the function execute?
+2. **trades table** — Is there a record? What status?
+3. **tx_hash on BaseScan** — Did it broadcast? Did it revert?
+4. **mock_trades table** — Did the receipt processor run?
+5. **Trigger logs** — Did `mt_on_sell_snapshot` error?
 
 ---
 
