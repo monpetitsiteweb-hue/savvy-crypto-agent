@@ -166,12 +166,12 @@ export const Header = () => {
             {/* Trade View Filter - UI only, does not affect backend execution */}
             <div className="flex items-center gap-2 bg-slate-700/50 px-3 py-2 rounded-lg border border-slate-600/50">
               <span className={`text-xs font-medium ${testMode ? 'text-orange-400' : 'text-emerald-400'}`}>
-                {testMode ? 'Showing: Test Trades' : 'Showing: Live Trades'}
+                {testMode ? 'TEST Mode' : 'REAL (on-chain)'}
               </span>
               <Switch
                 checked={testMode}
                 onCheckedChange={toggleTestMode}
-                className="data-[state=checked]:bg-orange-500"
+                className="data-[state=checked]:bg-orange-500 data-[state=unchecked]:bg-emerald-500"
               />
             </div>
 
@@ -312,12 +312,12 @@ export const Header = () => {
               {/* Trade View Filter - UI only */}
               <div className="flex items-center gap-2 bg-slate-700/50 px-3 py-2 rounded-lg border border-slate-600/50 mb-2">
                 <span className={`text-xs font-medium ${testMode ? 'text-orange-400' : 'text-emerald-400'}`}>
-                  {testMode ? 'Showing: Test Trades' : 'Showing: Live Trades'}
+                  {testMode ? 'TEST Mode' : 'REAL (on-chain)'}
                 </span>
                 <Switch
                   checked={testMode}
                   onCheckedChange={toggleTestMode}
-                  className="data-[state=checked]:bg-orange-500"
+                  className="data-[state=checked]:bg-orange-500 data-[state=unchecked]:bg-emerald-500"
                 />
               </div>
 
