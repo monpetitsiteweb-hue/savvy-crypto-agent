@@ -923,6 +923,54 @@ const { data } = await supabase
 | 2026-02-02 | System | Phase 1: Dual-ledger (real_trades shadow table) |
 | 2026-02-02 | System | Phase 2: Execution semantics cleanup (deriveExecutionClass) |
 | 2026-02-02 | System | Phase 3: On-chain receipt state machine |
+| 2026-02-02 | System | Phase 3B: FK-safe ordering (mock_trades placeholder before execution) |
+
+---
+
+## 14. Phase 3B: FK-Safe Ordering
+
+### 14.1 Problem
+
+`real_trades.trade_id` has an FK constraint to `mock_trades.id`. Previously, `onchain-sign-and-send` inserted into `real_trades` BEFORE `mock_trades` existed, causing FK violation:
+
+```
+REAL_TRADES_SUBMIT_INSERT_FAILED
+violates foreign key constraint "fk_real_trades_mock" (code 23503)
+```
+
+### 14.2 Solution
+
+Insert a `mock_trades` **placeholder** in the coordinator BEFORE calling `onchain-sign-and-send`:
+
+```
+1) Coordinator
+   └─ INSERT mock_trades (PENDING_ONCHAIN placeholder)
+   └─ Pass mock_trade_id to onchain-sign-and-send
+
+2) onchain-sign-and-send
+   └─ Broadcast tx
+   └─ INSERT real_trades (execution_status = 'SUBMITTED', trade_id = mock_trade_id)
+
+3) onchain-receipts (poller)
+   └─ Receipt found
+   └─ UPDATE real_trades → CONFIRMED/REVERTED
+   └─ UPDATE mock_trades → finalize with receipt values
+```
+
+### 14.3 Key Changes
+
+| Component | Change |
+|-----------|--------|
+| `trading-decision-coordinator` | Inserts `mock_trades` placeholder with `execution_confirmed=false` |
+| `onchain-sign-and-send` | Accepts `mock_trade_id` param, uses it for `real_trades.trade_id` |
+| `onchain-receipts` | UPDATEs existing placeholder instead of INSERT |
+
+### 14.4 Logs
+
+| Log Event | When | Meaning |
+|-----------|------|---------|
+| `MOCK_TRADES_PENDING_ONCHAIN_INSERTED` | Before execution | Placeholder created |
+| `LEDGER_FINALIZED` | Receipt confirmed | Placeholder updated with final values |
 
 ---
 
