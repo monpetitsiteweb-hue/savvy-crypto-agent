@@ -756,10 +756,89 @@ try {
 
 ---
 
+## 12. Phase 2: Execution Semantics Cleanup
+
+### 12.1 Overview
+
+Phase 2 centralizes all execution classification logic into a single `deriveExecutionClass()` function, eliminating scattered flag checks throughout the codebase.
+
+### 12.2 Execution Dimensions (Orthogonal)
+
+| Dimension | Values | Purpose |
+|-----------|--------|---------|
+| **ExecutionAuthority** | `USER`, `SYSTEM` | WHO is executing (human vs system operator) |
+| **ExecutionIntent** | `MANUAL`, `AUTOMATED` | HOW it was triggered (explicit action vs engine) |
+| **ExecutionTarget** | `MOCK`, `REAL` | WHERE it executes (simulated vs blockchain) |
+
+### 12.3 Legacy Flag Mapping
+
+| Legacy Flag | Origin | Maps To | Status |
+|-------------|--------|---------|--------|
+| `source` | TradeIntent | ExecutionIntent (MANUAL if 'manual') | Deprecated |
+| `system_operator_mode` | metadata | ExecutionAuthority=SYSTEM | Deprecated |
+| `force` | metadata | (debugging only for MOCK) | Deprecated |
+| `execution_wallet_id` | metadata | ExecutionTarget=REAL | Deprecated |
+| `is_test_mode` | metadata | (removed, unused) | Removed |
+| `execution_target` | strategy config | ExecutionTarget | Deprecated |
+
+### 12.4 Derivation Rules
+
+```typescript
+// From supabase/functions/_shared/execution-semantics.ts
+
+// 1. AUTHORITY: SYSTEM if manual + system_operator_mode, else USER
+const authority: ExecutionAuthority = 
+  (source === 'manual' && systemOperatorMode) ? 'SYSTEM' : 'USER';
+
+// 2. INTENT: MANUAL if source is 'manual', else AUTOMATED
+const intent: ExecutionIntent = 
+  source === 'manual' ? 'MANUAL' : 'AUTOMATED';
+
+// 3. TARGET: REAL if wallet_id present OR strategy says REAL, else MOCK
+const target: ExecutionTarget = 
+  (hasExecutionWalletId || strategyExecutionTarget === 'REAL' || systemOperatorMode)
+    ? 'REAL'
+    : 'MOCK';
+```
+
+### 12.5 Behavior Parity
+
+| Old Pattern | New Pattern |
+|-------------|-------------|
+| `source === 'manual' && system_operator_mode === true` | `execClass.authority === 'SYSTEM'` |
+| `source === 'manual'` | `execClass.intent === 'MANUAL'` |
+| `!!execution_wallet_id \|\| strategyExecutionTarget === 'REAL'` | `execClass.target === 'REAL'` |
+| `canonicalExecutionMode === 'MOCK'` | `execClass.isMockExecution` |
+
+### 12.6 Observability
+
+```
+EXECUTION_CLASS_DERIVED {
+  authority: "USER" | "SYSTEM",
+  intent: "MANUAL" | "AUTOMATED", 
+  target: "MOCK" | "REAL",
+  isSystemOperator: boolean,
+  isMockExecution: boolean,
+  isManualTrade: boolean,
+  trade_id: string,
+  _derivedFrom: { source, system_operator_mode, force, has_execution_wallet_id, strategy_execution_target }
+}
+```
+
+### 12.7 Invariants
+
+1. **Single derivation point** - All execution logic derives from `deriveExecutionClass()`
+2. **Legacy flags deprecated** - Direct flag checks are prohibited; use execClass instead
+3. **Behavior unchanged** - Same trades execute, same trades block, same logs emit
+4. **No DB changes** - No schema modifications in Phase 2
+
+---
+
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-02-02 | System | Initial freeze after SELL coverage bug fix |
 | 2026-02-02 | System | Phase 1: Dual-ledger (real_trades shadow table) |
+| 2026-02-02 | System | Phase 2: Execution semantics cleanup (deriveExecutionClass) |
 
 ---
 

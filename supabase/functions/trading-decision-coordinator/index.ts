@@ -2,6 +2,19 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// ============= PHASE 2: CENTRALIZED EXECUTION SEMANTICS =============
+// Import canonical execution classification types and deriveExecutionClass function.
+// All execution logic MUST derive from this classification, not from raw flags.
+import {
+  type ExecutionAuthority,
+  type ExecutionIntent,
+  type ExecutionTarget,
+  type ExecutionClass,
+  type ExecutionClassInput,
+  deriveExecutionClass,
+  logExecutionClass,
+} from "../_shared/execution-semantics.ts";
+
 // ============= SIGNAL FUSION INTEGRATION =============
 // Import signal fusion module for Phase 1B READ-ONLY integration
 // Inlined from src/engine/signalFusion.ts for Deno compatibility
@@ -2007,7 +2020,18 @@ serve(async (req) => {
     // This MUST be checked FIRST, before any mock/force/manual paths
     // System operator mode uses BOT_ADDRESS directly - no user wallet required
     // ═══════════════════════════════════════════════════════════════════════════════
-    if (intent.source === "manual" && intent.metadata?.system_operator_mode === true) {
+    // Phase 2: Use early execClass derivation (before strategy fetch) for system operator detection
+    // Deprecated: Direct flag check `intent.source === "manual" && intent.metadata?.system_operator_mode === true`
+    const earlyExecClass = deriveExecutionClass({
+      source: intent.source,
+      metadata: intent.metadata,
+      strategyExecutionTarget: 'REAL', // System operator always implies REAL
+    });
+    
+    if (earlyExecClass.isSystemOperator) {
+      // Log execution class for diagnostics
+      logExecutionClass(earlyExecClass, requestId);
+      
       console.log("🔧 COORDINATOR: SYSTEM OPERATOR MODE - routing directly to on-chain execution");
       console.log("🔧 SYSTEM_OPERATOR intent:", {
         side: intent.side,
@@ -2015,6 +2039,10 @@ serve(async (req) => {
         qtySuggested: intent.qtySuggested,
         eurAmount: intent.metadata?.eurAmount,
         slippage_bps: intent.metadata?.slippage_bps,
+        // Phase 2: Include execClass for observability
+        execClass_authority: earlyExecClass.authority,
+        execClass_intent: earlyExecClass.intent,
+        execClass_target: earlyExecClass.target,
       });
 
       const baseSymbol = toBaseSymbol(intent.symbol);
@@ -2504,11 +2532,22 @@ serve(async (req) => {
 
     // STEP 4: GATE OVERRIDES FOR MANUAL SELL (force debugging path)
     // NOTE: Do NOT intercept REAL manual trades - those must go to MANUAL FAST-PATH
-    const force = intent.source === "manual" && intent.metadata?.force === true;
-    const isRealManualTrade =
-      intent.source === "manual" && !!intent.metadata?.execution_wallet_id;
+    // Phase 2: Use early execClass derivation for force detection
+    // Deprecated: Direct flag checks for force and isRealManualTrade
+    const forceDebugExecClass = deriveExecutionClass({
+      source: intent.source,
+      metadata: intent.metadata,
+      strategyExecutionTarget: 'MOCK', // Force is only for MOCK debugging
+    });
+    
+    // Deprecated: `intent.source === "manual" && intent.metadata?.force === true`
+    const force = forceDebugExecClass.isManualTrade && intent.metadata?.force === true;
+    // Deprecated: `intent.source === "manual" && !!intent.metadata?.execution_wallet_id`
+    const isRealManualTrade = forceDebugExecClass.isManualTrade && forceDebugExecClass.target === 'REAL';
+    
     if (force && !isRealManualTrade) {
       console.log("🔥 MANUAL FORCE OVERRIDE: bypassing all gates for debugging");
+      console.log("   Phase 2: execClass derived", forceDebugExecClass._derivedFrom);
       const base = toBaseSymbol(intent.symbol);
       const qty = intent.qtySuggested || 0.001;
       const priceData = await getMarketPrice(base, 15000);
@@ -2584,29 +2623,39 @@ serve(async (req) => {
     const panicActive = strategy.panic_active === true;
 
     // =============================================================================
-    // CANONICAL EXECUTION MODE (SINGLE SOURCE OF TRUTH)
+    // PHASE 2: CENTRALIZED EXECUTION SEMANTICS
     // =============================================================================
-    // Manual trades with real wallet → REAL mode
-    // Everything else → derives from strategy.execution_target
-    // This is the ONLY place execution mode is determined for this request
+    // Use deriveExecutionClass() as the SINGLE POINT OF TRUTH for execution classification.
+    // All downstream logic MUST derive from execClass, not from raw flags.
+    // Legacy flags (source, system_operator_mode, force, execution_wallet_id) are
+    // interpreted ONLY in deriveExecutionClass() and are DEPRECATED for direct use.
     // =============================================================================
-    type ExecutionMode = "REAL" | "MOCK";
-    const canonicalExecutionMode: ExecutionMode =
-      intent.source === "manual" && intent.metadata?.execution_wallet_id
-        ? "REAL"
-        : strategyExecutionTarget === "REAL"
-          ? "REAL"
-          : "MOCK";
+    const execClass: ExecutionClass = deriveExecutionClass({
+      source: intent.source,
+      metadata: intent.metadata,
+      strategyExecutionTarget: strategyExecutionTarget,
+    });
+
+    // Log the derived execution class for diagnostics (Phase 2 requirement)
+    logExecutionClass(execClass, requestId);
 
     // =============================================================================
-    // SINGLE CANONICAL EXECUTION FLAG (the ONLY isMockExecution in this file)
+    // DERIVED CONVENIENCE VARIABLES (from execClass, not raw flags)
+    // These replace the previous scattered flag checks.
+    // Deprecated: canonicalExecutionMode, isMockExecution computed from raw flags
     // =============================================================================
-    const isMockExecution = canonicalExecutionMode === "MOCK";
+    type ExecutionMode = "REAL" | "MOCK";
+    // Deprecated: computed inline from raw flags - now derived from execClass
+    const canonicalExecutionMode: ExecutionMode = execClass.target;
+    const isMockExecution = execClass.isMockExecution;
     const canonicalIsTestMode = isMockExecution; // Alias for passing to sub-functions
 
     console.log("[Coordinator] MODE =", canonicalExecutionMode, {
       execution_wallet_id: intent.metadata?.execution_wallet_id,
       execution_target: strategyExecutionTarget,
+      // Phase 2: Include execClass for observability
+      execClass_authority: execClass.authority,
+      execClass_intent: execClass.intent,
     });
 
     // ============= PANIC GATE (hard blocker) =============
@@ -2663,26 +2712,31 @@ serve(async (req) => {
     // REAL mode: Check prerequisites, then execute
     // MANUAL trades with execution_wallet_id → DIRECT SYNCHRONOUS EXECUTION
     // AUTOMATED trades → route to execution_jobs (async) for worker processing
-    if (canonicalExecutionMode === "REAL") {
-      const isManualIntent = intent.source === "manual" || intent.metadata?.context === "MANUAL";
+    if (execClass.target === "REAL") {
+      // Phase 2: Use execClass-derived flags instead of raw flag checks
+      // Deprecated: Direct checks like `intent.source === "manual"`
+      const isManualIntent = execClass.isManualTrade;
       const hasWalletId = !!intent.metadata?.execution_wallet_id;
       
-      // System operator MODE: manual source + flag only
-      // These trades use SYSTEM wallet (BOT_ADDRESS), not user wallet
-      // NOTE: No execution_wallet_id required - system operator uses BOT_ADDRESS directly
-      const isSystemOperatorMode = intent.source === "manual" && 
-                                   intent.metadata?.system_operator_mode === true;
+      // Phase 2: Use execClass.isSystemOperator instead of raw flag check
+      // Deprecated: `intent.source === "manual" && intent.metadata?.system_operator_mode === true`
+      const isSystemOperatorMode = execClass.isSystemOperator;
       
       console.log("🔥 COORDINATOR: REAL mode detected", {
         isManualIntent,
         isSystemOperatorMode,
         hasWalletId,
         execution_wallet_id: intent.metadata?.execution_wallet_id,
+        // Deprecated: system_operator_mode - use execClass.isSystemOperator
         system_operator_mode: intent.metadata?.system_operator_mode,
         request_id: requestId,
+        // Phase 2: Include execClass for observability
+        execClass_authority: execClass.authority,
+        execClass_intent: execClass.intent,
       });
 
       // For system_operator_mode: skip user wallet checks (uses SYSTEM wallet)
+      // Phase 2: Deprecated check - now derived from execClass.isSystemOperator
       if (isSystemOperatorMode) {
         console.log("🔧 COORDINATOR: system_operator_mode - skipping user wallet prerequisite checks (uses SYSTEM wallet)");
       } else {
@@ -6381,11 +6435,16 @@ async function executeTradeOrder(
       const isPoolExit = intent.source === "pool";
       const isPositionManaged = !!intent.metadata?.position_management && !!intent.metadata?.position_id;
       const isManualSell = intent.metadata?.context === "MANUAL" && intent.metadata?.originalTradeId;
-      // System operator MODE: manual source + flag only
+      
+      // Phase 2: Use deriveExecutionClass for system operator detection
+      // Deprecated: Direct flag check `intent.source === "manual" && intent.metadata?.system_operator_mode === true`
+      const sellExecClass = deriveExecutionClass({
+        source: intent.source,
+        metadata: intent.metadata,
+        strategyExecutionTarget: sc?.canonicalExecutionMode || 'MOCK',
+      });
       // These trades bypass coverage entirely (real on-chain tokens from SYSTEM wallet via BOT_ADDRESS)
-      // NOTE: No execution_wallet_id required - system operator uses BOT_ADDRESS directly
-      const isSystemOperatorMode = intent.source === "manual" && 
-                                   intent.metadata?.system_operator_mode === true;
+      const isSystemOperatorMode = sellExecClass.isSystemOperator;
 
       console.log("[Coordinator][SELL] Incoming intent", {
         userId: intent.userId,
