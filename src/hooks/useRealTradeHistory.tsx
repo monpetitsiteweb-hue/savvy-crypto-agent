@@ -43,7 +43,6 @@ export function useRealTradeHistory(): UseRealTradeHistoryResult {
       const { data, error: queryError } = await (supabase
         .from('real_trade_history_view' as any)
         .select('*')
-        .eq('user_id', user.id)
         .order('execution_recorded_at', { ascending: false })
         .limit(500) as any);
 
