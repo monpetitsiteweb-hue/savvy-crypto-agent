@@ -2448,11 +2448,11 @@ serve(async (req) => {
       const isManualIntent = intent.source === "manual" || intent.metadata?.context === "MANUAL";
       const hasWalletId = !!intent.metadata?.execution_wallet_id;
       
-      // System operator MODE: manual source + flag + execution_wallet_id
+      // System operator MODE: manual source + flag only
       // These trades use SYSTEM wallet (BOT_ADDRESS), not user wallet
+      // NOTE: No execution_wallet_id required - system operator uses BOT_ADDRESS directly
       const isSystemOperatorMode = intent.source === "manual" && 
-                                   intent.metadata?.system_operator_mode === true && 
-                                   hasWalletId;
+                                   intent.metadata?.system_operator_mode === true;
       
       console.log("🔥 COORDINATOR: REAL mode detected", {
         isManualIntent,
