@@ -156,11 +156,13 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
       }
 
       // Build metadata
+      // NOTE: force is ONLY for mock/debug trades, NOT for system operator real trades
       const metadata: Record<string, any> = {
         context: 'MANUAL',
         slippage_bps: parseFloat(slippage) * 100,
         bypass_volatility_gate: true,
-        force: true,
+        // force: true ONLY for non-system-operator trades (mock debugging)
+        force: !isSystemOperator,
         // For BUY: amount is in EUR, coordinator should convert to qty
         eurAmount: isBuy ? parsedAmount : undefined,
         // For SELL: include currentPrice for mock sell valuation
