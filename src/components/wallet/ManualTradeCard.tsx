@@ -153,8 +153,8 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
       try {
         const { data, error } = await supabase
           .from('real_trades' as any)
-          .select('execution_status, tx_hash, gas_used_wei, amount, price')
-          .eq('mock_trade_id', tradeId)
+          .select('execution_status, tx_hash, gas_used, amount, price')
+          .eq('trade_id', tradeId)
           .maybeSingle();
         
         if (error) {
@@ -168,7 +168,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
           tx_hash?: string; 
           amount?: number; 
           price?: number; 
-          gas_used_wei?: string; 
+          gas_used?: string; 
         } | null;
         
         if (trade?.execution_status === 'CONFIRMED') {
@@ -179,7 +179,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
             tx_hash: trade.tx_hash || txHash,
             qty: trade.amount,
             executed_price: trade.price,
-            gas_used_wei: trade.gas_used_wei,
+            gas_used_wei: trade.gas_used,
             message: 'Transaction confirmed on-chain'
           });
           onTradeComplete?.();
