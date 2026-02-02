@@ -143,21 +143,30 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
   }, [userId]);
 
   // Poll for confirmation status after broadcast - watches real_trades.execution_status
-  const pollForConfirmation = (tradeId: string, txHash?: string) => {
+  // CRITICAL: mockTradeId === real_trades.trade_id (FK to mock_trades.id)
+  const pollForConfirmation = (mockTradeId: string, txHash?: string) => {
+    // Guard: Cannot poll without mock_trade_id
+    if (!mockTradeId) {
+      console.error('[UI] missing mock_trade_id — cannot poll real_trades');
+      return;
+    }
+    
     let attempts = 0;
     const maxAttempts = 60; // 3 minutes at 3s intervals
     
-    console.log('[UI] Starting poll for trade_id:', tradeId);
+    console.log('[UI] Starting poll for mock_trade_id:', mockTradeId);
     
     const interval = setInterval(async () => {
       attempts++;
       
       try {
-        // Query real_trades by trade_id (FK to mock_trades)
+        // CRITICAL: Query real_trades by trade_id which equals mock_trades.id
+        console.log('[UI] polling real_trades', { mock_trade_id: mockTradeId });
+        
         const { data, error } = await supabase
           .from('real_trades' as any)
           .select('execution_status, tx_hash, gas_used, amount, price')
-          .eq('trade_id', tradeId)
+          .eq('trade_id', mockTradeId)
           .maybeSingle();
         
         if (error) {
@@ -174,29 +183,33 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
           gas_used?: string; 
         } | null;
         
-        // Log every poll result for debugging
-        console.log('[UI] Poll result:', { 
-          attempt: attempts, 
-          tradeId, 
-          found: !!trade, 
-          execution_status: trade?.execution_status 
+        // REQUIRED LOG: poll result with found status
+        const found = !!trade;
+        console.log('[UI] poll result', { 
+          found, 
+          execution_status: trade?.execution_status,
+          mock_trade_id: mockTradeId,
+          attempt: attempts
         });
         
         if (!trade) {
-          console.warn('[UI] No real_trades row found for trade_id:', tradeId);
+          console.warn('[UI] No real_trades row found for mock_trade_id:', mockTradeId);
           return;
         }
         
         // REQUIRED LOG: execution_status update
         console.log('[UI] execution_status update', trade.execution_status);
         
-        // Status mapping - EXACT as specified
+        // Status mapping - EXACT as specified (driven 100% by real_trades.execution_status)
+        // SUBMITTED  → orange (pending)
+        // CONFIRMED  → green
+        // REVERTED   → red
         if (trade.execution_status === 'CONFIRMED') {
           clearInterval(interval);
           console.log('[UI] Trade CONFIRMED - updating UI to green');
           setResult({
             status: 'confirmed',
-            tradeId,
+            tradeId: mockTradeId,
             tx_hash: trade.tx_hash || txHash,
             qty: trade.amount,
             executed_price: trade.price,
@@ -209,7 +222,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
           console.log('[UI] Trade REVERTED - updating UI to red');
           setResult({
             status: 'reverted',
-            tradeId,
+            tradeId: mockTradeId,
             tx_hash: trade.tx_hash || txHash,
             message: 'Transaction reverted on-chain'
           });
@@ -223,7 +236,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
       // Timeout after max attempts
       if (attempts >= maxAttempts) {
         clearInterval(interval);
-        console.log('[UI] Poll timeout after', attempts, 'attempts for trade_id:', tradeId);
+        console.log('[UI] Poll timeout after', attempts, 'attempts for mock_trade_id:', mockTradeId);
         setResult(prev => prev ? {
           ...prev,
           message: 'Confirmation timeout - check BaseScan for status'
@@ -333,26 +346,30 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
         throw new Error(data.error || `HTTP ${response.status}`);
       }
 
-      const tradeId = data.tradeId || data.decision?.trade_id;
+      // CRITICAL: Extract mock_trade_id - this is the FK in real_trades.trade_id
+      // The coordinator returns this as 'tradeId' or 'mock_trade_id'
+      const mockTradeId = data.mock_trade_id || data.tradeId || data.decision?.trade_id;
       const txHash = data.tx_hash;
+      
+      console.log('[UI] Response received', { mockTradeId, txHash, isRealTrade });
 
       // For REAL trades with tx_hash, show pending and start polling
-      if (isRealTrade && txHash && tradeId) {
+      if (isRealTrade && txHash && mockTradeId) {
         setResult({
           status: 'pending',
-          tradeId,
+          tradeId: mockTradeId,
           tx_hash: txHash,
           message: 'Transaction submitted - awaiting chain confirmation'
         });
         setAmount('');
-        // Start polling for confirmation
-        pollForConfirmation(tradeId, txHash);
-      } 
+        // Start polling for confirmation using mock_trade_id
+        pollForConfirmation(mockTradeId, txHash);
+      }
       // For MOCK trades or immediate success without tx
       else if (data.success === true || data.decision?.action === side) {
         setResult({
           status: 'confirmed',
-          tradeId,
+          tradeId: mockTradeId,
           executed_at: data.executed_at,
           executed_price: data.executed_price,
           qty: data.qty || data.decision?.qty,
