@@ -625,6 +625,9 @@ async function processReceipt(trade: any) {
       .insert(ledgerRecord)
       .select('id');
     
+    // Track the mock_trades id for real_trades linkage
+    let mockTradeId: string | null = null;
+    
     if (ledgerError) {
       // Check if it's a duplicate key error (idempotency protection working)
       if (ledgerError.code === '23505') {
@@ -644,12 +647,14 @@ async function processReceipt(trade: any) {
         });
       }
     } else {
+      mockTradeId = ledgerResult?.[0]?.id;
+      
       // ========================================================================
       // C3: LOG EXECUTION CONTEXT ON EVERY LEDGER INSERT
       // This creates an auditable trail for every trade, mock or real
       // ========================================================================
       console.log("LEDGER_INSERT", {
-        trade_id: ledgerResult?.[0]?.id,
+        trade_id: mockTradeId,
         execution_class: isSystemOperator ? 'SYSTEM_OPERATOR' : 'USER',
         execution_target: 'REAL',
         is_system_operator: isSystemOperator,
@@ -659,7 +664,161 @@ async function processReceipt(trade: any) {
         price: executedPrice,
         tx_hash: tx_hash?.substring(0, 16),
       });
-      console.log(`✅ Real trade inserted into unified ledger: ${ledgerResult?.[0]?.id}`);
+      console.log(`✅ Real trade inserted into unified ledger: ${mockTradeId}`);
+    }
+    
+    // ============================================================================
+    // PHASE 1: DUAL-WRITE TO real_trades (SHADOW CHAIN-TRUTH LEDGER)
+    // This is BEST-EFFORT - failure does NOT rollback mock_trades
+    // real_trades is non-authoritative, used for reconciliation and audit
+    // ============================================================================
+    if (mockTradeId || ledgerError?.code === '23505') {
+      // Determine execution status
+      const executionStatus = txSuccess ? 'CONFIRMED' : 'REVERTED';
+      
+      // Build real_trades record
+      const realTradeRecord = {
+        trade_id: mockTradeId || tradeId, // Link to mock_trades or use original tradeId
+        tx_hash,
+        execution_status: executionStatus,
+        receipt_status: txSuccess,
+        block_number: receipt.blockNumber ? parseInt(receipt.blockNumber, 16) : null,
+        block_timestamp: blockTimestamp,
+        gas_used: gasUsedDec,
+        error_reason: txSuccess ? null : 'Transaction reverted',
+        
+        // Trade economics from receipt decode
+        cryptocurrency: symbol?.replace('/USD', '').replace('/EUR', '') || 'UNKNOWN',
+        side: side?.toUpperCase() || 'UNKNOWN',
+        amount: filledAmount,
+        price: executedPrice,
+        total_value: totalValue,
+        fees: gasCostEth,
+        
+        // Execution context
+        execution_target: 'REAL',
+        execution_authority: isSystemOperator ? 'SYSTEM' : 'USER',
+        is_system_operator: isSystemOperator,
+        user_id,
+        strategy_id: isSystemOperator ? null : strategy_id,
+        chain_id,
+        provider,
+        
+        // Audit trail
+        decode_method: decodedTrade.decodeMethod,
+        raw_receipt: receipt,
+      };
+      
+      try {
+        const { error: realTradeError } = await supabase
+          .from('real_trades')
+          .insert(realTradeRecord);
+        
+        if (realTradeError) {
+          // BEST-EFFORT: Log failure but DO NOT rollback mock_trades
+          console.error("REAL_TRADES_INSERT_FAILED", {
+            trade_id: mockTradeId || tradeId,
+            tx_hash,
+            error: realTradeError.message,
+            code: realTradeError.code,
+          });
+        } else {
+          // Success log
+          console.log("REAL_TRADES_CONFIRMED", {
+            trade_id: mockTradeId || tradeId,
+            tx_hash,
+            execution_status: executionStatus,
+            amount: filledAmount,
+            price: executedPrice,
+          });
+        }
+      } catch (realTradeErr) {
+        // BEST-EFFORT: Log unexpected error but DO NOT rollback mock_trades
+        console.error("REAL_TRADES_INSERT_FAILED", {
+          trade_id: mockTradeId || tradeId,
+          tx_hash,
+          error: realTradeErr.message,
+        });
+      }
+    }
+  }
+  
+  // ============================================================================
+  // PHASE 1: HANDLE REVERTED TRANSACTIONS
+  // Even failed transactions should be recorded in real_trades for audit
+  // No mock_trades insertion for reverts - only real_trades shadow ledger
+  // ============================================================================
+  if (!txSuccess && user_id) {
+    const blockTimestamp = receipt.blockTimestamp 
+      ? new Date(parseInt(receipt.blockTimestamp, 16) * 1000).toISOString()
+      : new Date().toISOString();
+    
+    const gasUsedDecRevert = parseInt(receipt.gasUsed, 16);
+    const effectiveGasPriceRevert = receipt.effectiveGasPrice
+      ? parseInt(receipt.effectiveGasPrice, 16)
+      : null;
+    const gasCostEthRevert = effectiveGasPriceRevert 
+      ? Number(BigInt(gasUsedDecRevert) * BigInt(effectiveGasPriceRevert)) / 1e18
+      : 0;
+    
+    const realTradeRecord = {
+      trade_id: tradeId,
+      tx_hash,
+      execution_status: 'REVERTED',
+      receipt_status: false,
+      block_number: receipt.blockNumber ? parseInt(receipt.blockNumber, 16) : null,
+      block_timestamp: blockTimestamp,
+      gas_used: gasUsedDecRevert,
+      error_reason: 'Transaction reverted on-chain',
+      
+      // Trade economics - zeros for reverted transactions
+      cryptocurrency: symbol?.replace('/USD', '').replace('/EUR', '') || 'UNKNOWN',
+      side: side?.toUpperCase() || 'UNKNOWN',
+      amount: 0,
+      price: 0,
+      total_value: 0,
+      fees: gasCostEthRevert, // Gas was still consumed
+      
+      // Execution context
+      execution_target: 'REAL',
+      execution_authority: is_system_operator ? 'SYSTEM' : 'USER',
+      is_system_operator: is_system_operator === true,
+      user_id,
+      strategy_id: is_system_operator ? null : strategy_id,
+      chain_id,
+      provider,
+      
+      // Audit trail
+      decode_method: 'reverted',
+      raw_receipt: receipt,
+    };
+    
+    try {
+      const { error: realTradeError } = await supabase
+        .from('real_trades')
+        .insert(realTradeRecord);
+      
+      if (realTradeError) {
+        console.error("REAL_TRADES_INSERT_FAILED", {
+          trade_id: tradeId,
+          tx_hash,
+          error: realTradeError.message,
+          status: 'REVERTED',
+        });
+      } else {
+        console.error("REAL_TRADES_REVERTED", {
+          trade_id: tradeId,
+          tx_hash,
+          gas_consumed: gasCostEthRevert,
+        });
+      }
+    } catch (err) {
+      console.error("REAL_TRADES_INSERT_FAILED", {
+        trade_id: tradeId,
+        tx_hash,
+        error: err.message,
+        status: 'REVERTED',
+      });
     }
   }
 

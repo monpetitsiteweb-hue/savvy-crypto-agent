@@ -2213,6 +2213,90 @@ export type Database = {
         }
         Relationships: []
       }
+      real_trades: {
+        Row: {
+          amount: number
+          block_number: number | null
+          block_timestamp: string | null
+          chain_id: number
+          created_at: string
+          cryptocurrency: string
+          decode_method: string | null
+          error_reason: string | null
+          execution_authority: string
+          execution_status: string
+          execution_target: string
+          fees: number | null
+          gas_used: number | null
+          id: string
+          is_system_operator: boolean
+          price: number | null
+          provider: string | null
+          raw_receipt: Json | null
+          receipt_status: boolean | null
+          side: string
+          strategy_id: string | null
+          total_value: number | null
+          trade_id: string
+          tx_hash: string
+          user_id: string | null
+        }
+        Insert: {
+          amount: number
+          block_number?: number | null
+          block_timestamp?: string | null
+          chain_id?: number
+          created_at?: string
+          cryptocurrency: string
+          decode_method?: string | null
+          error_reason?: string | null
+          execution_authority: string
+          execution_status: string
+          execution_target?: string
+          fees?: number | null
+          gas_used?: number | null
+          id?: string
+          is_system_operator: boolean
+          price?: number | null
+          provider?: string | null
+          raw_receipt?: Json | null
+          receipt_status?: boolean | null
+          side: string
+          strategy_id?: string | null
+          total_value?: number | null
+          trade_id: string
+          tx_hash: string
+          user_id?: string | null
+        }
+        Update: {
+          amount?: number
+          block_number?: number | null
+          block_timestamp?: string | null
+          chain_id?: number
+          created_at?: string
+          cryptocurrency?: string
+          decode_method?: string | null
+          error_reason?: string | null
+          execution_authority?: string
+          execution_status?: string
+          execution_target?: string
+          fees?: number | null
+          gas_used?: number | null
+          id?: string
+          is_system_operator?: boolean
+          price?: number | null
+          provider?: string | null
+          raw_receipt?: Json | null
+          receipt_status?: boolean | null
+          side?: string
+          strategy_id?: string | null
+          total_value?: number | null
+          trade_id?: string
+          tx_hash?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       scheduler_execution_log: {
         Row: {
           created_at: string
