@@ -319,7 +319,21 @@ async function handleSendOnly(tradeId: string, signedTx: string) {
   }
 
   const txHash = sendResult.txHash!;
-  console.log(`Transaction submitted: ${txHash}`);
+  
+  // ============================================================================
+  // PHASE 1 OBSERVABILITY: ONCHAIN_TX_SUBMITTED (handleSendOnly path)
+  // This log marks transaction submission - NO ledger writes happen here
+  // ============================================================================
+  console.log("ONCHAIN_TX_SUBMITTED", {
+    tx_hash: txHash,
+    trade_id: tradeId,
+    execution_authority: 'USER', // handleSendOnly is always user-initiated
+    execution_target: 'REAL',
+    chain_id: trade.chain_id,
+    side: trade.side,
+    symbol: `${trade.base}/${trade.quote}`,
+    amount: trade.amount,
+  });
 
   // Update trade: status='submitted', tx_hash, sent_at
   await updateTradeStatus(tradeId, 'submitted', {
@@ -1160,7 +1174,22 @@ Deno.serve(async (req) => {
       }
 
       const txHash = sendResult.txHash!;
-      console.log(`Transaction submitted: ${txHash}`);
+      
+      // ============================================================================
+      // PHASE 1 OBSERVABILITY: ONCHAIN_TX_SUBMITTED
+      // This log marks transaction submission - NO ledger writes happen here
+      // Ledger writes happen ONLY in onchain-receipts after receipt confirmation
+      // ============================================================================
+      console.log("ONCHAIN_TX_SUBMITTED", {
+        tx_hash: txHash,
+        trade_id: tradeId,
+        execution_authority: isSystemOperator ? 'SYSTEM' : 'USER',
+        execution_target: 'REAL',
+        chain_id: chainId,
+        side,
+        symbol: `${base}/${quote}`,
+        amount,
+      });
 
       await updateTradeStatus(tradeId, 'submitted', { tx_hash: txHash });
       await addTradeEvent(tradeId, 'submit', 'info', { txHash });

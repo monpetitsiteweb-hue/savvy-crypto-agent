@@ -627,9 +627,139 @@ WHERE proname = 'mt_on_sell_snapshot';
 
 ---
 
+## 11. Phase 1: Dual-Ledger (Shadow Chain-Truth)
+
+### 11.1 Overview
+
+Phase 1 introduces a **shadow ledger** (`real_trades`) that stores blockchain execution truth without affecting business logic.
+
+**Goals:**
+- Prepare for future authority flip from mock_trades to real_trades
+- Eliminate "false success" problem (UI shows success but chain reverted)
+- Enable reconciliation and audit
+- Keep existing behavior unchanged
+
+### 11.2 Dual-Ledger Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         onchain-receipts                                 │
+│                    (receipt decode + ledger insert)                      │
+└─────────────────────────────────────────────────────────────────────────┘
+                    │                              │
+                    ▼                              ▼
+     ┌────────────────────────┐    ┌────────────────────────┐
+     │     mock_trades        │    │     real_trades        │
+     │  (AUTHORITATIVE)       │    │  (SHADOW / AUDIT)      │
+     │                        │    │                        │
+     │  • Business logic      │    │  • Chain truth only    │
+     │  • FIFO accounting     │    │  • No triggers         │
+     │  • P&L calculations    │    │  • No coverage logic   │
+     │  • UI data source      │    │  • Reconciliation      │
+     └────────────────────────┘    └────────────────────────┘
+            ↑ REQUIRED                    ↑ BEST-EFFORT
+            │                             │
+            └── Failure = rollback ───────┴── Failure = log only
+```
+
+### 11.3 real_trades Table Schema
+
+```sql
+CREATE TABLE public.real_trades (
+  id UUID PRIMARY KEY,
+  trade_id UUID NOT NULL,              -- links to mock_trades.id
+  tx_hash TEXT NOT NULL UNIQUE,        -- on-chain transaction hash
+  
+  -- Status tracking
+  execution_status TEXT NOT NULL,      -- SUBMITTED | MINED | CONFIRMED | REVERTED | DROPPED
+  receipt_status BOOLEAN,              -- true = success, false = revert
+  block_number BIGINT,
+  block_timestamp TIMESTAMPTZ,
+  gas_used NUMERIC,
+  error_reason TEXT,
+  
+  -- Trade economics (decoded from receipt)
+  cryptocurrency TEXT NOT NULL,
+  side TEXT NOT NULL,
+  amount NUMERIC NOT NULL,
+  price NUMERIC,
+  total_value NUMERIC,
+  fees NUMERIC,
+  
+  -- Execution context
+  execution_target TEXT NOT NULL,      -- always 'REAL'
+  execution_authority TEXT NOT NULL,   -- 'USER' | 'SYSTEM'
+  is_system_operator BOOLEAN NOT NULL,
+  user_id UUID,
+  strategy_id UUID,
+  chain_id INTEGER NOT NULL,
+  provider TEXT,
+  
+  -- Audit
+  decode_method TEXT,
+  raw_receipt JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+### 11.4 Execution Status Mapping
+
+| Chain Outcome | execution_status | receipt_status |
+|--------------|------------------|----------------|
+| tx sent | SUBMITTED | NULL |
+| mined | MINED | NULL |
+| success | CONFIRMED | TRUE |
+| revert | REVERTED | FALSE |
+| dropped | DROPPED | FALSE |
+
+### 11.5 Dual-Write Behavior
+
+```typescript
+// onchain-receipts: dual-write logic
+
+// 1. INSERT mock_trades (REQUIRED - authoritative)
+const { error: ledgerError } = await supabase
+  .from('mock_trades')
+  .insert(ledgerRecord);
+
+if (ledgerError) {
+  // FAIL - entire operation fails
+  throw ledgerError;
+}
+
+// 2. INSERT real_trades (BEST-EFFORT - chain truth)
+try {
+  await supabase.from('real_trades').insert(realTradeRecord);
+  console.log("REAL_TRADES_CONFIRMED", { trade_id, tx_hash });
+} catch (err) {
+  // LOG but DO NOT rollback mock_trades
+  console.error("REAL_TRADES_INSERT_FAILED", { trade_id, error });
+}
+```
+
+### 11.6 Observability Logs
+
+| Log Key | Condition | Meaning |
+|---------|-----------|---------|
+| `ONCHAIN_TX_SUBMITTED` | Transaction broadcast | Tx sent to chain, awaiting confirmation |
+| `LEDGER_INSERT` | mock_trades insert | Authoritative ledger updated |
+| `REAL_TRADES_CONFIRMED` | real_trades insert success | Chain truth recorded |
+| `REAL_TRADES_REVERTED` | Chain transaction reverted | Failed on-chain |
+| `REAL_TRADES_INSERT_FAILED` | real_trades insert failed | Alert: shadow ledger broken |
+
+### 11.7 Invariants
+
+1. **mock_trades is sole authority** - UI, FIFO, P&L, analytics read from mock_trades only
+2. **real_trades is best-effort** - Failure does NOT rollback mock_trades
+3. **No triggers on real_trades** - Zero business logic coupling
+4. **UI behavior unchanged** - Phase 1 is invisible to users
+
+---
+
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-02-02 | System | Initial freeze after SELL coverage bug fix |
+| 2026-02-02 | System | Phase 1: Dual-ledger (real_trades shadow table) |
 
 ---
 
