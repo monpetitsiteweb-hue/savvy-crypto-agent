@@ -3481,6 +3481,68 @@ export type Database = {
         }
         Relationships: []
       }
+      real_positions_view: {
+        Row: {
+          chain_id: number | null
+          last_trade_at: string | null
+          position_size: number | null
+          strategy_id: string | null
+          symbol: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
+      real_trade_history_view: {
+        Row: {
+          block_number: number | null
+          block_timestamp: string | null
+          chain_id: number | null
+          decode_method: string | null
+          effective_price: number | null
+          error_reason: string | null
+          execution_authority: string | null
+          execution_recorded_at: string | null
+          execution_status: string | null
+          execution_target: string | null
+          fees: number | null
+          filled_quantity: number | null
+          gas_used: number | null
+          intent_ts: string | null
+          is_system_operator: boolean | null
+          mock_trade_id: string | null
+          provider: string | null
+          real_trade_id: string | null
+          side: string | null
+          strategy_id: string | null
+          symbol: string | null
+          total_value: number | null
+          tx_hash: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_real_trades_mock"
+            columns: ["mock_trade_id"]
+            isOneToOne: false
+            referencedRelation: "mock_trades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_real_trades_mock"
+            columns: ["mock_trade_id"]
+            isOneToOne: false
+            referencedRelation: "past_positions_view"
+            referencedColumns: ["sell_trade_id"]
+          },
+          {
+            foreignKeyName: "fk_real_trades_mock"
+            columns: ["mock_trade_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_open_positions"
+            referencedColumns: ["lot_id"]
+          },
+        ]
+      }
       strategy_open_positions: {
         Row: {
           entry_price: number | null
