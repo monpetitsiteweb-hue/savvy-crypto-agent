@@ -35,8 +35,10 @@ import { ArrowUpCircle, ArrowDownCircle, AlertTriangle, ExternalLink, Zap, Flask
 import { supabase } from '@/integrations/supabase/client';
 import { SUPABASE_URL, MANUAL_STRATEGY_ID, TRADEABLE_TOKENS, SLIPPAGE_OPTIONS } from './ManualTradeConstants';
 
+type ExecutionStatus = 'failed' | 'pending' | 'confirmed' | 'reverted';
+
 interface ExecutionResult {
-  success: boolean;
+  status: ExecutionStatus;
   tradeId?: string;
   executed_at?: string;
   executed_price?: number;
@@ -47,7 +49,31 @@ interface ExecutionResult {
   gas_cost_eur?: number;
   error?: string;
   reason?: string;
+  message?: string;
 }
+
+const statusStyles: Record<ExecutionStatus, { bg: string; icon: string; title: string }> = {
+  failed: { 
+    bg: 'bg-destructive/10 border-destructive/20 text-destructive', 
+    icon: '✗', 
+    title: 'Failed' 
+  },
+  pending: { 
+    bg: 'bg-orange-500/10 border-orange-500/20 text-orange-600', 
+    icon: '⏳', 
+    title: 'Pending Confirmation...' 
+  },
+  confirmed: { 
+    bg: 'bg-green-500/10 border-green-500/20 text-green-600', 
+    icon: '✓', 
+    title: 'Trade Confirmed' 
+  },
+  reverted: { 
+    bg: 'bg-destructive/10 border-destructive/20 text-destructive', 
+    icon: '⚠️', 
+    title: 'Reverted On-Chain' 
+  },
+};
 
 interface ExecutionWallet {
   id: string;
@@ -116,10 +142,78 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
     }
   }, [userId]);
 
+  // Poll for confirmation status after broadcast
+  const pollForConfirmation = (tradeId: string, txHash?: string) => {
+    let attempts = 0;
+    const maxAttempts = 40; // 2 minutes at 3s intervals
+    
+    const interval = setInterval(async () => {
+      attempts++;
+      
+      try {
+        const { data, error } = await supabase
+          .from('real_trades' as any)
+          .select('execution_status, tx_hash, gas_used_wei, amount, price')
+          .eq('mock_trade_id', tradeId)
+          .maybeSingle();
+        
+        if (error) {
+          console.warn('Poll error:', error);
+          return;
+        }
+        
+        // Cast to expected shape
+        const trade = data as unknown as { 
+          execution_status: string; 
+          tx_hash?: string; 
+          amount?: number; 
+          price?: number; 
+          gas_used_wei?: string; 
+        } | null;
+        
+        if (trade?.execution_status === 'CONFIRMED') {
+          clearInterval(interval);
+          setResult({
+            status: 'confirmed',
+            tradeId,
+            tx_hash: trade.tx_hash || txHash,
+            qty: trade.amount,
+            executed_price: trade.price,
+            gas_used_wei: trade.gas_used_wei,
+            message: 'Transaction confirmed on-chain'
+          });
+          onTradeComplete?.();
+        } else if (trade?.execution_status === 'REVERTED') {
+          clearInterval(interval);
+          setResult({
+            status: 'reverted',
+            tradeId,
+            tx_hash: trade.tx_hash || txHash,
+            message: 'Transaction reverted on-chain'
+          });
+        }
+      } catch (err) {
+        console.warn('Poll exception:', err);
+      }
+      
+      // Timeout after max attempts
+      if (attempts >= maxAttempts) {
+        clearInterval(interval);
+        // Keep pending state but add timeout message
+        setResult(prev => prev ? {
+          ...prev,
+          message: 'Confirmation timeout - check BaseScan for status'
+        } : null);
+      }
+    }, 3000);
+    
+    return interval;
+  };
+
   const handleSubmit = () => {
     const parsedAmount = parseFloat(amount.replace(',', '.'));
     if (!parsedAmount || parsedAmount <= 0) {
-      setResult({ success: false, error: 'Invalid amount' });
+      setResult({ status: 'failed', error: 'Invalid amount' });
       return;
     }
     setShowConfirm(true);
@@ -215,27 +309,47 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
         throw new Error(data.error || `HTTP ${response.status}`);
       }
 
-      setResult({
-        success: data.success === true || data.decision?.action === side,
-        tradeId: data.tradeId || data.decision?.trade_id,
-        executed_at: data.executed_at,
-        executed_price: data.executed_price,
-        qty: data.qty || data.decision?.qty,
-        tx_hash: data.tx_hash,
-        gas_used_wei: data.gas_used_wei,
-        gas_cost_eth: data.gas_cost_eth,
-        gas_cost_eur: data.gas_cost_eur,
-        error: data.error,
-        reason: data.reason || data.decision?.reason,
-      });
+      const tradeId = data.tradeId || data.decision?.trade_id;
+      const txHash = data.tx_hash;
 
-      if (data.success || data.decision?.action === side) {
+      // For REAL trades with tx_hash, show pending and start polling
+      if (isRealTrade && txHash && tradeId) {
+        setResult({
+          status: 'pending',
+          tradeId,
+          tx_hash: txHash,
+          message: 'Transaction submitted - awaiting chain confirmation'
+        });
+        setAmount('');
+        // Start polling for confirmation
+        pollForConfirmation(tradeId, txHash);
+      } 
+      // For MOCK trades or immediate success without tx
+      else if (data.success === true || data.decision?.action === side) {
+        setResult({
+          status: 'confirmed',
+          tradeId,
+          executed_at: data.executed_at,
+          executed_price: data.executed_price,
+          qty: data.qty || data.decision?.qty,
+          tx_hash: txHash,
+          gas_used_wei: data.gas_used_wei,
+          gas_cost_eth: data.gas_cost_eth,
+          gas_cost_eur: data.gas_cost_eur,
+          reason: data.reason || data.decision?.reason,
+        });
         setAmount('');
         onTradeComplete?.();
+      } else {
+        // Unexpected response - treat as failure
+        setResult({
+          status: 'failed',
+          error: data.error || data.reason || 'Unexpected response',
+        });
       }
     } catch (err: any) {
       setResult({
-        success: false,
+        status: 'failed',
         error: err.message || 'Trade execution failed',
       });
     } finally {
@@ -334,53 +448,70 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
           {/* Execution result inline display */}
           {result && (
             <div
-              className={`p-3 rounded text-sm ${
-                result.success
-                  ? 'bg-green-500/10 border border-green-500/20 text-green-600'
-                  : 'bg-destructive/10 border border-destructive/20 text-destructive'
-              }`}
+              className={`p-3 rounded border text-sm ${statusStyles[result.status].bg}`}
             >
-              {result.success ? (
-                <div className="space-y-1">
-                  <div className="font-semibold">✓ Trade Executed</div>
-                  {result.executed_price && (
-                    <div>Price: {formatEur(result.executed_price)}</div>
+              <div className="space-y-1">
+                <div className="font-semibold flex items-center gap-2">
+                  {result.status === 'pending' ? (
+                    <span className="inline-block animate-pulse">{statusStyles[result.status].icon}</span>
+                  ) : (
+                    <span>{statusStyles[result.status].icon}</span>
                   )}
-                  {result.qty && (
-                    <div>Quantity: {result.qty}</div>
-                  )}
-                  {result.gas_cost_eth !== undefined && (
-                    <div>Gas: {result.gas_cost_eth.toFixed(6)} ETH</div>
-                  )}
-                  {result.gas_cost_eur !== undefined && (
-                    <div>Gas: {formatEur(result.gas_cost_eur)}</div>
-                  )}
-                  {result.tx_hash && (
-                    <div className="flex items-center gap-1">
-                      <span className="font-mono text-xs truncate max-w-[200px]">
-                        {result.tx_hash}
-                      </span>
-                      <a
-                        href={`https://basescan.org/tx/${result.tx_hash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-500 hover:text-blue-400"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    </div>
-                  )}
-                  {result.tradeId && (
-                    <div className="text-xs text-muted-foreground">
-                      Trade ID: {result.tradeId.substring(0, 8)}...
-                    </div>
-                  )}
+                  {statusStyles[result.status].title}
                 </div>
-              ) : (
-                <div>
-                  <span className="font-semibold">✗ Failed:</span> {result.error || result.reason}
-                </div>
-              )}
+                
+                {/* Show message if present */}
+                {result.message && (
+                  <div className="text-xs opacity-80">{result.message}</div>
+                )}
+                
+                {/* Show error for failed/reverted */}
+                {(result.status === 'failed' || result.status === 'reverted') && result.error && (
+                  <div>{result.error}</div>
+                )}
+                
+                {/* Show details for confirmed */}
+                {result.status === 'confirmed' && (
+                  <>
+                    {result.executed_price && (
+                      <div>Price: {formatEur(result.executed_price)}</div>
+                    )}
+                    {result.qty && (
+                      <div>Quantity: {result.qty}</div>
+                    )}
+                    {result.gas_cost_eth !== undefined && (
+                      <div>Gas: {result.gas_cost_eth.toFixed(6)} ETH</div>
+                    )}
+                    {result.gas_cost_eur !== undefined && (
+                      <div>Gas: {formatEur(result.gas_cost_eur)}</div>
+                    )}
+                  </>
+                )}
+                
+                {/* Always show tx_hash with link if present */}
+                {result.tx_hash && (
+                  <div className="flex items-center gap-1">
+                    <span className="font-mono text-xs truncate max-w-[200px]">
+                      {result.tx_hash}
+                    </span>
+                    <a
+                      href={`https://basescan.org/tx/${result.tx_hash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 hover:text-blue-400"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                )}
+                
+                {/* Show trade ID */}
+                {result.tradeId && (
+                  <div className="text-xs opacity-60">
+                    Trade ID: {result.tradeId.substring(0, 8)}...
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </CardContent>
