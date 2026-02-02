@@ -924,6 +924,8 @@ const { data } = await supabase
 | 2026-02-02 | System | Phase 2: Execution semantics cleanup (deriveExecutionClass) |
 | 2026-02-02 | System | Phase 3: On-chain receipt state machine |
 | 2026-02-02 | System | Phase 3B: FK-safe ordering (mock_trades placeholder before execution) |
+| 2026-02-02 | System | Phase 4: UI polling fix (mock_trade_id as poll key) |
+| 2026-02-02 | System | Phase 5: System Trading Wallet UI + RLS visibility fix |
 
 ---
 
@@ -975,3 +977,122 @@ Insert a `mock_trades` **placeholder** in the coordinator BEFORE calling `onchai
 ---
 
 *This document is the canonical reference. Any code that violates these invariants is a bug.*
+
+---
+
+## 15. Phase 4: UI Polling Fix (mock_trade_id)
+
+### 15.1 Problem
+
+`ManualTradeCard` was polling `real_trades` using the wrong identifier. The UI used `tradeId` / `intentId` but `real_trades.trade_id` references `mock_trades.id`.
+
+**Result:** Polling always returned `{ found: false }` even when the row existed and was `CONFIRMED`.
+
+### 15.2 Solution
+
+UI must poll using `mock_trade_id` — the value returned by the coordinator after placeholder insertion.
+
+**Invariant:**
+```
+real_trades.trade_id === mock_trades.id
+```
+
+### 15.3 Code Changes
+
+**ManualTradeCard.tsx:**
+```typescript
+// Extract mock_trade_id from coordinator response
+const mockTradeId = data.mock_trade_id || data.tradeId || data.decision?.trade_id;
+
+// Poll using the correct key
+const pollForConfirmation = (mockTradeId: string, txHash?: string) => {
+  if (!mockTradeId) {
+    console.error('[UI] missing mock_trade_id — cannot poll real_trades');
+    return;
+  }
+  
+  // Query by the FK reference
+  const { data } = await supabase
+    .from('real_trades')
+    .select('execution_status, tx_hash, amount, price')
+    .eq('trade_id', mockTradeId)  // NOT intentId, NOT tradeId
+    .maybeSingle();
+};
+```
+
+### 15.4 Logging
+
+| Log Event | When |
+|-----------|------|
+| `[UI] Starting poll for mock_trade_id:` | Poll begins |
+| `[UI] polling real_trades` | Each poll attempt |
+| `[UI] poll result` | Each result with `found`, `execution_status` |
+| `[UI] execution_status update` | Status transition detected |
+
+---
+
+## 16. Phase 5: System Trading Wallet UI
+
+### 16.1 Overview
+
+Added a dedicated "System Trading Wallet — On-Chain Trades" panel to display all system operator trades from `real_trades`.
+
+**Component:** `src/components/wallet/SystemTradeHistory.tsx`
+
+### 16.2 Data Source
+
+Queries `real_trades` exclusively — NOT `mock_trades`:
+
+```sql
+SELECT
+  id, created_at, side, cryptocurrency, amount, price,
+  total_value, execution_status, tx_hash
+FROM real_trades
+WHERE is_system_operator = TRUE
+ORDER BY created_at DESC
+LIMIT 50;
+```
+
+**Critical:** Filter by `is_system_operator = TRUE`, NOT `execution_target = 'REAL'`. The `is_system_operator` column is the durable DB invariant.
+
+### 16.3 RLS Policy
+
+System operator trades have `user_id = NULL`, so the standard user RLS policy (`user_id = auth.uid()`) filtered them out.
+
+**Added Policy:**
+```sql
+CREATE POLICY "Allow read system operator trades"
+ON public.real_trades
+FOR SELECT
+USING (is_system_operator = TRUE);
+```
+
+**Semantics:**
+- User trades → visible only to owning user
+- System trades → visible to all authenticated users
+- Inserts remain service_role only
+
+### 16.4 Status Display
+
+| `execution_status` | UI Display |
+|--------------------|------------|
+| `SUBMITTED` | 🟠 Pending (amber) |
+| `MINED` | 🔵 Mined (blue) |
+| `CONFIRMED` | 🟢 Success (green) |
+| `REVERTED` | 🔴 Failed (red) |
+| `DROPPED` | ⚫ Dropped (gray) |
+
+### 16.5 Polling Behavior
+
+- Polls every 4 seconds while `SUBMITTED` or `MINED` rows exist
+- Stops polling when all trades reach terminal state
+- Log: `[UI] loaded system real_trades <count>`
+
+### 16.6 Invariants
+
+1. **No mock_trades dependency** — Panel reads only from `real_trades`
+2. **No user filtering** — All system operator trades visible
+3. **No strategy filtering** — System trades have `strategy_id = NULL`
+4. **Status driven by DB** — No heuristics, no timers
+
+---
