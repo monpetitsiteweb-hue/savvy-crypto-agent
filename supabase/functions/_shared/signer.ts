@@ -132,6 +132,22 @@ class LocalSigner implements Signer {
   }
 
   async sign(txPayload: TxPayload, chainId: number): Promise<string> {
+    // ═══════════════════════════════════════════════════════════════════════
+    // DIAGNOSTIC STEP B-1: What the signer RECEIVES
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log("🔍 [DIAG-B1] SIGNER RECEIVED txPayload:", {
+      to: txPayload.to,
+      from: txPayload.from,
+      value: txPayload.value,
+      gas: txPayload.gas,
+      data_exists: !!txPayload.data,
+      data_type: typeof txPayload.data,
+      data_length: txPayload.data?.length || 0,
+      data_first_20: txPayload.data?.substring(0, 20) || "EMPTY",
+      data_last_20: txPayload.data?.slice(-20) || "EMPTY",
+      txPayload_keys: Object.keys(txPayload),
+    });
+    
     // Validate chain
     if (!ALLOWED_CHAIN_IDS.includes(chainId)) {
       throw new Error(`Chain ${chainId} not allowed`);
@@ -162,6 +178,7 @@ class LocalSigner implements Signer {
 
     // If gas is 0, estimate it with 10% buffer
     if (gas === 0n) {
+      console.log("🔍 [DIAG] Gas is 0, estimating...");
       const estimateResponse = await fetch(this.rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -182,6 +199,7 @@ class LocalSigner implements Signer {
         throw new Error(`Gas estimation failed: ${estimateResult.error.message}`);
       }
       gas = BigInt(estimateResult.result) * 110n / 100n;
+      console.log("🔍 [DIAG] Estimated gas:", gas.toString());
     }
 
     // Get nonce
@@ -213,8 +231,36 @@ class LocalSigner implements Signer {
       maxFeePerGas,
     };
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // DIAGNOSTIC STEP B-2: Transaction object BEFORE signing
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log("🔍 [DIAG-B2] TRANSACTION object before signing:", {
+      to: transaction.to,
+      data_exists: !!transaction.data,
+      data_type: typeof transaction.data,
+      data_length: transaction.data?.length || 0,
+      data_first_20: transaction.data?.substring(0, 20) || "EMPTY",
+      data_last_20: transaction.data?.slice(-20) || "EMPTY",
+      value: transaction.value.toString(),
+      gas: transaction.gas.toString(),
+      nonce: transaction.nonce,
+      chainId: transaction.chainId,
+      maxPriorityFeePerGas: transaction.maxPriorityFeePerGas.toString(),
+      maxFeePerGas: transaction.maxFeePerGas.toString(),
+    });
+
     // Sign transaction
     const signedTx = await this.account.signTransaction(transaction);
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // DIAGNOSTIC STEP B-3: Signed transaction result
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log("🔍 [DIAG-B3] SIGNED TX result:", {
+      signedTx_length: signedTx.length,
+      signedTx_first_40: signedTx.substring(0, 40),
+      signedTx_last_20: signedTx.slice(-20),
+    });
+    
     return signedTx;
   }
 
