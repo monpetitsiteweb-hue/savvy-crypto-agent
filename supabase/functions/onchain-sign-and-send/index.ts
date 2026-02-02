@@ -840,14 +840,50 @@ Deno.serve(async (req) => {
         explorerUrl: `https://basescan.org/tx/${txHash}`,
       });
 
+      // ═══════════════════════════════════════════════════════════════════════
+      // PHASE 3C: Fire-and-forget call to onchain-receipts
+      // Triggers immediate receipt polling without blocking the response
+      // Uses exponential backoff: 2s, 4s, 8s, 16s internally in receipts
+      // ═══════════════════════════════════════════════════════════════════════
+      console.log("📡 Triggering onchain-receipts for immediate confirmation polling...");
+      
+      // Fire and forget - don't await, don't block the response
+      fetch(`${PROJECT_URL}/functions/v1/onchain-receipts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SERVICE_ROLE}`,
+          'apikey': SERVICE_ROLE!,
+        },
+        body: JSON.stringify({ 
+          tradeId: fkTradeId,      // Use FK-safe trade ID for receipt lookup
+          source: 'post_broadcast', // Audit trail: triggered by sign-and-send
+        }),
+      }).then(async (res) => {
+        if (res.ok) {
+          const result = await res.json().catch(() => ({}));
+          console.log("✅ onchain-receipts triggered successfully:", {
+            tradeId: fkTradeId,
+            polled: result.polled,
+            results: result.results?.map((r: any) => ({ status: r.status, tradeId: r.tradeId })),
+          });
+        } else {
+          console.warn("⚠️ onchain-receipts returned non-OK:", res.status);
+        }
+      }).catch(err => {
+        console.warn("⚠️ Failed to trigger onchain-receipts (non-blocking):", err.message);
+      });
+
       return new Response(JSON.stringify({
         ok: true,
-        tradeId,
+        status: 'pending',  // Important: pending, not confirmed - UI polls for final status
+        tradeId: fkTradeId, // Return the FK-safe trade ID for UI polling
         tx_hash: txHash,
         network: 'base',
         executedPrice: executedPrice || trade.price,
         symbol: trade.base || trade.symbol,
         side: trade.side,
+        message: 'Transaction broadcast - confirmation polling started',
       }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
