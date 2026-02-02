@@ -142,15 +142,18 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
     }
   }, [userId]);
 
-  // Poll for confirmation status after broadcast
+  // Poll for confirmation status after broadcast - watches real_trades.execution_status
   const pollForConfirmation = (tradeId: string, txHash?: string) => {
     let attempts = 0;
-    const maxAttempts = 40; // 2 minutes at 3s intervals
+    const maxAttempts = 60; // 3 minutes at 3s intervals
+    
+    console.log('[UI] Starting poll for trade_id:', tradeId);
     
     const interval = setInterval(async () => {
       attempts++;
       
       try {
+        // Query real_trades by trade_id (FK to mock_trades)
         const { data, error } = await supabase
           .from('real_trades' as any)
           .select('execution_status, tx_hash, gas_used, amount, price')
@@ -158,7 +161,7 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
           .maybeSingle();
         
         if (error) {
-          console.warn('Poll error:', error);
+          console.warn('[UI] Poll error:', error);
           return;
         }
         
@@ -171,8 +174,26 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
           gas_used?: string; 
         } | null;
         
-        if (trade?.execution_status === 'CONFIRMED') {
+        // Log every poll result for debugging
+        console.log('[UI] Poll result:', { 
+          attempt: attempts, 
+          tradeId, 
+          found: !!trade, 
+          execution_status: trade?.execution_status 
+        });
+        
+        if (!trade) {
+          console.warn('[UI] No real_trades row found for trade_id:', tradeId);
+          return;
+        }
+        
+        // REQUIRED LOG: execution_status update
+        console.log('[UI] execution_status update', trade.execution_status);
+        
+        // Status mapping - EXACT as specified
+        if (trade.execution_status === 'CONFIRMED') {
           clearInterval(interval);
+          console.log('[UI] Trade CONFIRMED - updating UI to green');
           setResult({
             status: 'confirmed',
             tradeId,
@@ -183,8 +204,9 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
             message: 'Transaction confirmed on-chain'
           });
           onTradeComplete?.();
-        } else if (trade?.execution_status === 'REVERTED') {
+        } else if (trade.execution_status === 'REVERTED') {
           clearInterval(interval);
+          console.log('[UI] Trade REVERTED - updating UI to red');
           setResult({
             status: 'reverted',
             tradeId,
@@ -192,14 +214,16 @@ export function ManualTradeCard({ side, userId, onTradeComplete, isSystemOperato
             message: 'Transaction reverted on-chain'
           });
         }
+        // SUBMITTED stays pending (orange) - no action needed
+        
       } catch (err) {
-        console.warn('Poll exception:', err);
+        console.warn('[UI] Poll exception:', err);
       }
       
       // Timeout after max attempts
       if (attempts >= maxAttempts) {
         clearInterval(interval);
-        // Keep pending state but add timeout message
+        console.log('[UI] Poll timeout after', attempts, 'attempts for trade_id:', tradeId);
         setResult(prev => prev ? {
           ...prev,
           message: 'Confirmation timeout - check BaseScan for status'
