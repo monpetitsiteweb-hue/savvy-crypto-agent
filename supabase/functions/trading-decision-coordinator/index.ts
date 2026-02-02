@@ -2002,13 +2002,231 @@ serve(async (req) => {
       );
     }
 
-    // FAST PATH FOR MANUAL/MOCK/FORCE SELL
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // SYSTEM OPERATOR MODE - HIGHEST PRIORITY - DIRECT ON-CHAIN EXECUTION
+    // This MUST be checked FIRST, before any mock/force/manual paths
+    // System operator mode uses BOT_ADDRESS directly - no user wallet required
+    // ═══════════════════════════════════════════════════════════════════════════════
+    if (intent.source === "manual" && intent.metadata?.system_operator_mode === true) {
+      console.log("🔧 COORDINATOR: SYSTEM OPERATOR MODE - routing directly to on-chain execution");
+      console.log("🔧 SYSTEM_OPERATOR intent:", {
+        side: intent.side,
+        symbol: intent.symbol,
+        qtySuggested: intent.qtySuggested,
+        eurAmount: intent.metadata?.eurAmount,
+        slippage_bps: intent.metadata?.slippage_bps,
+      });
+
+      const baseSymbol = toBaseSymbol(intent.symbol);
+      const slippageBps = intent.metadata?.slippage_bps || 100; // Default 1%
+
+      // Determine amount based on side
+      let tradeAmount: number;
+      if (intent.side === "BUY") {
+        const eurAmount = intent.metadata?.eurAmount;
+        if (!eurAmount || eurAmount <= 0) {
+          console.error("❌ SYSTEM_OPERATOR: BUY requires eurAmount in metadata");
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "blocked_missing_eur_amount",
+              decision: {
+                action: "BLOCK",
+                reason: "blocked_missing_eur_amount",
+                request_id: requestId,
+                message: "System operator BUY requires eurAmount in metadata.",
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+        tradeAmount = eurAmount;
+      } else {
+        // SELL: amount is in base token
+        const sellQty = intent.qtySuggested;
+        if (!sellQty || sellQty <= 0) {
+          console.error("❌ SYSTEM_OPERATOR: SELL requires qtySuggested");
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "blocked_missing_sell_qty",
+              decision: {
+                action: "BLOCK",
+                reason: "blocked_missing_sell_qty",
+                request_id: requestId,
+                message: "System operator SELL requires qtySuggested.",
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+        tradeAmount = sellQty;
+      }
+
+      const PROJECT_URL = Deno.env.get("SB_URL") || Deno.env.get("SUPABASE_URL");
+      const SERVICE_ROLE = Deno.env.get("SB_SERVICE_ROLE") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      const BOT_ADDRESS = Deno.env.get("BOT_ADDRESS");
+
+      if (!BOT_ADDRESS) {
+        console.error("❌ SYSTEM_OPERATOR: BOT_ADDRESS not configured");
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            success: false,
+            error: "bot_address_not_configured",
+            decision: {
+              action: "BLOCK",
+              reason: "bot_address_not_configured",
+              request_id: requestId,
+              message: "System operator mode requires BOT_ADDRESS environment variable.",
+            },
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      console.log("📡 SYSTEM_OPERATOR: Calling onchain-sign-and-send with BOT_ADDRESS", {
+        symbol: baseSymbol,
+        side: intent.side,
+        amount: tradeAmount,
+        taker: BOT_ADDRESS,
+        slippageBps,
+      });
+
+      let signSendData: any;
+      try {
+        const signSendResponse = await fetch(`${PROJECT_URL}/functions/v1/onchain-sign-and-send`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SERVICE_ROLE}`,
+            apikey: SERVICE_ROLE!,
+          },
+          body: JSON.stringify({
+            symbol: baseSymbol,
+            side: intent.side,
+            amount: tradeAmount,
+            taker: BOT_ADDRESS,
+            slippageBps,
+            system_operator_mode: true,
+          }),
+        });
+
+        if (!signSendResponse.ok) {
+          const errorText = await signSendResponse.text();
+          console.error("❌ SYSTEM_OPERATOR: onchain-sign-and-send failed:", errorText);
+          throw new Error(`Execution failed: ${errorText}`);
+        }
+
+        signSendData = await signSendResponse.json();
+
+        if (!signSendData.ok || !signSendData.tx_hash) {
+          console.error("❌ SYSTEM_OPERATOR: onchain-sign-and-send response invalid:", signSendData);
+          throw new Error(signSendData.error?.message || signSendData.error?.code || "Execution returned invalid response");
+        }
+
+        console.log("✅ SYSTEM_OPERATOR: Transaction submitted:", {
+          tradeId: signSendData.tradeId,
+          txHash: signSendData.tx_hash,
+          network: signSendData.network,
+        });
+      } catch (execError: any) {
+        console.error("❌ SYSTEM_OPERATOR: Execution error:", execError.message);
+
+        await supabaseClient.from("decision_events").insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          symbol: baseSymbol,
+          side: intent.side,
+          source: intent.source,
+          confidence: intent.confidence,
+          reason: "system_operator_execution_failed",
+          decision_ts: new Date().toISOString(),
+          metadata: {
+            error: execError.message,
+            request_id: requestId,
+            fast_path: "SYSTEM_OPERATOR",
+          },
+        });
+
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            success: false,
+            error: "execution_failed",
+            reason: execError.message,
+            decision: {
+              action: "DEFER",
+              reason: "system_operator_execution_failed",
+              request_id: requestId,
+              message: `System operator execution failed: ${execError.message}`,
+            },
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      // SUCCESS: Log and return
+      console.log("🎉 SYSTEM_OPERATOR: TRADE EXECUTED SUCCESSFULLY", {
+        tradeId: signSendData.tradeId,
+        txHash: signSendData.tx_hash,
+        symbol: baseSymbol,
+        side: intent.side,
+        amount: tradeAmount,
+      });
+
+      await supabaseClient.from("decision_events").insert({
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        symbol: baseSymbol,
+        side: intent.side,
+        source: intent.source,
+        confidence: intent.confidence,
+        entry_price: signSendData.executedPrice,
+        reason: "system_operator_execution_submitted",
+        decision_ts: new Date().toISOString(),
+        trade_id: signSendData.tradeId,
+        metadata: {
+          tx_hash: signSendData.tx_hash,
+          trade_id: signSendData.tradeId,
+          wallet_address: BOT_ADDRESS,
+          execution_status: "SUBMITTED",
+          fast_path: "SYSTEM_OPERATOR",
+          amount: tradeAmount,
+          slippage_bps: slippageBps,
+          request_id: requestId,
+        },
+      });
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          success: true,
+          tradeId: signSendData.tradeId,
+          tx_hash: signSendData.tx_hash,
+          executed_price: signSendData.executedPrice,
+          qty: tradeAmount,
+          decision: {
+            action: intent.side,
+            reason: "system_operator_execution_submitted",
+            request_id: requestId,
+            trade_id: signSendData.tradeId,
+            tx_hash: signSendData.tx_hash,
+            message: "SYSTEM OPERATOR trade submitted on-chain.",
+          },
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // FAST PATH FOR MANUAL/MOCK/FORCE SELL (non-system-operator)
     // MANUAL SELL semantics:
     // - If metadata.originalTradeId is provided, we close THAT specific BUY.
     // - We pre-fill original_purchase_* from that BUY.
     // - mt_on_sell_snapshot will treat this as a targeted close, not global FIFO.
-    // CRITICAL: Exclude system_operator_mode trades - they must reach real on-chain execution
-    if (intent.side === "SELL" && intent.source === "manual" && (intent.metadata?.force === true || mode === "mock") && intent.metadata?.system_operator_mode !== true) {
+    if (intent.side === "SELL" && intent.source === "manual" && (intent.metadata?.force === true || mode === "mock")) {
       console.log("[coordinator] fast-path triggered for manual/mock/force (non-system-operator)");
 
       const exitPrice = Number(intent?.metadata?.currentPrice);
