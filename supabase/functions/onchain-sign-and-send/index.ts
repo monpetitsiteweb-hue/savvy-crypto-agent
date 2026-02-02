@@ -750,12 +750,18 @@ Deno.serve(async (req) => {
       // PHASE 3: STATE MACHINE - Insert SUBMITTED row into real_trades
       // This is the CANONICAL entry point for the on-chain receipt state machine.
       // No execution transaction may proceed without this row existing.
+      //
+      // PHASE 3B: Use mock_trade_id from coordinator if provided.
+      // This ensures FK integrity: real_trades.trade_id → mock_trades.id
       // ═══════════════════════════════════════════════════════════════════════
       const submittedAt = new Date().toISOString();
       const isSystemOperator = body.system_operator_mode === true;
       
+      // PHASE 3B: Use mock_trade_id from coordinator (FK-safe), or fallback to trades.id
+      const fkTradeId = body.mock_trade_id || tradeId;
+      
       const realTradeSubmitRecord = {
-        trade_id: tradeId,                     // Links to trades table (transport layer)
+        trade_id: fkTradeId,                   // Links to mock_trades (FK-safe) or trades table
         tx_hash: txHash,
         execution_status: 'SUBMITTED',         // State machine initial state
         receipt_status: null,                  // Not yet known
@@ -779,10 +785,11 @@ Deno.serve(async (req) => {
       if (submitInsertError) {
         // Log but don't fail the broadcast - tx is already on chain
         console.error("REAL_TRADES_SUBMIT_INSERT_FAILED", {
-          trade_id: tradeId,
+          trade_id: fkTradeId,
           tx_hash: txHash,
           error: submitInsertError.message,
           code: submitInsertError.code,
+          mock_trade_id_provided: !!body.mock_trade_id,
         });
       } else {
         // ═══════════════════════════════════════════════════════════════════════
@@ -791,7 +798,8 @@ Deno.serve(async (req) => {
         // ═══════════════════════════════════════════════════════════════════════
         console.log("ONCHAIN_TX_SUBMITTED", {
           tx_hash: txHash,
-          trade_id: tradeId,
+          trade_id: fkTradeId,
+          mock_trade_id: body.mock_trade_id || null,
           execution_status: 'SUBMITTED',
           chain_id: trade.chain_id,
           is_system_operator: isSystemOperator,

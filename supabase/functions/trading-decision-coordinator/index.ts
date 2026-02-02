@@ -2115,12 +2115,67 @@ serve(async (req) => {
         );
       }
 
+      // =========================================================================
+      // PHASE 3B: Insert mock_trades PLACEHOLDER before execution
+      // This ensures real_trades FK constraint is satisfied when
+      // onchain-sign-and-send inserts the SUBMITTED row
+      // =========================================================================
+      const mockTradeId = crypto.randomUUID();
+      const placeholderRecord = {
+        id: mockTradeId,
+        user_id: intent.userId,
+        strategy_id: null, // System operator trades have no strategy
+        cryptocurrency: baseSymbol,
+        trade_type: intent.side.toLowerCase(),
+        amount: tradeAmount,
+        price: 0, // Will be finalized by onchain-receipts
+        total_value: 0, // Will be finalized by onchain-receipts
+        executed_at: new Date().toISOString(),
+        is_test_mode: false,
+        is_system_operator: true,
+        execution_source: 'onchain_pending',
+        execution_confirmed: false,
+        notes: 'PENDING_ONCHAIN: Awaiting receipt confirmation',
+        idempotency_key: `pending_${mockTradeId}`,
+      };
+
+      const { error: placeholderError } = await supabaseClient
+        .from("mock_trades")
+        .insert(placeholderRecord);
+
+      if (placeholderError) {
+        console.error("❌ SYSTEM_OPERATOR: Failed to insert mock_trades placeholder:", placeholderError);
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            success: false,
+            error: "placeholder_insert_failed",
+            decision: {
+              action: "DEFER",
+              reason: "placeholder_insert_failed",
+              request_id: requestId,
+              message: `Failed to prepare trade: ${placeholderError.message}`,
+            },
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      console.log("MOCK_TRADES_PENDING_ONCHAIN_INSERTED", {
+        trade_id: mockTradeId,
+        symbol: baseSymbol,
+        side: intent.side,
+        amount: tradeAmount,
+        is_system_operator: true,
+      });
+
       console.log("📡 SYSTEM_OPERATOR: Calling onchain-sign-and-send with BOT_ADDRESS", {
         symbol: baseSymbol,
         side: intent.side,
         amount: tradeAmount,
         taker: BOT_ADDRESS,
         slippageBps,
+        mock_trade_id: mockTradeId,
       });
 
       let signSendData: any;
@@ -2139,6 +2194,7 @@ serve(async (req) => {
             taker: BOT_ADDRESS,
             slippageBps,
             system_operator_mode: true,
+            mock_trade_id: mockTradeId, // PHASE 3B: Pass to link real_trades FK
           }),
         });
 
@@ -2923,6 +2979,60 @@ serve(async (req) => {
         const PROJECT_URL = Deno.env.get("SB_URL") || Deno.env.get("SUPABASE_URL");
         const SERVICE_ROLE = Deno.env.get("SB_SERVICE_ROLE") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
+        // =========================================================================
+        // PHASE 3B: Insert mock_trades PLACEHOLDER before execution
+        // This ensures real_trades FK constraint is satisfied when
+        // onchain-sign-and-send inserts the SUBMITTED row
+        // =========================================================================
+        const mockTradeId = crypto.randomUUID();
+        const placeholderRecord = {
+          id: mockTradeId,
+          user_id: intent.userId,
+          strategy_id: isSystemOperatorMode ? null : intent.strategyId,
+          cryptocurrency: baseSymbol,
+          trade_type: intent.side.toLowerCase(),
+          amount: tradeAmount,
+          price: 0, // Will be finalized by onchain-receipts
+          total_value: 0, // Will be finalized by onchain-receipts
+          executed_at: new Date().toISOString(),
+          is_test_mode: false,
+          is_system_operator: isSystemOperatorMode,
+          execution_source: 'onchain_pending',
+          execution_confirmed: false,
+          notes: 'PENDING_ONCHAIN: Awaiting receipt confirmation',
+          idempotency_key: `pending_${mockTradeId}`,
+        };
+
+        const { error: placeholderError } = await supabaseClient
+          .from("mock_trades")
+          .insert(placeholderRecord);
+
+        if (placeholderError) {
+          console.error(`❌ COORDINATOR: Failed to insert mock_trades placeholder:`, placeholderError);
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "placeholder_insert_failed",
+              decision: {
+                action: "DEFER",
+                reason: "placeholder_insert_failed",
+                request_id: requestId,
+                message: `Failed to prepare trade: ${placeholderError.message}`,
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
+        console.log("MOCK_TRADES_PENDING_ONCHAIN_INSERTED", {
+          trade_id: mockTradeId,
+          symbol: baseSymbol,
+          side: intent.side,
+          amount: tradeAmount,
+          is_system_operator: isSystemOperatorMode,
+        });
+
         // ========== SINGLE CALL: onchain-sign-and-send with raw params ==========
         // This function handles: quote → build → sign → broadcast internally
         console.log("📡 COORDINATOR: Calling onchain-sign-and-send with raw params", {
@@ -2931,6 +3041,7 @@ serve(async (req) => {
           amount: tradeAmount,
           taker: walletAddress,
           slippageBps,
+          mock_trade_id: mockTradeId,
         });
 
         let signSendData: any;
@@ -2950,6 +3061,7 @@ serve(async (req) => {
               slippageBps,
               // Pass system_operator_mode flag for auto-wrap policy
               system_operator_mode: isSystemOperatorMode,
+              mock_trade_id: mockTradeId, // PHASE 3B: Pass to link real_trades FK
             }),
           });
 

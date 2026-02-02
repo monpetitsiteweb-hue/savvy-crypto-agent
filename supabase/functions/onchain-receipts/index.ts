@@ -571,8 +571,7 @@ async function processReceipt(trade: any) {
     console.log(`📊 Ledger insert: is_system_operator=${isSystemOperator}, strategy_id=${isSystemOperator ? null : strategy_id}`);
     
     // Build the ledger record with STRICT invariants - ALL economics from receipt
-    const ledgerRecord = {
-      user_id,
+    const ledgerUpdateFields = {
       // INVARIANT: system operator trades have no strategy ownership
       strategy_id: isSystemOperator ? null : strategy_id,
       trade_type: side?.toLowerCase() || 'buy',
@@ -610,136 +609,239 @@ async function processReceipt(trade: any) {
       idempotency_key: idempotency_key || `onchain_${tx_hash}`,
     };
     
-    console.log(`📊 Inserting real trade into unified ledger:`, {
-      tx_hash: tx_hash?.substring(0, 16),
-      symbol,
-      side,
-      amount: filledAmount,
-      price: executedPrice,
-      gas_cost_eth: gasCostEth,
-    });
-    
-    // Insert into unified ledger with idempotency protection
-    const { data: ledgerResult, error: ledgerError } = await supabase
-      .from('mock_trades')
-      .insert(ledgerRecord)
-      .select('id');
-    
     // Track the mock_trades id for real_trades linkage
     let mockTradeId: string | null = null;
     
-    if (ledgerError) {
-      // Check if it's a duplicate key error (idempotency protection working)
-      if (ledgerError.code === '23505') {
-        console.log(`⚠️ Duplicate trade prevented by idempotency key: ${idempotency_key || tx_hash}`);
-      } else {
-        console.error(`❌ Failed to insert real trade into ledger:`, ledgerError);
-        
-        // Log ledger insertion failure
-        await supabase.from('trade_events').insert({
-          trade_id: tradeId,
-          phase: 'ledger_insert_failed',
-          severity: 'error',
-          payload: {
-            error: ledgerError.message,
-            ledger_record: ledgerRecord,
-          },
-        });
-      }
-    } else {
-      mockTradeId = ledgerResult?.[0]?.id;
+    // =========================================================================
+    // PHASE 3B: Check for existing PENDING_ONCHAIN placeholder from coordinator
+    // If exists → UPDATE to finalize; else → INSERT new row (backward compat)
+    // =========================================================================
+    // First, check if there's an existing placeholder row in mock_trades
+    // The coordinator inserts this BEFORE calling onchain-sign-and-send
+    const { data: existingPlaceholder, error: placeholderCheckError } = await supabase
+      .from('mock_trades')
+      .select('id')
+      .eq('idempotency_key', `pending_${tradeId}`)
+      .maybeSingle();
+    
+    if (placeholderCheckError) {
+      console.warn(`⚠️ Failed to check for existing placeholder:`, placeholderCheckError);
+    }
+    
+    if (existingPlaceholder?.id) {
+      // PHASE 3B: UPDATE existing placeholder → CONFIRMED
+      mockTradeId = existingPlaceholder.id;
       
-      // ========================================================================
-      // C3: LOG EXECUTION CONTEXT ON EVERY LEDGER INSERT
-      // This creates an auditable trail for every trade, mock or real
-      // ========================================================================
-      console.log("LEDGER_INSERT", {
-        trade_id: mockTradeId,
-        execution_class: isSystemOperator ? 'SYSTEM_OPERATOR' : 'USER',
-        execution_target: 'REAL',
-        is_system_operator: isSystemOperator,
+      console.log(`📊 Finalizing existing mock_trades placeholder:`, {
+        mock_trade_id: mockTradeId,
+        tx_hash: tx_hash?.substring(0, 16),
         symbol,
         side,
         amount: filledAmount,
         price: executedPrice,
-        tx_hash: tx_hash?.substring(0, 16),
       });
-      console.log(`✅ Real trade inserted into unified ledger: ${mockTradeId}`);
+      
+      const { error: updateError } = await supabase
+        .from('mock_trades')
+        .update(ledgerUpdateFields)
+        .eq('id', mockTradeId);
+      
+      if (updateError) {
+        console.error(`❌ Failed to finalize mock_trades placeholder:`, updateError);
+        
+        // Log finalization failure
+        await supabase.from('trade_events').insert({
+          trade_id: tradeId,
+          phase: 'ledger_finalize_failed',
+          severity: 'error',
+          payload: {
+            error: updateError.message,
+            mock_trade_id: mockTradeId,
+            update_fields: ledgerUpdateFields,
+          },
+        });
+      } else {
+        console.log("LEDGER_FINALIZED", {
+          trade_id: mockTradeId,
+          execution_class: isSystemOperator ? 'SYSTEM_OPERATOR' : 'USER',
+          execution_target: 'REAL',
+          is_system_operator: isSystemOperator,
+          symbol,
+          side,
+          amount: filledAmount,
+          price: executedPrice,
+          tx_hash: tx_hash?.substring(0, 16),
+        });
+        console.log(`✅ Mock_trades placeholder finalized: ${mockTradeId}`);
+      }
+    } else {
+      // BACKWARD COMPATIBILITY: No placeholder exists, INSERT new row
+      // This handles legacy trades or cases where coordinator didn't create placeholder
+      const ledgerRecord = {
+        user_id,
+        ...ledgerUpdateFields,
+      };
+      
+      console.log(`📊 Inserting real trade into unified ledger (no placeholder):`, {
+        tx_hash: tx_hash?.substring(0, 16),
+        symbol,
+        side,
+        amount: filledAmount,
+        price: executedPrice,
+        gas_cost_eth: gasCostEth,
+      });
+      
+      // Insert into unified ledger with idempotency protection
+      const { data: ledgerResult, error: ledgerError } = await supabase
+        .from('mock_trades')
+        .insert(ledgerRecord)
+        .select('id');
+      
+      if (ledgerError) {
+        // Check if it's a duplicate key error (idempotency protection working)
+        if (ledgerError.code === '23505') {
+          console.log(`⚠️ Duplicate trade prevented by idempotency key: ${idempotency_key || tx_hash}`);
+        } else {
+          console.error(`❌ Failed to insert real trade into ledger:`, ledgerError);
+          
+          // Log ledger insertion failure
+          await supabase.from('trade_events').insert({
+            trade_id: tradeId,
+            phase: 'ledger_insert_failed',
+            severity: 'error',
+            payload: {
+              error: ledgerError.message,
+              ledger_record: ledgerRecord,
+            },
+          });
+        }
+      } else {
+        mockTradeId = ledgerResult?.[0]?.id;
+        
+        // ========================================================================
+        // C3: LOG EXECUTION CONTEXT ON EVERY LEDGER INSERT
+        // This creates an auditable trail for every trade, mock or real
+        // ========================================================================
+        console.log("LEDGER_INSERT", {
+          trade_id: mockTradeId,
+          execution_class: isSystemOperator ? 'SYSTEM_OPERATOR' : 'USER',
+          execution_target: 'REAL',
+          is_system_operator: isSystemOperator,
+          symbol,
+          side,
+          amount: filledAmount,
+          price: executedPrice,
+          tx_hash: tx_hash?.substring(0, 16),
+        });
+        console.log(`✅ Real trade inserted into unified ledger: ${mockTradeId}`);
+      }
     }
     
     // ============================================================================
-    // PHASE 1: DUAL-WRITE TO real_trades (SHADOW CHAIN-TRUTH LEDGER)
-    // This is BEST-EFFORT - failure does NOT rollback mock_trades
-    // real_trades is non-authoritative, used for reconciliation and audit
+    // PHASE 3B: UPDATE real_trades (SUBMITTED → CONFIRMED/REVERTED)
+    // The SUBMITTED row was already inserted by onchain-sign-and-send.
+    // This updates that row with receipt data and final status.
+    // BEST-EFFORT - failure does NOT rollback mock_trades
     // ============================================================================
-    if (mockTradeId || ledgerError?.code === '23505') {
-      // Determine execution status
-      const executionStatus = txSuccess ? 'CONFIRMED' : 'REVERTED';
+    const executionStatus = txSuccess ? 'CONFIRMED' : 'REVERTED';
+    
+    // Build real_trades UPDATE fields
+    const realTradeUpdateFields = {
+      execution_status: executionStatus,
+      receipt_status: txSuccess,
+      block_number: receipt.blockNumber ? parseInt(receipt.blockNumber, 16) : null,
+      block_timestamp: blockTimestamp,
+      gas_used: gasUsedDec,
+      error_reason: txSuccess ? null : 'Transaction reverted',
       
-      // Build real_trades record
-      const realTradeRecord = {
-        trade_id: mockTradeId || tradeId, // Link to mock_trades or use original tradeId
-        tx_hash,
-        execution_status: executionStatus,
-        receipt_status: txSuccess,
-        block_number: receipt.blockNumber ? parseInt(receipt.blockNumber, 16) : null,
-        block_timestamp: blockTimestamp,
-        gas_used: gasUsedDec,
-        error_reason: txSuccess ? null : 'Transaction reverted',
-        
-        // Trade economics from receipt decode
-        cryptocurrency: symbol?.replace('/USD', '').replace('/EUR', '') || 'UNKNOWN',
-        side: side?.toUpperCase() || 'UNKNOWN',
-        amount: filledAmount,
-        price: executedPrice,
-        total_value: totalValue,
-        fees: gasCostEth,
-        
-        // Execution context
-        execution_target: 'REAL',
-        execution_authority: isSystemOperator ? 'SYSTEM' : 'USER',
-        is_system_operator: isSystemOperator,
-        user_id,
-        strategy_id: isSystemOperator ? null : strategy_id,
-        chain_id,
-        provider,
-        
-        // Audit trail
-        decode_method: decodedTrade.decodeMethod,
-        raw_receipt: receipt,
-      };
+      // Trade economics from receipt decode
+      cryptocurrency: symbol?.replace('/USD', '').replace('/EUR', '') || 'UNKNOWN',
+      side: side?.toUpperCase() || 'UNKNOWN',
+      amount: filledAmount,
+      price: executedPrice,
+      total_value: totalValue,
+      fees: gasCostEth,
       
-      try {
-        const { error: realTradeError } = await supabase
+      // Execution context
+      execution_target: 'REAL',
+      execution_authority: isSystemOperator ? 'SYSTEM' : 'USER',
+      is_system_operator: isSystemOperator,
+      strategy_id: isSystemOperator ? null : strategy_id,
+      
+      // Audit trail
+      decode_method: decodedTrade.decodeMethod,
+      raw_receipt: receipt,
+    };
+    
+    try {
+      // PHASE 3B: Try UPDATE first (canonical path with placeholder)
+      const { data: updateResult, error: updateError } = await supabase
+        .from('real_trades')
+        .update(realTradeUpdateFields)
+        .eq('tx_hash', tx_hash)
+        .eq('execution_status', 'SUBMITTED')
+        .select('id');
+      
+      if (updateError) {
+        console.error("REAL_TRADES_UPDATE_FAILED", {
+          trade_id: mockTradeId || tradeId,
+          tx_hash,
+          error: updateError.message,
+          code: updateError.code,
+        });
+      } else if (updateResult && updateResult.length > 0) {
+        // Successfully updated existing SUBMITTED row → CONFIRMED
+        console.log("REAL_TRADES_CONFIRMED", {
+          trade_id: mockTradeId || tradeId,
+          tx_hash,
+          execution_status: executionStatus,
+          amount: filledAmount,
+          price: executedPrice,
+          updated_row_id: updateResult[0].id,
+        });
+      } else {
+        // No SUBMITTED row found - this could be a legacy trade
+        // Fall back to INSERT for backward compatibility
+        console.log("⚠️ No SUBMITTED row found, attempting INSERT for backward compatibility");
+        
+        const realTradeRecord = {
+          trade_id: mockTradeId || tradeId,
+          tx_hash,
+          user_id,
+          chain_id,
+          provider,
+          ...realTradeUpdateFields,
+        };
+        
+        const { error: insertError } = await supabase
           .from('real_trades')
           .insert(realTradeRecord);
         
-        if (realTradeError) {
-          // BEST-EFFORT: Log failure but DO NOT rollback mock_trades
+        if (insertError) {
           console.error("REAL_TRADES_INSERT_FAILED", {
             trade_id: mockTradeId || tradeId,
             tx_hash,
-            error: realTradeError.message,
-            code: realTradeError.code,
+            error: insertError.message,
+            code: insertError.code,
           });
         } else {
-          // Success log
           console.log("REAL_TRADES_CONFIRMED", {
             trade_id: mockTradeId || tradeId,
             tx_hash,
             execution_status: executionStatus,
             amount: filledAmount,
             price: executedPrice,
+            mode: 'fallback_insert',
           });
         }
-      } catch (realTradeErr) {
-        // BEST-EFFORT: Log unexpected error but DO NOT rollback mock_trades
-        console.error("REAL_TRADES_INSERT_FAILED", {
-          trade_id: mockTradeId || tradeId,
-          tx_hash,
-          error: realTradeErr.message,
-        });
       }
+    } catch (realTradeErr) {
+      // BEST-EFFORT: Log unexpected error but DO NOT rollback mock_trades
+      console.error("REAL_TRADES_UPDATE_FAILED", {
+        trade_id: mockTradeId || tradeId,
+        tx_hash,
+        error: realTradeErr.message,
+      });
     }
   }
   
