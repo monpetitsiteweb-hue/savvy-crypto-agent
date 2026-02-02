@@ -918,15 +918,101 @@ Deno.serve(async (req) => {
     if (provider === '0x' && quoteData.raw?.transaction) {
       // For 0x, derive tx_payload directly from raw_quote.transaction
       const tx = quoteData.raw.transaction;
+      let txData = tx.data;
+      
+      // ═══════════════════════════════════════════════════════════════════════
+      // CRITICAL: 0x API v2 Permit2 flow - Sign and append permit2.eip712 signature
+      // The 0x quote may include permit2.eip712 which MUST be signed and appended
+      // to transaction.data in the format: <32-byte sig length><signature data>
+      // Without this, the Settler contract cannot pull tokens and will revert!
+      // ═══════════════════════════════════════════════════════════════════════
+      if (quoteData.raw?.permit2?.eip712) {
+        console.log('🔐 0x Permit2 signature required - signing EIP-712 from quote response');
+        
+        try {
+          const { domain, types, message, primaryType } = quoteData.raw.permit2.eip712;
+          
+          // Import viem for typed data signing
+          const { privateKeyToAccount } = await import('npm:viem@2.x/accounts');
+          const { numberToHex, size, concat } = await import('npm:viem@2.x');
+          
+          // Get bot private key
+          const botPk = Deno.env.get('BOT_PRIVATE_KEY') || Deno.env.get('BOT_PK');
+          if (!botPk) {
+            throw new Error('BOT_PRIVATE_KEY required for 0x Permit2 signing');
+          }
+          
+          // Ensure proper format
+          const pkHex = botPk.startsWith('0x') ? botPk : `0x${botPk}`;
+          const account = privateKeyToAccount(pkHex as `0x${string}`);
+          
+          console.log('🔐 Signing 0x permit2.eip712 with account:', account.address);
+          console.log('🔐 EIP-712 domain:', JSON.stringify(domain));
+          console.log('🔐 EIP-712 primaryType:', primaryType);
+          
+          // Sign the EIP-712 typed data from the 0x quote
+          const permit2Signature = await account.signTypedData({
+            domain,
+            types,
+            primaryType,
+            message,
+          });
+          
+          console.log('✅ 0x Permit2 signature generated:', permit2Signature.substring(0, 20) + '...');
+          
+          // Append signature to transaction data per 0x API v2 spec:
+          // Format: <original data><32-byte sig length><signature data>
+          const signatureLengthHex = numberToHex(size(permit2Signature), {
+            signed: false,
+            size: 32,
+          });
+          
+          // Concatenate: original data + signature length + signature
+          txData = concat([tx.data as `0x${string}`, signatureLengthHex, permit2Signature]);
+          
+          console.log('✅ Permit2 signature appended to calldata:', {
+            originalDataLength: tx.data.length,
+            signatureLength: permit2Signature.length,
+            finalDataLength: txData.length,
+          });
+          
+          logger.info('onchain_execute.permit2_0x_signed', {
+            tradeId: tradeId ?? 'pending',
+            signer: account.address,
+            signaturePrefix: permit2Signature.substring(0, 20),
+            originalDataLength: tx.data.length,
+            finalDataLength: txData.length,
+          });
+          
+        } catch (permit2Error) {
+          console.error('❌ Failed to sign 0x permit2.eip712:', permit2Error);
+          logger.error('onchain_execute.permit2_0x_error', {
+            tradeId: tradeId ?? 'pending',
+            error: String(permit2Error),
+          });
+          
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              tradeId,
+              error: '0x Permit2 signing failed',
+              detail: String(permit2Error),
+              resolution: 'Check BOT_PRIVATE_KEY is set correctly',
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+      
       txPayload = {
         to: tx.to,
-        data: tx.data,
+        data: txData,
         value: tx.value ?? '0x0',
         gas: tx.gas ?? tx.gasLimit,
         from: taker,
       };
       await updateTradeStatus(tradeId, 'built', { tx_payload: txPayload });
-      console.log(`✅ Built trade ${tradeId}: tx.to=${txPayload.to}`);
+      console.log(`✅ Built trade ${tradeId}: tx.to=${txPayload.to}, data.length=${txPayload.data.length}`);
     } else {
       // For other providers, use pickTx helper
       function pickTx(raw: any): any | null {
