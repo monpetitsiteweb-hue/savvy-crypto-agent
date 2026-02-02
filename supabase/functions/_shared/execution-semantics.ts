@@ -19,6 +19,22 @@
 //   - execution_target: 'MOCK' | 'REAL' (from strategy config)
 // =============================================================================
 
+// =============================================================================
+// SYSTEM EXECUTION IDENTITY - FROZEN CONSTANT
+// =============================================================================
+// This UUID identifies SYSTEM (operator) trades in the ledger.
+// It is NOT tied to auth - no login, no RLS bypass, no admin rights.
+// It is ONLY used for accounting, analytics, and audit trail.
+//
+// INVARIANT: All trades with is_system_operator=true MUST use this user_id.
+// This is enforced by:
+//   1. resolveExecutionUserId() guard function (code)
+//   2. CHECK constraint on real_trades table (database)
+//
+// DO NOT CHANGE THIS VALUE. Existing records depend on it.
+// =============================================================================
+export const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000001';
+
 /**
  * ExecutionAuthority: WHO is executing the trade
  * - USER: A human user initiated this (manual trades, user-triggered automated)
@@ -179,6 +195,73 @@ export function logExecutionClass(execClass: ExecutionClass, tradeId?: string): 
     trade_id: tradeId || 'pending',
     _derivedFrom: execClass._derivedFrom,
   });
+}
+
+// =============================================================================
+// EXECUTION USER ID GUARD
+// =============================================================================
+// SINGLE POINT OF TRUTH for resolving user_id in the execution pipeline.
+// This function MUST be called at ALL insert points for mock_trades and real_trades.
+//
+// UI input is NEVER trusted for system operator identity.
+// =============================================================================
+
+export interface ResolveUserIdInput {
+  /** Whether this is a system operator trade (from ExecutionClass or metadata) */
+  isSystemOperator: boolean;
+  
+  /** The auth user ID (from JWT/session) - can be null for service role calls */
+  authUserId: string | null;
+  
+  /** Any user_id passed from UI/intent (UNTRUSTED for system operator trades) */
+  intentUserId?: string | null;
+}
+
+/**
+ * Resolves the canonical user_id for ledger insertion.
+ * 
+ * INVARIANTS:
+ * 1. If isSystemOperator === true → ALWAYS returns SYSTEM_USER_ID
+ * 2. If isSystemOperator === false → returns authUserId (or intentUserId as fallback)
+ * 3. NEVER returns null - throws if no valid user_id can be resolved
+ * 
+ * This function is the ONLY source of truth for user_id in the execution pipeline.
+ * UI input for user_id is IGNORED when isSystemOperator is true.
+ */
+export function resolveExecutionUserId(input: ResolveUserIdInput): string {
+  const { isSystemOperator, authUserId, intentUserId } = input;
+  
+  // SYSTEM OPERATOR: Always use canonical system user ID
+  if (isSystemOperator) {
+    console.log('EXECUTION_USER_ID_RESOLVED', {
+      mode: 'SYSTEM_OPERATOR',
+      resolved_user_id: SYSTEM_USER_ID,
+      ignored_auth_user_id: authUserId,
+      ignored_intent_user_id: intentUserId,
+    });
+    return SYSTEM_USER_ID;
+  }
+  
+  // USER TRADE: Use auth user ID, fall back to intent user ID
+  const resolvedUserId = authUserId || intentUserId;
+  
+  if (!resolvedUserId) {
+    // FAIL CLOSED: No valid user ID available
+    console.error('EXECUTION_USER_ID_RESOLUTION_FAILED', {
+      isSystemOperator,
+      authUserId,
+      intentUserId,
+    });
+    throw new Error('Cannot resolve user_id: no auth user and no intent user provided');
+  }
+  
+  console.log('EXECUTION_USER_ID_RESOLVED', {
+    mode: 'USER',
+    resolved_user_id: resolvedUserId,
+    source: authUserId ? 'auth' : 'intent',
+  });
+  
+  return resolvedUserId;
 }
 
 // =============================================================================
