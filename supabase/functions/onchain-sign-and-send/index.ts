@@ -587,6 +587,23 @@ Deno.serve(async (req) => {
       data_last_20_chars: trade.tx_payload.data?.slice(-20) || "EMPTY",
     });
     
+    // ═══════════════════════════════════════════════════════════════════════
+    // EXECUTION_CALLDATA LOG: Key diagnostic for debugging revert failures
+    // No execution transaction may be submitted with zero bytes20 metadata.
+    // This is a hard invariant enforced before chain submission.
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log("EXECUTION_CALLDATA", {
+      side: trade.side,
+      symbol: `${trade.base}/${trade.quote}`,
+      trade_id: tradeId,
+      executionAuthority: body.system_operator_mode ? 'SYSTEM' : 'USER',
+      executionTarget: 'REAL',
+      tx_to: trade.tx_payload.to,
+      tx_data_length: trade.tx_payload.data?.length || 0,
+      tx_data_first_10: trade.tx_payload.data?.substring(0, 10) || "EMPTY", // Method selector
+      tx_data_has_content: (trade.tx_payload.data?.length || 0) > 100,
+    });
+    
     // Extra validation: ensure data is not empty
     if (!trade.tx_payload.data || trade.tx_payload.data.length < 10) {
       console.error("❌ [DIAG] CRITICAL: tx_payload.data is missing or too short!", {
