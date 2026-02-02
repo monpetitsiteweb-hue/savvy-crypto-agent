@@ -571,7 +571,61 @@ When a trade fails, check in order:
 
 ---
 
-## Document History
+## 10. Database Hardening (Phase 0)
+
+### 10.1 CHECK Constraint: Execution Class Invariant
+
+```sql
+-- Constraint added 2026-02-02
+ALTER TABLE public.mock_trades
+ADD CONSTRAINT chk_system_operator_strategy_null
+CHECK (
+  (is_system_operator = TRUE AND strategy_id IS NULL)
+  OR
+  (is_system_operator = FALSE)
+);
+```
+
+**What it enforces:**
+- `is_system_operator = true` ⇒ `strategy_id` MUST be `NULL`
+- Any INSERT violating this constraint will be rejected at the database level
+- This constraint survives code changes and prevents silent invariant violations
+
+**Verification query:**
+```sql
+SELECT conname, pg_get_constraintdef(oid)
+FROM pg_constraint 
+WHERE conrelid = 'public.mock_trades'::regclass 
+AND conname = 'chk_system_operator_strategy_null';
+```
+
+### 10.2 Trigger Verification
+
+The `mt_on_sell_snapshot` trigger has been verified to:
+- ✅ Use `NEW.is_system_operator` (column value)
+- ✅ NOT access `metadata` JSON field
+- ✅ NOT access `market_conditions` JSON field
+
+**Verification query:**
+```sql
+SELECT 
+  prosrc NOT LIKE '%metadata%' as no_metadata_access,
+  prosrc NOT LIKE '%market_conditions%' as no_market_conditions_access,
+  prosrc LIKE '%NEW.is_system_operator%' as uses_column_correctly
+FROM pg_proc 
+WHERE proname = 'mt_on_sell_snapshot';
+-- Expected: all TRUE
+```
+
+### 10.3 SQL Integration Test Results
+
+| Test | Description | Expected | Status |
+|------|-------------|----------|--------|
+| B1 | System operator SELL without BUY | INSERT succeeds | ✅ PASSED |
+| B2 | User SELL without BUY coverage | ERROR: insufficient coverage | ✅ PASSED |
+| B3 | is_system_operator=TRUE with strategy_id | CHECK constraint violation | ✅ PASSED |
+
+---
 
 | Date | Author | Changes |
 |------|--------|---------|
