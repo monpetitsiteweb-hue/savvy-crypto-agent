@@ -3,6 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { TestModeProvider } from "@/hooks/useTradeViewFilter";
+import { TradingModeProvider } from "@/hooks/useTradingMode";
 import { MockWalletProvider } from "@/hooks/useMockWallet";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MarketDataProvider } from "@/contexts/MarketDataContext";
@@ -44,26 +45,28 @@ function AppInternal() {
     <TooltipProvider>
       <AuthProvider>
         <TestModeProvider>
-          <MarketDataProvider>
-            <MockWalletProvider>
-              <ErrorBoundary>
-                <BrowserRouter>
-                  <Routes>
-                    <Route path="/" element={<Index />} />
-                    <Route path="/admin" element={<AdminPage />} />
-                    <Route path="/admin/wallet-drill" element={<WalletDrillPage />} />
-                    <Route path="/profile" element={<ProfilePage />} />
-                    <Route path="/validation" element={<ValidationPage />} />
-                    <Route path="/calibration" element={<Calibration />} />
-                    <Route path="/dev/learning" element={<DevLearningPage />} />
-                    <Route path="/dev/execution" element={<DevExecutionPage />} />
-                    <Route path="/execution-quality" element={<ExecutionQualityPage />} />
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
-                </BrowserRouter>
-              </ErrorBoundary>
-            </MockWalletProvider>
-          </MarketDataProvider>
+          <TradingModeProvider>
+            <MarketDataProvider>
+              <MockWalletProvider>
+                <ErrorBoundary>
+                  <BrowserRouter>
+                    <Routes>
+                      <Route path="/" element={<Index />} />
+                      <Route path="/admin" element={<AdminPage />} />
+                      <Route path="/admin/wallet-drill" element={<WalletDrillPage />} />
+                      <Route path="/profile" element={<ProfilePage />} />
+                      <Route path="/validation" element={<ValidationPage />} />
+                      <Route path="/calibration" element={<Calibration />} />
+                      <Route path="/dev/learning" element={<DevLearningPage />} />
+                      <Route path="/dev/execution" element={<DevExecutionPage />} />
+                      <Route path="/execution-quality" element={<ExecutionQualityPage />} />
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </BrowserRouter>
+                </ErrorBoundary>
+              </MockWalletProvider>
+            </MarketDataProvider>
+          </TradingModeProvider>
         </TestModeProvider>
       </AuthProvider>
     </TooltipProvider>

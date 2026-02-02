@@ -8,7 +8,9 @@ import { ConversationPanel } from '@/components/ConversationPanel';
 
 import { MergedPortfolioDisplay } from '@/components/MergedPortfolioDisplay';
 import { UnifiedPortfolioDisplay } from '@/components/UnifiedPortfolioDisplay';
+import { RealPortfolioDisplay } from '@/components/RealPortfolioDisplay';
 import { TradingHistory } from '@/components/TradingHistory';
+import { RealTradingHistory } from '@/components/RealTradingHistory';
 import { StrategyConfig } from '@/components/StrategyConfig';
 import { TestStrategyConfig } from '@/components/TestStrategyConfig';
 import { PerformanceOverview } from '@/components/PerformanceOverview';
@@ -22,6 +24,7 @@ import { useUserRole } from '@/hooks/useUserRole';
 import { ContextFreezeBarrier } from '@/components/ContextFreezeBarrier';
 import { useMarketData } from '@/contexts/MarketDataContext';
 import { useTestMode } from '@/hooks/useTradeViewFilter';
+import { useTradingMode } from '@/hooks/useTradingMode';
 import { useActiveStrategy } from '@/hooks/useActiveStrategy';
 import { useIntelligentTradingEngine } from '@/hooks/useIntelligentTradingEngine';
 import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
@@ -204,6 +207,7 @@ function IndexComponent() {
   const { user, loading } = useAuth();
   const marketData = useMarketData();
   const testModeContext = useTestMode();
+  const { mode: tradingMode, setMode: setTradingMode, isTestMode, isRealMode } = useTradingMode();
   
   const [activeTab, setActiveTab] = useState('dashboard');
   const setActiveTabTraced = (value: string) => {
@@ -245,6 +249,15 @@ function IndexComponent() {
   const { role, loading: roleLoading } = useUserRole();
   const { hasActiveStrategy } = useActiveStrategy();
   
+  // Sync tradingMode with testMode for backward compatibility
+  useEffect(() => {
+    if (testMode && tradingMode !== 'TEST') {
+      setTradingMode('TEST');
+    } else if (!testMode && tradingMode !== 'REAL') {
+      setTradingMode('REAL');
+    }
+  }, [testMode, tradingMode, setTradingMode]);
+
   // Onboarding: Welcome modal on first login
   const { showWelcomeModal, completeWelcome } = useOnboardingStatus();
   
@@ -509,9 +522,11 @@ function IndexComponent() {
                       </div>
                     )}
                     
-                    {/* Portfolio Display - based on portfolioSource, NOT testMode */}
+                    {/* Portfolio Display - MODE-BASED DATA SWITCHING */}
                     <ErrorBoundary>
-                      {portfolioSource === 'app' ? (
+                      {isRealMode ? (
+                        <RealPortfolioDisplay />
+                      ) : portfolioSource === 'app' ? (
                         <UnifiedPortfolioDisplay />
                       ) : (
                         <MergedPortfolioDisplay
@@ -536,10 +551,18 @@ function IndexComponent() {
                 {activeTab === 'history' && (
                   <ErrorBoundary key={PIN_HISTORY_KEY ? 'history-stable' : undefined}>
                     <ContextFreezeBarrier>
-                      <TradingHistory 
-                        hasActiveStrategy={hasActiveStrategy}
+                      {/* MODE-BASED DATA SWITCHING for Trading History */}
+                      {isRealMode ? (
+                        <RealTradingHistory 
+                          hasActiveStrategy={hasActiveStrategy}
                           onCreateStrategy={() => setActiveTabTraced('strategy')}
-                      />
+                        />
+                      ) : (
+                        <TradingHistory 
+                          hasActiveStrategy={hasActiveStrategy}
+                          onCreateStrategy={() => setActiveTabTraced('strategy')}
+                        />
+                      )}
                     </ContextFreezeBarrier>
                   </ErrorBoundary>
                 )}
