@@ -848,6 +848,12 @@ async function processReceipt(trade: any) {
   };
 }
 
+// ============================================================================
+// PHASE 3: STATE MACHINE POLLER
+// Polls real_trades WHERE execution_status = 'SUBMITTED'
+// This is the CANONICAL receipt polling loop
+// ============================================================================
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -857,59 +863,185 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const { tradeId } = body;
 
+    // =========================================================================
+    // RECEIPT_POLL_START: Log every polling invocation
+    // =========================================================================
+    console.log("RECEIPT_POLL_START", {
+      mode: tradeId ? 'single' : 'batch',
+      tradeId: tradeId || null,
+    });
+
     let tradesToPoll: any[] = [];
 
     if (tradeId) {
-      // Poll specific trade
-      const { data: trade, error } = await supabase
-        .from('trades')
+      // =====================================================================
+      // SINGLE TRADE MODE: Poll specific trade by ID
+      // First check real_trades (Phase 3 state machine), fallback to trades
+      // =====================================================================
+      const { data: realTrade, error: realError } = await supabase
+        .from('real_trades')
         .select('*')
-        .eq('id', tradeId)
+        .eq('trade_id', tradeId)
+        .eq('execution_status', 'SUBMITTED')
         .single();
 
-      if (error || !trade) {
-        return new Response(
-          JSON.stringify({ error: 'Trade not found' }),
-          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+      if (realTrade && !realError) {
+        // Found in real_trades - use state machine path
+        // Need to join with trades for full context
+        const { data: trade } = await supabase
+          .from('trades')
+          .select('*')
+          .eq('id', tradeId)
+          .single();
+        
+        if (trade) {
+          // Merge real_trade data into trade for processing
+          trade.tx_hash = realTrade.tx_hash;
+          trade.is_system_operator = realTrade.is_system_operator;
+          trade.real_trade_id = realTrade.id;
+          tradesToPoll = [trade];
+        }
+      } else {
+        // Fallback: check trades table (backward compatibility)
+        const { data: trade, error } = await supabase
+          .from('trades')
+          .select('*')
+          .eq('id', tradeId)
+          .single();
 
-      if (trade.status !== 'submitted') {
-        return new Response(
-          JSON.stringify({
-            error: `Trade status is '${trade.status}', expected 'submitted'`,
-          }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+        if (error || !trade) {
+          return new Response(
+            JSON.stringify({ error: 'Trade not found' }),
+            { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
 
-      tradesToPoll = [trade];
+        if (trade.status !== 'submitted') {
+          return new Response(
+            JSON.stringify({
+              error: `Trade status is '${trade.status}', expected 'submitted'`,
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        tradesToPoll = [trade];
+      }
     } else {
-      // Poll all submitted trades without receipts
-      const { data: trades, error } = await supabase
-        .from('trades')
+      // =====================================================================
+      // BATCH MODE: Poll all SUBMITTED from real_trades (Phase 3 canonical)
+      // Query scope (MUST be exactly this per spec):
+      //   SELECT * FROM real_trades WHERE execution_status = 'SUBMITTED'
+      // =====================================================================
+      const { data: submittedRealTrades, error: realError } = await supabase
+        .from('real_trades')
         .select('*')
-        .eq('status', 'submitted')
-        .is('receipts', null)
+        .eq('execution_status', 'SUBMITTED')
         .order('created_at', { ascending: true })
         .limit(20);
 
-      if (error) {
-        console.error('Failed to fetch trades:', error);
-        return new Response(
-          JSON.stringify({ error: 'Failed to fetch trades' }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+      if (realError) {
+        console.error('Failed to fetch real_trades:', realError);
       }
 
-      tradesToPoll = trades || [];
+      // For each SUBMITTED real_trade, get full trade context
+      if (submittedRealTrades && submittedRealTrades.length > 0) {
+        const tradeIds = submittedRealTrades.map(rt => rt.trade_id);
+        const { data: trades } = await supabase
+          .from('trades')
+          .select('*')
+          .in('id', tradeIds);
+
+        if (trades) {
+          // Merge real_trade data into trades
+          tradesToPoll = trades.map(trade => {
+            const rt = submittedRealTrades.find(r => r.trade_id === trade.id);
+            if (rt) {
+              trade.tx_hash = rt.tx_hash;
+              trade.is_system_operator = rt.is_system_operator;
+              trade.real_trade_id = rt.id;
+            }
+            return trade;
+          });
+        }
+      }
+
+      // =====================================================================
+      // BACKWARD COMPATIBILITY: Also check trades table for legacy entries
+      // This handles trades submitted before Phase 3 went live
+      // =====================================================================
+      if (tradesToPoll.length === 0) {
+        const { data: trades, error } = await supabase
+          .from('trades')
+          .select('*')
+          .eq('status', 'submitted')
+          .is('receipts', null)
+          .order('created_at', { ascending: true })
+          .limit(20);
+
+        if (error) {
+          console.error('Failed to fetch trades:', error);
+          return new Response(
+            JSON.stringify({ error: 'Failed to fetch trades' }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        tradesToPoll = trades || [];
+      }
     }
 
-    console.log(`Polling ${tradesToPoll.length} trade(s)`);
+    if (tradesToPoll.length === 0) {
+      console.log("RECEIPT_POLL_EMPTY", { checked_tables: ['real_trades', 'trades'] });
+    } else {
+      console.log(`Polling ${tradesToPoll.length} trade(s) from state machine`);
+    }
 
-    // Process all trades in parallel
+    // =========================================================================
+    // PROCESS RECEIPTS: Update state machine based on RPC response
+    // =========================================================================
     const results = await Promise.all(
-      tradesToPoll.map((trade) => processReceipt(trade))
+      tradesToPoll.map(async (trade) => {
+        const result = await processReceipt(trade);
+        
+        // =====================================================================
+        // PHASE 3: Update real_trades state machine
+        // =====================================================================
+        if (trade.real_trade_id && result.status !== 'pending' && result.status !== 'error') {
+          const newStatus = result.status === 'mined' ? 'CONFIRMED' : 
+                           result.status === 'failed' ? 'REVERTED' : 
+                           result.status;
+          
+          const { error: updateError } = await supabase
+            .from('real_trades')
+            .update({
+              execution_status: newStatus.toUpperCase(),
+              receipt_status: result.status === 'mined',
+              block_number: result.blockNumber ? parseInt(result.blockNumber, 16) : null,
+              gas_used: result.gasUsed ? parseInt(result.gasUsed, 16) : null,
+            })
+            .eq('id', trade.real_trade_id);
+
+          if (updateError) {
+            console.error("REAL_TRADES_STATE_UPDATE_FAILED", {
+              real_trade_id: trade.real_trade_id,
+              new_status: newStatus,
+              error: updateError.message,
+            });
+          } else {
+            // Log state transition
+            const logEvent = newStatus === 'CONFIRMED' ? 'REAL_TRADES_CONFIRMED' : 'REAL_TRADES_REVERTED';
+            console.log(logEvent, {
+              trade_id: trade.id,
+              tx_hash: trade.tx_hash,
+              execution_status: newStatus,
+              chain_id: trade.chain_id,
+            });
+          }
+        }
+        
+        return result;
+      })
     );
 
     return new Response(
@@ -921,7 +1053,7 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('Receipt polling error:', error);
+    console.error('RECEIPT_RPC_ERROR', { error: String(error) });
     return new Response(
       JSON.stringify({ error: String(error) }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
