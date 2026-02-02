@@ -2295,7 +2295,29 @@ export type Database = {
           tx_hash?: string
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "fk_real_trades_mock"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "mock_trades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_real_trades_mock"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "past_positions_view"
+            referencedColumns: ["sell_trade_id"]
+          },
+          {
+            foreignKeyName: "fk_real_trades_mock"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_open_positions"
+            referencedColumns: ["lot_id"]
+          },
+        ]
       }
       scheduler_execution_log: {
         Row: {
