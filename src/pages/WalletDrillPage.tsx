@@ -30,7 +30,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Copy, ArrowDownToLine, AlertTriangle, Server, User, Shield, Info, RefreshCw, CheckCircle, XCircle } from "lucide-react";
 import { ManualTradeCard } from "@/components/wallet/ManualTradeCard";
-import { ManualTradeHistory } from "@/components/wallet/ManualTradeHistory";
+import { SystemTradeHistory } from "@/components/wallet/SystemTradeHistory";
 
 interface WalletInfo {
   wallet_id: string;
@@ -654,6 +654,9 @@ export default function WalletDrillPage() {
           </CardContent>
         </Card>
 
+        {/* SYSTEM TRADE HISTORY - Above Manual Trading */}
+        <SystemTradeHistory />
+
         {/* MANUAL TRADING SECTION */}
         <div className="space-y-4">
           <Alert className="border-yellow-500/30 bg-yellow-500/5">
@@ -858,8 +861,7 @@ export default function WalletDrillPage() {
           </CardContent>
         </Card>
 
-        {/* MANUAL TRADE HISTORY */}
-        {user && <ManualTradeHistory userId={user.id} refreshTrigger={tradeRefreshTrigger} />}
+        {/* Old ManualTradeHistory removed - replaced by SystemTradeHistory above */}
 
         {/* Footer warning */}
         <div className="text-xs text-muted-foreground text-center pt-4 border-t border-border">
