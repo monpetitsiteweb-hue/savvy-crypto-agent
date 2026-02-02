@@ -571,10 +571,45 @@ Deno.serve(async (req) => {
 
     // Sign transaction
     console.log(`🔐 Signing trade ${tradeId} using ${signer.type} signer`);
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // DIAGNOSTIC STEP A: Verify tx_payload data exists BEFORE signing
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log("🔍 [DIAG-A] PRE-SIGN txPayload:", {
+      to: trade.tx_payload.to,
+      from: trade.tx_payload.from,
+      value: trade.tx_payload.value,
+      gas: trade.tx_payload.gas,
+      data_exists: !!trade.tx_payload.data,
+      data_type: typeof trade.tx_payload.data,
+      data_length: trade.tx_payload.data?.length || 0,
+      data_first_20_chars: trade.tx_payload.data?.substring(0, 20) || "EMPTY",
+      data_last_20_chars: trade.tx_payload.data?.slice(-20) || "EMPTY",
+    });
+    
+    // Extra validation: ensure data is not empty
+    if (!trade.tx_payload.data || trade.tx_payload.data.length < 10) {
+      console.error("❌ [DIAG] CRITICAL: tx_payload.data is missing or too short!", {
+        data: trade.tx_payload.data,
+        expected: "Should be 1000+ chars for a swap"
+      });
+    }
+    
     let signedTx: string;
     
     try {
       signedTx = await signer.sign(trade.tx_payload, trade.chain_id);
+      
+      // ═══════════════════════════════════════════════════════════════════════
+      // DIAGNOSTIC STEP C: Verify signed tx after signing
+      // ═══════════════════════════════════════════════════════════════════════
+      console.log("🔍 [DIAG-C] POST-SIGN signedTx:", {
+        signedTx_length: signedTx.length,
+        signedTx_first_40: signedTx.substring(0, 40),
+        signedTx_last_20: signedTx.slice(-20),
+        starts_with_0x: signedTx.startsWith('0x'),
+      });
+      
       console.log(`✅ Transaction signed: ${signedTx.slice(0, 20)}...`);
     } catch (signError: any) {
       console.error('❌ Signing failed:', signError);
@@ -628,6 +663,16 @@ Deno.serve(async (req) => {
     // Broadcast transaction
     const rpcUrl = Deno.env.get('RPC_URL_8453')!;
     console.log(`📡 Broadcasting to Base RPC...`);
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // DIAGNOSTIC STEP D: What gets broadcast
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log("🔍 [DIAG-D] BROADCAST payload:", {
+      method: 'eth_sendRawTransaction',
+      signedTx_length: signedTx.length,
+      signedTx_first_40: signedTx.substring(0, 40),
+      rpc_url_domain: rpcUrl.split('/')[2] || rpcUrl.substring(0, 40),
+    });
     
     try {
       const rpcResponse = await fetch(rpcUrl, {
