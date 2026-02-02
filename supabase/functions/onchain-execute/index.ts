@@ -173,18 +173,27 @@ async function runPreflight(
       const errorText = await wethResponse.text();
       console.error('WETH check failed:', errorText);
       
-      // If auto-wrap is blocked by policy (e.g., address mismatch), return a structured error
-      if (wethResponse.status === 409) {
-        console.log('preflight.wrap.blocked: Auto-wrap policy not satisfied');
-        return {
-          status: 'preflight_required',
-          reason: 'insufficient_weth',
-          wrapPlan: { error: 'Auto-wrap blocked by policy', detail: errorText },
-          note: 'Manual WETH wrap required or adjust policy.',
-        };
-      }
+      // ═══════════════════════════════════════════════════════════════════════
+      // CRITICAL FIX: Any WETH check failure MUST block execution.
+      // Previously returned null (pass) on non-409 errors, causing TRANSFER_FROM_FAILED.
+      // Now we fail-closed: any error returns preflight_required to block the trade.
+      // ═══════════════════════════════════════════════════════════════════════
+      const isPolicy409 = wethResponse.status === 409;
+      console.log(`preflight.weth.${isPolicy409 ? 'policy_blocked' : 'check_failed'}:`, {
+        status: wethResponse.status,
+        error: errorText,
+      });
       
-      return null;
+      return {
+        status: 'preflight_required',
+        reason: 'insufficient_weth',
+        wrapPlan: { 
+          error: isPolicy409 ? 'Auto-wrap blocked by policy' : 'WETH balance check failed',
+          detail: errorText,
+          httpStatus: wethResponse.status,
+        },
+        note: 'WETH balance insufficient. Manual wrap required or fund the wallet.',
+      };
     }
 
     const wethData = await wethResponse.json();
