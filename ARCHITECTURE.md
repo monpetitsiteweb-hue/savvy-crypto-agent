@@ -834,11 +834,95 @@ EXECUTION_CLASS_DERIVED {
 
 ---
 
+## 13. Phase 3: On-Chain Receipt State Machine
+
+### 13.1 Overview
+
+Phase 3 implements an explicit, deterministic state machine for on-chain transaction lifecycle tracking.
+
+**Problem Solved:** Previously, `real_trades` was only written on receipt confirmation. If the receipt polling failed, we had no record the tx was ever submitted.
+
+**Solution:** Insert a `SUBMITTED` row immediately after broadcast, then transition to `CONFIRMED`/`REVERTED` on receipt.
+
+### 13.2 State Machine
+
+| State | Meaning | Set By | Transition |
+|-------|---------|--------|------------|
+| `SUBMITTED` | Tx broadcasted to chain, not yet mined | `onchain-sign-and-send` | Entry state |
+| `CONFIRMED` | Receipt exists AND status === 1 | `onchain-receipts` | Terminal (success) |
+| `REVERTED` | Receipt exists AND status === 0 | `onchain-receipts` | Terminal (failure) |
+| `DROPPED` | Tx not mined after TTL (optional) | `onchain-receipts` | Terminal (timeout) |
+
+```
+SUBMITTED  →  CONFIRMED  (receipt.status === 1)
+           →  REVERTED   (receipt.status === 0)
+           →  DROPPED    (TTL expired, optional)
+```
+
+### 13.3 Canonical Query
+
+```sql
+-- Polling scope (MUST be exactly this)
+SELECT * FROM real_trades WHERE execution_status = 'SUBMITTED'
+```
+
+### 13.4 Structured Logs
+
+| Log Event | When | Fields |
+|-----------|------|--------|
+| `ONCHAIN_TX_SUBMITTED` | After broadcast | `{tx_hash, trade_id, execution_status, chain_id}` |
+| `RECEIPT_POLL_START` | Polling invocation | `{mode, tradeId}` |
+| `RECEIPT_POLL_EMPTY` | No pending trades | `{checked_tables}` |
+| `REAL_TRADES_CONFIRMED` | Receipt status=1 | `{trade_id, tx_hash, execution_status, chain_id}` |
+| `REAL_TRADES_REVERTED` | Receipt status=0 | `{trade_id, tx_hash, execution_status, chain_id}` |
+| `RECEIPT_RPC_ERROR` | RPC failure | `{error}` |
+
+### 13.5 Edge Function Changes
+
+**onchain-sign-and-send (after broadcast):**
+```typescript
+// Insert SUBMITTED row immediately after txHash received
+const realTradeSubmitRecord = {
+  trade_id: tradeId,
+  tx_hash: txHash,
+  execution_status: 'SUBMITTED',  // State machine entry
+  receipt_status: null,           // Not yet known
+  // ... other fields
+};
+await supabase.from('real_trades').insert(realTradeSubmitRecord);
+console.log("ONCHAIN_TX_SUBMITTED", {...});
+```
+
+**onchain-receipts (polling loop):**
+```typescript
+// Query real_trades for SUBMITTED
+const { data } = await supabase
+  .from('real_trades')
+  .select('*')
+  .eq('execution_status', 'SUBMITTED');
+
+// For each: call eth_getTransactionReceipt
+// If receipt exists: update to CONFIRMED or REVERTED
+// If null: leave as SUBMITTED (still pending)
+```
+
+### 13.6 Invariants
+
+1. **No receipt decode without DB row** - `real_trades.SUBMITTED` must exist before polling
+2. **UI success ≠ confirmation** - Only `CONFIRMED` means success
+3. **State machine driven by `execution_status`** - Not JSON fields
+4. **`real_trades` is append/update only** - Never delete
+5. **`mock_trades` remains authoritative** - `real_trades` is shadow ledger
+6. **Backward compatible** - Falls back to `trades` table for legacy entries
+
+---
+
 | Date | Author | Changes |
 |------|--------|---------|
 | 2026-02-02 | System | Initial freeze after SELL coverage bug fix |
 | 2026-02-02 | System | Phase 1: Dual-ledger (real_trades shadow table) |
 | 2026-02-02 | System | Phase 2: Execution semantics cleanup (deriveExecutionClass) |
+| 2026-02-02 | System | Phase 3: On-chain receipt state machine |
 
 ---
 

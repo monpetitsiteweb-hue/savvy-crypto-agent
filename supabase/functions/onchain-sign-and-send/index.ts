@@ -746,13 +746,65 @@ Deno.serve(async (req) => {
       const txHash = rpcResult.result;
       console.log(`✅ Transaction broadcast: ${txHash}`);
 
-      // Update trade to submitted
+      // ═══════════════════════════════════════════════════════════════════════
+      // PHASE 3: STATE MACHINE - Insert SUBMITTED row into real_trades
+      // This is the CANONICAL entry point for the on-chain receipt state machine.
+      // No execution transaction may proceed without this row existing.
+      // ═══════════════════════════════════════════════════════════════════════
+      const submittedAt = new Date().toISOString();
+      const isSystemOperator = body.system_operator_mode === true;
+      
+      const realTradeSubmitRecord = {
+        trade_id: tradeId,                     // Links to trades table (transport layer)
+        tx_hash: txHash,
+        execution_status: 'SUBMITTED',         // State machine initial state
+        receipt_status: null,                  // Not yet known
+        chain_id: trade.chain_id,
+        execution_target: 'REAL',
+        execution_authority: isSystemOperator ? 'SYSTEM' : 'USER',
+        is_system_operator: isSystemOperator,
+        user_id: trade.user_id,
+        strategy_id: isSystemOperator ? null : trade.strategy_id,
+        cryptocurrency: trade.base?.replace('/USD', '').replace('/EUR', '') || trade.symbol || 'UNKNOWN',
+        side: (trade.side || 'BUY').toUpperCase(),
+        amount: trade.amount || 0,             // Intent amount (updated on CONFIRMED)
+        price: trade.price || 0,               // Intent price (updated on CONFIRMED)
+        provider: trade.provider,
+      };
+      
+      const { error: submitInsertError } = await supabase
+        .from('real_trades')
+        .insert(realTradeSubmitRecord);
+      
+      if (submitInsertError) {
+        // Log but don't fail the broadcast - tx is already on chain
+        console.error("REAL_TRADES_SUBMIT_INSERT_FAILED", {
+          trade_id: tradeId,
+          tx_hash: txHash,
+          error: submitInsertError.message,
+          code: submitInsertError.code,
+        });
+      } else {
+        // ═══════════════════════════════════════════════════════════════════════
+        // CANONICAL LOG: ONCHAIN_TX_SUBMITTED
+        // This marks the entry point to the receipt state machine
+        // ═══════════════════════════════════════════════════════════════════════
+        console.log("ONCHAIN_TX_SUBMITTED", {
+          tx_hash: txHash,
+          trade_id: tradeId,
+          execution_status: 'SUBMITTED',
+          chain_id: trade.chain_id,
+          is_system_operator: isSystemOperator,
+        });
+      }
+
+      // Update trade to submitted in trades table (transport layer)
       await supabase
         .from('trades')
         .update({
           status: 'submitted',
           tx_hash: txHash,
-          sent_at: new Date().toISOString(),
+          sent_at: submittedAt,
         })
         .eq('id', tradeId);
 
@@ -764,6 +816,7 @@ Deno.serve(async (req) => {
         payload: {
           txHash,
           signer_type: signer.type,
+          real_trades_submitted: !submitInsertError,
         },
       });
 
