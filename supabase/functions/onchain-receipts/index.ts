@@ -491,10 +491,37 @@ async function processReceipt(trade: any) {
     // DECODE FILLED AMOUNT AND PRICE FROM RECEIPT LOGS (SOURCE OF TRUTH)
     // Parse ERC-20 Transfer events to extract actual on-chain execution values
     // ========================================================================
-    const decodedTrade = decodeSwapFromReceipt(receipt, symbol, side);
+    // ========================================================================
+    // C2: RECEIPT DECODE WITH ALERT-TRIGGERING ERROR LOGGING
+    // Wrap decode + insert logic with structured error emission
+    // ========================================================================
+    let decodedTrade: DecodeResult;
+    try {
+      decodedTrade = decodeSwapFromReceipt(receipt, symbol, side);
+    } catch (decodeErr) {
+      // CRITICAL ALERT: Unexpected decode exception
+      console.error("RECEIPT_DECODE_FAILED", {
+        txHash: tx_hash,
+        tradeId,
+        execution_class: is_system_operator ? 'SYSTEM_OPERATOR' : 'USER',
+        execution_target: 'REAL',
+        error: decodeErr.message,
+        stack: decodeErr.stack,
+      });
+      throw decodeErr;
+    }
     
     if (!decodedTrade.success) {
-      console.error(`❌ RECEIPT DECODE FAILED for trade ${tradeId}:`, decodedTrade.error);
+      // CRITICAL ALERT: Decode returned failure
+      console.error("RECEIPT_DECODE_FAILED", {
+        txHash: tx_hash,
+        tradeId,
+        execution_class: is_system_operator ? 'SYSTEM_OPERATOR' : 'USER',
+        execution_target: 'REAL',
+        error: decodedTrade.error,
+        decode_method: decodedTrade.decodeMethod,
+        logs_count: receipt.logs?.length || 0,
+      });
       
       // Log decode failure but do NOT insert into ledger with fallback values
       await supabase.from('trade_events').insert({
@@ -617,6 +644,21 @@ async function processReceipt(trade: any) {
         });
       }
     } else {
+      // ========================================================================
+      // C3: LOG EXECUTION CONTEXT ON EVERY LEDGER INSERT
+      // This creates an auditable trail for every trade, mock or real
+      // ========================================================================
+      console.log("LEDGER_INSERT", {
+        trade_id: ledgerResult?.[0]?.id,
+        execution_class: isSystemOperator ? 'SYSTEM_OPERATOR' : 'USER',
+        execution_target: 'REAL',
+        is_system_operator: isSystemOperator,
+        symbol,
+        side,
+        amount: filledAmount,
+        price: executedPrice,
+        tx_hash: tx_hash?.substring(0, 16),
+      });
       console.log(`✅ Real trade inserted into unified ledger: ${ledgerResult?.[0]?.id}`);
     }
   }
