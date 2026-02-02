@@ -45,7 +45,6 @@ export function useRealPositions(): UseRealPositionsResult {
       const { data, error: queryError } = await (supabase
         .from('real_positions_view' as any)
         .select('*')
-        .eq('user_id', user.id)
         .order('last_trade_at', { ascending: false }) as any);
 
       if (queryError) {
