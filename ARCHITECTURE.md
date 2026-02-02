@@ -1096,3 +1096,48 @@ USING (is_system_operator = TRUE);
 4. **Status driven by DB** — No heuristics, no timers
 
 ---
+
+## 17. Auth Identity vs Execution Identity
+
+> **FREEZE DATE**: 2026-02-02  
+> **STATUS**: Non-negotiable invariant
+
+### 17.1 Key Distinction
+
+| Concept | Purpose | Source | Grants Rights? |
+|---------|---------|--------|----------------|
+| **Auth Identity** | Who is logged in (human admin) | `auth.uid()` from JWT | ✅ Yes — RLS, admin privileges |
+| **Execution Identity** | Who "owns" a trade in the ledger | `user_id` column in ledger tables | ❌ No — accounting only |
+
+### 17.2 SYSTEM_USER_ID
+
+```typescript
+// supabase/functions/_shared/execution-semantics.ts
+export const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000001';
+```
+
+**Properties:**
+- **NOT** a real auth user — no login, no JWT, no session
+- **NOT** an admin — grants zero RLS bypass or elevated permissions
+- **ONLY** used for ledger attribution: "this trade was executed by the system"
+- **FROZEN** — changing this value would orphan existing records
+
+### 17.3 Enforcement
+
+| Layer | Mechanism |
+|-------|-----------|
+| **Code** | `resolveExecutionUserId()` in `execution-semantics.ts` — canonical guard |
+| **Database** | `NOT NULL` constraint on `real_trades.user_id` — fail-closed |
+| **RLS** | Admin role can READ system trades; normal users cannot |
+
+### 17.4 What This Means
+
+1. **Admin ≠ Owner**: A human admin executing a system operator trade does NOT become the "owner" of that trade. The trade is attributed to `SYSTEM_USER_ID`.
+
+2. **UI input is ignored**: Even if the UI passes a `user_id` in the intent, `resolveExecutionUserId()` will override it to `SYSTEM_USER_ID` when `isSystemOperator=true`.
+
+3. **Analytics isolation**: System trades can be filtered out of user P&L by checking `user_id = SYSTEM_USER_ID` or `is_system_operator = true`.
+
+4. **No auth meaning**: Do NOT use `SYSTEM_USER_ID` in RLS policies as if it were an auth identity. It is a ledger constant only.
+
+---
