@@ -40,10 +40,11 @@ export function SystemTradeHistory() {
   const fetchTrades = useCallback(async () => {
     try {
       // Query real_trades exclusively
+      // Query by is_system_operator = TRUE (durable DB invariant)
       const { data, error: queryError } = await (supabase as any)
         .from('real_trades')
         .select('id, created_at, side, cryptocurrency, amount, price, total_value, execution_status, tx_hash')
-        .eq('execution_target', 'REAL')
+        .eq('is_system_operator', true)
         .order('created_at', { ascending: false })
         .limit(50);
 
