@@ -1903,7 +1903,7 @@ export type Database = {
           router: string | null
           sell_fees: number | null
           slippage_bps: number | null
-          strategy_id: string
+          strategy_id: string | null
           strategy_trigger: string | null
           token_in: string | null
           token_out: string | null
@@ -1960,7 +1960,7 @@ export type Database = {
           router?: string | null
           sell_fees?: number | null
           slippage_bps?: number | null
-          strategy_id: string
+          strategy_id?: string | null
           strategy_trigger?: string | null
           token_in?: string | null
           token_out?: string | null
@@ -2017,7 +2017,7 @@ export type Database = {
           router?: string | null
           sell_fees?: number | null
           slippage_bps?: number | null
-          strategy_id?: string
+          strategy_id?: string | null
           strategy_trigger?: string | null
           token_in?: string | null
           token_out?: string | null
