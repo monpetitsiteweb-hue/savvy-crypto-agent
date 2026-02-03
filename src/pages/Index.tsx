@@ -8,7 +8,7 @@ import { ConversationPanel } from '@/components/ConversationPanel';
 
 import { MergedPortfolioDisplay } from '@/components/MergedPortfolioDisplay';
 import { UnifiedPortfolioDisplay } from '@/components/UnifiedPortfolioDisplay';
-import { RealPortfolioDisplay } from '@/components/RealPortfolioDisplay';
+// RealPortfolioDisplay deprecated - REAL mode now uses UnifiedPortfolioDisplay with p_is_test_mode=false
 import { TradingHistory } from '@/components/TradingHistory';
 import { RealTradingHistory } from '@/components/RealTradingHistory';
 import { StrategyConfig } from '@/components/StrategyConfig';
@@ -522,11 +522,10 @@ function IndexComponent() {
                       </div>
                     )}
                     
-                    {/* Portfolio Display - MODE-BASED DATA SWITCHING */}
+                    {/* Portfolio Display - UNIFIED: uses get_portfolio_metrics(p_is_test_mode) */}
+                    {/* REAL mode now uses SAME component with FIFO-correct P&L via existing RPC */}
                     <ErrorBoundary>
-                      {isRealMode ? (
-                        <RealPortfolioDisplay />
-                      ) : portfolioSource === 'app' ? (
+                      {portfolioSource === 'app' || isRealMode ? (
                         <UnifiedPortfolioDisplay />
                       ) : (
                         <MergedPortfolioDisplay

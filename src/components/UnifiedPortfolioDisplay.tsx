@@ -137,14 +137,16 @@ export const UnifiedPortfolioDisplay = () => {
   }, [metrics, openTrades, effectivePrices, txCount, testMode]);
 
   // Wallet asset display (positions breakdown) — use effectivePrices to stay consistent with valuation
+  // liveAggregates: Compute per-asset breakdown for BOTH TEST and REAL modes
+  // This uses openTrades + live prices to show position-level details
   const liveAggregates = useMemo(() => {
     const isNotInitialized =
-      testMode &&
       !metricsLoading &&
       metrics?.success === false &&
       (metrics as any)?.reason === 'portfolio_not_initialized';
 
-    if (!testMode || isNotInitialized || metricsLoading || openTrades.length === 0) {
+    // Return empty if not initialized or no trades
+    if (isNotInitialized || metricsLoading || openTrades.length === 0) {
       return {
         costBasisEur: 0,
         currentValueEur: 0,
@@ -481,8 +483,8 @@ export const UnifiedPortfolioDisplay = () => {
 
   // Show not initialized state ONLY when backend explicitly reports it.
   // Never treat transient RPC errors as "not initialized".
+  // Works for BOTH TEST and REAL modes - same RPC, different p_is_test_mode
   const showPortfolioNotInitialized =
-    testMode &&
     !metricsLoading &&
     metrics?.success === false &&
     (metrics as any)?.reason === 'portfolio_not_initialized';
@@ -490,23 +492,31 @@ export const UnifiedPortfolioDisplay = () => {
   if (showPortfolioNotInitialized) {
     return <PortfolioNotInitialized onReset={handleResetPortfolio} isLoading={walletLoading} />;
   }
+  
+  // Determine if we should show the unified portfolio view (TEST or REAL)
+  // vs the legacy Coinbase-only view (future deprecation candidate)
+  const showUnifiedPortfolioView = true; // Always show unified view - REAL uses same metrics
 
   return (
-    <Card className={`${testMode ? 'border-orange-500/20' : 'border-blue-500/20'} bg-slate-800/50 border-slate-600`}>
+    <Card className={`${testMode ? 'border-orange-500/20' : 'border-emerald-500/20'} bg-slate-800/50 border-slate-600`}>
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {testMode ? (
               <TestTube className="h-5 w-5 text-orange-400" />
             ) : (
-              <Wallet className="h-5 w-5 text-blue-400" />
+              <Wallet className="h-5 w-5 text-emerald-400" />
             )}
             <span className="text-white">
-              {testMode ? 'Test Portfolio' : 'Live Portfolio'}
+              {testMode ? 'Test Portfolio' : 'Portfolio'}
             </span>
-            {testMode && (
+            {testMode ? (
               <Badge variant="outline" className="text-orange-400 border-orange-400/50">
                 Test Mode
+              </Badge>
+            ) : (
+              <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">
+                REAL (on-chain)
               </Badge>
             )}
           </div>
@@ -584,7 +594,7 @@ export const UnifiedPortfolioDisplay = () => {
               TOP — PRIMARY METRIC (FULL WIDTH)
               Total Live Portfolio Value - the anchor metric
           ═══════════════════════════════════════════════════════════════════════ */}
-          {testMode && !showPortfolioNotInitialized && !metricsLoading && (
+          {showUnifiedPortfolioView && !showPortfolioNotInitialized && !metricsLoading && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -614,7 +624,7 @@ export const UnifiedPortfolioDisplay = () => {
               MIDDLE SECTION — 2 COLUMNS
               Left: Results (Performance logic) | Right: Where Your Money Is Now (Vertical bar)
           ═══════════════════════════════════════════════════════════════════════ */}
-          {testMode && !showPortfolioNotInitialized && !metricsLoading && (
+          {showUnifiedPortfolioView && !showPortfolioNotInitialized && !metricsLoading && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
               {/* ═══════════════════════════════════════════════════════════════════════
@@ -819,7 +829,7 @@ export const UnifiedPortfolioDisplay = () => {
               OPEN POSITIONS
               Existing crypto holdings breakdown
           ═══════════════════════════════════════════════════════════════════════ */}
-          {testMode && !showPortfolioNotInitialized && !metricsLoading && (
+          {showUnifiedPortfolioView && !showPortfolioNotInitialized && !metricsLoading && (
             <div className="space-y-2">
               {liveAggregates.walletAssets.length > 0 && (
                 <>
@@ -842,64 +852,20 @@ export const UnifiedPortfolioDisplay = () => {
               LIVE MODE: LEDGER VIEW (SYSTEM ACCOUNTING)
               This is the existing dashboard view - unchanged, authoritative for trading
           ═══════════════════════════════════════════════════════════════════════ */}
-          {!testMode && (
+          {/* Legacy Coinbase view - only shown when NOT using unified portfolio */}
+          {!showUnifiedPortfolioView && (
             <div className="space-y-6">
-              {/* Ledger Label */}
-              <div className="flex items-center gap-2 border-b border-slate-700 pb-2">
-                <BarChart3 className="h-4 w-4 text-blue-400" />
-                <span className="text-sm font-medium text-slate-300">Ledger (System Accounting)</span>
-                <span className="text-xs text-slate-500">— Source of truth for trading decisions</span>
-              </div>
-              
-              {/* Ledger Total Value */}
-              <div className="text-center py-2">
-                <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Total Portfolio Value (Ledger)</div>
-                <div className="text-4xl font-bold text-white">
-                  {formatEuro(metrics.total_portfolio_value_eur)}
-                </div>
-                <div className="text-sm text-slate-400 mt-1">
-                  Cash: {formatEuro(metrics.cash_balance_eur)} • Positions: {formatEuro(metrics.current_position_value_eur)}
-                </div>
-              </div>
-
-              {/* Coinbase Account View (if connected) */}
-              {portfolioData?.accounts && portfolioData.accounts.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                    Connected Coinbase Account
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {portfolioData.accounts.map(renderCoinCard)}
-                  </div>
-                </div>
-              )}
-              
-              {!portfolioData?.accounts?.length && !fetchingPortfolio && (
-                <div className="text-center py-4">
-                  <p className="text-slate-400 text-sm">
-                    No Coinbase account connected. Ledger data shown above.
-                  </p>
-                </div>
-              )}
-
-              {/* ═══════════════════════════════════════════════════════════════════════
-                  LIVE MODE: WALLET REALITY VIEW (ON-CHAIN)
-                  Read-only view of actual on-chain wallet balances
-                  Shows drift between ledger and reality - NO AUTO-SYNC
-              ═══════════════════════════════════════════════════════════════════════ */}
-              <div className="mt-6 pt-4 border-t border-slate-700">
-                <WalletRealityPanel 
-                  ledgerTotalEur={metrics.total_portfolio_value_eur}
-                  openPositionSymbols={openTrades.map(t => t.cryptocurrency.replace('-EUR', '').replace('-USD', ''))}
-                />
+              {/* This section is deprecated - unified view handles both TEST and REAL */}
+              <div className="text-center py-4 text-slate-400">
+                Unified portfolio view not available.
               </div>
             </div>
           )}
 
           {/* Data source indicator */}
-          {testMode && !showPortfolioNotInitialized && !metricsLoading && (
+          {showUnifiedPortfolioView && !showPortfolioNotInitialized && !metricsLoading && (
             <div className="text-xs text-slate-400 text-center mt-2">
-              📊 Live prices from market stream • Trades-only model
+              📊 {testMode ? 'Test mode' : 'REAL mode (on-chain)'} • FIFO-correct metrics via get_portfolio_metrics
             </div>
           )}
         </div>
