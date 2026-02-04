@@ -1,6 +1,6 @@
 # ScalpSmart Architecture Documentation
 
-> **FREEZE DATE**: 2026-02-02  
+> **FREEZE DATE**: 2026-02-04  
 > **STATUS**: Canonical reference for the current system state  
 > **PURPOSE**: Prevent architecture regressions and enable debugability
 
@@ -11,13 +11,14 @@ This document describes the **current production state** of the ScalpSmart tradi
 ## Table of Contents
 
 1. [High-Level Execution Model](#1-high-level-execution-model)
-2. [Execution Paths](#2-execution-paths)
-3. [Execution-Class Rules (CRITICAL)](#3-execution-class-rules-critical)
-4. [Edge Function Responsibilities](#4-edge-function-responsibilities)
-5. [Flag & Config Glossary](#5-flag--config-glossary)
-6. [Known Failure Modes (Post-Mortem)](#6-known-failure-modes-post-mortem)
-7. ["Do NOT Do This" Section](#7-do-not-do-this-section)
-8. [Future Placeholders](#8-future-placeholders)
+2. [Funding Model (Custodial)](#2-funding-model-custodial)
+3. [Execution Paths](#3-execution-paths)
+4. [Execution-Class Rules (CRITICAL)](#4-execution-class-rules-critical)
+5. [Edge Function Responsibilities](#5-edge-function-responsibilities)
+6. [Flag & Config Glossary](#6-flag--config-glossary)
+7. [Known Failure Modes (Post-Mortem)](#7-known-failure-modes-post-mortem)
+8. ["Do NOT Do This" Section](#8-do-not-do-this-section)
+9. [Future Placeholders](#9-future-placeholders)
 
 ---
 
@@ -27,17 +28,25 @@ This document describes the **current production state** of the ScalpSmart tradi
 
 The system operates a **CUSTODIAL EXCHANGE MODEL**:
 
-| Wallet Type | Purpose | Environment Variable | On-Chain Role |
-|-------------|---------|---------------------|---------------|
-| **System Wallet (BOT_ADDRESS)** | Executes ALL real trades | `BOT_ADDRESS`, `BOT_PRIVATE_KEY` | Holds funds, signs swaps |
-| **User Deposit Wallet** | Deposit/audit only | Stored in `execution_wallets` table | Receives deposits, never trades |
+| Wallet Type | Purpose | Storage | On-Chain Role |
+|-------------|---------|---------|---------------|
+| **Admin Wallet (BOT_ADDRESS)** | Holds ALL funds, executes ALL real trades | `BOT_ADDRESS`, `BOT_PRIVATE_KEY` env vars | Single source of on-chain truth |
+| **User External Wallet** | User's own wallet (MetaMask, Rabby, Coinbase, etc.) | `user_deposit_addresses` table | Deposit attribution & withdrawal destination ONLY |
+
+**CRITICAL DISTINCTION:**
+
+- **User External Wallet = User Deposit Address** — These are the SAME thing
+- This is the user's **existing** wallet they already control
+- This is **NOT** a wallet created or custodied by the system
+- The system **NEVER** executes trades from this address
 
 **Key Invariants:**
 
 1. **All real trades execute from `BOT_ADDRESS`** — never from user wallets
-2. **User wallets exist for deposit and audit** — their on-chain balance does NOT restrict trading
+2. **User external wallets are for deposit attribution and withdrawal only** — their on-chain balance does NOT affect trading capacity
 3. **Database ledger (`mock_trades`) is the source of truth** for user balances, not on-chain wallet balances
-4. **Withdrawals** move funds FROM system wallet TO external addresses
+4. **Deposits** are detected by matching `tx.from` on Admin Wallet incoming transfers to registered user addresses
+5. **Withdrawals** move funds FROM Admin Wallet TO user's external wallet address
 
 ### 1.2 Execution Modes
 
@@ -64,6 +73,92 @@ The system operates a **CUSTODIAL EXCHANGE MODEL**:
 ```
 
 ---
+
+## 2. Funding Model (Custodial)
+
+### 2.1 Overview
+
+Users fund their REAL portfolio by sending assets directly from their own external wallet to the Admin Wallet.
+
+```
+┌─────────────────────┐                      ┌─────────────────────┐
+│  User External      │   Direct Transfer    │  Admin Wallet       │
+│  Wallet             │ ──────────────────▶  │  (BOT_ADDRESS)      │
+│  (MetaMask/Rabby/   │   (one tx, one gas)  │                     │
+│   Coinbase/etc)     │                      │  Holds ALL funds    │
+└─────────────────────┘                      └─────────────────────┘
+         │                                              │
+         │ tx.from = user address                       │
+         ▼                                              ▼
+┌─────────────────────┐                      ┌─────────────────────┐
+│  user_deposit_      │                      │  Deposit Watcher    │
+│  addresses table    │ ◀────────────────────│  (matches tx.from)  │
+│  (stores address    │                      │                     │
+│   for attribution)  │                      │  Credits user       │
+└─────────────────────┘                      │  ledger balance     │
+                                             └─────────────────────┘
+```
+
+### 2.2 What the User External Wallet IS
+
+- The user's **own existing wallet** (MetaMask, Rabby, Coinbase Wallet, etc.)
+- An on-chain address the user **already controls**
+- Stored in database ONLY for:
+  - Attributing deposits to users
+  - Reconciling balances
+  - Supporting audit & compliance
+  - Withdrawal destination
+
+### 2.3 What the User External Wallet is NOT
+
+- ❌ A new wallet created by the system
+- ❌ A custodial wallet managed by the system
+- ❌ A trading wallet (system NEVER trades from it)
+- ❌ A wallet with private keys stored by the system
+
+### 2.4 Deposit Flow
+
+1. User sends ETH/USDC/etc from their wallet to Admin Wallet address
+2. This is done entirely in user's wallet app (MetaMask, etc.)
+3. Deposit Watcher monitors Admin Wallet for incoming transfers
+4. Matches `tx.from` against registered `user_deposit_addresses`
+5. Credits user's REAL ledger balance in `mock_trades` (via initial capital entry)
+6. One transaction, one gas fee, no intermediaries
+
+### 2.5 Withdrawal Flow
+
+1. User requests withdrawal via app
+2. System validates against `transfer_allowlist` 
+3. Admin Wallet sends funds TO user's registered external address
+4. User's ledger balance is debited upon successful transfer
+
+### 2.6 Portfolio Initialization
+
+- REAL portfolio is initialized upon **first confirmed deposit**
+- No manual "Initialize Portfolio" button in REAL mode
+- If no REAL funds exist, UI shows "Fund your portfolio" with deposit instructions
+- TEST and REAL portfolios are completely isolated
+
+### 2.7 Invariants (Non-Negotiable)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              FUNDING MODEL INVARIANTS                            │
+├─────────────────────────────────────────────────────────────────┤
+│ 1. Admin Wallet holds ALL real funds                            │
+│ 2. Admin Wallet executes ALL real trades                        │
+│ 3. User external wallet = deposit address (same thing)          │
+│ 4. System NEVER holds user private keys                         │
+│ 5. System NEVER trades from user external wallets               │
+│ 6. Deposits are attributed by tx.from matching                  │
+│ 7. mock_trades is the ledger for both TEST and REAL             │
+│ 8. get_portfolio_metrics(p_is_test_mode) is single source       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Execution Paths
 
 ## 2. Execution Paths
 
