@@ -3974,7 +3974,7 @@ export type Database = {
         }[]
       }
       get_portfolio_metrics: {
-        Args: { p_is_test_mode: boolean; p_user_id: string }
+        Args: { p_is_test_mode?: boolean; p_user_id: string }
         Returns: Json
       }
       get_strategy_open_position_count: {
@@ -4028,17 +4028,17 @@ export type Database = {
         Returns: Json
       }
       recalculate_cash_from_trades: {
-        Args: { p_is_test_mode: boolean; p_user_id: string }
+        Args: { p_is_test_mode?: boolean; p_user_id: string }
         Returns: Json
       }
       refresh_data_health_metrics: { Args: never; Returns: undefined }
       release_execution_lock: { Args: { p_lock_key: string }; Returns: boolean }
       release_reservation: {
-        Args: { p_amount_eur: number; p_user_id: string }
+        Args: { p_amount: number; p_is_test_mode?: boolean; p_user_id: string }
         Returns: Json
       }
       reserve_capital: {
-        Args: { p_amount_eur: number; p_user_id: string }
+        Args: { p_amount: number; p_is_test_mode?: boolean; p_user_id: string }
         Returns: Json
       }
       reset_breaker: {
@@ -4063,10 +4063,12 @@ export type Database = {
         Args: { target_balance?: number }
         Returns: undefined
       }
-      reset_portfolio_capital: {
-        Args: { p_amount_eur?: number; p_user_id: string }
-        Returns: Json
-      }
+      reset_portfolio_capital:
+        | { Args: { p_amount_eur?: number; p_user_id: string }; Returns: Json }
+        | {
+            Args: { p_is_test_mode?: boolean; p_user_id: string }
+            Returns: Json
+          }
       reset_user_test_portfolio: {
         Args: { target_balance?: number }
         Returns: undefined
@@ -4074,13 +4076,18 @@ export type Database = {
       settle_buy_trade: {
         Args: {
           p_actual_spent: number
+          p_is_test_mode?: boolean
           p_reserved_amount?: number
           p_user_id: string
         }
         Returns: Json
       }
       settle_sell_trade: {
-        Args: { p_proceeds_eur: number; p_user_id: string }
+        Args: {
+          p_is_test_mode?: boolean
+          p_proceeds: number
+          p_user_id: string
+        }
         Returns: Json
       }
       trigger_panic_liquidation: {

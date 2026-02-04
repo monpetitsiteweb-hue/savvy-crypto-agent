@@ -435,6 +435,7 @@ async function settleCashLedger(
     tradeId?: string;
     path?: "direct_ud_off" | "standard" | "manual" | "per_lot";
     isMockMode?: boolean; // Derived from execution_target === 'MOCK'
+    isTestMode?: boolean; // Explicit mode for portfolio_capital filtering
     strategyId?: string;
     symbol?: string;
   },
@@ -442,6 +443,8 @@ async function settleCashLedger(
   const path = meta?.path ?? "standard";
   const tradeId = meta?.tradeId ?? "unknown_trade_id";
   const metaIsMockMode = meta?.isMockMode === true;
+  // MODE ISOLATION: Default to true for backward compatibility
+  const isTestMode = meta?.isTestMode ?? true;
 
   try {
     // First, get current cash balance for logging
@@ -449,6 +452,7 @@ async function settleCashLedger(
       .from("portfolio_capital")
       .select("cash_balance_eur")
       .eq("user_id", userId)
+      .eq("is_test_mode", isTestMode)
       .single();
 
     if (capitalError) {
@@ -480,6 +484,7 @@ async function settleCashLedger(
         p_user_id: userId,
         p_actual_spent: buyNetSpent,
         p_reserved_amount: 0,
+        p_is_test_mode: isTestMode,
       });
 
       if (settleError) {
@@ -516,6 +521,7 @@ async function settleCashLedger(
         .from("portfolio_capital")
         .select("cash_balance_eur")
         .eq("user_id", userId)
+        .eq("is_test_mode", isTestMode)
         .single();
 
       const verifiedCash = verifyData?.cash_balance_eur ?? null;
@@ -625,7 +631,8 @@ async function settleCashLedger(
 
     const { data: settleResult, error: settleError } = await supabaseClient.rpc("settle_sell_trade", {
       p_user_id: userId,
-      p_proceeds_eur: sellNetProceeds,
+      p_proceeds: sellNetProceeds,
+      p_is_test_mode: isTestMode,
     });
 
     if (settleError) {
@@ -662,6 +669,7 @@ async function settleCashLedger(
       .from("portfolio_capital")
       .select("cash_balance_eur")
       .eq("user_id", userId)
+      .eq("is_test_mode", isTestMode)
       .single();
 
     const verifiedCash = verifyData?.cash_balance_eur ?? null;

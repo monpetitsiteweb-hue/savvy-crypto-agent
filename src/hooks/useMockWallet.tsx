@@ -199,6 +199,7 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
       // Call reset_portfolio_capital RPC
       const { data: resetData, error: resetError } = await supabase.rpc('reset_portfolio_capital' as any, {
         p_user_id: authUser.id,
+        p_is_test_mode: true,
       });
       
       console.log('[resetPortfolio] reset_portfolio_capital result:', { resetData, resetError });
