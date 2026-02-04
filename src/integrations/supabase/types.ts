@@ -950,6 +950,57 @@ export type Database = {
           },
         ]
       }
+      deposit_attributions: {
+        Row: {
+          amount: number
+          amount_raw: string
+          asset: string
+          asset_address: string | null
+          block_number: number
+          block_timestamp: string
+          chain_id: number
+          created_at: string
+          eur_amount: number
+          eur_rate: number
+          from_address: string
+          id: string
+          tx_hash: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          amount_raw: string
+          asset: string
+          asset_address?: string | null
+          block_number: number
+          block_timestamp: string
+          chain_id: number
+          created_at?: string
+          eur_amount: number
+          eur_rate: number
+          from_address: string
+          id?: string
+          tx_hash: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          amount_raw?: string
+          asset?: string
+          asset_address?: string | null
+          block_number?: number
+          block_timestamp?: string
+          chain_id?: number
+          created_at?: string
+          eur_amount?: number
+          eur_rate?: number
+          from_address?: string
+          id?: string
+          tx_hash?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       execution_circuit_breakers: {
         Row: {
           activated_at: string | null
@@ -3011,6 +3062,63 @@ export type Database = {
         }
         Relationships: []
       }
+      unattributed_deposits: {
+        Row: {
+          amount: number
+          amount_raw: string
+          asset: string
+          asset_address: string | null
+          block_number: number
+          block_timestamp: string
+          chain_id: number
+          created_at: string
+          from_address: string
+          id: string
+          reason: string
+          resolved_at: string | null
+          resolved_user_id: string | null
+          to_address: string
+          tx_hash: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          amount_raw: string
+          asset: string
+          asset_address?: string | null
+          block_number: number
+          block_timestamp: string
+          chain_id: number
+          created_at?: string
+          from_address: string
+          id?: string
+          reason: string
+          resolved_at?: string | null
+          resolved_user_id?: string | null
+          to_address: string
+          tx_hash: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          amount_raw?: string
+          asset?: string
+          asset_address?: string | null
+          block_number?: number
+          block_timestamp?: string
+          chain_id?: number
+          created_at?: string
+          from_address?: string
+          id?: string
+          reason?: string
+          resolved_at?: string | null
+          resolved_user_id?: string | null
+          to_address?: string
+          tx_hash?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       user_coinbase_connections: {
         Row: {
           access_token_encrypted: string | null
@@ -3052,6 +3160,39 @@ export type Database = {
           is_active?: boolean
           last_sync?: string | null
           refresh_token_encrypted?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_external_addresses: {
+        Row: {
+          address: string
+          chain_id: number
+          created_at: string
+          id: string
+          is_verified: boolean
+          label: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          address: string
+          chain_id: number
+          created_at?: string
+          id?: string
+          is_verified?: boolean
+          label?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          address?: string
+          chain_id?: number
+          created_at?: string
+          id?: string
+          is_verified?: boolean
+          label?: string | null
+          updated_at?: string
           user_id?: string
         }
         Relationships: []
@@ -4017,6 +4158,13 @@ export type Database = {
         Args: { access_type?: string; connection_id: string }
         Returns: undefined
       }
+      lookup_user_by_external_address: {
+        Args: { p_address: string; p_chain_id: number }
+        Returns: {
+          match_count: number
+          user_id: string
+        }[]
+      }
       pg_advisory_unlock: { Args: { key: number }; Returns: boolean }
       pg_try_advisory_lock: { Args: { key: number }; Returns: boolean }
       pgp_armor_headers: {
@@ -4078,6 +4226,23 @@ export type Database = {
           p_actual_spent: number
           p_is_test_mode?: boolean
           p_reserved_amount?: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      settle_deposit_attribution: {
+        Args: {
+          p_amount: number
+          p_amount_raw: string
+          p_asset: string
+          p_asset_address: string
+          p_block_number: number
+          p_block_timestamp: string
+          p_chain_id: number
+          p_eur_amount: number
+          p_eur_rate: number
+          p_from_address: string
+          p_tx_hash: string
           p_user_id: string
         }
         Returns: Json
