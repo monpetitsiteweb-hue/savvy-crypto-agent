@@ -2085,6 +2085,7 @@ export type Database = {
         Row: {
           cash_balance_eur: number
           created_at: string
+          is_test_mode: boolean
           reserved_eur: number
           starting_capital_eur: number
           updated_at: string
@@ -2093,6 +2094,7 @@ export type Database = {
         Insert: {
           cash_balance_eur?: number
           created_at?: string
+          is_test_mode?: boolean
           reserved_eur?: number
           starting_capital_eur?: number
           updated_at?: string
@@ -2101,6 +2103,7 @@ export type Database = {
         Update: {
           cash_balance_eur?: number
           created_at?: string
+          is_test_mode?: boolean
           reserved_eur?: number
           starting_capital_eur?: number
           updated_at?: string
