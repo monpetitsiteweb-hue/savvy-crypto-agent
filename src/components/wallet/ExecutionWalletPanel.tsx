@@ -35,6 +35,7 @@ import { WalletBalanceDisplay } from './WalletBalanceDisplay';
 import { WalletCreationModal } from './WalletCreationModal';
 import { TradingRulesDialog } from './TradingRulesDialog';
 import { WithdrawDialog } from './WithdrawDialog';
+import { ExternalFundingSection } from './ExternalFundingSection';
 
 interface WalletData {
   id: string;
@@ -597,7 +598,12 @@ export function ExecutionWalletPanel() {
             </Card>
           )}
 
-          {/* Funding Step (if active but not funded) */}
+          {/* External Funding Section - ADDITIVE (Flow B) */}
+          {wallet.is_active && (
+            <ExternalFundingSection />
+          )}
+
+          {/* Funding Step (if active but not funded) - EXISTING (Flow A) */}
           {wallet.is_active && !wallet.is_funded && (
             <Card className="p-6 bg-blue-500/10 border-blue-500/30">
               <div className="flex items-start gap-4">

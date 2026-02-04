@@ -189,6 +189,10 @@ verify_jwt = false
 [functions.wallet-approve-permit2]
 verify_jwt = false
 
+# Deposit attribution watcher (polls Base chain for attributed deposits)
+[functions.onchain-deposit-watcher]
+verify_jwt = false
+
 # System wallet withdrawal (uses BOT_PRIVATE_KEY)
 [functions.system-wallet-withdraw]
 verify_jwt = false
