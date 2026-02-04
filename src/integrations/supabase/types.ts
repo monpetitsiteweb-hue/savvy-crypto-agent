@@ -3913,6 +3913,10 @@ export type Database = {
           user_id: string
         }[]
       }
+      bridge_wallet_funding_to_portfolio_capital: {
+        Args: { p_funded_amount_wei: string; p_user_id: string }
+        Returns: Json
+      }
       check_capital_access: { Args: { p_user_id: string }; Returns: boolean }
       check_live_trading_prerequisites:
         | { Args: never; Returns: Json }
