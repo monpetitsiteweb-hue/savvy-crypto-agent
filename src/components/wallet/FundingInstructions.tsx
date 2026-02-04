@@ -346,6 +346,28 @@ export function FundingInstructions({
           </div>
 
           {/* ───────────────────────────────────────────────────────────
+              5️⃣ ADVANCED: Portfolio Attribution (NEW - ADDITIVE ONLY)
+              For EUR-tracked deposits via registered addresses
+          ─────────────────────────────────────────────────────────── */}
+          <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-lg p-4">
+            <h4 className="text-indigo-300 font-medium mb-2 flex items-center gap-2">
+              <CircleDollarSign className="w-4 h-4" />
+              Advanced: Portfolio Funding
+            </h4>
+            <p className="text-indigo-200/80 text-sm mb-3">
+              For EUR-tracked portfolio capital with formal deposit attribution.
+            </p>
+            <ul className="text-indigo-200/70 text-sm space-y-1.5 list-disc pl-4 mb-3">
+              <li>Register your wallet address in Profile → Wallet</li>
+              <li>Send funds from that registered address</li>
+              <li>System automatically credits your portfolio in EUR</li>
+            </ul>
+            <p className="text-xs text-indigo-300/60 italic">
+              This is optional and complementary to direct wallet funding.
+            </p>
+          </div>
+
+          {/* ───────────────────────────────────────────────────────────
               5️⃣ FUNDING STATUS (LIVE POLLING)
           ─────────────────────────────────────────────────────────── */}
           <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">

@@ -52,6 +52,7 @@ interface PrerequisiteChecks {
   has_wallet: boolean;
   wallet_active: boolean;
   wallet_funded: boolean;
+  has_portfolio_capital?: boolean; // NEW: Flow B - attributed deposit funding
   rules_accepted: boolean;
   chain_consistent: boolean;
 }
@@ -392,18 +393,31 @@ export function ExecutionWalletPanel() {
             </span>
           </div>
           
-          {/* Wallet Funded */}
+          {/* Wallet Funded (Flow A) OR Portfolio Capital (Flow B) */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks.wallet_funded ? 'bg-green-500/10' : 'bg-slate-800/50'
+            (prerequisites?.checks.wallet_funded || prerequisites?.checks.has_portfolio_capital) 
+              ? 'bg-green-500/10' : 'bg-slate-800/50'
           }`}>
-            {prerequisites?.checks.wallet_funded ? (
+            {(prerequisites?.checks.wallet_funded || prerequisites?.checks.has_portfolio_capital) ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
               <XCircle className="w-5 h-5 text-slate-500" />
             )}
-            <span className={prerequisites?.checks.wallet_funded ? 'text-green-300' : 'text-slate-400'}>
-              Wallet Funded
-            </span>
+            <div className="flex flex-col">
+              <span className={(prerequisites?.checks.wallet_funded || prerequisites?.checks.has_portfolio_capital) 
+                ? 'text-green-300' : 'text-slate-400'}>
+                Capital Available
+              </span>
+              {(prerequisites?.checks.wallet_funded || prerequisites?.checks.has_portfolio_capital) && (
+                <span className="text-xs text-green-400/70">
+                  {prerequisites?.checks.wallet_funded && prerequisites?.checks.has_portfolio_capital
+                    ? 'Wallet + Portfolio'
+                    : prerequisites?.checks.wallet_funded 
+                      ? 'Via Wallet' 
+                      : 'Via Portfolio'}
+                </span>
+              )}
+            </div>
           </div>
           
           {/* Rules Accepted - NOW CLICKABLE */}
