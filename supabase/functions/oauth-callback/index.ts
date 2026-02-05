@@ -157,6 +157,104 @@ serve(async (req) => {
     });
 
     const userData = await userResponse.json();
+
+    // ============================================================
+    // COINBASE → EXTERNAL FUNDING WALLET DISCOVERY
+    // ============================================================
+    // Fetch user's Coinbase accounts to discover wallet addresses
+    // These will be inserted into user_external_addresses with source='coinbase'
+    // This makes Coinbase a first-class external funding wallet source
+    // ============================================================
+    console.log('Fetching Coinbase accounts for wallet discovery...');
+    
+    const accountsResponse = await fetch('https://api.coinbase.com/v2/accounts?limit=100', {
+      headers: {
+        'Authorization': `Bearer ${tokenData.access_token}`,
+        'CB-VERSION': '2024-01-01',
+      },
+    });
+
+    const accountsData = await accountsResponse.json();
+    console.log('Coinbase accounts response:', {
+      status: accountsResponse.status,
+      ok: accountsResponse.ok,
+      accountCount: accountsData.data?.length || 0,
+    });
+
+    // Collect all wallet addresses from Coinbase accounts
+    const walletAddresses: string[] = [];
+    
+    if (accountsData.data && Array.isArray(accountsData.data)) {
+      for (const account of accountsData.data) {
+        // Fetch deposit addresses for each account
+        try {
+          const addressesResponse = await fetch(
+            `https://api.coinbase.com/v2/accounts/${account.id}/addresses`,
+            {
+              headers: {
+                'Authorization': `Bearer ${tokenData.access_token}`,
+                'CB-VERSION': '2024-01-01',
+              },
+            }
+          );
+          
+          if (addressesResponse.ok) {
+            const addressesData = await addressesResponse.json();
+            if (addressesData.data && Array.isArray(addressesData.data)) {
+              for (const addr of addressesData.data) {
+                // Only collect EVM-compatible addresses (0x prefixed, 42 chars)
+                if (addr.address && 
+                    addr.address.startsWith('0x') && 
+                    addr.address.length === 42) {
+                  walletAddresses.push(addr.address.toLowerCase());
+                }
+              }
+            }
+          }
+        } catch (addrError) {
+          console.warn('Failed to fetch addresses for account:', account.id, addrError);
+        }
+      }
+    }
+
+    // Deduplicate addresses
+    const uniqueAddresses = [...new Set(walletAddresses)];
+    console.log('Discovered Coinbase wallet addresses:', {
+      total: walletAddresses.length,
+      unique: uniqueAddresses.length,
+      addresses: uniqueAddresses.slice(0, 5), // Log first 5 for debugging
+    });
+
+    // Insert discovered addresses into user_external_addresses
+    // Uses ON CONFLICT to ensure idempotency (no duplicates)
+    const BASE_CHAIN_ID = 8453;
+    
+    for (const address of uniqueAddresses) {
+      const { error: insertError } = await supabase
+        .from('user_external_addresses')
+        .upsert(
+          {
+            user_id: userId,
+            chain_id: BASE_CHAIN_ID,
+            address: address,
+            label: 'Coinbase wallet',
+            is_verified: true,
+            source: 'coinbase',
+          },
+          {
+            onConflict: 'chain_id,address',
+            ignoreDuplicates: true,
+          }
+        );
+
+      if (insertError) {
+        console.warn('Failed to insert Coinbase address:', address, insertError);
+      } else {
+        console.log('Successfully registered Coinbase address:', address);
+      }
+    }
+
+    console.log('Coinbase wallet discovery complete. Addresses registered:', uniqueAddresses.length);
     console.log('User info response:', {
       status: userResponse.status,
       ok: userResponse.ok,
