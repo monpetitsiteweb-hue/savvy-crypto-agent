@@ -1,7 +1,14 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 /**
- * Trade View Filter Hook
+ * @deprecated GUARDRAIL #3: Use useTradingMode instead.
+ * 
+ * This hook is DEPRECATED and kept only for backward compatibility.
+ * New code MUST use useTradingMode from '@/hooks/useTradingMode'.
+ * 
+ * This file will be removed in a future version once all consumers are migrated.
+ * 
+ * Trade View Filter Hook (LEGACY)
  * 
  * This is a UI-ONLY filter for viewing Test vs Live trades.
  * It has ZERO impact on backend execution logic.
