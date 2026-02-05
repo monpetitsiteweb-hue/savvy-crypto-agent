@@ -2,7 +2,7 @@
  * RPC Validation Edge Function - GUARDRAIL #1
  * Validates canonical RPCs execute without error at deploy-time.
  */
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') {
@@ -19,7 +19,6 @@ Deno.serve(async (req) => {
 
   // Test both modes
   for (const mode of [true, false]) {
-    const start = Date.now();
     const { error } = await supabase.rpc('get_portfolio_metrics' as any, {
       p_user_id: testUserId,
       p_is_test_mode: mode,
