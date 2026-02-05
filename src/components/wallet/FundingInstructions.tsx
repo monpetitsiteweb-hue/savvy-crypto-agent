@@ -277,7 +277,6 @@ export function FundingInstructions({
             refetchAddresses();
             setShowWalletDialog(false);
           }}
-          systemWalletAddress={walletAddress}
         />
       </>
     );
