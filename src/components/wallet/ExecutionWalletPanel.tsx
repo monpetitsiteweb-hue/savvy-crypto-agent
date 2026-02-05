@@ -94,10 +94,12 @@ export function ExecutionWalletPanel() {
   const [showActivationModal, setShowActivationModal] = useState(false);
   const [showRulesDialog, setShowRulesDialog] = useState(false);
   const [showWithdrawDialog, setShowWithdrawDialog] = useState(false);
+  const [showClearPanicDialog, setShowClearPanicDialog] = useState(false);
   
   // Activation state
   const [isActivating, setIsActivating] = useState(false);
   const [acknowledgedActivation, setAcknowledgedActivation] = useState(false);
+  const [isClearingPanic, setIsClearingPanic] = useState(false);
   
   // Prerequisites state
   const [prerequisites, setPrerequisites] = useState<PrerequisiteResult | null>(null);
@@ -322,6 +324,49 @@ export function ExecutionWalletPanel() {
     });
   };
 
+  // Handle clear panic state
+  const handleClearPanic = async () => {
+    if (!user?.id) return;
+    
+    setIsClearingPanic(true);
+    try {
+      // Get panic batch ID from strategies
+      const { data: strategyData } = await (supabase
+        .from('trading_strategies' as any)
+        .select('liquidation_batch_id')
+        .eq('user_id', user.id)
+        .eq('panic_active', true)
+        .limit(1)
+        .maybeSingle() as any);
+      
+      const batchId = strategyData?.liquidation_batch_id || `manual-clear-${Date.now()}`;
+      
+      const { error } = await (supabase.rpc as any)('clear_panic_state', {
+        p_batch_id: batchId,
+        p_user_id: user.id
+      });
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Panic State Cleared",
+        description: "Trading has been re-enabled. Strategies remain paused until manually resumed.",
+      });
+      
+      setShowClearPanicDialog(false);
+      await checkPrerequisites();
+    } catch (err) {
+      logger.error('Clear panic error:', err);
+      toast({
+        title: "Failed to Clear Panic",
+        description: err instanceof Error ? err.message : 'Unknown error',
+        variant: "destructive",
+      });
+    } finally {
+      setIsClearingPanic(false);
+    }
+  };
+
   const getNetworkName = (chainId: number): string => {
     switch (chainId) {
       case 1: return 'Ethereum Mainnet';
@@ -367,48 +412,48 @@ export function ExecutionWalletPanel() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {/* Wallet Created */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks.has_wallet ? 'bg-green-500/10' : 'bg-slate-800/50'
+            prerequisites?.checks?.has_wallet ? 'bg-green-500/10' : 'bg-slate-800/50'
           }`}>
-            {prerequisites?.checks.has_wallet ? (
+            {prerequisites?.checks?.has_wallet ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
               <XCircle className="w-5 h-5 text-slate-500" />
             )}
-            <span className={prerequisites?.checks.has_wallet ? 'text-green-300' : 'text-slate-400'}>
+            <span className={prerequisites?.checks?.has_wallet ? 'text-green-300' : 'text-slate-400'}>
               Wallet Created
             </span>
           </div>
           
           {/* Wallet Active */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks.wallet_active ? 'bg-green-500/10' : 'bg-slate-800/50'
+            prerequisites?.checks?.wallet_active ? 'bg-green-500/10' : 'bg-slate-800/50'
           }`}>
-            {prerequisites?.checks.wallet_active ? (
+            {prerequisites?.checks?.wallet_active ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
               <XCircle className="w-5 h-5 text-slate-500" />
             )}
-            <span className={prerequisites?.checks.wallet_active ? 'text-green-300' : 'text-slate-400'}>
+            <span className={prerequisites?.checks?.wallet_active ? 'text-green-300' : 'text-slate-400'}>
               Wallet Activated
             </span>
           </div>
           
           {/* Portfolio Capital - The SOLE authority for REAL trading */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks.has_portfolio_capital 
+            prerequisites?.checks?.has_portfolio_capital 
               ? 'bg-primary/10' : 'bg-muted/50'
           }`}>
-            {prerequisites?.checks.has_portfolio_capital ? (
+            {prerequisites?.checks?.has_portfolio_capital ? (
               <CheckCircle className="w-5 h-5 text-primary" />
             ) : (
               <XCircle className="w-5 h-5 text-muted-foreground" />
             )}
             <div className="flex flex-col">
-              <span className={prerequisites?.checks.has_portfolio_capital 
+              <span className={prerequisites?.checks?.has_portfolio_capital 
                 ? 'text-foreground' : 'text-muted-foreground'}>
                 Portfolio Capital
               </span>
-              {!prerequisites?.checks.has_portfolio_capital && (
+              {!prerequisites?.checks?.has_portfolio_capital && (
                 <span className="text-xs text-muted-foreground/70">
                   Register funding wallet & deposit
                 </span>
@@ -418,45 +463,57 @@ export function ExecutionWalletPanel() {
           
           {/* Rules Accepted - NOW CLICKABLE */}
           <button
-            onClick={() => !prerequisites?.checks.rules_accepted && setShowRulesDialog(true)}
-            disabled={prerequisites?.checks.rules_accepted}
+            onClick={() => !prerequisites?.checks?.rules_accepted && setShowRulesDialog(true)}
+            disabled={prerequisites?.checks?.rules_accepted}
             className={`flex items-center gap-3 p-3 rounded-lg text-left transition-colors ${
-              prerequisites?.checks.rules_accepted 
+              prerequisites?.checks?.rules_accepted 
                 ? 'bg-green-500/10 cursor-default' 
                 : 'bg-slate-800/50 hover:bg-slate-700 cursor-pointer'
             }`}
           >
-            {prerequisites?.checks.rules_accepted ? (
+            {prerequisites?.checks?.rules_accepted ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
               <FileCheck className="w-5 h-5 text-amber-400" />
             )}
-            <span className={prerequisites?.checks.rules_accepted ? 'text-green-300' : 'text-amber-300'}>
+            <span className={prerequisites?.checks?.rules_accepted ? 'text-green-300' : 'text-amber-300'}>
               Trading Rules Accepted
             </span>
-            {!prerequisites?.checks.rules_accepted && (
+            {!prerequisites?.checks?.rules_accepted && (
               <span className="text-xs text-amber-400 ml-auto">Click to accept</span>
             )}
           </button>
           
-          {/* Panic Status */}
-          <div className={`flex items-center gap-3 p-3 rounded-lg md:col-span-2 ${
+          {/* Panic Status - with Clear Button */}
+          <div className={`flex items-center justify-between gap-3 p-3 rounded-lg md:col-span-2 ${
             prerequisites?.panic_active === false ? 'bg-green-500/10' : 
             prerequisites?.panic_active === true ? 'bg-red-500/10' : 'bg-slate-800/50'
           }`}>
-            {prerequisites?.panic_active === false ? (
-              <CheckCircle className="w-5 h-5 text-green-400" />
-            ) : prerequisites?.panic_active === true ? (
-              <AlertTriangle className="w-5 h-5 text-red-400" />
-            ) : (
-              <AlertCircle className="w-5 h-5 text-slate-500" />
+            <div className="flex items-center gap-3">
+              {prerequisites?.panic_active === false ? (
+                <CheckCircle className="w-5 h-5 text-green-400" />
+              ) : prerequisites?.panic_active === true ? (
+                <AlertTriangle className="w-5 h-5 text-red-400" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-slate-500" />
+              )}
+              <span className={
+                prerequisites?.panic_active === false ? 'text-green-300' : 
+                prerequisites?.panic_active === true ? 'text-red-400' : 'text-slate-400'
+              }>
+                {prerequisites?.panic_active ? 'Panic Mode Active (Trading Halted)' : 'No Panic Active'}
+              </span>
+            </div>
+            {prerequisites?.panic_active === true && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowClearPanicDialog(true)}
+                className="border-red-500/50 text-red-400 hover:bg-red-500/10"
+              >
+                Clear Panic
+              </Button>
             )}
-            <span className={
-              prerequisites?.panic_active === false ? 'text-green-300' : 
-              prerequisites?.panic_active === true ? 'text-red-400' : 'text-slate-400'
-            }>
-              {prerequisites?.panic_active ? 'Panic Mode Active (Trading Halted)' : 'No Panic Active'}
-            </span>
           </div>
         </div>
         
@@ -831,6 +888,64 @@ export function ExecutionWalletPanel() {
                 <>
                   <Zap className="w-4 h-4 mr-2" />
                   Activate Wallet
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear Panic Confirmation Dialog */}
+      <Dialog open={showClearPanicDialog} onOpenChange={setShowClearPanicDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-500">
+              <AlertTriangle className="h-5 w-5" />
+              Clear Panic State
+            </DialogTitle>
+            <DialogDescription>
+              This will clear the panic state and allow trading to resume.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 my-4">
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+              <div className="flex gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-200">
+                  <p className="font-medium mb-2">Before clearing panic:</p>
+                  <ul className="list-disc pl-4 space-y-1 text-amber-200/80">
+                    <li>Verify the issue that triggered panic has been resolved</li>
+                    <li>Strategies will remain paused until manually resumed</li>
+                    <li>You may need to review open positions</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="ghost"
+              onClick={() => setShowClearPanicDialog(false)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleClearPanic}
+              disabled={isClearingPanic}
+              className="bg-amber-500 hover:bg-amber-600 text-black"
+            >
+              {isClearingPanic ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Clearing...
+                </>
+              ) : (
+                <>
+                  <Shield className="w-4 h-4 mr-2" />
+                  Clear Panic State
                 </>
               )}
             </Button>
