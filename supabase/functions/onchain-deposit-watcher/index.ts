@@ -105,10 +105,63 @@ Deno.serve(async (req) => {
     // Collect transfers to process
     const transfers: TransferEvent[] = [];
 
-    // 1. Scan for native ETH transfers
-    // Base RPC doesn't have a built-in way to get ETH transfers efficiently
-    // For MVP, we'll focus on ERC20 transfers (WETH, USDC)
-    // Native ETH detection would require trace_block or external indexer
+    // 1. Scan for native ETH transfers by iterating blocks
+    // We check each block's transactions for transfers TO the bot address
+    logger.info("[deposit-watcher] Scanning for native ETH transfers...");
+    
+    // To avoid too many RPC calls, sample blocks or use a reasonable range
+    // For each block, get transactions and filter for to === BOT_ADDRESS
+    const blocksToCheck = Math.min(lookbackBlocks, 200); // Limit to avoid timeout
+    const blockStep = Math.max(1, Math.floor(lookbackBlocks / blocksToCheck));
+    
+    for (let blockNum = fromBlock; blockNum <= currentBlock; blockNum += blockStep) {
+      try {
+        const blockResponse = await fetch(BASE_RPC_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "eth_getBlockByNumber",
+            params: ["0x" + blockNum.toString(16), true], // true = include full tx objects
+            id: 10
+          })
+        });
+        
+        const blockResult = await blockResponse.json();
+        if (!blockResult.result || !blockResult.result.transactions) continue;
+        
+        const blockTimestamp = new Date(parseInt(blockResult.result.timestamp, 16) * 1000).toISOString();
+        
+        for (const tx of blockResult.result.transactions) {
+          // Check if this is a native ETH transfer TO the bot address
+          if (tx.to && tx.to.toLowerCase() === botAddressLower && tx.value && tx.value !== "0x0") {
+            const valueWei = BigInt(tx.value);
+            if (valueWei > 0n) {
+              transfers.push({
+                txHash: tx.hash,
+                blockNumber: blockNum,
+                blockTimestamp,
+                fromAddress: tx.from.toLowerCase(),
+                toAddress: botAddressLower,
+                amount: Number(valueWei) / 1e18,
+                amountRaw: valueWei.toString(),
+                asset: "ETH",
+                assetAddress: null // Native ETH has no contract address
+              });
+              
+              logger.info("[deposit-watcher] Found native ETH transfer", {
+                tx_hash: tx.hash.slice(0, 10),
+                from: tx.from.slice(0, 10),
+                amount_eth: Number(valueWei) / 1e18
+              });
+            }
+          }
+        }
+      } catch (blockErr) {
+        // Skip failed blocks
+        logger.warn("[deposit-watcher] Block fetch failed", { block: blockNum });
+      }
+    }
 
     // 2. Scan for ERC20 transfers (WETH, USDC) to BOT_ADDRESS
     const erc20Logs = await fetch(BASE_RPC_URL, {
