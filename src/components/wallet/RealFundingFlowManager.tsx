@@ -21,22 +21,19 @@ import {
   Shield, 
   Info,
   CheckCircle,
-  Copy,
   ExternalLink,
   Loader2,
-  AlertTriangle,
   Clock,
   TrendingUp,
-  QrCode,
   Link
 } from 'lucide-react';
 import { useRealFundingState } from '@/hooks/useRealFundingState';
 import { useExternalAddresses } from '@/hooks/useExternalAddresses';
 import { RealFundingWalletDialog } from './RealFundingWalletDialog';
+import { FundingModal } from './FundingModal';
 import { ExternalAddressList } from './ExternalAddressList';
 import { useToast } from '@/hooks/use-toast';
 import { formatEuro } from '@/utils/currencyFormatter';
-import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface RealFundingFlowManagerProps {
@@ -57,8 +54,7 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
   } = useRealFundingState();
   
   const [showWalletDialog, setShowWalletDialog] = useState(false);
-  const [showQRCode, setShowQRCode] = useState(false);
-  const [copiedAddress, setCopiedAddress] = useState(false);
+  const [showFundingModal, setShowFundingModal] = useState(false);
   const [justAddedWallet, setJustAddedWallet] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [isConnectingCoinbase, setIsConnectingCoinbase] = useState(false);
@@ -86,23 +82,6 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
     setTimeout(() => setJustAddedWallet(false), 10000);
   };
 
-  const copySystemAddress = () => {
-    if (systemWalletAddress) {
-      navigator.clipboard.writeText(systemWalletAddress);
-      setCopiedAddress(true);
-      toast({
-        title: "Copied",
-        description: "System wallet address copied to clipboard",
-      });
-      setTimeout(() => setCopiedAddress(false), 2000);
-    }
-  };
-
-  const openBasescan = () => {
-    if (systemWalletAddress) {
-      window.open(`https://basescan.org/address/${systemWalletAddress}`, '_blank');
-    }
-  };
 
   // Connect Coinbase to discover wallets
   const handleConnectCoinbase = async () => {
@@ -270,133 +249,31 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
                 Step 2 of 3: Send Funds Externally
               </Badge>
               <h3 className="text-2xl font-bold text-foreground">
-                Send Funds Using Your Wallet App
+                Ready to Fund Your Portfolio
               </h3>
               <p className="text-foreground/70 max-w-lg mx-auto">
-                Open <strong>MetaMask</strong>, <strong>Rabby</strong>, or <strong>Coinbase Wallet</strong> and send funds to the address below.
+                Click below to see the system wallet address and funding instructions.
               </p>
             </div>
 
-            {/* SYSTEM WALLET ADDRESS - PRIMARY FOCUS */}
-            {systemWalletAddress ? (
-              <div className="bg-foreground/5 border-2 border-foreground/20 rounded-xl p-6 space-y-5">
-                <div className="flex items-center justify-between">
-                  <span className="text-base font-semibold text-foreground">
-                    System Deposit Address
-                  </span>
-                  <Badge className="bg-primary text-primary-foreground font-medium">
-                    Base Network (8453)
-                  </Badge>
-                </div>
-                
-                {/* Large, high-contrast address display */}
-                <div className="bg-background border-2 border-primary/40 rounded-lg p-4">
-                  <code className="text-primary text-base font-mono break-all block text-center leading-relaxed">
-                    {systemWalletAddress}
-                  </code>
-                </div>
+            {/* PRIMARY CTA - Fund Your Portfolio */}
+            <Button
+              onClick={() => setShowFundingModal(true)}
+              size="lg"
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-lg py-7"
+            >
+              <Wallet className="w-5 h-5 mr-2" />
+              Fund Your Portfolio
+              <ArrowRight className="w-5 h-5 ml-2" />
+            </Button>
 
-                {/* PRIMARY CTA - Copy Address */}
-                <Button
-                  onClick={copySystemAddress}
-                  size="lg"
-                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-base py-6"
-                >
-                  {copiedAddress ? (
-                    <>
-                      <CheckCircle className="w-5 h-5 mr-2" />
-                      Address Copied!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-5 h-5 mr-2" />
-                      Copy System Wallet Address
-                    </>
-                  )}
-                </Button>
-
-                {/* Secondary actions row */}
-                <div className="flex gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowQRCode(!showQRCode)}
-                    className="flex-1 border-foreground/20 hover:bg-foreground/5"
-                  >
-                    <QrCode className="w-4 h-4 mr-2" />
-                    {showQRCode ? 'Hide QR Code' : 'Show QR Code'}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={openBasescan}
-                    className="flex-1 border-foreground/20 hover:bg-foreground/5"
-                  >
-                    View on Basescan
-                    <ExternalLink className="w-4 h-4 ml-2" />
-                  </Button>
-                </div>
-
-                {/* QR Code - prominent when shown */}
-                {showQRCode && (
-                  <div className="flex justify-center p-6 bg-white rounded-lg border border-foreground/10">
-                    <QRCodeSVG value={systemWalletAddress} size={200} />
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4">
-                <div className="flex gap-3">
-                  <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0" />
-                  <div className="text-sm">
-                    <p className="font-medium text-foreground">System wallet not available</p>
-                    <p className="text-muted-foreground mt-1">
-                      Please contact support to set up your trading wallet.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Clear explanation of the model */}
-            <div className="bg-amber-500/10 border-2 border-amber-500/30 rounded-lg p-4">
-              <div className="flex gap-3">
-                <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                <div className="text-sm space-y-2">
-                  <p className="font-semibold text-foreground">Why you must use your wallet app:</p>
-                  <ul className="space-y-1.5 text-foreground/80">
-                    <li>• Your external wallet is <strong>user-custodied</strong> — only you control it</li>
-                    <li>• This app <strong>cannot move funds on your behalf</strong></li>
-                    <li>• You must initiate the transfer from MetaMask, Rabby, or Coinbase</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            {/* Warning - visible but not destructive styling */}
-            <div className="bg-amber-500/10 border border-amber-500/40 rounded-lg p-4">
-              <div className="flex gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
-                <div className="text-sm">
-                  <p className="font-semibold text-amber-700 dark:text-amber-400">Important</p>
-                  <p className="text-foreground/80 mt-1">
-                    Send funds <strong>only from your registered wallet</strong>.
-                    Transfers from unregistered addresses cannot be attributed to your account.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* What happens after sending */}
-            <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-              <h4 className="font-medium text-foreground text-sm mb-2 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-primary" />
-                What happens after you send funds:
-              </h4>
-              <ol className="list-decimal pl-5 text-sm text-foreground/80 space-y-1">
-                <li>Transaction confirms on Base network (~2-5 minutes)</li>
-                <li>System detects the deposit from your registered wallet</li>
-                <li>Your portfolio is credited with the EUR equivalent</li>
-                <li>You can start real trading immediately</li>
-              </ol>
+            {/* Quick info about what happens */}
+            <div className="bg-muted/50 border border-border rounded-lg p-4 text-center">
+              <p className="text-sm text-muted-foreground">
+                You'll see the system wallet address, QR code, and step-by-step instructions.
+                <br />
+                <strong>Funds must be sent from your registered wallet using MetaMask, Rabby, or Coinbase.</strong>
+              </p>
             </div>
 
             {/* Registered Wallets - collapsible section */}
@@ -417,14 +294,6 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
               </div>
               <ExternalAddressList refreshTrigger={refreshTrigger} />
             </div>
-
-            {/* Supported Assets - subtle footer */}
-            <div className="bg-muted/50 rounded-lg p-3">
-              <p className="text-xs text-muted-foreground text-center">
-                <strong>Accepted:</strong> ETH & USDC on Base (Chain ID 8453) • 
-                <strong> Recommended minimum:</strong> 0.01 ETH or 25 USDC
-              </p>
-            </div>
           </CardContent>
         </Card>
 
@@ -433,6 +302,15 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
           onOpenChange={setShowWalletDialog}
           onWalletAdded={handleWalletAdded}
         />
+
+        {systemWalletAddress && (
+          <FundingModal
+            open={showFundingModal}
+            onOpenChange={setShowFundingModal}
+            systemWalletAddress={systemWalletAddress}
+            externalWalletCount={externalWalletCount}
+          />
+        )}
       </>
     );
   }
@@ -442,63 +320,84 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
     const latestDeposit = pendingDeposits[0];
     
     return (
-      <Card className="bg-accent/10 border-accent/50">
-        <CardContent className="p-6 space-y-6">
-          <div className="text-center">
-            <div className="relative inline-block">
-              <Loader2 className="h-14 w-14 text-accent animate-spin" />
+      <>
+        <Card className="bg-accent/10 border-accent/50">
+          <CardContent className="p-6 space-y-6">
+            <div className="text-center">
+              <div className="relative inline-block">
+                <Loader2 className="h-14 w-14 text-accent animate-spin" />
+              </div>
+              <Badge variant="outline" className="text-accent border-accent/30 mt-4 mb-2">
+                Step 3 of 3: Confirmation
+              </Badge>
+              <h3 className="text-xl font-semibold text-foreground">
+                Deposit Detected
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Waiting for confirmation and portfolio credit...
+              </p>
             </div>
-            <Badge variant="outline" className="text-accent border-accent/30 mt-4 mb-2">
-              Step 3 of 3: Confirmation
-            </Badge>
-            <h3 className="text-xl font-semibold text-foreground">
-              Deposit Detected
-            </h3>
-            <p className="text-sm text-muted-foreground mt-1">
-              Waiting for confirmation and portfolio credit...
+
+            {latestDeposit && (
+              <div className="bg-muted rounded-lg p-4 space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Amount</span>
+                  <span className="text-foreground font-medium">
+                    {latestDeposit.amount} {latestDeposit.asset}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Transaction</span>
+                  <a
+                    href={`https://basescan.org/tx/${latestDeposit.tx_hash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline flex items-center gap-1 font-mono text-xs"
+                  >
+                    {latestDeposit.tx_hash.slice(0, 16)}...
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Status</span>
+                  <span className="text-accent font-medium flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Processing
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Option to add more funds while waiting */}
+            <Button
+              variant="outline"
+              onClick={() => setShowFundingModal(true)}
+              className="w-full border-accent/40 hover:bg-accent/10"
+            >
+              <Wallet className="w-4 h-4 mr-2" />
+              Add More Funds
+            </Button>
+
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Auto-refreshing every 30 seconds
+            </div>
+            
+            <p className="text-xs text-muted-foreground text-center">
+              Your portfolio will be credited automatically once confirmation is complete.
             </p>
-          </div>
+          </CardContent>
+        </Card>
 
-          {latestDeposit && (
-            <div className="bg-muted rounded-lg p-4 space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Amount</span>
-                <span className="text-foreground font-medium">
-                  {latestDeposit.amount} {latestDeposit.asset}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Transaction</span>
-                <a
-                  href={`https://basescan.org/tx/${latestDeposit.tx_hash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary hover:underline flex items-center gap-1 font-mono text-xs"
-                >
-                  {latestDeposit.tx_hash.slice(0, 16)}...
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Status</span>
-                <span className="text-accent font-medium flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  Processing
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Auto-refreshing every 30 seconds
-          </div>
-          
-          <p className="text-xs text-muted-foreground text-center">
-            Your portfolio will be credited automatically once confirmation is complete.
-          </p>
-        </CardContent>
-      </Card>
+        {systemWalletAddress && (
+          <FundingModal
+            open={showFundingModal}
+            onOpenChange={setShowFundingModal}
+            systemWalletAddress={systemWalletAddress}
+            externalWalletCount={externalWalletCount}
+          />
+        )}
+      </>
     );
   }
 
