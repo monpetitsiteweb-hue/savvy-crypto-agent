@@ -137,9 +137,10 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
         return;
       }
 
-      const result = data as { ok: boolean; new_strategy_id?: string; error?: string };
+      // RPC returns { success: boolean, new_strategy_id?: string, error?: string }
+      const result = data as { success: boolean; new_strategy_id?: string; error?: string };
 
-      if (result.ok && result.new_strategy_id) {
+      if (result.success && result.new_strategy_id) {
         setNewStrategyId(result.new_strategy_id);
         setStep('success');
         toast({
