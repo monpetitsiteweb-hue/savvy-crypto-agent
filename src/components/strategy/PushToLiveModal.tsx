@@ -9,10 +9,26 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { logger } from '@/utils/logger';
 
+/**
+ * NEW RPC CONTRACT (check_live_trading_prerequisites):
+ * 
+ * checks: {
+ *   wallet_exists: boolean,
+ *   wallet_funded: boolean,
+ *   has_portfolio_capital: boolean,  // SOLE authority for REAL trading
+ *   rules_accepted: boolean
+ * }
+ */
 interface PrerequisiteChecks {
-  has_active_funded_wallet: boolean;
-  has_accepted_rules: boolean;
-  no_panic_active: boolean;
+  wallet_exists: boolean;
+  wallet_funded: boolean;
+  has_portfolio_capital: boolean;
+  rules_accepted: boolean;
+}
+
+interface PrerequisiteMeta {
+  wallet_address: string | null;
+  portfolio_balance_eur: number;
 }
 
 interface PushToLiveModalProps {
@@ -37,6 +53,7 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
   const { toast } = useToast();
   const [step, setStep] = useState<ModalStep>('checking');
   const [checks, setChecks] = useState<PrerequisiteChecks | null>(null);
+  const [panicActive, setPanicActive] = useState(false);
   const [canTradeLive, setCanTradeLive] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [newStrategyId, setNewStrategyId] = useState<string | null>(null);
@@ -54,6 +71,7 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
     if (!open) {
       setStep('checking');
       setChecks(null);
+      setPanicActive(false);
       setCanTradeLive(false);
       setErrorMessage('');
       setNewStrategyId(null);
@@ -79,8 +97,9 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
         return;
       }
 
-      const result = data as { ok: boolean; checks: PrerequisiteChecks; panic_active?: boolean };
+      const result = data as { ok: boolean; checks: PrerequisiteChecks; panic_active: boolean; meta: PrerequisiteMeta };
       setChecks(result.checks);
+      setPanicActive(result.panic_active === true);
       setCanTradeLive(result.ok === true);
 
       if (result.ok === true) {
@@ -223,33 +242,45 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
               {checks ? (
                 <>
                   {renderCheckRow(
-                    'Execution Wallet Created & Funded',
-                    checks.has_active_funded_wallet,
+                    'Execution Wallet Created',
+                    checks.wallet_exists,
                     <Wallet className="h-4 w-4 text-muted-foreground" />,
                     'Set Up Wallet',
                     () => navigateToProfile('wallet')
                   )}
                   {renderCheckRow(
+                    'Portfolio Capital',
+                    checks.has_portfolio_capital,
+                    <Wallet className="h-4 w-4 text-muted-foreground" />,
+                    'Fund Wallet',
+                    () => navigateToProfile('wallet')
+                  )}
+                  {renderCheckRow(
                     'Trading Rules Accepted',
-                    checks.has_accepted_rules,
+                    checks.rules_accepted,
                     <FileCheck className="h-4 w-4 text-muted-foreground" />,
                     'Accept Rules',
                     () => navigateToProfile('rules')
-                  )}
-                  {renderCheckRow(
-                    'No Active Panic State',
-                    checks.no_panic_active,
-                    <Shield className="h-4 w-4 text-muted-foreground" />
                   )}
                 </>
               ) : (
                 <div className="text-sm text-muted-foreground space-y-2">
                   <p>To trade LIVE, you need to:</p>
                   <ul className="list-disc list-inside space-y-1">
-                    <li>Create and fund an execution wallet</li>
+                    <li>Create an execution wallet</li>
+                    <li>Fund portfolio capital</li>
                     <li>Accept the trading rules</li>
-                    <li>Ensure no panic state is active</li>
                   </ul>
+                </div>
+              )}
+              
+              {/* Panic Status - Informational badge when active */}
+              {panicActive && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-red-500/10 mt-3">
+                  <AlertTriangle className="w-4 h-4 text-red-400" />
+                  <span className="text-red-400 text-sm font-medium">
+                    Panic Mode Active — Trading is blocked. Clear panic state first.
+                  </span>
                 </div>
               )}
             </div>

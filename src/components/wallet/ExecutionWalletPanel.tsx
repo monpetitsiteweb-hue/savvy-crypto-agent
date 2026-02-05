@@ -24,7 +24,8 @@ import {
   FileCheck,
   XCircle,
   ArrowUpRight,
-  Key
+  Key,
+  Bug
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
@@ -48,19 +49,42 @@ interface WalletData {
   created_at: string;
 }
 
+/**
+ * NEW RPC CONTRACT (check_live_trading_prerequisites):
+ * 
+ * Returns:
+ * {
+ *   ok: boolean,           // Global readiness
+ *   checks: {
+ *     wallet_exists: boolean,
+ *     wallet_funded: boolean,
+ *     has_portfolio_capital: boolean,  // SOLE authority for REAL trading
+ *     rules_accepted: boolean
+ *   },
+ *   panic_active: boolean,  // Top-level status flag
+ *   meta: {
+ *     wallet_address: string | null,
+ *     portfolio_balance_eur: number
+ *   }
+ * }
+ */
 interface PrerequisiteChecks {
-  has_wallet: boolean;
-  wallet_active: boolean;
+  wallet_exists: boolean;
   wallet_funded: boolean;
-  has_portfolio_capital?: boolean; // NEW: Flow B - attributed deposit funding
+  has_portfolio_capital: boolean;
   rules_accepted: boolean;
-  chain_consistent: boolean;
+}
+
+interface PrerequisiteMeta {
+  wallet_address: string | null;
+  portfolio_balance_eur: number;
 }
 
 interface PrerequisiteResult {
   ok: boolean;
   checks: PrerequisiteChecks;
   panic_active: boolean;
+  meta: PrerequisiteMeta;
 }
 
 interface ActivateWalletResponse {
@@ -81,29 +105,69 @@ interface WalletBalances {
   USDC: { symbol: string; amount: number };
 }
 
+/**
+ * Validates the RPC response shape matches the expected contract.
+ * Returns an error message if invalid, null if valid.
+ */
+function validateRpcShape(data: unknown): string | null {
+  if (!data || typeof data !== 'object') {
+    return 'RPC returned invalid data (not an object)';
+  }
+  
+  const d = data as Record<string, unknown>;
+  
+  if (typeof d.ok !== 'boolean') {
+    return 'RPC missing required field: ok (boolean)';
+  }
+  
+  if (typeof d.panic_active !== 'boolean') {
+    return 'RPC missing required field: panic_active (boolean)';
+  }
+  
+  if (!d.checks || typeof d.checks !== 'object') {
+    return 'RPC missing required field: checks (object)';
+  }
+  
+  const checks = d.checks as Record<string, unknown>;
+  const requiredChecks = ['wallet_exists', 'wallet_funded', 'has_portfolio_capital', 'rules_accepted'];
+  for (const field of requiredChecks) {
+    if (typeof checks[field] !== 'boolean') {
+      return `RPC checks missing required field: ${field} (boolean)`;
+    }
+  }
+  
+  if (!d.meta || typeof d.meta !== 'object') {
+    return 'RPC missing required field: meta (object)';
+  }
+  
+  return null;
+}
+
 export function ExecutionWalletPanel() {
   const { user } = useAuth();
   const { toast } = useToast();
   
-  // Wallet state
+  // Wallet state (local table data for UI operations)
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
   // Modal states
   const [showCreationModal, setShowCreationModal] = useState(false);
-  const [showActivationModal, setShowActivationModal] = useState(false);
   const [showRulesDialog, setShowRulesDialog] = useState(false);
   const [showWithdrawDialog, setShowWithdrawDialog] = useState(false);
   const [showClearPanicDialog, setShowClearPanicDialog] = useState(false);
   
-  // Activation state
-  const [isActivating, setIsActivating] = useState(false);
-  const [acknowledgedActivation, setAcknowledgedActivation] = useState(false);
+  // Panic clear state
   const [isClearingPanic, setIsClearingPanic] = useState(false);
   
-  // Prerequisites state
+  // Prerequisites state - SINGLE SOURCE OF TRUTH from RPC
   const [prerequisites, setPrerequisites] = useState<PrerequisiteResult | null>(null);
   const [isCheckingPrereqs, setIsCheckingPrereqs] = useState(false);
+  const [rpcError, setRpcError] = useState<string | null>(null);
+  
+  // Dev mode toggle
+  const [showDevPanel, setShowDevPanel] = useState(false);
+  const [rawRpcPayload, setRawRpcPayload] = useState<unknown>(null);
 
   // Wallet balances for withdraw dialog
   const [walletBalances, setWalletBalances] = useState<WalletBalances>({
@@ -130,10 +194,6 @@ export function ExecutionWalletPanel() {
     return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
   };
 
-  /**
-   * Decodes the pasted base64 key to hex on explicit user click only.
-   * No logging, no persistence, no backend calls.
-   */
   const handleDecodeToHex = () => {
     const trimmed = base64KeyInput.trim();
     if (!trimmed) {
@@ -171,7 +231,7 @@ export function ExecutionWalletPanel() {
     setHexKeyCopied(false);
   };
 
-  // Fetch wallet data
+  // Fetch wallet data (for local UI operations like address display, withdraw)
   const fetchWallet = useCallback(async () => {
     if (!user?.id) return;
     
@@ -180,6 +240,8 @@ export function ExecutionWalletPanel() {
         .from('execution_wallets' as any)
         .select('*')
         .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle() as any);
       
       if (error && error.code !== 'PGRST116') {
@@ -194,22 +256,39 @@ export function ExecutionWalletPanel() {
     }
   }, [user?.id]);
 
-  // Check prerequisites via RPC
+  // Check prerequisites via RPC - SINGLE SOURCE OF TRUTH
   const checkPrerequisites = useCallback(async () => {
     if (!user?.id) return;
     
     setIsCheckingPrereqs(true);
+    setRpcError(null);
+    
     try {
-      const { data, error } = await (supabase.rpc as any)('check_live_trading_prerequisites');
+      const { data, error } = await (supabase.rpc as any)('check_live_trading_prerequisites', {
+        p_user_id: user.id
+      });
+      
+      // Store raw payload for dev panel
+      setRawRpcPayload(data);
       
       if (error) {
         logger.error('Prerequisites check error:', error);
+        setRpcError(`RPC call failed: ${error.message}`);
+        return;
+      }
+      
+      // CRITICAL: Validate RPC shape - no silent fallbacks
+      const validationError = validateRpcShape(data);
+      if (validationError) {
+        logger.error('RPC shape validation failed:', validationError, data);
+        setRpcError(validationError);
         return;
       }
       
       setPrerequisites(data as PrerequisiteResult);
     } catch (err) {
       logger.error('Prerequisites check exception:', err);
+      setRpcError('Unexpected error checking prerequisites');
     } finally {
       setIsCheckingPrereqs(false);
     }
@@ -225,60 +304,10 @@ export function ExecutionWalletPanel() {
     setShowCreationModal(false);
     toast({
       title: "Wallet Created",
-      description: "Your execution wallet has been created. Activate it to enable live trading.",
+      description: "Your execution wallet has been created. Fund it via external deposit to enable LIVE trading.",
     });
     await fetchWallet();
     await checkPrerequisites();
-  };
-
-  // Activate wallet via RPC
-  const handleActivateWallet = async () => {
-    if (!wallet || !user?.id || !acknowledgedActivation) return;
-    
-    setIsActivating(true);
-    
-    try {
-      const { data, error } = await (supabase.rpc as any)('activate_execution_wallet', {
-        p_wallet_id: wallet.id,
-        p_user_id: user.id
-      });
-      
-      if (error) {
-        throw new Error(error.message || 'Failed to activate wallet');
-      }
-      
-      const response = data as ActivateWalletResponse;
-      
-      if (!response.success) {
-        const errorMessages: Record<string, string> = {
-          unauthorized: 'You are not authorized to activate this wallet',
-          wallet_not_found: 'Wallet not found',
-          rules_not_accepted: 'You must accept the trading rules first'
-        };
-        throw new Error(errorMessages[response.error || ''] || response.error || 'Activation failed');
-      }
-      
-      toast({
-        title: "Wallet Activated",
-        description: "Your execution wallet is now active. Fund it to enable live trading.",
-      });
-      
-      setShowActivationModal(false);
-      setAcknowledgedActivation(false);
-      
-      // Refresh data
-      await fetchWallet();
-      await checkPrerequisites();
-    } catch (err) {
-      logger.error('Wallet activation error:', err);
-      toast({
-        title: "Activation Failed",
-        description: err instanceof Error ? err.message : 'Unknown error',
-        variant: "destructive",
-      });
-    } finally {
-      setIsActivating(false);
-    }
   };
 
   // Copy address
@@ -300,7 +329,7 @@ export function ExecutionWalletPanel() {
     setIsLoading(false);
     toast({
       title: "Refreshed",
-      description: "Wallet status updated",
+      description: "LIVE readiness status updated",
     });
   };
 
@@ -309,6 +338,7 @@ export function ExecutionWalletPanel() {
     if (balances) {
       setWalletBalances(balances);
     }
+    // Trigger re-check of prerequisites if funding state changed
     if (isFunded !== wallet?.is_funded) {
       fetchWallet();
       checkPrerequisites();
@@ -320,7 +350,7 @@ export function ExecutionWalletPanel() {
     await checkPrerequisites();
     toast({
       title: "Rules Accepted",
-      description: "You can now activate your wallet for live trading.",
+      description: "Trading rules accepted. Complete remaining steps to enable LIVE trading.",
     });
   };
 
@@ -330,7 +360,6 @@ export function ExecutionWalletPanel() {
     
     setIsClearingPanic(true);
     try {
-      // Get panic batch ID from strategies
       const { data: strategyData } = await (supabase
         .from('trading_strategies' as any)
         .select('liquidation_batch_id')
@@ -377,6 +406,20 @@ export function ExecutionWalletPanel() {
     }
   };
 
+  // Derive state machine step from RPC
+  const getReadinessState = (): 'no_wallet' | 'no_capital' | 'ready' | 'error' => {
+    if (rpcError) return 'error';
+    if (!prerequisites) return 'error';
+    
+    if (!prerequisites.checks.wallet_exists) return 'no_wallet';
+    if (!prerequisites.checks.has_portfolio_capital) return 'no_capital';
+    if (!prerequisites.checks.rules_accepted) return 'no_capital'; // Still needs setup
+    if (prerequisites.panic_active) return 'no_capital'; // Panic blocks LIVE
+    if (prerequisites.ok) return 'ready';
+    
+    return 'no_capital';
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -385,83 +428,119 @@ export function ExecutionWalletPanel() {
     );
   }
 
+  const readinessState = getReadinessState();
+
   return (
     <div className="space-y-6">
-      {/* Live Trading Readiness Panel */}
+      {/* RPC Error State - Explicit, never silent */}
+      {rpcError && (
+        <Card className="p-6 bg-destructive/10 border-destructive/50">
+          <div className="flex items-start gap-4">
+            <AlertCircle className="w-6 h-6 text-destructive flex-shrink-0 mt-1" />
+            <div className="flex-1">
+              <h4 className="text-destructive font-semibold mb-2">LIVE Readiness Check Failed</h4>
+              <p className="text-destructive/80 text-sm mb-4 font-mono">
+                {rpcError}
+              </p>
+              <Button
+                onClick={handleRefresh}
+                variant="outline"
+                className="border-destructive/50 text-destructive hover:bg-destructive/10"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Retry
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* LIVE Readiness Panel - SOLE SOURCE OF TRUTH */}
       <Card className="p-6 bg-slate-900 border-slate-700">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-white flex items-center gap-2">
             <Shield className="w-5 h-5 text-blue-400" />
-            Live Trading Readiness
+            LIVE Readiness
           </h3>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={isCheckingPrereqs}
-            className="text-slate-400 hover:text-white"
-          >
-            {isCheckingPrereqs ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Dev panel toggle */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowDevPanel(!showDevPanel)}
+              className="text-slate-500 hover:text-slate-300"
+              title="Toggle dev panel"
+            >
+              <Bug className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={isCheckingPrereqs}
+              className="text-slate-400 hover:text-white"
+            >
+              {isCheckingPrereqs ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+            </Button>
+          </div>
         </div>
+
+        {/* Dev Panel - Raw RPC Payload */}
+        {showDevPanel && (
+          <div className="mb-4 p-3 bg-slate-950 rounded-lg border border-slate-700">
+            <div className="text-xs text-slate-500 mb-2 font-mono">
+              [DEV] Raw RPC Payload (check_live_trading_prerequisites)
+            </div>
+            <pre className="text-xs text-green-400 font-mono overflow-x-auto whitespace-pre-wrap">
+              {JSON.stringify(rawRpcPayload, null, 2)}
+            </pre>
+          </div>
+        )}
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Wallet Created */}
+        {/* Checklist - Driven STRICTLY by RPC checks */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Wallet Created - from checks.wallet_exists */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks?.has_wallet ? 'bg-green-500/10' : 'bg-slate-800/50'
+            prerequisites?.checks?.wallet_exists ? 'bg-green-500/10' : 'bg-slate-800/50'
           }`}>
-            {prerequisites?.checks?.has_wallet ? (
+            {prerequisites?.checks?.wallet_exists ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
               <XCircle className="w-5 h-5 text-slate-500" />
             )}
-            <span className={prerequisites?.checks?.has_wallet ? 'text-green-300' : 'text-slate-400'}>
+            <span className={prerequisites?.checks?.wallet_exists ? 'text-green-300' : 'text-slate-400'}>
               Wallet Created
             </span>
           </div>
           
-          {/* Wallet Active */}
+          {/* Portfolio Capital - from checks.has_portfolio_capital (SOLE AUTHORITY) */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks?.wallet_active ? 'bg-green-500/10' : 'bg-slate-800/50'
+            prerequisites?.checks?.has_portfolio_capital ? 'bg-green-500/10' : 'bg-slate-800/50'
           }`}>
-            {prerequisites?.checks?.wallet_active ? (
+            {prerequisites?.checks?.has_portfolio_capital ? (
               <CheckCircle className="w-5 h-5 text-green-400" />
             ) : (
               <XCircle className="w-5 h-5 text-slate-500" />
             )}
-            <span className={prerequisites?.checks?.wallet_active ? 'text-green-300' : 'text-slate-400'}>
-              Wallet Activated
-            </span>
-          </div>
-          
-          {/* Portfolio Capital - The SOLE authority for REAL trading */}
-          <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            prerequisites?.checks?.has_portfolio_capital 
-              ? 'bg-primary/10' : 'bg-muted/50'
-          }`}>
-            {prerequisites?.checks?.has_portfolio_capital ? (
-              <CheckCircle className="w-5 h-5 text-primary" />
-            ) : (
-              <XCircle className="w-5 h-5 text-muted-foreground" />
-            )}
             <div className="flex flex-col">
               <span className={prerequisites?.checks?.has_portfolio_capital 
-                ? 'text-foreground' : 'text-muted-foreground'}>
+                ? 'text-green-300' : 'text-slate-400'}>
                 Portfolio Capital
               </span>
-              {!prerequisites?.checks?.has_portfolio_capital && (
-                <span className="text-xs text-muted-foreground/70">
-                  Register funding wallet & deposit
+              {prerequisites?.meta?.portfolio_balance_eur !== undefined && 
+               prerequisites.meta.portfolio_balance_eur > 0 && (
+                <span className="text-xs text-green-400">
+                  €{prerequisites.meta.portfolio_balance_eur.toFixed(2)}
                 </span>
               )}
             </div>
           </div>
           
-          {/* Rules Accepted - NOW CLICKABLE */}
+          {/* Rules Accepted - from checks.rules_accepted (CLICKABLE) */}
           <button
             onClick={() => !prerequisites?.checks?.rules_accepted && setShowRulesDialog(true)}
             disabled={prerequisites?.checks?.rules_accepted}
@@ -477,64 +556,63 @@ export function ExecutionWalletPanel() {
               <FileCheck className="w-5 h-5 text-amber-400" />
             )}
             <span className={prerequisites?.checks?.rules_accepted ? 'text-green-300' : 'text-amber-300'}>
-              Trading Rules Accepted
+              Trading Rules
             </span>
             {!prerequisites?.checks?.rules_accepted && (
               <span className="text-xs text-amber-400 ml-auto">Click to accept</span>
             )}
           </button>
-          
-          {/* Panic Status - with Clear Button */}
-          <div className={`flex items-center justify-between gap-3 p-3 rounded-lg md:col-span-2 ${
-            prerequisites?.panic_active === false ? 'bg-green-500/10' : 
-            prerequisites?.panic_active === true ? 'bg-red-500/10' : 'bg-slate-800/50'
-          }`}>
-            <div className="flex items-center gap-3">
-              {prerequisites?.panic_active === false ? (
-                <CheckCircle className="w-5 h-5 text-green-400" />
-              ) : prerequisites?.panic_active === true ? (
-                <AlertTriangle className="w-5 h-5 text-red-400" />
-              ) : (
-                <AlertCircle className="w-5 h-5 text-slate-500" />
-              )}
-              <span className={
-                prerequisites?.panic_active === false ? 'text-green-300' : 
-                prerequisites?.panic_active === true ? 'text-red-400' : 'text-slate-400'
-              }>
-                {prerequisites?.panic_active ? 'Panic Mode Active (Trading Halted)' : 'No Panic Active'}
-              </span>
-            </div>
-            {prerequisites?.panic_active === true && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowClearPanicDialog(true)}
-                className="border-red-500/50 text-red-400 hover:bg-red-500/10"
-              >
-                Clear Panic
-              </Button>
-            )}
-          </div>
         </div>
+
+        {/* Panic Status - STATUS BADGE ONLY (not a checklist item) */}
+        {prerequisites?.panic_active && (
+          <div className="mt-3 flex items-center justify-between p-3 rounded-lg bg-red-500/10">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-red-400" />
+              <span className="text-red-400 font-medium">Panic Mode Active</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowClearPanicDialog(true)}
+              className="border-red-500/50 text-red-400 hover:bg-red-500/10"
+            >
+              Clear Panic
+            </Button>
+          </div>
+        )}
         
-        {/* Overall Status */}
+        {/* Overall Status Banner */}
         <div className="mt-4 pt-4 border-t border-slate-700">
-          {prerequisites?.ok ? (
+          {readinessState === 'ready' && (
             <div className="flex items-center gap-2 text-green-400">
               <Zap className="w-5 h-5" />
-              <span className="font-medium">Ready for Live Trading</span>
+              <span className="font-medium">Ready for LIVE Trading</span>
             </div>
-          ) : (
+          )}
+          {readinessState === 'no_wallet' && (
+            <div className="flex items-center gap-2 text-amber-400">
+              <Wallet className="w-5 h-5" />
+              <span className="font-medium">Create a wallet to get started</span>
+            </div>
+          )}
+          {readinessState === 'no_capital' && (
             <div className="flex items-center gap-2 text-amber-400">
               <AlertCircle className="w-5 h-5" />
-              <span className="font-medium">Complete the steps above to enable live trading</span>
+              <span className="font-medium">Complete the steps above to enable LIVE trading</span>
+            </div>
+          )}
+          {readinessState === 'error' && !rpcError && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <AlertCircle className="w-5 h-5" />
+              <span className="font-medium">Unable to determine readiness</span>
             </div>
           )}
         </div>
       </Card>
 
       {/* Wallet Creation / Status Section */}
-      {!wallet ? (
+      {readinessState === 'no_wallet' ? (
         // No wallet - show creation UI
         <Card className="p-6 bg-slate-900 border-slate-700">
           <div className="text-center">
@@ -569,7 +647,7 @@ export function ExecutionWalletPanel() {
             </Button>
           </div>
         </Card>
-      ) : (
+      ) : wallet ? (
         // Wallet exists - show status
         <div className="space-y-4">
           {/* Wallet Status Header */}
@@ -577,22 +655,16 @@ export function ExecutionWalletPanel() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-white">Execution Wallet</h3>
               <div className="flex items-center gap-2">
-                {wallet.is_funded && (
+                {prerequisites?.checks?.wallet_funded && (
                   <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
                     <CheckCircle className="w-3 h-3 mr-1" />
                     Funded
                   </Badge>
                 )}
-                {wallet.is_active ? (
-                  <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
-                    <Zap className="w-3 h-3 mr-1" />
-                    Active
-                  </Badge>
-                ) : (
-                  <Badge className="bg-muted text-muted-foreground border-border">
-                    Inactive
-                  </Badge>
-                )}
+                <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+                  <Zap className="w-3 h-3 mr-1" />
+                  Active
+                </Badge>
               </div>
             </div>
             
@@ -614,7 +686,7 @@ export function ExecutionWalletPanel() {
               </div>
             </div>
             
-            {/* Network Info + Actions */}
+            {/* Network Info */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-slate-800/30 rounded-lg p-3">
                 <div className="text-xs text-slate-400 mb-1">Network</div>
@@ -626,10 +698,9 @@ export function ExecutionWalletPanel() {
                   {new Date(wallet.created_at).toLocaleDateString()}
                 </div>
               </div>
-              
             </div>
 
-            {/* Action Buttons - Always visible when wallet exists */}
+            {/* Action Buttons */}
             <div className="mt-4 pt-4 border-t border-slate-700 flex flex-wrap gap-3">
               <Button
                 variant="outline"
@@ -642,50 +713,24 @@ export function ExecutionWalletPanel() {
             </div>
           </Card>
 
-          {/* Activation Step (if not active) */}
-          {!wallet.is_active && (
-            <Card className="p-6 bg-amber-500/10 border-amber-500/30">
-              <div className="flex items-start gap-4">
-                <AlertCircle className="w-6 h-6 text-amber-400 flex-shrink-0 mt-1" />
-                <div className="flex-1">
-                  <h4 className="text-amber-300 font-semibold mb-2">Activation Required</h4>
-                  <p className="text-amber-200/80 text-sm mb-4">
-                    Your wallet has been created but is not yet active. Activate it to enable 
-                    funding and live trading.
-                  </p>
-                  <Button
-                    onClick={() => setShowActivationModal(true)}
-                    className="bg-amber-500 hover:bg-amber-600 text-black"
-                  >
-                    <Zap className="w-4 h-4 mr-2" />
-                    Activate Wallet
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          )}
-
           {/* External Funding Section - PRIMARY PATH for REAL trading capital */}
-          {wallet.is_active && (
-            <ExternalFundingSection defaultExpanded={!wallet.is_funded} />
+          {!prerequisites?.checks?.has_portfolio_capital && (
+            <ExternalFundingSection defaultExpanded={true} />
           )}
 
-          {/* Legacy direct funding hint - only shown after external wallet registered */}
-          {/* This guides users who already have external wallets to send funds */}
-
-          {/* Wallet Balance Display - Show when wallet exists (even inactive for visibility) */}
+          {/* Wallet Balance Display */}
           <WalletBalanceDisplay 
             walletAddress={wallet.wallet_address}
             onBalanceUpdate={handleBalanceUpdate}
           />
 
-          {/* All Ready */}
-          {wallet.is_active && (prerequisites?.checks.has_portfolio_capital || wallet.is_funded) && (
+          {/* Ready Banner */}
+          {prerequisites?.ok && (
             <Card className="p-6 bg-primary/10 border-primary/30">
               <div className="flex items-center gap-3">
                 <CheckCircle className="w-6 h-6 text-primary" />
                 <div>
-                  <h4 className="text-foreground font-semibold">Ready for Real Trading</h4>
+                  <h4 className="text-foreground font-semibold">Ready for LIVE Trading</h4>
                   <p className="text-muted-foreground text-sm">
                     Your portfolio capital is available. You can now execute real trades.
                   </p>
@@ -694,7 +739,7 @@ export function ExecutionWalletPanel() {
             </Card>
           )}
 
-          {/* Permanent Warning */}
+          {/* Security Notice */}
           <Card className="p-4 bg-slate-800/30 border-slate-700">
             <div className="flex gap-3">
               <Shield className="w-5 h-5 text-white flex-shrink-0 mt-0.5" />
@@ -771,7 +816,6 @@ export function ExecutionWalletPanel() {
                       <CheckCircle className="w-3 h-3" /> Hex key copied - paste into MetaMask/Rabby
                     </div>
                   )}
-                  {/* Security Warning */}
                   <div className="bg-red-500/10 border border-red-500/30 rounded p-2 text-xs text-red-300">
                     ⚠️ Never share this key. Anyone with it can fully control your funds.
                   </div>
@@ -788,7 +832,7 @@ export function ExecutionWalletPanel() {
             </div>
           </Card>
         </div>
-      )}
+      ) : null}
 
       {/* Wallet Creation Modal */}
       <WalletCreationModal
@@ -817,84 +861,6 @@ export function ExecutionWalletPanel() {
         }}
       />
 
-      {/* Activation Confirmation Modal */}
-      <Dialog open={showActivationModal} onOpenChange={setShowActivationModal}>
-        <DialogContent className="sm:max-w-md bg-background border-border">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-foreground">
-              <Zap className="w-5 h-5 text-amber-400" />
-              Activate Execution Wallet
-            </DialogTitle>
-            <DialogDescription className="text-muted-foreground">
-              This action enables your wallet for live trading.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4 my-4">
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
-              <div className="flex gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                <div className="text-sm text-amber-200">
-                  <p className="font-medium mb-2">By activating this wallet:</p>
-                  <ul className="list-disc pl-4 space-y-1 text-amber-200/80">
-                    <li>You enable funding to this wallet</li>
-                    <li>LIVE strategies can use funds in this wallet</li>
-                    <li>Automated trades will use REAL money</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-            
-            <div className="border border-destructive/50 bg-destructive/5 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <Checkbox
-                  id="acknowledge-activation"
-                  checked={acknowledgedActivation}
-                  onCheckedChange={(checked) => setAcknowledgedActivation(checked === true)}
-                  className="mt-0.5"
-                />
-                <label 
-                  htmlFor="acknowledge-activation" 
-                  className="text-sm font-medium text-destructive cursor-pointer select-none"
-                >
-                  I understand this wallet will be used for REAL trading with REAL money
-                </label>
-              </div>
-            </div>
-          </div>
-          
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setShowActivationModal(false);
-                setAcknowledgedActivation(false);
-              }}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleActivateWallet}
-              disabled={!acknowledgedActivation || isActivating}
-              className="bg-amber-500 hover:bg-amber-600 text-black"
-            >
-              {isActivating ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Activating...
-                </>
-              ) : (
-                <>
-                  <Zap className="w-4 h-4 mr-2" />
-                  Activate Wallet
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Clear Panic Confirmation Dialog */}
       <Dialog open={showClearPanicDialog} onOpenChange={setShowClearPanicDialog}>
         <DialogContent className="sm:max-w-md">
@@ -913,11 +879,11 @@ export function ExecutionWalletPanel() {
               <div className="flex gap-3">
                 <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
                 <div className="text-sm text-amber-200">
-                  <p className="font-medium mb-2">Before clearing panic:</p>
+                  <p className="font-medium mb-2">Warning:</p>
                   <ul className="list-disc pl-4 space-y-1 text-amber-200/80">
-                    <li>Verify the issue that triggered panic has been resolved</li>
-                    <li>Strategies will remain paused until manually resumed</li>
-                    <li>You may need to review open positions</li>
+                    <li>This re-enables the trading system</li>
+                    <li>Strategies will remain paused until manually activated</li>
+                    <li>Review why panic was triggered before clearing</li>
                   </ul>
                 </div>
               </div>
