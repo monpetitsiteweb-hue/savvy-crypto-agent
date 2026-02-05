@@ -125,8 +125,8 @@ export function RealFundingWalletDialog({
       });
 
       toast({
-        title: "Funding Wallet Added",
-        description: "Your wallet has been registered. You can now send funds from this address.",
+        title: "✅ Funding Wallet Added Successfully",
+        description: "Your wallet is registered. Send funds from this address to the system wallet to start trading.",
       });
 
       // Clear form and refresh list
