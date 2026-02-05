@@ -44,7 +44,6 @@ interface RealFundingWalletDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onWalletAdded?: () => void;
-  systemWalletAddress?: string;
 }
 
 const BASE_CHAIN_ID = 8453;
@@ -58,7 +57,6 @@ export function RealFundingWalletDialog({
   open,
   onOpenChange,
   onWalletAdded,
-  systemWalletAddress,
 }: RealFundingWalletDialogProps) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -165,24 +163,23 @@ export function RealFundingWalletDialog({
             Register Funding Wallet
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Add wallets you own to enable REAL trading capital deposits.
+            Register wallets you own to enable REAL trading deposits.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 my-4">
-          {/* Explanation */}
+          {/* Clear explanation - no ambiguity */}
           <div className="bg-primary/10 border border-primary/30 rounded-lg p-4">
             <div className="flex gap-3">
               <Info className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
               <div className="text-sm text-foreground/80 space-y-2">
-                <p className="font-medium text-foreground">How funding works:</p>
-                <ol className="list-decimal pl-4 space-y-1">
-                  <li>Register wallet addresses you control below</li>
-                  <li>Send ETH or USDC on Base from your registered wallet</li>
-                  <li>System automatically credits your portfolio in EUR</li>
-                </ol>
-                <p className="text-muted-foreground mt-2 text-xs">
-                  Only deposits from registered wallets are accepted. This ensures proper attribution.
+                <p className="font-medium text-foreground">Why register a wallet?</p>
+                <p className="text-muted-foreground">
+                  Only deposits from registered wallets can be credited to your account. 
+                  After registration, you'll see the system address to send funds to.
+                </p>
+                <p className="text-xs text-destructive/80 mt-2">
+                  <strong>Important:</strong> Transfers from unregistered wallets cannot be attributed and will be lost.
                 </p>
               </div>
             </div>
@@ -305,21 +302,11 @@ export function RealFundingWalletDialog({
               )}
             </Button>
           </form>
-
-          {/* System Wallet Info (if provided) */}
-          {systemWalletAddress && (
-            <div className="bg-muted/50 rounded-lg p-3 border border-border">
-              <div className="text-xs text-muted-foreground mb-1">Send funds to this address:</div>
-              <code className="text-primary text-sm font-mono break-all">
-                {systemWalletAddress}
-              </code>
-            </div>
-          )}
         </div>
 
-        {/* Footer Note */}
+        {/* Footer Note - clear and firm */}
         <div className="text-xs text-muted-foreground text-center border-t border-border pt-4">
-          Only register wallets you fully control. Deposits from unregistered addresses cannot be attributed.
+          Only register wallets you fully control. After registration, you'll receive the system address to fund.
         </div>
       </DialogContent>
     </Dialog>

@@ -156,45 +156,49 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
     );
   }
 
-  // STATE A: No external funding wallet
+  // STATE A: No external funding wallet registered
   if (state === 'NO_WALLET') {
     return (
       <>
         <Card className="bg-muted/50 border-primary/30">
           <CardContent className="p-6">
-            <div className="flex flex-col items-center justify-center text-center space-y-4">
+            <div className="flex flex-col items-center justify-center text-center space-y-5">
               <div className="relative">
-                <Wallet className="h-12 w-12 text-primary" />
-                <Shield className="h-5 w-5 text-primary/70 absolute -bottom-1 -right-1" />
+                <Wallet className="h-14 w-14 text-primary" />
+                <Shield className="h-6 w-6 text-primary/70 absolute -bottom-1 -right-1" />
               </div>
               
-              <div>
-                <h3 className="text-lg font-semibold text-foreground">Enable Real Trading</h3>
-                <p className="text-sm text-muted-foreground mt-1 max-w-md">
-                  To start trading with real capital, you must first register a funding wallet you own.
+              <div className="space-y-2">
+                <h3 className="text-xl font-semibold text-foreground">Register a Funding Wallet</h3>
+                <p className="text-sm text-muted-foreground max-w-md">
+                  To fund your portfolio, you must first register a wallet you own.
+                  <br />
+                  <strong className="text-foreground">Only registered wallets are allowed to fund the system.</strong>
                 </p>
               </div>
 
-              {/* How it works */}
+              {/* How funding works - explicit */}
               <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 text-left w-full max-w-md">
                 <div className="flex gap-3">
                   <Info className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
                   <div className="text-sm text-foreground/80 space-y-2">
-                    <p className="font-medium text-foreground">How it works:</p>
-                    <ol className="list-decimal pl-4 space-y-1">
-                      <li>Register your external wallet address</li>
-                      <li>Send funds from that address to the system wallet</li>
-                      <li>System automatically credits your portfolio in EUR</li>
-                      <li>Start trading with real capital</li>
+                    <p className="font-medium text-foreground">How REAL funding works:</p>
+                    <ol className="list-decimal pl-4 space-y-1.5">
+                      <li><strong>Register</strong> your wallet address below</li>
+                      <li><strong>Send funds</strong> from that wallet to our system address</li>
+                      <li><strong>Receive credit</strong> — system auto-credits your portfolio in EUR</li>
+                      <li><strong>Trade</strong> with real capital</li>
                     </ol>
                   </div>
                 </div>
               </div>
               
+              {/* Primary CTAs */}
               <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md">
                 <Button 
                   onClick={() => setShowWalletDialog(true)}
                   className="bg-primary hover:bg-primary/90 flex-1"
+                  size="lg"
                 >
                   <Wallet className="h-4 w-4 mr-2" />
                   Add Funding Wallet
@@ -203,7 +207,8 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
                   variant="outline"
                   onClick={handleConnectCoinbase}
                   disabled={isConnectingCoinbase}
-                  className="flex-1 border-accent text-accent-foreground hover:bg-accent/10"
+                  className="flex-1 border-primary/50 text-foreground hover:bg-primary/10"
+                  size="lg"
                 >
                   {isConnectingCoinbase ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -214,14 +219,18 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
                 </Button>
               </div>
 
+              {/* Coinbase explanation */}
               <p className="text-xs text-muted-foreground max-w-md text-center">
-                <strong>Coinbase users:</strong> Connect your account to automatically import verified wallet addresses.
+                <strong>Coinbase users:</strong> Connect your account to automatically import verified wallet addresses. 
+                Coinbase wallets are treated as funding wallets you own.
               </p>
 
-              <p className="text-xs text-muted-foreground max-w-md">
-                Only deposits from registered wallets on Base network (Chain ID 8453) are supported.
-                ETH and USDC are accepted.
-              </p>
+              {/* Hard rule */}
+              <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 w-full max-w-md">
+                <p className="text-xs text-destructive text-center">
+                  ⚠️ You cannot receive funding instructions until you register at least one wallet.
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -230,53 +239,55 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
           open={showWalletDialog}
           onOpenChange={setShowWalletDialog}
           onWalletAdded={handleWalletAdded}
-          systemWalletAddress={systemWalletAddress || undefined}
         />
       </>
     );
   }
 
-  // STATE B: Wallet registered, waiting for funding
+  // STATE B: Wallet registered, portfolio not yet funded
   if (state === 'WALLET_REGISTERED') {
     return (
       <>
-        <Card className="bg-muted/50 border-border">
+        <Card className="bg-muted/50 border-primary/30">
           <CardContent className="p-6 space-y-6">
-            {/* Success banner if just added */}
-            {justAddedWallet && (
-              <div className="bg-primary/20 border border-primary/40 rounded-lg p-4 flex items-start gap-3">
-                <CheckCircle className="w-6 h-6 text-primary flex-shrink-0" />
-                <div>
-                  <h4 className="font-medium text-foreground">Wallet Successfully Registered!</h4>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Your funding wallet is now active. Follow the steps below to fund your portfolio.
-                  </p>
-                </div>
+            {/* Persistent success banner - always show when wallet exists */}
+            <div className="bg-primary/20 border border-primary/40 rounded-lg p-4 flex items-start gap-3">
+              <CheckCircle className="w-6 h-6 text-primary flex-shrink-0" />
+              <div>
+                <h4 className="font-medium text-foreground">
+                  {justAddedWallet ? 'Funding Wallet Registered Successfully!' : 'Funding Wallet Active'}
+                </h4>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {justAddedWallet 
+                    ? 'Your wallet is now registered. Send funds to the address below to activate trading.'
+                    : `You have ${externalWalletCount} registered wallet${externalWalletCount > 1 ? 's' : ''}. Send funds to start trading.`
+                  }
+                </p>
               </div>
-            )}
+            </div>
 
-            {/* Header */}
+            {/* Header with progress indicator */}
             <div className="text-center">
               <Badge variant="outline" className="text-primary border-primary/30 mb-3">
-                Step 2 of 3: Fund Your Portfolio
+                Step 2 of 3: Send Funds
               </Badge>
-              <h3 className="text-lg font-semibold text-foreground">
-                Send Funds to Start Trading
+              <h3 className="text-xl font-semibold text-foreground">
+                Fund Your Portfolio
               </h3>
               <p className="text-sm text-muted-foreground mt-1">
-                Transfer ETH or USDC on Base from your registered wallet
+                Send ETH or USDC from your registered wallet to the system address below
               </p>
             </div>
 
-            {/* System Trading Wallet Address */}
+            {/* System Trading Wallet Address - THE KEY UI */}
             {systemWalletAddress ? (
-              <div className="bg-muted rounded-lg p-4 space-y-3">
+              <div className="bg-primary/5 border-2 border-primary/40 rounded-lg p-5 space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wider font-medium">
+                  <span className="text-sm font-medium text-foreground">
                     System Trading Wallet
                   </span>
                   <Badge className="bg-primary/20 text-primary border-primary/30 text-xs">
-                    Base (8453)
+                    Base Network
                   </Badge>
                 </div>
                 
@@ -289,7 +300,8 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
                       variant="outline"
                       size="sm"
                       onClick={copySystemAddress}
-                      className="border-border h-9 w-9 p-0"
+                      className="border-primary/30 h-9 w-9 p-0"
+                      title="Copy address"
                     >
                       {copiedAddress ? (
                         <CheckCircle className="w-4 h-4 text-primary" />
@@ -301,7 +313,8 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
                       variant="outline"
                       size="sm"
                       onClick={() => setShowQRCode(!showQRCode)}
-                      className="border-border h-9 w-9 p-0"
+                      className="border-primary/30 h-9 w-9 p-0"
+                      title="Show QR code"
                     >
                       <QrCode className="w-4 h-4" />
                     </Button>
@@ -311,7 +324,7 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
                 {/* QR Code */}
                 {showQRCode && (
                   <div className="flex justify-center p-4 bg-white rounded-lg">
-                    <QRCodeSVG value={systemWalletAddress} size={150} />
+                    <QRCodeSVG value={systemWalletAddress} size={160} />
                   </div>
                 )}
 
@@ -332,22 +345,34 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
                   <div className="text-sm">
                     <p className="font-medium text-foreground">System wallet not available</p>
                     <p className="text-muted-foreground mt-1">
-                      Please create an execution wallet first to receive funds.
+                      Please contact support to set up your trading wallet.
                     </p>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Critical Warning */}
+            {/* Funding instructions */}
+            <div className="bg-accent/20 border border-accent/40 rounded-lg p-4">
+              <h4 className="font-medium text-foreground text-sm mb-2">How to fund:</h4>
+              <ol className="list-decimal pl-4 text-sm text-muted-foreground space-y-1">
+                <li>Open <strong>MetaMask</strong>, <strong>Rabby</strong>, or <strong>Coinbase Wallet</strong></li>
+                <li>Switch to <strong>Base network</strong></li>
+                <li>Send ETH or USDC to the system address above</li>
+                <li>Wait for confirmation — your portfolio will be credited automatically</li>
+              </ol>
+            </div>
+
+            {/* CRITICAL Warning - always visible */}
             <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4">
               <div className="flex gap-3">
                 <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0" />
                 <div className="text-sm">
-                  <p className="font-bold text-destructive">⚠️ IMPORTANT</p>
+                  <p className="font-bold text-destructive">⚠️ CRITICAL</p>
                   <p className="text-foreground/80 mt-1">
-                    Funds <strong>must be sent from your registered funding wallet</strong>. 
-                    Deposits from unregistered addresses cannot be attributed to your account.
+                    <strong>Send funds ONLY from your registered wallet.</strong>
+                    <br />
+                    Transfers from any other wallet will be ignored and cannot be recovered.
                   </p>
                 </div>
               </div>
@@ -364,7 +389,7 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
                   variant="ghost"
                   size="sm"
                   onClick={() => setShowWalletDialog(true)}
-                  className="text-primary hover:text-primary/80"
+                  className="text-primary hover:text-primary/80 text-xs"
                 >
                   + Add Another
                 </Button>
@@ -373,10 +398,10 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
             </div>
 
             {/* Supported Assets */}
-            <div className="bg-accent/30 border border-accent/50 rounded-lg p-3">
-              <p className="text-xs text-accent-foreground text-center">
-                <strong>Supported:</strong> ETH and USDC on Base (Chain ID 8453) • 
-                <strong> Minimum:</strong> 0.01 ETH or 25 USDC recommended
+            <div className="bg-muted rounded-lg p-3">
+              <p className="text-xs text-muted-foreground text-center">
+                <strong>Accepted:</strong> ETH & USDC on Base (Chain ID 8453) • 
+                <strong> Recommended minimum:</strong> 0.01 ETH or 25 USDC
               </p>
             </div>
           </CardContent>
@@ -386,33 +411,35 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
           open={showWalletDialog}
           onOpenChange={setShowWalletDialog}
           onWalletAdded={handleWalletAdded}
-          systemWalletAddress={systemWalletAddress || undefined}
         />
       </>
     );
   }
 
-  // STATE C: Pending attribution
+  // STATE C: Pending attribution - deposit detected, awaiting credit
   if (state === 'PENDING_ATTRIBUTION') {
     const latestDeposit = pendingDeposits[0];
     
     return (
-      <Card className="bg-muted/50 border-accent/50">
+      <Card className="bg-accent/10 border-accent/50">
         <CardContent className="p-6 space-y-6">
           <div className="text-center">
             <div className="relative inline-block">
-              <Clock className="h-12 w-12 text-accent animate-pulse" />
+              <Loader2 className="h-14 w-14 text-accent animate-spin" />
             </div>
-            <h3 className="text-lg font-semibold text-foreground mt-4">
-              Processing Your Deposit
+            <Badge variant="outline" className="text-accent border-accent/30 mt-4 mb-2">
+              Step 3 of 3: Confirmation
+            </Badge>
+            <h3 className="text-xl font-semibold text-foreground">
+              Deposit Detected
             </h3>
             <p className="text-sm text-muted-foreground mt-1">
-              We detected a recent deposit and are crediting your portfolio
+              Waiting for confirmation and portfolio credit...
             </p>
           </div>
 
           {latestDeposit && (
-            <div className="bg-muted rounded-lg p-4 space-y-2">
+            <div className="bg-muted rounded-lg p-4 space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Amount</span>
                 <span className="text-foreground font-medium">
@@ -425,11 +452,18 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
                   href={`https://basescan.org/tx/${latestDeposit.tx_hash}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-primary hover:underline flex items-center gap-1"
+                  className="text-primary hover:underline flex items-center gap-1 font-mono text-xs"
                 >
-                  {latestDeposit.tx_hash.slice(0, 10)}...
+                  {latestDeposit.tx_hash.slice(0, 16)}...
                   <ExternalLink className="w-3 h-3" />
                 </a>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Status</span>
+                <span className="text-accent font-medium flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  Processing
+                </span>
               </div>
             </div>
           )}
@@ -438,62 +472,67 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
             <Loader2 className="w-4 h-4 animate-spin" />
             Auto-refreshing every 30 seconds
           </div>
+          
+          <p className="text-xs text-muted-foreground text-center">
+            Your portfolio will be credited automatically once confirmation is complete.
+          </p>
         </CardContent>
       </Card>
     );
   }
 
-  // STATE D: Portfolio funded
+  // STATE D: Portfolio funded - ready to trade
   if (state === 'PORTFOLIO_FUNDED') {
     return (
-      <Card className="bg-primary/5 border-primary/30">
+      <Card className="bg-primary/10 border-primary/50">
         <CardContent className="p-6 space-y-6">
           <div className="text-center">
             <div className="relative inline-block">
-              <CheckCircle className="h-12 w-12 text-primary" />
+              <CheckCircle className="h-14 w-14 text-primary" />
             </div>
-            <h3 className="text-lg font-semibold text-foreground mt-4">
-              Portfolio Funded
+            <h3 className="text-xl font-semibold text-foreground mt-4">
+              Your Portfolio is Funded and Ready
             </h3>
             <p className="text-sm text-muted-foreground mt-1">
-              Your REAL trading portfolio is ready
+              You can now trade with real capital
             </p>
           </div>
 
           {/* Portfolio Balance */}
-          <div className="bg-muted rounded-lg p-6 text-center">
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+          <div className="bg-primary/20 border border-primary/40 rounded-lg p-6 text-center">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
               Available Capital
             </div>
-            <div className="text-3xl font-bold text-primary">
+            <div className="text-4xl font-bold text-primary">
               {portfolioCapital !== null ? formatEuro(portfolioCapital) : '—'}
             </div>
           </div>
 
-          {/* CTA */}
+          {/* Primary CTA */}
           <div className="text-center">
-            <Button className="bg-primary hover:bg-primary/90">
-              <TrendingUp className="w-4 h-4 mr-2" />
-              Start Trading
-              <ArrowRight className="w-4 h-4 ml-2" />
+            <Button className="bg-primary hover:bg-primary/90" size="lg">
+              <TrendingUp className="w-5 h-5 mr-2" />
+              Start Real Trading
+              <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
           </div>
 
           {/* Recent Deposits */}
           {pendingDeposits.length > 0 && (
-            <div className="space-y-2">
-              <h4 className="text-sm font-medium text-foreground">Recent Deposits</h4>
+            <div className="space-y-2 pt-4 border-t border-border">
+              <h4 className="text-sm font-medium text-foreground">Deposit History</h4>
               <div className="space-y-1">
                 {pendingDeposits.slice(0, 3).map((deposit, idx) => (
                   <div key={idx} className="flex justify-between text-xs text-muted-foreground bg-muted/50 rounded p-2">
-                    <span>{deposit.amount} {deposit.asset}</span>
+                    <span className="font-medium">{deposit.amount} {deposit.asset}</span>
                     <a
                       href={`https://basescan.org/tx/${deposit.tx_hash}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-primary hover:underline"
+                      className="text-primary hover:underline flex items-center gap-1"
                     >
                       View tx
+                      <ExternalLink className="w-3 h-3" />
                     </a>
                   </div>
                 ))}

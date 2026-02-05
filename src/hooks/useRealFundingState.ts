@@ -1,15 +1,31 @@
 /**
  * useRealFundingState Hook
  * 
- * REAL MODE ONLY - Determines the current state of the REAL funding flow.
+ * REAL MODE ONLY - Single source of truth for REAL funding UI state.
  * 
- * States:
- * - NO_WALLET: No external funding wallet registered
- * - WALLET_REGISTERED: ≥1 wallet exists, portfolio not funded
- * - PENDING_ATTRIBUTION: Deposit detected, awaiting attribution (future enhancement)
- * - PORTFOLIO_FUNDED: portfolio_capital exists with capital
+ * This hook determines which funding UI to show based on backend data.
+ * It enforces the strict funding flow where users MUST register a wallet
+ * before seeing any funding instructions.
  * 
- * This is the SINGLE SOURCE OF TRUTH for REAL funding UI state.
+ * States (mutually exclusive):
+ * 
+ * A - NO_WALLET: 
+ *     Condition: 0 rows in user_external_addresses
+ *     UI: "Add Funding Wallet" CTA, NO system address shown
+ * 
+ * B - WALLET_REGISTERED: 
+ *     Condition: ≥1 external wallet exists, portfolio_capital NOT initialized
+ *     UI: Success confirmation, system wallet address, funding instructions
+ * 
+ * C - PENDING_ATTRIBUTION: 
+ *     Condition: Recent deposit detected, portfolio not yet credited
+ *     UI: Pending status with tx hash
+ * 
+ * D - PORTFOLIO_FUNDED: 
+ *     Condition: portfolio_capital exists with cash_balance_eur > 0
+ *     UI: Portfolio balance, "Start Real Trading" CTA
+ * 
+ * INVARIANT: Funding instructions are NEVER shown in State A.
  */
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
