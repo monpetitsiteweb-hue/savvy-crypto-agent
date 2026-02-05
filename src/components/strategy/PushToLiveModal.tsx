@@ -12,22 +12,23 @@ import { logger } from '@/utils/logger';
 /**
  * NEW RPC CONTRACT (check_live_trading_prerequisites):
  * 
+ * wallet_exists = EXTERNAL WALLET registered (user_external_addresses)
+ * has_portfolio_capital = REAL portfolio capital > 0 (SOLE authority)
+ * 
  * checks: {
- *   wallet_exists: boolean,
- *   wallet_funded: boolean,
- *   has_portfolio_capital: boolean,  // SOLE authority for REAL trading
+ *   wallet_exists: boolean,           // External wallet registered
+ *   has_portfolio_capital: boolean,   // REAL cash > 0
  *   rules_accepted: boolean
  * }
  */
 interface PrerequisiteChecks {
   wallet_exists: boolean;
-  wallet_funded: boolean;
   has_portfolio_capital: boolean;
   rules_accepted: boolean;
 }
 
 interface PrerequisiteMeta {
-  wallet_address: string | null;
+  external_wallet_address: string | null;
   portfolio_balance_eur: number;
 }
 
@@ -242,17 +243,17 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
               {checks ? (
                 <>
                   {renderCheckRow(
-                    'Execution Wallet Created',
+                    'External Wallet Connected',
                     checks.wallet_exists,
                     <Wallet className="h-4 w-4 text-muted-foreground" />,
-                    'Set Up Wallet',
+                    'Connect Wallet',
                     () => navigateToProfile('wallet')
                   )}
                   {renderCheckRow(
                     'Portfolio Capital',
                     checks.has_portfolio_capital,
                     <Wallet className="h-4 w-4 text-muted-foreground" />,
-                    'Fund Wallet',
+                    'Fund Portfolio',
                     () => navigateToProfile('wallet')
                   )}
                   {renderCheckRow(
@@ -267,7 +268,7 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
                 <div className="text-sm text-muted-foreground space-y-2">
                   <p>To trade LIVE, you need to:</p>
                   <ul className="list-disc list-inside space-y-1">
-                    <li>Create an execution wallet</li>
+                    <li>Connect an external wallet</li>
                     <li>Fund portfolio capital</li>
                     <li>Accept the trading rules</li>
                   </ul>

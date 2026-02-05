@@ -52,31 +52,32 @@ interface WalletData {
 /**
  * NEW RPC CONTRACT (check_live_trading_prerequisites):
  * 
+ * wallet_exists = EXTERNAL WALLET registered (user_external_addresses)
+ * has_portfolio_capital = REAL portfolio capital > 0 (SOLE authority)
+ * 
  * Returns:
  * {
  *   ok: boolean,           // Global readiness
  *   checks: {
- *     wallet_exists: boolean,
- *     wallet_funded: boolean,
- *     has_portfolio_capital: boolean,  // SOLE authority for REAL trading
+ *     wallet_exists: boolean,        // External wallet registered
+ *     has_portfolio_capital: boolean, // REAL cash > 0
  *     rules_accepted: boolean
  *   },
  *   panic_active: boolean,  // Top-level status flag
  *   meta: {
- *     wallet_address: string | null,
+ *     external_wallet_address: string | null,
  *     portfolio_balance_eur: number
  *   }
  * }
  */
 interface PrerequisiteChecks {
   wallet_exists: boolean;
-  wallet_funded: boolean;
   has_portfolio_capital: boolean;
   rules_accepted: boolean;
 }
 
 interface PrerequisiteMeta {
-  wallet_address: string | null;
+  external_wallet_address: string | null;
   portfolio_balance_eur: number;
 }
 
@@ -129,7 +130,8 @@ function validateRpcShape(data: unknown): string | null {
   }
   
   const checks = d.checks as Record<string, unknown>;
-  const requiredChecks = ['wallet_exists', 'wallet_funded', 'has_portfolio_capital', 'rules_accepted'];
+  // UPDATED: wallet_funded removed from contract - external wallet model
+  const requiredChecks = ['wallet_exists', 'has_portfolio_capital', 'rules_accepted'];
   for (const field of requiredChecks) {
     if (typeof checks[field] !== 'boolean') {
       return `RPC checks missing required field: ${field} (boolean)`;
@@ -503,7 +505,7 @@ export function ExecutionWalletPanel() {
         
         {/* Checklist - Driven STRICTLY by RPC checks */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {/* Wallet Created - from checks.wallet_exists */}
+          {/* External Wallet Connected - from checks.wallet_exists */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
             prerequisites?.checks?.wallet_exists ? 'bg-green-500/10' : 'bg-slate-800/50'
           }`}>
@@ -513,7 +515,7 @@ export function ExecutionWalletPanel() {
               <XCircle className="w-5 h-5 text-slate-500" />
             )}
             <span className={prerequisites?.checks?.wallet_exists ? 'text-green-300' : 'text-slate-400'}>
-              Wallet Created
+              External Wallet Connected
             </span>
           </div>
           
@@ -593,7 +595,7 @@ export function ExecutionWalletPanel() {
           {readinessState === 'no_wallet' && (
             <div className="flex items-center gap-2 text-amber-400">
               <Wallet className="w-5 h-5" />
-              <span className="font-medium">Create a wallet to get started</span>
+              <span className="font-medium">Connect an external wallet to get started</span>
             </div>
           )}
           {readinessState === 'no_capital' && (
@@ -613,26 +615,26 @@ export function ExecutionWalletPanel() {
 
       {/* Wallet Creation / Status Section */}
       {readinessState === 'no_wallet' ? (
-        // No wallet - show creation UI
+        // No external wallet - show connection UI
         <Card className="p-6 bg-slate-900 border-slate-700">
           <div className="text-center">
             <Wallet className="w-16 h-16 text-slate-400 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-white mb-2">Create Execution Wallet</h3>
+            <h3 className="text-xl font-semibold text-white mb-2">Connect External Wallet</h3>
             <p className="text-slate-400 mb-6 max-w-md mx-auto">
-              Create a dedicated wallet for automated trading. This wallet will be used by 
-              strategies to execute real trades on your behalf.
+              Connect your external wallet to fund your portfolio. Deposits from this wallet
+              will be credited to your REAL trading balance.
             </p>
             
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 mb-6 text-left max-w-md mx-auto">
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-6 text-left max-w-md mx-auto">
               <div className="flex gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                <div className="text-sm text-amber-200">
-                  <p className="font-medium mb-2">Important:</p>
-                  <ul className="list-disc pl-4 space-y-1 text-amber-200/80">
-                    <li>You will receive your private key <strong>once only</strong></li>
-                    <li>Save the key immediately - it cannot be recovered</li>
-                    <li>This wallet is dedicated to automated trading</li>
-                    <li>One wallet per account - cannot be changed</li>
+                <Shield className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-blue-200">
+                  <p className="font-medium mb-2">How it works:</p>
+                  <ul className="list-disc pl-4 space-y-1 text-blue-200/80">
+                    <li>Register your external wallet address</li>
+                    <li>Send funds from that wallet to the system address</li>
+                    <li>Deposits are automatically credited to your portfolio</li>
+                    <li>Trade with real capital once funded</li>
                   </ul>
                 </div>
               </div>
@@ -643,19 +645,19 @@ export function ExecutionWalletPanel() {
               className="bg-primary hover:bg-primary/90"
             >
               <Wallet className="w-4 h-4 mr-2" />
-              Create Execution Wallet
+              Connect External Wallet
             </Button>
           </div>
         </Card>
       ) : wallet ? (
         // Wallet exists - show status
         <div className="space-y-4">
-          {/* Wallet Status Header */}
+          {/* External Wallet Status Header */}
           <Card className="p-6 bg-slate-900 border-slate-700">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Execution Wallet</h3>
+              <h3 className="text-lg font-semibold text-white">External Wallet</h3>
               <div className="flex items-center gap-2">
-                {prerequisites?.checks?.wallet_funded && (
+                {prerequisites?.checks?.has_portfolio_capital && (
                   <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
                     <CheckCircle className="w-3 h-3 mr-1" />
                     Funded
@@ -663,7 +665,7 @@ export function ExecutionWalletPanel() {
                 )}
                 <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
                   <Zap className="w-3 h-3 mr-1" />
-                  Active
+                  Connected
                 </Badge>
               </div>
             </div>
