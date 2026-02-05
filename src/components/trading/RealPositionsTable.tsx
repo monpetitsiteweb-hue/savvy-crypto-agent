@@ -38,8 +38,8 @@ export function RealPositionsTable({
 }: RealPositionsTableProps) {
   if (isLoading) {
     return (
-      <Card className="p-6 bg-slate-800/80 border-slate-700">
-        <div className="flex items-center justify-center gap-2 text-slate-400">
+      <Card className="p-6">
+        <div className="flex items-center justify-center gap-2 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span>Loading positions...</span>
         </div>
@@ -49,8 +49,8 @@ export function RealPositionsTable({
 
   if (positions.length === 0) {
     return (
-      <Card className="p-6 bg-slate-800/80 border-slate-700">
-        <div className="text-center text-slate-400">
+      <Card className="p-6">
+        <div className="text-center text-muted-foreground">
           <p>No open positions.</p>
           <p className="text-sm mt-1">Execute a real BUY trade to see positions here.</p>
         </div>
@@ -59,13 +59,13 @@ export function RealPositionsTable({
   }
 
   return (
-    <Card className="bg-slate-800/80 border-slate-700 overflow-hidden">
+    <Card className="overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+      <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h3 className="font-semibold text-white">REAL Positions</h3>
-          <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
-            On-Chain
+          <h3 className="font-semibold">Positions</h3>
+          <Badge variant="outline" className="text-xs">
+            REAL
           </Badge>
         </div>
         {onRefresh && (
@@ -75,35 +75,28 @@ export function RealPositionsTable({
         )}
       </div>
 
-      {/* Info banner: Quantity only */}
-      <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20">
-        <p className="text-xs text-amber-400">
-          <strong>Note:</strong> REAL mode shows quantity only. P&L and performance stats are TEST-only.
-        </p>
-      </div>
-
       {/* Positions list */}
-      <div className="divide-y divide-slate-700">
+      <div className="divide-y">
         {positions.map((position) => (
-          <div key={`${position.symbol}-${position.chain_id}`} className="p-4 hover:bg-slate-700/30">
+          <div key={`${position.symbol}-${position.chain_id}`} className="p-4 hover:bg-muted/50 transition-colors">
             <div className="flex items-center justify-between">
               {/* Left: Symbol */}
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-slate-600 flex items-center justify-center text-sm font-bold text-white">
+                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-bold">
                   {position.symbol.slice(0, 2)}
                 </div>
                 <div>
-                  <span className="font-semibold text-white">{position.symbol}</span>
-                  <p className="text-xs text-slate-500">Chain: {position.chain_id}</p>
+                  <span className="font-semibold">{position.symbol}</span>
+                  <p className="text-xs text-muted-foreground">Chain: {position.chain_id}</p>
                 </div>
               </div>
 
               {/* Right: Quantity */}
               <div className="text-right">
-                <p className="text-lg font-bold text-white">
+                <p className="text-lg font-bold">
                   {position.position_size.toLocaleString(undefined, { maximumFractionDigits: 8 })}
                 </p>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-muted-foreground">
                   Last trade: {formatTimestamp(position.last_trade_at)}
                 </p>
               </div>

@@ -64,8 +64,8 @@ export function RealTradeHistoryTable({
 }: RealTradeHistoryTableProps) {
   if (isLoading) {
     return (
-      <Card className="p-6 bg-slate-800/80 border-slate-700">
-        <div className="flex items-center justify-center gap-2 text-slate-400">
+      <Card className="p-6">
+        <div className="flex items-center justify-center gap-2 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span>Loading trade history...</span>
         </div>
@@ -75,8 +75,8 @@ export function RealTradeHistoryTable({
 
   if (trades.length === 0) {
     return (
-      <Card className="p-6 bg-slate-800/80 border-slate-700">
-        <div className="text-center text-slate-400">
+      <Card className="p-6">
+        <div className="text-center text-muted-foreground">
           <p>No real trades found.</p>
           <p className="text-sm mt-1">Execute a real trade to see it here.</p>
         </div>
@@ -85,15 +85,15 @@ export function RealTradeHistoryTable({
   }
 
   return (
-    <Card className="bg-slate-800/80 border-slate-700 overflow-hidden">
+    <Card className="overflow-hidden">
       {/* Header */}
-      <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+      <div className="p-4 border-b flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h3 className="font-semibold text-white">
-            {isSystemOperator ? 'System Trading Wallet' : 'REAL (on-chain)'}
+          <h3 className="font-semibold">
+            {isSystemOperator ? 'System Trading Wallet' : 'Trade History'}
           </h3>
-          <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
-            On-Chain
+          <Badge variant="outline" className="text-xs">
+            REAL
           </Badge>
         </div>
         {onRefresh && (
@@ -104,22 +104,22 @@ export function RealTradeHistoryTable({
       </div>
 
       {/* Trade list */}
-      <div className="divide-y divide-slate-700 max-h-[500px] overflow-y-auto">
+      <div className="divide-y max-h-[500px] overflow-y-auto">
         {trades.map((trade) => (
-          <div key={trade.real_trade_id} className="p-4 hover:bg-slate-700/30">
+          <div key={trade.real_trade_id} className="p-4 hover:bg-muted/50 transition-colors">
             <div className="flex items-start justify-between gap-4">
               {/* Left: Symbol, Side, Quantity */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="font-semibold text-white">{trade.symbol}</span>
-                  <Badge className={SIDE_COLORS[trade.side] || 'bg-slate-500/20'}>
+                  <span className="font-semibold">{trade.symbol}</span>
+                  <Badge className={SIDE_COLORS[trade.side] || 'bg-muted'}>
                     {trade.side}
                   </Badge>
                   <Badge variant="outline" className={STATUS_COLORS[trade.execution_status] || STATUS_COLORS.SUBMITTED}>
                     {trade.execution_status}
                   </Badge>
                 </div>
-                <div className="text-sm text-slate-400 space-y-0.5">
+                <div className="text-sm text-muted-foreground space-y-0.5">
                   <p>Qty: {trade.filled_quantity.toFixed(8)}</p>
                   <p>Price: {formatEuro(trade.effective_price)}</p>
                   {trade.total_value && <p>Value: {formatEuro(trade.total_value)}</p>}
@@ -127,7 +127,7 @@ export function RealTradeHistoryTable({
               </div>
 
               {/* Right: Timestamps and TX Hash */}
-              <div className="text-right text-xs text-slate-500 space-y-1">
+              <div className="text-right text-xs text-muted-foreground space-y-1">
                 <p>Intent: {formatTimestamp(trade.intent_ts)}</p>
                 <p>Executed: {formatTimestamp(trade.execution_recorded_at)}</p>
                 <a

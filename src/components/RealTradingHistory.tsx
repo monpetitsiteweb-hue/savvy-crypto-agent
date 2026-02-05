@@ -49,32 +49,25 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <h2 className="text-xl font-semibold">Trading History</h2>
-            <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
-              REAL (on-chain)
+            <Badge variant="outline" className="text-xs">
+              REAL
             </Badge>
           </div>
         </div>
 
-        {/* Info banner: No P&L in REAL mode */}
-        <div className="mb-6 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-          <p className="text-sm text-amber-400">
-            <strong>REAL Mode:</strong> Showing on-chain execution data. P&L, win rate, and performance stats are TEST-only.
-          </p>
-        </div>
-
-        {/* Summary cards - quantity only */}
+        {/* Summary cards - matching TEST mode styling */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <Card className="p-4 bg-slate-700/50">
-            <p className="text-sm text-slate-400 mb-1">Open Positions</p>
-            <p className="text-2xl font-bold text-white">{positions.length}</p>
+          <Card className="p-4">
+            <p className="text-sm text-muted-foreground mb-1">Open Positions</p>
+            <p className="text-2xl font-bold">{positions.length}</p>
           </Card>
-          <Card className="p-4 bg-slate-700/50">
-            <p className="text-sm text-slate-400 mb-1">Total BUY Trades</p>
-            <p className="text-2xl font-bold text-white">{buyTrades.length}</p>
+          <Card className="p-4">
+            <p className="text-sm text-muted-foreground mb-1">Total BUY Trades</p>
+            <p className="text-2xl font-bold">{buyTrades.length}</p>
           </Card>
-          <Card className="p-4 bg-slate-700/50">
-            <p className="text-sm text-slate-400 mb-1">Total SELL Trades</p>
-            <p className="text-2xl font-bold text-white">{sellTrades.length}</p>
+          <Card className="p-4">
+            <p className="text-sm text-muted-foreground mb-1">Total SELL Trades</p>
+            <p className="text-2xl font-bold">{sellTrades.length}</p>
           </Card>
         </div>
 
