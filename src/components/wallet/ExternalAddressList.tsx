@@ -83,9 +83,9 @@ export function ExternalAddressList({ refreshTrigger }: ExternalAddressListProps
 
   if (isLoading) {
     return (
-      <Card className="p-4 bg-slate-800/50 border-slate-700">
+      <Card className="p-4 bg-muted/50 border-border">
         <div className="flex items-center justify-center py-4">
-          <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
+          <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
         </div>
       </Card>
     );
@@ -93,12 +93,12 @@ export function ExternalAddressList({ refreshTrigger }: ExternalAddressListProps
 
   if (addresses.length === 0) {
     return (
-      <Card className="p-4 bg-slate-800/50 border-slate-700">
+      <Card className="p-4 bg-muted/50 border-border">
         <div className="text-center py-4">
-          <Wallet className="w-8 h-8 text-slate-500 mx-auto mb-2" />
-          <p className="text-sm text-slate-400">No external addresses registered</p>
-          <p className="text-xs text-slate-500 mt-1">
-            Register your wallet addresses above to enable deposit attribution
+          <Wallet className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">No funding wallets registered</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">
+            Register your wallet address above to enable REAL trading deposits
           </p>
         </div>
       </Card>
@@ -106,33 +106,33 @@ export function ExternalAddressList({ refreshTrigger }: ExternalAddressListProps
   }
 
   return (
-    <Card className="p-4 bg-slate-800/50 border-slate-700">
-      <h4 className="text-sm font-medium text-white mb-3 flex items-center gap-2">
-        <Wallet className="w-4 h-4 text-blue-400" />
-        Your Registered Funding Addresses
+    <Card className="p-4 bg-muted/50 border-border">
+      <h4 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
+        <Wallet className="w-4 h-4 text-primary" />
+        Your Registered Funding Wallets
       </h4>
       
       <div className="space-y-2">
         {addresses.map((addr) => (
           <div
             key={addr.id}
-            className="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg border border-slate-700"
+            className="flex items-center justify-between p-3 bg-background rounded-lg border border-border"
           >
             <div className="flex items-center gap-3 min-w-0 flex-1">
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-2">
-                  <code className="text-green-400 font-mono text-sm">
+                  <code className="text-primary font-mono text-sm">
                     {truncateAddress(addr.address)}
                   </code>
                   {addr.is_verified && (
-                    <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
+                    <Badge className="bg-primary/20 text-primary border-primary/30 text-xs">
                       <CheckCircle className="w-3 h-3 mr-1" />
                       Verified
                     </Badge>
                   )}
                 </div>
                 {addr.label && (
-                  <span className="text-xs text-slate-400 mt-1 truncate">
+                  <span className="text-xs text-muted-foreground mt-1 truncate">
                     {addr.label}
                   </span>
                 )}
@@ -144,10 +144,10 @@ export function ExternalAddressList({ refreshTrigger }: ExternalAddressListProps
                 variant="ghost"
                 size="sm"
                 onClick={() => copyAddress(addr.id, addr.address)}
-                className="text-slate-400 hover:text-white h-8 w-8 p-0"
+                className="text-muted-foreground hover:text-foreground h-8 w-8 p-0"
               >
                 {copiedId === addr.id ? (
-                  <CheckCircle className="w-4 h-4 text-green-400" />
+                  <CheckCircle className="w-4 h-4 text-primary" />
                 ) : (
                   <Copy className="w-4 h-4" />
                 )}
@@ -156,7 +156,7 @@ export function ExternalAddressList({ refreshTrigger }: ExternalAddressListProps
                 variant="ghost"
                 size="sm"
                 onClick={() => openBasescan(addr.address)}
-                className="text-slate-400 hover:text-white h-8 w-8 p-0"
+                className="text-muted-foreground hover:text-foreground h-8 w-8 p-0"
               >
                 <ExternalLink className="w-4 h-4" />
               </Button>
@@ -165,7 +165,7 @@ export function ExternalAddressList({ refreshTrigger }: ExternalAddressListProps
         ))}
       </div>
 
-      <p className="text-xs text-slate-500 mt-3">
+      <p className="text-xs text-muted-foreground mt-3">
         Deposits from these addresses to the system wallet will be credited to your portfolio.
       </p>
     </Card>

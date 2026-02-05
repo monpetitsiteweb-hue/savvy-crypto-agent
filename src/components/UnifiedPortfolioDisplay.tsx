@@ -18,6 +18,7 @@ import { Wallet, RefreshCw, Loader2, TestTube, RotateCcw, AlertCircle, Fuel, Bar
 import { WalletRealityPanel } from "@/components/wallet/WalletRealityPanel";
 import { logger } from '@/utils/logger';
 import { PortfolioNotInitialized } from "@/components/PortfolioNotInitialized";
+import { RealPortfolioNotInitialized } from "@/components/RealPortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { afterReset } from '@/utils/resetHelpers';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
@@ -490,7 +491,13 @@ export const UnifiedPortfolioDisplay = () => {
     (metrics as any)?.reason === 'portfolio_not_initialized';
 
   if (showPortfolioNotInitialized) {
-    return <PortfolioNotInitialized onReset={handleResetPortfolio} isLoading={walletLoading} />;
+    // TEST mode: Show "Initialize Portfolio" button (mock €30k capital)
+    // REAL mode: Show "Add Funding Wallet" CTA (capital via on-chain deposits ONLY)
+    if (testMode) {
+      return <PortfolioNotInitialized onReset={handleResetPortfolio} isLoading={walletLoading} />;
+    } else {
+      return <RealPortfolioNotInitialized onWalletAdded={refreshMetrics} />;
+    }
   }
   
   // Determine if we should show the unified portfolio view (TEST or REAL)

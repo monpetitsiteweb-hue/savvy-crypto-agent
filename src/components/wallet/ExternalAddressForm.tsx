@@ -63,7 +63,8 @@ export function ExternalAddressForm({ onAddressAdded }: ExternalAddressFormProps
           chain_id: BASE_CHAIN_ID,
           address: trimmedAddress.toLowerCase(), // Normalize on client as well
           label: label.trim() || null,
-          is_verified: false // User-declared, not verified yet
+          is_verified: false, // User-declared, not verified yet
+          source: 'manual'
         }) as any);
 
       if (insertError) {
@@ -82,8 +83,8 @@ export function ExternalAddressForm({ onAddressAdded }: ExternalAddressFormProps
       });
 
       toast({
-        title: "Address Registered",
-        description: "Your external funding address has been added. Deposits from this address will be attributed to your account.",
+        title: "Funding Wallet Registered",
+        description: "Your wallet has been added. Deposits from this address will be attributed to your account.",
       });
 
       // Clear form
@@ -101,21 +102,21 @@ export function ExternalAddressForm({ onAddressAdded }: ExternalAddressFormProps
   };
 
   return (
-    <Card className="p-4 bg-slate-800/50 border-slate-700">
-      <h4 className="text-sm font-medium text-white mb-3 flex items-center gap-2">
-        <Plus className="w-4 h-4 text-green-400" />
-        Register External Funding Address
+    <Card className="p-4 bg-muted/50 border-border">
+      <h4 className="text-sm font-medium text-foreground mb-3 flex items-center gap-2">
+        <Plus className="w-4 h-4 text-primary" />
+        Register Funding Wallet
       </h4>
       
-      <p className="text-xs text-slate-400 mb-4">
+      <p className="text-xs text-muted-foreground mb-4">
         Register wallet addresses you own. Deposits from these addresses to the system wallet 
         will be automatically credited to your REAL trading portfolio.
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="address" className="text-slate-300 text-sm">
-            Wallet Address <span className="text-red-400">*</span>
+          <Label htmlFor="address" className="text-foreground text-sm">
+            Wallet Address <span className="text-destructive">*</span>
           </Label>
           <Input
             id="address"
@@ -123,16 +124,16 @@ export function ExternalAddressForm({ onAddressAdded }: ExternalAddressFormProps
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             placeholder="0x..."
-            className="bg-slate-900 border-slate-600 text-white font-mono text-sm"
+            className="bg-background border-border text-foreground font-mono text-sm"
             disabled={isSubmitting}
           />
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             Base network (Chain ID {BASE_CHAIN_ID}) only
           </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="label" className="text-slate-300 text-sm">
+          <Label htmlFor="label" className="text-foreground text-sm">
             Label (optional)
           </Label>
           <Input
@@ -141,14 +142,14 @@ export function ExternalAddressForm({ onAddressAdded }: ExternalAddressFormProps
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="e.g., MetaMask, Coinbase Wallet"
-            className="bg-slate-900 border-slate-600 text-white text-sm"
+            className="bg-background border-border text-foreground text-sm"
             maxLength={50}
             disabled={isSubmitting}
           />
         </div>
 
         {error && (
-          <div className="flex items-start gap-2 text-red-400 text-sm bg-red-500/10 p-3 rounded border border-red-500/30">
+          <div className="flex items-start gap-2 text-destructive text-sm bg-destructive/10 p-3 rounded border border-destructive/30">
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
@@ -157,7 +158,7 @@ export function ExternalAddressForm({ onAddressAdded }: ExternalAddressFormProps
         <Button
           type="submit"
           disabled={isSubmitting || !address.trim()}
-          className="w-full bg-green-600 hover:bg-green-700 text-white"
+          className="w-full"
         >
           {isSubmitting ? (
             <>
@@ -167,14 +168,14 @@ export function ExternalAddressForm({ onAddressAdded }: ExternalAddressFormProps
           ) : (
             <>
               <CheckCircle className="w-4 h-4 mr-2" />
-              Register Address
+              Register Wallet
             </>
           )}
         </Button>
       </form>
 
-      <div className="mt-4 pt-4 border-t border-slate-700">
-        <div className="flex items-start gap-2 text-xs text-slate-400">
+      <div className="mt-4 pt-4 border-t border-border">
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
           <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
           <span>
             Only register addresses you fully control. System will attribute deposits 

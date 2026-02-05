@@ -393,28 +393,24 @@ export function ExecutionWalletPanel() {
             </span>
           </div>
           
-          {/* Wallet Funded (Flow A) OR Portfolio Capital (Flow B) */}
+          {/* Portfolio Capital - The SOLE authority for REAL trading */}
           <div className={`flex items-center gap-3 p-3 rounded-lg ${
-            (prerequisites?.checks.wallet_funded || prerequisites?.checks.has_portfolio_capital) 
-              ? 'bg-green-500/10' : 'bg-slate-800/50'
+            prerequisites?.checks.has_portfolio_capital 
+              ? 'bg-primary/10' : 'bg-muted/50'
           }`}>
-            {(prerequisites?.checks.wallet_funded || prerequisites?.checks.has_portfolio_capital) ? (
-              <CheckCircle className="w-5 h-5 text-green-400" />
+            {prerequisites?.checks.has_portfolio_capital ? (
+              <CheckCircle className="w-5 h-5 text-primary" />
             ) : (
-              <XCircle className="w-5 h-5 text-slate-500" />
+              <XCircle className="w-5 h-5 text-muted-foreground" />
             )}
             <div className="flex flex-col">
-              <span className={(prerequisites?.checks.wallet_funded || prerequisites?.checks.has_portfolio_capital) 
-                ? 'text-green-300' : 'text-slate-400'}>
-                Capital Available
+              <span className={prerequisites?.checks.has_portfolio_capital 
+                ? 'text-foreground' : 'text-muted-foreground'}>
+                Portfolio Capital
               </span>
-              {(prerequisites?.checks.wallet_funded || prerequisites?.checks.has_portfolio_capital) && (
-                <span className="text-xs text-green-400/70">
-                  {prerequisites?.checks.wallet_funded && prerequisites?.checks.has_portfolio_capital
-                    ? 'Wallet + Portfolio'
-                    : prerequisites?.checks.wallet_funded 
-                      ? 'Via Wallet' 
-                      : 'Via Portfolio'}
+              {!prerequisites?.checks.has_portfolio_capital && (
+                <span className="text-xs text-muted-foreground/70">
+                  Register funding wallet & deposit
                 </span>
               )}
             </div>
@@ -612,33 +608,13 @@ export function ExecutionWalletPanel() {
             </Card>
           )}
 
-          {/* External Funding Section - ADDITIVE (Flow B) */}
+          {/* External Funding Section - PRIMARY PATH for REAL trading capital */}
           {wallet.is_active && (
-            <ExternalFundingSection />
+            <ExternalFundingSection defaultExpanded={!wallet.is_funded} />
           )}
 
-          {/* Funding Step (if active but not funded) - EXISTING (Flow A) */}
-          {wallet.is_active && !wallet.is_funded && (
-            <Card className="p-6 bg-blue-500/10 border-blue-500/30">
-              <div className="flex items-start gap-4">
-                <Wallet className="w-6 h-6 text-blue-400 flex-shrink-0 mt-1" />
-                <div className="flex-1">
-                  <h4 className="text-blue-300 font-semibold mb-2">Fund Your Wallet</h4>
-                  <p className="text-blue-200/80 text-sm mb-4">
-                    Send ETH or USDC on the Base network to enable live trading.
-                  </p>
-                  <ol className="text-blue-200/70 text-sm space-y-2 list-decimal pl-4 mb-4">
-                    <li>Copy the wallet address above</li>
-                    <li>Send funds from your exchange or wallet</li>
-                    <li>Wait for confirmation (usually 1-2 minutes)</li>
-                  </ol>
-                  <div className="bg-blue-500/20 rounded-lg p-3 text-blue-200 text-sm">
-                    <strong>Minimum recommended:</strong> 0.01 ETH for gas + trading capital
-                  </div>
-                </div>
-              </div>
-            </Card>
-          )}
+          {/* Legacy direct funding hint - only shown after external wallet registered */}
+          {/* This guides users who already have external wallets to send funds */}
 
           {/* Wallet Balance Display - Show when wallet exists (even inactive for visibility) */}
           <WalletBalanceDisplay 
@@ -647,14 +623,14 @@ export function ExecutionWalletPanel() {
           />
 
           {/* All Ready */}
-          {wallet.is_active && wallet.is_funded && (
-            <Card className="p-6 bg-green-500/10 border-green-500/30">
+          {wallet.is_active && (prerequisites?.checks.has_portfolio_capital || wallet.is_funded) && (
+            <Card className="p-6 bg-primary/10 border-primary/30">
               <div className="flex items-center gap-3">
-                <CheckCircle className="w-6 h-6 text-green-400" />
+                <CheckCircle className="w-6 h-6 text-primary" />
                 <div>
-                  <h4 className="text-green-300 font-semibold">Wallet Ready for Trading</h4>
-                  <p className="text-green-200/80 text-sm">
-                    Your execution wallet is active and funded. You can now promote MOCK strategies to LIVE.
+                  <h4 className="text-foreground font-semibold">Ready for Real Trading</h4>
+                  <p className="text-muted-foreground text-sm">
+                    Your portfolio capital is available. You can now execute real trades.
                   </p>
                 </div>
               </div>
