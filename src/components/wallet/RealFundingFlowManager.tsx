@@ -160,7 +160,7 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
   if (state === 'NO_WALLET') {
     return (
       <>
-        <Card className="bg-muted/50 border-primary/30">
+        <Card className="bg-background border-2 border-primary/50 shadow-lg">
           <CardContent className="p-6">
             <div className="flex flex-col items-center justify-center text-center space-y-5">
               <div className="relative">
@@ -169,11 +169,9 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
               </div>
               
               <div className="space-y-2">
-                <h3 className="text-xl font-semibold text-foreground">Register a Funding Wallet</h3>
-                <p className="text-sm text-muted-foreground max-w-md">
-                  To fund your portfolio, you must first register a wallet you own.
-                  <br />
-                  <strong className="text-foreground">Only registered wallets are allowed to fund the system.</strong>
+                <h3 className="text-2xl font-bold text-foreground">Register a Funding Wallet</h3>
+                <p className="text-foreground/70 max-w-md">
+                  To fund your portfolio, first register a wallet address you control.
                 </p>
               </div>
 
@@ -182,13 +180,16 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
                 <div className="flex gap-3">
                   <Info className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
                   <div className="text-sm text-foreground/80 space-y-2">
-                    <p className="font-medium text-foreground">How REAL funding works:</p>
+                    <p className="font-semibold text-foreground">How REAL funding works:</p>
                     <ol className="list-decimal pl-4 space-y-1.5">
                       <li><strong>Register</strong> your wallet address below</li>
-                      <li><strong>Send funds</strong> from that wallet to our system address</li>
-                      <li><strong>Receive credit</strong> — system auto-credits your portfolio in EUR</li>
+                      <li><strong>Send funds</strong> using MetaMask, Rabby, or Coinbase</li>
+                      <li><strong>Receive credit</strong> — your portfolio is credited in EUR</li>
                       <li><strong>Trade</strong> with real capital</li>
                     </ol>
+                    <p className="text-foreground/60 mt-2 text-xs">
+                      This app cannot move funds on your behalf — you control your wallet.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -197,7 +198,7 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
               <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md">
                 <Button 
                   onClick={() => setShowWalletDialog(true)}
-                  className="bg-primary hover:bg-primary/90 flex-1"
+                  className="bg-primary hover:bg-primary/90 flex-1 font-semibold"
                   size="lg"
                 >
                   <Wallet className="h-4 w-4 mr-2" />
@@ -207,7 +208,7 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
                   variant="outline"
                   onClick={handleConnectCoinbase}
                   disabled={isConnectingCoinbase}
-                  className="flex-1 border-primary/50 text-foreground hover:bg-primary/10"
+                  className="flex-1 border-primary/50 text-foreground hover:bg-primary/10 font-medium"
                   size="lg"
                 >
                   {isConnectingCoinbase ? (
@@ -220,15 +221,15 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
               </div>
 
               {/* Coinbase explanation */}
-              <p className="text-xs text-muted-foreground max-w-md text-center">
-                <strong>Coinbase users:</strong> Connect your account to automatically import verified wallet addresses. 
-                Coinbase wallets are treated as funding wallets you own.
+              <p className="text-xs text-foreground/60 max-w-md text-center">
+                <strong>Coinbase users:</strong> Connect your account to auto-import wallet addresses. 
+                Coinbase wallets work the same as manually added wallets.
               </p>
 
-              {/* Hard rule */}
-              <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-3 w-full max-w-md">
-                <p className="text-xs text-destructive text-center">
-                  ⚠️ You cannot receive funding instructions until you register at least one wallet.
+              {/* Important notice - amber for non-destructive warning */}
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 w-full max-w-md">
+                <p className="text-xs text-foreground/80 text-center">
+                  <strong className="text-amber-700 dark:text-amber-400">Note:</strong> You cannot see the system deposit address until you register at least one funding wallet.
                 </p>
               </div>
             </div>
@@ -248,95 +249,98 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
   if (state === 'WALLET_REGISTERED') {
     return (
       <>
-        <Card className="bg-muted/50 border-primary/30">
+        <Card className="bg-background border-2 border-primary/50 shadow-lg">
           <CardContent className="p-6 space-y-6">
-            {/* Persistent success banner - always show when wallet exists */}
-            <div className="bg-primary/20 border border-primary/40 rounded-lg p-4 flex items-start gap-3">
+            {/* Success banner - high visibility */}
+            <div className="bg-primary/20 border-2 border-primary/50 rounded-lg p-4 flex items-start gap-3">
               <CheckCircle className="w-6 h-6 text-primary flex-shrink-0" />
               <div>
-                <h4 className="font-medium text-foreground">
-                  {justAddedWallet ? 'Funding Wallet Registered Successfully!' : 'Funding Wallet Active'}
+                <h4 className="font-semibold text-foreground text-lg">
+                  {justAddedWallet ? '✓ Funding Wallet Registered!' : '✓ You Have a Registered Funding Wallet'}
                 </h4>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {justAddedWallet 
-                    ? 'Your wallet is now registered. Send funds to the address below to activate trading.'
-                    : `You have ${externalWalletCount} registered wallet${externalWalletCount > 1 ? 's' : ''}. Send funds to start trading.`
-                  }
+                <p className="text-sm text-foreground/80 mt-1">
+                  {externalWalletCount} wallet{externalWalletCount > 1 ? 's' : ''} registered for deposit attribution.
                 </p>
               </div>
             </div>
 
-            {/* Header with progress indicator */}
-            <div className="text-center">
-              <Badge variant="outline" className="text-primary border-primary/30 mb-3">
-                Step 2 of 3: Send Funds
+            {/* Header with clear messaging */}
+            <div className="text-center space-y-2">
+              <Badge variant="outline" className="text-primary border-primary/40 font-medium">
+                Step 2 of 3: Send Funds Externally
               </Badge>
-              <h3 className="text-xl font-semibold text-foreground">
-                Fund Your Portfolio
+              <h3 className="text-2xl font-bold text-foreground">
+                Send Funds Using Your Wallet App
               </h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Send ETH or USDC from your registered wallet to the system address below
+              <p className="text-foreground/70 max-w-lg mx-auto">
+                Open <strong>MetaMask</strong>, <strong>Rabby</strong>, or <strong>Coinbase Wallet</strong> and send funds to the address below.
               </p>
             </div>
 
-            {/* System Trading Wallet Address - THE KEY UI */}
+            {/* SYSTEM WALLET ADDRESS - PRIMARY FOCUS */}
             {systemWalletAddress ? (
-              <div className="bg-primary/5 border-2 border-primary/40 rounded-lg p-5 space-y-4">
+              <div className="bg-foreground/5 border-2 border-foreground/20 rounded-xl p-6 space-y-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-foreground">
-                    System Trading Wallet
+                  <span className="text-base font-semibold text-foreground">
+                    System Deposit Address
                   </span>
-                  <Badge className="bg-primary/20 text-primary border-primary/30 text-xs">
-                    Base Network
+                  <Badge className="bg-primary text-primary-foreground font-medium">
+                    Base Network (8453)
                   </Badge>
                 </div>
                 
-                <div className="flex items-center gap-2">
-                  <code className="text-primary text-sm font-mono break-all flex-1 bg-background p-3 rounded border border-border">
+                {/* Large, high-contrast address display */}
+                <div className="bg-background border-2 border-primary/40 rounded-lg p-4">
+                  <code className="text-primary text-base font-mono break-all block text-center leading-relaxed">
                     {systemWalletAddress}
                   </code>
-                  <div className="flex flex-col gap-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={copySystemAddress}
-                      className="border-primary/30 h-9 w-9 p-0"
-                      title="Copy address"
-                    >
-                      {copiedAddress ? (
-                        <CheckCircle className="w-4 h-4 text-primary" />
-                      ) : (
-                        <Copy className="w-4 h-4" />
-                      )}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowQRCode(!showQRCode)}
-                      className="border-primary/30 h-9 w-9 p-0"
-                      title="Show QR code"
-                    >
-                      <QrCode className="w-4 h-4" />
-                    </Button>
-                  </div>
                 </div>
 
-                {/* QR Code */}
+                {/* PRIMARY CTA - Copy Address */}
+                <Button
+                  onClick={copySystemAddress}
+                  size="lg"
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-base py-6"
+                >
+                  {copiedAddress ? (
+                    <>
+                      <CheckCircle className="w-5 h-5 mr-2" />
+                      Address Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-5 h-5 mr-2" />
+                      Copy System Wallet Address
+                    </>
+                  )}
+                </Button>
+
+                {/* Secondary actions row */}
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowQRCode(!showQRCode)}
+                    className="flex-1 border-foreground/20 hover:bg-foreground/5"
+                  >
+                    <QrCode className="w-4 h-4 mr-2" />
+                    {showQRCode ? 'Hide QR Code' : 'Show QR Code'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={openBasescan}
+                    className="flex-1 border-foreground/20 hover:bg-foreground/5"
+                  >
+                    View on Basescan
+                    <ExternalLink className="w-4 h-4 ml-2" />
+                  </Button>
+                </div>
+
+                {/* QR Code - prominent when shown */}
                 {showQRCode && (
-                  <div className="flex justify-center p-4 bg-white rounded-lg">
-                    <QRCodeSVG value={systemWalletAddress} size={160} />
+                  <div className="flex justify-center p-6 bg-white rounded-lg border border-foreground/10">
+                    <QRCodeSVG value={systemWalletAddress} size={200} />
                   </div>
                 )}
-
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={openBasescan}
-                  className="w-full text-muted-foreground hover:text-foreground"
-                >
-                  View on Basescan
-                  <ExternalLink className="w-3 h-3 ml-2" />
-                </Button>
               </div>
             ) : (
               <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4">
@@ -352,34 +356,51 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
               </div>
             )}
 
-            {/* Funding instructions */}
-            <div className="bg-accent/20 border border-accent/40 rounded-lg p-4">
-              <h4 className="font-medium text-foreground text-sm mb-2">How to fund:</h4>
-              <ol className="list-decimal pl-4 text-sm text-muted-foreground space-y-1">
-                <li>Open <strong>MetaMask</strong>, <strong>Rabby</strong>, or <strong>Coinbase Wallet</strong></li>
-                <li>Switch to <strong>Base network</strong></li>
-                <li>Send ETH or USDC to the system address above</li>
-                <li>Wait for confirmation — your portfolio will be credited automatically</li>
-              </ol>
+            {/* Clear explanation of the model */}
+            <div className="bg-amber-500/10 border-2 border-amber-500/30 rounded-lg p-4">
+              <div className="flex gap-3">
+                <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm space-y-2">
+                  <p className="font-semibold text-foreground">Why you must use your wallet app:</p>
+                  <ul className="space-y-1.5 text-foreground/80">
+                    <li>• Your external wallet is <strong>user-custodied</strong> — only you control it</li>
+                    <li>• This app <strong>cannot move funds on your behalf</strong></li>
+                    <li>• You must initiate the transfer from MetaMask, Rabby, or Coinbase</li>
+                  </ul>
+                </div>
+              </div>
             </div>
 
-            {/* CRITICAL Warning - always visible */}
-            <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4">
+            {/* Warning - visible but not destructive styling */}
+            <div className="bg-amber-500/10 border border-amber-500/40 rounded-lg p-4">
               <div className="flex gap-3">
-                <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0" />
+                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
                 <div className="text-sm">
-                  <p className="font-bold text-destructive">⚠️ CRITICAL</p>
+                  <p className="font-semibold text-amber-700 dark:text-amber-400">Important</p>
                   <p className="text-foreground/80 mt-1">
-                    <strong>Send funds ONLY from your registered wallet.</strong>
-                    <br />
-                    Transfers from any other wallet will be ignored and cannot be recovered.
+                    Send funds <strong>only from your registered wallet</strong>.
+                    Transfers from unregistered addresses cannot be attributed to your account.
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Registered Wallets */}
-            <div className="space-y-3">
+            {/* What happens after sending */}
+            <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+              <h4 className="font-medium text-foreground text-sm mb-2 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-primary" />
+                What happens after you send funds:
+              </h4>
+              <ol className="list-decimal pl-5 text-sm text-foreground/80 space-y-1">
+                <li>Transaction confirms on Base network (~2-5 minutes)</li>
+                <li>System detects the deposit from your registered wallet</li>
+                <li>Your portfolio is credited with the EUR equivalent</li>
+                <li>You can start real trading immediately</li>
+              </ol>
+            </div>
+
+            {/* Registered Wallets - collapsible section */}
+            <div className="space-y-3 pt-2 border-t border-foreground/10">
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-medium text-foreground flex items-center gap-2">
                   <Wallet className="w-4 h-4 text-primary" />
@@ -397,8 +418,8 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
               <ExternalAddressList refreshTrigger={refreshTrigger} />
             </div>
 
-            {/* Supported Assets */}
-            <div className="bg-muted rounded-lg p-3">
+            {/* Supported Assets - subtle footer */}
+            <div className="bg-muted/50 rounded-lg p-3">
               <p className="text-xs text-muted-foreground text-center">
                 <strong>Accepted:</strong> ETH & USDC on Base (Chain ID 8453) • 
                 <strong> Recommended minimum:</strong> 0.01 ETH or 25 USDC
