@@ -303,14 +303,12 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
           onWalletAdded={handleWalletAdded}
         />
 
-        {systemWalletAddress && (
-          <FundingModal
-            open={showFundingModal}
-            onOpenChange={setShowFundingModal}
-            systemWalletAddress={systemWalletAddress}
-            externalWalletCount={externalWalletCount}
-          />
-        )}
+        <FundingModal
+          open={showFundingModal}
+          onOpenChange={setShowFundingModal}
+          systemWalletAddress={systemWalletAddress}
+          externalWalletCount={externalWalletCount}
+        />
       </>
     );
   }
@@ -389,14 +387,12 @@ export function RealFundingFlowManager({ onPortfolioFunded }: RealFundingFlowMan
           </CardContent>
         </Card>
 
-        {systemWalletAddress && (
-          <FundingModal
-            open={showFundingModal}
-            onOpenChange={setShowFundingModal}
-            systemWalletAddress={systemWalletAddress}
-            externalWalletCount={externalWalletCount}
-          />
-        )}
+        <FundingModal
+          open={showFundingModal}
+          onOpenChange={setShowFundingModal}
+          systemWalletAddress={systemWalletAddress}
+          externalWalletCount={externalWalletCount}
+        />
       </>
     );
   }
