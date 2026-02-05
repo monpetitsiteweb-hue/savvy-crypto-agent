@@ -1,7 +1,7 @@
 # ScalpSmart Architecture Documentation
 
-> **FREEZE DATE**: 2026-02-04  
-> **STATUS**: Canonical reference for the current system state  
+> **FREEZE DATE**: 2026-02-05  
+> **STATUS**: Canonical reference for the current system state
 > **PURPOSE**: Prevent architecture regressions and enable debugability
 
 This document describes the **current production state** of the ScalpSmart trading system. It is not aspirational—it documents what the code actually does.
@@ -120,10 +120,19 @@ Users fund their REAL portfolio by sending assets directly from their own extern
 
 1. User sends ETH/USDC/etc from their wallet to Admin Wallet address
 2. This is done entirely in user's wallet app (MetaMask, etc.)
-3. Deposit Watcher monitors Admin Wallet for incoming transfers
-4. Matches `tx.from` against registered `user_deposit_addresses`
-5. Credits user's REAL ledger balance in `mock_trades` (via initial capital entry)
+3. `onchain-deposit-watcher` monitors Admin Wallet for incoming transfers:
+   - **Native ETH**: Scans block transactions for transfers TO `BOT_ADDRESS`
+   - **ERC20 (WETH, USDC)**: Queries Transfer event logs via `eth_getLogs`
+4. Matches `tx.from` against registered `user_external_addresses`
+5. Credits user's REAL ledger via `settle_deposit_attribution` RPC
 6. One transaction, one gas fee, no intermediaries
+
+**Supported Assets:**
+| Asset | Detection Method | Contract Address |
+|-------|------------------|------------------|
+| ETH (native) | Block transaction scan | N/A (native) |
+| WETH | ERC20 Transfer logs | `0x4200000000000000000000000000000000000006` |
+| USDC | ERC20 Transfer logs | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
 
 ### 2.5 Withdrawal Flow
 
@@ -425,6 +434,55 @@ strategy_id: isSystemOperator ? null : strategy_id,
 **Auto-Wrap Policy:**
 - Enabled if `ENABLE_AUTO_WRAP=true` OR `system_operator_mode=true`
 - System operator trades always auto-wrap for seamless execution
+
+---
+
+### 4.6 `onchain-deposit-watcher`
+
+**File:** `supabase/functions/onchain-deposit-watcher/index.ts`
+
+**What It Does:**
+- Monitors Admin Wallet (`BOT_ADDRESS`) for incoming deposits
+- Detects **native ETH** transfers by scanning block transactions
+- Detects **ERC20 transfers** (WETH, USDC) via `eth_getLogs` Transfer events
+- Attributes deposits to users by matching `tx.from` to `user_external_addresses`
+- Calls `settle_deposit_attribution` RPC to credit user's REAL portfolio
+
+**Supported Assets:**
+| Asset | Detection Method | Contract |
+|-------|------------------|----------|
+| ETH | `eth_getBlockByNumber` → scan `tx.to === BOT_ADDRESS` | Native |
+| WETH | `eth_getLogs` → Transfer topic | `0x4200...0006` |
+| USDC | `eth_getLogs` → Transfer topic | `0x8335...2913` |
+
+**Trigger Methods:**
+- **CRON**: Runs periodically via scheduled invocation
+- **Manual**: Can be triggered with `?lookback_blocks=N` query param
+
+**Flow:**
+```
+┌─────────────────┐     ┌─────────────────────┐     ┌────────────────────┐
+│  User Wallet    │ ──▶ │  Admin Wallet       │ ──▶ │  Deposit Watcher   │
+│  (MetaMask)     │     │  (BOT_ADDRESS)      │     │  (scans blocks)    │
+└─────────────────┘     └─────────────────────┘     └────────────────────┘
+                                                             │
+                                                             ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  settle_deposit_attribution RPC                                          │
+│  • Upserts deposit_attributions table                                    │
+│  • Updates portfolio_capital (REAL mode)                                 │
+│  • Transitions user to PORTFOLIO_FUNDED state                            │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Assumptions:**
+- `BOT_ADDRESS` environment variable is set
+- `RPC_URL_8453` is configured for Base mainnet
+- `user_external_addresses` table contains registered user wallet addresses
+
+**What It MUST NOT Do:**
+- Execute trades or modify positions
+- Process deposits from unregistered addresses
 
 ---
 
