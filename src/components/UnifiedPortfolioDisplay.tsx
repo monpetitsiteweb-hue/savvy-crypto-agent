@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMockWallet } from "@/hooks/useMockWallet";
-import { useTradeViewFilter } from "@/hooks/useTradeViewFilter";
+// GUARDRAIL #3: Single source of truth for mode - use useTradingMode only
+import { useTradingMode } from "@/hooks/useTradingMode";
 import { useAuth } from "@/hooks/useAuth";
 import { usePortfolioMetrics } from "@/hooks/usePortfolioMetrics";
 import { useOpenTrades } from "@/hooks/useOpenTrades";
@@ -19,10 +20,11 @@ import { WalletRealityPanel } from "@/components/wallet/WalletRealityPanel";
 import { logger } from '@/utils/logger';
 import { PortfolioNotInitialized } from "@/components/PortfolioNotInitialized";
 import { RealPortfolioNotInitialized } from "@/components/RealPortfolioNotInitialized";
+import { PortfolioMetricsError } from "@/components/PortfolioMetricsError";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { afterReset } from '@/utils/resetHelpers';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
-import { 
+import {
   computeFullPortfolioValuation, 
   formatPnlWithSign,
   MOCK_GAS_PER_TX_EUR,
@@ -58,15 +60,19 @@ interface PortfolioData {
 }
 
 export const UnifiedPortfolioDisplay = () => {
-  const { testMode } = useTradeViewFilter();
+  // GUARDRAIL #3: Single source of truth for mode
+  const { isTestMode: testMode, mode } = useTradingMode();
   const { user } = useAuth();
 
   const { resetPortfolio, isLoading: walletLoading } = useMockWallet();
   const { 
     metrics, 
     loading: metricsLoading, 
+    error: metricsError,
+    rpcFailed,
     isInitialized, 
     refresh: refreshMetrics,
+    currentMode,
     sinceStartGainEur,
     sinceStartGainPct,
     unrealizedPnlPct,
@@ -481,6 +487,22 @@ export const UnifiedPortfolioDisplay = () => {
       </Card>
     );
   };
+
+  // GUARDRAIL #2: Show explicit error when RPC fails - NEVER fabricate zeros
+  if (rpcFailed && !metricsLoading) {
+    return (
+      <Card className="bg-slate-800/50 border-slate-600">
+        <CardContent className="pt-6">
+          <PortfolioMetricsError
+            mode={testMode ? 'TEST' : 'REAL'}
+            error={metricsError}
+            onRetry={refreshMetrics}
+            isRetrying={metricsLoading}
+          />
+        </CardContent>
+      </Card>
+    );
+  }
 
   // Show not initialized state ONLY when backend explicitly reports it.
   // Never treat transient RPC errors as "not initialized".
