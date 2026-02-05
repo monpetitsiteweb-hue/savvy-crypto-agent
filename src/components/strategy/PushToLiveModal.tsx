@@ -206,7 +206,7 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
         )}
 
         {/* STEP: Blocked */}
-        {step === 'blocked' && checks && (
+        {step === 'blocked' && (
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-orange-500">
@@ -214,28 +214,43 @@ export const PushToLiveModal: React.FC<PushToLiveModalProps> = ({
                 Cannot Push to LIVE
               </DialogTitle>
               <DialogDescription>
-                Complete the following requirements before promoting this strategy.
+                {checks 
+                  ? 'Complete the following requirements before promoting this strategy.'
+                  : 'Live trading prerequisites are not met. Please complete the required setup steps.'}
               </DialogDescription>
             </DialogHeader>
             <div className="py-4 space-y-1">
-              {renderCheckRow(
-                'Execution Wallet Created & Funded',
-                checks.has_active_funded_wallet,
-                <Wallet className="h-4 w-4 text-muted-foreground" />,
-                'Set Up Wallet',
-                () => navigateToProfile('wallet')
-              )}
-              {renderCheckRow(
-                'Trading Rules Accepted',
-                checks.has_accepted_rules,
-                <FileCheck className="h-4 w-4 text-muted-foreground" />,
-                'Accept Rules',
-                () => navigateToProfile('rules')
-              )}
-              {renderCheckRow(
-                'No Active Panic State',
-                checks.no_panic_active,
-                <Shield className="h-4 w-4 text-muted-foreground" />
+              {checks ? (
+                <>
+                  {renderCheckRow(
+                    'Execution Wallet Created & Funded',
+                    checks.has_active_funded_wallet,
+                    <Wallet className="h-4 w-4 text-muted-foreground" />,
+                    'Set Up Wallet',
+                    () => navigateToProfile('wallet')
+                  )}
+                  {renderCheckRow(
+                    'Trading Rules Accepted',
+                    checks.has_accepted_rules,
+                    <FileCheck className="h-4 w-4 text-muted-foreground" />,
+                    'Accept Rules',
+                    () => navigateToProfile('rules')
+                  )}
+                  {renderCheckRow(
+                    'No Active Panic State',
+                    checks.no_panic_active,
+                    <Shield className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </>
+              ) : (
+                <div className="text-sm text-muted-foreground space-y-2">
+                  <p>To trade LIVE, you need to:</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li>Create and fund an execution wallet</li>
+                    <li>Accept the trading rules</li>
+                    <li>Ensure no panic state is active</li>
+                  </ul>
+                </div>
               )}
             </div>
             <DialogFooter>
