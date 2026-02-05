@@ -23,7 +23,7 @@ export interface ExternalAddress {
   label: string | null;
   chain_id: number;
   is_verified: boolean;
-  source?: string;
+  source: 'manual' | 'coinbase';
   created_at: string;
 }
 

@@ -20,6 +20,7 @@ interface ExternalAddress {
   label: string | null;
   chain_id: number;
   is_verified: boolean;
+  source: 'manual' | 'coinbase';
   created_at: string;
 }
 
@@ -44,7 +45,7 @@ export function ExternalAddressList({ refreshTrigger }: ExternalAddressListProps
     try {
       const { data, error } = await (supabase
         .from('user_external_addresses' as any)
-        .select('id, address, label, chain_id, is_verified, created_at')
+        .select('id, address, label, chain_id, is_verified, source, created_at')
         .eq('user_id', user.id)
         .eq('chain_id', BASE_CHAIN_ID)
         .order('created_at', { ascending: false }) as any);
@@ -120,10 +121,15 @@ export function ExternalAddressList({ refreshTrigger }: ExternalAddressListProps
           >
             <div className="flex items-center gap-3 min-w-0 flex-1">
               <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <code className="text-primary font-mono text-sm">
                     {truncateAddress(addr.address)}
                   </code>
+                  {addr.source === 'coinbase' && (
+                    <Badge variant="outline" className="text-xs border-accent/50 text-accent">
+                      Coinbase
+                    </Badge>
+                  )}
                   {addr.is_verified && (
                     <Badge className="bg-primary/20 text-primary border-primary/30 text-xs">
                       <CheckCircle className="w-3 h-3 mr-1" />

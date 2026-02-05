@@ -3172,6 +3172,7 @@ export type Database = {
           id: string
           is_verified: boolean
           label: string | null
+          source: string
           updated_at: string
           user_id: string
         }
@@ -3182,6 +3183,7 @@ export type Database = {
           id?: string
           is_verified?: boolean
           label?: string | null
+          source?: string
           updated_at?: string
           user_id: string
         }
@@ -3192,6 +3194,7 @@ export type Database = {
           id?: string
           is_verified?: boolean
           label?: string | null
+          source?: string
           updated_at?: string
           user_id?: string
         }
