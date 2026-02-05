@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,11 +7,13 @@ import {
   ChevronUp,
   Wallet,
   Info,
-  Plus
+  Plus,
+  CheckCircle
 } from 'lucide-react';
 import { ExternalAddressForm } from './ExternalAddressForm';
 import { ExternalAddressList } from './ExternalAddressList';
 import { useExternalAddresses } from '@/hooks/useExternalAddresses';
+import { useToast } from '@/hooks/use-toast';
 
 /**
  * ExternalFundingSection
@@ -33,23 +35,59 @@ interface ExternalFundingSectionProps {
   systemWalletAddress?: string;
   /** If true, start expanded (for when no wallets exist) */
   defaultExpanded?: boolean;
+  /** Called after a wallet is successfully added */
+  onWalletAdded?: () => void;
 }
 
 export function ExternalFundingSection({ 
   systemWalletAddress,
-  defaultExpanded = false 
+  defaultExpanded = false,
+  onWalletAdded
 }: ExternalFundingSectionProps) {
+  const { toast } = useToast();
   const { hasAddresses, count, refetch } = useExternalAddresses();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded || !hasAddresses);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [showSuccessBanner, setShowSuccessBanner] = useState(false);
+
+  // Auto-expand when no addresses exist
+  useEffect(() => {
+    if (!hasAddresses) {
+      setIsExpanded(true);
+    }
+  }, [hasAddresses]);
 
   const handleAddressAdded = () => {
     setRefreshTrigger(prev => prev + 1);
     refetch();
+    setShowSuccessBanner(true);
+    
+    toast({
+      title: "✅ Funding Wallet Added",
+      description: "Your wallet is now registered. Send funds from this address to start trading.",
+    });
+    
+    onWalletAdded?.();
+    
+    // Hide success banner after 8 seconds
+    setTimeout(() => setShowSuccessBanner(false), 8000);
   };
 
   return (
     <Card className="p-4 bg-primary/10 border-primary/30">
+      {/* Success Banner */}
+      {showSuccessBanner && (
+        <div className="mb-4 bg-primary/20 border border-primary/40 rounded-lg p-3 flex items-center gap-3">
+          <CheckCircle className="w-5 h-5 text-primary flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-foreground">Wallet Successfully Added!</p>
+            <p className="text-xs text-muted-foreground">
+              You can now send funds from this wallet to your system trading address.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header - Always visible */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
