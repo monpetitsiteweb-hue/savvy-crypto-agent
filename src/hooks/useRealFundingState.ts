@@ -110,15 +110,20 @@ export function useRealFundingState(): RealFundingStateResult {
 
       setPortfolioCapital(isPortfolioInitialized ? capital : null);
 
-      // 2. Get system execution wallet address
-      const { data: walletData } = await (supabase
-        .from('execution_wallets' as any)
-        .select('wallet_address')
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .maybeSingle() as any);
+      // 2. Get SYSTEM/ADMIN wallet address (custodial pool BOT_ADDRESS)
+      // This is the deposit destination for REAL funding.
+      const { data: systemStatus, error: systemStatusError } = await supabase.functions.invoke(
+        'system-wallet-status',
+        { method: 'GET' } as any
+      );
 
-      setSystemWalletAddress(walletData?.wallet_address || null);
+      if (systemStatusError) {
+        logger.error('[useRealFundingState] system-wallet-status error:', systemStatusError);
+        setSystemWalletAddress(null);
+      } else {
+        const addr = (systemStatus as any)?.system_wallet?.address ?? null;
+        setSystemWalletAddress(addr);
+      }
 
       // 3. Check for pending/recent deposits (deposit_attributions)
       const { data: recentDeposits } = await (supabase
