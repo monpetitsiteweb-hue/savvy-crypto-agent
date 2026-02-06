@@ -9,8 +9,16 @@
 export type TradingMode = 'TEST' | 'REAL';
 
 /**
+ * Trade role discriminator - separates engine trades from funding events
+ */
+export type TradeRole = 'ENGINE_TRADE' | 'FUNDING';
+
+/**
  * Real trade from real_trade_history_view
  * Contains on-chain execution facts, NOT business logic
+ * 
+ * NOTE: This view only returns ENGINE_TRADE rows.
+ * Funding events are excluded by the view definition.
  */
 export interface RealTradeHistoryRow {
   real_trade_id: string;
