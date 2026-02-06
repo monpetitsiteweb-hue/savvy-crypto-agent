@@ -6,7 +6,7 @@ import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { ConversationPanel } from '@/components/ConversationPanel';
 
-import { MergedPortfolioDisplay } from '@/components/MergedPortfolioDisplay';
+
 import { UnifiedPortfolioDisplay } from '@/components/UnifiedPortfolioDisplay';
 // RealPortfolioDisplay deprecated - REAL mode now uses UnifiedPortfolioDisplay with p_is_test_mode=false
 import { TradingHistory } from '@/components/TradingHistory';
@@ -31,12 +31,8 @@ import { useOnboardingStatus } from '@/hooks/useOnboardingStatus';
 import { WelcomeModal } from '@/components/onboarding/WelcomeModal';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Link2, Wallet } from 'lucide-react';
+import { Link2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-
-// Portfolio source type - 'app' (unified ledger) or 'coinbase' (external account view)
-type PortfolioSource = 'app' | 'coinbase';
 
 // Step 3 & 5: Parent debug gate and helpers
 const RUNTIME_DEBUG =
@@ -221,11 +217,6 @@ function IndexComponent() {
     setIsStrategyFullWidth(value);
   };
   
-  // Portfolio source selector: 'app' (unified ledger) or 'coinbase' (external view)
-  // CRITICAL: Default MUST be 'app' regardless of Coinbase connection status
-  // In TEST mode, portfolioSource is ALWAYS 'app' (enforced via effect after testMode is declared)
-  const [portfolioSource, setPortfolioSource] = useState<PortfolioSource>('app');
-  
   // Step 3: Parent mount counter + rate limiting
   const parentMountCountRef = useRef(0);
   const parentLastLogRef = useRef(0);
@@ -273,13 +264,6 @@ function IndexComponent() {
     // The user can connect via header CTA or profile page later
   }, [completeWelcome]);
   
-  // ENFORCE: In Test mode, always use 'app' portfolio source (no Coinbase contamination)
-  useEffect(() => {
-    if (testMode && portfolioSource !== 'app') {
-      setPortfolioSource('app');
-    }
-  }, [testMode, portfolioSource]);
-
   // Step 9: Context change logging with version tracking
   const contextChangeLog = useRef(new Map<string, number>());
   useEffect(() => {
@@ -495,44 +479,9 @@ function IndexComponent() {
               <div className="p-6 flex-1 overflow-y-auto min-h-0">
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6">
-                    {/* Portfolio Source Selector - Only show in LIVE mode (testMode=false) */}
-                    {/* In TEST mode, always use App Portfolio - no Coinbase option */}
-                    {!testMode && (
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Wallet className="h-4 w-4 text-slate-400" />
-                          <span className="text-sm text-slate-400">Portfolio View:</span>
-                        </div>
-                        <Select
-                          value={portfolioSource}
-                          onValueChange={(value: PortfolioSource) => setPortfolioSource(value)}
-                        >
-                          <SelectTrigger className="w-[180px] bg-slate-700/50 border-slate-600">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="bg-slate-800 border-slate-600 z-50">
-                            <SelectItem value="app" className="text-white hover:bg-slate-700">
-                              App Portfolio
-                            </SelectItem>
-                            <SelectItem value="coinbase" className="text-white hover:bg-slate-700">
-                              Coinbase Account
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-                    
                     {/* Portfolio Display - UNIFIED: uses get_portfolio_metrics(p_is_test_mode) */}
-                    {/* REAL mode now uses SAME component with FIFO-correct P&L via existing RPC */}
                     <ErrorBoundary>
-                      {portfolioSource === 'app' || isRealMode ? (
-                        <UnifiedPortfolioDisplay />
-                      ) : (
-                        <MergedPortfolioDisplay
-                          hasActiveStrategy={hasActiveStrategy}
-                          onCreateStrategy={() => setActiveTab('strategy')}
-                        />
-                      )}
+                      <UnifiedPortfolioDisplay />
                     </ErrorBoundary>
                     <ErrorBoundary>
                       <BackendDecisionPanel />
