@@ -2292,6 +2292,7 @@ export type Database = {
           strategy_id: string | null
           total_value: number | null
           trade_id: string
+          trade_role: string | null
           tx_hash: string
           user_id: string
         }
@@ -2319,6 +2320,7 @@ export type Database = {
           strategy_id?: string | null
           total_value?: number | null
           trade_id: string
+          trade_role?: string | null
           tx_hash: string
           user_id: string
         }
@@ -2346,6 +2348,7 @@ export type Database = {
           strategy_id?: string | null
           total_value?: number | null
           trade_id?: string
+          trade_role?: string | null
           tx_hash?: string
           user_id?: string
         }
@@ -3663,6 +3666,7 @@ export type Database = {
           strategy_id: string | null
           symbol: string | null
           total_value: number | null
+          trade_id: string | null
           tx_hash: string | null
           user_id: string | null
         }
