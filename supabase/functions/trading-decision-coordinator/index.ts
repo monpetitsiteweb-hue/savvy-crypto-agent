@@ -242,6 +242,84 @@ const toPairSymbol = (base: BaseSymbol): PairSymbol => `${toBaseSymbol(base)}-EU
 // SHARED POSITION HELPER: Calculate net position from all trades (BUYs - SELLs)
 // This is the canonical definition of "position exists" used across the coordinator
 // =============================================================================
+
+// =============================================================================
+// SEV-1 SAFETY: is_open_position invariant helpers
+// Ensures only ONE open position per (user, symbol, is_test_mode) via DB unique index.
+// =============================================================================
+
+/**
+ * Detect if an insert error is a unique constraint violation (SQLSTATE 23505)
+ * on the unique_open_position_per_symbol index.
+ */
+function isOpenPositionConflict(error: any): boolean {
+  if (!error) return false;
+  const code = error.code || error?.details?.code || '';
+  const msg = (error.message || '') + (error.details || '');
+  return code === '23505' || msg.includes('unique_open_position_per_symbol');
+}
+
+/**
+ * After a SELL closes a position, check if net position is now zero.
+ * If so, clear is_open_position on ALL BUY rows for that (user, symbol, mode).
+ * This allows a future BUY to claim the slot.
+ */
+async function clearOpenPositionIfFullyClosed(
+  supabaseClient: any,
+  userId: string,
+  symbol: string,
+  isTestMode: boolean,
+  strategyId?: string,
+): Promise<void> {
+  try {
+    const baseSymbol = toBaseSymbol(symbol);
+    const symbolVariants = [baseSymbol, `${baseSymbol}-EUR`];
+
+    // Get all trades for this user/symbol/mode to compute net position
+    const { data: trades, error: fetchError } = await supabaseClient
+      .from("mock_trades")
+      .select("trade_type, amount")
+      .eq("user_id", userId)
+      .eq("is_test_mode", isTestMode)
+      .in("cryptocurrency", symbolVariants);
+
+    if (fetchError || !trades) {
+      console.error("⚠️ clearOpenPositionIfFullyClosed: fetch failed", fetchError);
+      return;
+    }
+
+    let sumBuys = 0;
+    let sumSells = 0;
+    for (const t of trades) {
+      if (t.trade_type === "buy") sumBuys += Number(t.amount);
+      else if (t.trade_type === "sell") sumSells += Number(t.amount);
+    }
+    const netPosition = sumBuys - sumSells;
+
+    if (netPosition <= 0.00000001) {
+      // Position fully closed — clear the flag on ALL BUY rows for this user/symbol/mode
+      const { error: updateError } = await supabaseClient
+        .from("mock_trades")
+        .update({ is_open_position: false })
+        .eq("user_id", userId)
+        .eq("is_test_mode", isTestMode)
+        .in("cryptocurrency", symbolVariants)
+        .eq("trade_type", "buy")
+        .eq("is_open_position", true);
+
+      if (updateError) {
+        console.error("⚠️ clearOpenPositionIfFullyClosed: update failed", updateError);
+      } else {
+        console.log(`🔓 is_open_position cleared for ${baseSymbol} (user=${userId.substring(0,8)}..., test=${isTestMode})`);
+      }
+    } else {
+      console.log(`🔒 Position still open for ${baseSymbol}: net=${netPosition.toFixed(8)}`);
+    }
+  } catch (err) {
+    console.error("⚠️ clearOpenPositionIfFullyClosed: unexpected error", err);
+  }
+}
+// =============================================================================
 interface TradeRowForPosition {
   trade_type: "buy" | "sell";
   cryptocurrency: string;
@@ -1565,6 +1643,7 @@ serve(async (req) => {
         total_value: totalValue,
         executed_at: new Date().toISOString(),
         is_test_mode: true,
+        is_open_position: true, // SEV-1: DB-level single open position invariant
         notes: "Manual test BUY via UI",
         strategy_trigger: `ui_manual_test_buy|req:${requestId}`,
         // PYRAMIDING MODEL: Store entry_context in market_conditions
@@ -1582,6 +1661,22 @@ serve(async (req) => {
         .select("id");
 
       if (insertError) {
+        // SEV-1: Graceful handling of duplicate BUY (structural invariant)
+        if (isOpenPositionConflict(insertError)) {
+          console.log(`🛡️ UI TEST BUY: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              decision: {
+                action: "HOLD",
+                reason: "position_already_open",
+                request_id: requestId,
+                message: `Open position already exists for ${baseSymbol}`,
+              },
+            }),
+            { headers: corsHeaders },
+          );
+        }
         console.error("❌ UI TEST BUY: Insert failed:", insertError);
         return new Response(
           JSON.stringify({
@@ -2129,6 +2224,7 @@ serve(async (req) => {
       // onchain-sign-and-send inserts the SUBMITTED row
       // =========================================================================
       const mockTradeId = crypto.randomUUID();
+      const isBuySide = intent.side.toLowerCase() === "buy";
       const placeholderRecord = {
         id: mockTradeId,
         user_id: intent.userId,
@@ -2145,6 +2241,7 @@ serve(async (req) => {
         execution_confirmed: false,
         notes: 'PENDING_ONCHAIN: Awaiting receipt confirmation',
         idempotency_key: `pending_${mockTradeId}`,
+        ...(isBuySide ? { is_open_position: true } : {}), // SEV-1: DB-level invariant
       };
 
       const { error: placeholderError } = await supabaseClient
@@ -2152,6 +2249,23 @@ serve(async (req) => {
         .insert(placeholderRecord);
 
       if (placeholderError) {
+        // SEV-1: Graceful handling of duplicate BUY (structural invariant)
+        if (isBuySide && isOpenPositionConflict(placeholderError)) {
+          console.log(`🛡️ SYSTEM_OPERATOR: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              success: false,
+              decision: {
+                action: "HOLD",
+                reason: "position_already_open",
+                request_id: requestId,
+                message: `Open position already exists for ${baseSymbol}`,
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
         console.error("❌ SYSTEM_OPERATOR: Failed to insert mock_trades placeholder:", placeholderError);
         return new Response(
           JSON.stringify({
@@ -2523,6 +2637,9 @@ serve(async (req) => {
       });
 
       console.log("[coordinator] mock sell inserted", payload);
+
+      // SEV-1: Clear is_open_position if position fully closed
+      await clearOpenPositionIfFullyClosed(supabaseClient, intent.userId, baseSymbol, true, intent.strategyId);
 
       // CRITICAL: Log SELL decision to decision_events for learning loop
       // Fetch strategy config for TP/SL defaults
@@ -2993,6 +3110,7 @@ serve(async (req) => {
         // onchain-sign-and-send inserts the SUBMITTED row
         // =========================================================================
         const mockTradeId = crypto.randomUUID();
+        const isBuySide = intent.side.toLowerCase() === "buy";
         const placeholderRecord = {
           id: mockTradeId,
           user_id: intent.userId,
@@ -3009,6 +3127,7 @@ serve(async (req) => {
           execution_confirmed: false,
           notes: 'PENDING_ONCHAIN: Awaiting receipt confirmation',
           idempotency_key: `pending_${mockTradeId}`,
+          ...(isBuySide ? { is_open_position: true } : {}), // SEV-1: DB-level invariant
         };
 
         const { error: placeholderError } = await supabaseClient
@@ -3016,6 +3135,23 @@ serve(async (req) => {
           .insert(placeholderRecord);
 
         if (placeholderError) {
+          // SEV-1: Graceful handling of duplicate BUY (structural invariant)
+          if (isBuySide && isOpenPositionConflict(placeholderError)) {
+            console.log(`🛡️ COORDINATOR: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
+            return new Response(
+              JSON.stringify({
+                ok: true,
+                success: false,
+                decision: {
+                  action: "HOLD",
+                  reason: "position_already_open",
+                  request_id: requestId,
+                  message: `Open position already exists for ${baseSymbol}`,
+                },
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
           console.error(`❌ COORDINATOR: Failed to insert mock_trades placeholder:`, placeholderError);
           return new Response(
             JSON.stringify({
@@ -4470,6 +4606,9 @@ async function executeTradeDirectly(
       qty = totalQty;
 
       console.log("✅ DIRECT: Per-lot SELL executed successfully");
+
+      // SEV-1: Clear is_open_position if position fully closed
+      await clearOpenPositionIfFullyClosed(supabaseClient, intent.userId, baseSymbol, sc?.canonicalIsTestMode === true, intent.strategyId);
       console.log("============ STEP 5: FINAL DECISION ============");
       console.log("decision.action: SELL");
       console.log("decision.reason: unified_decisions_disabled_direct_path (per-lot)");
@@ -4498,6 +4637,7 @@ async function executeTradeDirectly(
       total_value: totalValue,
       executed_at: new Date().toISOString(),
       is_test_mode: sc?.canonicalIsTestMode === true,
+      is_open_position: true, // SEV-1: DB-level single open position invariant
       notes: `Direct path: UD=OFF`,
       strategy_trigger: `direct_${intent.source}|req:${requestId}`,
       // PYRAMIDING MODEL: Store entry_context in market_conditions
@@ -4524,6 +4664,11 @@ async function executeTradeDirectly(
     const { data: insertResult, error } = await supabaseClient.from("mock_trades").insert(mockTrade).select("id");
 
     if (error) {
+      // SEV-1: Graceful handling of duplicate BUY (structural invariant)
+      if (isOpenPositionConflict(error)) {
+        console.log(`🛡️ DIRECT BUY: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
+        return { success: false, error: "position_already_open" };
+      }
       console.log("============ STEP 4: WRITE FAILED ============");
       console.log("DB insert error:", error);
       throw new Error(`DB insert failed: ${error.message}`);
@@ -7250,6 +7395,9 @@ async function executeTradeOrder(
         const totalPnl = sellRows.reduce((sum, r) => sum + (r.realized_pnl || 0), 0);
         console.log(`📊 Total: qty=${totalQty.toFixed(8)}, pnl=€${totalPnl.toFixed(2)}`);
 
+        // SEV-1: Clear is_open_position if position fully closed
+        await clearOpenPositionIfFullyClosed(supabaseClient, intent.userId, baseSymbol, strategyConfig?.canonicalIsTestMode === true, intent.strategyId);
+
         // ============= CASH LEDGER UPDATE: Per-lot SELL proceeds (via helper) =============
         // Use exit_value (net, trigger-computed) not total_value (gross)
         const totalExitValue = sellRows.reduce((sum, r) => sum + (r.exit_value || r.total_value), 0);
@@ -7328,6 +7476,7 @@ async function executeTradeOrder(
       // GOAL 2.B: Include pnl_at_decision_pct from backend intent metadata
       const pnlAtDecisionPct = intent.metadata?.pnl_at_decision_pct ?? null;
 
+      const isBuyTrade = intent.side === "BUY";
       const mockTrade = {
         user_id: intent.userId,
         strategy_id: intent.strategyId,
@@ -7338,6 +7487,7 @@ async function executeTradeOrder(
         total_value: totalValue,
         executed_at,
         is_test_mode: strategyConfig?.canonicalIsTestMode === true, // Use canonical execution mode
+        ...(isBuyTrade ? { is_open_position: true } : {}), // SEV-1: DB-level invariant (BUY only)
         notes: tradeNotes,
         // PHASE E: Include idempotencyKey in strategy_trigger for dedup checking
         strategy_trigger:
@@ -7376,6 +7526,11 @@ async function executeTradeOrder(
       const { data: insertResult, error } = await supabaseClient.from("mock_trades").insert(mockTrade).select("id");
 
       if (error) {
+        // SEV-1: Graceful handling of duplicate BUY (structural invariant)
+        if (isBuyTrade && isOpenPositionConflict(error)) {
+          console.log(`🛡️ COORDINATOR: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
+          return { success: false, error: "position_already_open" };
+        }
         console.error("❌ COORDINATOR: Mock trade insert failed:", error);
         return { success: false, error: error.message };
       }
@@ -7445,6 +7600,11 @@ async function executeTradeOrder(
         });
       }
       // ============= END CASH LEDGER UPDATE =============
+
+      // SEV-1: Clear is_open_position if SELL fully closed the position
+      if (intent.side === "SELL") {
+        await clearOpenPositionIfFullyClosed(supabaseClient, intent.userId, baseSymbol, strategyConfig?.canonicalIsTestMode === true, intent.strategyId);
+      }
 
       console.log("✅ COORDINATOR TEST: Trade executed successfully");
       return {
