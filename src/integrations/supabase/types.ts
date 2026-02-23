@@ -1931,6 +1931,7 @@ export type Database = {
           idempotency_key: string | null
           integrity_reason: string | null
           is_corrupted: boolean
+          is_open_position: boolean
           is_system_operator: boolean
           is_test_mode: boolean
           market_conditions: Json | null
@@ -1988,6 +1989,7 @@ export type Database = {
           idempotency_key?: string | null
           integrity_reason?: string | null
           is_corrupted?: boolean
+          is_open_position?: boolean
           is_system_operator?: boolean
           is_test_mode?: boolean
           market_conditions?: Json | null
@@ -2045,6 +2047,7 @@ export type Database = {
           idempotency_key?: string | null
           integrity_reason?: string | null
           is_corrupted?: boolean
+          is_open_position?: boolean
           is_system_operator?: boolean
           is_test_mode?: boolean
           market_conditions?: Json | null
