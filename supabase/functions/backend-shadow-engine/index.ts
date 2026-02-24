@@ -1113,6 +1113,8 @@ serve(async (req) => {
             // ============= ENTRY QUALITY (NEW) =============
             entry_quality: entryQuality,
             entry_quality_config: entryQualityConfig,
+            // ============= UD CONTRACT: eurAmount for executeTradeOrder =============
+            eurAmount: tradeAllocation,
           };
 
           const backendRequestId = crypto.randomUUID();
