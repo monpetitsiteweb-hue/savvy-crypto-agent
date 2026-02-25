@@ -5394,13 +5394,26 @@ async function detectConflicts(
     const maxExposurePerCoinEUR = maxWalletExposureEUR / maxActiveCoins;
 
     // Get ALL trades for this user/strategy (both buys AND sells) to calculate NET exposure
-    const { data: allTrades } = await supabaseClient
+    const { data: allTrades, error: tradesQueryError } = await supabaseClient
       .from("mock_trades")
       .select("cryptocurrency, amount, price, trade_type")
       .eq("user_id", intent.userId)
       .eq("strategy_id", intent.strategyId)
       .in("trade_type", ["buy", "sell"])
       .order("executed_at", { ascending: false });
+
+    // === TEMP INSTRUMENTATION: Query status ===
+    console.log(`[EXPOSURE_DIAG] tradesQueryStatus: ${tradesQueryError ? "ERROR" : "OK"}, tradesRowCount: ${allTrades?.length ?? "null"}`);
+    if (tradesQueryError) {
+      console.log(`[EXPOSURE_DIAG] tradesQueryError:`, JSON.stringify(tradesQueryError));
+    }
+    if (allTrades?.length === 1000) {
+      console.log(`[EXPOSURE_DIAG] ⚠️ possibleTruncation: true — query returned exactly 1000 rows`);
+    }
+    if (allTrades && allTrades.length > 0) {
+      console.log(`[EXPOSURE_DIAG] sampleFirst5Trades:`, JSON.stringify(allTrades.slice(0, 5)));
+      console.log(`[EXPOSURE_DIAG] sampleLast5Trades:`, JSON.stringify(allTrades.slice(-5)));
+    }
 
     // Calculate NET exposure (buys - sells) per symbol
     // Track net QUANTITY per symbol, then multiply by current price for exposure
@@ -5451,6 +5464,27 @@ async function detectConflicts(
     const currentSymbolExposure = positionsBySymbol[baseSymbol] || 0;
     const uniqueCoinsWithExposure = Object.keys(positionsBySymbol).length;
     const tradeValueEUR = perTradeAllocation;
+
+    // === TEMP INSTRUMENTATION: Full exposure diagnostic ===
+    console.log(`[EXPOSURE_DIAG] FULL_SNAPSHOT:`, JSON.stringify({
+      walletValueEUR,
+      cfgWalletValueEUR: cfg.walletValueEUR,
+      resolvedWalletValueEUR: walletValueEUR,
+      maxWalletExposurePct,
+      cfgMaxWalletExposure: cfg.maxWalletExposure,
+      cfgRiskMgmtMaxWalletExposure: cfg.riskManagement?.maxWalletExposure,
+      resolvedMaxWalletExposurePct: maxWalletExposurePct,
+      maxWalletExposureEUR,
+      totalExposureEUR,
+      tradeValueEUR,
+      tradesRowCount: allTrades?.length ?? null,
+      tradesQueryError: tradesQueryError ? tradesQueryError.message : null,
+      intentSide: intent.side,
+      strategyId: intent.strategyId,
+      isTestMode: cfg.isTestMode ?? cfg.is_test_mode ?? "not_in_config",
+      comparisonResult: `${totalExposureEUR} + ${tradeValueEUR} = ${totalExposureEUR + tradeValueEUR} vs cap ${maxWalletExposureEUR}`,
+      wouldBlock: (totalExposureEUR + tradeValueEUR) > maxWalletExposureEUR,
+    }));
 
     // Check 1: Global wallet exposure
     if (totalExposureEUR + tradeValueEUR > maxWalletExposureEUR) {
