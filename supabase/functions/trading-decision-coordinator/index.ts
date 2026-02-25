@@ -2830,6 +2830,9 @@ serve(async (req) => {
     const canonicalExecutionMode: ExecutionMode = execClass.target;
     const isMockExecution = execClass.isMockExecution;
     const canonicalIsTestMode = isMockExecution; // Alias for passing to sub-functions
+    if (canonicalIsTestMode === undefined) {
+      throw new Error("Fatal: canonicalIsTestMode unresolved at coordinator entry");
+    }
 
     console.log("[Coordinator] MODE =", canonicalExecutionMode, {
       execution_wallet_id: intent.metadata?.execution_wallet_id,
@@ -3638,7 +3641,7 @@ serve(async (req) => {
           undefined,
           executionResult.tradeId,
           executionResult.executed_price,
-          strategy.configuration,
+          { ...strategy.configuration, canonicalIsTestMode },
         );
         return respond(intent.side, "unified_decisions_disabled_direct_path", requestId, 0, {
           qty: executionResult.qty,
@@ -3670,7 +3673,7 @@ serve(async (req) => {
           undefined,
           undefined,
           priceForLog,
-          strategy.configuration,
+          { ...strategy.configuration, canonicalIsTestMode },
         );
 
         return new Response(
@@ -5697,7 +5700,10 @@ async function detectConflicts(
       const contextDuplicateEpsilonPct = cfg.contextDuplicateEpsilonPct ?? DEFAULT_CONTEXT_EPSILON;
 
       // Define isTestMode BEFORE it's used in queries below
-      const isTestModeForContext = intent.metadata?.is_test_mode ?? false;
+      if (strategyConfig?.canonicalIsTestMode === undefined) {
+        throw new Error("Execution mode unresolved in context guard");
+      }
+      const isTestModeForContext = strategyConfig.canonicalIsTestMode === true;
 
       console.log(`[CONTEXT_GUARD] Checking for duplicate context on ${baseSymbol}`);
       console.log(
@@ -5776,7 +5782,10 @@ async function detectConflicts(
   // This query has NO time filter - positions are BUYs minus SELLs ALL TIME
   // IMPORTANT: Query BOTH symbol formats since mock_trades may store either
   // =====================================================================
-  const isTestMode = intent.metadata?.is_test_mode ?? false;
+  if (strategyConfig?.canonicalIsTestMode === undefined) {
+    throw new Error("Execution mode unresolved in SELL position check");
+  }
+  const isTestMode = strategyConfig.canonicalIsTestMode === true;
 
   // Query both symbol formats: "XRP" and "XRP-EUR" since data may be stored either way
   const symbolVariantsForPosition = [baseSymbol, `${baseSymbol}-EUR`];
