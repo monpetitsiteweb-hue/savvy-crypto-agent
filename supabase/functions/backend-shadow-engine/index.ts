@@ -25,8 +25,21 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // ============= ENGINE MODE CONFIGURATION =============
 // Read from environment, default to 'SHADOW' for safety
 type EngineMode = 'SHADOW' | 'LIVE';
+const RAW_ENGINE_MODE = Deno.env.get('BACKEND_ENGINE_MODE');
 const BACKEND_ENGINE_MODE: EngineMode = 
-  (Deno.env.get('BACKEND_ENGINE_MODE') as EngineMode) || 'SHADOW';
+  (RAW_ENGINE_MODE as EngineMode) || 'SHADOW';
+
+// ============= TEMP DIAGNOSTIC: ENGINE MODE (REMOVE AFTER INVESTIGATION) =============
+console.log("[ENGINE_MODE_DIAG] ============================================");
+console.log("[ENGINE_MODE_DIAG] BACKEND_ENGINE_MODE raw env =", JSON.stringify(RAW_ENGINE_MODE));
+console.log("[ENGINE_MODE_DIAG] BACKEND_ENGINE_MODE resolved =", BACKEND_ENGINE_MODE);
+console.log("[ENGINE_MODE_DIAG] effectiveShadowMode =", BACKEND_ENGINE_MODE === 'SHADOW');
+console.log("[ENGINE_MODE_DIAG] deploymentTimestamp =", new Date().toISOString());
+console.log("[ENGINE_MODE_DIAG] BACKEND_ENGINE_USER_ALLOWLIST raw =", JSON.stringify(Deno.env.get('BACKEND_ENGINE_USER_ALLOWLIST')));
+console.log("[ENGINE_MODE_DIAG] All env keys containing ENGINE =", JSON.stringify(
+  Object.keys(Deno.env.toObject()).filter(k => k.includes('ENGINE') || k.includes('MODE'))
+));
+console.log("[ENGINE_MODE_DIAG] ============================================");
 
 // ============= PHASE B: USER ALLOWLIST FOR BACKEND LIVE =============
 // Comma-separated list of user IDs allowed to run in LIVE mode.
