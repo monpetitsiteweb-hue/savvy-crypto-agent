@@ -1,4 +1,4 @@
-# PATCH: decision_events metadata.is_test_mode — ALL insertion points
+# PATCH: decision_events metadata.is_test_mode — Centralized buildDecisionMetadata helper
 
 **Date:** 2026-02-26  
 **File:** `supabase/functions/trading-decision-coordinator/index.ts`  
@@ -9,37 +9,56 @@
 
 ## Problem
 
-`decision_events.metadata.is_test_mode` was `NULL` for some rows. Previous patches only fixed the `logDecisionAsync` fallback chain, but **11 other direct `.insert()` calls** bypass `logDecisionAsync` entirely and never set `is_test_mode`.
+`decision_events.metadata.is_test_mode` was `NULL` for some rows despite previous patches adding `is_test_mode` to each insertion point individually. The per-site approach was fragile — any new insertion or metadata spread could silently omit the field.
 
-## Root Cause
+## Solution: Centralized Helper
 
-The coordinator has **12 total `decision_events` insertion points**:
-- 1 centralized via `logDecisionAsync` (line ~5082) — already fixed
-- **11 direct `.from("decision_events").insert()` calls** — ALL missing `is_test_mode`
+Created a single `buildDecisionMetadata()` helper function that **guarantees** `is_test_mode` is always a boolean (never NULL/undefined):
 
-## Audit: All 12 insertion points
+```typescript
+function buildDecisionMetadata(
+  base: Record<string, any>,
+  isTestMode: boolean | undefined | null,
+): Record<string, any> {
+  return {
+    ...base,
+    // is_test_mode is set LAST so it cannot be overwritten by the spread
+    is_test_mode: typeof isTestMode === 'boolean' ? isTestMode : false,
+  };
+}
+```
 
-| # | Line | Reason | Path | is_test_mode source |
-|---|------|--------|------|---------------------|
-| 1 | ~644 | `cash_ledger_settle_failed` | BUY cash drift | `meta?.isTestMode ?? false` |
-| 2 | ~792 | `cash_ledger_settle_failed` | SELL cash drift | `meta?.isTestMode ?? false` |
-| 3 | ~2347 | `system_operator_execution_failed` | System operator error | `false` (always real) |
-| 4 | ~2389 | `system_operator_execution_submitted` | System operator success | `false` (always real) |
-| 5 | ~2616 | `cash_ledger_settle_failed` | Manual SELL cash | `true` (mock manual path) |
-| 6 | ~3241 | `manual_execution_failed` | Manual real exec error | `false` (always real) |
-| 7 | ~3284 | `manual_execution_submitted` | Manual real exec success | `false` (always real) |
-| 8 | ~3402 | `real_execution_job_queued` | Real job queue | `false` (always real) |
-| 9 | ~4592 | `cash_ledger_settle_failed` | Direct UD-off cash | `sc?.canonicalIsTestMode ?? false` |
-| 10 | ~7531 | `cash_ledger_settle_failed` | Per-lot SELL cash | `strategyConfig?.canonicalIsTestMode ?? false` |
-| 11 | ~7690 | `cash_ledger_settle_failed` | Standard cash | `strategyConfig?.canonicalIsTestMode ?? false` |
-| 12 | ~5082 | ALL logDecisionAsync reasons | Centralized | Full fallback chain (already fixed) |
+### Key guarantees:
+1. `is_test_mode` is **always** the last property — no spread can overwrite it
+2. If `isTestMode` is `undefined` or `null`, defaults to `false` — never NULL in DB
+3. ALL 12 insertion points now use this single helper
 
-## Fix
+## All 12 insertion points — now using buildDecisionMetadata
 
-Added `is_test_mode` to the `metadata` object of all 11 direct inserts, using the most accurate source available in each scope:
-- Cash ledger paths: `meta?.isTestMode ?? false` or `canonicalIsTestMode ?? false`
-- System operator / manual real: hardcoded `false` (these are always real execution)
-- Manual mock SELL: hardcoded `true` (gated by mock path)
+| # | ~Line | Reason | isTestMode source |
+|---|-------|--------|-------------------|
+| 1 | ~668 | `cash_ledger_settle_failed` (BUY cash drift) | `meta?.isTestMode` |
+| 2 | ~806 | `cash_ledger_settle_failed` (SELL cash drift) | `meta?.isTestMode` |
+| 3 | ~2358 | `system_operator_execution_failed` | `false` (always real) |
+| 4 | ~2403 | `system_operator_execution_submitted` | `false` (always real) |
+| 5 | ~2628 | `cash_ledger_settle_failed` (manual SELL) | `true` (mock manual path) |
+| 6 | ~3255 | `manual_execution_failed` | `false` (always real) |
+| 7 | ~3301 | `manual_execution_submitted` | `false` (always real) |
+| 8 | ~3419 | `real_execution_job_queued` | `false` (always real) |
+| 9 | ~4608 | `cash_ledger_settle_failed` (direct UD-off) | `sc?.canonicalIsTestMode` |
+| 10 | ~7548 | `cash_ledger_settle_failed` (per-lot SELL) | `strategyConfig?.canonicalIsTestMode` |
+| 11 | ~7708 | `cash_ledger_settle_failed` (standard) | `strategyConfig?.canonicalIsTestMode` |
+| 12 | ~5028 | ALL logDecisionAsync reasons (centralized) | `isTestMode` (resolved via fallback chain) |
+
+## logDecisionAsync fallback chain (insertion #12)
+
+Priority for resolving `isTestMode`:
+1. `strategyConfig.canonicalIsTestMode` (boolean) — canonical source
+2. `derivedOrigin === 'BACKEND_LIVE'` → `false`
+3. `derivedEngineMode === 'LIVE'` → `false`
+4. `derivedIsBackendEngine === true` → `false`
+5. `intent.metadata.is_test_mode` (boolean) — direct intent flag
+6. **Default `false`** — never NULL, never throw
 
 ## What Was NOT Changed
 
@@ -78,7 +97,8 @@ WHERE created_at >= now() - interval '10 minutes'
 
 ## Confirmation
 
-- ✅ Every `decision_events` insert in the file now includes `metadata.is_test_mode`
-- ✅ `logDecisionAsync` (centralized path) has full fallback chain with default `false`
-- ✅ All 11 direct inserts have explicit `is_test_mode` in metadata
+- ✅ `buildDecisionMetadata()` helper created — single source of truth
+- ✅ `is_test_mode` is always the LAST property (cannot be overwritten by spread)
+- ✅ All 12 insertion points use `buildDecisionMetadata()`
+- ✅ No raw `metadata: { ... is_test_mode ... }` patterns remain in decision_events inserts
 - ✅ Total coverage: 12/12 insertion points
