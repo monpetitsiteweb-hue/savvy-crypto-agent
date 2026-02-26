@@ -476,6 +476,21 @@ type Reason =
   // TEMPLATE LITERAL PATTERNS for dynamic reasons
   | `blocked_missing_config:${string}`;
 
+// ============= DECISION METADATA HELPER =============
+// Centralized builder for decision_events metadata objects.
+// GUARANTEES is_test_mode is ALWAYS a boolean (never NULL/undefined).
+// ALL decision_events insertions MUST use this helper.
+function buildDecisionMetadata(
+  base: Record<string, any>,
+  isTestMode: boolean | undefined | null,
+): Record<string, any> {
+  return {
+    ...base,
+    // CRITICAL: is_test_mode is set LAST so it cannot be overwritten by the spread
+    is_test_mode: typeof isTestMode === 'boolean' ? isTestMode : false,
+  };
+}
+
 // ============= CASH LEDGER SETTLEMENT HELPER =============
 // Ensures cash_balance_eur moves correctly after every trade insert
 // For BUY: deduct total_value (we don't track fees separately in current data)
@@ -650,7 +665,7 @@ async function settleCashLedger(
               reason: "cash_ledger_settle_failed",
               decision_ts: new Date().toISOString(),
               trade_id: meta?.tradeId ?? null,
-              metadata: {
+              metadata: buildDecisionMetadata({
                 path,
                 cash_before: cashBefore,
                 delta: -buyNetSpent,
@@ -658,8 +673,7 @@ async function settleCashLedger(
                 verified_cash: verifiedCash,
                 drift: settleDrift,
                 error: "cash_drift_detected",
-                is_test_mode: meta?.isTestMode ?? false,
-              },
+              }, meta?.isTestMode),
             });
           }
         } catch (e) {
@@ -799,7 +813,7 @@ async function settleCashLedger(
             reason: "cash_ledger_settle_failed",
             decision_ts: new Date().toISOString(),
             trade_id: meta?.tradeId ?? null,
-            metadata: {
+            metadata: buildDecisionMetadata({
               path,
               cash_before: cashBefore,
               delta: sellNetProceeds,
@@ -807,8 +821,7 @@ async function settleCashLedger(
               verified_cash: verifiedCash,
               drift: settleDrift,
               error: "cash_drift_detected",
-              is_test_mode: meta?.isTestMode ?? false,
-            },
+            }, meta?.isTestMode),
           });
         }
       } catch (e) {
@@ -2355,12 +2368,11 @@ serve(async (req) => {
           confidence: intent.confidence,
           reason: "system_operator_execution_failed",
           decision_ts: new Date().toISOString(),
-          metadata: {
+          metadata: buildDecisionMetadata({
             error: execError.message,
             request_id: requestId,
             fast_path: "SYSTEM_OPERATOR",
-            is_test_mode: false,
-          },
+          }, false),
         });
 
         return new Response(
@@ -2400,17 +2412,16 @@ serve(async (req) => {
         reason: "system_operator_execution_submitted",
         decision_ts: new Date().toISOString(),
         trade_id: signSendData.tradeId,
-        metadata: {
-          tx_hash: signSendData.tx_hash,
-          trade_id: signSendData.tradeId,
-          wallet_address: BOT_ADDRESS,
-          execution_status: "SUBMITTED",
-          fast_path: "SYSTEM_OPERATOR",
-          amount: tradeAmount,
-          slippage_bps: slippageBps,
-          request_id: requestId,
-          is_test_mode: false,
-        },
+          metadata: buildDecisionMetadata({
+            tx_hash: signSendData.tx_hash,
+            trade_id: signSendData.tradeId,
+            wallet_address: BOT_ADDRESS,
+            execution_status: "SUBMITTED",
+            fast_path: "SYSTEM_OPERATOR",
+            amount: tradeAmount,
+            slippage_bps: slippageBps,
+            request_id: requestId,
+          }, false),
       });
 
       return new Response(
@@ -2625,13 +2636,12 @@ serve(async (req) => {
           source: "coordinator_manual_sell",
           reason: "cash_ledger_settle_failed",
           decision_ts: new Date().toISOString(),
-          metadata: {
+          metadata: buildDecisionMetadata({
             cash_before: cashResult.cash_before,
             delta: cashResult.delta,
             error: cashResult.error,
             trade_inserted: true,
-            is_test_mode: true,
-          },
+          }, true),
         });
       }
       // ============= END CASH LEDGER UPDATE =============
@@ -3252,12 +3262,11 @@ serve(async (req) => {
             confidence: intent.confidence,
             reason: "manual_execution_failed",
             decision_ts: new Date().toISOString(),
-            metadata: {
+            metadata: buildDecisionMetadata({
               error: execError.message,
               request_id: requestId,
               fast_path: "MANUAL",
-              is_test_mode: false,
-            },
+            }, false),
           });
 
           return new Response(
@@ -3298,7 +3307,7 @@ serve(async (req) => {
           reason: "manual_execution_submitted",
           decision_ts: new Date().toISOString(),
           trade_id: signSendData.tradeId,
-          metadata: {
+          metadata: buildDecisionMetadata({
             tx_hash: signSendData.tx_hash,
             trade_id: signSendData.tradeId,
             wallet_address: walletAddress,
@@ -3307,8 +3316,7 @@ serve(async (req) => {
             amount: tradeAmount,
             slippage_bps: slippageBps,
             request_id: requestId,
-            is_test_mode: false,
-          },
+          }, false),
         });
 
         return new Response(
@@ -3416,14 +3424,13 @@ serve(async (req) => {
         entry_price: marketPrice,
         reason: "real_execution_job_queued",
         decision_ts: new Date().toISOString(),
-        metadata: {
-          execution_job_id: jobResult?.id,
-          idempotency_key: realIdempotencyKey,
-          wallet_address: walletAddress,
-          execution_status: "QUEUED",
-          intent_side: intent.side,
-          is_test_mode: false,
-        },
+          metadata: buildDecisionMetadata({
+            execution_job_id: jobResult?.id,
+            idempotency_key: realIdempotencyKey,
+            wallet_address: walletAddress,
+            execution_status: "QUEUED",
+            intent_side: intent.side,
+          }, false),
       });
 
       return new Response(
@@ -4605,7 +4612,7 @@ async function executeTradeDirectly(
           source: "coordinator_direct",
           reason: "cash_ledger_settle_failed",
           decision_ts: new Date().toISOString(),
-          metadata: {
+          metadata: buildDecisionMetadata({
             path: "direct_ud_off",
             trade_id: insertResults?.[0]?.id,
             cash_before: settleRes?.cash_before,
@@ -4614,8 +4621,7 @@ async function executeTradeDirectly(
             error: settleRes?.error,
             trade_inserted: true,
             lots_sold: sellRows.length,
-            is_test_mode: sc?.canonicalIsTestMode ?? false,
-          },
+          }, sc?.canonicalIsTestMode),
         });
       }
 
@@ -5019,9 +5025,8 @@ async function logDecisionAsync(
         qty_suggested: intent.qtySuggested,
         decision_ts: new Date().toISOString(),
         trade_id: tradeId,
-        metadata: {
-          action: action, // Store action (BUY/SELL/BLOCK/DEFER/HOLD) in metadata
-          is_test_mode: isTestMode, // CRITICAL: Record test vs real mode for learning loop
+        metadata: buildDecisionMetadata({
+          action: action,
           request_id: requestId,
           unifiedConfig,
           profitAnalysis: profitMetadata,
@@ -5030,31 +5035,27 @@ async function logDecisionAsync(
             idempotencyKey: intent.idempotencyKey,
             ts: intent.ts,
           },
-          effective_min_confidence: effectiveMinConf, // Store effective min_confidence for reference
-          confidence_source: confidenceConfig?.source || "default", // Dynamic or default
-          confidence_optimizer: confidenceConfig?.optimizer || null, // Which optimizer (if any)
+          effective_min_confidence: effectiveMinConf,
+          confidence_source: confidenceConfig?.source || "default",
+          confidence_optimizer: confidenceConfig?.optimizer || null,
           confidence_optimizer_metadata: confidenceConfig?.optimizerMetadata
             ? { run_id: confidenceConfig.optimizerMetadata.run_id, run_at: confidenceConfig.optimizerMetadata.run_at }
-            : null, // Trimmed metadata for audit trail
-          // PHASE 1B: Attach fused signal data (READ-ONLY)
+            : null,
           signalFusion: fusedSignalData,
-          // Intelligent Engine metadata (merged from intent.metadata)
-          debugTag: intent.metadata?.debugTag ?? null, // CRITICAL: Forward debugTag for forced debug trades
+          debugTag: intent.metadata?.debugTag ?? null,
           engine: intent.metadata?.engine ?? null,
           engineFeatures: intent.metadata?.engineFeatures ?? null,
           price: intent.metadata?.price ?? null,
           symbol_normalized: intent.metadata?.symbol_normalized ?? baseSymbol,
           trigger: intent.metadata?.trigger ?? null,
-          idempotencyKey: intent.idempotencyKey ?? null, // Forward idempotencyKey
-          // ============= PHASE E: Backend traceability metadata =============
-          // Reuse derivedOrigin/derivedEngineMode computed above (same logic, single source of truth)
+          idempotencyKey: intent.idempotencyKey ?? null,
           origin: derivedOrigin,
           engineMode: derivedEngineMode,
           is_backend_engine: derivedIsBackendEngine,
           backend_request_id: intent.metadata?.backend_request_id ?? null,
           backend_ts: intent.metadata?.backend_ts ?? null,
           idempotency_key: intent.idempotencyKey ?? null,
-        },
+        }, isTestMode),
         raw_intent: intent as any,
       };
 
@@ -7545,14 +7546,13 @@ async function executeTradeOrder(
             source: intent.source || "coordinator_per_lot",
             reason: "cash_ledger_settle_failed",
             decision_ts: new Date().toISOString(),
-            metadata: {
+            metadata: buildDecisionMetadata({
               cash_before: cashResult.cash_before,
               delta: cashResult.delta,
               error: cashResult.error,
               trade_inserted: true,
               lots_sold: sellRows.length,
-              is_test_mode: strategyConfig?.canonicalIsTestMode ?? false,
-            },
+            }, strategyConfig?.canonicalIsTestMode),
           });
         }
         // ============= END CASH LEDGER UPDATE =============
@@ -7705,13 +7705,12 @@ async function executeTradeOrder(
           source: intent.source || "coordinator_standard",
           reason: "cash_ledger_settle_failed",
           decision_ts: new Date().toISOString(),
-          metadata: {
+          metadata: buildDecisionMetadata({
             cash_before: cashResult.cash_before,
             delta: cashResult.delta,
             error: cashResult.error,
             trade_inserted: true,
-            is_test_mode: strategyConfig?.canonicalIsTestMode ?? false,
-          },
+          }, strategyConfig?.canonicalIsTestMode),
         });
       }
       // ============= END CASH LEDGER UPDATE =============
