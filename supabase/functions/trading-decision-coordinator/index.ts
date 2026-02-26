@@ -4874,36 +4874,70 @@ async function logDecisionAsync(
         );
       }
 
-      // PHASE 1B: Derive definitive isTestMode with cascading fallback (LOGGING ONLY)
-      // Priority: 1) canonicalIsTestMode from strategyConfig (set at request entry)
-      //           2) intent.metadata.is_test_mode (boolean)
-      //           3) intent.metadata.mode === 'mock' → true, 'real' → false
-      //           4) BACKEND_LIVE context → false
-      //           5) FAIL-CLOSED: throw to prevent NULL in decision_events
+      // PHASE 1B: Derive origin/engineMode FIRST (same logic used in metadata construction below)
+      // These are computed here so the is_test_mode fallback chain can reference them
+      const derivedOrigin =
+        intent?.metadata?.context === "BACKEND_LIVE"
+          ? "BACKEND_LIVE"
+          : intent?.metadata?.context === "BACKEND_SHADOW"
+            ? "BACKEND_SHADOW"
+            : null;
+      const derivedEngineMode = intent?.metadata?.context?.startsWith("BACKEND_") ? "LIVE" : null;
+      const derivedIsBackendEngine = derivedOrigin === "BACKEND_LIVE" || derivedOrigin === "BACKEND_SHADOW";
+
+      // DIAGNOSTIC: Log all resolution inputs BEFORE computing is_test_mode
+      console.log('🔍 DIAG logDecisionAsync is_test_mode resolution inputs', {
+        'strategyConfig?.canonicalIsTestMode': strategyConfig?.canonicalIsTestMode,
+        'typeof_canonicalIsTestMode': typeof strategyConfig?.canonicalIsTestMode,
+        'intent_exists': !!intent,
+        'intent?.metadata': intent?.metadata ? JSON.stringify(intent.metadata).substring(0, 200) : 'UNDEFINED',
+        'intent?.metadata?.is_test_mode': intent?.metadata?.is_test_mode,
+        'intent?.metadata?.mode': intent?.metadata?.mode,
+        'intent?.metadata?.context': intent?.metadata?.context,
+        'derivedOrigin': derivedOrigin,
+        'derivedEngineMode': derivedEngineMode,
+        'derivedIsBackendEngine': derivedIsBackendEngine,
+        'symbol': intent?.symbol,
+        'side': intent?.side,
+        'reason': reason,
+      });
+
+      // Deterministic is_test_mode resolution (LOGGING ONLY — never NULL)
+      // Priority: 1) canonicalIsTestMode from strategyConfig (canonical source)
+      //           2) derivedOrigin === 'BACKEND_LIVE' → false (live engine = real)
+      //           3) derivedEngineMode === 'LIVE' → false
+      //           4) derivedIsBackendEngine === true → false
+      //           5) intent.metadata.is_test_mode (boolean)
+      //           6) default false (NEVER NULL, NEVER throw)
       let loggedIsTestMode: boolean;
       if (typeof strategyConfig?.canonicalIsTestMode === 'boolean') {
         loggedIsTestMode = strategyConfig.canonicalIsTestMode;
+      } else if (derivedOrigin === 'BACKEND_LIVE') {
+        loggedIsTestMode = false;
+      } else if (derivedEngineMode === 'LIVE') {
+        loggedIsTestMode = false;
+      } else if (derivedIsBackendEngine === true) {
+        loggedIsTestMode = false;
       } else if (typeof intent?.metadata?.is_test_mode === 'boolean') {
         loggedIsTestMode = intent.metadata.is_test_mode;
-      } else if (intent?.metadata?.mode === 'mock') {
-        loggedIsTestMode = true;
-      } else if (intent?.metadata?.mode === 'real') {
-        loggedIsTestMode = false;
-      } else if (intent?.metadata?.context === 'BACKEND_LIVE') {
-        loggedIsTestMode = false;
       } else {
-        // FAIL-CLOSED: Refuse to insert a row with ambiguous test mode
-        const diagContext = {
+        // Default false — logging must NEVER break execution or insert NULL
+        loggedIsTestMode = false;
+        console.warn('⚠️ DIAG logDecisionAsync: is_test_mode defaulted to false (no source matched)', {
           hasStrategyConfig: !!strategyConfig,
           canonicalIsTestMode: strategyConfig?.canonicalIsTestMode,
-          intentMode: intent?.metadata?.mode,
+          derivedOrigin,
+          derivedEngineMode,
+          derivedIsBackendEngine,
           intentIsTestMode: intent?.metadata?.is_test_mode,
+          intentMode: intent?.metadata?.mode,
           intentContext: intent?.metadata?.context,
-        };
-        console.error('LOGDECISION_FAIL_CLOSED: Cannot determine is_test_mode', diagContext);
-        throw new Error(`logDecisionAsync: is_test_mode unresolvable – ${JSON.stringify(diagContext)}`);
+        });
       }
       const isTestMode = loggedIsTestMode;
+
+      // DIAGNOSTIC: Log computed result
+      console.log('🔍 DIAG logDecisionAsync RESOLVED is_test_mode =', isTestMode, 'for', intent?.symbol, reason);
 
       console.log(`[coordinator] logging decision with effective params`, {
         symbol: baseSymbol,
@@ -5004,14 +5038,10 @@ async function logDecisionAsync(
           trigger: intent.metadata?.trigger ?? null,
           idempotencyKey: intent.idempotencyKey ?? null, // Forward idempotencyKey
           // ============= PHASE E: Backend traceability metadata =============
-          // These fields are set when the intent comes from backend-shadow-engine in LIVE mode
-          origin:
-            intent.metadata?.context === "BACKEND_LIVE"
-              ? "BACKEND_LIVE"
-              : intent.metadata?.context === "BACKEND_SHADOW"
-                ? "BACKEND_SHADOW"
-                : null,
-          engineMode: intent.metadata?.context?.startsWith("BACKEND_") ? "LIVE" : null,
+          // Reuse derivedOrigin/derivedEngineMode computed above (same logic, single source of truth)
+          origin: derivedOrigin,
+          engineMode: derivedEngineMode,
+          is_backend_engine: derivedIsBackendEngine,
           backend_request_id: intent.metadata?.backend_request_id ?? null,
           backend_ts: intent.metadata?.backend_ts ?? null,
           idempotency_key: intent.idempotencyKey ?? null,
