@@ -658,6 +658,7 @@ async function settleCashLedger(
                 verified_cash: verifiedCash,
                 drift: settleDrift,
                 error: "cash_drift_detected",
+                is_test_mode: meta?.isTestMode ?? false,
               },
             });
           }
@@ -806,6 +807,7 @@ async function settleCashLedger(
               verified_cash: verifiedCash,
               drift: settleDrift,
               error: "cash_drift_detected",
+              is_test_mode: meta?.isTestMode ?? false,
             },
           });
         }
@@ -2357,6 +2359,7 @@ serve(async (req) => {
             error: execError.message,
             request_id: requestId,
             fast_path: "SYSTEM_OPERATOR",
+            is_test_mode: false,
           },
         });
 
@@ -2406,6 +2409,7 @@ serve(async (req) => {
           amount: tradeAmount,
           slippage_bps: slippageBps,
           request_id: requestId,
+          is_test_mode: false,
         },
       });
 
@@ -2626,6 +2630,7 @@ serve(async (req) => {
             delta: cashResult.delta,
             error: cashResult.error,
             trade_inserted: true,
+            is_test_mode: true,
           },
         });
       }
@@ -3251,6 +3256,7 @@ serve(async (req) => {
               error: execError.message,
               request_id: requestId,
               fast_path: "MANUAL",
+              is_test_mode: false,
             },
           });
 
@@ -3301,6 +3307,7 @@ serve(async (req) => {
             amount: tradeAmount,
             slippage_bps: slippageBps,
             request_id: requestId,
+            is_test_mode: false,
           },
         });
 
@@ -3415,6 +3422,7 @@ serve(async (req) => {
           wallet_address: walletAddress,
           execution_status: "QUEUED",
           intent_side: intent.side,
+          is_test_mode: false,
         },
       });
 
@@ -4606,6 +4614,7 @@ async function executeTradeDirectly(
             error: settleRes?.error,
             trade_inserted: true,
             lots_sold: sellRows.length,
+            is_test_mode: sc?.canonicalIsTestMode ?? false,
           },
         });
       }
@@ -7542,6 +7551,7 @@ async function executeTradeOrder(
               error: cashResult.error,
               trade_inserted: true,
               lots_sold: sellRows.length,
+              is_test_mode: strategyConfig?.canonicalIsTestMode ?? false,
             },
           });
         }
@@ -7700,6 +7710,7 @@ async function executeTradeOrder(
             delta: cashResult.delta,
             error: cashResult.error,
             trade_inserted: true,
+            is_test_mode: strategyConfig?.canonicalIsTestMode ?? false,
           },
         });
       }
