@@ -3755,7 +3755,7 @@ serve(async (req) => {
         { breaker_types: breakerCheck.breaker_types },
         undefined,
         priceData.price,
-        strategy.configuration,
+        { ...strategy.configuration, canonicalIsTestMode },
       );
       return new Response(
         JSON.stringify({
@@ -3821,7 +3821,7 @@ serve(async (req) => {
           { effectiveConfidence, confidenceThreshold },
           undefined,
           priceData.price,
-          strategy.configuration,
+          { ...strategy.configuration, canonicalIsTestMode },
           confidenceConfig, // Pass confidence source/optimizer info
         );
 
@@ -3949,7 +3949,7 @@ serve(async (req) => {
           undefined,
           undefined,
           priceData.price,
-          strategy.configuration,
+          { ...strategy.configuration, canonicalIsTestMode },
         );
 
         return new Response(
