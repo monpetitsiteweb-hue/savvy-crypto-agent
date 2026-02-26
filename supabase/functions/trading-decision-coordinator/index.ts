@@ -1744,6 +1744,7 @@ serve(async (req) => {
           stopLossPercentage: resolvedConfig.stopLossPercentage,
           minConfidence: resolvedConfig.aiConfidenceThreshold / 100,
           configuration: config,
+          canonicalIsTestMode: true, // UI TEST BUY fast path is always test mode (gated at line 1607)
         },
       );
 
@@ -1808,6 +1809,7 @@ serve(async (req) => {
         stopLossPercentage: 0.8,
         minConfidence: 0.5,
         configuration: { is_test_mode: true },
+        canonicalIsTestMode: true, // Debug/forced trades are always test mode
       };
 
       // Determine action based on side
@@ -2058,6 +2060,7 @@ serve(async (req) => {
           stopLossPercentage: effectiveSlPct,
           minConfidence: confidenceThreshold / 100,
           configuration: config,
+          canonicalIsTestMode: intExecutionTarget === "MOCK", // Derive from strategy execution_target (line 1952)
         },
       );
 
@@ -2694,6 +2697,7 @@ serve(async (req) => {
           stopLossPercentage: resolvedConfig.stopLossPercentage,
           minConfidence: resolvedConfig.aiConfidenceThreshold / 100,
           configuration: config,
+          canonicalIsTestMode: true, // Manual SELL fast path is mock/force gated (line 2435)
         },
       );
 

@@ -64,9 +64,43 @@ Context: `logDecisionAsync` call with reason from `conflictResult.reason` (e.g.,
 
 ---
 
+### 4. Line ~1741 — UI TEST BUY Fast Path
+
+**Before:** Inline config object without `canonicalIsTestMode`
+
+**After:** Added `canonicalIsTestMode: true` (gated by `intent.metadata?.is_test_mode === true` at line 1607)
+
+---
+
+### 5. Line ~1806 — Debug/Forced Trade Config
+
+**Before:** `debugStrategyConfig` without `canonicalIsTestMode`
+
+**After:** Added `canonicalIsTestMode: true` (debug trades are always test mode)
+
+---
+
+### 6. Line ~2055 — Intelligent Engine Decision Log
+
+**Before:** Inline config object without `canonicalIsTestMode`
+
+**After:** Added `canonicalIsTestMode: intExecutionTarget === "MOCK"` (derived from `strategyConfig.execution_target` at line 1952)
+
+Context: This is the callsite producing `no_conflicts_detected: STOP_LOSS`, `no_conflicts_detected: TAKE_PROFIT`, `no_conflicts_detected: SELL_TRAILING_RUNNER`, and `no_conflicts_detected: signal_confirmed_*` with `is_test_mode = false`.
+
+---
+
+### 7. Line ~2691 — Manual SELL Fast Path
+
+**Before:** Inline config object without `canonicalIsTestMode`
+
+**After:** Added `canonicalIsTestMode: true` (manual SELL fast path is gated by `mode === "mock"` at line 2435)
+
+---
+
 ## Verification
 
-After patch, zero remaining instances of raw `strategy.configuration` passed to `logDecisionAsync`. All callsites now include `canonicalIsTestMode` in the config object.
+After patch, ALL `logDecisionAsync` callsites include `canonicalIsTestMode` in the config object — either via spread (`{ ...strategy.configuration, canonicalIsTestMode }`) or inline property.
 
 **Expected SQL result (post-deploy, 30 min window):**
 ```sql
