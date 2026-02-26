@@ -4874,9 +4874,36 @@ async function logDecisionAsync(
         );
       }
 
-      // PHASE 1B: Use canonical isTestMode from strategyConfig (set at request entry)
-      // This is derived ONLY from execution mode, not from config/metadata inference
-      const isTestMode = strategyConfig?.canonicalIsTestMode === true;
+      // PHASE 1B: Derive definitive isTestMode with cascading fallback (LOGGING ONLY)
+      // Priority: 1) canonicalIsTestMode from strategyConfig (set at request entry)
+      //           2) intent.metadata.is_test_mode (boolean)
+      //           3) intent.metadata.mode === 'mock' → true, 'real' → false
+      //           4) BACKEND_LIVE context → false
+      //           5) FAIL-CLOSED: throw to prevent NULL in decision_events
+      let loggedIsTestMode: boolean;
+      if (typeof strategyConfig?.canonicalIsTestMode === 'boolean') {
+        loggedIsTestMode = strategyConfig.canonicalIsTestMode;
+      } else if (typeof intent?.metadata?.is_test_mode === 'boolean') {
+        loggedIsTestMode = intent.metadata.is_test_mode;
+      } else if (intent?.metadata?.mode === 'mock') {
+        loggedIsTestMode = true;
+      } else if (intent?.metadata?.mode === 'real') {
+        loggedIsTestMode = false;
+      } else if (intent?.metadata?.context === 'BACKEND_LIVE') {
+        loggedIsTestMode = false;
+      } else {
+        // FAIL-CLOSED: Refuse to insert a row with ambiguous test mode
+        const diagContext = {
+          hasStrategyConfig: !!strategyConfig,
+          canonicalIsTestMode: strategyConfig?.canonicalIsTestMode,
+          intentMode: intent?.metadata?.mode,
+          intentIsTestMode: intent?.metadata?.is_test_mode,
+          intentContext: intent?.metadata?.context,
+        };
+        console.error('LOGDECISION_FAIL_CLOSED: Cannot determine is_test_mode', diagContext);
+        throw new Error(`logDecisionAsync: is_test_mode unresolvable – ${JSON.stringify(diagContext)}`);
+      }
+      const isTestMode = loggedIsTestMode;
 
       console.log(`[coordinator] logging decision with effective params`, {
         symbol: baseSymbol,
