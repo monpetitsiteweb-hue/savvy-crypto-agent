@@ -5134,6 +5134,74 @@ async function logDecisionAsync(
           console.log("🔗 CAUSAL_LINK: decision_events.id=" + insertedDecisionId + " → mock_trades.id=" + tradeId);
         }
 
+        // PHASE 1: Write decision snapshot (non-blocking, append-only)
+        // If this fails, the decision still executes — snapshots are observability-only
+        try {
+          const snapshotPayload = {
+            decision_id: insertedDecisionId,
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            symbol: baseSymbol,
+            side: intent.side,
+            timestamp_utc: new Date().toISOString(),
+            fusion_score: fusedSignalData?.score ?? null,
+            signal_breakdown_json: fusedSignalData ? {
+              total_signals: fusedSignalData.totalSignals,
+              enabled_signals: fusedSignalData.enabledSignals,
+              top_signals: fusedSignalData.topSignals,
+            } : null,
+            guard_states_json: {
+              action,
+              reason,
+              confidence: normalizedConfidence,
+              execution_mode: executionMode,
+              is_test_mode: isTestMode,
+            },
+            strategy_config_snapshot_json: {
+              tp_pct: effectiveTpPct,
+              sl_pct: effectiveSlPct,
+              min_confidence: effectiveMinConf,
+              unified_config: unifiedConfig,
+            },
+            market_context_json: {
+              entry_price: finalEntryPrice,
+              expected_pnl_pct: intent.metadata?.expectedPnL || null,
+              horizon: intent.metadata?.horizon || null,
+              trigger: intent.metadata?.trigger || null,
+            },
+            decision_result: action,
+            decision_reason: reason,
+            schema_version: 'v1',
+          };
+
+          const { error: snapshotError } = await supabaseClient
+            .from("decision_snapshots")
+            .insert([snapshotPayload]);
+
+          if (snapshotError) {
+            console.error("[DECISION_SNAPSHOT_FAILED]", {
+              decision_id: insertedDecisionId,
+              symbol: baseSymbol,
+              error: snapshotError.message,
+            });
+          } else {
+            console.info("[DECISION_SNAPSHOT_WRITTEN]", {
+              decision_id: insertedDecisionId,
+              symbol: baseSymbol,
+              side: intent.side,
+              action,
+              schema_version: 'v1',
+            });
+          }
+        } catch (snapshotErr: any) {
+          // Non-blocking: snapshot failure must NEVER affect decision flow
+          console.error("[DECISION_SNAPSHOT_FAILED] Uncaught:", {
+            decision_id: insertedDecisionId,
+            symbol: baseSymbol,
+            error: snapshotErr?.message || 'unknown',
+          });
+        }
+
         return { logged: true, decisionId: insertedDecisionId };
       }
     }

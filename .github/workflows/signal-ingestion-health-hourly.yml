@@ -1,0 +1,28 @@
+name: Signal Ingestion Health Check
+on:
+  schedule:
+    - cron: "0 * * * *"   # every hour at :00
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check signal ingestion health
+        run: |
+          echo "🏥 Running signal ingestion health check..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/signal-ingestion-health" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Health check failed with status $HTTP_CODE"
+            exit 1
+          fi
