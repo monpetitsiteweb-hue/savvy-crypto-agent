@@ -950,6 +950,71 @@ export type Database = {
           },
         ]
       }
+      decision_snapshots: {
+        Row: {
+          created_at: string
+          decision_id: string | null
+          decision_reason: string | null
+          decision_result: string
+          fusion_score: number | null
+          guard_states_json: Json | null
+          id: string
+          market_context_json: Json | null
+          schema_version: string
+          side: string
+          signal_breakdown_json: Json | null
+          strategy_config_snapshot_json: Json | null
+          strategy_id: string
+          symbol: string
+          timestamp_utc: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          decision_id?: string | null
+          decision_reason?: string | null
+          decision_result: string
+          fusion_score?: number | null
+          guard_states_json?: Json | null
+          id?: string
+          market_context_json?: Json | null
+          schema_version?: string
+          side: string
+          signal_breakdown_json?: Json | null
+          strategy_config_snapshot_json?: Json | null
+          strategy_id: string
+          symbol: string
+          timestamp_utc?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          decision_id?: string | null
+          decision_reason?: string | null
+          decision_result?: string
+          fusion_score?: number | null
+          guard_states_json?: Json | null
+          id?: string
+          market_context_json?: Json | null
+          schema_version?: string
+          side?: string
+          signal_breakdown_json?: Json | null
+          strategy_config_snapshot_json?: Json | null
+          strategy_id?: string
+          symbol?: string
+          timestamp_utc?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "decision_snapshots_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "decision_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       deposit_attributions: {
         Row: {
           amount: number
@@ -2670,6 +2735,33 @@ export type Database = {
           min_weight?: number
           timeframe_hint?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      signal_source_health: {
+        Row: {
+          checked_at: string
+          expected_interval_seconds: number
+          last_signal_at: string | null
+          signal_count_24h: number | null
+          source: string
+          status: string
+        }
+        Insert: {
+          checked_at?: string
+          expected_interval_seconds?: number
+          last_signal_at?: string | null
+          signal_count_24h?: number | null
+          source: string
+          status?: string
+        }
+        Update: {
+          checked_at?: string
+          expected_interval_seconds?: number
+          last_signal_at?: string | null
+          signal_count_24h?: number | null
+          source?: string
+          status?: string
         }
         Relationships: []
       }
