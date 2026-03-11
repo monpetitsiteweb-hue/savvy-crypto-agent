@@ -200,3 +200,7 @@ verify_jwt = false
 # Signal ingestion health checker (staleness detection)
 [functions.signal-ingestion-health]
 verify_jwt = false
+
+# Chunked dedup utility for live_signals
+[functions.dedup-live-signals]
+verify_jwt = false
