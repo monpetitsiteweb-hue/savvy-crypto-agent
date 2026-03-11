@@ -125,13 +125,20 @@ serve(async (req) => {
 
         const { error: signalError } = await supabaseClient
           .from('live_signals')
-          .insert([signal]);
+          .upsert([signal], {
+            onConflict: 'source,signal_type,symbol,timestamp',
+            ignoreDuplicates: true
+          });
 
         if (signalError) {
-          console.error('❌ Error inserting whale signal:', signalError);
+          if (signalError.code === '23505') {
+            console.info(`[SIGNAL_DEDUPED] source=whale_alert_api symbol=${signal.symbol} type=${signalType}`);
+          } else {
+            console.error('❌ Error inserting whale signal:', signalError);
+          }
         } else {
           totalSignalsCreated++;
-          console.log(`[WhaleSignals] Inserted API signal into live_signals for ${signal.symbol} (${signalType})`);
+          console.info(`[SIGNAL_INGESTION_EVENT] source=whale_alert_api symbol=${signal.symbol} type=${signalType}`);
         }
       }
 

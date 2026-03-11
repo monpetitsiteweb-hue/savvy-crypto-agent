@@ -424,11 +424,15 @@ async function syncFearGreedIndex(supabaseClient: any, source: any) {
       if (signals.length > 0) {
         const { error: signalError } = await supabaseClient
           .from('live_signals')
-          .insert(signals);
+          .upsert(signals, {
+            onConflict: 'source,signal_type,symbol,timestamp',
+            ignoreDuplicates: true
+          });
           
         if (signalError) {
           console.error('❌ Error inserting Fear & Greed signals:', signalError);
         } else {
+          console.info(`[SIGNAL_INGESTION_EVENT] source=fear_greed_index count=${signals.length}`);
           console.log(`✅ Generated ${signals.length} Fear & Greed signals`);
         }
       }
