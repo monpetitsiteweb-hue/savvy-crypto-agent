@@ -4252,6 +4252,10 @@ export type Database = {
           symbol: string
         }[]
       }
+      dedup_live_signals_batch: {
+        Args: { p_batch_size?: number; p_dry_run?: boolean }
+        Returns: Json
+      }
       fetch_coinbase_connection_name: {
         Args: { connection_id: string }
         Returns: string
