@@ -139,7 +139,10 @@ serve(async (req) => {
       
       const { data: insertedSignals, error: signalError } = await supabaseClient
         .from('live_signals')
-        .insert(signals);
+        .upsert(signals, {
+          onConflict: 'source,signal_type,symbol,timestamp',
+          ignoreDuplicates: true
+        });
 
       if (signalError) {
         console.error('❌ Error inserting technical signals:', signalError);
@@ -148,6 +151,7 @@ serve(async (req) => {
         console.error('❌ Error hint:', signalError.hint);
         console.error('❌ Failed signals count:', signals.length);
       } else {
+        console.info(`[SIGNAL_INGESTION_EVENT] source=technical_analysis count=${signals.length} symbols=${[...new Set(signals.map(s => s.symbol))].join(',')}`);
         console.log(`✅ Generated ${signals.length} system-wide technical signals for symbols: ${[...new Set(signals.map(s => s.symbol))].join(', ')}`);
       }
     } else {

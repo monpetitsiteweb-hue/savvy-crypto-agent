@@ -198,7 +198,7 @@ serve(async (req) => {
       const { error: insertError } = await supabaseClient
         .from('live_signals')
         .upsert(signals, { 
-          onConflict: 'source_id,symbol,timestamp,signal_type',
+          onConflict: 'source,signal_type,symbol,timestamp',
           ignoreDuplicates: true 
         });
 
@@ -206,15 +206,18 @@ serve(async (req) => {
         console.error('❌ Error inserting whale signals:', insertError);
         // Try individual inserts as fallback
         let inserted = 0;
+        let deduped = 0;
         for (const signal of signals) {
           const { error } = await supabaseClient
             .from('live_signals')
-            .insert(signal);
+            .upsert(signal, { onConflict: 'source,signal_type,symbol,timestamp', ignoreDuplicates: true });
           if (!error) inserted++;
+          else if (error.code === '23505') deduped++;
         }
-        console.log(`✅ Inserted ${inserted}/${signals.length} whale signals (fallback mode)`);
+        console.info(`[SIGNAL_INGESTION_EVENT] source=whale_alert_ws count=${inserted} deduped=${deduped} mode=fallback`);
+        if (deduped > 0) console.info(`[SIGNAL_DEDUPED] source=whale_alert_ws count=${deduped}`);
       } else {
-        console.log(`✅ Inserted ${signals.length} whale signals`);
+        console.info(`[SIGNAL_INGESTION_EVENT] source=whale_alert_ws count=${signals.length}`);
       }
     }
 

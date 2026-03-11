@@ -196,3 +196,7 @@ verify_jwt = false
 # System wallet withdrawal (uses BOT_PRIVATE_KEY)
 [functions.system-wallet-withdraw]
 verify_jwt = false
+
+# Signal ingestion health checker (staleness detection)
+[functions.signal-ingestion-health]
+verify_jwt = false

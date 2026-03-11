@@ -377,11 +377,15 @@ async function generateSentimentSignals(supabaseClient: any, newsData: any[], us
   if (signals.length > 0) {
     const { error } = await supabaseClient
       .from('live_signals')
-      .insert(signals);
+      .upsert(signals, {
+        onConflict: 'source,signal_type,symbol,timestamp',
+        ignoreDuplicates: true
+      });
     
     if (error) {
       console.error('❌ Error inserting sentiment signals:', error);
     } else {
+      console.info(`[SIGNAL_INGESTION_EVENT] source=crypto_news count=${signals.length}`);
       console.log(`✅ Inserted ${signals.length} sentiment signals`);
     }
   }
