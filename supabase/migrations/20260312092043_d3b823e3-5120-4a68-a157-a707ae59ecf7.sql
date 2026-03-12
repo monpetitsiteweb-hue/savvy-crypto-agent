@@ -1,0 +1,1 @@
+CREATE INDEX idx_live_signals_source_timestamp ON public.live_signals (source, "timestamp" DESC);
