@@ -4975,8 +4975,9 @@ async function logDecisionAsync(
         intent.source === "intelligent" ? "intelligent" : intent.source === "manual" ? "manual" : "system"; // Fallback for any edge case (should never happen)
 
       // PHASE 1B: Compute fused signal score (READ-ONLY, no behavior change)
+      // Always compute for snapshot observability — fusion data is never used in decision logic
       let fusedSignalData = null;
-      if (isSignalFusionEnabled(strategyConfig)) {
+      {
         try {
           const fusionResult = await computeFusedSignalScore({
             supabaseClient,
