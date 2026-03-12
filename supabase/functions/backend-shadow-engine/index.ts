@@ -1289,7 +1289,7 @@ serve(async (req) => {
           origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
         };
         
-        const { error: insertError } = await supabaseClient
+        const { data: insertResult, error: insertError } = await supabaseClient
           .from('decision_events')
           .insert({
             user_id: userId,
@@ -1302,12 +1302,76 @@ serve(async (req) => {
             entry_price: dec.metadata.price || dec.metadata.currentPrice,
             metadata: eventMetadata,
             decision_ts: dec.timestamp,
-          });
+          })
+          .select('id');
         
         if (insertError) {
           console.warn(`🌑 ${BACKEND_ENGINE_MODE}: Insert error for ${dec.symbol}:`, insertError.message);
         } else {
           console.log(`🌑 ${BACKEND_ENGINE_MODE}: Logged decision_event for ${dec.symbol} action=${dec.action}`);
+          
+          // PHASE 1: Write decision snapshot (non-blocking, append-only)
+          const insertedId = insertResult?.[0]?.id || null;
+          if (insertedId) {
+            try {
+              const { error: snapshotError } = await supabaseClient
+                .from('decision_snapshots')
+                .insert([{
+                  decision_id: insertedId,
+                  user_id: userId,
+                  strategy_id: dec.metadata.strategyId,
+                  symbol: dec.symbol,
+                  side: dec.side,
+                  timestamp_utc: dec.timestamp,
+                  fusion_score: dec.fusionScore ?? null,
+                  signal_breakdown_json: dec.metadata.signalScores ? {
+                    scores: dec.metadata.signalScores,
+                    entry_quality: dec.metadata.entry_quality ?? null,
+                  } : null,
+                  guard_states_json: {
+                    action: dec.action,
+                    reason: dec.reason,
+                    confidence: dec.confidence,
+                    execution_status: dec.metadata.execution_status ?? null,
+                    execution_reason: dec.metadata.execution_reason ?? null,
+                    engine_mode: BACKEND_ENGINE_MODE,
+                    shadow_mode: effectiveShadowMode,
+                  },
+                  strategy_config_snapshot_json: {
+                    strategy_id: dec.metadata.strategyId,
+                    strategy_name: dec.metadata.strategyName ?? null,
+                  },
+                  market_context_json: {
+                    entry_price: dec.metadata.price || dec.metadata.currentPrice || null,
+                    trigger: dec.metadata.trigger ?? dec.reason,
+                  },
+                  decision_result: dec.action,
+                  decision_reason: dec.reason,
+                  schema_version: 'v1',
+                }]);
+
+              if (snapshotError) {
+                console.error('[DECISION_SNAPSHOT_FAILED]', {
+                  decision_id: insertedId,
+                  symbol: dec.symbol,
+                  error: snapshotError.message,
+                });
+              } else {
+                console.info('[DECISION_SNAPSHOT_WRITTEN]', {
+                  decision_id: insertedId,
+                  symbol: dec.symbol,
+                  action: dec.action,
+                  schema_version: 'v1',
+                });
+              }
+            } catch (snapshotErr: any) {
+              console.error('[DECISION_SNAPSHOT_FAILED] Uncaught:', {
+                decision_id: insertedId,
+                symbol: dec.symbol,
+                error: snapshotErr?.message || 'unknown',
+              });
+            }
+          }
         }
       } catch (logErr) {
         console.warn(`🌑 ${BACKEND_ENGINE_MODE}: Could not log decision_event for ${dec.symbol}:`, logErr);
