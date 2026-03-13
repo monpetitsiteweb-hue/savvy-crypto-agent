@@ -5241,6 +5241,9 @@ async function logDecisionAsync(
               total_signals: fusedSignalData.totalSignals,
               enabled_signals: fusedSignalData.enabledSignals,
               top_signals: fusedSignalData.topSignals,
+              signals_used: fusedSignalData.signals_used,
+              source_contributions: fusedSignalData.source_contributions,
+              fusion_version: fusedSignalData.fusion_version,
             } : null,
             guard_states_json: {
               action,
