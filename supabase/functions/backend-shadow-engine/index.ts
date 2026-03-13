@@ -662,7 +662,7 @@ serve(async (req) => {
           const signalLookback = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
           const { data: liveSignals } = await supabaseClient
             .from('live_signals')
-            .select('signal_type, signal_strength, data')
+            .select('id, signal_type, signal_strength, source, data')
             .or(`symbol.eq.${baseSymbol},symbol.eq.${symbol}`)
             .gte('timestamp', signalLookback)
             .in('signal_type', [
@@ -955,7 +955,7 @@ serve(async (req) => {
           const signalLookback = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
           const { data: liveSignals } = await supabaseClient
             .from('live_signals')
-            .select('signal_type, signal_strength, data')
+            .select('id, signal_type, signal_strength, source, data')
             .or(`symbol.eq.${baseSymbol},symbol.eq.${symbol}`)
             .gte('timestamp', signalLookback)
             .in('signal_type', [
@@ -1230,13 +1230,18 @@ serve(async (req) => {
               engineMode: BACKEND_ENGINE_MODE,
               effectiveShadowMode,
               userAllowedForLive: isUserAllowedForLive,
-              // ============= ENTRY QUALITY (NEW) =============
               entry_quality: entryQuality,
               entry_quality_config: entryQualityConfig,
-              // ============= EXECUTION TRUTH FIELDS =============
               execution_status,
               execution_reason,
               intent_side: 'BUY',
+              // v2: signal lineage for ML traceability
+              signals_used: (liveSignals || []).map((s: any) => ({
+                signal_id: s.id,
+                source: s.source || 'unknown',
+                signal_type: s.signal_type,
+                strength: s.signal_strength,
+              })),
             }
           });
 
@@ -1327,6 +1332,8 @@ serve(async (req) => {
                   signal_breakdown_json: dec.metadata.signalScores ? {
                     scores: dec.metadata.signalScores,
                     entry_quality: dec.metadata.entry_quality ?? null,
+                    signals_used: dec.metadata.signals_used ?? [],
+                    fusion_version: 'v2_shadow',
                   } : null,
                   guard_states_json: {
                     action: dec.action,

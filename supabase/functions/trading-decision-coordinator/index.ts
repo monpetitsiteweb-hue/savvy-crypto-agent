@@ -55,11 +55,22 @@ interface SignalDetail {
   timestamp: string;
 }
 
+/** Compact signal reference for lineage persistence */
+interface SignalUsed {
+  signal_id: string;
+  source: string;
+  signal_type: string;
+  strength: number;
+}
+
 interface FusedSignalResult {
   fusedScore: number;
   details: SignalDetail[];
   totalSignals: number;
   enabledSignals: number;
+  signals_used: SignalUsed[];
+  source_contributions: Record<string, number>;
+  fusion_version: string;
 }
 
 interface ComputeFusedSignalParams {
@@ -70,6 +81,7 @@ interface ComputeFusedSignalParams {
   side: "BUY" | "SELL";
   horizon: "15m" | "1h" | "4h" | "24h";
   now?: Date;
+  useSourceAggregation?: boolean;
 }
 
 const LOOKBACK_WINDOWS: Record<string, number> = {
@@ -107,8 +119,73 @@ function getDirectionMultiplier(directionHint: string): number {
   }
 }
 
+// Source aggregation strategies per source type
+type AggregationStrategy = "average" | "max" | "latest";
+const SOURCE_AGGREGATION_STRATEGY: Record<string, AggregationStrategy> = {
+  technical_analysis: "average",
+  crypto_news: "average",
+  whale_alert_ws: "max",
+  fear_greed_index: "latest",
+  eodhd: "latest",
+};
+
+interface ProcessedSignal {
+  signal: any;
+  registryEntry: SignalRegistryEntry;
+  effectiveWeight: number;
+  normalizedStrength: number;
+  directionMultiplier: number;
+  contribution: number;
+}
+
+function aggregateBySource(processedSignals: ProcessedSignal[]): Map<string, { contribution: number; strength: number; count: number }> {
+  const bySource = new Map<string, ProcessedSignal[]>();
+  for (const ps of processedSignals) {
+    const source = ps.signal.source;
+    if (!bySource.has(source)) bySource.set(source, []);
+    bySource.get(source)!.push(ps);
+  }
+
+  const result = new Map<string, { contribution: number; strength: number; count: number }>();
+  for (const [source, signals] of bySource) {
+    const strategy = SOURCE_AGGREGATION_STRATEGY[source] || "average";
+    let aggContribution: number;
+    let aggStrength: number;
+
+    switch (strategy) {
+      case "max": {
+        const strongest = signals.reduce((best, s) =>
+          Math.abs(s.contribution) > Math.abs(best.contribution) ? s : best
+        );
+        aggContribution = strongest.contribution;
+        aggStrength = strongest.normalizedStrength;
+        break;
+      }
+      case "latest": {
+        aggContribution = signals[0].contribution;
+        aggStrength = signals[0].normalizedStrength;
+        break;
+      }
+      case "average":
+      default: {
+        aggContribution = signals.reduce((acc, s) => acc + s.contribution, 0) / signals.length;
+        aggStrength = signals.reduce((acc, s) => acc + s.normalizedStrength, 0) / signals.length;
+        break;
+      }
+    }
+    result.set(source, { contribution: aggContribution, strength: aggStrength, count: signals.length });
+  }
+  return result;
+}
+
 async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promise<FusedSignalResult> {
-  const { supabaseClient, userId, strategyId, symbol, side, horizon, now = new Date() } = params;
+  const {
+    supabaseClient, userId, strategyId, symbol, side, horizon,
+    now = new Date(),
+    useSourceAggregation = true,
+  } = params;
+
+  const FUSION_VERSION = useSourceAggregation ? "v2_aggregated" : "v2_raw";
 
   try {
     const windowMs = LOOKBACK_WINDOWS[horizon] || LOOKBACK_WINDOWS["1h"];
@@ -128,69 +205,48 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
 
     if (!signals || signals.length === 0) {
       console.log(`[SignalFusion] No signals found for ${symbol}/${horizon}`);
-      return { fusedScore: 0, details: [], totalSignals: 0, enabledSignals: 0 };
+      return { fusedScore: 0, details: [], totalSignals: 0, enabledSignals: 0, signals_used: [], source_contributions: {}, fusion_version: FUSION_VERSION };
     }
 
     console.log(`[SignalFusion] Found ${signals.length} signals for ${symbol}/${horizon}`);
 
-    const { data: registryEntries, error: registryError } = await supabaseClient
-      .from("signal_registry")
-      .select("*")
-      .in("key", [...new Set(signals.map((s: any) => s.signal_type))]);
+    // Fetch registry and strategy weights in parallel
+    const [registryResult, weightsResult] = await Promise.all([
+      supabaseClient.from("signal_registry").select("*").in("key", [...new Set(signals.map((s: any) => s.signal_type))]),
+      supabaseClient.from("strategy_signal_weights").select("*").eq("strategy_id", strategyId),
+    ]);
 
-    if (registryError) {
-      console.error("[SignalFusion] Error fetching registry:", registryError);
-      throw registryError;
-    }
-
-    const { data: strategyWeights, error: weightsError } = await supabaseClient
-      .from("strategy_signal_weights")
-      .select("*")
-      .eq("strategy_id", strategyId);
-
-    if (weightsError) {
-      console.error("[SignalFusion] Error fetching strategy weights:", weightsError);
+    if (registryResult.error) {
+      console.error("[SignalFusion] Error fetching registry:", registryResult.error);
+      throw registryResult.error;
     }
 
     const weightOverrides = new Map<string, { weight?: number; is_enabled: boolean }>();
-    if (strategyWeights) {
-      (strategyWeights as StrategySignalWeight[]).forEach((sw) => {
-        weightOverrides.set(sw.signal_key, {
-          weight: sw.weight ?? undefined,
-          is_enabled: sw.is_enabled,
-        });
+    if (weightsResult.data) {
+      (weightsResult.data as StrategySignalWeight[]).forEach((sw) => {
+        weightOverrides.set(sw.signal_key, { weight: sw.weight ?? undefined, is_enabled: sw.is_enabled });
       });
     }
 
-    const registryMap = new Map((registryEntries as SignalRegistryEntry[])?.map((r) => [r.key, r]) || []);
+    const registryMap = new Map((registryResult.data as SignalRegistryEntry[])?.map((r) => [r.key, r]) || []);
 
     const details: SignalDetail[] = [];
-    let totalContribution = 0;
-    let enabledCount = 0;
+    const signalsUsed: SignalUsed[] = [];
+    const processedSignals: ProcessedSignal[] = [];
 
     for (const signal of signals) {
       const registryEntry = registryMap.get(signal.signal_type);
-
-      if (!registryEntry) {
-        console.warn(`[SignalFusion] No registry entry for: ${signal.signal_type}`);
-        continue;
-      }
-
-      if (!registryEntry.is_enabled) {
-        console.log(`[SignalFusion] Signal ${signal.signal_type} disabled in registry`);
-        continue;
-      }
+      if (!registryEntry || !registryEntry.is_enabled) continue;
 
       const override = weightOverrides.get(signal.signal_type);
-      if (override && !override.is_enabled) {
-        console.log(`[SignalFusion] Signal ${signal.signal_type} disabled for strategy`);
-        continue;
-      }
+      if (override && !override.is_enabled) continue;
 
       const effectiveWeight = override?.weight ?? registryEntry.default_weight;
       const normalizedStrength = normalizeSignalStrength(signal.signal_strength);
       const directionMultiplier = getDirectionMultiplier(registryEntry.direction_hint);
       const contribution = normalizedStrength * effectiveWeight * directionMultiplier;
+
+      processedSignals.push({ signal, registryEntry, effectiveWeight, normalizedStrength, directionMultiplier, contribution });
 
       details.push({
         signalId: signal.id,
@@ -203,26 +259,57 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
         timestamp: signal.timestamp,
       });
 
-      totalContribution += contribution;
-      enabledCount++;
+      signalsUsed.push({
+        signal_id: signal.id,
+        source: signal.source,
+        signal_type: signal.signal_type,
+        strength: signal.signal_strength,
+      });
+    }
+
+    // Compute fused score with or without source aggregation
+    let totalContribution = 0;
+    const sourceContributions: Record<string, number> = {};
+
+    if (useSourceAggregation && processedSignals.length > 0) {
+      const aggregated = aggregateBySource(processedSignals);
+      for (const [source, agg] of aggregated) {
+        totalContribution += agg.contribution;
+        sourceContributions[source] = Number(agg.contribution.toFixed(4));
+      }
+    } else {
+      for (const ps of processedSignals) {
+        totalContribution += ps.contribution;
+        const src = ps.signal.source;
+        sourceContributions[src] = (sourceContributions[src] || 0) + ps.contribution;
+      }
+      for (const key of Object.keys(sourceContributions)) {
+        sourceContributions[key] = Number(sourceContributions[key].toFixed(4));
+      }
     }
 
     const fusedScore = Math.max(-100, Math.min(100, totalContribution * 20));
 
     console.log(
-      `[SignalFusion] Fused score for ${symbol}/${horizon}: ${fusedScore.toFixed(2)} from ${enabledCount} signals`,
+      `[SignalFusion] ${FUSION_VERSION} score for ${symbol}/${horizon}: ${fusedScore.toFixed(2)} from ${processedSignals.length} signals (${Object.keys(sourceContributions).length} sources)`,
     );
 
-    return { fusedScore, details, totalSignals: signals.length, enabledSignals: enabledCount };
+    return {
+      fusedScore,
+      details,
+      totalSignals: signals.length,
+      enabledSignals: processedSignals.length,
+      signals_used: signalsUsed,
+      source_contributions: sourceContributions,
+      fusion_version: FUSION_VERSION,
+    };
   } catch (error) {
     console.error("[SignalFusion] Error computing fused signal:", error);
-    return { fusedScore: 0, details: [], totalSignals: 0, enabledSignals: 0 };
+    return { fusedScore: 0, details: [], totalSignals: 0, enabledSignals: 0, signals_used: [], source_contributions: {}, fusion_version: "v2_error" };
   }
 }
 
 function isSignalFusionEnabled(strategyConfig: any): boolean {
-  // Signal Fusion is enabled purely based on the enableSignalFusion flag
-  // execution_target (MOCK/REAL) controls execution mode, not signal fusion availability
   const fusionEnabled =
     strategyConfig?.configuration?.enableSignalFusion === true || strategyConfig?.enableSignalFusion === true;
   return fusionEnabled;
@@ -5000,6 +5087,10 @@ async function logDecisionAsync(
                 type: d.signalType,
                 contribution: Number(d.contribution.toFixed(2)),
               })),
+            // v2: signal lineage and source contributions
+            signals_used: fusionResult.signals_used,
+            source_contributions: fusionResult.source_contributions,
+            fusion_version: fusionResult.fusion_version,
           };
 
           console.log(
@@ -5150,6 +5241,9 @@ async function logDecisionAsync(
               total_signals: fusedSignalData.totalSignals,
               enabled_signals: fusedSignalData.enabledSignals,
               top_signals: fusedSignalData.topSignals,
+              signals_used: fusedSignalData.signals_used,
+              source_contributions: fusedSignalData.source_contributions,
+              fusion_version: fusedSignalData.fusion_version,
             } : null,
             guard_states_json: {
               action,
