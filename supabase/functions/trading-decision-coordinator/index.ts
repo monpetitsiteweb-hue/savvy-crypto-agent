@@ -81,6 +81,7 @@ interface ComputeFusedSignalParams {
   side: "BUY" | "SELL";
   horizon: "15m" | "1h" | "4h" | "24h";
   now?: Date;
+  useSourceAggregation?: boolean;
 }
 
 const LOOKBACK_WINDOWS: Record<string, number> = {
