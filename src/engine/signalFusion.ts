@@ -1,14 +1,13 @@
 /**
- * Signal Fusion Module
+ * Signal Fusion Module v2
  * 
  * Computes a fused signal score from multiple live signals for trading decisions.
  * 
- * Architecture:
- * 1. Query recent signals from live_signals table based on symbol and horizon
- * 2. Join with signal_registry for weights and enabled status
- * 3. Apply per-strategy overrides from strategy_signal_weights
- * 4. Normalize signal strengths and compute weighted contributions
- * 5. Return fused score (-100 to +100) and detailed breakdown
+ * v2 changes:
+ * - Signal lineage: returns exact signal IDs used in fusion for ML traceability
+ * - Source aggregation: aggregates signals per source before fusion to prevent
+ *   high-frequency sources from dominating (configurable via useSourceAggregation flag)
+ * - Source contributions: returns per-source contribution breakdown
  */
 
 // Type definitions for new tables
@@ -48,47 +47,62 @@ export interface SignalDetail {
   timestamp: string;
 }
 
+/** Compact signal reference for lineage persistence */
+export interface SignalUsed {
+  signal_id: string;
+  source: string;
+  signal_type: string;
+  strength: number;
+}
+
+/** Per-source aggregated contribution */
+export interface SourceContribution {
+  source: string;
+  signal_count: number;
+  aggregated_strength: number;
+  contribution: number;
+}
+
 export interface FusedSignalResult {
   fusedScore: number;  // -100 to +100
   details: SignalDetail[];
   totalSignals: number;
   enabledSignals: number;
+  /** v2: exact signals used for ML lineage */
+  signals_used: SignalUsed[];
+  /** v2: per-source contribution breakdown */
+  source_contributions: Record<string, number>;
+  /** v2: fusion version for schema evolution */
+  fusion_version: string;
 }
 
 export interface ComputeFusedSignalParams {
-  supabaseClient: any; // Supabase client instance
+  supabaseClient: any;
   userId: string;
   strategyId: string;
   symbol: string;
-  side: 'BUY' | 'SELL'; // Added for future directional weighting
+  side: 'BUY' | 'SELL';
   horizon: '15m' | '1h' | '4h' | '24h';
   now?: Date;
+  /** v2: aggregate per source before fusion (default: true) */
+  useSourceAggregation?: boolean;
 }
 
 // Lookback windows based on horizon
 const LOOKBACK_WINDOWS: Record<string, number> = {
-  '15m': 30 * 60 * 1000,  // 30 minutes in ms
-  '1h': 2 * 60 * 60 * 1000,  // 2 hours
-  '4h': 8 * 60 * 60 * 1000,  // 8 hours
-  '24h': 48 * 60 * 60 * 1000  // 48 hours
+  '15m': 30 * 60 * 1000,
+  '1h': 2 * 60 * 60 * 1000,
+  '4h': 8 * 60 * 60 * 1000,
+  '24h': 48 * 60 * 60 * 1000
 };
 
-/**
- * Normalize signal strength to 0-1 scale
- */
 function normalizeSignalStrength(rawStrength: number): number {
-  // Most signals are 0-100 scale, normalize to 0-1
   if (rawStrength <= 1) {
-    // Already 0-1 scale
     return Math.max(0, Math.min(1, rawStrength));
   }
-  // 0-100 scale, convert to 0-1
   return Math.max(0, Math.min(1, rawStrength / 100));
 }
 
-/**
- * Determine signal direction multiplier based on direction_hint
- */
 function getDirectionMultiplier(directionHint: string): number {
   switch (directionHint.toLowerCase()) {
     case 'bullish':
@@ -98,8 +112,95 @@ function getDirectionMultiplier(directionHint: string): number {
     case 'symmetric':
     case 'contextual':
     default:
-      return 1; // For symmetric/contextual, keep the sign from normalized strength
+      return 1;
   }
+}
+
+/**
+ * Source aggregation strategies per source type.
+ * - technical_analysis: average (continuous signals)
+ * - crypto_news: average (periodic sentiment)
+ * - whale_alert_ws: max (sporadic, strongest matters)
+ * - fear_greed_index: latest (daily snapshot)
+ * - default: average
+ */
+type AggregationStrategy = 'average' | 'max' | 'latest';
+
+const SOURCE_AGGREGATION_STRATEGY: Record<string, AggregationStrategy> = {
+  'technical_analysis': 'average',
+  'crypto_news': 'average',
+  'whale_alert_ws': 'max',
+  'fear_greed_index': 'latest',
+  'eodhd': 'latest',
+};
+
+function getAggregationStrategy(source: string): AggregationStrategy {
+  return SOURCE_AGGREGATION_STRATEGY[source] || 'average';
+}
+
+interface ProcessedSignal {
+  signal: any;
+  registryEntry: SignalRegistryEntry;
+  effectiveWeight: number;
+  normalizedStrength: number;
+  directionMultiplier: number;
+  contribution: number;
+}
+
+/**
+ * Aggregate processed signals per source, producing one contribution per source.
+ */
+function aggregateBySource(processedSignals: ProcessedSignal[]): {
+  aggregatedContributions: Map<string, { contribution: number; strength: number; count: number }>;
+} {
+  // Group by source
+  const bySource = new Map<string, ProcessedSignal[]>();
+  for (const ps of processedSignals) {
+    const source = ps.signal.source;
+    if (!bySource.has(source)) bySource.set(source, []);
+    bySource.get(source)!.push(ps);
+  }
+
+  const aggregatedContributions = new Map<string, { contribution: number; strength: number; count: number }>();
+
+  for (const [source, signals] of bySource) {
+    const strategy = getAggregationStrategy(source);
+    let aggregatedContribution: number;
+    let aggregatedStrength: number;
+
+    switch (strategy) {
+      case 'max': {
+        // Pick signal with highest absolute contribution
+        const strongest = signals.reduce((best, s) =>
+          Math.abs(s.contribution) > Math.abs(best.contribution) ? s : best
+        );
+        aggregatedContribution = strongest.contribution;
+        aggregatedStrength = strongest.normalizedStrength;
+        break;
+      }
+      case 'latest': {
+        // Pick most recent signal (signals are already ordered desc by timestamp)
+        aggregatedContribution = signals[0].contribution;
+        aggregatedStrength = signals[0].normalizedStrength;
+        break;
+      }
+      case 'average':
+      default: {
+        const sum = signals.reduce((acc, s) => acc + s.contribution, 0);
+        aggregatedContribution = sum / signals.length;
+        aggregatedStrength = signals.reduce((acc, s) => acc + s.normalizedStrength, 0) / signals.length;
+        break;
+      }
+    }
+
+    aggregatedContributions.set(source, {
+      contribution: aggregatedContribution,
+      strength: aggregatedStrength,
+      count: signals.length,
+    });
+  }
+
+  return { aggregatedContributions };
 }
 
 /**
@@ -108,14 +209,18 @@ function getDirectionMultiplier(directionHint: string): number {
 export async function computeFusedSignalScore(
   params: ComputeFusedSignalParams
 ): Promise<FusedSignalResult> {
-  const { supabaseClient, userId, strategyId, symbol, side, horizon, now = new Date() } = params;
+  const {
+    supabaseClient, userId, strategyId, symbol, side, horizon,
+    now = new Date(),
+    useSourceAggregation = true,
+  } = params;
   
+  const FUSION_VERSION = useSourceAggregation ? 'v2_aggregated' : 'v2_raw';
+
   try {
-    // Calculate lookback window
     const windowMs = LOOKBACK_WINDOWS[horizon] || LOOKBACK_WINDOWS['1h'];
     const cutoffTime = new Date(now.getTime() - windowMs).toISOString();
 
-    // Query recent signals for this symbol AND market-wide signals (symbol = 'ALL')
     const { data: signals, error: signalsError } = await supabaseClient
       .from('live_signals')
       .select('id, signal_type, source, signal_strength, timestamp, symbol')
@@ -123,86 +228,74 @@ export async function computeFusedSignalScore(
       .gte('timestamp', cutoffTime)
       .order('timestamp', { ascending: false });
 
-    if (signalsError) {
-      throw signalsError;
-    }
+    if (signalsError) throw signalsError;
 
     if (!signals || signals.length === 0) {
       return {
         fusedScore: 0,
         details: [],
         totalSignals: 0,
-        enabledSignals: 0
+        enabledSignals: 0,
+        signals_used: [],
+        source_contributions: {},
+        fusion_version: FUSION_VERSION,
       };
     }
 
-    // Get signal registry entries
-    const { data: registryEntries, error: registryError } = await supabaseClient
-      .from('signal_registry')
-      .select('*')
-      .in('key', [...new Set(signals.map(s => s.signal_type))]);
+    // Fetch registry and strategy weights in parallel
+    const [registryResult, weightsResult] = await Promise.all([
+      supabaseClient
+        .from('signal_registry')
+        .select('*')
+        .in('key', [...new Set(signals.map((s: any) => s.signal_type))]),
+      supabaseClient
+        .from('strategy_signal_weights')
+        .select('*')
+        .eq('strategy_id', strategyId),
+    ]);
 
-    if (registryError) {
-      throw registryError;
-    }
+    if (registryResult.error) throw registryResult.error;
 
-    // Get per-strategy weight overrides
-    const { data: strategyWeights, error: weightsError } = await supabaseClient
-      .from('strategy_signal_weights')
-      .select('*')
-      .eq('strategy_id', strategyId);
-
-    // Build weight override map
     const weightOverrides = new Map<string, { weight?: number; is_enabled: boolean }>();
-    if (strategyWeights) {
-      (strategyWeights as StrategySignalWeight[]).forEach(sw => {
+    if (weightsResult.data) {
+      (weightsResult.data as StrategySignalWeight[]).forEach(sw => {
         weightOverrides.set(sw.signal_key, {
           weight: sw.weight ?? undefined,
-          is_enabled: sw.is_enabled
+          is_enabled: sw.is_enabled,
         });
       });
     }
 
-    // Build registry map
     const registryMap = new Map(
-      (registryEntries as SignalRegistryEntry[])?.map(r => [r.key, r]) || []
+      (registryResult.data as SignalRegistryEntry[])?.map(r => [r.key, r]) || []
     );
 
-    // Process each signal and compute contributions
+    // Process each signal
     const details: SignalDetail[] = [];
-    let totalContribution = 0;
-    let enabledCount = 0;
+    const signalsUsed: SignalUsed[] = [];
+    const processedSignals: ProcessedSignal[] = [];
 
     for (const signal of signals) {
       const registryEntry = registryMap.get(signal.signal_type);
-      
-      // Skip if no registry entry (shouldn't happen)
-      if (!registryEntry) {
-        continue;
-      }
+      if (!registryEntry || !registryEntry.is_enabled) continue;
 
-      // Check if signal is enabled globally
-      if (!registryEntry.is_enabled) {
-        continue;
-      }
-
-      // Check per-strategy override
       const override = weightOverrides.get(signal.signal_type);
-      if (override && !override.is_enabled) {
-        continue;
-      }
+      if (override && !override.is_enabled) continue;
 
-      // Determine effective weight
       const effectiveWeight = override?.weight ?? registryEntry.default_weight;
-
-      // Normalize signal strength
       const normalizedStrength = normalizeSignalStrength(signal.signal_strength);
-
-      // Apply direction multiplier
       const directionMultiplier = getDirectionMultiplier(registryEntry.direction_hint);
-
-      // Compute contribution
       const contribution = normalizedStrength * effectiveWeight * directionMultiplier;
+
+      const ps: ProcessedSignal = {
+        signal,
+        registryEntry,
+        effectiveWeight,
+        normalizedStrength,
+        directionMultiplier,
+        contribution,
+      };
+      processedSignals.push(ps);
 
       details.push({
         signalId: signal.id,
@@ -212,54 +305,73 @@ export async function computeFusedSignalScore(
         normalizedStrength,
         appliedWeight: effectiveWeight,
         contribution,
-        timestamp: signal.timestamp
+        timestamp: signal.timestamp,
       });
 
-      totalContribution += contribution;
-      enabledCount++;
+      // Lineage: record every signal that was considered
+      signalsUsed.push({
+        signal_id: signal.id,
+        source: signal.source,
+        signal_type: signal.signal_type,
+        strength: signal.signal_strength,
+      });
     }
 
-    // Fused score: scale to -100 to +100 range
-    // With current weights (0-3) and normalized strengths (0-1),
-    // typical contribution range per signal is -3 to +3
-    // For multiple signals, we'll cap at ±100
+    // Compute fused score and source contributions
+    let totalContribution = 0;
+    const sourceContributions: Record<string, number> = {};
+
+    if (useSourceAggregation && processedSignals.length > 0) {
+      // v2: aggregate per source, then sum
+      const { aggregatedContributions } = aggregateBySource(processedSignals);
+      for (const [source, agg] of aggregatedContributions) {
+        totalContribution += agg.contribution;
+        sourceContributions[source] = Number(agg.contribution.toFixed(4));
+      }
+    } else {
+      // v1 legacy: sum all raw contributions
+      for (const ps of processedSignals) {
+        totalContribution += ps.contribution;
+        const src = ps.signal.source;
+        sourceContributions[src] = (sourceContributions[src] || 0) + ps.contribution;
+      }
+      // Round
+      for (const key of Object.keys(sourceContributions)) {
+        sourceContributions[key] = Number(sourceContributions[key].toFixed(4));
+      }
+    }
+
     const fusedScore = Math.max(-100, Math.min(100, totalContribution * 20));
 
     return {
       fusedScore,
       details,
       totalSignals: signals.length,
-      enabledSignals: enabledCount
+      enabledSignals: processedSignals.length,
+      signals_used: signalsUsed,
+      source_contributions: sourceContributions,
+      fusion_version: FUSION_VERSION,
     };
 
   } catch (error) {
-    // Fail soft: return zero score
     return {
       fusedScore: 0,
       details: [],
       totalSignals: 0,
-      enabledSignals: 0
+      enabledSignals: 0,
+      signals_used: [],
+      source_contributions: {},
+      fusion_version: 'v2_error',
     };
   }
 }
 
 /**
  * Check if signal fusion is enabled via strategy configuration
- * Reads from strategy config (user-level, not admin)
- * 
- * Requirements:
- * 1. enableSignalFusion flag must be true
- * 2. Strategy must be in test mode
- * 
- * Default: Fusion is OFF (undefined or false)
  */
 export function isSignalFusionEnabled(strategyConfig: any): boolean {
-  // Check if enableSignalFusion flag is present and true
-  // Only enable when strategy is in test mode
   const isTestMode = strategyConfig?.is_test_mode === true || 
                     strategyConfig?.execution_mode === 'TEST';
-  
   const fusionEnabled = strategyConfig?.enableSignalFusion === true;
-  
   return isTestMode && fusionEnabled;
 }
