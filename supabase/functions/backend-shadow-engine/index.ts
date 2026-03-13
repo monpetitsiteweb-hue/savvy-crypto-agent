@@ -1332,6 +1332,8 @@ serve(async (req) => {
                   signal_breakdown_json: dec.metadata.signalScores ? {
                     scores: dec.metadata.signalScores,
                     entry_quality: dec.metadata.entry_quality ?? null,
+                    signals_used: dec.metadata.signals_used ?? [],
+                    fusion_version: 'v2_shadow',
                   } : null,
                   guard_states_json: {
                     action: dec.action,
