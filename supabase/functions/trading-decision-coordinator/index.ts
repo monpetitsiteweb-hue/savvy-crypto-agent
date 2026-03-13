@@ -55,11 +55,22 @@ interface SignalDetail {
   timestamp: string;
 }
 
+/** Compact signal reference for lineage persistence */
+interface SignalUsed {
+  signal_id: string;
+  source: string;
+  signal_type: string;
+  strength: number;
+}
+
 interface FusedSignalResult {
   fusedScore: number;
   details: SignalDetail[];
   totalSignals: number;
   enabledSignals: number;
+  signals_used: SignalUsed[];
+  source_contributions: Record<string, number>;
+  fusion_version: string;
 }
 
 interface ComputeFusedSignalParams {
