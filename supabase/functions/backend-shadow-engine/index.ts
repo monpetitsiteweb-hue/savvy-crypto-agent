@@ -1230,13 +1230,18 @@ serve(async (req) => {
               engineMode: BACKEND_ENGINE_MODE,
               effectiveShadowMode,
               userAllowedForLive: isUserAllowedForLive,
-              // ============= ENTRY QUALITY (NEW) =============
               entry_quality: entryQuality,
               entry_quality_config: entryQualityConfig,
-              // ============= EXECUTION TRUTH FIELDS =============
               execution_status,
               execution_reason,
               intent_side: 'BUY',
+              // v2: signal lineage for ML traceability
+              signals_used: (liveSignals || []).map((s: any) => ({
+                signal_id: s.id,
+                source: s.source || 'unknown',
+                signal_type: s.signal_type,
+                strength: s.signal_strength,
+              })),
             }
           });
 
