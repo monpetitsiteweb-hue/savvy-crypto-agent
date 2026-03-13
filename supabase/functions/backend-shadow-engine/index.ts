@@ -662,7 +662,7 @@ serve(async (req) => {
           const signalLookback = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
           const { data: liveSignals } = await supabaseClient
             .from('live_signals')
-            .select('signal_type, signal_strength, data')
+            .select('id, signal_type, signal_strength, source, data')
             .or(`symbol.eq.${baseSymbol},symbol.eq.${symbol}`)
             .gte('timestamp', signalLookback)
             .in('signal_type', [
