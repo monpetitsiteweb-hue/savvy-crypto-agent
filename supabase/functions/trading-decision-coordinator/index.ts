@@ -5087,6 +5087,10 @@ async function logDecisionAsync(
                 type: d.signalType,
                 contribution: Number(d.contribution.toFixed(2)),
               })),
+            // v2: signal lineage and source contributions
+            signals_used: fusionResult.signals_used,
+            source_contributions: fusionResult.source_contributions,
+            fusion_version: fusionResult.fusion_version,
           };
 
           console.log(
