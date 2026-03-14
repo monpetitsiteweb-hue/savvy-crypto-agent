@@ -332,8 +332,14 @@ UNION ALL SELECT 'execution_circuit_breakers', COUNT(*) FROM execution_circuit_b
 UNION ALL SELECT 'coin_pool_states', COUNT(*) FROM coin_pool_states
 UNION ALL SELECT 'calibration_metrics', COUNT(*) FROM calibration_metrics
 UNION ALL SELECT 'crypto_news', COUNT(*) FROM crypto_news
-UNION ALL SELECT 'price_data', COUNT(*) FROM price_data
 UNION ALL SELECT 'conversation_history', COUNT(*) FROM conversation_history;
+
+-- Market data tables should be NON-ZERO (preserved)
+SELECT 'price_data' AS tbl, COUNT(*) FROM price_data
+UNION ALL SELECT 'price_snapshots', COUNT(*) FROM price_snapshots
+UNION ALL SELECT 'historical_market_data', COUNT(*) FROM historical_market_data
+UNION ALL SELECT 'external_market_data', COUNT(*) FROM external_market_data;
+-- Expected: non-zero (engine depends on these)
 
 -- Admin user preserved
 SELECT id, email FROM auth.users;
