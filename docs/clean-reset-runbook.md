@@ -189,6 +189,10 @@ SELECT * FROM decision_events ORDER BY decision_ts LIMIT 100000 OFFSET 100000;
 -- Run in Supabase SQL Editor with service role
 -- ============================================================
 
+-- Timeout guards: prevent hanging if a running job holds a lock
+SET lock_timeout = '10s';
+SET statement_timeout = '5min';
+
 BEGIN;
 
 -- 3a. Decision pipeline (CASCADE handles FK deps)
@@ -313,9 +317,9 @@ Call from the **Admin Panel → Customers tab** or via cURL:
 # Repeat for each non-admin user ID listed above
 curl -X POST \
   'https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/admin-delete-user' \
-  -H 'Authorization: Bearer <ADMIN_ACCESS_TOKEN>' \
+  -H "Authorization: Bearer ${ADMIN_ACCESS_TOKEN}" \
   -H 'Content-Type: application/json' \
-  -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1aWVwbGZ0bGN4ZGZreHlxemx0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIyMjg3OTQsImV4cCI6MjA2NzgwNDc5NH0.t1DwSViIf_ya-7fUTqM5d56CPINq0JdAYt-YFJs8fa8' \
+  -H "apikey: ${SUPABASE_ANON_KEY}" \
   -d '{"userId": "<USER_ID>"}'
 ```
 
