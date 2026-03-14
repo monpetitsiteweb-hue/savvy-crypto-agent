@@ -27,10 +27,6 @@
 | coin_pool_states | 52 | Execution — TRUNCATE |
 | crypto_news | 10,734 | Market data — TRUNCATE |
 | whale_signal_events | 43 | Market data — TRUNCATE |
-| historical_market_data | 6,471 | Market data — TRUNCATE |
-| external_market_data | 5,289 | Market data — TRUNCATE |
-| price_data | 2,630,885 | Market data — TRUNCATE |
-| price_snapshots | 41,295 | Market data — TRUNCATE |
 | calibration_metrics | 396 | Analytics — TRUNCATE |
 | calibration_suggestions | 0 | Analytics — TRUNCATE |
 | strategy_performance | 140 | Analytics — TRUNCATE |
@@ -70,6 +66,10 @@
 | data_sources | — | Source definitions |
 | knowledge_documents | — | Knowledge base structure |
 | knowledge_embeddings | — | Knowledge base structure |
+| historical_market_data | 6,471 | Engine data source (BigQuery signals, AI learning) |
+| external_market_data | 5,289 | Engine data source (AI learning, category context) |
+| price_data | 2,630,885 | Engine data source (technical indicators, candles) |
+| price_snapshots | 41,295 | Canonical price source (PnL, decisions, price-proxy) |
 | market_data_health | — | Health tracking config |
 | market_features_v0 | — | Feature store (reusable) |
 | market_ohlcv_raw | — | Raw candles (reusable) |
@@ -199,13 +199,10 @@ TRUNCATE TABLE execution_holds CASCADE;
 TRUNCATE TABLE execution_quality_log CASCADE;
 TRUNCATE TABLE coin_pool_states CASCADE;
 
--- 3e. Market / signal data
+-- 3e. Market signal events (NOT price_data, price_snapshots,
+--      historical_market_data, external_market_data — engine depends on these)
 TRUNCATE TABLE crypto_news CASCADE;
 TRUNCATE TABLE whale_signal_events CASCADE;
-TRUNCATE TABLE historical_market_data CASCADE;
-TRUNCATE TABLE external_market_data CASCADE;
-TRUNCATE TABLE price_data CASCADE;
-TRUNCATE TABLE price_snapshots CASCADE;
 
 -- 3f. Analytics / learning
 TRUNCATE TABLE calibration_metrics CASCADE;
@@ -230,6 +227,18 @@ TRUNCATE TABLE mock_trades_backup_202602_fifo_fix CASCADE;
 TRUNCATE TABLE mock_trades_fix_audit CASCADE;
 
 COMMIT;
+
+-- ============================================================
+-- PRESERVED MARKET DATA TABLES (engine dependencies):
+-- ============================================================
+-- price_data          → technical-signal-generator, automated-trading-engine
+-- price_snapshots     → price-proxy (canonical reader), trading-decision-coordinator, PnL engine
+-- historical_market_data → bigquery-signal-generator, ai-learning-engine
+-- external_market_data   → ai-learning-engine (category context)
+--
+-- These are NOT runtime state — they are reusable market history
+-- that the engine reads for indicator computation and signal generation.
+-- Truncating them would cause engine failures until data is re-ingested.
 ```
 
 ---
@@ -323,8 +332,14 @@ UNION ALL SELECT 'execution_circuit_breakers', COUNT(*) FROM execution_circuit_b
 UNION ALL SELECT 'coin_pool_states', COUNT(*) FROM coin_pool_states
 UNION ALL SELECT 'calibration_metrics', COUNT(*) FROM calibration_metrics
 UNION ALL SELECT 'crypto_news', COUNT(*) FROM crypto_news
-UNION ALL SELECT 'price_data', COUNT(*) FROM price_data
 UNION ALL SELECT 'conversation_history', COUNT(*) FROM conversation_history;
+
+-- Market data tables should be NON-ZERO (preserved)
+SELECT 'price_data' AS tbl, COUNT(*) FROM price_data
+UNION ALL SELECT 'price_snapshots', COUNT(*) FROM price_snapshots
+UNION ALL SELECT 'historical_market_data', COUNT(*) FROM historical_market_data
+UNION ALL SELECT 'external_market_data', COUNT(*) FROM external_market_data;
+-- Expected: non-zero (engine depends on these)
 
 -- Admin user preserved
 SELECT id, email FROM auth.users;
@@ -383,7 +398,7 @@ LIMIT 10;
 |------|--------|-------------|
 | 1 | Export 48h clean dataset (4 CSVs) | No |
 | 2 | Export full historical backup (2 CSVs) | No |
-| 3 | TRUNCATE 35 runtime tables | **Yes** |
+| 3 | TRUNCATE 31 runtime tables (4 market data tables preserved) | **Yes** |
 | 4a | DELETE non-admin rows from user tables | **Yes** |
 | 4b | Delete non-admin auth users via Edge Function | **Yes** |
 | 5 | Run verification queries | No |
@@ -395,7 +410,8 @@ LIMIT 10;
 
 - [ ] 48h export completed (4 CSV files)
 - [ ] Historical backup completed (2 CSV files)
-- [ ] 35 runtime tables truncated
+- [ ] 31 runtime tables truncated
+- [ ] 4 market data tables preserved (price_data, price_snapshots, historical_market_data, external_market_data)
 - [ ] 7 non-admin users deleted from auth.users
 - [ ] Non-admin user data cleaned from user tables
 - [ ] Admin user `mon.petit.site.web@gmail.com` preserved
