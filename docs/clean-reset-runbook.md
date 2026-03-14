@@ -150,14 +150,31 @@ ORDER BY ls.timestamp;
 
 ---
 
-## STEP 2 — Export Full Historical Backup
+## STEP 2 — Export Full Historical Backup (OPTIONAL)
+
+> **Note**: This step is optional. The 48h clean dataset from Step 1 is the primary deliverable.
+> Step 2 provides a full historical backup for offline analytics only.
+> If you skip it, the reset in Step 3 is still safe — the engine does not depend on this data.
+
+⚠️ **Timeout safety**: These tables are large. Use `LIMIT` to avoid Supabase SQL Editor timeouts.
+Run each query separately and export as CSV.
 
 ```sql
 -- EXPORT: historical_backup/decision_events_full.csv
-SELECT * FROM decision_events ORDER BY decision_ts;
+-- decision_events has ~154k rows — export in batches if needed
+SELECT * FROM decision_events ORDER BY decision_ts LIMIT 200000;
 
 -- EXPORT: historical_backup/decision_outcomes_full.csv
-SELECT * FROM decision_outcomes ORDER BY evaluated_at;
+-- decision_outcomes has ~53k rows
+SELECT * FROM decision_outcomes ORDER BY evaluated_at LIMIT 200000;
+```
+
+If either query times out, reduce the LIMIT or split with offset:
+```sql
+-- Batch 1
+SELECT * FROM decision_events ORDER BY decision_ts LIMIT 100000 OFFSET 0;
+-- Batch 2
+SELECT * FROM decision_events ORDER BY decision_ts LIMIT 100000 OFFSET 100000;
 ```
 
 ---
@@ -179,52 +196,52 @@ TRUNCATE TABLE
   decision_outcomes,
   decision_snapshots,
   decision_events
-CASCADE;
+RESTART IDENTITY CASCADE;
 
 -- 3b. Signals
-TRUNCATE TABLE live_signals CASCADE;
-TRUNCATE TABLE trade_decisions_log CASCADE;
+TRUNCATE TABLE live_signals RESTART IDENTITY CASCADE;
+TRUNCATE TABLE trade_decisions_log RESTART IDENTITY CASCADE;
 
 -- 3c. Trading runtime
-TRUNCATE TABLE mock_trades CASCADE;
-TRUNCATE TABLE trades CASCADE;
-TRUNCATE TABLE trade_events CASCADE;
-TRUNCATE TABLE real_trades CASCADE;
+TRUNCATE TABLE mock_trades RESTART IDENTITY CASCADE;
+TRUNCATE TABLE trades RESTART IDENTITY CASCADE;
+TRUNCATE TABLE trade_events RESTART IDENTITY CASCADE;
+TRUNCATE TABLE real_trades RESTART IDENTITY CASCADE;
 
 -- 3d. Execution runtime
-TRUNCATE TABLE execution_circuit_breakers CASCADE;
-TRUNCATE TABLE execution_jobs CASCADE;
-TRUNCATE TABLE execution_locks CASCADE;
-TRUNCATE TABLE execution_holds CASCADE;
-TRUNCATE TABLE execution_quality_log CASCADE;
-TRUNCATE TABLE coin_pool_states CASCADE;
+TRUNCATE TABLE execution_circuit_breakers RESTART IDENTITY CASCADE;
+TRUNCATE TABLE execution_jobs RESTART IDENTITY CASCADE;
+TRUNCATE TABLE execution_locks RESTART IDENTITY CASCADE;
+TRUNCATE TABLE execution_holds RESTART IDENTITY CASCADE;
+TRUNCATE TABLE execution_quality_log RESTART IDENTITY CASCADE;
+TRUNCATE TABLE coin_pool_states RESTART IDENTITY CASCADE;
 
 -- 3e. Market signal events (NOT price_data, price_snapshots,
 --      historical_market_data, external_market_data — engine depends on these)
-TRUNCATE TABLE crypto_news CASCADE;
-TRUNCATE TABLE whale_signal_events CASCADE;
+TRUNCATE TABLE crypto_news RESTART IDENTITY CASCADE;
+TRUNCATE TABLE whale_signal_events RESTART IDENTITY CASCADE;
 
 -- 3f. Analytics / learning
-TRUNCATE TABLE calibration_metrics CASCADE;
-TRUNCATE TABLE calibration_suggestions CASCADE;
-TRUNCATE TABLE strategy_performance CASCADE;
-TRUNCATE TABLE signal_source_health CASCADE;
-TRUNCATE TABLE ai_learning_metrics CASCADE;
-TRUNCATE TABLE ai_knowledge_base CASCADE;
-TRUNCATE TABLE ai_category_performance CASCADE;
+TRUNCATE TABLE calibration_metrics RESTART IDENTITY CASCADE;
+TRUNCATE TABLE calibration_suggestions RESTART IDENTITY CASCADE;
+TRUNCATE TABLE strategy_performance RESTART IDENTITY CASCADE;
+TRUNCATE TABLE signal_source_health RESTART IDENTITY CASCADE;
+TRUNCATE TABLE ai_learning_metrics RESTART IDENTITY CASCADE;
+TRUNCATE TABLE ai_knowledge_base RESTART IDENTITY CASCADE;
+TRUNCATE TABLE ai_category_performance RESTART IDENTITY CASCADE;
 
 -- 3g. User runtime data
-TRUNCATE TABLE conversation_history CASCADE;
-TRUNCATE TABLE deposit_attributions CASCADE;
-TRUNCATE TABLE security_audit_log CASCADE;
-TRUNCATE TABLE withdrawal_audit_log CASCADE;
+TRUNCATE TABLE conversation_history RESTART IDENTITY CASCADE;
+TRUNCATE TABLE deposit_attributions RESTART IDENTITY CASCADE;
+TRUNCATE TABLE security_audit_log RESTART IDENTITY CASCADE;
+TRUNCATE TABLE withdrawal_audit_log RESTART IDENTITY CASCADE;
 
 -- 3h. Old backup tables (no longer needed post-export)
-TRUNCATE TABLE decision_events_backup_all CASCADE;
-TRUNCATE TABLE decision_events_backup_legacy CASCADE;
-TRUNCATE TABLE decision_events_legacy CASCADE;
-TRUNCATE TABLE mock_trades_backup_202602_fifo_fix CASCADE;
-TRUNCATE TABLE mock_trades_fix_audit CASCADE;
+TRUNCATE TABLE decision_events_backup_all RESTART IDENTITY CASCADE;
+TRUNCATE TABLE decision_events_backup_legacy RESTART IDENTITY CASCADE;
+TRUNCATE TABLE decision_events_legacy RESTART IDENTITY CASCADE;
+TRUNCATE TABLE mock_trades_backup_202602_fifo_fix RESTART IDENTITY CASCADE;
+TRUNCATE TABLE mock_trades_fix_audit RESTART IDENTITY CASCADE;
 
 COMMIT;
 
