@@ -199,13 +199,10 @@ TRUNCATE TABLE execution_holds CASCADE;
 TRUNCATE TABLE execution_quality_log CASCADE;
 TRUNCATE TABLE coin_pool_states CASCADE;
 
--- 3e. Market / signal data
+-- 3e. Market signal events (NOT price_data, price_snapshots,
+--      historical_market_data, external_market_data — engine depends on these)
 TRUNCATE TABLE crypto_news CASCADE;
 TRUNCATE TABLE whale_signal_events CASCADE;
-TRUNCATE TABLE historical_market_data CASCADE;
-TRUNCATE TABLE external_market_data CASCADE;
-TRUNCATE TABLE price_data CASCADE;
-TRUNCATE TABLE price_snapshots CASCADE;
 
 -- 3f. Analytics / learning
 TRUNCATE TABLE calibration_metrics CASCADE;
