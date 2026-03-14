@@ -189,6 +189,10 @@ SELECT * FROM decision_events ORDER BY decision_ts LIMIT 100000 OFFSET 100000;
 -- Run in Supabase SQL Editor with service role
 -- ============================================================
 
+-- Timeout guards: prevent hanging if a running job holds a lock
+SET lock_timeout = '10s';
+SET statement_timeout = '5min';
+
 BEGIN;
 
 -- 3a. Decision pipeline (CASCADE handles FK deps)
