@@ -410,7 +410,8 @@ LIMIT 10;
 
 - [ ] 48h export completed (4 CSV files)
 - [ ] Historical backup completed (2 CSV files)
-- [ ] 35 runtime tables truncated
+- [ ] 31 runtime tables truncated
+- [ ] 4 market data tables preserved (price_data, price_snapshots, historical_market_data, external_market_data)
 - [ ] 7 non-admin users deleted from auth.users
 - [ ] Non-admin user data cleaned from user tables
 - [ ] Admin user `mon.petit.site.web@gmail.com` preserved
