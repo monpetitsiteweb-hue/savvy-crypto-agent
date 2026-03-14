@@ -27,10 +27,6 @@
 | coin_pool_states | 52 | Execution — TRUNCATE |
 | crypto_news | 10,734 | Market data — TRUNCATE |
 | whale_signal_events | 43 | Market data — TRUNCATE |
-| historical_market_data | 6,471 | Market data — TRUNCATE |
-| external_market_data | 5,289 | Market data — TRUNCATE |
-| price_data | 2,630,885 | Market data — TRUNCATE |
-| price_snapshots | 41,295 | Market data — TRUNCATE |
 | calibration_metrics | 396 | Analytics — TRUNCATE |
 | calibration_suggestions | 0 | Analytics — TRUNCATE |
 | strategy_performance | 140 | Analytics — TRUNCATE |
