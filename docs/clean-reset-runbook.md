@@ -398,7 +398,7 @@ LIMIT 10;
 |------|--------|-------------|
 | 1 | Export 48h clean dataset (4 CSVs) | No |
 | 2 | Export full historical backup (2 CSVs) | No |
-| 3 | TRUNCATE 35 runtime tables | **Yes** |
+| 3 | TRUNCATE 31 runtime tables (4 market data tables preserved) | **Yes** |
 | 4a | DELETE non-admin rows from user tables | **Yes** |
 | 4b | Delete non-admin auth users via Edge Function | **Yes** |
 | 5 | Run verification queries | No |
