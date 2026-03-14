@@ -227,6 +227,18 @@ TRUNCATE TABLE mock_trades_backup_202602_fifo_fix CASCADE;
 TRUNCATE TABLE mock_trades_fix_audit CASCADE;
 
 COMMIT;
+
+-- ============================================================
+-- PRESERVED MARKET DATA TABLES (engine dependencies):
+-- ============================================================
+-- price_data          → technical-signal-generator, automated-trading-engine
+-- price_snapshots     → price-proxy (canonical reader), trading-decision-coordinator, PnL engine
+-- historical_market_data → bigquery-signal-generator, ai-learning-engine
+-- external_market_data   → ai-learning-engine (category context)
+--
+-- These are NOT runtime state — they are reusable market history
+-- that the engine reads for indicator computation and signal generation.
+-- Truncating them would cause engine failures until data is re-ingested.
 ```
 
 ---
