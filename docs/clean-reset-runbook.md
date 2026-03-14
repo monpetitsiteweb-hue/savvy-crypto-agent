@@ -66,6 +66,10 @@
 | data_sources | — | Source definitions |
 | knowledge_documents | — | Knowledge base structure |
 | knowledge_embeddings | — | Knowledge base structure |
+| historical_market_data | 6,471 | Engine data source (BigQuery signals, AI learning) |
+| external_market_data | 5,289 | Engine data source (AI learning, category context) |
+| price_data | 2,630,885 | Engine data source (technical indicators, candles) |
+| price_snapshots | 41,295 | Canonical price source (PnL, decisions, price-proxy) |
 | market_data_health | — | Health tracking config |
 | market_features_v0 | — | Feature store (reusable) |
 | market_ohlcv_raw | — | Raw candles (reusable) |
