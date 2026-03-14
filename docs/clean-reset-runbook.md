@@ -150,14 +150,31 @@ ORDER BY ls.timestamp;
 
 ---
 
-## STEP 2 — Export Full Historical Backup
+## STEP 2 — Export Full Historical Backup (OPTIONAL)
+
+> **Note**: This step is optional. The 48h clean dataset from Step 1 is the primary deliverable.
+> Step 2 provides a full historical backup for offline analytics only.
+> If you skip it, the reset in Step 3 is still safe — the engine does not depend on this data.
+
+⚠️ **Timeout safety**: These tables are large. Use `LIMIT` to avoid Supabase SQL Editor timeouts.
+Run each query separately and export as CSV.
 
 ```sql
 -- EXPORT: historical_backup/decision_events_full.csv
-SELECT * FROM decision_events ORDER BY decision_ts;
+-- decision_events has ~154k rows — export in batches if needed
+SELECT * FROM decision_events ORDER BY decision_ts LIMIT 200000;
 
 -- EXPORT: historical_backup/decision_outcomes_full.csv
-SELECT * FROM decision_outcomes ORDER BY evaluated_at;
+-- decision_outcomes has ~53k rows
+SELECT * FROM decision_outcomes ORDER BY evaluated_at LIMIT 200000;
+```
+
+If either query times out, reduce the LIMIT or split with offset:
+```sql
+-- Batch 1
+SELECT * FROM decision_events ORDER BY decision_ts LIMIT 100000 OFFSET 0;
+-- Batch 2
+SELECT * FROM decision_events ORDER BY decision_ts LIMIT 100000 OFFSET 100000;
 ```
 
 ---
