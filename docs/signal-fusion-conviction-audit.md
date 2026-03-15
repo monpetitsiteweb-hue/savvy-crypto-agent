@@ -2,7 +2,7 @@
 
 ## Date: 2026-03-15
 
-## Status: Confirmed — No changes applied yet
+## Status: ✅ Fixed — Directional dominance model implemented (2026-03-15)
 
 ---
 
