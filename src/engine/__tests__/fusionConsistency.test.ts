@@ -222,12 +222,8 @@ describe('Scenario C: Strong bearish diluted by weak bullish (anti-dilution test
 // ============================================================
 // Threshold Bypass: Shadow Engine Momentum Override
 // ============================================================
-describe('Threshold Bypass: Shadow Engine momentum > 0.3 path', () => {
-  it('momentum > 0.3 can trigger BUY WITHOUT meeting fusion threshold (KNOWN BYPASS)', () => {
-    // Shadow engine line 1062-1063:
-    // shouldBuy = (meetsThreshold && isTrendPositive) || 
-    //            (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought)
-    
+describe('Threshold Enforcement: Shadow Engine momentum path', () => {
+  it('momentum > 0.3 does NOT trigger BUY without meeting fusion threshold (FIXED)', () => {
     const signalScores = { trend: -0.5, momentum: 0.4, volatility: 0, whale: 0, sentiment: 0 };
     const fusionScore = computeShadowFusion(signalScores, { trend: 0.35, momentum: 0.25, volatility: 0.15, whale: 0.15, sentiment: 0.10 });
     
@@ -239,13 +235,12 @@ describe('Threshold Bypass: Shadow Engine momentum > 0.3 path', () => {
     // Threshold NOT met
     expect(meetsThreshold).toBe(false);
     
-    // But momentum bypass triggers
-    const shouldBuyViaMomentum = isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought;
-    expect(shouldBuyViaMomentum).toBe(true);
-    
-    // This is a THRESHOLD BYPASS — BUY without fusion threshold
-    const shouldBuy = (meetsThreshold && isTrendPositive) || shouldBuyViaMomentum;
-    expect(shouldBuy).toBe(true);
+    // New logic: meetsThreshold gates ALL buy paths
+    const shouldBuy = meetsThreshold && (
+      isTrendPositive ||
+      (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought)
+    );
+    expect(shouldBuy).toBe(false); // No bypass possible
   });
 });
 
@@ -349,10 +344,13 @@ describe('Frontend Preview: No threshold bypass', () => {
     expect(decision).toBe('HOLD');
   });
 
-  it('frontend hook legacy path returns ENTER when AI not enabled (KNOWN BEHAVIOR)', () => {
-    // When !isAIEnabled, frontend returns decision='ENTER' with score=0.5 (line 1412-1422)
-    // This is a legacy bypass that skips threshold entirely
-    // It is gated by isAIFusionEnabled() which requires both test mode AND enableSignalFusion
-    expect(true).toBe(true); // Documented known behavior
+  it('frontend hook returns HOLD when AI fusion disabled (FIXED)', () => {
+    // When !isAIEnabled, frontend now returns decision='HOLD' with score=0
+    // Legacy ENTER bypass has been removed
+    const isAIEnabled = false;
+    const decision = isAIEnabled ? 'ENTER' : 'HOLD';
+    const score = isAIEnabled ? 0.5 : 0;
+    expect(decision).toBe('HOLD');
+    expect(score).toBe(0);
   });
 });
