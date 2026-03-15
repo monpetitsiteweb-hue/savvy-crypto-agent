@@ -78,8 +78,8 @@ import { RiskFieldLabel, SectionHeader } from './DimensionBadge';
 const SCALPSMART_PRESET = {
   signalFusion: {
     enabled: true,
-    enterThreshold: 0.65,
-    exitThreshold: 0.35,
+    enterThreshold: 65,
+    exitThreshold: 35,
     conflictPenalty: 0.3,
     weights: {
       trend: 0.30,
