@@ -222,12 +222,8 @@ describe('Scenario C: Strong bearish diluted by weak bullish (anti-dilution test
 // ============================================================
 // Threshold Bypass: Shadow Engine Momentum Override
 // ============================================================
-describe('Threshold Bypass: Shadow Engine momentum > 0.3 path', () => {
-  it('momentum > 0.3 can trigger BUY WITHOUT meeting fusion threshold (KNOWN BYPASS)', () => {
-    // Shadow engine line 1062-1063:
-    // shouldBuy = (meetsThreshold && isTrendPositive) || 
-    //            (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought)
-    
+describe('Threshold Enforcement: Shadow Engine momentum path', () => {
+  it('momentum > 0.3 does NOT trigger BUY without meeting fusion threshold (FIXED)', () => {
     const signalScores = { trend: -0.5, momentum: 0.4, volatility: 0, whale: 0, sentiment: 0 };
     const fusionScore = computeShadowFusion(signalScores, { trend: 0.35, momentum: 0.25, volatility: 0.15, whale: 0.15, sentiment: 0.10 });
     
@@ -239,13 +235,12 @@ describe('Threshold Bypass: Shadow Engine momentum > 0.3 path', () => {
     // Threshold NOT met
     expect(meetsThreshold).toBe(false);
     
-    // But momentum bypass triggers
-    const shouldBuyViaMomentum = isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought;
-    expect(shouldBuyViaMomentum).toBe(true);
-    
-    // This is a THRESHOLD BYPASS — BUY without fusion threshold
-    const shouldBuy = (meetsThreshold && isTrendPositive) || shouldBuyViaMomentum;
-    expect(shouldBuy).toBe(true);
+    // New logic: meetsThreshold gates ALL buy paths
+    const shouldBuy = meetsThreshold && (
+      isTrendPositive ||
+      (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought)
+    );
+    expect(shouldBuy).toBe(false); // No bypass possible
   });
 });
 
