@@ -627,6 +627,28 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         max_quote_age_ms: (existingStrategy as any).max_quote_age_ms || 1500
       };
       
+      // ===== CANONICAL THRESHOLD LOAD =====
+      // Read thresholds from canonical path: configuration.signalFusion.*
+      // Fallback to legacy aiIntelligenceConfig.features.fusion.* if canonical missing
+      const canonicalSF = config.signalFusion;
+      const legacyFusion = config.aiIntelligenceConfig?.features?.fusion;
+      
+      // Resolve enter/exit thresholds: canonical → legacy → defaults
+      // DB stores 0-1 scale; UI uses 0-100 scale
+      const rawEnter = canonicalSF?.enterThreshold ?? legacyFusion?.enterThreshold ?? 0.65;
+      const rawExit = canonicalSF?.exitThreshold ?? legacyFusion?.exitThreshold ?? 0.50;
+      // Auto-detect scale: if <=1, it's 0-1 (DB scale) → convert to 0-100 for UI
+      const uiEnter = rawEnter <= 1 ? rawEnter * 100 : rawEnter;
+      const uiExit = rawExit <= 1 ? rawExit * 100 : rawExit;
+      
+      // Resolve weights: canonical → legacy → defaults
+      const resolvedWeights = canonicalSF?.weights ?? legacyFusion?.weights ?? {
+        trend: 0.25, volatility: 0.20, momentum: 0.25, whale: 0.15, sentiment: 0.15
+      };
+      
+      // Resolve fusion enabled state
+      const resolvedFusionEnabled = canonicalSF?.enabled ?? legacyFusion?.enabled ?? false;
+      
       setFormData(prev => ({ 
         ...prev, 
         ...config,
@@ -638,10 +660,32 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         minHoldPeriodMs: config.minHoldPeriodMs ?? config.unifiedConfig?.minHoldPeriodMs ?? 120000,
         cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs ?? config.unifiedConfig?.cooldownBetweenOppositeActionsMs ?? 30000,
         minDepthRatio: config.minDepthRatio ?? prev.minDepthRatio ?? 0.2,
+        // Sync canonical signalFusion into formData for save path
+        signalFusion: {
+          enabled: resolvedFusionEnabled,
+          enterThreshold: uiEnter,
+          exitThreshold: uiExit,
+          conflictPenalty: canonicalSF?.conflictPenalty ?? legacyFusion?.conflictPenalty ?? 0.30,
+          weights: resolvedWeights,
+        },
         // Properly merge the nested aiIntelligenceConfig with existing enableAIOverride
+        // AND sync thresholds/weights from canonical path into the slider UI state
         aiIntelligenceConfig: {
           ...prev.aiIntelligenceConfig,
-          ...config.aiIntelligenceConfig
+          ...config.aiIntelligenceConfig,
+          features: {
+            ...(prev.aiIntelligenceConfig?.features || {}),
+            ...(config.aiIntelligenceConfig?.features || {}),
+            fusion: {
+              ...(prev.aiIntelligenceConfig?.features?.fusion || {}),
+              ...(config.aiIntelligenceConfig?.features?.fusion || {}),
+              // OVERRIDE with canonical values (0-100 scale for UI)
+              enabled: resolvedFusionEnabled,
+              enterThreshold: uiEnter,
+              exitThreshold: uiExit,
+              weights: resolvedWeights,
+            },
+          },
         },
         // Properly merge technical indicator config
         technicalIndicatorConfig: {
