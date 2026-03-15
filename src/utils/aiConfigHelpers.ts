@@ -111,8 +111,10 @@ export function computeEffectiveConfig(
             valueSources.tpPct = { source: 'ai_override', timestamp: override.timestamp };
           }
         } else if (['enterThreshold', 'exitThreshold'].includes(key)) {
-          if (value >= 0.1 && value <= 1.0) {
-            (effectiveConfig as any)[key] = value;
+          // Backward compat: detect old 0-1 scale and convert to 0-100
+          const normalizedValue = value <= 1 ? value * 100 : value;
+          if (normalizedValue >= 10 && normalizedValue <= 100) {
+            (effectiveConfig as any)[key] = normalizedValue;
             valueSources[key] = { source: 'ai_override', timestamp: override.timestamp };
           }
         }
