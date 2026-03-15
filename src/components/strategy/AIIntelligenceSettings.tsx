@@ -104,8 +104,8 @@ const defaultConfig: AIIntelligenceConfig = {
       whale: 0.15,
       sentiment: 0.15
     },
-    enterThreshold: 0.02,
-    exitThreshold: 0.01,
+    enterThreshold: 65,
+    exitThreshold: 50,
       conflictPenalty: 0.30
     },
     contextGates: {
