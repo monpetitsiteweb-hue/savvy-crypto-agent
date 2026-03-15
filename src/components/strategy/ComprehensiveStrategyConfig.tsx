@@ -627,6 +627,28 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         max_quote_age_ms: (existingStrategy as any).max_quote_age_ms || 1500
       };
       
+      // ===== CANONICAL THRESHOLD LOAD =====
+      // Read thresholds from canonical path: configuration.signalFusion.*
+      // Fallback to legacy aiIntelligenceConfig.features.fusion.* if canonical missing
+      const canonicalSF = config.signalFusion;
+      const legacyFusion = config.aiIntelligenceConfig?.features?.fusion;
+      
+      // Resolve enter/exit thresholds: canonical → legacy → defaults
+      // DB stores 0-1 scale; UI uses 0-100 scale
+      const rawEnter = canonicalSF?.enterThreshold ?? legacyFusion?.enterThreshold ?? 0.65;
+      const rawExit = canonicalSF?.exitThreshold ?? legacyFusion?.exitThreshold ?? 0.50;
+      // Auto-detect scale: if <=1, it's 0-1 (DB scale) → convert to 0-100 for UI
+      const uiEnter = rawEnter <= 1 ? rawEnter * 100 : rawEnter;
+      const uiExit = rawExit <= 1 ? rawExit * 100 : rawExit;
+      
+      // Resolve weights: canonical → legacy → defaults
+      const resolvedWeights = canonicalSF?.weights ?? legacyFusion?.weights ?? {
+        trend: 0.25, volatility: 0.20, momentum: 0.25, whale: 0.15, sentiment: 0.15
+      };
+      
+      // Resolve fusion enabled state
+      const resolvedFusionEnabled = canonicalSF?.enabled ?? legacyFusion?.enabled ?? false;
+      
       setFormData(prev => ({ 
         ...prev, 
         ...config,
@@ -638,10 +660,32 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         minHoldPeriodMs: config.minHoldPeriodMs ?? config.unifiedConfig?.minHoldPeriodMs ?? 120000,
         cooldownBetweenOppositeActionsMs: config.cooldownBetweenOppositeActionsMs ?? config.unifiedConfig?.cooldownBetweenOppositeActionsMs ?? 30000,
         minDepthRatio: config.minDepthRatio ?? prev.minDepthRatio ?? 0.2,
+        // Sync canonical signalFusion into formData for save path
+        signalFusion: {
+          enabled: resolvedFusionEnabled,
+          enterThreshold: uiEnter,
+          exitThreshold: uiExit,
+          conflictPenalty: canonicalSF?.conflictPenalty ?? legacyFusion?.conflictPenalty ?? 0.30,
+          weights: resolvedWeights,
+        },
         // Properly merge the nested aiIntelligenceConfig with existing enableAIOverride
+        // AND sync thresholds/weights from canonical path into the slider UI state
         aiIntelligenceConfig: {
           ...prev.aiIntelligenceConfig,
-          ...config.aiIntelligenceConfig
+          ...config.aiIntelligenceConfig,
+          features: {
+            ...(prev.aiIntelligenceConfig?.features || {}),
+            ...(config.aiIntelligenceConfig?.features || {}),
+            fusion: {
+              ...(prev.aiIntelligenceConfig?.features?.fusion || {}),
+              ...(config.aiIntelligenceConfig?.features?.fusion || {}),
+              // OVERRIDE with canonical values (0-100 scale for UI)
+              enabled: resolvedFusionEnabled,
+              enterThreshold: uiEnter,
+              exitThreshold: uiExit,
+              weights: resolvedWeights,
+            },
+          },
         },
         // Properly merge technical indicator config
         technicalIndicatorConfig: {
@@ -729,9 +773,27 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     }
 
     try {
-      // Build configuration with ALL 7 CANONICAL ROOT KEYS enforced
+      // ===== CANONICAL THRESHOLD SAVE =====
+      // Resolve thresholds from slider UI state (0-100) → DB (0-1)
+      const fusionSliderState = formData.aiIntelligenceConfig?.features?.fusion;
+      const fusionFormState = formData.signalFusion;
+      
+      const canonicalSignalFusion = {
+        enabled: fusionSliderState?.enabled ?? fusionFormState?.enabled ?? false,
+        // Convert 0-100 UI scale → 0-1 DB scale
+        enterThreshold: (fusionSliderState?.enterThreshold ?? fusionFormState?.enterThreshold ?? 65) / 100,
+        exitThreshold: (fusionSliderState?.exitThreshold ?? fusionFormState?.exitThreshold ?? 50) / 100,
+        conflictPenalty: fusionSliderState?.conflictPenalty ?? fusionFormState?.conflictPenalty ?? 0.30,
+        weights: fusionSliderState?.weights ?? fusionFormState?.weights ?? {
+          trend: 0.25, volatility: 0.20, momentum: 0.25, whale: 0.15, sentiment: 0.15
+        },
+      };
+
+      // Build configuration with ALL CANONICAL ROOT KEYS enforced
       const configurationWithCanonicalKeys = {
         ...formData,
+        // ======= CANONICAL SIGNAL FUSION (single source of truth for engines) =======
+        signalFusion: canonicalSignalFusion,
         // ======= CANONICAL ROOT KEYS (always written at root for coordinator) =======
         // Timing
         minHoldPeriodMs: canonicalMinHoldPeriodMs,
@@ -1553,7 +1615,25 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             <div className="space-y-4 border-l-2 border-primary/20 pl-4">
                               <AIIntelligenceSettings
                                 config={formData.aiIntelligenceConfig}
-                                onConfigChange={(newConfig) => updateFormData('aiIntelligenceConfig', newConfig)}
+                                onConfigChange={(newConfig) => {
+                                  updateFormData('aiIntelligenceConfig', newConfig);
+                                  // Sync threshold/weight changes to canonical signalFusion path
+                                  if (newConfig.features?.fusion) {
+                                    const f = newConfig.features.fusion;
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      aiIntelligenceConfig: newConfig,
+                                      signalFusion: {
+                                        ...prev.signalFusion,
+                                        enabled: f.enabled ?? prev.signalFusion?.enabled ?? false,
+                                        enterThreshold: f.enterThreshold ?? prev.signalFusion?.enterThreshold ?? 65,
+                                        exitThreshold: f.exitThreshold ?? prev.signalFusion?.exitThreshold ?? 50,
+                                        conflictPenalty: f.conflictPenalty ?? prev.signalFusion?.conflictPenalty ?? 0.30,
+                                        weights: f.weights ?? prev.signalFusion?.weights,
+                                      },
+                                    }));
+                                  }
+                                }}
                               />
                             </div>
                           )}
