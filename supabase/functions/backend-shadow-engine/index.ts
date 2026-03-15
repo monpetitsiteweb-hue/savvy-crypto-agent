@@ -1059,8 +1059,10 @@ serve(async (req) => {
           const isNotOverbought = signalScores.momentum > -0.5;
           const meetsThreshold = effectiveFusionScore >= enterThreshold; // USE EFFECTIVE SCORE
           
-          const shouldBuy = (meetsThreshold && isTrendPositive) || 
-                           (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought);
+          const shouldBuy = meetsThreshold && (
+                            isTrendPositive ||
+                            (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought)
+                          );
 
           console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → rawFusion=${rawFusionScore.toFixed(3)}, effectiveFusion=${effectiveFusionScore.toFixed(3)}, threshold=${enterThreshold.toFixed(3)} [raw=${enterThreshold100}], trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
 

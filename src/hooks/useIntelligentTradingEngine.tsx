@@ -1411,10 +1411,10 @@ export const useIntelligentTradingEngine = () => {
     // Default to legacy behavior if AI fusion not enabled
     if (!isAIEnabled) {
       return {
-        sTotalScore: 0.5,
+        sTotalScore: 0,
         bucketScores: { trend: 0, volatility: 0, momentum: 0, whale: 0, sentiment: 0 },
-        decision: 'ENTER',
-        reason: 'legacy_evaluation',
+        decision: 'HOLD',
+        reason: 'ai_fusion_disabled',
         gateBlocks: [],
         effectiveConfig: effectiveConfigWithSources,
         valueSources: effectiveConfigWithSources.value_sources,
