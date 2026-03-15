@@ -412,8 +412,8 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
             whale: 0.15,
             sentiment: 0.15
           },
-          enterThreshold: 0.65,
-          exitThreshold: 0.35,
+          enterThreshold: 65,
+          exitThreshold: 35,
           conflictPenalty: 0.30
         },
         contextGates: {

@@ -310,7 +310,7 @@ export function BackendDecisionPanel() {
                               <div>Whale: {(scores.whale ?? 0).toFixed(3)}</div>
                               <div className="border-t pt-1 mt-1">
                                 <div>Confidence: {(decision?.confidence ?? 0).toFixed(3)}</div>
-                                <div>Threshold: {meta?.enterThreshold ?? 0.15}</div>
+                                <div>Threshold: {meta?.enterThreshold ?? DEFAULT_VALUES.ENTER_THRESHOLD}</div>
                                 <div className={meta?.meetsThreshold ? 'text-green-400 font-bold' : 'text-red-400'}>
                                   Meets threshold: {meta?.meetsThreshold ? 'YES' : 'NO'}
                                 </div>
