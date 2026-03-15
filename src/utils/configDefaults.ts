@@ -6,9 +6,11 @@ export const DEFAULT_VALUES = {
   TAKE_PROFIT_PCT: 2.5,
   STOP_LOSS_PCT: 1.5,
   
-  // Thresholds (normalized 0-1) - 0 means any signal triggers
-  ENTER_THRESHOLD: 0.0,
-  EXIT_THRESHOLD: 0.0,
+  // Thresholds (0-100 scale, matches fusedScore magnitude)
+  // Represents minimum directional dominance % required
+  // 65 = "65% of signal mass must agree on direction"
+  ENTER_THRESHOLD: 65,
+  EXIT_THRESHOLD: 50,
   
   // Context Gates - USER CONFIGURABLE (not AI override)
   // These are sensible production defaults

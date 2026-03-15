@@ -1507,19 +1507,28 @@ export const useIntelligentTradingEngine = () => {
       // ========================================================================
       // DECISION LOGIC - UNIFIED FOR TEST AND PRODUCTION
       // ========================================================================
-      // When enterThreshold = 0, ANY positive score triggers BUY
-      // When exitThreshold = 0, ANY negative score triggers SELL
-      // NO hidden neutral bands - thresholds are respected exactly
+      // Thresholds are stored on 0-100 scale (directional dominance %).
+      // Score (adjustedScore) is in [-1, +1], so we normalize threshold / 100.
       // ========================================================================
       
-      // Use ?? to respect 0 values (|| would treat 0 as falsy → bad!)
-      const enterThreshold = fusionConfig?.enterThreshold ?? effectiveConfigWithSources.enterThreshold ?? 0;
-      const exitThreshold = fusionConfig?.exitThreshold ?? effectiveConfigWithSources.exitThreshold ?? 0;
+      // Load thresholds (0-100 scale)
+      let rawEnterThreshold = fusionConfig?.enterThreshold ?? effectiveConfigWithSources.enterThreshold ?? DEFAULT_VALUES.ENTER_THRESHOLD;
+      let rawExitThreshold = fusionConfig?.exitThreshold ?? effectiveConfigWithSources.exitThreshold ?? DEFAULT_VALUES.EXIT_THRESHOLD;
       
-      // Log thresholds for transparency
-      console.log(`📊 [FUSION] Decision thresholds for ${symbol} (${side}):`, {
-        enterThreshold,
-        exitThreshold,
+      // Backward compat: detect old 0-1 scale and convert to 0-100
+      if (rawEnterThreshold <= 1) rawEnterThreshold = rawEnterThreshold * 100;
+      if (rawExitThreshold <= 1) rawExitThreshold = rawExitThreshold * 100;
+      
+      // Normalize for [-1, +1] score comparison
+      const enterThreshold = rawEnterThreshold / 100;
+      const exitThreshold = rawExitThreshold / 100;
+      
+      // Log both raw and normalized for debugging
+      console.log(`📊 [FUSION] Threshold governance for ${symbol} (${side}):`, {
+        rawEnterThreshold,
+        rawExitThreshold,
+        normalizedEnterThreshold: enterThreshold,
+        normalizedExitThreshold: exitThreshold,
         adjustedScore: adjustedScore.toFixed(4),
         bucketScores
       });
@@ -1527,25 +1536,25 @@ export const useIntelligentTradingEngine = () => {
       let decision: 'ENTER' | 'EXIT' | 'HOLD' | 'DEFER' = 'HOLD';
       let reason = 'no_action_needed';
       
-      // BUY DECISION: score >= enterThreshold (when threshold=0, any score >= 0 triggers)
+      // BUY DECISION: abs(score) >= normalized threshold AND score > 0
       if (side === 'BUY') {
         if (adjustedScore >= enterThreshold) {
           decision = 'ENTER';
-          reason = `fusion_signal_strong (score=${adjustedScore.toFixed(3)} >= threshold=${enterThreshold})`;
+          reason = `fusion_signal_strong (score=${adjustedScore.toFixed(3)} >= threshold=${enterThreshold.toFixed(3)} [raw=${rawEnterThreshold}])`;
         } else {
           decision = 'HOLD';
-          reason = `signal_below_threshold (score=${adjustedScore.toFixed(3)} < threshold=${enterThreshold})`;
+          reason = `signal_below_threshold (score=${adjustedScore.toFixed(3)} < threshold=${enterThreshold.toFixed(3)} [raw=${rawEnterThreshold}])`;
         }
       }
       
-      // SELL DECISION: score <= -exitThreshold (when threshold=0, any score <= 0 triggers)
+      // SELL DECISION: score <= -normalized threshold
       if (side === 'SELL') {
         if (adjustedScore <= -exitThreshold) {
           decision = 'EXIT';
-          reason = `fusion_exit_signal (score=${adjustedScore.toFixed(3)} <= -threshold=${-exitThreshold})`;
+          reason = `fusion_exit_signal (score=${adjustedScore.toFixed(3)} <= -threshold=${(-exitThreshold).toFixed(3)} [raw=${rawExitThreshold}])`;
         } else {
           decision = 'HOLD';
-          reason = `exit_signal_not_strong (score=${adjustedScore.toFixed(3)} > -threshold=${-exitThreshold})`;
+          reason = `exit_signal_not_strong (score=${adjustedScore.toFixed(3)} > -threshold=${(-exitThreshold).toFixed(3)} [raw=${rawExitThreshold}])`;
         }
       }
       
@@ -1555,7 +1564,7 @@ export const useIntelligentTradingEngine = () => {
         decision,
         reason,
         gateBlocks: [],
-        effectiveConfig: { ...effectiveConfigWithSources, enterThreshold, exitThreshold },
+        effectiveConfig: { ...effectiveConfigWithSources, enterThreshold: rawEnterThreshold, exitThreshold: rawExitThreshold },
         valueSources: effectiveConfigWithSources.value_sources,
         context
       };

@@ -981,22 +981,22 @@ const FIELD_DEFINITIONS: Record<string, any> = {
   enterThreshold: {
     key: 'enterThreshold',
     type: 'number',
-    range: [0, 1],
+    range: [0, 100],
     dbPath: 'configuration.signalFusion.enterThreshold',
     additionalPaths: ['configuration.aiIntelligenceConfig.features.fusion.enterThreshold'],
     aiCanExecute: true,
     phrases: ['enter threshold', 'entry threshold', 'buy threshold', 'signal enter threshold', 'fusion enter'],
-    description: 'Signal fusion enter threshold (0-1)'
+    description: 'Signal fusion enter threshold (0-100, directional dominance %)'
   },
   exitThreshold: {
     key: 'exitThreshold',
     type: 'number',
-    range: [0, 1],
+    range: [0, 100],
     dbPath: 'configuration.signalFusion.exitThreshold',
     additionalPaths: ['configuration.aiIntelligenceConfig.features.fusion.exitThreshold'],
     aiCanExecute: true,
     phrases: ['exit threshold', 'sell threshold', 'signal exit threshold', 'fusion exit'],
-    description: 'Signal fusion exit threshold (0-1)'
+    description: 'Signal fusion exit threshold (0-100, directional dominance %)'
   },
   spreadThresholdBps: {
     key: 'spreadThresholdBps',

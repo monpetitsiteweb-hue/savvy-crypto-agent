@@ -1031,9 +1031,27 @@ serve(async (req) => {
           
           console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} ENTRY_QUALITY → trendAge=${trendAgeHours}h, momentumAge=${momentumAgeHours}h, agePenalty=${agePenalty}, rawFusion=${rawFusionScore.toFixed(3)}, effectiveFusion=${effectiveFusionScore.toFixed(3)}`);
 
-          // Get thresholds from config
-          const enterThreshold = config.enterThreshold || 0.15;
+          // ============= THRESHOLD GOVERNANCE (0-100 scale) =============
+          // Fail-closed: if threshold is missing from config, block entry
+          const rawEnterThreshold = config.enterThreshold;
+          if (rawEnterThreshold === undefined || rawEnterThreshold === null) {
+            console.error(`🚨 ${BACKEND_ENGINE_MODE}: ${baseSymbol} BLOCKED — missing enterThreshold in config. Fail-closed.`);
+            allDecisions.push({
+              symbol: baseSymbol, side: 'HOLD', action: 'SKIP',
+              reason: 'blocked_missing_config:enterThreshold',
+              confidence: 0, fusionScore: effectiveFusionScore, wouldExecute: false,
+              timestamp: new Date().toISOString(),
+              metadata: { strategyId: strategy.id, strategyName: strategy.strategy_name, price: currentPrice, engineMode: BACKEND_ENGINE_MODE }
+            });
+            continue;
+          }
+          // Backward compat: detect old 0-1 scale and convert to 0-100
+          const enterThreshold100 = rawEnterThreshold <= 1 ? rawEnterThreshold * 100 : rawEnterThreshold;
+          // Normalize to [-1, +1] scale for comparison
+          const enterThreshold = enterThreshold100 / 100;
           const minConfidence = config.minConfidence || 0.5;
+
+          console.log(`📊 [THRESHOLD] ${baseSymbol}: rawConfig=${rawEnterThreshold}, scaled=${enterThreshold100}, normalized=${enterThreshold.toFixed(3)}`);
 
           // ============= ENTRY DECISION LOGIC (uses EFFECTIVE fusion score) =============
           const isTrendPositive = signalScores.trend > -0.1;
@@ -1044,7 +1062,7 @@ serve(async (req) => {
           const shouldBuy = (meetsThreshold && isTrendPositive) || 
                            (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought);
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → rawFusion=${rawFusionScore.toFixed(3)}, effectiveFusion=${effectiveFusionScore.toFixed(3)}, threshold=${enterThreshold}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → rawFusion=${rawFusionScore.toFixed(3)}, effectiveFusion=${effectiveFusionScore.toFixed(3)}, threshold=${enterThreshold.toFixed(3)} [raw=${enterThreshold100}], trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
 
           if (!shouldBuy) {
             let skipReason = 'conditions_not_met';
@@ -1053,7 +1071,7 @@ serve(async (req) => {
             } else if (!isNotOverbought) {
               skipReason = `overbought_momentum_${signalScores.momentum.toFixed(3)}`;
             } else if (!meetsThreshold && !isMomentumPositive) {
-              skipReason = `fusion_${effectiveFusionScore.toFixed(3)}_below_${enterThreshold}_no_momentum`;
+              skipReason = `fusion_${effectiveFusionScore.toFixed(3)}_below_${enterThreshold.toFixed(3)}_no_momentum`;
               // Add age penalty info if it was the cause
               if (agePenalty < 0 && rawFusionScore >= enterThreshold) {
                 skipReason = `age_penalty_dropped_fusion_from_${rawFusionScore.toFixed(3)}_to_${effectiveFusionScore.toFixed(3)}`;
@@ -1074,7 +1092,8 @@ serve(async (req) => {
                 strategyName: strategy.strategy_name,
                 price: currentPrice,
                 signals: signalScores,
-                enterThreshold,
+                enterThreshold: enterThreshold100,
+                enterThresholdNormalized: enterThreshold,
                 engineMode: BACKEND_ENGINE_MODE,
                 // ============= ENTRY QUALITY (NEW) =============
                 entry_quality: entryQuality,
@@ -1143,7 +1162,8 @@ serve(async (req) => {
             fusionScore: effectiveFusionScore,
             rawFusionScore,
             signalScores,
-            enterThreshold,
+            enterThreshold: enterThreshold100,
+            enterThresholdNormalized: enterThreshold,
             isTrendPositive,
             isMomentumPositive,
             entry_context: entryContext,
