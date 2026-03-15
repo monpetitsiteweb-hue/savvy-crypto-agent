@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { AlertTriangle, CheckCircle2, XCircle, Clock, Server, TrendingUp, TrendingDown, Activity } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { DEFAULT_VALUES } from '@/utils/configDefaults';
 
 interface SignalSummary {
   symbol: string;
