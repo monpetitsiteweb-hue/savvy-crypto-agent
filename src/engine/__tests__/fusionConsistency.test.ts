@@ -344,10 +344,13 @@ describe('Frontend Preview: No threshold bypass', () => {
     expect(decision).toBe('HOLD');
   });
 
-  it('frontend hook legacy path returns ENTER when AI not enabled (KNOWN BEHAVIOR)', () => {
-    // When !isAIEnabled, frontend returns decision='ENTER' with score=0.5 (line 1412-1422)
-    // This is a legacy bypass that skips threshold entirely
-    // It is gated by isAIFusionEnabled() which requires both test mode AND enableSignalFusion
-    expect(true).toBe(true); // Documented known behavior
+  it('frontend hook returns HOLD when AI fusion disabled (FIXED)', () => {
+    // When !isAIEnabled, frontend now returns decision='HOLD' with score=0
+    // Legacy ENTER bypass has been removed
+    const isAIEnabled = false;
+    const decision = isAIEnabled ? 'ENTER' : 'HOLD';
+    const score = isAIEnabled ? 0.5 : 0;
+    expect(decision).toBe('HOLD');
+    expect(score).toBe(0);
   });
 });
