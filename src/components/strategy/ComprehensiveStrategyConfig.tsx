@@ -773,9 +773,27 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     }
 
     try {
-      // Build configuration with ALL 7 CANONICAL ROOT KEYS enforced
+      // ===== CANONICAL THRESHOLD SAVE =====
+      // Resolve thresholds from slider UI state (0-100) → DB (0-1)
+      const fusionSliderState = formData.aiIntelligenceConfig?.features?.fusion;
+      const fusionFormState = formData.signalFusion;
+      
+      const canonicalSignalFusion = {
+        enabled: fusionSliderState?.enabled ?? fusionFormState?.enabled ?? false,
+        // Convert 0-100 UI scale → 0-1 DB scale
+        enterThreshold: (fusionSliderState?.enterThreshold ?? fusionFormState?.enterThreshold ?? 65) / 100,
+        exitThreshold: (fusionSliderState?.exitThreshold ?? fusionFormState?.exitThreshold ?? 50) / 100,
+        conflictPenalty: fusionSliderState?.conflictPenalty ?? fusionFormState?.conflictPenalty ?? 0.30,
+        weights: fusionSliderState?.weights ?? fusionFormState?.weights ?? {
+          trend: 0.25, volatility: 0.20, momentum: 0.25, whale: 0.15, sentiment: 0.15
+        },
+      };
+
+      // Build configuration with ALL CANONICAL ROOT KEYS enforced
       const configurationWithCanonicalKeys = {
         ...formData,
+        // ======= CANONICAL SIGNAL FUSION (single source of truth for engines) =======
+        signalFusion: canonicalSignalFusion,
         // ======= CANONICAL ROOT KEYS (always written at root for coordinator) =======
         // Timing
         minHoldPeriodMs: canonicalMinHoldPeriodMs,
