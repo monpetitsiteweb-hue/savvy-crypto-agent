@@ -59,8 +59,13 @@ export function computeEffectiveConfig(
 
   // Apply AI features if enabled - BUT NOT for spread/depth gates
   if (aiConfig?.features?.fusion?.enabled) {
-    effectiveConfig.enterThreshold = aiConfig.features.fusion.enterThreshold ?? effectiveConfig.enterThreshold;
-    effectiveConfig.exitThreshold = aiConfig.features.fusion.exitThreshold ?? effectiveConfig.exitThreshold;
+    let fusionEnter = aiConfig.features.fusion.enterThreshold ?? effectiveConfig.enterThreshold;
+    let fusionExit = aiConfig.features.fusion.exitThreshold ?? effectiveConfig.exitThreshold;
+    // Backward compat: detect old 0-1 scale and convert to 0-100
+    if (fusionEnter <= 1) fusionEnter = fusionEnter * 100;
+    if (fusionExit <= 1) fusionExit = fusionExit * 100;
+    effectiveConfig.enterThreshold = fusionEnter;
+    effectiveConfig.exitThreshold = fusionExit;
     valueSources.enterThreshold = { source: 'ai_feature' };
     valueSources.exitThreshold = { source: 'ai_feature' };
   }
