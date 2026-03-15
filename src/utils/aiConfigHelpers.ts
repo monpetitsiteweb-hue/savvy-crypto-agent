@@ -135,8 +135,9 @@ export function computeEffectiveConfig(
 
 // Backward compatibility helpers
 export function getFusionConfig(strategyConfig: any) {
-  // New path first, fallback to old
-  return strategyConfig.aiIntelligenceConfig?.features?.fusion || strategyConfig.signalFusion;
+  // Canonical path: configuration.signalFusion (what UI saves to)
+  // Fallback: aiIntelligenceConfig.features.fusion (legacy AI settings panel)
+  return strategyConfig.signalFusion || strategyConfig.aiIntelligenceConfig?.features?.fusion;
 }
 
 export function getContextGatesConfig(strategyConfig: any) {
