@@ -1564,7 +1564,7 @@ export const useIntelligentTradingEngine = () => {
         decision,
         reason,
         gateBlocks: [],
-        effectiveConfig: { ...effectiveConfigWithSources, enterThreshold, exitThreshold },
+        effectiveConfig: { ...effectiveConfigWithSources, enterThreshold: rawEnterThreshold, exitThreshold: rawExitThreshold },
         valueSources: effectiveConfigWithSources.value_sources,
         context
       };
