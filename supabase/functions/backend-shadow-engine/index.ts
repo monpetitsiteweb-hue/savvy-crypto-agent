@@ -1071,7 +1071,7 @@ serve(async (req) => {
             } else if (!isNotOverbought) {
               skipReason = `overbought_momentum_${signalScores.momentum.toFixed(3)}`;
             } else if (!meetsThreshold && !isMomentumPositive) {
-              skipReason = `fusion_${effectiveFusionScore.toFixed(3)}_below_${enterThreshold}_no_momentum`;
+              skipReason = `fusion_${effectiveFusionScore.toFixed(3)}_below_${enterThreshold.toFixed(3)}_no_momentum`;
               // Add age penalty info if it was the cause
               if (agePenalty < 0 && rawFusionScore >= enterThreshold) {
                 skipReason = `age_penalty_dropped_fusion_from_${rawFusionScore.toFixed(3)}_to_${effectiveFusionScore.toFixed(3)}`;
