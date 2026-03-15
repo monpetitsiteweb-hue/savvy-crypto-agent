@@ -267,19 +267,19 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
       });
     }
 
-    // Compute fused score with or without source aggregation
-    let totalContribution = 0;
+    // Compute fused score using directional dominance model (v3)
     const sourceContributions: Record<string, number> = {};
+    const allContributions: number[] = [];
 
     if (useSourceAggregation && processedSignals.length > 0) {
       const aggregated = aggregateBySource(processedSignals);
       for (const [source, agg] of aggregated) {
-        totalContribution += agg.contribution;
+        allContributions.push(agg.contribution);
         sourceContributions[source] = Number(agg.contribution.toFixed(4));
       }
     } else {
       for (const ps of processedSignals) {
-        totalContribution += ps.contribution;
+        allContributions.push(ps.contribution);
         const src = ps.signal.source;
         sourceContributions[src] = (sourceContributions[src] || 0) + ps.contribution;
       }
@@ -288,7 +288,20 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
       }
     }
 
-    const fusedScore = Math.max(-100, Math.min(100, totalContribution * 20));
+    // Directional dominance computation
+    let bullishTotal = 0;
+    let bearishTotal = 0;
+    for (const c of allContributions) {
+      if (c > 0) bullishTotal += c;
+      else bearishTotal += Math.abs(c);
+    }
+
+    const totalMass = bullishTotal + bearishTotal;
+    const dominance = totalMass === 0 ? 0 : Math.max(bullishTotal, bearishTotal) / totalMass;
+    const direction = bullishTotal >= bearishTotal ? 1 : -1;
+    const convictionScore = direction * dominance; // [-1, +1]
+
+    const fusedScore = Math.max(-100, Math.min(100, convictionScore * 100));
 
     console.log(
       `[SignalFusion] ${FUSION_VERSION} score for ${symbol}/${horizon}: ${fusedScore.toFixed(2)} from ${processedSignals.length} signals (${Object.keys(sourceContributions).length} sources)`,
