@@ -510,7 +510,14 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
 }
 
 /**
- * Compute fusion score from signal scores
+ * Compute fusion score from signal scores using directional dominance model (v3)
+ * 
+ * Instead of simple weighted summation, we:
+ * 1. Compute weighted category contributions
+ * 2. Split by direction (bullish vs bearish)
+ * 3. Return a conviction score based on directional dominance
+ * 
+ * Output range: [-1, +1] where magnitude = dominance ratio
  */
 function computeFusionScore(scores: SignalScores, config: any): number {
   const fusionWeights = {
@@ -520,12 +527,29 @@ function computeFusionScore(scores: SignalScores, config: any): number {
     whale: config.whaleWeight || 0.15,
     sentiment: config.sentimentWeight || 0.10,
   };
-  
-  return scores.trend * fusionWeights.trend +
-         scores.momentum * fusionWeights.momentum +
-         scores.volatility * fusionWeights.volatility +
-         scores.whale * fusionWeights.whale +
-         scores.sentiment * fusionWeights.sentiment;
+
+  const weightedScores = [
+    scores.trend * fusionWeights.trend,
+    scores.momentum * fusionWeights.momentum,
+    scores.volatility * fusionWeights.volatility,
+    scores.whale * fusionWeights.whale,
+    scores.sentiment * fusionWeights.sentiment,
+  ];
+
+  let bullish = 0;
+  let bearish = 0;
+  for (const ws of weightedScores) {
+    if (ws > 0) bullish += ws;
+    else bearish += Math.abs(ws);
+  }
+
+  const total = bullish + bearish;
+  if (total === 0) return 0;
+
+  const dominance = Math.max(bullish, bearish) / total;
+  const direction = bullish >= bearish ? 1 : -1;
+
+  return direction * dominance; // [-1, +1]
 }
 
 /**

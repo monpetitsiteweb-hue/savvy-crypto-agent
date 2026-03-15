@@ -163,11 +163,16 @@ describe('Signal Fusion Module', () => {
     expect(result.enabledSignals).toBe(2);
     expect(result.details).toHaveLength(2);
 
-    // Score should reflect the net of both signals
+    // Individual contributions should still have correct direction
     const bullishContribution = result.details.find(d => d.signalType === 'ma_cross_bullish')?.contribution || 0;
     const bearishContribution = result.details.find(d => d.signalType === 'rsi_overbought_bearish')?.contribution || 0;
     expect(bullishContribution).toBeGreaterThan(0);
     expect(bearishContribution).toBeLessThan(0);
+
+    // With directional dominance model, mixed signals should produce a score
+    // closer to zero than either direction alone (conflicted market)
+    // The score magnitude reflects dominance, not raw sum
+    expect(Math.abs(result.fusedScore)).toBeLessThan(100);
 
     // Cleanup
     if (signals) {

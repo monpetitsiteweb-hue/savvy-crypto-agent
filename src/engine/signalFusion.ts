@@ -317,31 +317,45 @@ export async function computeFusedSignalScore(
       });
     }
 
-    // Compute fused score and source contributions
-    let totalContribution = 0;
+    // Compute fused score using directional dominance model (v3)
+    // Instead of simple summation, we split contributions by direction
+    // and compute a dominance-based conviction score.
     const sourceContributions: Record<string, number> = {};
+    const allContributions: number[] = [];
 
     if (useSourceAggregation && processedSignals.length > 0) {
-      // v2: aggregate per source, then sum
+      // v2: aggregate per source first, then collect contributions
       const { aggregatedContributions } = aggregateBySource(processedSignals);
       for (const [source, agg] of aggregatedContributions) {
-        totalContribution += agg.contribution;
+        allContributions.push(agg.contribution);
         sourceContributions[source] = Number(agg.contribution.toFixed(4));
       }
     } else {
-      // v1 legacy: sum all raw contributions
+      // Legacy: collect raw contributions
       for (const ps of processedSignals) {
-        totalContribution += ps.contribution;
+        allContributions.push(ps.contribution);
         const src = ps.signal.source;
         sourceContributions[src] = (sourceContributions[src] || 0) + ps.contribution;
       }
-      // Round
       for (const key of Object.keys(sourceContributions)) {
         sourceContributions[key] = Number(sourceContributions[key].toFixed(4));
       }
     }
 
-    const fusedScore = Math.max(-100, Math.min(100, totalContribution * 20));
+    // Directional dominance computation
+    let bullishTotal = 0;
+    let bearishTotal = 0;
+    for (const c of allContributions) {
+      if (c > 0) bullishTotal += c;
+      else bearishTotal += Math.abs(c);
+    }
+
+    const totalMass = bullishTotal + bearishTotal;
+    const dominance = totalMass === 0 ? 0 : Math.max(bullishTotal, bearishTotal) / totalMass;
+    const direction = bullishTotal >= bearishTotal ? 1 : -1;
+    const convictionScore = direction * dominance; // [-1, +1]
+
+    const fusedScore = Math.max(-100, Math.min(100, convictionScore * 100));
 
     return {
       fusedScore,
