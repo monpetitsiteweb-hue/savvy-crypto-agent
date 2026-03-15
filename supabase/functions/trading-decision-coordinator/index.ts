@@ -4019,7 +4019,15 @@ serve(async (req) => {
     try {
       // Use timestamp-based conflict detection (NO DB LOCKS)
       // PHASE 5: Pass strategy config for exposure check
-      const conflictResult = await detectConflicts(supabaseClient, intent, unifiedConfig, strategy);
+      // FIX: Pass canonicalIsTestMode through strategy config so detectConflicts
+      // can resolve execution mode for position queries (line 6019).
+      // Previously passed raw `strategy` DB row which lacks canonicalIsTestMode.
+      const conflictResult = await detectConflicts(supabaseClient, intent, unifiedConfig, {
+        ...strategy,
+        configuration: { ...strategy.configuration, canonicalIsTestMode, canonicalExecutionMode },
+        canonicalIsTestMode,
+        canonicalExecutionMode,
+      });
 
       if (conflictResult.hasConflict) {
         const guardReport = conflictResult.guardReport || {};
