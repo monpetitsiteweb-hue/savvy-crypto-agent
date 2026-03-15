@@ -520,12 +520,14 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
  * Output range: [-1, +1] where magnitude = dominance ratio
  */
 function computeFusionScore(scores: SignalScores, config: any): number {
+  // Read weights from canonical path: configuration.signalFusion.weights
+  const sfWeights = config.signalFusion?.weights;
   const fusionWeights = {
-    trend: config.trendWeight || 0.35,
-    momentum: config.momentumWeight || 0.25,
-    volatility: config.volatilityWeight || 0.15,
-    whale: config.whaleWeight || 0.15,
-    sentiment: config.sentimentWeight || 0.10,
+    trend: sfWeights?.trend ?? 0.35,
+    momentum: sfWeights?.momentum ?? 0.25,
+    volatility: sfWeights?.volatility ?? 0.15,
+    whale: sfWeights?.whale ?? 0.15,
+    sentiment: sfWeights?.sentiment ?? 0.10,
   };
 
   const weightedScores = [
@@ -1032,8 +1034,9 @@ serve(async (req) => {
           console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} ENTRY_QUALITY → trendAge=${trendAgeHours}h, momentumAge=${momentumAgeHours}h, agePenalty=${agePenalty}, rawFusion=${rawFusionScore.toFixed(3)}, effectiveFusion=${effectiveFusionScore.toFixed(3)}`);
 
           // ============= THRESHOLD GOVERNANCE (0-100 scale) =============
+          // Canonical path: configuration.signalFusion.enterThreshold
           // Fail-closed: if threshold is missing from config, block entry
-          const rawEnterThreshold = config.enterThreshold;
+          const rawEnterThreshold = config.signalFusion?.enterThreshold;
           if (rawEnterThreshold === undefined || rawEnterThreshold === null) {
             console.error(`🚨 ${BACKEND_ENGINE_MODE}: ${baseSymbol} BLOCKED — missing enterThreshold in config. Fail-closed.`);
             allDecisions.push({
