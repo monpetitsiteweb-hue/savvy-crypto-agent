@@ -1092,7 +1092,8 @@ serve(async (req) => {
                 strategyName: strategy.strategy_name,
                 price: currentPrice,
                 signals: signalScores,
-                enterThreshold,
+                enterThreshold: enterThreshold100,
+                enterThresholdNormalized: enterThreshold,
                 engineMode: BACKEND_ENGINE_MODE,
                 // ============= ENTRY QUALITY (NEW) =============
                 entry_quality: entryQuality,
