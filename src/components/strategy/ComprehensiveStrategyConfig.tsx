@@ -1615,7 +1615,25 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                             <div className="space-y-4 border-l-2 border-primary/20 pl-4">
                               <AIIntelligenceSettings
                                 config={formData.aiIntelligenceConfig}
-                                onConfigChange={(newConfig) => updateFormData('aiIntelligenceConfig', newConfig)}
+                                onConfigChange={(newConfig) => {
+                                  updateFormData('aiIntelligenceConfig', newConfig);
+                                  // Sync threshold/weight changes to canonical signalFusion path
+                                  if (newConfig.features?.fusion) {
+                                    const f = newConfig.features.fusion;
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      aiIntelligenceConfig: newConfig,
+                                      signalFusion: {
+                                        ...prev.signalFusion,
+                                        enabled: f.enabled ?? prev.signalFusion?.enabled ?? false,
+                                        enterThreshold: f.enterThreshold ?? prev.signalFusion?.enterThreshold ?? 65,
+                                        exitThreshold: f.exitThreshold ?? prev.signalFusion?.exitThreshold ?? 50,
+                                        conflictPenalty: f.conflictPenalty ?? prev.signalFusion?.conflictPenalty ?? 0.30,
+                                        weights: f.weights ?? prev.signalFusion?.weights,
+                                      },
+                                    }));
+                                  }
+                                }}
                               />
                             </div>
                           )}
