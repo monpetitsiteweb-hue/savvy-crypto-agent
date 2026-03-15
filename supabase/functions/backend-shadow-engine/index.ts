@@ -1034,8 +1034,9 @@ serve(async (req) => {
           console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} ENTRY_QUALITY → trendAge=${trendAgeHours}h, momentumAge=${momentumAgeHours}h, agePenalty=${agePenalty}, rawFusion=${rawFusionScore.toFixed(3)}, effectiveFusion=${effectiveFusionScore.toFixed(3)}`);
 
           // ============= THRESHOLD GOVERNANCE (0-100 scale) =============
+          // Canonical path: configuration.signalFusion.enterThreshold
           // Fail-closed: if threshold is missing from config, block entry
-          const rawEnterThreshold = config.enterThreshold;
+          const rawEnterThreshold = config.signalFusion?.enterThreshold;
           if (rawEnterThreshold === undefined || rawEnterThreshold === null) {
             console.error(`🚨 ${BACKEND_ENGINE_MODE}: ${baseSymbol} BLOCKED — missing enterThreshold in config. Fail-closed.`);
             allDecisions.push({
