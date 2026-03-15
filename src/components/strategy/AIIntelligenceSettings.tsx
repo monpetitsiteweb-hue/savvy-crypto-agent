@@ -220,8 +220,8 @@ export const AIIntelligenceSettings: React.FC<AIIntelligenceSettingsProps> = ({
       fusion: { 
         enabled: true,
         weights: { trend: 0.25, volatility: 0.20, momentum: 0.25, whale: 0.15, sentiment: 0.15 },
-        enterThreshold: 0.02,
-        exitThreshold: 0.01,
+        enterThreshold: 60,
+        exitThreshold: 45,
         conflictPenalty: 0.30
       },
       contextGates: { spreadThresholdBps: 12, minDepthRatio: 3.0, whaleConflictWindowMs: 300000 }
