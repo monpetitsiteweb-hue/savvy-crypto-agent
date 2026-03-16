@@ -7732,8 +7732,29 @@ async function executeTradeOrder(
         );
 
         if (!cashResult.success) {
-          // Trades inserted but cash not updated - log decision_event for audit
-          console.error(`⚠️ COORDINATOR: Per-lot SELL cash settlement failed: ${cashResult.error}`);
+          console.error("[EXECUTION-FAILURE]", {
+            phase: "cash_ledger_settlement_per_lot",
+            error: cashResult.error,
+            symbol: baseSymbol,
+            spreadBps: priceData?.spreadBps ?? null,
+            effectiveSpreadThresholdBps: intent.metadata?.trigger === "STOP_LOSS" ? "BYPASS" : (effectiveConfig?.spreadThresholdBps ?? canonical?.spreadThresholdBps ?? null) * 2,
+            price: realMarketPrice,
+            balance: cashResult.cash_before ?? null,
+            intent: {
+              side: intent.side,
+              source: intent.source,
+              reason: intent.reason,
+              trigger: intent.metadata?.trigger,
+              closeMode: intent.metadata?.closeMode,
+              qtySuggested: intent.qtySuggested,
+            },
+            orderPayload: {
+              lotCount: perLotSellOrders.length,
+              insertedTradeId: insertResults?.[0]?.id ?? null,
+              totalExitValue,
+            },
+            exchangeResponse: null,
+          });
           await supabaseClient.from("decision_events").insert({
             user_id: intent.userId,
             strategy_id: intent.strategyId,
