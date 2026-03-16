@@ -3836,6 +3836,8 @@ serve(async (req) => {
           executionResult.tradeId,
           executionResult.executed_price,
           { ...strategy.configuration, canonicalIsTestMode },
+          undefined,
+          precomputedFusionData,
         );
         return respond(intent.side, "unified_decisions_disabled_direct_path", requestId, 0, {
           qty: executionResult.qty,
