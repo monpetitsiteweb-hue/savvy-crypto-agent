@@ -2144,86 +2144,11 @@ serve(async (req) => {
       const action = intent.side as DecisionAction;
       const reason = "no_conflicts_detected" as Reason;
 
-      // 🧪 INTELLIGENT INSERT – PAYLOAD (debug log)
-      console.log("🧪 INTELLIGENT INSERT – PAYLOAD", {
-        table: "decision_events",
-        source: "intelligent",
-        userId: intent.userId,
-        strategyId: intent.strategyId,
-        symbol: baseSymbol,
-        side: intent.side,
-        debugTag: intent.metadata?.debugTag || null,
-        engine: intent.metadata?.engine,
-        entry_price: marketPrice,
-        confidence: intent.confidence,
-      });
-
-      // Log decision to decision_events
-      const logResult = await logDecisionAsync(
-        supabaseClient,
-        intent,
-        action,
-        reason,
-        unifiedConfig,
-        requestId,
-        undefined, // profitMetadata
-        undefined, // tradeId - will be set if trade executes
-        marketPrice, // executionPrice
-        {
-          // strategyConfig
-          takeProfitPercentage: effectiveTpPct,
-          stopLossPercentage: effectiveSlPct,
-          minConfidence: confidenceThreshold / 100,
-          configuration: config,
-          canonicalIsTestMode: intExecutionTarget === "MOCK", // Derive from strategy execution_target (line 1952)
-        },
-      );
-
-      // 🧪 INTELLIGENT INSERT – RESULT (debug log)
-      console.log("🧪 INTELLIGENT INSERT – RESULT", {
-        source: "intelligent",
-        debugTag: intent.metadata?.debugTag || null,
-        engine: intent.metadata?.engine,
-        logged: logResult.logged,
-        error: logResult.error || null,
-      });
-
-      if (!logResult.logged) {
-        console.error("❌ INTELLIGENT: Failed to log decision to decision_events", {
-          error: logResult.error,
-          source: intent.source,
-          strategyId: intent.strategyId,
-        });
-        return new Response(
-          JSON.stringify({
-            ok: true,
-            decision: {
-              action: "HOLD",
-              reason: "decision_events_insert_failed",
-              request_id: requestId,
-              retry_in_ms: 0,
-              logged_to_decision_events: false,
-              error: logResult.error,
-            },
-          }),
-          {
-            headers: corsHeaders,
-          },
-        );
-      }
-
-      console.log("✅ INTELLIGENT: Decision logged to decision_events", {
-        source: intent.source,
-        symbol: baseSymbol,
-        side: intent.side,
-        engine: intent.metadata?.engine,
-      });
-
-      // NOTE: We log the decision but let the normal coordinator flow handle execution
-      // This ensures all gates, locks, and trading logic are still applied
-      // The decision is now recorded for learning loop regardless of execution outcome
-      //
-      // Fall through to regular coordinator flow for actual trade execution...
+      // ARCHITECTURE FIX: Do NOT log decision_events here (pre-execution).
+      // The execution paths (UD=OFF at line ~3828, UD=ON at line ~6585) already log
+      // the authoritative decision_event WITH trade_id after successful execution.
+      // Logging here created orphan rows with trade_id=NULL (Bucket C in forensic audit).
+      console.log("[COORD] Intelligent fast path: skipping pre-execution decision_event (coordinator logs post-execution)");
       console.log("[DEBUG][COORD] About to fall through to regular coordinator flow for execution");
       console.log("[DEBUG][COORD] intent.side for execution:", intent.side);
     } else {
