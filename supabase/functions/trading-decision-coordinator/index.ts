@@ -4018,11 +4018,12 @@ serve(async (req) => {
           undefined,
           priceData.price,
           { ...strategy.configuration, canonicalIsTestMode },
-          confidenceConfig, // Pass confidence source/optimizer info
+          confidenceConfig,
+          precomputedFusionData,
         );
 
         return new Response(
-          JSON.stringify({
+          withFusion({
             ok: true,
             decision: {
               action: "HOLD",
@@ -4044,9 +4045,8 @@ serve(async (req) => {
         error: err?.message || String(err),
       });
 
-      // Return HOLD response without throwing (skip logging on error)
       return new Response(
-        JSON.stringify({
+        withFusion({
           ok: true,
           decision: {
             action: "HOLD",
