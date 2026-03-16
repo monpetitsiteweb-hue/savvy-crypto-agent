@@ -1116,7 +1116,8 @@ serve(async (req) => {
           // ============= SIGNALS POSITIVE - PROCEED WITH BUY INTENT =============
           const tradeAllocation = config.perTradeAllocation || 50;
           const qtySuggested = tradeAllocation / currentPrice;
-          const computedConfidence = Math.min(0.95, Math.max(minConfidence, effectiveFusionScore));
+          // Confidence derived from fusion strength (dominance-based, not clamped)
+          const computedConfidence = Math.abs(effectiveFusionScore) / 100;
 
           // ============= ENTRY CONTEXT FOR PYRAMIDING MODEL =============
           // Controlled vocabulary for trigger_type (NOT a DB enum - freeform for iteration)
