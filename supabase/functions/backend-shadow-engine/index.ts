@@ -1168,7 +1168,6 @@ serve(async (req) => {
             rawFusionScore,
             signalScores,
             enterThreshold: enterThreshold100,
-            enterThresholdNormalized: enterThreshold,
             isTrendPositive,
             isMomentumPositive,
             entry_context: entryContext,
