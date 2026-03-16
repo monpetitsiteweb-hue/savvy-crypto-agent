@@ -5356,6 +5356,7 @@ async function logDecisionAsync(
             decision_result: action,
             decision_reason: reason,
             schema_version: 'v1',
+            snapshot_type: intent.side === 'BUY' ? 'ENTRY' : intent.side === 'SELL' ? 'EXIT' : 'ENTRY',
           };
 
           const { error: snapshotError } = await supabaseClient
