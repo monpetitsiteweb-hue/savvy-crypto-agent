@@ -1051,11 +1051,10 @@ serve(async (req) => {
           }
           // Backward compat: detect old 0-1 scale and convert to 0-100
           const enterThreshold100 = rawEnterThreshold <= 1 ? rawEnterThreshold * 100 : rawEnterThreshold;
-          // Normalize to [-1, +1] scale for comparison
-          const enterThreshold = enterThreshold100 / 100;
-          const minConfidence = config.minConfidence || 0.5;
+          // Fusion score is now [-100, +100], compare directly against 0-100 threshold
 
-          console.log(`📊 [THRESHOLD] ${baseSymbol}: rawConfig=${rawEnterThreshold}, scaled=${enterThreshold100}, normalized=${enterThreshold.toFixed(3)}`);
+          console.log(`📊 [THRESHOLD] ${baseSymbol}: rawConfig=${rawEnterThreshold}, threshold100=${enterThreshold100}, effectiveFusion=${effectiveFusionScore.toFixed(2)}`);
+
 
           // ============= ENTRY DECISION LOGIC (uses EFFECTIVE fusion score) =============
           const isTrendPositive = signalScores.trend > -0.1;
