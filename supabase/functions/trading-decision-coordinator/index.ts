@@ -2961,6 +2961,48 @@ serve(async (req) => {
       execClass_intent: execClass.intent,
     });
 
+    // ============= FUSION GATE: Compute fusion for BUY intents BEFORE any gates =============
+    // Moved here so ALL early-return paths (panic, state, cooldown, etc.) include fusion metadata.
+    // This is the SINGLE authoritative fusion computation. Backend engine delegates here.
+    let precomputedFusionData: any = null;
+    if (intent.side === 'BUY') {
+      try {
+        const baseSymbolForFusion = toBaseSymbol(intent.symbol);
+        const horizon = (intent.metadata?.horizon || '1h') as '15m' | '1h' | '4h' | '24h';
+        const fusionResult = await computeFusedSignalScore({
+          supabaseClient,
+          userId: intent.userId,
+          strategyId: intent.strategyId,
+          symbol: baseSymbolForFusion,
+          side: 'BUY',
+          horizon,
+          useSourceAggregation: true,
+        });
+
+        precomputedFusionData = {
+          score: fusionResult.fusedScore,
+          totalSignals: fusionResult.totalSignals,
+          enabledSignals: fusionResult.enabledSignals,
+          topSignals: fusionResult.details
+            .sort((a: any, b: any) => Math.abs(b.contribution) - Math.abs(a.contribution))
+            .slice(0, 5)
+            .map((d: any) => ({ type: d.signalType, contribution: Number(d.contribution.toFixed(4)) })),
+          signals_used: fusionResult.signals_used,
+          source_contributions: fusionResult.source_contributions,
+          fusion_version: fusionResult.fusion_version,
+        };
+
+        console.log(`[FUSION_GATE] ${baseSymbolForFusion}: score=${fusionResult.fusedScore.toFixed(2)}, signals=${fusionResult.enabledSignals}/${fusionResult.totalSignals}`);
+      } catch (fusionErr: any) {
+        console.error('[FUSION_GATE] Error computing fusion (proceeding without):', fusionErr?.message || fusionErr);
+      }
+    }
+
+    // Helper: inject fusion data into any raw JSON response body (for BUY intents)
+    const withFusion = (body: any): string => JSON.stringify(
+      precomputedFusionData ? { ...body, fusion: precomputedFusionData } : body
+    );
+
     // ============= PANIC GATE (hard blocker) =============
     if (panicActive) {
       console.log("🚫 COORDINATOR: PANIC ACTIVE - all trades blocked for this strategy");
