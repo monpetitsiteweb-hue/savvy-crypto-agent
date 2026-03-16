@@ -4200,6 +4200,7 @@ serve(async (req) => {
         decision.request_id,
         decision.retry_in_ms,
         decision.qty ? { qty: decision.qty } : {},
+        precomputedFusionData,
       );
     } finally {
       removeFromQueue(symbolKey, intent);
