@@ -1056,11 +1056,11 @@ serve(async (req) => {
           console.log(`📊 [THRESHOLD] ${baseSymbol}: rawConfig=${rawEnterThreshold}, threshold100=${enterThreshold100}, effectiveFusion=${effectiveFusionScore.toFixed(2)}`);
 
 
-          // ============= ENTRY DECISION LOGIC (uses EFFECTIVE fusion score) =============
+          // ============= ENTRY DECISION LOGIC (uses EFFECTIVE fusion score, 0-100 scale) =============
           const isTrendPositive = signalScores.trend > -0.1;
           const isMomentumPositive = signalScores.momentum > 0;
           const isNotOverbought = signalScores.momentum > -0.5;
-          const meetsThreshold = effectiveFusionScore >= enterThreshold; // USE EFFECTIVE SCORE
+          const meetsThreshold = effectiveFusionScore >= enterThreshold100; // Both on 0-100 scale
           
           const shouldBuy = meetsThreshold && (
                             isTrendPositive ||
