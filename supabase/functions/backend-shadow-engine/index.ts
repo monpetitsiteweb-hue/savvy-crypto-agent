@@ -510,14 +510,14 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
 }
 
 /**
- * Compute fusion score from signal scores using directional dominance model (v3)
+ * Compute fusion score from signal scores using directional dominance model (v2_aggregated)
  * 
  * Instead of simple weighted summation, we:
  * 1. Compute weighted category contributions
  * 2. Split by direction (bullish vs bearish)
  * 3. Return a conviction score based on directional dominance
  * 
- * Output range: [-1, +1] where magnitude = dominance ratio
+ * Output range: [-100, +100] where magnitude = dominance ratio * 100
  */
 function computeFusionScore(scores: SignalScores, config: any): number {
   // Read weights from canonical path: configuration.signalFusion.weights
