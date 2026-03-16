@@ -907,8 +907,9 @@ serve(async (req) => {
                     coordinatorResponse: decision,
                     // ============= EXECUTION TRUTH FIELDS (SELL LIVE) =============
                     intent_side: 'SELL',
-                    execution_status: sellExecutionStatus,
-                    execution_reason: sellExecutionReason,
+                     execution_status: sellExecutionStatus,
+                     execution_reason: sellExecutionReason,
+                     snapshot_type: 'EXIT',
                   }
                 });
               }
