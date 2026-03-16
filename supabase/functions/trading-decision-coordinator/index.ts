@@ -3094,7 +3094,7 @@ serve(async (req) => {
         if (prereqError) {
           console.error("❌ COORDINATOR: Prerequisites check failed:", prereqError);
           return new Response(
-            JSON.stringify({
+            withFusion({
               ok: false,
               success: false,
               error: "blocked_prerequisites_check_failed",
