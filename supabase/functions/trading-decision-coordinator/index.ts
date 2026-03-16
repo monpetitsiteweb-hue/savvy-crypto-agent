@@ -6374,85 +6374,56 @@ async function executeWithMinimalLock(
       // Check if TP override respects existing gates (hold period and cooldown)
       const baseSymbol = toBaseSymbol(intent.symbol);
       const recentTrades = await getRecentTrades(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
-
-      // Check minimum hold period
+      const lastBuy = recentTrades.find((t) => t.trade_type === "buy");
       const minHoldMs = config?.minHoldPeriodMs || 0;
-      if (minHoldMs > 0) {
-        const lastBuy = recentTrades.find((t) => t.trade_type === "buy");
-        if (lastBuy) {
-          const holdTime = Date.now() - new Date(lastBuy.executed_at).getTime();
-          if (holdTime < minHoldMs) {
-            console.log(`🚫 COORDINATOR: TP blocked by minimum hold period (${holdTime}ms < ${minHoldMs}ms)`);
-            // Continue with original intent instead of TP override
-          } else {
-            // Check cooldown before executing TP SELL
-            const cooldownMs = config?.cooldownBetweenOppositeActionsMs || 0;
-            if (cooldownMs > 0) {
-              const recentBuy = recentTrades.find((t) => t.trade_type === "buy");
-              if (recentBuy) {
-                const timeSinceBuy = Date.now() - new Date(recentBuy.executed_at).getTime();
-                if (timeSinceBuy < cooldownMs) {
-                  // TP SELL: Skip cooldown check - TP exits should be fast
-                  console.log(`🎯 COORDINATOR: TP SELL bypassing cooldown - taking profit at ${tpEvaluation.pnlPct}%`);
-                  return await executeTPSellWithLock(
-                    supabaseClient,
-                    intent,
-                    tpEvaluation,
-                    config,
-                    requestId,
-                    lockKey,
-                    strategyConfig,
-                  );
-                }
-              }
-            }
+      const cooldownMs = config?.cooldownBetweenOppositeActionsMs || 0;
 
-            // TP override is allowed, proceed with locked TP SELL
-            return await executeTPSellWithLock(
-              supabaseClient,
-              intent,
-              tpEvaluation,
-              config,
-              requestId,
-              lockKey,
-              strategyConfig,
-            );
-          }
-        }
-      } else {
-        // No hold period restriction, check cooldown
-        const cooldownMs = config?.cooldownBetweenOppositeActionsMs || 0;
-        if (cooldownMs > 0) {
-          const recentBuy = recentTrades.find((t) => t.trade_type === "buy");
-          if (recentBuy) {
-            const timeSinceBuy = Date.now() - new Date(recentBuy.executed_at).getTime();
-            if (timeSinceBuy < cooldownMs) {
-              // TP SELL: Skip cooldown check - TP exits should be fast
-              console.log(`🎯 COORDINATOR: TP SELL bypassing cooldown - taking profit at ${tpEvaluation.pnlPct}%`);
-              return await executeTPSellWithLock(
-                supabaseClient,
-                intent,
-                tpEvaluation,
-                config,
-                requestId,
-                lockKey,
-                strategyConfig,
-              );
-            }
-          }
-        }
+      console.log("[EXIT_OVERRIDE] TP evaluation context", {
+        symbol: baseSymbol,
+        requestId,
+        originalIntentSide: intent.side,
+        trigger: tpEvaluation?.metadata?.trigger || intent.metadata?.trigger || null,
+        pnlPct: tpEvaluation.pnlPct,
+        tpPct: tpEvaluation.tpPct,
+        minHoldMs,
+        cooldownMs,
+        recentTradesCount: recentTrades.length,
+        hasRecentBuyInWindow: !!lastBuy,
+        recentTradeTypes: recentTrades.map((t) => t.trade_type),
+      });
 
-        // No restrictions, proceed with locked TP SELL
-        return await executeTPSellWithLock(
-          supabaseClient,
-          intent,
-          tpEvaluation,
-          config,
+      if (!lastBuy) {
+        console.log("[EXIT_OVERRIDE] No recent buy found in short recent-trades window; executing TP SELL anyway to avoid BUY fallthrough", {
+          symbol: baseSymbol,
           requestId,
-          lockKey,
-          strategyConfig,
-        );
+          recentTradesWindowMs: 300000,
+        });
+      } else {
+        const holdTime = Date.now() - new Date(lastBuy.executed_at).getTime();
+        if (minHoldMs > 0 && holdTime < minHoldMs) {
+          console.log(`🚫 COORDINATOR: TP blocked by minimum hold period (${holdTime}ms < ${minHoldMs}ms)`);
+          return {
+            action: "DEFER",
+            reason: "hold_min_period_not_met",
+            request_id: requestId,
+            retry_in_ms: Math.max(0, minHoldMs - holdTime),
+          };
+        }
+
+        if (cooldownMs > 0 && holdTime < cooldownMs) {
+          console.log(`🎯 COORDINATOR: TP SELL bypassing cooldown - taking profit at ${tpEvaluation.pnlPct}%`);
+        }
       }
+
+      return await executeTPSellWithLock(
+        supabaseClient,
+        intent,
+        tpEvaluation,
+        config,
+        requestId,
+        lockKey,
+        strategyConfig,
+      );
     }
 
     // Check if this is a position_management intent with entry_price (no lock needed)
