@@ -6374,85 +6374,56 @@ async function executeWithMinimalLock(
       // Check if TP override respects existing gates (hold period and cooldown)
       const baseSymbol = toBaseSymbol(intent.symbol);
       const recentTrades = await getRecentTrades(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
-
-      // Check minimum hold period
+      const lastBuy = recentTrades.find((t) => t.trade_type === "buy");
       const minHoldMs = config?.minHoldPeriodMs || 0;
-      if (minHoldMs > 0) {
-        const lastBuy = recentTrades.find((t) => t.trade_type === "buy");
-        if (lastBuy) {
-          const holdTime = Date.now() - new Date(lastBuy.executed_at).getTime();
-          if (holdTime < minHoldMs) {
-            console.log(`🚫 COORDINATOR: TP blocked by minimum hold period (${holdTime}ms < ${minHoldMs}ms)`);
-            // Continue with original intent instead of TP override
-          } else {
-            // Check cooldown before executing TP SELL
-            const cooldownMs = config?.cooldownBetweenOppositeActionsMs || 0;
-            if (cooldownMs > 0) {
-              const recentBuy = recentTrades.find((t) => t.trade_type === "buy");
-              if (recentBuy) {
-                const timeSinceBuy = Date.now() - new Date(recentBuy.executed_at).getTime();
-                if (timeSinceBuy < cooldownMs) {
-                  // TP SELL: Skip cooldown check - TP exits should be fast
-                  console.log(`🎯 COORDINATOR: TP SELL bypassing cooldown - taking profit at ${tpEvaluation.pnlPct}%`);
-                  return await executeTPSellWithLock(
-                    supabaseClient,
-                    intent,
-                    tpEvaluation,
-                    config,
-                    requestId,
-                    lockKey,
-                    strategyConfig,
-                  );
-                }
-              }
-            }
+      const cooldownMs = config?.cooldownBetweenOppositeActionsMs || 0;
 
-            // TP override is allowed, proceed with locked TP SELL
-            return await executeTPSellWithLock(
-              supabaseClient,
-              intent,
-              tpEvaluation,
-              config,
-              requestId,
-              lockKey,
-              strategyConfig,
-            );
-          }
-        }
-      } else {
-        // No hold period restriction, check cooldown
-        const cooldownMs = config?.cooldownBetweenOppositeActionsMs || 0;
-        if (cooldownMs > 0) {
-          const recentBuy = recentTrades.find((t) => t.trade_type === "buy");
-          if (recentBuy) {
-            const timeSinceBuy = Date.now() - new Date(recentBuy.executed_at).getTime();
-            if (timeSinceBuy < cooldownMs) {
-              // TP SELL: Skip cooldown check - TP exits should be fast
-              console.log(`🎯 COORDINATOR: TP SELL bypassing cooldown - taking profit at ${tpEvaluation.pnlPct}%`);
-              return await executeTPSellWithLock(
-                supabaseClient,
-                intent,
-                tpEvaluation,
-                config,
-                requestId,
-                lockKey,
-                strategyConfig,
-              );
-            }
-          }
-        }
+      console.log("[EXIT_OVERRIDE] TP evaluation context", {
+        symbol: baseSymbol,
+        requestId,
+        originalIntentSide: intent.side,
+        trigger: tpEvaluation?.metadata?.trigger || intent.metadata?.trigger || null,
+        pnlPct: tpEvaluation.pnlPct,
+        tpPct: tpEvaluation.tpPct,
+        minHoldMs,
+        cooldownMs,
+        recentTradesCount: recentTrades.length,
+        hasRecentBuyInWindow: !!lastBuy,
+        recentTradeTypes: recentTrades.map((t) => t.trade_type),
+      });
 
-        // No restrictions, proceed with locked TP SELL
-        return await executeTPSellWithLock(
-          supabaseClient,
-          intent,
-          tpEvaluation,
-          config,
+      if (!lastBuy) {
+        console.log("[EXIT_OVERRIDE] No recent buy found in short recent-trades window; executing TP SELL anyway to avoid BUY fallthrough", {
+          symbol: baseSymbol,
           requestId,
-          lockKey,
-          strategyConfig,
-        );
+          recentTradesWindowMs: 300000,
+        });
+      } else {
+        const holdTime = Date.now() - new Date(lastBuy.executed_at).getTime();
+        if (minHoldMs > 0 && holdTime < minHoldMs) {
+          console.log(`🚫 COORDINATOR: TP blocked by minimum hold period (${holdTime}ms < ${minHoldMs}ms)`);
+          return {
+            action: "DEFER",
+            reason: "hold_min_period_not_met",
+            request_id: requestId,
+            retry_in_ms: Math.max(0, minHoldMs - holdTime),
+          };
+        }
+
+        if (cooldownMs > 0 && holdTime < cooldownMs) {
+          console.log(`🎯 COORDINATOR: TP SELL bypassing cooldown - taking profit at ${tpEvaluation.pnlPct}%`);
+        }
       }
+
+      return await executeTPSellWithLock(
+        supabaseClient,
+        intent,
+        tpEvaluation,
+        config,
+        requestId,
+        lockKey,
+        strategyConfig,
+      );
     }
 
     // Check if this is a position_management intent with entry_price (no lock needed)
@@ -7695,7 +7666,29 @@ async function executeTradeOrder(
           .select("id");
 
         if (insertError) {
-          console.error("❌ COORDINATOR: Per-lot SELL insert failed:", insertError);
+          console.error("[EXECUTION-FAILURE]", {
+            phase: "mock_trades_insert_per_lot",
+            error: insertError.message,
+            symbol: baseSymbol,
+            spreadBps: priceData?.spreadBps ?? null,
+            effectiveSpreadThresholdBps: intent.metadata?.trigger === "STOP_LOSS" ? "BYPASS" : (effectiveConfig?.spreadThresholdBps ?? canonical?.spreadThresholdBps ?? null) * 2,
+            price: realMarketPrice,
+            balance: null,
+            intent: {
+              side: intent.side,
+              source: intent.source,
+              reason: intent.reason,
+              trigger: intent.metadata?.trigger,
+              closeMode: intent.metadata?.closeMode,
+              qtySuggested: intent.qtySuggested,
+            },
+            orderPayload: {
+              lotCount: perLotSellOrders.length,
+              sellRowCount: sellRows.length,
+              firstLotId: sellRows[0]?.original_trade_id ?? null,
+            },
+            exchangeResponse: null,
+          });
           return { success: false, error: insertError.message };
         }
 
@@ -7739,8 +7732,29 @@ async function executeTradeOrder(
         );
 
         if (!cashResult.success) {
-          // Trades inserted but cash not updated - log decision_event for audit
-          console.error(`⚠️ COORDINATOR: Per-lot SELL cash settlement failed: ${cashResult.error}`);
+          console.error("[EXECUTION-FAILURE]", {
+            phase: "cash_ledger_settlement_per_lot",
+            error: cashResult.error,
+            symbol: baseSymbol,
+            spreadBps: priceData?.spreadBps ?? null,
+            effectiveSpreadThresholdBps: intent.metadata?.trigger === "STOP_LOSS" ? "BYPASS" : (effectiveConfig?.spreadThresholdBps ?? canonical?.spreadThresholdBps ?? null) * 2,
+            price: realMarketPrice,
+            balance: cashResult.cash_before ?? null,
+            intent: {
+              side: intent.side,
+              source: intent.source,
+              reason: intent.reason,
+              trigger: intent.metadata?.trigger,
+              closeMode: intent.metadata?.closeMode,
+              qtySuggested: intent.qtySuggested,
+            },
+            orderPayload: {
+              lotCount: perLotSellOrders.length,
+              insertedTradeId: insertResults?.[0]?.id ?? null,
+              totalExitValue,
+            },
+            exchangeResponse: null,
+          });
           await supabaseClient.from("decision_events").insert({
             user_id: intent.userId,
             strategy_id: intent.strategyId,
@@ -7843,12 +7857,58 @@ async function executeTradeOrder(
       const { data: insertResult, error } = await supabaseClient.from("mock_trades").insert(mockTrade).select("id");
 
       if (error) {
-        // SEV-1: Graceful handling of duplicate BUY (structural invariant)
         if (isBuyTrade && isOpenPositionConflict(error)) {
+          console.error("[EXECUTION-FAILURE]", {
+            phase: "mock_trades_insert_standard",
+            error: "position_already_open",
+            symbol: baseSymbol,
+            spreadBps: priceData?.spreadBps ?? null,
+            effectiveSpreadThresholdBps: intent.metadata?.trigger === "STOP_LOSS" ? "BYPASS" : (effectiveConfig?.spreadThresholdBps ?? canonical?.spreadThresholdBps ?? null) * 2,
+            price: realMarketPrice,
+            balance: null,
+            intent: {
+              side: intent.side,
+              source: intent.source,
+              reason: intent.reason,
+              trigger: intent.metadata?.trigger,
+              closeMode: intent.metadata?.closeMode,
+              qtySuggested: intent.qtySuggested,
+            },
+            orderPayload: {
+              trade_type: mockTrade.trade_type,
+              amount: mockTrade.amount,
+              total_value: mockTrade.total_value,
+              cryptocurrency: mockTrade.cryptocurrency,
+            },
+            exchangeResponse: error,
+          });
           console.log(`🛡️ COORDINATOR: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
           return { success: false, error: "position_already_open" };
         }
-        console.error("❌ COORDINATOR: Mock trade insert failed:", error);
+        console.error("[EXECUTION-FAILURE]", {
+          phase: "mock_trades_insert_standard",
+          error: error.message,
+          symbol: baseSymbol,
+          spreadBps: priceData?.spreadBps ?? null,
+          effectiveSpreadThresholdBps: intent.metadata?.trigger === "STOP_LOSS" ? "BYPASS" : (effectiveConfig?.spreadThresholdBps ?? canonical?.spreadThresholdBps ?? null) * 2,
+          price: realMarketPrice,
+          balance: null,
+          intent: {
+            side: intent.side,
+            source: intent.source,
+            reason: intent.reason,
+            trigger: intent.metadata?.trigger,
+            closeMode: intent.metadata?.closeMode,
+            qtySuggested: intent.qtySuggested,
+          },
+          orderPayload: {
+            trade_type: mockTrade.trade_type,
+            amount: mockTrade.amount,
+            total_value: mockTrade.total_value,
+            cryptocurrency: mockTrade.cryptocurrency,
+          },
+          exchangeResponse: error,
+        });
         return { success: false, error: error.message };
       }
 
