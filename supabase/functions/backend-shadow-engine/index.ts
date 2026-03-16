@@ -176,8 +176,8 @@ interface EntryQualityConfig {
 const DEFAULT_ENTRY_QUALITY_CONFIG: EntryQualityConfig = {
   trendAgeSoftThresholdHours: 6,
   trendAgeHardThresholdHours: 12,
-  trendAgeSoftPenalty: -0.05,
-  trendAgeHardPenalty: -0.10,
+  trendAgeSoftPenalty: -5,   // On 0-100 scale (was -0.05 on 0-1 scale)
+  trendAgeHardPenalty: -10,  // On 0-100 scale (was -0.10 on 0-1 scale)
 };
 
 /**
@@ -510,14 +510,14 @@ function computeSignalScores(signals: LiveSignal[], features: MarketFeatures | n
 }
 
 /**
- * Compute fusion score from signal scores using directional dominance model (v3)
+ * Compute fusion score from signal scores using directional dominance model (v2_aggregated)
  * 
  * Instead of simple weighted summation, we:
  * 1. Compute weighted category contributions
  * 2. Split by direction (bullish vs bearish)
  * 3. Return a conviction score based on directional dominance
  * 
- * Output range: [-1, +1] where magnitude = dominance ratio
+ * Output range: [-100, +100] where magnitude = dominance ratio * 100
  */
 function computeFusionScore(scores: SignalScores, config: any): number {
   // Read weights from canonical path: configuration.signalFusion.weights
@@ -551,7 +551,8 @@ function computeFusionScore(scores: SignalScores, config: any): number {
   const dominance = Math.max(bullish, bearish) / total;
   const direction = bullish >= bearish ? 1 : -1;
 
-  return direction * dominance; // [-1, +1]
+  // Scale to [-100, +100] to match coordinator (v2_aggregated) scale
+  return direction * dominance * 100;
 }
 
 /**
@@ -563,7 +564,8 @@ function shouldLetWinnersRun(scores: SignalScores, fusionScore: number, config: 
   const threshold = config.letWinnersRunThreshold ?? 0.40;
   
   // Bull score = weighted combination (trend more important for continuation)
-  const bullScore = (scores.trend * 0.5) + (scores.momentum * 0.35) + (fusionScore * 0.15);
+  // fusionScore is [-100,+100], normalize to [-1,+1] for this calculation
+  const bullScore = (scores.trend * 0.5) + (scores.momentum * 0.35) + ((fusionScore / 100) * 0.15);
   
   const shouldRun = bullScore >= threshold;
   
@@ -1050,24 +1052,23 @@ serve(async (req) => {
           }
           // Backward compat: detect old 0-1 scale and convert to 0-100
           const enterThreshold100 = rawEnterThreshold <= 1 ? rawEnterThreshold * 100 : rawEnterThreshold;
-          // Normalize to [-1, +1] scale for comparison
-          const enterThreshold = enterThreshold100 / 100;
-          const minConfidence = config.minConfidence || 0.5;
+          // Fusion score is now [-100, +100], compare directly against 0-100 threshold
 
-          console.log(`📊 [THRESHOLD] ${baseSymbol}: rawConfig=${rawEnterThreshold}, scaled=${enterThreshold100}, normalized=${enterThreshold.toFixed(3)}`);
+          console.log(`📊 [THRESHOLD] ${baseSymbol}: rawConfig=${rawEnterThreshold}, threshold100=${enterThreshold100}, effectiveFusion=${effectiveFusionScore.toFixed(2)}`);
 
-          // ============= ENTRY DECISION LOGIC (uses EFFECTIVE fusion score) =============
+
+          // ============= ENTRY DECISION LOGIC (uses EFFECTIVE fusion score, 0-100 scale) =============
           const isTrendPositive = signalScores.trend > -0.1;
           const isMomentumPositive = signalScores.momentum > 0;
           const isNotOverbought = signalScores.momentum > -0.5;
-          const meetsThreshold = effectiveFusionScore >= enterThreshold; // USE EFFECTIVE SCORE
+          const meetsThreshold = effectiveFusionScore >= enterThreshold100; // Both on 0-100 scale
           
           const shouldBuy = meetsThreshold && (
                             isTrendPositive ||
                             (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought)
                           );
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → rawFusion=${rawFusionScore.toFixed(3)}, effectiveFusion=${effectiveFusionScore.toFixed(3)}, threshold=${enterThreshold.toFixed(3)} [raw=${enterThreshold100}], trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → rawFusion=${rawFusionScore.toFixed(2)}, effectiveFusion=${effectiveFusionScore.toFixed(2)}, threshold=${enterThreshold100}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
 
           if (!shouldBuy) {
             let skipReason = 'conditions_not_met';
@@ -1076,10 +1077,10 @@ serve(async (req) => {
             } else if (!isNotOverbought) {
               skipReason = `overbought_momentum_${signalScores.momentum.toFixed(3)}`;
             } else if (!meetsThreshold && !isMomentumPositive) {
-              skipReason = `fusion_${effectiveFusionScore.toFixed(3)}_below_${enterThreshold.toFixed(3)}_no_momentum`;
+              skipReason = `fusion_${effectiveFusionScore.toFixed(2)}_below_${enterThreshold100}_no_momentum`;
               // Add age penalty info if it was the cause
-              if (agePenalty < 0 && rawFusionScore >= enterThreshold) {
-                skipReason = `age_penalty_dropped_fusion_from_${rawFusionScore.toFixed(3)}_to_${effectiveFusionScore.toFixed(3)}`;
+              if (agePenalty < 0 && rawFusionScore >= enterThreshold100) {
+                skipReason = `age_penalty_dropped_fusion_from_${rawFusionScore.toFixed(2)}_to_${effectiveFusionScore.toFixed(2)}`;
               }
             }
             
@@ -1098,7 +1099,6 @@ serve(async (req) => {
                 price: currentPrice,
                 signals: signalScores,
                 enterThreshold: enterThreshold100,
-                enterThresholdNormalized: enterThreshold,
                 engineMode: BACKEND_ENGINE_MODE,
                 // ============= ENTRY QUALITY (NEW) =============
                 entry_quality: entryQuality,
@@ -1115,7 +1115,8 @@ serve(async (req) => {
           // ============= SIGNALS POSITIVE - PROCEED WITH BUY INTENT =============
           const tradeAllocation = config.perTradeAllocation || 50;
           const qtySuggested = tradeAllocation / currentPrice;
-          const computedConfidence = Math.min(0.95, Math.max(minConfidence, effectiveFusionScore));
+          // Confidence derived from fusion strength (dominance-based, not clamped)
+          const computedConfidence = Math.abs(effectiveFusionScore) / 100;
 
           // ============= ENTRY CONTEXT FOR PYRAMIDING MODEL =============
           // Controlled vocabulary for trigger_type (NOT a DB enum - freeform for iteration)
@@ -1168,7 +1169,6 @@ serve(async (req) => {
             rawFusionScore,
             signalScores,
             enterThreshold: enterThreshold100,
-            enterThresholdNormalized: enterThreshold,
             isTrendPositive,
             isMomentumPositive,
             entry_context: entryContext,
@@ -1382,7 +1382,7 @@ serve(async (req) => {
                     scores: dec.metadata.signalScores,
                     entry_quality: dec.metadata.entry_quality ?? null,
                     signals_used: dec.metadata.signals_used ?? [],
-                    fusion_version: 'v2_shadow',
+                    fusion_version: 'v2_aggregated',
                   } : null,
                   guard_states_json: {
                     action: dec.action,
