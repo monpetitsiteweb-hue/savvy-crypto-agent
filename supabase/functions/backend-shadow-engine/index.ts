@@ -176,8 +176,8 @@ interface EntryQualityConfig {
 const DEFAULT_ENTRY_QUALITY_CONFIG: EntryQualityConfig = {
   trendAgeSoftThresholdHours: 6,
   trendAgeHardThresholdHours: 12,
-  trendAgeSoftPenalty: -0.05,
-  trendAgeHardPenalty: -0.10,
+  trendAgeSoftPenalty: -5,   // On 0-100 scale (was -0.05 on 0-1 scale)
+  trendAgeHardPenalty: -10,  // On 0-100 scale (was -0.10 on 0-1 scale)
 };
 
 /**
