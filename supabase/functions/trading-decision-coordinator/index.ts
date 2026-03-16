@@ -3763,68 +3763,35 @@ serve(async (req) => {
       confidenceOverrideThreshold: 0.7,
     };
 
-    // ============= FUSION GATE: Compute fusion for BUY intents BEFORE execution =============
-    // This is the SINGLE authoritative fusion computation. Backend engine delegates here.
-    let precomputedFusionData: any = null;
-    if (intent.side === 'BUY') {
-      try {
-        const baseSymbolForFusion = toBaseSymbol(intent.symbol);
-        const horizon = (intent.metadata?.horizon || '1h') as '15m' | '1h' | '4h' | '24h';
-        const fusionResult = await computeFusedSignalScore({
-          supabaseClient,
-          userId: intent.userId,
-          strategyId: intent.strategyId,
-          symbol: baseSymbolForFusion,
-          side: 'BUY',
-          horizon,
-          useSourceAggregation: true,
-        });
+    // ============= FUSION THRESHOLD + CONFIDENCE (fusion already computed above) =============
+    if (intent.side === 'BUY' && precomputedFusionData) {
+      // THRESHOLD GOVERNANCE: Check if fusion meets entry threshold
+      const rawEnterThreshold = strategy.configuration?.signalFusion?.enterThreshold;
+      if (rawEnterThreshold !== undefined && rawEnterThreshold !== null) {
+        const threshold100 = rawEnterThreshold <= 1 ? rawEnterThreshold * 100 : rawEnterThreshold;
+        if (precomputedFusionData.score < threshold100) {
+          const baseSymbolForFusion = toBaseSymbol(intent.symbol);
+          console.log(`[FUSION_GATE] BLOCKED: ${baseSymbolForFusion} fusion=${precomputedFusionData.score.toFixed(2)} < threshold=${threshold100}`);
 
-        precomputedFusionData = {
-          score: fusionResult.fusedScore,
-          totalSignals: fusionResult.totalSignals,
-          enabledSignals: fusionResult.enabledSignals,
-          topSignals: fusionResult.details
-            .sort((a: any, b: any) => Math.abs(b.contribution) - Math.abs(a.contribution))
-            .slice(0, 5)
-            .map((d: any) => ({ type: d.signalType, contribution: Number(d.contribution.toFixed(4)) })),
-          signals_used: fusionResult.signals_used,
-          source_contributions: fusionResult.source_contributions,
-          fusion_version: fusionResult.fusion_version,
-        };
+          logDecisionAsync(
+            supabaseClient, intent, 'HOLD' as DecisionAction, 'fusion_below_threshold' as Reason,
+            unifiedConfig, requestId,
+            { fusionScore: precomputedFusionData.score, enterThreshold: threshold100 },
+            undefined, undefined,
+            { ...strategy.configuration, canonicalIsTestMode },
+            undefined,
+            precomputedFusionData,
+          );
 
-        console.log(`[FUSION_GATE] ${baseSymbolForFusion}: score=${fusionResult.fusedScore.toFixed(2)}, signals=${fusionResult.enabledSignals}/${fusionResult.totalSignals}`);
-
-        // THRESHOLD GOVERNANCE: Check if fusion meets entry threshold
-        const rawEnterThreshold = strategy.configuration?.signalFusion?.enterThreshold;
-        if (rawEnterThreshold !== undefined && rawEnterThreshold !== null) {
-          const threshold100 = rawEnterThreshold <= 1 ? rawEnterThreshold * 100 : rawEnterThreshold;
-          if (fusionResult.fusedScore < threshold100) {
-            console.log(`[FUSION_GATE] BLOCKED: ${baseSymbolForFusion} fusion=${fusionResult.fusedScore.toFixed(2)} < threshold=${threshold100}`);
-
-            logDecisionAsync(
-              supabaseClient, intent, 'HOLD' as DecisionAction, 'fusion_below_threshold' as Reason,
-              unifiedConfig, requestId,
-              { fusionScore: fusionResult.fusedScore, enterThreshold: threshold100 },
-              undefined, undefined,
-              { ...strategy.configuration, canonicalIsTestMode },
-              undefined,
-              precomputedFusionData,
-            );
-
-            return respond('HOLD' as DecisionAction, 'fusion_below_threshold' as Reason, requestId, 0, {}, precomputedFusionData);
-          }
+          return respond('HOLD' as DecisionAction, 'fusion_below_threshold' as Reason, requestId, 0, {}, precomputedFusionData);
         }
+      }
 
-        // Derive confidence from fusion score if intent has no confidence
-        if (intent.confidence == null || intent.confidence === 0) {
-          const derivedConfidence = Math.abs(fusionResult.fusedScore) / 100;
-          intent.confidence = derivedConfidence;
-          console.log(`[FUSION_GATE] Derived confidence from fusion: ${derivedConfidence.toFixed(3)}`);
-        }
-      } catch (fusionErr: any) {
-        console.error('[FUSION_GATE] Error computing fusion, proceeding without gate:', fusionErr?.message || fusionErr);
-        // Fail-open: allow intent to proceed without fusion gate
+      // Derive confidence from fusion score if intent has no confidence
+      if (intent.confidence == null || intent.confidence === 0) {
+        const derivedConfidence = Math.abs(precomputedFusionData.score) / 100;
+        intent.confidence = derivedConfidence;
+        console.log(`[FUSION_GATE] Derived confidence from fusion: ${derivedConfidence.toFixed(3)}`);
       }
     }
 
