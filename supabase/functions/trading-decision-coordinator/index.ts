@@ -5151,10 +5151,9 @@ async function logDecisionAsync(
       const normalizedSource =
         intent.source === "intelligent" ? "intelligent" : intent.source === "manual" ? "manual" : "system"; // Fallback for any edge case (should never happen)
 
-      // PHASE 1B: Compute fused signal score (READ-ONLY, no behavior change)
-      // Always compute for snapshot observability — fusion data is never used in decision logic
-      let fusedSignalData = null;
-      {
+      // PHASE 1B: Use precomputed fusion if available, otherwise compute
+      let fusedSignalData = precomputedFusion || null;
+      if (!fusedSignalData) {
         try {
           const fusionResult = await computeFusedSignalScore({
             supabaseClient,
@@ -5177,7 +5176,6 @@ async function logDecisionAsync(
                 type: d.signalType,
                 contribution: Number(d.contribution.toFixed(2)),
               })),
-            // v2: signal lineage and source contributions
             signals_used: fusionResult.signals_used,
             source_contributions: fusionResult.source_contributions,
             fusion_version: fusionResult.fusion_version,
@@ -5188,8 +5186,9 @@ async function logDecisionAsync(
           );
         } catch (err) {
           console.error("[SignalFusion] Failed to compute signal fusion, continuing without it:", err);
-          // Fail soft: fusion errors must NEVER block decisions
         }
+      } else {
+        console.log(`[SignalFusion] Using precomputed fusion for ${baseSymbol}: score=${fusedSignalData.score}`);
       }
 
       const eventPayload = {
