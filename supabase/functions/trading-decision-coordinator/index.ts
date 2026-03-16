@@ -6145,31 +6145,61 @@ async function detectConflicts(
   // =====================================================================
   if (intent.side === "SELL") {
     const isPositionManagement = intent.metadata?.position_management === true && intent.metadata?.entry_price != null;
+    const intentContext = typeof intent.metadata?.context === "string" ? intent.metadata.context : "";
+    const intentOrigin = typeof intent.metadata?.origin === "string" ? intent.metadata.origin : "";
+    const intentTrigger = typeof intent.metadata?.trigger === "string" ? intent.metadata.trigger : "";
+    const exitTrigger = intent.metadata?.exit_trigger || intent.reason || intentTrigger || "UNKNOWN";
+    const backendPositionSnapshot = intent.metadata?.position_snapshot || null;
+    const backendSnapshotAmount = Number(
+      backendPositionSnapshot?.totalAmount ??
+        backendPositionSnapshot?.total_amount ??
+        backendPositionSnapshot?.remainingAmount ??
+        backendPositionSnapshot?.remaining_amount ??
+        backendPositionSnapshot?.amount ??
+        0,
+    );
+    const isBackendDrivenExit =
+      intentContext === "BACKEND_LIVE" ||
+      intentContext.startsWith("BACKEND_") ||
+      intentContext.startsWith("AUTO_") ||
+      intentOrigin === "BACKEND_LIVE" ||
+      ["TAKE_PROFIT", "STOP_LOSS", "TRAILING_STOP", "AUTO_CLOSE_TIME", "SELL_TRAILING_RUNNER"].includes(intentTrigger) ||
+      ["TAKE_PROFIT", "STOP_LOSS", "TRAILING_STOP", "AUTO_CLOSE_TIME", "SELL_TRAILING_RUNNER"].includes(exitTrigger);
+    const hasTrustedBackendPosition =
+      isBackendDrivenExit && Number.isFinite(backendSnapshotAmount) && backendSnapshotAmount > 1e-8;
+    const guardDiagnostic = {
+      branch: "detectConflicts.positionNotFound.netPositionPrecheck",
+      symbol: baseSymbol,
+      requestId: intent.metadata?.backend_request_id || intent.idempotencyKey || "NOT_PROVIDED",
+      backendRequestId: intent.metadata?.backend_request_id || "NOT_PROVIDED",
+      context: intentContext || "NOT_PROVIDED",
+      origin: intentOrigin || "NOT_PROVIDED",
+      trigger: intentTrigger || "NOT_PROVIDED",
+      exitTrigger,
+      netPosition: netPosition.toFixed(8),
+      tradesFoundCount: allTrades.length,
+      buysFoundCount: allTrades.filter((t) => t.trade_type === "buy").length,
+      sellsFoundCount: allTrades.filter((t) => t.trade_type === "sell").length,
+      foundSymbolsInDB: [...new Set(allTrades.map((t) => t.cryptocurrency))],
+      backendPositionSnapshot,
+      backendSnapshotAmount: Number.isFinite(backendSnapshotAmount) ? backendSnapshotAmount.toFixed(8) : "INVALID",
+      isBackendDrivenExit,
+      hasTrustedBackendPosition,
+      isPositionManagement,
+      isTestMode,
+    };
 
     // STEP 1: Check if position EXISTS (all-time net position > 0)
     // Skip ONLY position existence check for position management SELLs (they validate via original_trade_id)
     if (!isPositionManagement) {
       if (netPosition <= 0) {
-        // Enhanced debug logging for positionNotFound
-        console.log("[COORD][GUARD] positionNotFound - DETAILED DEBUG", {
-          userId: intent.userId.substring(0, 8) + "...",
-          strategyId: intent.strategyId.substring(0, 8) + "...",
-          baseSymbol,
-          symbolVariantsQueried: [baseSymbol, `${baseSymbol}-EUR`],
-          isTestMode,
-          netPosition: netPosition.toFixed(8),
-          tradesFoundCount: allTrades.length,
-          buysFoundCount: allTrades.filter((t) => t.trade_type === "buy").length,
-          sellsFoundCount: allTrades.filter((t) => t.trade_type === "sell").length,
-          foundSymbolsInDB: [...new Set(allTrades.map((t) => t.cryptocurrency))],
-          // Backend snapshot for correlation
-          position_snapshot_from_backend: intent.metadata?.position_snapshot || "NOT_PROVIDED",
-          symbol_raw_from_backend: intent.metadata?.symbol_raw || "NOT_PROVIDED",
-          symbol_normalized_from_backend: intent.metadata?.symbol_normalized || "NOT_PROVIDED",
-          exit_trigger: intent.metadata?.exit_trigger || intent.reason,
-        });
-        guardReport.positionNotFound = true;
-        return { hasConflict: true, reason: "no_position_found", guardReport };
+        if (hasTrustedBackendPosition) {
+          console.log("[COORD][GUARD][POSITION_NOT_FOUND_BYPASSED]", guardDiagnostic);
+        } else {
+          console.log("[COORD][GUARD][POSITION_NOT_FOUND]", guardDiagnostic);
+          guardReport.positionNotFound = true;
+          return { hasConflict: true, reason: "no_position_found", guardReport };
+        }
       }
     }
 
@@ -6199,7 +6229,7 @@ async function detectConflicts(
           timeSinceBuyMs: timeSinceBuy,
           minHoldPeriodMs,
           lastBuyAt: lastBuy.executed_at,
-          exitTrigger: intent.metadata?.exit_trigger || intent.reason,
+          exitTrigger,
           isPositionManagement,
         });
         guardReport.holdPeriodNotMet = true;
@@ -6207,8 +6237,9 @@ async function detectConflicts(
       }
     }
 
+    const validatedPositionAmount = netPosition > 0 ? netPosition : hasTrustedBackendPosition ? backendSnapshotAmount : 0;
     console.log(
-      `✅ COORDINATOR: SELL validated for ${baseSymbol} - position exists (net=${netPosition.toFixed(6)}) and hold period met`,
+      `✅ COORDINATOR: SELL validated for ${baseSymbol} - position source=${hasTrustedBackendPosition && netPosition <= 0 ? "backend_snapshot" : "db_net_position"} net=${netPosition.toFixed(6)} effective=${validatedPositionAmount.toFixed(6)} hold period met`,
     );
   }
 
