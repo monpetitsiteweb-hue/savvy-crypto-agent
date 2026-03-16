@@ -3681,12 +3681,14 @@ serve(async (req) => {
     }
     // ============= END STATE/POLICY ENFORCEMENT =============
 
-    const unifiedConfig: UnifiedConfig = strategy.unified_config || {
+    // FIX: Read unifiedConfig from configuration JSON, not from non-existent column
+    const unifiedConfig: UnifiedConfig = strategy.configuration?.unifiedConfig || {
       enableUnifiedDecisions: false,
       minHoldPeriodMs: 120000,
       cooldownBetweenOppositeActionsMs: 30000,
       confidenceOverrideThreshold: 0.7,
     };
+    console.log(`[COORD] unifiedConfig resolved: enableUnifiedDecisions=${unifiedConfig.enableUnifiedDecisions} (source=${strategy.configuration?.unifiedConfig ? 'configuration.unifiedConfig' : 'default_fallback'})`);
 
     // ============= FUSION THRESHOLD + CONFIDENCE (fusion already computed above) =============
     if (intent.side === 'BUY' && precomputedFusionData) {
