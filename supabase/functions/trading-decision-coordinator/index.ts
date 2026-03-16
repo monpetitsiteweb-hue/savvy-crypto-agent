@@ -3598,7 +3598,7 @@ serve(async (req) => {
     if (intent.side === "BUY" && strategyState !== "ACTIVE") {
       console.log(`🚫 COORDINATOR: BUY blocked - strategy state is ${strategyState} (not ACTIVE)`);
       return new Response(
-        JSON.stringify({
+        withFusion({
           ok: true,
           decision: {
             action: "BLOCK",
@@ -3609,7 +3609,7 @@ serve(async (req) => {
             message: `BUY orders are blocked when strategy is in ${strategyState} state.`,
           },
         }),
-        { headers: corsHeaders },
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
