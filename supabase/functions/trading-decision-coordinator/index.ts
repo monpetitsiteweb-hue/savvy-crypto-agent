@@ -5004,6 +5004,7 @@ async function logDecisionAsync(
     optimizer: string | null;
     optimizerMetadata: any | null;
   },
+  precomputedFusion?: any,
 ): Promise<{ logged: boolean; error?: string }> {
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
