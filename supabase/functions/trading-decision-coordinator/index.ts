@@ -4154,10 +4154,12 @@ serve(async (req) => {
           undefined,
           priceData.price,
           { ...strategy.configuration, canonicalIsTestMode },
+          undefined,
+          precomputedFusionData,
         );
 
         return new Response(
-          JSON.stringify({
+          withFusion({
             ok: true,
             decision: {
               action: "DEFER",
