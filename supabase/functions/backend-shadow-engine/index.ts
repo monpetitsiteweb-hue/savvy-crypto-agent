@@ -1067,7 +1067,7 @@ serve(async (req) => {
                             (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought)
                           );
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → rawFusion=${rawFusionScore.toFixed(3)}, effectiveFusion=${effectiveFusionScore.toFixed(3)}, threshold=${enterThreshold.toFixed(3)} [raw=${enterThreshold100}], trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → rawFusion=${rawFusionScore.toFixed(2)}, effectiveFusion=${effectiveFusionScore.toFixed(2)}, threshold=${enterThreshold100}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
 
           if (!shouldBuy) {
             let skipReason = 'conditions_not_met';
@@ -1076,10 +1076,10 @@ serve(async (req) => {
             } else if (!isNotOverbought) {
               skipReason = `overbought_momentum_${signalScores.momentum.toFixed(3)}`;
             } else if (!meetsThreshold && !isMomentumPositive) {
-              skipReason = `fusion_${effectiveFusionScore.toFixed(3)}_below_${enterThreshold.toFixed(3)}_no_momentum`;
+              skipReason = `fusion_${effectiveFusionScore.toFixed(2)}_below_${enterThreshold100}_no_momentum`;
               // Add age penalty info if it was the cause
-              if (agePenalty < 0 && rawFusionScore >= enterThreshold) {
-                skipReason = `age_penalty_dropped_fusion_from_${rawFusionScore.toFixed(3)}_to_${effectiveFusionScore.toFixed(3)}`;
+              if (agePenalty < 0 && rawFusionScore >= enterThreshold100) {
+                skipReason = `age_penalty_dropped_fusion_from_${rawFusionScore.toFixed(2)}_to_${effectiveFusionScore.toFixed(2)}`;
               }
             }
             
