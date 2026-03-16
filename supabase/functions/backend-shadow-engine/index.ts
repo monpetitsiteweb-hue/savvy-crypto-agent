@@ -979,229 +979,42 @@ serve(async (req) => {
             continue;
           }
 
-          // ============= INTELLIGENT SIGNAL EVALUATION =============
-          const signalLookback = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-          const { data: liveSignals } = await supabaseClient
-            .from('live_signals')
-            .select('id, signal_type, signal_strength, source, data')
-            .or(`symbol.eq.${baseSymbol},symbol.eq.${symbol}`)
-            .gte('timestamp', signalLookback)
-            .in('signal_type', [
-              'ma_cross_bullish', 'rsi_oversold_bullish', 'momentum_bullish', 
-              'trend_bullish', 'macd_bullish',
-              'eodhd_price_breakout_bullish', 'eodhd_price_breakdown_bearish',
-              'eodhd_intraday_volume_spike', 'eodhd_unusual_volatility',
-              'ma_cross_bearish', 'rsi_overbought_bearish', 'momentum_bearish',
-              'trend_bearish', 'macd_bearish', 'ma_momentum_bearish',
-              'momentum_neutral',
-              'whale_large_movement', 'whale_exchange_inflow', 'whale_exchange_outflow'
-            ])
-            .order('timestamp', { ascending: false })
-            .limit(50);
-
-          const { data: features } = await supabaseClient
-            .from('market_features_v0')
-            .select('rsi_14, macd_hist, ema_20, ema_50, ema_200, vol_1h')
-            .eq('symbol', symbol)
-            .eq('granularity', '1h')
-            .order('ts_utc', { ascending: false })
-            .limit(1)
-            .single();
-
-          // ============= COMPUTE FUSION SCORE =============
-          const signalScores = computeSignalScores(liveSignals || [], features);
-          const rawFusionScore = computeFusionScore(signalScores, config);
-
-          // ============= ENTRY QUALITY: COMPUTE TREND & MOMENTUM AGE =============
-          const entryQualityConfig = resolveEntryQualityConfig(config);
-          const trendAgeHours = await computeTrendAge(supabaseClient, symbol, '1h');
-          const momentumAgeHours = await computeMomentumAge(supabaseClient, symbol, '1h');
-          
-          // Compute age penalty (soft penalty for late entries)
-          const agePenalty = computeAgePenalty(trendAgeHours, entryQualityConfig);
-          
-          // Effective fusion score = raw score + age penalty (penalty is negative or 0)
-          const effectiveFusionScore = rawFusionScore + agePenalty;
-          
-          // Build entry quality object for metadata
-          const entryQuality: EntryQuality = {
-            trend_age_hours: trendAgeHours,
-            momentum_age_hours: momentumAgeHours,
-            volatility_score: signalScores.volatility,
-            raw_fusion_score: parseFloat(rawFusionScore.toFixed(4)),
-            effective_fusion_score: parseFloat(effectiveFusionScore.toFixed(4)),
-            age_penalty_applied: agePenalty,
-          };
-          
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} ENTRY_QUALITY → trendAge=${trendAgeHours}h, momentumAge=${momentumAgeHours}h, agePenalty=${agePenalty}, rawFusion=${rawFusionScore.toFixed(3)}, effectiveFusion=${effectiveFusionScore.toFixed(3)}`);
-
-          // ============= THRESHOLD GOVERNANCE (0-100 scale) =============
-          // Canonical path: configuration.signalFusion.enterThreshold
-          // Fail-closed: if threshold is missing from config, block entry
-          const rawEnterThreshold = config.signalFusion?.enterThreshold;
-          if (rawEnterThreshold === undefined || rawEnterThreshold === null) {
-            console.error(`🚨 ${BACKEND_ENGINE_MODE}: ${baseSymbol} BLOCKED — missing enterThreshold in config. Fail-closed.`);
-            allDecisions.push({
-              symbol: baseSymbol, side: 'HOLD', action: 'SKIP',
-              reason: 'blocked_missing_config:enterThreshold',
-              confidence: 0, fusionScore: effectiveFusionScore, wouldExecute: false,
-              timestamp: new Date().toISOString(),
-              metadata: { strategyId: strategy.id, strategyName: strategy.strategy_name, price: currentPrice, engineMode: BACKEND_ENGINE_MODE }
-            });
-            continue;
-          }
-          // Backward compat: detect old 0-1 scale and convert to 0-100
-          const enterThreshold100 = rawEnterThreshold <= 1 ? rawEnterThreshold * 100 : rawEnterThreshold;
-          // Fusion score is now [-100, +100], compare directly against 0-100 threshold
-
-          console.log(`📊 [THRESHOLD] ${baseSymbol}: rawConfig=${rawEnterThreshold}, threshold100=${enterThreshold100}, effectiveFusion=${effectiveFusionScore.toFixed(2)}`);
-
-
-          // ============= ENTRY DECISION LOGIC (uses EFFECTIVE fusion score, 0-100 scale) =============
-          const isTrendPositive = signalScores.trend > -0.1;
-          const isMomentumPositive = signalScores.momentum > 0;
-          const isNotOverbought = signalScores.momentum > -0.5;
-          const meetsThreshold = effectiveFusionScore >= enterThreshold100; // Both on 0-100 scale
-          
-          const shouldBuy = meetsThreshold && (
-                            isTrendPositive ||
-                            (isMomentumPositive && signalScores.momentum > 0.3 && isNotOverbought)
-                          );
-
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNAL CHECK → rawFusion=${rawFusionScore.toFixed(2)}, effectiveFusion=${effectiveFusionScore.toFixed(2)}, threshold=${enterThreshold100}, trend=${signalScores.trend.toFixed(3)}, momentum=${signalScores.momentum.toFixed(3)}, shouldBuy=${shouldBuy}`);
-
-          if (!shouldBuy) {
-            let skipReason = 'conditions_not_met';
-            if (signalScores.trend < -0.1 && signalScores.momentum <= 0.3) {
-              skipReason = `trend_negative_${signalScores.trend.toFixed(3)}_no_momentum_boost`;
-            } else if (!isNotOverbought) {
-              skipReason = `overbought_momentum_${signalScores.momentum.toFixed(3)}`;
-            } else if (!meetsThreshold && !isMomentumPositive) {
-              skipReason = `fusion_${effectiveFusionScore.toFixed(2)}_below_${enterThreshold100}_no_momentum`;
-              // Add age penalty info if it was the cause
-              if (agePenalty < 0 && rawFusionScore >= enterThreshold100) {
-                skipReason = `age_penalty_dropped_fusion_from_${rawFusionScore.toFixed(2)}_to_${effectiveFusionScore.toFixed(2)}`;
-              }
-            }
-            
-            allDecisions.push({
-              symbol: baseSymbol,
-              side: 'HOLD',
-              action: 'SKIP',
-              reason: skipReason,
-              confidence: effectiveFusionScore,
-              fusionScore: effectiveFusionScore,
-              wouldExecute: false,
-              timestamp: new Date().toISOString(),
-              metadata: {
-                strategyId: strategy.id,
-                strategyName: strategy.strategy_name,
-                price: currentPrice,
-                signals: signalScores,
-                enterThreshold: enterThreshold100,
-                engineMode: BACKEND_ENGINE_MODE,
-                // ============= ENTRY QUALITY (NEW) =============
-                entry_quality: entryQuality,
-                entry_quality_config: entryQualityConfig,
-                // ============= EXECUTION TRUTH FIELDS (SKIP/CONDITIONS) =============
-                intent_side: 'HOLD',
-                execution_status: 'SKIPPED',
-                execution_reason: skipReason,
-              }
-            });
-            continue;
-          }
-
-          // ============= SIGNALS POSITIVE - PROCEED WITH BUY INTENT =============
+          // ============= ENTRY EVALUATION: DELEGATE TO COORDINATOR =============
+          // Backend does NOT compute fusion. Coordinator is the single decision authority.
+          // computeSignalScores() and computeFusionScore() are NOT called here.
           const tradeAllocation = config.perTradeAllocation || 50;
           const qtySuggested = tradeAllocation / currentPrice;
-          // Confidence derived from fusion strength (dominance-based, not clamped)
-          const computedConfidence = Math.abs(effectiveFusionScore) / 100;
-
-          // ============= ENTRY CONTEXT FOR PYRAMIDING MODEL =============
-          // Controlled vocabulary for trigger_type (NOT a DB enum - freeform for iteration)
-          // Categories: trend, momentum, whale, sentiment, composite
-          const TRIGGER_VOCABULARY = {
-            WHALE_MOMENTUM: 'whale_momentum',
-            MOMENTUM_CONTINUATION: 'momentum_continuation',
-            TREND_FOLLOW: 'trend_follow',
-            MOMENTUM_BREAKOUT: 'momentum_breakout',
-            SENTIMENT_DRIVEN: 'sentiment_driven',
-            FUSION_COMPOSITE: 'fusion_composite',
-          } as const;
-          
-          // Derive trigger_type from dominant signal pattern using controlled vocabulary
-          const deriveTriggerType = (scores: SignalScores): string => {
-            // Priority order: whale > momentum+trend > pure trend > pure momentum > sentiment > composite
-            if (scores.whale > 0.5) return TRIGGER_VOCABULARY.WHALE_MOMENTUM;
-            if (scores.momentum > 0.3 && scores.trend > 0.1) return TRIGGER_VOCABULARY.MOMENTUM_CONTINUATION;
-            if (scores.trend > 0.3) return TRIGGER_VOCABULARY.TREND_FOLLOW;
-            if (scores.momentum > 0.2) return TRIGGER_VOCABULARY.MOMENTUM_BREAKOUT;
-            if (scores.sentiment > 0.3) return TRIGGER_VOCABULARY.SENTIMENT_DRIVEN;
-            return TRIGGER_VOCABULARY.FUSION_COMPOSITE;
-          };
-          
-          // Timeframe from strategy config / decision cadence (NOT from UI clocks)
-          // Engine cadence is the authoritative source
-          const entryTimeframe = config.decisionCadence || config.entryTimeframe || '5m';
-          
-          const entryContext = {
-            trigger_type: deriveTriggerType(signalScores),
-            timeframe: entryTimeframe,
-            anchor_price: currentPrice,
-            anchor_ts: new Date().toISOString(),
-            trend_regime: signalScores.trend > 0.1 ? 'bull' : signalScores.trend < -0.1 ? 'bear' : 'neutral',
-            fusion_score: effectiveFusionScore,
-            raw_fusion_score: rawFusionScore,
-            confidence: computedConfidence,
-            context_version: 2, // Upgraded to v2 with entry_quality
-          };
-          // ============= END ENTRY CONTEXT =============
-
-          const intentMetadata = {
-            mode: 'mock',
-            engine: 'intelligent',
-            is_test_mode: true,
-            context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
-            backend_ts: new Date().toISOString(),
-            currentPrice,
-            fusionScore: effectiveFusionScore,
-            rawFusionScore,
-            signalScores,
-            enterThreshold: enterThreshold100,
-            isTrendPositive,
-            isMomentumPositive,
-            entry_context: entryContext,
-            // ============= ENTRY QUALITY (NEW) =============
-            entry_quality: entryQuality,
-            entry_quality_config: entryQualityConfig,
-            // ============= UD CONTRACT: eurAmount for executeTradeOrder =============
-            eurAmount: tradeAllocation,
-          };
 
           const backendRequestId = crypto.randomUUID();
           const timestamp = Date.now();
           const idempotencyKey = `live_${userId}_${strategy.id}_${baseSymbol}_${timestamp}`;
-          
+
           const intent = {
             userId,
             strategyId: strategy.id,
             symbol: baseSymbol,
             side: 'BUY' as const,
             source: 'intelligent' as const,
-            confidence: computedConfidence,
-            reason: `signal_confirmed_fusion_${effectiveFusionScore.toFixed(3)}${agePenalty < 0 ? `_age_adj_${agePenalty}` : ''}`,
+            confidence: null as number | null, // Coordinator derives confidence from its own fusion
+            reason: 'backend_entry_evaluation',
             qtySuggested,
             metadata: {
-              ...intentMetadata,
+              mode: 'mock',
+              engine: 'intelligent',
+              is_test_mode: true,
+              context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+              backend_ts: new Date().toISOString(),
+              currentPrice,
               backend_request_id: backendRequestId,
               origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+              eurAmount: tradeAllocation,
+              horizon: config.decisionCadence || '1h',
             },
             ts: new Date().toISOString(),
             idempotencyKey,
           };
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} SIGNALS POSITIVE → calling coordinator (effectiveFusion=${effectiveFusionScore.toFixed(3)}, rawFusion=${rawFusionScore.toFixed(3)}, agePenalty=${agePenalty})`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → delegating entry decision to coordinator (price=${currentPrice})`);
 
           const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
             'trading-decision-coordinator',
@@ -1215,14 +1028,18 @@ serve(async (req) => {
               side: 'BUY',
               action: 'ERROR',
               reason: coordError.message || 'coordinator_error',
-              confidence: computedConfidence,
-              fusionScore: effectiveFusionScore,
+              confidence: 0,
               wouldExecute: false,
               timestamp: new Date().toISOString(),
-              metadata: { 
-                error: coordError, 
-                signals: signalScores,
-                entry_quality: entryQuality,
+              metadata: {
+                error: coordError,
+                strategyId: strategy.id,
+                strategyName: strategy.strategy_name,
+                price: currentPrice,
+                intent_side: 'BUY',
+                execution_status: 'BLOCKED',
+                execution_reason: `error: ${coordError.message || 'coordinator_error'}`,
+                snapshot_type: 'ENTRY',
               }
             });
             continue;
@@ -1236,29 +1053,23 @@ serve(async (req) => {
           const decision = parsed?.decision || parsed;
           const action = decision?.action || 'UNKNOWN';
           const reason = decision?.reason || 'no_reason';
+          const coordinatorFusion = parsed?.fusion || null;
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → action=${action}, reason=${reason}`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → coordinator: action=${action}, reason=${reason}, fusionScore=${coordinatorFusion?.score ?? 'null'}`);
 
           // ============= EXECUTION STATUS TRUTH =============
-          // Determine execution status based on coordinator response
-          // EXECUTED = trade was inserted into mock_trades
-          // BLOCKED = trade was blocked by exposure/guard/policy
-          // DEFERRED = trade was deferred for retry
-          const isBlocked = action === 'DEFER' || action === 'BLOCK' || action === 'HOLD';
           const wasExecuted = action === 'BUY' || action === 'SELL';
-          
           const execution_status: 'EXECUTED' | 'BLOCKED' | 'DEFERRED' = 
             wasExecuted ? 'EXECUTED' :
             action === 'DEFER' ? 'DEFERRED' : 'BLOCKED';
-          
           const execution_reason = wasExecuted ? null : reason;
-          
-          // wouldExecute = true ONLY if execution actually happened
           const wouldExecute = wasExecuted;
-          
-          // side = the INTENT (what the engine wanted to do) - always BUY for entry signals
-          // The execution_status tells what ACTUALLY happened
-          const side: 'BUY' | 'SELL' | 'HOLD' = 'BUY';
+          const side: 'BUY' | 'SELL' | 'HOLD' = wasExecuted ? 'BUY' : 'HOLD';
+
+          // Confidence from coordinator fusion (not backend computation)
+          const computedConfidence = coordinatorFusion?.score != null 
+            ? Math.abs(coordinatorFusion.score) / 100 
+            : 0;
 
           allDecisions.push({
             symbol: baseSymbol,
@@ -1266,7 +1077,7 @@ serve(async (req) => {
             action,
             reason,
             confidence: computedConfidence,
-            fusionScore: effectiveFusionScore,
+            fusionScore: coordinatorFusion?.score ?? null,
             wouldExecute,
             timestamp: new Date().toISOString(),
             metadata: {
@@ -1274,23 +1085,16 @@ serve(async (req) => {
               strategyName: strategy.strategy_name,
               price: currentPrice,
               qtySuggested,
-              signalScores,
               coordinatorResponse: decision,
+              coordinatorFusion,
               engineMode: BACKEND_ENGINE_MODE,
               effectiveShadowMode,
               userAllowedForLive: isUserAllowedForLive,
-              entry_quality: entryQuality,
-              entry_quality_config: entryQualityConfig,
               execution_status,
               execution_reason,
               intent_side: 'BUY',
-              // v2: signal lineage for ML traceability
-              signals_used: (liveSignals || []).map((s: any) => ({
-                signal_id: s.id,
-                source: s.source || 'unknown',
-                signal_type: s.signal_type,
-                strength: s.signal_strength,
-              })),
+              snapshot_type: 'ENTRY',
+              snapshot_source: 'coordinator',
             }
           });
 
