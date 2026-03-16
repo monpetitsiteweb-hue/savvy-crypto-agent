@@ -843,8 +843,9 @@ serve(async (req) => {
                   shadow_only: true,
                   // ============= EXECUTION TRUTH FIELDS (SELL SHADOW) =============
                   intent_side: 'SELL',
-                  execution_status: 'SHADOW_ONLY',
-                  execution_reason: null,
+                   execution_status: 'SHADOW_ONLY',
+                   execution_reason: null,
+                   snapshot_type: 'EXIT',
                 }
               });
             } else {
