@@ -2961,11 +2961,53 @@ serve(async (req) => {
       execClass_intent: execClass.intent,
     });
 
+    // ============= FUSION GATE: Compute fusion for BUY intents BEFORE any gates =============
+    // Moved here so ALL early-return paths (panic, state, cooldown, etc.) include fusion metadata.
+    // This is the SINGLE authoritative fusion computation. Backend engine delegates here.
+    let precomputedFusionData: any = null;
+    if (intent.side === 'BUY') {
+      try {
+        const baseSymbolForFusion = toBaseSymbol(intent.symbol);
+        const horizon = (intent.metadata?.horizon || '1h') as '15m' | '1h' | '4h' | '24h';
+        const fusionResult = await computeFusedSignalScore({
+          supabaseClient,
+          userId: intent.userId,
+          strategyId: intent.strategyId,
+          symbol: baseSymbolForFusion,
+          side: 'BUY',
+          horizon,
+          useSourceAggregation: true,
+        });
+
+        precomputedFusionData = {
+          score: fusionResult.fusedScore,
+          totalSignals: fusionResult.totalSignals,
+          enabledSignals: fusionResult.enabledSignals,
+          topSignals: fusionResult.details
+            .sort((a: any, b: any) => Math.abs(b.contribution) - Math.abs(a.contribution))
+            .slice(0, 5)
+            .map((d: any) => ({ type: d.signalType, contribution: Number(d.contribution.toFixed(4)) })),
+          signals_used: fusionResult.signals_used,
+          source_contributions: fusionResult.source_contributions,
+          fusion_version: fusionResult.fusion_version,
+        };
+
+        console.log(`[FUSION_GATE] ${baseSymbolForFusion}: score=${fusionResult.fusedScore.toFixed(2)}, signals=${fusionResult.enabledSignals}/${fusionResult.totalSignals}`);
+      } catch (fusionErr: any) {
+        console.error('[FUSION_GATE] Error computing fusion (proceeding without):', fusionErr?.message || fusionErr);
+      }
+    }
+
+    // Helper: inject fusion data into any raw JSON response body (for BUY intents)
+    const withFusion = (body: any): string => JSON.stringify(
+      precomputedFusionData ? { ...body, fusion: precomputedFusionData } : body
+    );
+
     // ============= PANIC GATE (hard blocker) =============
     if (panicActive) {
       console.log("🚫 COORDINATOR: PANIC ACTIVE - all trades blocked for this strategy");
       return new Response(
-        JSON.stringify({
+        withFusion({
           ok: true,
           decision: {
             action: "BLOCK",
@@ -2975,7 +3017,7 @@ serve(async (req) => {
             message: "Strategy panic mode is active. All trades are blocked until panic is cleared.",
           },
         }),
-        { headers: corsHeaders },
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -2985,7 +3027,7 @@ serve(async (req) => {
     if (strategyState !== "ACTIVE" && !onDisablePolicy) {
       console.log(`🚫 COORDINATOR: Missing policy - strategy state is ${strategyState} but on_disable_policy is NULL`);
       return new Response(
-        JSON.stringify({
+        withFusion({
           ok: true,
           decision: {
             action: "BLOCK",
@@ -2996,7 +3038,7 @@ serve(async (req) => {
             message: "Strategy is not ACTIVE but on_disable_policy is not set. Set policy before proceeding.",
           },
         }),
-        { headers: corsHeaders },
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -3052,7 +3094,7 @@ serve(async (req) => {
         if (prereqError) {
           console.error("❌ COORDINATOR: Prerequisites check failed:", prereqError);
           return new Response(
-            JSON.stringify({
+            withFusion({
               ok: false,
               success: false,
               error: "blocked_prerequisites_check_failed",
@@ -3556,7 +3598,7 @@ serve(async (req) => {
     if (intent.side === "BUY" && strategyState !== "ACTIVE") {
       console.log(`🚫 COORDINATOR: BUY blocked - strategy state is ${strategyState} (not ACTIVE)`);
       return new Response(
-        JSON.stringify({
+        withFusion({
           ok: true,
           decision: {
             action: "BLOCK",
@@ -3567,7 +3609,7 @@ serve(async (req) => {
             message: `BUY orders are blocked when strategy is in ${strategyState} state.`,
           },
         }),
-        { headers: corsHeaders },
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -3721,68 +3763,35 @@ serve(async (req) => {
       confidenceOverrideThreshold: 0.7,
     };
 
-    // ============= FUSION GATE: Compute fusion for BUY intents BEFORE execution =============
-    // This is the SINGLE authoritative fusion computation. Backend engine delegates here.
-    let precomputedFusionData: any = null;
-    if (intent.side === 'BUY') {
-      try {
-        const baseSymbolForFusion = toBaseSymbol(intent.symbol);
-        const horizon = (intent.metadata?.horizon || '1h') as '15m' | '1h' | '4h' | '24h';
-        const fusionResult = await computeFusedSignalScore({
-          supabaseClient,
-          userId: intent.userId,
-          strategyId: intent.strategyId,
-          symbol: baseSymbolForFusion,
-          side: 'BUY',
-          horizon,
-          useSourceAggregation: true,
-        });
+    // ============= FUSION THRESHOLD + CONFIDENCE (fusion already computed above) =============
+    if (intent.side === 'BUY' && precomputedFusionData) {
+      // THRESHOLD GOVERNANCE: Check if fusion meets entry threshold
+      const rawEnterThreshold = strategy.configuration?.signalFusion?.enterThreshold;
+      if (rawEnterThreshold !== undefined && rawEnterThreshold !== null) {
+        const threshold100 = rawEnterThreshold <= 1 ? rawEnterThreshold * 100 : rawEnterThreshold;
+        if (precomputedFusionData.score < threshold100) {
+          const baseSymbolForFusion = toBaseSymbol(intent.symbol);
+          console.log(`[FUSION_GATE] BLOCKED: ${baseSymbolForFusion} fusion=${precomputedFusionData.score.toFixed(2)} < threshold=${threshold100}`);
 
-        precomputedFusionData = {
-          score: fusionResult.fusedScore,
-          totalSignals: fusionResult.totalSignals,
-          enabledSignals: fusionResult.enabledSignals,
-          topSignals: fusionResult.details
-            .sort((a: any, b: any) => Math.abs(b.contribution) - Math.abs(a.contribution))
-            .slice(0, 5)
-            .map((d: any) => ({ type: d.signalType, contribution: Number(d.contribution.toFixed(4)) })),
-          signals_used: fusionResult.signals_used,
-          source_contributions: fusionResult.source_contributions,
-          fusion_version: fusionResult.fusion_version,
-        };
+          logDecisionAsync(
+            supabaseClient, intent, 'HOLD' as DecisionAction, 'fusion_below_threshold' as Reason,
+            unifiedConfig, requestId,
+            { fusionScore: precomputedFusionData.score, enterThreshold: threshold100 },
+            undefined, undefined,
+            { ...strategy.configuration, canonicalIsTestMode },
+            undefined,
+            precomputedFusionData,
+          );
 
-        console.log(`[FUSION_GATE] ${baseSymbolForFusion}: score=${fusionResult.fusedScore.toFixed(2)}, signals=${fusionResult.enabledSignals}/${fusionResult.totalSignals}`);
-
-        // THRESHOLD GOVERNANCE: Check if fusion meets entry threshold
-        const rawEnterThreshold = strategy.configuration?.signalFusion?.enterThreshold;
-        if (rawEnterThreshold !== undefined && rawEnterThreshold !== null) {
-          const threshold100 = rawEnterThreshold <= 1 ? rawEnterThreshold * 100 : rawEnterThreshold;
-          if (fusionResult.fusedScore < threshold100) {
-            console.log(`[FUSION_GATE] BLOCKED: ${baseSymbolForFusion} fusion=${fusionResult.fusedScore.toFixed(2)} < threshold=${threshold100}`);
-
-            logDecisionAsync(
-              supabaseClient, intent, 'HOLD' as DecisionAction, 'fusion_below_threshold' as Reason,
-              unifiedConfig, requestId,
-              { fusionScore: fusionResult.fusedScore, enterThreshold: threshold100 },
-              undefined, undefined,
-              { ...strategy.configuration, canonicalIsTestMode },
-              undefined,
-              precomputedFusionData,
-            );
-
-            return respond('HOLD' as DecisionAction, 'fusion_below_threshold' as Reason, requestId, 0, {}, precomputedFusionData);
-          }
+          return respond('HOLD' as DecisionAction, 'fusion_below_threshold' as Reason, requestId, 0, {}, precomputedFusionData);
         }
+      }
 
-        // Derive confidence from fusion score if intent has no confidence
-        if (intent.confidence == null || intent.confidence === 0) {
-          const derivedConfidence = Math.abs(fusionResult.fusedScore) / 100;
-          intent.confidence = derivedConfidence;
-          console.log(`[FUSION_GATE] Derived confidence from fusion: ${derivedConfidence.toFixed(3)}`);
-        }
-      } catch (fusionErr: any) {
-        console.error('[FUSION_GATE] Error computing fusion, proceeding without gate:', fusionErr?.message || fusionErr);
-        // Fail-open: allow intent to proceed without fusion gate
+      // Derive confidence from fusion score if intent has no confidence
+      if (intent.confidence == null || intent.confidence === 0) {
+        const derivedConfidence = Math.abs(precomputedFusionData.score) / 100;
+        intent.confidence = derivedConfidence;
+        console.log(`[FUSION_GATE] Derived confidence from fusion: ${derivedConfidence.toFixed(3)}`);
       }
     }
 
@@ -3827,6 +3836,8 @@ serve(async (req) => {
           executionResult.tradeId,
           executionResult.executed_price,
           { ...strategy.configuration, canonicalIsTestMode },
+          undefined,
+          precomputedFusionData,
         );
         return respond(intent.side, "unified_decisions_disabled_direct_path", requestId, 0, {
           qty: executionResult.qty,
@@ -3859,10 +3870,12 @@ serve(async (req) => {
           undefined,
           priceForLog,
           { ...strategy.configuration, canonicalIsTestMode },
+          undefined,
+          precomputedFusionData,
         );
 
         return new Response(
-          JSON.stringify({
+          withFusion({
             ok: true,
             decision: {
               action: "DEFER",
@@ -3904,7 +3917,7 @@ serve(async (req) => {
         console.log(`🎯 UD_MODE=ON → DEFER: reason=manual_quarantine symbol=${intent.symbol}`);
 
         return new Response(
-          JSON.stringify({
+          withFusion({
             ok: true,
             decision: {
               action: "DEFER",
@@ -3941,9 +3954,11 @@ serve(async (req) => {
         undefined,
         priceData.price,
         { ...strategy.configuration, canonicalIsTestMode },
+        undefined,
+        precomputedFusionData,
       );
       return new Response(
-        JSON.stringify({
+        withFusion({
           ok: true,
           decision: {
             action: "DEFER",
@@ -4007,11 +4022,12 @@ serve(async (req) => {
           undefined,
           priceData.price,
           { ...strategy.configuration, canonicalIsTestMode },
-          confidenceConfig, // Pass confidence source/optimizer info
+          confidenceConfig,
+          precomputedFusionData,
         );
 
         return new Response(
-          JSON.stringify({
+          withFusion({
             ok: true,
             decision: {
               action: "HOLD",
@@ -4033,9 +4049,8 @@ serve(async (req) => {
         error: err?.message || String(err),
       });
 
-      // Return HOLD response without throwing (skip logging on error)
       return new Response(
-        JSON.stringify({
+        withFusion({
           ok: true,
           decision: {
             action: "HOLD",
@@ -4078,7 +4093,7 @@ serve(async (req) => {
       console.log(`🎯 UD_MODE=ON → DEFER: reason=queue_overload_defer symbol=${intent.symbol} retry=${retryMs}ms`);
 
       return new Response(
-        JSON.stringify({
+        withFusion({
           ok: true,
           decision: {
             action: "DEFER",
@@ -4143,10 +4158,12 @@ serve(async (req) => {
           undefined,
           priceData.price,
           { ...strategy.configuration, canonicalIsTestMode },
+          undefined,
+          precomputedFusionData,
         );
 
         return new Response(
-          JSON.stringify({
+          withFusion({
             ok: true,
             decision: {
               action: "DEFER",
@@ -4185,6 +4202,7 @@ serve(async (req) => {
         decision.request_id,
         decision.retry_in_ms,
         decision.qty ? { qty: decision.qty } : {},
+        precomputedFusionData,
       );
     } finally {
       removeFromQueue(symbolKey, intent);
