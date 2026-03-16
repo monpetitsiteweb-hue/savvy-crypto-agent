@@ -4183,12 +4183,14 @@ const respond = (
   request_id: string,
   retry_in_ms = 0,
   extra: Record<string, any> = {},
+  fusionData: any = null,
 ): Response => {
   const decision = { action, reason, request_id, retry_in_ms, ...extra };
   return new Response(
     JSON.stringify({
       ok: true,
       decision,
+      fusion: fusionData,
     }),
     {
       status: 200,
