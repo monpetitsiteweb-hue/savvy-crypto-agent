@@ -3913,7 +3913,7 @@ serve(async (req) => {
         console.log(`🎯 UD_MODE=ON → DEFER: reason=manual_quarantine symbol=${intent.symbol}`);
 
         return new Response(
-          JSON.stringify({
+          withFusion({
             ok: true,
             decision: {
               action: "DEFER",
