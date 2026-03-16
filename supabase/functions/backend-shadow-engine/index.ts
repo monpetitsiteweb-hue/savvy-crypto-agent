@@ -564,7 +564,8 @@ function shouldLetWinnersRun(scores: SignalScores, fusionScore: number, config: 
   const threshold = config.letWinnersRunThreshold ?? 0.40;
   
   // Bull score = weighted combination (trend more important for continuation)
-  const bullScore = (scores.trend * 0.5) + (scores.momentum * 0.35) + (fusionScore * 0.15);
+  // fusionScore is [-100,+100], normalize to [-1,+1] for this calculation
+  const bullScore = (scores.trend * 0.5) + (scores.momentum * 0.35) + ((fusionScore / 100) * 0.15);
   
   const shouldRun = bullScore >= threshold;
   
