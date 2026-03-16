@@ -3027,7 +3027,7 @@ serve(async (req) => {
     if (strategyState !== "ACTIVE" && !onDisablePolicy) {
       console.log(`🚫 COORDINATOR: Missing policy - strategy state is ${strategyState} but on_disable_policy is NULL`);
       return new Response(
-        JSON.stringify({
+        withFusion({
           ok: true,
           decision: {
             action: "BLOCK",
@@ -3038,7 +3038,7 @@ serve(async (req) => {
             message: "Strategy is not ACTIVE but on_disable_policy is not set. Set policy before proceeding.",
           },
         }),
-        { headers: corsHeaders },
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
