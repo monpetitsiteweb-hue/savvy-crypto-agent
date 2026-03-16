@@ -3681,12 +3681,14 @@ serve(async (req) => {
     }
     // ============= END STATE/POLICY ENFORCEMENT =============
 
-    const unifiedConfig: UnifiedConfig = strategy.unified_config || {
+    // FIX: Read unifiedConfig from configuration JSON, not from non-existent column
+    const unifiedConfig: UnifiedConfig = strategy.configuration?.unifiedConfig || {
       enableUnifiedDecisions: false,
       minHoldPeriodMs: 120000,
       cooldownBetweenOppositeActionsMs: 30000,
       confidenceOverrideThreshold: 0.7,
     };
+    console.log(`[COORD] unifiedConfig resolved: enableUnifiedDecisions=${unifiedConfig.enableUnifiedDecisions} (source=${strategy.configuration?.unifiedConfig ? 'configuration.unifiedConfig' : 'default_fallback'})`);
 
     // ============= FUSION THRESHOLD + CONFIDENCE (fusion already computed above) =============
     if (intent.side === 'BUY' && precomputedFusionData) {
@@ -4513,15 +4515,22 @@ async function executeTradeDirectly(
         };
       }
 
-      if (priceData.spreadBps > spreadThresholdBps) {
+      // FIX: Use relaxed spread threshold for exits (2x entry threshold)
+      // SL exits bypass spread gate entirely - must execute regardless of spread
+      const exitTrigger = intent.metadata?.trigger || '';
+      const isSLExit = exitTrigger === 'STOP_LOSS';
+      const sellSpreadThreshold = isSLExit ? Infinity : spreadThresholdBps * 2;
+
+      if (priceData.spreadBps > sellSpreadThreshold) {
         console.log(
-          `🚫 DIRECT: SELL blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`,
+          `🚫 DIRECT: SELL blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${sellSpreadThreshold}bps, trigger=${exitTrigger})`,
         );
         return {
           success: false,
-          error: `spread_too_wide: ${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps`,
+          error: `spread_too_wide: ${priceData.spreadBps.toFixed(1)}bps > ${sellSpreadThreshold}bps`,
         };
       }
+      console.log(`✅ DIRECT: SELL spread check passed (${priceData.spreadBps.toFixed(1)}bps <= ${sellSpreadThreshold}bps, trigger=${exitTrigger}, isSL=${isSLExit})`);
     }
 
     // CRITICAL FIX: Check available EUR balance BEFORE executing BUY trades
@@ -4716,11 +4725,9 @@ async function executeTradeDirectly(
       );
 
       if (!settleRes?.success) {
-        console.error("❌ DIRECT: Cash ledger settlement failed:", settleRes);
-
-        if (sc?.canonicalIsTestMode === true) {
-          return { success: false, error: "cash_ledger_settlement_failed" };
-        }
+        // FIX: SELL rows are already inserted. Don't return failure — log the settlement issue but report success.
+        // Returning failure here causes the coordinator to report DEFER while trades ARE in the DB (inconsistency).
+        console.error("⚠️ DIRECT: Cash ledger settlement failed (SELL rows already inserted, continuing):", settleRes);
 
         // Log decision_event for audit
         await supabaseClient.from("decision_events").insert({
