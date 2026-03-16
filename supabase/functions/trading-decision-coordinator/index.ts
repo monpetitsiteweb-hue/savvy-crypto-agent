@@ -3830,7 +3830,7 @@ serve(async (req) => {
         );
         return respond(intent.side, "unified_decisions_disabled_direct_path", requestId, 0, {
           qty: executionResult.qty,
-        });
+        }, precomputedFusionData);
       } else {
         console.log("[DEBUG][COORD] UD_MODE=OFF FAILED:", executionResult.error);
         const guardReport = {
