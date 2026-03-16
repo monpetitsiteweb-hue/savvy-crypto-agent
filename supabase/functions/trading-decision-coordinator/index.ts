@@ -3007,7 +3007,7 @@ serve(async (req) => {
     if (panicActive) {
       console.log("🚫 COORDINATOR: PANIC ACTIVE - all trades blocked for this strategy");
       return new Response(
-        JSON.stringify({
+        withFusion({
           ok: true,
           decision: {
             action: "BLOCK",
@@ -3017,7 +3017,7 @@ serve(async (req) => {
             message: "Strategy panic mode is active. All trades are blocked until panic is cleared.",
           },
         }),
-        { headers: corsHeaders },
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
