@@ -1098,7 +1098,6 @@ serve(async (req) => {
                 price: currentPrice,
                 signals: signalScores,
                 enterThreshold: enterThreshold100,
-                enterThresholdNormalized: enterThreshold,
                 engineMode: BACKEND_ENGINE_MODE,
                 // ============= ENTRY QUALITY (NEW) =============
                 entry_quality: entryQuality,
