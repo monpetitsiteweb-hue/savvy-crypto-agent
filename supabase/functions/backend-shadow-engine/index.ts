@@ -1137,8 +1137,18 @@ serve(async (req) => {
     const elapsed_ms = Date.now() - startTime;
     console.log(`🌑 ${BACKEND_ENGINE_MODE}: Completed in ${elapsed_ms}ms → executed=${summary.executed}, blocked=${summary.blocked}, deferred=${summary.deferred}, holdRunner=${summary.holdRunner}`);
 
-    // Step 5: Log all decisions to decision_events table for observability
+    // Step 5: Log EXIT/SELL decisions to decision_events table for observability
+    // ARCHITECTURE FIX: ENTRY decisions are NOT logged here. The coordinator is the
+    // sole authoritative writer of ENTRY decision_events (with trade_id backfill).
+    // Previously, logging ENTRY decisions here created duplicate "orphan" rows
+    // (Bucket B in forensic audit: ~105 phantom orphans per cycle).
     for (const dec of allDecisions) {
+      // Skip ENTRY decisions — coordinator already logged these
+      if (dec.metadata?.snapshot_type === 'ENTRY' || dec.metadata?.snapshot_source === 'coordinator') {
+        console.log(`🌑 ${BACKEND_ENGINE_MODE}: Skipping decision_event for ${dec.symbol} (ENTRY logged by coordinator)`);
+        continue;
+      }
+
       try {
         const eventMetadata = {
           ...dec.metadata,
@@ -1184,16 +1194,7 @@ serve(async (req) => {
                   side: dec.side,
                   timestamp_utc: dec.timestamp,
                   fusion_score: dec.fusionScore ?? null,
-                  // ENTRY snapshots: use coordinator fusion data exclusively
-                  // EXIT snapshots: use category scores for runner/bull_override logic
-                  signal_breakdown_json: dec.metadata.snapshot_type === 'ENTRY' && dec.metadata.coordinatorFusion ? {
-                    total_signals: dec.metadata.coordinatorFusion.totalSignals,
-                    enabled_signals: dec.metadata.coordinatorFusion.enabledSignals,
-                    top_signals: dec.metadata.coordinatorFusion.topSignals,
-                    signals_used: dec.metadata.coordinatorFusion.signals_used,
-                    source_contributions: dec.metadata.coordinatorFusion.source_contributions,
-                    fusion_version: dec.metadata.coordinatorFusion.fusion_version,
-                  } : dec.metadata.signalScores ? {
+                  signal_breakdown_json: dec.metadata.signalScores ? {
                     scores: dec.metadata.signalScores,
                     entry_quality: dec.metadata.entry_quality ?? null,
                     fusion_version: 'v2_aggregated',
