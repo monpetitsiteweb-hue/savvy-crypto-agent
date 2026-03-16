@@ -963,6 +963,7 @@ export type Database = {
           schema_version: string
           side: string
           signal_breakdown_json: Json | null
+          snapshot_type: string | null
           strategy_config_snapshot_json: Json | null
           strategy_id: string
           symbol: string
@@ -981,6 +982,7 @@ export type Database = {
           schema_version?: string
           side: string
           signal_breakdown_json?: Json | null
+          snapshot_type?: string | null
           strategy_config_snapshot_json?: Json | null
           strategy_id: string
           symbol: string
@@ -999,6 +1001,7 @@ export type Database = {
           schema_version?: string
           side?: string
           signal_breakdown_json?: Json | null
+          snapshot_type?: string | null
           strategy_config_snapshot_json?: Json | null
           strategy_id?: string
           symbol?: string

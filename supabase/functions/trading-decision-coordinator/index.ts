@@ -3721,10 +3721,76 @@ serve(async (req) => {
       confidenceOverrideThreshold: 0.7,
     };
 
+    // ============= FUSION GATE: Compute fusion for BUY intents BEFORE execution =============
+    // This is the SINGLE authoritative fusion computation. Backend engine delegates here.
+    let precomputedFusionData: any = null;
+    if (intent.side === 'BUY') {
+      try {
+        const baseSymbolForFusion = toBaseSymbol(intent.symbol);
+        const horizon = (intent.metadata?.horizon || '1h') as '15m' | '1h' | '4h' | '24h';
+        const fusionResult = await computeFusedSignalScore({
+          supabaseClient,
+          userId: intent.userId,
+          strategyId: intent.strategyId,
+          symbol: baseSymbolForFusion,
+          side: 'BUY',
+          horizon,
+          useSourceAggregation: true,
+        });
+
+        precomputedFusionData = {
+          score: fusionResult.fusedScore,
+          totalSignals: fusionResult.totalSignals,
+          enabledSignals: fusionResult.enabledSignals,
+          topSignals: fusionResult.details
+            .sort((a: any, b: any) => Math.abs(b.contribution) - Math.abs(a.contribution))
+            .slice(0, 5)
+            .map((d: any) => ({ type: d.signalType, contribution: Number(d.contribution.toFixed(4)) })),
+          signals_used: fusionResult.signals_used,
+          source_contributions: fusionResult.source_contributions,
+          fusion_version: fusionResult.fusion_version,
+        };
+
+        console.log(`[FUSION_GATE] ${baseSymbolForFusion}: score=${fusionResult.fusedScore.toFixed(2)}, signals=${fusionResult.enabledSignals}/${fusionResult.totalSignals}`);
+
+        // THRESHOLD GOVERNANCE: Check if fusion meets entry threshold
+        const rawEnterThreshold = strategy.configuration?.signalFusion?.enterThreshold;
+        if (rawEnterThreshold !== undefined && rawEnterThreshold !== null) {
+          const threshold100 = rawEnterThreshold <= 1 ? rawEnterThreshold * 100 : rawEnterThreshold;
+          if (fusionResult.fusedScore < threshold100) {
+            console.log(`[FUSION_GATE] BLOCKED: ${baseSymbolForFusion} fusion=${fusionResult.fusedScore.toFixed(2)} < threshold=${threshold100}`);
+
+            logDecisionAsync(
+              supabaseClient, intent, 'HOLD' as DecisionAction, 'fusion_below_threshold' as Reason,
+              unifiedConfig, requestId,
+              { fusionScore: fusionResult.fusedScore, enterThreshold: threshold100 },
+              undefined, undefined,
+              { ...strategy.configuration, canonicalIsTestMode },
+              undefined,
+              precomputedFusionData,
+            );
+
+            return respond('HOLD' as DecisionAction, 'fusion_below_threshold' as Reason, requestId, 0, {}, precomputedFusionData);
+          }
+        }
+
+        // Derive confidence from fusion score if intent has no confidence
+        if (intent.confidence == null || intent.confidence === 0) {
+          const derivedConfidence = Math.abs(fusionResult.fusedScore) / 100;
+          intent.confidence = derivedConfidence;
+          console.log(`[FUSION_GATE] Derived confidence from fusion: ${derivedConfidence.toFixed(3)}`);
+        }
+      } catch (fusionErr: any) {
+        console.error('[FUSION_GATE] Error computing fusion, proceeding without gate:', fusionErr?.message || fusionErr);
+        // Fail-open: allow intent to proceed without fusion gate
+      }
+    }
+
     // DEBUG INSTRUMENTATION: Track UD mode branching
     console.log("[DEBUG][COORD] ========== UD MODE DECISION ==========");
     console.log("[DEBUG][COORD] enableUnifiedDecisions:", unifiedConfig.enableUnifiedDecisions);
     console.log("[DEBUG][COORD] intent.side:", intent.side);
+    console.log("[DEBUG][COORD] precomputedFusionData:", precomputedFusionData ? `score=${precomputedFusionData.score}` : 'null');
     console.log(
       "[DEBUG][COORD] strategy.configuration:",
       JSON.stringify(strategy.configuration || {}).substring(0, 500),
@@ -3764,7 +3830,7 @@ serve(async (req) => {
         );
         return respond(intent.side, "unified_decisions_disabled_direct_path", requestId, 0, {
           qty: executionResult.qty,
-        });
+        }, precomputedFusionData);
       } else {
         console.log("[DEBUG][COORD] UD_MODE=OFF FAILED:", executionResult.error);
         const guardReport = {
@@ -4183,12 +4249,14 @@ const respond = (
   request_id: string,
   retry_in_ms = 0,
   extra: Record<string, any> = {},
+  fusionData: any = null,
 ): Response => {
   const decision = { action, reason, request_id, retry_in_ms, ...extra };
   return new Response(
     JSON.stringify({
       ok: true,
       decision,
+      fusion: fusionData,
     }),
     {
       status: 200,
@@ -4936,6 +5004,7 @@ async function logDecisionAsync(
     optimizer: string | null;
     optimizerMetadata: any | null;
   },
+  precomputedFusion?: any,
 ): Promise<{ logged: boolean; error?: string }> {
   try {
     const baseSymbol = toBaseSymbol(intent.symbol);
@@ -5082,10 +5151,9 @@ async function logDecisionAsync(
       const normalizedSource =
         intent.source === "intelligent" ? "intelligent" : intent.source === "manual" ? "manual" : "system"; // Fallback for any edge case (should never happen)
 
-      // PHASE 1B: Compute fused signal score (READ-ONLY, no behavior change)
-      // Always compute for snapshot observability — fusion data is never used in decision logic
-      let fusedSignalData = null;
-      {
+      // PHASE 1B: Use precomputed fusion if available, otherwise compute
+      let fusedSignalData = precomputedFusion || null;
+      if (!fusedSignalData) {
         try {
           const fusionResult = await computeFusedSignalScore({
             supabaseClient,
@@ -5108,7 +5176,6 @@ async function logDecisionAsync(
                 type: d.signalType,
                 contribution: Number(d.contribution.toFixed(2)),
               })),
-            // v2: signal lineage and source contributions
             signals_used: fusionResult.signals_used,
             source_contributions: fusionResult.source_contributions,
             fusion_version: fusionResult.fusion_version,
@@ -5119,8 +5186,9 @@ async function logDecisionAsync(
           );
         } catch (err) {
           console.error("[SignalFusion] Failed to compute signal fusion, continuing without it:", err);
-          // Fail soft: fusion errors must NEVER block decisions
         }
+      } else {
+        console.log(`[SignalFusion] Using precomputed fusion for ${baseSymbol}: score=${fusedSignalData.score}`);
       }
 
       const eventPayload = {
@@ -5288,6 +5356,7 @@ async function logDecisionAsync(
             decision_result: action,
             decision_reason: reason,
             schema_version: 'v1',
+            snapshot_type: intent.side === 'BUY' ? 'ENTRY' : intent.side === 'SELL' ? 'EXIT' : 'ENTRY',
           };
 
           const { error: snapshotError } = await supabaseClient
