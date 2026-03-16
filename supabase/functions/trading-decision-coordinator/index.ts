@@ -4515,15 +4515,22 @@ async function executeTradeDirectly(
         };
       }
 
-      if (priceData.spreadBps > spreadThresholdBps) {
+      // FIX: Use relaxed spread threshold for exits (2x entry threshold)
+      // SL exits bypass spread gate entirely - must execute regardless of spread
+      const exitTrigger = intent.metadata?.trigger || '';
+      const isSLExit = exitTrigger === 'STOP_LOSS';
+      const sellSpreadThreshold = isSLExit ? Infinity : spreadThresholdBps * 2;
+
+      if (priceData.spreadBps > sellSpreadThreshold) {
         console.log(
-          `🚫 DIRECT: SELL blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`,
+          `🚫 DIRECT: SELL blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${sellSpreadThreshold}bps, trigger=${exitTrigger})`,
         );
         return {
           success: false,
-          error: `spread_too_wide: ${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps`,
+          error: `spread_too_wide: ${priceData.spreadBps.toFixed(1)}bps > ${sellSpreadThreshold}bps`,
         };
       }
+      console.log(`✅ DIRECT: SELL spread check passed (${priceData.spreadBps.toFixed(1)}bps <= ${sellSpreadThreshold}bps, trigger=${exitTrigger}, isSL=${isSLExit})`);
     }
 
     // CRITICAL FIX: Check available EUR balance BEFORE executing BUY trades
