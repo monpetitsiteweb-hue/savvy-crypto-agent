@@ -3868,10 +3868,12 @@ serve(async (req) => {
           undefined,
           priceForLog,
           { ...strategy.configuration, canonicalIsTestMode },
+          undefined,
+          precomputedFusionData,
         );
 
         return new Response(
-          JSON.stringify({
+          withFusion({
             ok: true,
             decision: {
               action: "DEFER",
