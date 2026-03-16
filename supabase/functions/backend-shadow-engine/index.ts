@@ -1182,10 +1182,18 @@ serve(async (req) => {
                   side: dec.side,
                   timestamp_utc: dec.timestamp,
                   fusion_score: dec.fusionScore ?? null,
-                  signal_breakdown_json: dec.metadata.signalScores ? {
+                  // ENTRY snapshots: use coordinator fusion data exclusively
+                  // EXIT snapshots: use category scores for runner/bull_override logic
+                  signal_breakdown_json: dec.metadata.snapshot_type === 'ENTRY' && dec.metadata.coordinatorFusion ? {
+                    total_signals: dec.metadata.coordinatorFusion.totalSignals,
+                    enabled_signals: dec.metadata.coordinatorFusion.enabledSignals,
+                    top_signals: dec.metadata.coordinatorFusion.topSignals,
+                    signals_used: dec.metadata.coordinatorFusion.signals_used,
+                    source_contributions: dec.metadata.coordinatorFusion.source_contributions,
+                    fusion_version: dec.metadata.coordinatorFusion.fusion_version,
+                  } : dec.metadata.signalScores ? {
                     scores: dec.metadata.signalScores,
                     entry_quality: dec.metadata.entry_quality ?? null,
-                    signals_used: dec.metadata.signals_used ?? [],
                     fusion_version: 'v2_aggregated',
                   } : null,
                   guard_states_json: {
@@ -1208,6 +1216,7 @@ serve(async (req) => {
                   decision_result: dec.action,
                   decision_reason: dec.reason,
                   schema_version: 'v1',
+                  snapshot_type: dec.metadata.snapshot_type || null,
                 }]);
 
               if (snapshotError) {
