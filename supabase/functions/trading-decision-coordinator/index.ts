@@ -4089,7 +4089,7 @@ serve(async (req) => {
       console.log(`🎯 UD_MODE=ON → DEFER: reason=queue_overload_defer symbol=${intent.symbol} retry=${retryMs}ms`);
 
       return new Response(
-        JSON.stringify({
+        withFusion({
           ok: true,
           decision: {
             action: "DEFER",
