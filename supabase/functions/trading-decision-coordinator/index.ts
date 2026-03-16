@@ -7666,7 +7666,29 @@ async function executeTradeOrder(
           .select("id");
 
         if (insertError) {
-          console.error("❌ COORDINATOR: Per-lot SELL insert failed:", insertError);
+          console.error("[EXECUTION-FAILURE]", {
+            phase: "mock_trades_insert_per_lot",
+            error: insertError.message,
+            symbol: baseSymbol,
+            spreadBps: priceData?.spreadBps ?? null,
+            effectiveSpreadThresholdBps: intent.metadata?.trigger === "STOP_LOSS" ? "BYPASS" : (effectiveConfig?.spreadThresholdBps ?? canonical?.spreadThresholdBps ?? null) * 2,
+            price: realMarketPrice,
+            balance: null,
+            intent: {
+              side: intent.side,
+              source: intent.source,
+              reason: intent.reason,
+              trigger: intent.metadata?.trigger,
+              closeMode: intent.metadata?.closeMode,
+              qtySuggested: intent.qtySuggested,
+            },
+            orderPayload: {
+              lotCount: perLotSellOrders.length,
+              sellRowCount: sellRows.length,
+              firstLotId: sellRows[0]?.original_trade_id ?? null,
+            },
+            exchangeResponse: null,
+          });
           return { success: false, error: insertError.message };
         }
 
