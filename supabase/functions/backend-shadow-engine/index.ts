@@ -551,7 +551,8 @@ function computeFusionScore(scores: SignalScores, config: any): number {
   const dominance = Math.max(bullish, bearish) / total;
   const direction = bullish >= bearish ? 1 : -1;
 
-  return direction * dominance; // [-1, +1]
+  // Scale to [-100, +100] to match coordinator (v2_aggregated) scale
+  return direction * dominance * 100;
 }
 
 /**
