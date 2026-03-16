@@ -4725,11 +4725,9 @@ async function executeTradeDirectly(
       );
 
       if (!settleRes?.success) {
-        console.error("❌ DIRECT: Cash ledger settlement failed:", settleRes);
-
-        if (sc?.canonicalIsTestMode === true) {
-          return { success: false, error: "cash_ledger_settlement_failed" };
-        }
+        // FIX: SELL rows are already inserted. Don't return failure — log the settlement issue but report success.
+        // Returning failure here causes the coordinator to report DEFER while trades ARE in the DB (inconsistency).
+        console.error("⚠️ DIRECT: Cash ledger settlement failed (SELL rows already inserted, continuing):", settleRes);
 
         // Log decision_event for audit
         await supabaseClient.from("decision_events").insert({
