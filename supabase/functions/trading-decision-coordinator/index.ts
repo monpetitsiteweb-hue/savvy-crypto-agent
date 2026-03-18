@@ -5283,6 +5283,7 @@ async function logDecisionAsync(
               signals_used: fusedSignalData.signals_used,
               source_contributions: fusedSignalData.source_contributions,
               fusion_version: fusedSignalData.fusion_version,
+              dominance_details: fusedSignalData.dominance_details ?? null,
             } : null,
             guard_states_json: {
               action,
