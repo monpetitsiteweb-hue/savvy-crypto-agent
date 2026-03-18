@@ -7072,7 +7072,7 @@ async function executeTradeOrder(
       const sellExecClass = deriveExecutionClass({
         source: intent.source,
         metadata: intent.metadata,
-        strategyExecutionTarget: sc?.canonicalExecutionMode || 'MOCK',
+        strategyExecutionTarget: strategyConfig?.canonicalExecutionMode || 'MOCK',
       });
       // These trades bypass coverage entirely (real on-chain tokens from SYSTEM wallet via BOT_ADDRESS)
       const isSystemOperatorMode = sellExecClass.isSystemOperator;
