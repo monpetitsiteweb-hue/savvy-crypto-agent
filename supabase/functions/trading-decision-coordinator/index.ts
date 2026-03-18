@@ -267,19 +267,16 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
       });
     }
 
-    // Compute fused score using directional dominance model (v3)
+    // Compute source contributions for observability (source-level breakdown)
     const sourceContributions: Record<string, number> = {};
-    const allContributions: number[] = [];
 
     if (useSourceAggregation && processedSignals.length > 0) {
       const aggregated = aggregateBySource(processedSignals);
       for (const [source, agg] of aggregated) {
-        allContributions.push(agg.contribution);
         sourceContributions[source] = Number(agg.contribution.toFixed(4));
       }
     } else {
       for (const ps of processedSignals) {
-        allContributions.push(ps.contribution);
         const src = ps.signal.source;
         sourceContributions[src] = (sourceContributions[src] || 0) + ps.contribution;
       }
@@ -288,12 +285,13 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
       }
     }
 
-    // Directional dominance computation
+    // Directional dominance computation — ALWAYS uses individual signal contributions
+    // to preserve bullish/bearish separation (source aggregation collapses this)
     let bullishTotal = 0;
     let bearishTotal = 0;
-    for (const c of allContributions) {
-      if (c > 0) bullishTotal += c;
-      else bearishTotal += Math.abs(c);
+    for (const ps of processedSignals) {
+      if (ps.contribution > 0) bullishTotal += ps.contribution;
+      else bearishTotal += Math.abs(ps.contribution);
     }
 
     const totalMass = bullishTotal + bearishTotal;
