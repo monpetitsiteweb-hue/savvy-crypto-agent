@@ -6045,6 +6045,53 @@ async function detectConflicts(
       console.log(`[CONTEXT_GUARD] Warning: BUY intent missing entry_context, skipping duplicate check`);
     }
 
+    // ========= GATE 6: ANTI-CONTRADICTORY BUY-DURING-UNWIND =========
+    // Block BUY if a SELL was executed on this symbol within cooldown window.
+    // Prevents buying while the system is actively unwinding.
+    // Must run BEFORE Gate 5b (cheaper check, higher logical priority).
+    const antiContradictoryCooldownMs = cfg.antiContradictoryCooldownMs ?? 60000;
+    const recentSellCutoff = new Date(Date.now() - antiContradictoryCooldownMs).toISOString();
+    const { data: recentSellsForAntiContra } = await supabaseClient
+      .from("mock_trades")
+      .select("id, executed_at")
+      .eq("user_id", intent.userId)
+      .eq("strategy_id", intent.strategyId)
+      .in("cryptocurrency", symbolVariants)
+      .eq("trade_type", "sell")
+      .gte("executed_at", recentSellCutoff)
+      .limit(1);
+
+    if (recentSellsForAntiContra && recentSellsForAntiContra.length > 0) {
+      console.log(`🚫 COORDINATOR: BUY blocked - recent SELL on ${baseSymbol} within ${antiContradictoryCooldownMs / 1000}s (anti-contradictory gate)`);
+      guardReport.antiContradictoryBlocked = true;
+      return { hasConflict: true, reason: "blocked_buy_during_unwind", guardReport };
+    }
+
+    // ========= GATE 5b: MAX LOTS PER SYMBOL =========
+    // Logical replacement for unique_open_position_per_symbol DB index.
+    // Uses is_open_position=true as proxy for open lots (maintained by clearOpenPositionIfFullyClosed).
+    // Default: 1 (preserves current single-position behavior).
+    const MAX_LOTS_PER_SYMBOL = cfg.maxLotsPerSymbol ?? 1;
+
+    const { count: openLotCount, error: lotCountError } = await supabaseClient
+      .from("mock_trades")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", intent.userId)
+      .eq("strategy_id", intent.strategyId)
+      .in("cryptocurrency", symbolVariants)
+      .eq("trade_type", "buy")
+      .eq("is_open_position", true);
+
+    if (lotCountError) {
+      console.error(`⚠️ COORDINATOR: Gate 5b lot count query failed`, lotCountError);
+      // Fail-open: allow trade if count query fails (DB index is still backstop in Phase 0)
+    } else if ((openLotCount ?? 0) >= MAX_LOTS_PER_SYMBOL) {
+      console.log(`🚫 COORDINATOR: BUY blocked - max lots per symbol reached (${openLotCount} >= ${MAX_LOTS_PER_SYMBOL}) for ${baseSymbol}`);
+      guardReport.maxLotsPerSymbolReached = true;
+      return { hasConflict: true, reason: "max_lots_per_symbol_reached", guardReport };
+    }
+    console.log(`✅ COORDINATOR: Lot count check passed for ${baseSymbol} (${openLotCount ?? '?'} < ${MAX_LOTS_PER_SYMBOL})`);
+
     console.log(`✅ COORDINATOR: All stabilization gates passed for ${baseSymbol} BUY`);
   }
   // =====================================================================
