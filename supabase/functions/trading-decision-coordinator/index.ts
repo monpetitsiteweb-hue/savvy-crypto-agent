@@ -313,6 +313,7 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
       signals_used: signalsUsed,
       source_contributions: sourceContributions,
       fusion_version: FUSION_VERSION,
+      dominance_details: { bullishTotal, bearishTotal, dominance, direction },
     };
   } catch (error) {
     console.error("[SignalFusion] Error computing fused signal:", error);
