@@ -267,19 +267,16 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
       });
     }
 
-    // Compute fused score using directional dominance model (v3)
+    // Compute source contributions for observability (source-level breakdown)
     const sourceContributions: Record<string, number> = {};
-    const allContributions: number[] = [];
 
     if (useSourceAggregation && processedSignals.length > 0) {
       const aggregated = aggregateBySource(processedSignals);
       for (const [source, agg] of aggregated) {
-        allContributions.push(agg.contribution);
         sourceContributions[source] = Number(agg.contribution.toFixed(4));
       }
     } else {
       for (const ps of processedSignals) {
-        allContributions.push(ps.contribution);
         const src = ps.signal.source;
         sourceContributions[src] = (sourceContributions[src] || 0) + ps.contribution;
       }
@@ -288,12 +285,13 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
       }
     }
 
-    // Directional dominance computation
+    // Directional dominance computation — ALWAYS uses individual signal contributions
+    // to preserve bullish/bearish separation (source aggregation collapses this)
     let bullishTotal = 0;
     let bearishTotal = 0;
-    for (const c of allContributions) {
-      if (c > 0) bullishTotal += c;
-      else bearishTotal += Math.abs(c);
+    for (const ps of processedSignals) {
+      if (ps.contribution > 0) bullishTotal += ps.contribution;
+      else bearishTotal += Math.abs(ps.contribution);
     }
 
     const totalMass = bullishTotal + bearishTotal;
@@ -315,6 +313,7 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
       signals_used: signalsUsed,
       source_contributions: sourceContributions,
       fusion_version: FUSION_VERSION,
+      dominance_details: { bullishTotal, bearishTotal, dominance, direction },
     };
   } catch (error) {
     console.error("[SignalFusion] Error computing fused signal:", error);
@@ -2915,6 +2914,7 @@ serve(async (req) => {
           signals_used: fusionResult.signals_used,
           source_contributions: fusionResult.source_contributions,
           fusion_version: fusionResult.fusion_version,
+          dominance_details: fusionResult.dominance_details,
         };
 
         console.log(`[FUSION_GATE] ${baseSymbolForFusion}: score=${fusionResult.fusedScore.toFixed(2)}, signals=${fusionResult.enabledSignals}/${fusionResult.totalSignals}`);
@@ -5129,6 +5129,7 @@ async function logDecisionAsync(
             signals_used: fusionResult.signals_used,
             source_contributions: fusionResult.source_contributions,
             fusion_version: fusionResult.fusion_version,
+            dominance_details: fusionResult.dominance_details,
           };
 
           console.log(
@@ -5283,6 +5284,7 @@ async function logDecisionAsync(
               signals_used: fusedSignalData.signals_used,
               source_contributions: fusedSignalData.source_contributions,
               fusion_version: fusedSignalData.fusion_version,
+              dominance_details: fusedSignalData.dominance_details ?? null,
             } : null,
             guard_states_json: {
               action,
