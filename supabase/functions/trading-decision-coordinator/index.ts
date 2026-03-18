@@ -5129,6 +5129,7 @@ async function logDecisionAsync(
             signals_used: fusionResult.signals_used,
             source_contributions: fusionResult.source_contributions,
             fusion_version: fusionResult.fusion_version,
+            dominance_details: fusionResult.dominance_details,
           };
 
           console.log(
