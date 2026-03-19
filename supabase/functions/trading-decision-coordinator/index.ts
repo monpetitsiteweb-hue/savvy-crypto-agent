@@ -6008,8 +6008,8 @@ async function detectConflicts(
     // ========= GATE 5b: MAX LOTS PER SYMBOL =========
     // Logical replacement for unique_open_position_per_symbol DB index.
     // Uses is_open_position=true as proxy for open lots (maintained by clearOpenPositionIfFullyClosed).
-    // Default: 1 (preserves current single-position behavior).
-    const MAX_LOTS_PER_SYMBOL = cfg.maxLotsPerSymbol ?? 1;
+    // Default: 2 (Phase 2 — allows up to 2 independent lots per symbol).
+    const MAX_LOTS_PER_SYMBOL = cfg.maxLotsPerSymbol ?? 2;
 
     const { count: openLotCount, error: lotCountError } = await supabaseClient
       .from("mock_trades")
