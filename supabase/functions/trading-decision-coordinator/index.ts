@@ -346,17 +346,8 @@ const toPairSymbol = (base: BaseSymbol): PairSymbol => `${toBaseSymbol(base)}-EU
 // SEV-1 SAFETY: is_open_position invariant helpers
 // Ensures only ONE open position per (user, symbol, is_test_mode) via DB unique index.
 // =============================================================================
-
-/**
- * Detect if an insert error is a unique constraint violation (SQLSTATE 23505)
- * on the unique_open_position_per_symbol index.
- */
-function isOpenPositionConflict(error: any): boolean {
-  if (!error) return false;
-  const code = error.code || error?.details?.code || '';
-  const msg = (error.message || '') + (error.details || '');
-  return code === '23505' || msg.includes('unique_open_position_per_symbol');
-}
+// Phase 1: isOpenPositionConflict() removed — Gate 5b is now the canonical guard.
+// DB index unique_open_position_per_symbol has been dropped.
 
 /**
  * After a SELL closes a position, check if net position is now zero.
