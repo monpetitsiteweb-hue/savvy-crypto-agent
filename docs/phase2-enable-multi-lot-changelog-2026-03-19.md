@@ -29,19 +29,9 @@ MAX_LOTS_PER_SYMBOL: 2,  // 2 = allows up to 2 independent lots per symbol (pyra
 
 ### 2. `supabase/functions/trading-decision-coordinator/index.ts` — Gate 5b (Line ~6012)
 
-**Before:**
-```typescript
-// Default: 1 (preserves current single-position behavior).
-const MAX_LOTS_PER_SYMBOL = cfg.maxLotsPerSymbol ?? 1;
-```
+**No change to fallback.** Coordinator fallback remains `?? 1` (conservative). Pyramiding is only enabled when `cfg.maxLotsPerSymbol` is explicitly set in the strategy's DB config. This ensures fail-closed behavior: missing config = single position only.
 
-**After:**
-```typescript
-// Default: 2 (Phase 2 — allows up to 2 independent lots per symbol).
-const MAX_LOTS_PER_SYMBOL = cfg.maxLotsPerSymbol ?? 2;
-```
-
-**Why:** The coordinator fallback must match the new default. Without this change, strategies without explicit `maxLotsPerSymbol` in their DB config would remain locked at 1.
+**Why:** The fallback must remain conservative. `configDefaults.ts` sets `MAX_LOTS_PER_SYMBOL: 2` for the UI/frontend, but the coordinator must never implicitly enable pyramiding.
 
 ---
 
