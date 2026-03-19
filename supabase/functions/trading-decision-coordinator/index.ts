@@ -4753,11 +4753,6 @@ async function executeTradeDirectly(
     const { data: insertResult, error } = await supabaseClient.from("mock_trades").insert(mockTrade).select("id");
 
     if (error) {
-      // SEV-1: Graceful handling of duplicate BUY (structural invariant)
-      if (isOpenPositionConflict(error)) {
-        console.log(`🛡️ DIRECT BUY: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
-        return { success: false, error: "position_already_open" };
-      }
       console.log("============ STEP 4: WRITE FAILED ============");
       console.log("DB insert error:", error);
       throw new Error(`DB insert failed: ${error.message}`);
