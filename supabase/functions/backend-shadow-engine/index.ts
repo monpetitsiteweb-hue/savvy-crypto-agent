@@ -1351,28 +1351,41 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
       const netAmount = pos.totalBuyAmount - pos.totalSellAmount;
       
       if (netAmount > 0.00000001) {
-        let totalValue = 0;
-        let totalAmount = 0;
+        // FIFO-correct average price: subtract sold quantity from earliest buys first
+        // This ensures averagePrice reflects only REMAINING (unsold) lots
+        let remainingSold = pos.totalSellAmount;
+        let fifoValue = 0;
+        let fifoAmount = 0;
         const tradeIds: string[] = [];
         let oldestDate = '';
         
+        // buyTrades are already in ascending order (oldest first)
         for (const buy of pos.buyTrades) {
-          totalValue += buy.amount * buy.price;
-          totalAmount += buy.amount;
-          tradeIds.push(buy.id);
-          if (!oldestDate || buy.executedAt < oldestDate) {
-            oldestDate = buy.executedAt;
+          // How much of this buy lot is consumed by prior sells (FIFO)?
+          const consumedFromThisBuy = Math.min(remainingSold, buy.amount);
+          const remainingFromThisBuy = buy.amount - consumedFromThisBuy;
+          remainingSold = Math.max(0, remainingSold - buy.amount);
+          
+          if (remainingFromThisBuy > 0.00000001) {
+            fifoValue += remainingFromThisBuy * buy.price;
+            fifoAmount += remainingFromThisBuy;
+            tradeIds.push(buy.id);
+            if (!oldestDate || buy.executedAt < oldestDate) {
+              oldestDate = buy.executedAt;
+            }
           }
         }
         
-        const averagePrice = totalAmount > 0 ? totalValue / totalAmount : 0;
+        const averagePrice = fifoAmount > 0 ? fifoValue / fifoAmount : 0;
+        
+        console.log(`[fetchOpenPositions] FIFO avg for ${symbol}: avgPrice=${averagePrice.toFixed(6)}, fifoAmount=${fifoAmount.toFixed(8)}, netAmount=${netAmount.toFixed(8)}, totalBuys=${pos.buyTrades.length}`);
         
         openPositions.push({
           cryptocurrency: symbol,
           totalAmount: netAmount,
           averagePrice,
           oldestPurchaseDate: oldestDate,
-          totalBuyValue: totalValue,
+          totalBuyValue: fifoValue,
           tradeIds,
         });
       }
