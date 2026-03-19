@@ -7873,34 +7873,6 @@ async function executeTradeOrder(
       const { data: insertResult, error } = await supabaseClient.from("mock_trades").insert(mockTrade).select("id");
 
       if (error) {
-        if (isBuyTrade && isOpenPositionConflict(error)) {
-          console.error("[EXECUTION-FAILURE]", {
-            phase: "mock_trades_insert_standard",
-            error: "position_already_open",
-            symbol: baseSymbol,
-            spreadBps: priceData?.spreadBps ?? null,
-            effectiveSpreadThresholdBps: intent.metadata?.trigger === "STOP_LOSS" ? "BYPASS" : (effectiveConfig?.spreadThresholdBps ?? canonical?.spreadThresholdBps ?? null) * 2,
-            price: realMarketPrice,
-            balance: null,
-            intent: {
-              side: intent.side,
-              source: intent.source,
-              reason: intent.reason,
-              trigger: intent.metadata?.trigger,
-              closeMode: intent.metadata?.closeMode,
-              qtySuggested: intent.qtySuggested,
-            },
-            orderPayload: {
-              trade_type: mockTrade.trade_type,
-              amount: mockTrade.amount,
-              total_value: mockTrade.total_value,
-              cryptocurrency: mockTrade.cryptocurrency,
-            },
-            exchangeResponse: error,
-          });
-          console.log(`🛡️ COORDINATOR: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
-          return { success: false, error: "position_already_open" };
-        }
         console.error("[EXECUTION-FAILURE]", {
           phase: "mock_trades_insert_standard",
           error: error.message,
