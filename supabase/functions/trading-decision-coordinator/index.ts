@@ -6022,7 +6022,7 @@ async function detectConflicts(
 
     if (lotCountError) {
       console.error(`⚠️ COORDINATOR: Gate 5b lot count query failed`, lotCountError);
-      // Fail-open: allow trade if count query fails (DB index is still backstop in Phase 0)
+      // Fail-safe: allow trade if count query fails (Gate 5b is now the sole guard — monitor closely)
     } else if ((openLotCount ?? 0) >= MAX_LOTS_PER_SYMBOL) {
       console.log(`🚫 COORDINATOR: BUY blocked - max lots per symbol reached (${openLotCount} >= ${MAX_LOTS_PER_SYMBOL}) for ${baseSymbol}`);
       guardReport.maxLotsPerSymbolReached = true;
