@@ -150,6 +150,8 @@ interface StrategyFormData {
   // Advanced settings
   resetStopLossAfterFail: boolean;
   useTrailingStopOnly: boolean;
+  // Pyramiding
+  maxLotsPerSymbol: number;
   // Tags and categories
   category: string;
   tags: string[];
