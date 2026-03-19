@@ -346,17 +346,8 @@ const toPairSymbol = (base: BaseSymbol): PairSymbol => `${toBaseSymbol(base)}-EU
 // SEV-1 SAFETY: is_open_position invariant helpers
 // Ensures only ONE open position per (user, symbol, is_test_mode) via DB unique index.
 // =============================================================================
-
-/**
- * Detect if an insert error is a unique constraint violation (SQLSTATE 23505)
- * on the unique_open_position_per_symbol index.
- */
-function isOpenPositionConflict(error: any): boolean {
-  if (!error) return false;
-  const code = error.code || error?.details?.code || '';
-  const msg = (error.message || '') + (error.details || '');
-  return code === '23505' || msg.includes('unique_open_position_per_symbol');
-}
+// Phase 1: isOpenPositionConflict() removed — Gate 5b is now the canonical guard.
+// DB index unique_open_position_per_symbol has been dropped.
 
 /**
  * After a SELL closes a position, check if net position is now zero.
@@ -1775,22 +1766,6 @@ serve(async (req) => {
         .select("id");
 
       if (insertError) {
-        // SEV-1: Graceful handling of duplicate BUY (structural invariant)
-        if (isOpenPositionConflict(insertError)) {
-          console.log(`🛡️ UI TEST BUY: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
-          return new Response(
-            JSON.stringify({
-              ok: true,
-              decision: {
-                action: "HOLD",
-                reason: "position_already_open",
-                request_id: requestId,
-                message: `Open position already exists for ${baseSymbol}`,
-              },
-            }),
-            { headers: corsHeaders },
-          );
-        }
         console.error("❌ UI TEST BUY: Insert failed:", insertError);
         return new Response(
           JSON.stringify({
@@ -2291,23 +2266,6 @@ serve(async (req) => {
         .insert(placeholderRecord);
 
       if (placeholderError) {
-        // SEV-1: Graceful handling of duplicate BUY (structural invariant)
-        if (isBuySide && isOpenPositionConflict(placeholderError)) {
-          console.log(`🛡️ SYSTEM_OPERATOR: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
-          return new Response(
-            JSON.stringify({
-              ok: true,
-              success: false,
-              decision: {
-                action: "HOLD",
-                reason: "position_already_open",
-                request_id: requestId,
-                message: `Open position already exists for ${baseSymbol}`,
-              },
-            }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-          );
-        }
         console.error("❌ SYSTEM_OPERATOR: Failed to insert mock_trades placeholder:", placeholderError);
         return new Response(
           JSON.stringify({
@@ -3224,23 +3182,6 @@ serve(async (req) => {
           .insert(placeholderRecord);
 
         if (placeholderError) {
-          // SEV-1: Graceful handling of duplicate BUY (structural invariant)
-          if (isBuySide && isOpenPositionConflict(placeholderError)) {
-            console.log(`🛡️ COORDINATOR: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
-            return new Response(
-              JSON.stringify({
-                ok: true,
-                success: false,
-                decision: {
-                  action: "HOLD",
-                  reason: "position_already_open",
-                  request_id: requestId,
-                  message: `Open position already exists for ${baseSymbol}`,
-                },
-              }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-            );
-          }
           console.error(`❌ COORDINATOR: Failed to insert mock_trades placeholder:`, placeholderError);
           return new Response(
             JSON.stringify({
@@ -4812,11 +4753,6 @@ async function executeTradeDirectly(
     const { data: insertResult, error } = await supabaseClient.from("mock_trades").insert(mockTrade).select("id");
 
     if (error) {
-      // SEV-1: Graceful handling of duplicate BUY (structural invariant)
-      if (isOpenPositionConflict(error)) {
-        console.log(`🛡️ DIRECT BUY: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
-        return { success: false, error: "position_already_open" };
-      }
       console.log("============ STEP 4: WRITE FAILED ============");
       console.log("DB insert error:", error);
       throw new Error(`DB insert failed: ${error.message}`);
@@ -6086,7 +6022,7 @@ async function detectConflicts(
 
     if (lotCountError) {
       console.error(`⚠️ COORDINATOR: Gate 5b lot count query failed`, lotCountError);
-      // Fail-open: allow trade if count query fails (DB index is still backstop in Phase 0)
+      // Fail-safe: allow trade if count query fails (Gate 5b is now the sole guard — monitor closely)
     } else if ((openLotCount ?? 0) >= MAX_LOTS_PER_SYMBOL) {
       console.log(`🚫 COORDINATOR: BUY blocked - max lots per symbol reached (${openLotCount} >= ${MAX_LOTS_PER_SYMBOL}) for ${baseSymbol}`);
       guardReport.maxLotsPerSymbolReached = true;
@@ -7937,34 +7873,6 @@ async function executeTradeOrder(
       const { data: insertResult, error } = await supabaseClient.from("mock_trades").insert(mockTrade).select("id");
 
       if (error) {
-        if (isBuyTrade && isOpenPositionConflict(error)) {
-          console.error("[EXECUTION-FAILURE]", {
-            phase: "mock_trades_insert_standard",
-            error: "position_already_open",
-            symbol: baseSymbol,
-            spreadBps: priceData?.spreadBps ?? null,
-            effectiveSpreadThresholdBps: intent.metadata?.trigger === "STOP_LOSS" ? "BYPASS" : (effectiveConfig?.spreadThresholdBps ?? canonical?.spreadThresholdBps ?? null) * 2,
-            price: realMarketPrice,
-            balance: null,
-            intent: {
-              side: intent.side,
-              source: intent.source,
-              reason: intent.reason,
-              trigger: intent.metadata?.trigger,
-              closeMode: intent.metadata?.closeMode,
-              qtySuggested: intent.qtySuggested,
-            },
-            orderPayload: {
-              trade_type: mockTrade.trade_type,
-              amount: mockTrade.amount,
-              total_value: mockTrade.total_value,
-              cryptocurrency: mockTrade.cryptocurrency,
-            },
-            exchangeResponse: error,
-          });
-          console.log(`🛡️ COORDINATOR: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
-          return { success: false, error: "position_already_open" };
-        }
         console.error("[EXECUTION-FAILURE]", {
           phase: "mock_trades_insert_standard",
           error: error.message,
