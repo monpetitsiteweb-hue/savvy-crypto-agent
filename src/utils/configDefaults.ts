@@ -72,7 +72,7 @@ export const DEFAULT_VALUES = {
   CONTEXT_DUPLICATE_EPSILON_PCT: 0.005,  // 0.5% default tolerance for anchor_price comparison
   
   // Multi-Trade-Per-Symbol (Pyramiding) — Phase 0 defaults
-  MAX_LOTS_PER_SYMBOL: 1,                    // 1 = current behavior (single position). Increase to enable pyramiding.
+  MAX_LOTS_PER_SYMBOL: 2,                    // 2 = allows up to 2 independent lots per symbol (pyramiding enabled).
   ANTI_CONTRADICTORY_COOLDOWN_MS: 60000,     // 60s — block BUY if SELL executed within this window on same symbol
 } as const;
 
