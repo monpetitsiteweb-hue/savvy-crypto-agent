@@ -3182,23 +3182,6 @@ serve(async (req) => {
           .insert(placeholderRecord);
 
         if (placeholderError) {
-          // SEV-1: Graceful handling of duplicate BUY (structural invariant)
-          if (isBuySide && isOpenPositionConflict(placeholderError)) {
-            console.log(`🛡️ COORDINATOR: duplicate BUY ignored (structural invariant) for ${baseSymbol}`);
-            return new Response(
-              JSON.stringify({
-                ok: true,
-                success: false,
-                decision: {
-                  action: "HOLD",
-                  reason: "position_already_open",
-                  request_id: requestId,
-                  message: `Open position already exists for ${baseSymbol}`,
-                },
-              }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-            );
-          }
           console.error(`❌ COORDINATOR: Failed to insert mock_trades placeholder:`, placeholderError);
           return new Response(
             JSON.stringify({
