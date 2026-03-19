@@ -1499,6 +1499,36 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                               </p>
                             )}
                           </div>
+
+                          {/* Max Lots Per Symbol (Pyramiding) */}
+                          <div className="space-y-2">
+                            <TooltipField 
+                              description="Maximum number of independent positions (lots) allowed per symbol. Set to 1 to disable pyramiding. Higher values allow stacking multiple entries on the same coin."
+                              examples={["Allow 2 positions per coin", "Disable pyramiding (set to 1)", "Stack up to 3 entries on BTC"]}
+                            >
+                              <Label htmlFor="maxLotsPerSymbol">Max Lots Per Symbol</Label>
+                            </TooltipField>
+                            <p className="text-sm text-muted-foreground">
+                              Controls pyramiding: 1 = single position only, 2+ = allow stacking multiple entries per coin.
+                            </p>
+                            <div className="flex items-center gap-4">
+                              <Input
+                                id="maxLotsPerSymbol"
+                                type="number"
+                                min={1}
+                                max={5}
+                                step={1}
+                                value={formData.maxLotsPerSymbol}
+                                onChange={(e) => updateFormData('maxLotsPerSymbol', Math.max(1, Math.min(5, parseInt(e.target.value) || 1)))}
+                                className="w-24 text-base"
+                              />
+                              <span className="text-sm text-muted-foreground">
+                                {formData.maxLotsPerSymbol === 1 
+                                  ? '🔒 Single position per symbol (no pyramiding)' 
+                                  : `📊 Up to ${formData.maxLotsPerSymbol} positions per symbol`}
+                              </span>
+                            </div>
+                          </div>
                         </CardContent>
                       </Card>
 
