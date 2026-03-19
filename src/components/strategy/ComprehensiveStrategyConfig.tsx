@@ -399,6 +399,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     autoCloseShorts: true,
     resetStopLossAfterFail: false,
     useTrailingStopOnly: false,
+    maxLotsPerSymbol: 1,
     category: 'trend',
     tags: ['automated', 'scalping'],
     aiIntelligenceConfig: {
