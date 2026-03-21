@@ -5286,6 +5286,10 @@ async function logDecisionAsync(
               source_contributions: fusedSignalData.source_contributions,
               fusion_version: fusedSignalData.fusion_version,
               dominance_details: fusedSignalData.dominance_details ?? null,
+              unique_sources_count: fusedSignalData.unique_sources_count ?? null,
+              deduplicated_signal_count: fusedSignalData.deduplicated_signal_count ?? null,
+              per_source_capped_contributions: fusedSignalData.per_source_capped_contributions ?? null,
+              insufficient_diversity: fusedSignalData.insufficient_diversity ?? false,
             } : null,
             guard_states_json: {
               action,
