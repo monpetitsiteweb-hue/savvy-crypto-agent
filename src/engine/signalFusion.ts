@@ -203,6 +203,27 @@ function aggregateBySource(processedSignals: ProcessedSignal[]): {
   return { aggregatedContributions };
 }
 
+/** Maximum contribution any single source can have on the final score */
+const MAX_SOURCE_CONTRIBUTION = 0.4;
+
+/** Minimum number of unique sources required for a non-HOLD decision */
+const MIN_UNIQUE_SOURCES = 2;
+
+/**
+ * Deduplicate signals by (source, signal_type) — keep only the strongest.
+ */
+function deduplicateSignals(signals: any[]): any[] {
+  const seen = new Map<string, any>();
+  for (const s of signals) {
+    const key = `${s.source}::${s.signal_type}`;
+    const existing = seen.get(key);
+    if (!existing || Math.abs(s.signal_strength) > Math.abs(existing.signal_strength)) {
+      seen.set(key, s);
+    }
+  }
+  return Array.from(seen.values());
+}
+
 /**
  * Compute fused signal score from multiple live signals
  */
@@ -242,12 +263,16 @@ export async function computeFusedSignalScore(
       };
     }
 
+    // === FIX 1: Deduplicate by (source, signal_type) — keep strongest ===
+    const rawCount = signals.length;
+    const dedupedSignals = deduplicateSignals(signals);
+
     // Fetch registry and strategy weights in parallel
     const [registryResult, weightsResult] = await Promise.all([
       supabaseClient
         .from('signal_registry')
         .select('*')
-        .in('key', [...new Set(signals.map((s: any) => s.signal_type))]),
+        .in('key', [...new Set(dedupedSignals.map((s: any) => s.signal_type))]),
       supabaseClient
         .from('strategy_signal_weights')
         .select('*')
@@ -270,12 +295,13 @@ export async function computeFusedSignalScore(
       (registryResult.data as SignalRegistryEntry[])?.map(r => [r.key, r]) || []
     );
 
-    // Process each signal
+    // Process each deduplicated signal
     const details: SignalDetail[] = [];
     const signalsUsed: SignalUsed[] = [];
     const processedSignals: ProcessedSignal[] = [];
+    let maxPossibleScore = 0;
 
-    for (const signal of signals) {
+    for (const signal of dedupedSignals) {
       const registryEntry = registryMap.get(signal.signal_type);
       if (!registryEntry || !registryEntry.is_enabled) continue;
 
@@ -286,6 +312,9 @@ export async function computeFusedSignalScore(
       const normalizedStrength = normalizeSignalStrength(signal.signal_strength);
       const directionMultiplier = getDirectionMultiplier(registryEntry.direction_hint);
       const contribution = normalizedStrength * effectiveWeight * directionMultiplier;
+
+      // Track max possible score (all weights at full strength)
+      maxPossibleScore += effectiveWeight;
 
       const ps: ProcessedSignal = {
         signal,
@@ -308,7 +337,6 @@ export async function computeFusedSignalScore(
         timestamp: signal.timestamp,
       });
 
-      // Lineage: record every signal that was considered
       signalsUsed.push({
         signal_id: signal.id,
         source: signal.source,
@@ -317,49 +345,81 @@ export async function computeFusedSignalScore(
       });
     }
 
-    // Compute source contributions for observability (source-level breakdown)
+    // === FIX 3: Minimum signal diversity check ===
+    const uniqueSources = new Set(processedSignals.map(ps => ps.signal.source));
+    if (uniqueSources.size < MIN_UNIQUE_SOURCES) {
+      return {
+        fusedScore: 0,
+        details,
+        totalSignals: rawCount,
+        enabledSignals: processedSignals.length,
+        signals_used: signalsUsed,
+        source_contributions: {},
+        fusion_version: FUSION_VERSION,
+        insufficient_diversity: true,
+        unique_sources_count: uniqueSources.size,
+        deduplicated_signal_count: dedupedSignals.length,
+      } as FusedSignalResult;
+    }
+
+    // === FIX 2: Per-source contribution cap ===
     const sourceContributions: Record<string, number> = {};
+    const perSourceCappedContributions: Record<string, number> = {};
 
     if (useSourceAggregation && processedSignals.length > 0) {
       const { aggregatedContributions } = aggregateBySource(processedSignals);
       for (const [source, agg] of aggregatedContributions) {
-        sourceContributions[source] = Number(agg.contribution.toFixed(4));
+        const raw = agg.contribution;
+        const capped = Math.sign(raw) * Math.min(Math.abs(raw), MAX_SOURCE_CONTRIBUTION);
+        sourceContributions[source] = Number(capped.toFixed(4));
+        perSourceCappedContributions[source] = Number(raw.toFixed(4));
       }
     } else {
+      const rawBySource: Record<string, number> = {};
       for (const ps of processedSignals) {
         const src = ps.signal.source;
-        sourceContributions[src] = (sourceContributions[src] || 0) + ps.contribution;
+        rawBySource[src] = (rawBySource[src] || 0) + ps.contribution;
       }
-      for (const key of Object.keys(sourceContributions)) {
-        sourceContributions[key] = Number(sourceContributions[key].toFixed(4));
+      for (const [src, raw] of Object.entries(rawBySource)) {
+        const capped = Math.sign(raw) * Math.min(Math.abs(raw), MAX_SOURCE_CONTRIBUTION);
+        sourceContributions[src] = Number(capped.toFixed(4));
+        perSourceCappedContributions[src] = Number(raw.toFixed(4));
       }
     }
 
-    // Directional dominance computation — ALWAYS uses individual signal contributions
-    // to preserve bullish/bearish separation (source aggregation collapses this)
+    // === FIX 4: Score normalization before dominance ===
+    // Normalize individual contributions by maxPossibleScore
+    const normFactor = maxPossibleScore > 0 ? maxPossibleScore : 1;
+
     let bullishTotal = 0;
     let bearishTotal = 0;
     for (const ps of processedSignals) {
-      if (ps.contribution > 0) bullishTotal += ps.contribution;
-      else bearishTotal += Math.abs(ps.contribution);
+      const normalizedContribution = ps.contribution / normFactor;
+      if (normalizedContribution > 0) bullishTotal += normalizedContribution;
+      else bearishTotal += Math.abs(normalizedContribution);
     }
 
     const totalMass = bullishTotal + bearishTotal;
     const dominance = totalMass === 0 ? 0 : Math.max(bullishTotal, bearishTotal) / totalMass;
+    const magnitude = totalMass === 0 ? 0 : Math.max(bullishTotal, bearishTotal);
     const direction = bullishTotal >= bearishTotal ? 1 : -1;
-    const convictionScore = direction * dominance; // [-1, +1]
+    // conviction = direction * dominance * magnitude (scaled to [-100, +100])
+    const convictionScore = direction * dominance * magnitude;
 
     const fusedScore = Math.max(-100, Math.min(100, convictionScore * 100));
 
     return {
       fusedScore,
       details,
-      totalSignals: signals.length,
+      totalSignals: rawCount,
       enabledSignals: processedSignals.length,
       signals_used: signalsUsed,
       source_contributions: sourceContributions,
       fusion_version: FUSION_VERSION,
-    };
+      unique_sources_count: uniqueSources.size,
+      deduplicated_signal_count: dedupedSignals.length,
+      per_source_capped_contributions: perSourceCappedContributions,
+    } as FusedSignalResult;
 
   } catch (error) {
     return {
