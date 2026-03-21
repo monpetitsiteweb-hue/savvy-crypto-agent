@@ -48,8 +48,9 @@ function AppInternal() {
         <TestModeProvider>
           <TradingModeProvider>
             <MarketDataProvider>
-              <MockWalletProvider>
-                <ErrorBoundary>
+              <MockTradesRealtimeProvider>
+                <MockWalletProvider>
+                  <ErrorBoundary>
                   <BrowserRouter>
                     <Routes>
                       <Route path="/" element={<Index />} />
