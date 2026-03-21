@@ -348,29 +348,29 @@ async function backtestStrategy(supabaseClient: any, params: any) {
       throw new Error('Strategy not found');
     }
 
-    // Get historical signals and price data (last 30 days, bounded + limited)
+    // Get historical signals and price data (last 30 days, time-bounded, no LIMIT to avoid truncation)
     const backtestPeriod = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     
     const { data: historicalSignals, error: signalsError } = await supabaseClient
       .from('live_signals')
       .select('*')
+      .eq('user_id', userId)
       .gte('timestamp', backtestPeriod.toISOString())
-      .order('timestamp', { ascending: true })
-      .limit(5000);
+      .order('timestamp', { ascending: true });
 
     const { data: historicalPrices, error: pricesError } = await supabaseClient
       .from('price_data')
       .select('*')
+      .eq('user_id', userId)
       .gte('timestamp', backtestPeriod.toISOString())
-      .order('timestamp', { ascending: true })
-      .limit(5000);
+      .order('timestamp', { ascending: true });
 
     if (signalsError || pricesError) {
       console.error('❌ Error fetching historical data');
       throw new Error('Failed to fetch historical data');
     }
 
-    console.log(`📊 Backtest data: ${historicalPrices?.length ?? 0} price rows, ${historicalSignals?.length ?? 0} signal rows, window=${backtestPeriod.toISOString()}`);
+    console.log(`📊 Backtest data: ${historicalPrices?.length ?? 0} price rows, ${historicalSignals?.length ?? 0} signal rows, window: ${backtestPeriod.toISOString()} → now`);
 
     // Run backtest simulation
     const backtestResults = await runBacktestSimulation(
