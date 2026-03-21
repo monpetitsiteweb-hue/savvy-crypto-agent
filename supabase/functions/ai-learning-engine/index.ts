@@ -98,11 +98,14 @@ async function analyzeAndLearn(supabaseClient: any, userId: string) {
     .order('executed_at', { ascending: false })
     .limit(100);
 
-  // Get new data sources for enhanced analysis
+  // Get recent price data (bounded to last 7 days to prevent full table scans on 1.7GB table)
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   const { data: priceData } = await supabaseClient
     .from('price_data')
     .select('*')
     .eq('user_id', userId)
+    .gte('timestamp', sevenDaysAgo.toISOString())
     .order('timestamp', { ascending: false })
     .limit(200);
 

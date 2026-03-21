@@ -250,32 +250,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     }
   }, [user, testMode]);
 
-  // Real-time subscription to mock_trades changes
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel('mock_trades_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'mock_trades',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          setTimeout(() => {
-            fetchTradingHistory();
-          }, 1000);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
+  // Real-time subscription to mock_trades changes via shared context
+  useMockTradesRealtime('trading_history', () => {
+    if (user) {
+      setTimeout(() => fetchTradingHistory(), 1000);
+    }
+  }, 500);
 
   // Handle direct sell of an open trade - ONLY via trading-decision-coordinator
   // TRADE-BASED: Sell entire position (1 BUY = 1 position, 1 SELL = full closure)

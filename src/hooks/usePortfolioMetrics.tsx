@@ -169,32 +169,11 @@ export function usePortfolioMetrics() {
     }
   }, [user, isTestMode]);
 
-  // Initial fetch and subscribe to mock_trades changes
+  // Initial fetch and subscribe to mock_trades changes via shared context
+  useMockTradesRealtime('portfolio_metrics', fetchMetrics, 500);
+
   useEffect(() => {
     fetchMetrics();
-
-    if (!user) return;
-
-    const channel = supabase
-      .channel('portfolio_metrics_trades')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'mock_trades',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          // Debounce refresh
-          setTimeout(() => fetchMetrics(), 500);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [user, isTestMode, fetchMetrics]);
 
   // Computed values

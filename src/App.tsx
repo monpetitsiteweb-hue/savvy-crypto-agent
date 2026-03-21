@@ -65,8 +65,9 @@ function AppInternal() {
                       <Route path="*" element={<NotFound />} />
                     </Routes>
                   </BrowserRouter>
-                </ErrorBoundary>
-              </MockWalletProvider>
+                  </ErrorBoundary>
+                </MockWalletProvider>
+              </MockTradesRealtimeProvider>
             </MarketDataProvider>
           </TradingModeProvider>
         </TestModeProvider>
