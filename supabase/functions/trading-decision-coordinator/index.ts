@@ -5127,6 +5127,10 @@ async function logDecisionAsync(
             source_contributions: fusionResult.source_contributions,
             fusion_version: fusionResult.fusion_version,
             dominance_details: fusionResult.dominance_details,
+            unique_sources_count: fusionResult.unique_sources_count,
+            deduplicated_signal_count: fusionResult.deduplicated_signal_count,
+            per_source_capped_contributions: fusionResult.per_source_capped_contributions,
+            insufficient_diversity: fusionResult.insufficient_diversity || false,
           };
 
           console.log(
