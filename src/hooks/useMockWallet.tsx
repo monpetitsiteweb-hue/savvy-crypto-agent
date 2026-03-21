@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { useMockTradesRealtime } from '@/contexts/MockTradesRealtimeContext';
 import { useTestMode } from './useTradeViewFilter';
 import { useAuth } from './useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -253,31 +254,16 @@ export const MockWalletProvider = ({ children }: { children: ReactNode }) => {
     return balances.reduce((sum, balance) => sum + balance.value_in_base, 0);
   };
 
+  // Subscribe to mock_trades changes via shared realtime context
+  useMockTradesRealtime('mock_wallet', () => {
+    if (testMode && user) {
+      setTimeout(() => refreshFromDatabase(), 1000);
+    }
+  }, 500);
+
   useEffect(() => {
     if (testMode && user) {
       refreshFromDatabase();
-      
-      const channel = supabase
-        .channel('mock-trades-changes')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'mock_trades',
-            filter: `user_id=eq.${user.id}`
-          },
-          () => {
-            setTimeout(() => {
-              refreshFromDatabase();
-            }, 1000);
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
     } else {
       setBalances([]);
     }

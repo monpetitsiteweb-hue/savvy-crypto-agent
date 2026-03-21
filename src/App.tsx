@@ -7,6 +7,7 @@ import { TradingModeProvider } from "@/hooks/useTradingMode";
 import { MockWalletProvider } from "@/hooks/useMockWallet";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MarketDataProvider } from "@/contexts/MarketDataContext";
+import { MockTradesRealtimeProvider } from "@/contexts/MockTradesRealtimeContext";
 import Index from "./pages/Index";
 import AdminPage from "./pages/AdminPage";
 import ProfilePage from "./pages/ProfilePage";
@@ -47,8 +48,9 @@ function AppInternal() {
         <TestModeProvider>
           <TradingModeProvider>
             <MarketDataProvider>
-              <MockWalletProvider>
-                <ErrorBoundary>
+              <MockTradesRealtimeProvider>
+                <MockWalletProvider>
+                  <ErrorBoundary>
                   <BrowserRouter>
                     <Routes>
                       <Route path="/" element={<Index />} />
@@ -63,8 +65,9 @@ function AppInternal() {
                       <Route path="*" element={<NotFound />} />
                     </Routes>
                   </BrowserRouter>
-                </ErrorBoundary>
-              </MockWalletProvider>
+                  </ErrorBoundary>
+                </MockWalletProvider>
+              </MockTradesRealtimeProvider>
             </MarketDataProvider>
           </TradingModeProvider>
         </TestModeProvider>

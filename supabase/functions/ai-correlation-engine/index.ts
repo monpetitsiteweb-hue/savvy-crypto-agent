@@ -22,11 +22,13 @@ serve(async (req) => {
     console.log(`🔗 AI Correlation Engine: ${action}`);
 
     if (action === 'analyze_correlations') {
-      // Get recent unprocessed signals
+      // Get recent unprocessed signals (bounded to last 24 hours to prevent full table scans)
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const { data: signals } = await supabaseClient
         .from('live_signals')
         .select('*')
         .eq('processed', false)
+        .gte('timestamp', twentyFourHoursAgo)
         .order('timestamp', { ascending: false })
         .limit(20);
 
