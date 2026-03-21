@@ -1,6 +1,7 @@
 // TRADE-BASED MODEL: Each BUY is one position, each SELL fully closes one BUY
 // Uses portfolioMath utility for consistent calculations across all views
 import { useState, useEffect, useMemo } from 'react';
+import { useMockTradesRealtime } from '@/contexts/MockTradesRealtimeContext';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

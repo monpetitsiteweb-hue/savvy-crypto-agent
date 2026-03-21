@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useMockTradesRealtime } from '@/contexts/MockTradesRealtimeContext';
 import { useAuth } from './useAuth';
 import { useTradingMode } from './useTradingMode';
 import { supabase } from '@/integrations/supabase/client';
