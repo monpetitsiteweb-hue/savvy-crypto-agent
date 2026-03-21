@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/components/AuthProvider';
+import { useAuth } from '@/hooks/useAuth';
 
 /**
  * Shared Realtime subscription for the mock_trades table.
