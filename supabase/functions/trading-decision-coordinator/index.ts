@@ -680,8 +680,8 @@ async function writeSnapshotForDirectInsert(
   } catch (err: any) {
     console.error(`[snapshot_write_failed] decision_id=${decisionId} uncaught=${err?.message}`);
   }
-      }
-    }
+}
+
 
 // ============= CASH LEDGER SETTLEMENT HELPER =============
 // Ensures cash_balance_eur moves correctly after every trade insert
