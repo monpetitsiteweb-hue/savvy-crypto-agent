@@ -39,6 +39,15 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // ── AUTH CHECK: Validate x-cron-secret before any logic runs ──
+  const cronSecret = Deno.env.get('CRON_SECRET');
+  const providedSecret = req.headers.get('x-cron-secret');
+
+  if (!cronSecret || providedSecret !== cronSecret) {
+    logger.error(`[lifecycle] Unauthorized request — invalid or missing x-cron-secret`);
+    return withCors({ success: false, error: 'Unauthorized' }, 401);
+  }
+
   const runId = crypto.randomUUID();
   const startTime = Date.now();
   const elapsed = () => Date.now() - startTime;
