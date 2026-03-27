@@ -1796,6 +1796,48 @@ export type Database = {
         }
         Relationships: []
       }
+      live_signals_backup_20260327: {
+        Row: {
+          created_at: string | null
+          data: Json | null
+          id: string | null
+          processed: boolean | null
+          signal_strength: number | null
+          signal_type: string | null
+          source: string | null
+          source_id: string | null
+          symbol: string | null
+          timestamp: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          data?: Json | null
+          id?: string | null
+          processed?: boolean | null
+          signal_strength?: number | null
+          signal_type?: string | null
+          source?: string | null
+          source_id?: string | null
+          symbol?: string | null
+          timestamp?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          data?: Json | null
+          id?: string | null
+          processed?: boolean | null
+          signal_strength?: number | null
+          signal_type?: string | null
+          source?: string | null
+          source_id?: string | null
+          symbol?: string | null
+          timestamp?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       llm_configurations: {
         Row: {
           created_at: string
@@ -3823,6 +3865,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      live_signals_normalized: {
+        Row: {
+          created_at: string | null
+          data: Json | null
+          id: string | null
+          processed: boolean | null
+          signal_strength: number | null
+          signal_type: string | null
+          source: string | null
+          source_id: string | null
+          symbol: string | null
+          symbol_normalized: string | null
+          timestamp: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          data?: Json | null
+          id?: string | null
+          processed?: boolean | null
+          signal_strength?: number | null
+          signal_type?: string | null
+          source?: string | null
+          source_id?: string | null
+          symbol?: string | null
+          symbol_normalized?: never
+          timestamp?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          data?: Json | null
+          id?: string | null
+          processed?: boolean | null
+          signal_strength?: number | null
+          signal_type?: string | null
+          source?: string | null
+          source_id?: string | null
+          symbol?: string | null
+          symbol_normalized?: never
+          timestamp?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
       }
       mock_coverage: {
         Row: {

@@ -97,12 +97,17 @@ serve(async (req) => {
 
         const amountUsd = tx.amount_usd || 0;
         
+        // B1 Step 3: Normalize symbols to *-EUR for tradeable pairs
+        const EUR_PAIR_SYMBOLS = new Set(['BTC','ETH','XRP','SOL','ADA','AVAX','DOT','LINK','LTC','BCH']);
+        const rawSym = (tx.symbol || 'BTC').toUpperCase();
+        const normalizedSymbol = EUR_PAIR_SYMBOLS.has(rawSym) ? `${rawSym}-EUR` : rawSym;
+        
         // Insert into live_signals (not whale_signal_events)
         const signal = {
           source_id: source.id,
           user_id: source.user_id,
           timestamp: new Date(tx.timestamp * 1000).toISOString(),
-          symbol: tx.symbol || 'BTC',
+          symbol: normalizedSymbol,
           signal_type: signalType,
           signal_strength: Math.min(100, amountUsd / 1000000 * 100),
           source: 'whale_alert_api', // Global whales via API (not tracked)

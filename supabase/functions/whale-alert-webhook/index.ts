@@ -7,6 +7,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// B1 Step 3: Normalize symbols to *-EUR for tradeable pairs
+const EUR_PAIR_SYMBOLS = new Set(['BTC','ETH','XRP','SOL','ADA','AVAX','DOT','LINK','LTC','BCH']);
+function normalizeSymbolForSignal(rawSymbol: string): string {
+  const upper = rawSymbol.toUpperCase();
+  if (EUR_PAIR_SYMBOLS.has(upper)) return `${upper}-EUR`;
+  return upper;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -160,7 +168,7 @@ serve(async (req) => {
           source_id: sourceId,
           user_id: userId,
           timestamp: whaleEvent.timestamp,
-          symbol: whaleEvent.token_symbol,
+          symbol: normalizeSymbolForSignal(whaleEvent.token_symbol),
           signal_type: signalType,
           signal_strength: Math.min(100, amountUsd / 1000000 * 100),
           source: 'whale_alert_tracked', // Tracked wallets via webhook
@@ -244,7 +252,7 @@ serve(async (req) => {
           source_id: sourceId,
           user_id: userId,
           timestamp: whaleEvent.timestamp,
-          symbol: whaleEvent.token_symbol,
+          symbol: normalizeSymbolForSignal(whaleEvent.token_symbol),
           signal_type: signalType,
           signal_strength: Math.min(100, amountUsd / 1000000 * 100),
           source: 'whale_alert_tracked',
@@ -406,7 +414,7 @@ async function processQuickNodeWebhook(supabaseClient: any, payload: any) {
         source_id: source.id,
         user_id: effectiveUserId,
         timestamp: whaleEvent.timestamp,
-        symbol: 'ETH',
+        symbol: normalizeSymbolForSignal('ETH'),
         signal_type: signalType,
         signal_strength: Math.min(100, valueInEth / 10),
         source: 'whale_alert_tracked', // QuickNode tracked wallets

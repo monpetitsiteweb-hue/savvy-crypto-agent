@@ -2937,6 +2937,52 @@ serve(async (req) => {
         };
 
         console.log(`[FUSION_GATE] ${baseSymbolForFusion}: score=${fusionResult.fusedScore.toFixed(2)}, signals=${fusionResult.enabledSignals}/${fusionResult.totalSignals}`);
+
+        // === A1: SHADOW LOGGING — fear_greed dominance analysis (Phase 1 observation only) ===
+        if (precomputedFusionData.source_contributions) {
+          const fgContrib = Math.abs(precomputedFusionData.source_contributions?.['fear_greed_index'] || 0);
+          const allContribs = Object.values(precomputedFusionData.source_contributions as Record<string, number>);
+          const totalContrib = allContribs.reduce((sum: number, v: number) => sum + Math.abs(v), 0);
+
+          if (totalContrib > 0) {
+            const fgPct = (fgContrib / totalContrib) * 100;
+            const cappedPct = Math.min(fgPct, 15);
+
+            // Simulate fusion score with fear_greed contribution capped at 15% of total
+            let shadowScore = precomputedFusionData.score;
+            if (fgPct > 15) {
+              const fgRawContrib = precomputedFusionData.source_contributions?.['fear_greed_index'] || 0;
+              const maxAllowed = totalContrib * 0.15;
+              const excess = Math.abs(fgRawContrib) - maxAllowed;
+              const direction = fgRawContrib >= 0 ? 1 : -1;
+              shadowScore = precomputedFusionData.score - (direction * excess * 100);
+              shadowScore = Math.max(-100, Math.min(100, shadowScore));
+            }
+
+            // Read enter threshold for decision comparison
+            const rawET = strategy?.configuration?.signalFusion?.enterThreshold;
+            const enterT = rawET !== undefined && rawET !== null
+              ? (rawET <= 1 ? rawET * 100 : rawET)
+              : 63; // default
+            const currentDecision = precomputedFusionData.score >= enterT ? 'BUY' : 'HOLD';
+            const shadowDecision = shadowScore >= enterT ? 'BUY' : 'HOLD';
+            const wouldChange = currentDecision !== shadowDecision;
+
+            console.log(`[fear_greed_shadow] symbol=${baseSymbolForFusion} current_contribution=${fgPct.toFixed(1)}% capped_contribution=${cappedPct.toFixed(1)}% would_change_decision=${wouldChange} current_score=${precomputedFusionData.score.toFixed(1)} shadow_score=${shadowScore.toFixed(1)} threshold=${enterT}`);
+
+            if (fgPct > 50) {
+              console.warn(`[fear_greed_dominance] ${baseSymbolForFusion}: ${fgPct.toFixed(0)}% of fusion score`);
+            }
+
+            // Store shadow data for snapshot persistence
+            precomputedFusionData._fearGreedShadow = {
+              current_pct: Number(fgPct.toFixed(1)),
+              capped_pct: Number(cappedPct.toFixed(1)),
+              shadow_score: Number(shadowScore.toFixed(2)),
+              would_change_decision: wouldChange,
+            };
+          }
+        }
       } catch (fusionErr: any) {
         console.error('[FUSION_GATE] Error computing fusion (proceeding without):', fusionErr?.message || fusionErr);
       }
@@ -3721,6 +3767,24 @@ serve(async (req) => {
         const derivedConfidence = Math.abs(precomputedFusionData.score) / 100;
         intent.confidence = derivedConfidence;
         console.log(`[FUSION_GATE] Derived confidence from fusion: ${derivedConfidence.toFixed(3)}`);
+      }
+
+      // === A2: SHADOW LOGGING — continuous confidence (Phase 1 observation only) ===
+      // Current confidence is binary (abs(score)/100). Compute a multi-factor continuous alternative.
+      {
+        const base = Math.abs(precomputedFusionData.score) / 100;
+        const diversityFactor = Math.min(1.0, (precomputedFusionData.unique_sources_count || 0) / 5);
+        const signalQuality = precomputedFusionData.totalSignals > 0
+          ? precomputedFusionData.enabledSignals / precomputedFusionData.totalSignals
+          : 0;
+        const continuous = base * 0.5 + diversityFactor * 0.3 + signalQuality * 0.2;
+        const currentConf = normalizeConfidence(intent.confidence);
+        precomputedFusionData._confidenceShadow = {
+          current: Number(currentConf.toFixed(3)),
+          continuous: Number(continuous.toFixed(3)),
+          factors: { base: Number(base.toFixed(3)), diversity: Number(diversityFactor.toFixed(3)), quality: Number(signalQuality.toFixed(3)) },
+        };
+        console.log(`[confidence_shadow] symbol=${toBaseSymbol(intent.symbol)} current=${currentConf.toFixed(3)} continuous=${continuous.toFixed(3)} base=${base.toFixed(3)} diversity=${diversityFactor.toFixed(3)} quality=${signalQuality.toFixed(3)}`);
       }
     }
 
@@ -5309,6 +5373,9 @@ async function logDecisionAsync(
               expected_pnl_pct: intent.metadata?.expectedPnL || null,
               horizon: intent.metadata?.horizon || null,
               trigger: intent.metadata?.trigger || null,
+              // A1+A2: Shadow metrics for Phase 1 observation (no behavior change)
+              ...(fusedSignalData?._fearGreedShadow && { fear_greed_shadow: fusedSignalData._fearGreedShadow }),
+              ...(fusedSignalData?._confidenceShadow && { confidence_shadow: fusedSignalData._confidenceShadow }),
             },
             decision_result: action,
             decision_reason: reason,

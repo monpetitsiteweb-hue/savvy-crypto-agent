@@ -37,6 +37,16 @@ const SYMBOL_MAP: Record<string, string> = {
   'usdc': 'USDC',
 };
 
+// B1 Step 3: Normalize symbols to *-EUR for tradeable pairs
+const EUR_PAIR_SYMBOLS = new Set(['BTC','ETH','XRP','SOL','ADA','AVAX','DOT','LINK','LTC','BCH']);
+const SKIP_SYMBOLS = new Set(['USDT','USDC','ALL','STELLAR','TRON']);
+
+function normalizeSymbolForSignal(rawSymbol: string): string | null {
+  if (SKIP_SYMBOLS.has(rawSymbol)) return rawSymbol; // Keep as-is (non-tradeable)
+  if (EUR_PAIR_SYMBOLS.has(rawSymbol)) return `${rawSymbol}-EUR`;
+  return rawSymbol; // Unknown symbols pass through unchanged
+}
+
 // Resolve fallback user_id
 async function resolveFallbackUserId(supabaseClient: any): Promise<string> {
   const { data: activeUsers } = await supabaseClient
@@ -156,13 +166,16 @@ serve(async (req) => {
 
     for (const tx of data.transactions) {
       const blockchain = (tx.blockchain || '').toLowerCase();
-      const symbol = SYMBOL_MAP[blockchain] || SYMBOL_MAP[tx.symbol?.toLowerCase()] || blockchain.toUpperCase();
+      const rawSymbol = SYMBOL_MAP[blockchain] || SYMBOL_MAP[tx.symbol?.toLowerCase()] || blockchain.toUpperCase();
       
       // Skip if we can't map to a known symbol
-      if (!symbol || symbol.length > 10) {
+      if (!rawSymbol || rawSymbol.length > 10) {
         console.log(`⚠️ Skipping unmapped blockchain: ${blockchain}`);
         continue;
       }
+
+      // B1: Normalize to *-EUR for tradeable pairs
+      const symbol = normalizeSymbolForSignal(rawSymbol);
 
       const signalType = determineSignalType(tx);
       const signalStrength = calculateSignalStrength(tx.amount_usd || 0);
