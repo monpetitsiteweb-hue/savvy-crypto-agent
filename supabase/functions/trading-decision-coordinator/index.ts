@@ -5377,8 +5377,8 @@ async function logDecisionAsync(
           console.log("🔗 CAUSAL_LINK: decision_events.id=" + insertedDecisionId + " → mock_trades.id=" + tradeId);
         }
 
-        // PHASE 1: Write decision snapshot (non-blocking, append-only)
-        // If this fails, the decision still executes — snapshots are observability-only
+        // PHASE 1: Write decision snapshot SYNCHRONOUSLY before returning
+        console.log(`[snapshot_write_attempt] decision_id=${insertedDecisionId} reason=${reason}`);
         try {
           const snapshotPayload = {
             decision_id: insertedDecisionId,
