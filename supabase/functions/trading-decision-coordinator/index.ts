@@ -5434,19 +5434,9 @@ async function logDecisionAsync(
             .insert([snapshotPayload]);
 
           if (snapshotError) {
-            console.error("[DECISION_SNAPSHOT_FAILED]", {
-              decision_id: insertedDecisionId,
-              symbol: baseSymbol,
-              error: snapshotError.message,
-            });
+            console.error(`[snapshot_write_failed] decision_id=${insertedDecisionId} error=${snapshotError.message}`);
           } else {
-            console.info("[DECISION_SNAPSHOT_WRITTEN]", {
-              decision_id: insertedDecisionId,
-              symbol: baseSymbol,
-              side: intent.side,
-              action,
-              schema_version: 'v1',
-            });
+            console.info(`[snapshot_write_success] decision_id=${insertedDecisionId}`);
           }
         } catch (snapshotErr: any) {
           // Non-blocking: snapshot failure must NEVER affect decision flow
