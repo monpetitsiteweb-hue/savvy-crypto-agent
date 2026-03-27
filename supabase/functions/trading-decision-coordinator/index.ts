@@ -638,6 +638,51 @@ function buildDecisionMetadata(
   };
 }
 
+// ============= ORPHAN SNAPSHOT HELPER =============
+// Writes a minimal decision_snapshot for decision_events created via direct .insert()
+// (not via logDecisionAsync). Ensures 100% snapshot coverage.
+async function writeSnapshotForDirectInsert(
+  supabaseClient: any,
+  decisionId: string | null,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  side: string,
+  action: string,
+  reason: string,
+  isTestMode?: boolean,
+): Promise<void> {
+  if (!decisionId) {
+    console.error("[snapshot_write_failed] No decision_id provided for direct insert snapshot");
+    return;
+  }
+  const snapshotType = side === 'SELL' ? 'EXIT' : 'ENTRY';
+  console.log(`[snapshot_write_attempt] decision_id=${decisionId} reason=${reason}`);
+  try {
+    const { error } = await supabaseClient.from("decision_snapshots").insert([{
+      decision_id: decisionId,
+      user_id: userId,
+      strategy_id: strategyId,
+      symbol: symbol,
+      side: side,
+      timestamp_utc: new Date().toISOString(),
+      decision_result: action,
+      decision_reason: reason,
+      schema_version: 'v1',
+      snapshot_type: snapshotType,
+      guard_states_json: { action, reason, is_test_mode: isTestMode ?? false, source: 'direct_insert' },
+    }]);
+    if (error) {
+      console.error(`[snapshot_write_failed] decision_id=${decisionId} error=${error.message}`);
+    } else {
+      console.info(`[snapshot_write_success] decision_id=${decisionId}`);
+    }
+  } catch (err: any) {
+    console.error(`[snapshot_write_failed] decision_id=${decisionId} uncaught=${err?.message}`);
+  }
+}
+
+
 // ============= CASH LEDGER SETTLEMENT HELPER =============
 // Ensures cash_balance_eur moves correctly after every trade insert
 // For BUY: deduct total_value (we don't track fees separately in current data)
@@ -803,7 +848,7 @@ async function settleCashLedger(
         // Log decision_event for auditability
         try {
           if (meta?.strategyId && meta?.symbol) {
-            await supabaseClient.from("decision_events").insert({
+            const { data: _diResult } = await supabaseClient.from("decision_events").insert({
               user_id: userId,
               strategy_id: meta.strategyId,
               symbol: meta.symbol,
@@ -821,7 +866,8 @@ async function settleCashLedger(
                 drift: settleDrift,
                 error: "cash_drift_detected",
               }, meta?.isTestMode),
-            });
+            }).select("id");
+            await writeSnapshotForDirectInsert(supabaseClient, _diResult?.[0]?.id, userId, meta.strategyId, meta.symbol, side, "DEFER", "cash_ledger_settle_failed", meta?.isTestMode);
           }
         } catch (e) {
           console.error("⚠️ CASH LEDGER [BUY]: failed to log cash_drift_detected decision_event", e);
@@ -951,7 +997,7 @@ async function settleCashLedger(
       // Log decision_event for auditability
       try {
         if (meta?.strategyId && meta?.symbol) {
-          await supabaseClient.from("decision_events").insert({
+          const { data: _diResult2 } = await supabaseClient.from("decision_events").insert({
             user_id: userId,
             strategy_id: meta.strategyId,
             symbol: meta.symbol,
@@ -969,7 +1015,8 @@ async function settleCashLedger(
               drift: settleDrift,
               error: "cash_drift_detected",
             }, meta?.isTestMode),
-          });
+          }).select("id");
+          await writeSnapshotForDirectInsert(supabaseClient, _diResult2?.[0]?.id, userId, meta.strategyId, meta.symbol, side, "DEFER", "cash_ledger_settle_failed", meta?.isTestMode);
         }
       } catch (e) {
         console.error("⚠️ CASH LEDGER [SELL]: failed to log cash_drift_detected decision_event", e);
@@ -2398,7 +2445,7 @@ serve(async (req) => {
       } catch (execError: any) {
         console.error("❌ SYSTEM_OPERATOR: Execution error:", execError.message);
 
-        await supabaseClient.from("decision_events").insert({
+        const { data: _diSysOpFail } = await supabaseClient.from("decision_events").insert({
           user_id: intent.userId,
           strategy_id: intent.strategyId,
           symbol: baseSymbol,
@@ -2412,7 +2459,8 @@ serve(async (req) => {
             request_id: requestId,
             fast_path: "SYSTEM_OPERATOR",
           }, false),
-        });
+        }).select("id");
+        await writeSnapshotForDirectInsert(supabaseClient, _diSysOpFail?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, "DEFER", "system_operator_execution_failed", false);
 
         return new Response(
           JSON.stringify({
@@ -2440,7 +2488,7 @@ serve(async (req) => {
         amount: tradeAmount,
       });
 
-      await supabaseClient.from("decision_events").insert({
+      const { data: _diSysOpOk } = await supabaseClient.from("decision_events").insert({
         user_id: intent.userId,
         strategy_id: intent.strategyId,
         symbol: baseSymbol,
@@ -2461,7 +2509,8 @@ serve(async (req) => {
             slippage_bps: slippageBps,
             request_id: requestId,
           }, false),
-      });
+      }).select("id");
+      await writeSnapshotForDirectInsert(supabaseClient, _diSysOpOk?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, intent.side, "system_operator_execution_submitted", false);
 
       return new Response(
         JSON.stringify({
@@ -2667,7 +2716,7 @@ serve(async (req) => {
       if (!cashResult.success) {
         // Trade inserted but cash not updated - log decision_event for audit
         console.error(`⚠️ COORDINATOR: Manual SELL cash settlement failed: ${cashResult.error}`);
-        await supabaseClient.from("decision_events").insert({
+        const { data: _diManSell } = await supabaseClient.from("decision_events").insert({
           user_id: intent.userId,
           strategy_id: intent.strategyId,
           symbol: baseSymbol,
@@ -2681,7 +2730,8 @@ serve(async (req) => {
             error: cashResult.error,
             trade_inserted: true,
           }, true),
-        });
+        }).select("id");
+        await writeSnapshotForDirectInsert(supabaseClient, _diManSell?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, "SELL", "DEFER", "cash_ledger_settle_failed", true);
       }
       // ============= END CASH LEDGER UPDATE =============
 
@@ -2797,8 +2847,8 @@ serve(async (req) => {
         requestId,
         priceData,
       );
-      return exec.success
-        ? (logDecisionAsync(
+      if (exec.success) {
+        await logDecisionAsync(
             supabaseClient,
             intent,
             "SELL",
@@ -2809,9 +2859,10 @@ serve(async (req) => {
             exec.tradeId,
             priceData?.price,
             exec.effectiveConfig || {},
-          ),
-          respond("SELL", "manual_override_precedence", requestId, 0, { qty: exec.qty }))
-        : new Response(
+          );
+        return respond("SELL", "manual_override_precedence", requestId, 0, { qty: exec.qty });
+      } else {
+        return new Response(
             JSON.stringify({
               ok: true,
               decision: {
@@ -2824,6 +2875,7 @@ serve(async (req) => {
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             },
           );
+      }
     }
 
     // Check for duplicate/idempotent request
@@ -3368,7 +3420,7 @@ serve(async (req) => {
           console.error("❌ COORDINATOR: Execution error:", execError.message);
           
           // Log decision_event for audit
-          await supabaseClient.from("decision_events").insert({
+          const { data: _diManExecFail } = await supabaseClient.from("decision_events").insert({
             user_id: intent.userId,
             strategy_id: intent.strategyId,
             symbol: baseSymbol,
@@ -3382,7 +3434,8 @@ serve(async (req) => {
               request_id: requestId,
               fast_path: "MANUAL",
             }, false),
-          });
+          }).select("id");
+          await writeSnapshotForDirectInsert(supabaseClient, _diManExecFail?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, "DEFER", "manual_execution_failed", false);
 
           return new Response(
             JSON.stringify({
@@ -3411,7 +3464,7 @@ serve(async (req) => {
         });
 
         // Log decision_event for audit
-        await supabaseClient.from("decision_events").insert({
+        const { data: _diManExecOk } = await supabaseClient.from("decision_events").insert({
           user_id: intent.userId,
           strategy_id: intent.strategyId,
           symbol: baseSymbol,
@@ -3432,7 +3485,8 @@ serve(async (req) => {
             slippage_bps: slippageBps,
             request_id: requestId,
           }, false),
-        });
+        }).select("id");
+        await writeSnapshotForDirectInsert(supabaseClient, _diManExecOk?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, intent.side, "manual_execution_submitted", false);
 
         return new Response(
           JSON.stringify({
@@ -3529,7 +3583,7 @@ serve(async (req) => {
       console.log("✅ COORDINATOR: REAL execution_job inserted:", jobResult?.id);
 
       // Log decision_event for audit
-      await supabaseClient.from("decision_events").insert({
+      const { data: _diRealQueued } = await supabaseClient.from("decision_events").insert({
         user_id: intent.userId,
         strategy_id: intent.strategyId,
         symbol: baseSymbol,
@@ -3546,7 +3600,8 @@ serve(async (req) => {
             execution_status: "QUEUED",
             intent_side: intent.side,
           }, false),
-      });
+      }).select("id");
+      await writeSnapshotForDirectInsert(supabaseClient, _diRealQueued?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, intent.side, "real_execution_job_queued", false);
 
       return new Response(
         JSON.stringify({
@@ -3748,7 +3803,7 @@ serve(async (req) => {
           const baseSymbolForFusion = toBaseSymbol(intent.symbol);
           console.log(`[FUSION_GATE] BLOCKED: ${baseSymbolForFusion} fusion=${precomputedFusionData.score.toFixed(2)} < threshold=${threshold100}`);
 
-          logDecisionAsync(
+          await logDecisionAsync(
             supabaseClient, intent, 'HOLD' as DecisionAction, 'fusion_below_threshold' as Reason,
             unifiedConfig, requestId,
             { fusionScore: precomputedFusionData.score, enterThreshold: threshold100 },
@@ -3818,7 +3873,7 @@ serve(async (req) => {
         console.log("[DEBUG][COORD] UD_MODE=OFF SUCCESS - trade executed");
         console.log(`🎯 UD_MODE=OFF → DIRECT EXECUTION: action=${intent.side} symbol=${intent.symbol} lock=NONE`);
         // Log decision for audit (async, non-blocking) with execution price
-        logDecisionAsync(
+        await logDecisionAsync(
           supabaseClient,
           intent,
           intent.side,
@@ -3852,7 +3907,7 @@ serve(async (req) => {
         console.error(`❌ UD_MODE=OFF → DIRECT EXECUTION FAILED: ${executionResult.error}`);
         // Log decision for audit (async, non-blocking) - pass price even for DEFER
         const priceForLog = intent.metadata?._coordinator_price || null;
-        logDecisionAsync(
+        await logDecisionAsync(
           supabaseClient,
           intent,
           "DEFER",
@@ -3936,7 +3991,7 @@ serve(async (req) => {
       const baseSymbol = toBaseSymbol(intent.symbol);
       const priceData = await getMarketPrice(baseSymbol, 15000);
 
-      logDecisionAsync(
+      await logDecisionAsync(
         supabaseClient,
         intent,
         "DEFER",
@@ -4140,7 +4195,7 @@ serve(async (req) => {
         const baseSymbol = toBaseSymbol(intent.symbol);
         const priceData = await getMarketPrice(baseSymbol, 15000);
 
-        logDecisionAsync(
+        await logDecisionAsync(
           supabaseClient,
           intent,
           "DEFER",
@@ -4796,7 +4851,7 @@ async function executeTradeDirectly(
         console.error("⚠️ DIRECT: Cash ledger settlement failed (SELL rows already inserted, continuing):", settleRes);
 
         // Log decision_event for audit
-        await supabaseClient.from("decision_events").insert({
+        const { data: _diDirectSell } = await supabaseClient.from("decision_events").insert({
           user_id: intent.userId,
           strategy_id: intent.strategyId,
           symbol: baseSymbol,
@@ -4814,7 +4869,8 @@ async function executeTradeDirectly(
             trade_inserted: true,
             lots_sold: sellRows.length,
           }, sc?.canonicalIsTestMode),
-        });
+        }).select("id");
+        await writeSnapshotForDirectInsert(supabaseClient, _diDirectSell?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, "SELL", "DEFER", "cash_ledger_settle_failed", sc?.canonicalIsTestMode);
       }
 
       qty = totalQty;
@@ -5331,8 +5387,8 @@ async function logDecisionAsync(
           console.log("🔗 CAUSAL_LINK: decision_events.id=" + insertedDecisionId + " → mock_trades.id=" + tradeId);
         }
 
-        // PHASE 1: Write decision snapshot (non-blocking, append-only)
-        // If this fails, the decision still executes — snapshots are observability-only
+        // PHASE 1: Write decision snapshot SYNCHRONOUSLY before returning
+        console.log(`[snapshot_write_attempt] decision_id=${insertedDecisionId} reason=${reason}`);
         try {
           const snapshotPayload = {
             decision_id: insertedDecisionId,
@@ -5388,19 +5444,9 @@ async function logDecisionAsync(
             .insert([snapshotPayload]);
 
           if (snapshotError) {
-            console.error("[DECISION_SNAPSHOT_FAILED]", {
-              decision_id: insertedDecisionId,
-              symbol: baseSymbol,
-              error: snapshotError.message,
-            });
+            console.error(`[snapshot_write_failed] decision_id=${insertedDecisionId} error=${snapshotError.message}`);
           } else {
-            console.info("[DECISION_SNAPSHOT_WRITTEN]", {
-              decision_id: insertedDecisionId,
-              symbol: baseSymbol,
-              side: intent.side,
-              action,
-              schema_version: 'v1',
-            });
+            console.info(`[snapshot_write_success] decision_id=${insertedDecisionId}`);
           }
         } catch (snapshotErr: any) {
           // Non-blocking: snapshot failure must NEVER affect decision flow
@@ -6449,7 +6495,7 @@ async function executeWithMinimalLock(
       console.log(
         `🚫 COORDINATOR: Trade blocked - insufficient price freshness (${priceData.tickAgeMs}ms > ${priceStaleMaxMs}ms)`,
       );
-      logDecisionAsync(
+      await logDecisionAsync(
         supabaseClient,
         intent,
         "DEFER",
@@ -6469,7 +6515,7 @@ async function executeWithMinimalLock(
       console.log(
         `🚫 COORDINATOR: Trade blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`,
       );
-      logDecisionAsync(
+      await logDecisionAsync(
         supabaseClient,
         intent,
         "DEFER",
@@ -6494,7 +6540,7 @@ async function executeWithMinimalLock(
     const breakerCheck = await checkCircuitBreakers(supabaseClient, intent);
     if (breakerCheck.blocked) {
       console.log(`🚫 COORDINATOR: Blocked by circuit breaker - ${breakerCheck.reason}`);
-      logDecisionAsync(
+      await logDecisionAsync(
         supabaseClient,
         intent,
         "DEFER",
@@ -7907,7 +7953,7 @@ async function executeTradeOrder(
             },
             exchangeResponse: null,
           });
-          await supabaseClient.from("decision_events").insert({
+          const { data: _diPerLotSell } = await supabaseClient.from("decision_events").insert({
             user_id: intent.userId,
             strategy_id: intent.strategyId,
             symbol: baseSymbol,
@@ -7922,7 +7968,8 @@ async function executeTradeOrder(
               trade_inserted: true,
               lots_sold: sellRows.length,
             }, strategyConfig?.canonicalIsTestMode),
-          });
+          }).select("id");
+          await writeSnapshotForDirectInsert(supabaseClient, _diPerLotSell?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, "SELL", "DEFER", "cash_ledger_settle_failed", strategyConfig?.canonicalIsTestMode);
         }
         // ============= END CASH LEDGER UPDATE =============
 
@@ -8084,7 +8131,7 @@ async function executeTradeOrder(
       if (!cashResult.success) {
         // Trade inserted but cash not updated - log decision_event for audit
         console.error(`⚠️ COORDINATOR: ${intent.side} cash settlement failed: ${cashResult.error}`);
-        await supabaseClient.from("decision_events").insert({
+        const { data: _diStdSettle } = await supabaseClient.from("decision_events").insert({
           user_id: intent.userId,
           strategy_id: intent.strategyId,
           symbol: baseSymbol,
@@ -8098,7 +8145,8 @@ async function executeTradeOrder(
             error: cashResult.error,
             trade_inserted: true,
           }, strategyConfig?.canonicalIsTestMode),
-        });
+        }).select("id");
+        await writeSnapshotForDirectInsert(supabaseClient, _diStdSettle?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, "DEFER", "cash_ledger_settle_failed", strategyConfig?.canonicalIsTestMode);
       }
       // ============= END CASH LEDGER UPDATE =============
 
