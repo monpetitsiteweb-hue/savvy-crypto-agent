@@ -2842,8 +2842,8 @@ serve(async (req) => {
         requestId,
         priceData,
       );
-      return exec.success
-        ? (logDecisionAsync(
+      if (exec.success) {
+        await logDecisionAsync(
             supabaseClient,
             intent,
             "SELL",
@@ -2854,9 +2854,10 @@ serve(async (req) => {
             exec.tradeId,
             priceData?.price,
             exec.effectiveConfig || {},
-          ),
-          respond("SELL", "manual_override_precedence", requestId, 0, { qty: exec.qty }))
-        : new Response(
+          );
+        return respond("SELL", "manual_override_precedence", requestId, 0, { qty: exec.qty });
+      } else {
+        return new Response(
             JSON.stringify({
               ok: true,
               decision: {
