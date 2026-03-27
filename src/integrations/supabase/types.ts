@@ -2461,6 +2461,57 @@ export type Database = {
         }
         Relationships: []
       }
+      price_data_archive_log: {
+        Row: {
+          archive_date: string
+          created_at: string
+          cutoff_timestamp: string
+          earliest_timestamp: string | null
+          error_message: string | null
+          file_checksum: string | null
+          file_path: string
+          id: string
+          latest_timestamp: string | null
+          per_symbol_counts: Json | null
+          prune_status: string
+          row_count_deleted: number
+          row_count_exported: number
+          run_id: string
+        }
+        Insert: {
+          archive_date: string
+          created_at?: string
+          cutoff_timestamp: string
+          earliest_timestamp?: string | null
+          error_message?: string | null
+          file_checksum?: string | null
+          file_path: string
+          id?: string
+          latest_timestamp?: string | null
+          per_symbol_counts?: Json | null
+          prune_status?: string
+          row_count_deleted?: number
+          row_count_exported?: number
+          run_id: string
+        }
+        Update: {
+          archive_date?: string
+          created_at?: string
+          cutoff_timestamp?: string
+          earliest_timestamp?: string | null
+          error_message?: string | null
+          file_checksum?: string | null
+          file_path?: string
+          id?: string
+          latest_timestamp?: string | null
+          per_symbol_counts?: Json | null
+          prune_status?: string
+          row_count_deleted?: number
+          row_count_exported?: number
+          run_id?: string
+        }
+        Relationships: []
+      }
       price_snapshots: {
         Row: {
           price: number
@@ -4464,6 +4515,10 @@ export type Database = {
       promote_strategy_to_live: {
         Args: { p_strategy_id: string; p_user_id: string }
         Returns: Json
+      }
+      prune_price_data_batch: {
+        Args: { p_batch_size?: number; p_cutoff: string; p_symbol: string }
+        Returns: number
       }
       recalculate_cash_from_trades: {
         Args: { p_is_test_mode?: boolean; p_user_id: string }
