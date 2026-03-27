@@ -3463,7 +3463,7 @@ serve(async (req) => {
         });
 
         // Log decision_event for audit
-        await supabaseClient.from("decision_events").insert({
+        const { data: _diManExecOk } = await supabaseClient.from("decision_events").insert({
           user_id: intent.userId,
           strategy_id: intent.strategyId,
           symbol: baseSymbol,
@@ -3484,7 +3484,8 @@ serve(async (req) => {
             slippage_bps: slippageBps,
             request_id: requestId,
           }, false),
-        });
+        }).select("id");
+        await writeSnapshotForDirectInsert(supabaseClient, _diManExecOk?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, intent.side, "manual_execution_submitted", false);
 
         return new Response(
           JSON.stringify({
@@ -3581,7 +3582,7 @@ serve(async (req) => {
       console.log("✅ COORDINATOR: REAL execution_job inserted:", jobResult?.id);
 
       // Log decision_event for audit
-      await supabaseClient.from("decision_events").insert({
+      const { data: _diRealQueued } = await supabaseClient.from("decision_events").insert({
         user_id: intent.userId,
         strategy_id: intent.strategyId,
         symbol: baseSymbol,
@@ -3598,7 +3599,8 @@ serve(async (req) => {
             execution_status: "QUEUED",
             intent_side: intent.side,
           }, false),
-      });
+      }).select("id");
+      await writeSnapshotForDirectInsert(supabaseClient, _diRealQueued?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, intent.side, "real_execution_job_queued", false);
 
       return new Response(
         JSON.stringify({
@@ -4848,7 +4850,7 @@ async function executeTradeDirectly(
         console.error("⚠️ DIRECT: Cash ledger settlement failed (SELL rows already inserted, continuing):", settleRes);
 
         // Log decision_event for audit
-        await supabaseClient.from("decision_events").insert({
+        const { data: _diDirectSell } = await supabaseClient.from("decision_events").insert({
           user_id: intent.userId,
           strategy_id: intent.strategyId,
           symbol: baseSymbol,
@@ -4866,7 +4868,8 @@ async function executeTradeDirectly(
             trade_inserted: true,
             lots_sold: sellRows.length,
           }, sc?.canonicalIsTestMode),
-        });
+        }).select("id");
+        await writeSnapshotForDirectInsert(supabaseClient, _diDirectSell?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, "SELL", "DEFER", "cash_ledger_settle_failed", sc?.canonicalIsTestMode);
       }
 
       qty = totalQty;
@@ -7949,7 +7952,7 @@ async function executeTradeOrder(
             },
             exchangeResponse: null,
           });
-          await supabaseClient.from("decision_events").insert({
+          const { data: _diPerLotSell } = await supabaseClient.from("decision_events").insert({
             user_id: intent.userId,
             strategy_id: intent.strategyId,
             symbol: baseSymbol,
@@ -7964,7 +7967,8 @@ async function executeTradeOrder(
               trade_inserted: true,
               lots_sold: sellRows.length,
             }, strategyConfig?.canonicalIsTestMode),
-          });
+          }).select("id");
+          await writeSnapshotForDirectInsert(supabaseClient, _diPerLotSell?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, "SELL", "DEFER", "cash_ledger_settle_failed", strategyConfig?.canonicalIsTestMode);
         }
         // ============= END CASH LEDGER UPDATE =============
 
@@ -8126,7 +8130,7 @@ async function executeTradeOrder(
       if (!cashResult.success) {
         // Trade inserted but cash not updated - log decision_event for audit
         console.error(`⚠️ COORDINATOR: ${intent.side} cash settlement failed: ${cashResult.error}`);
-        await supabaseClient.from("decision_events").insert({
+        const { data: _diStdSettle } = await supabaseClient.from("decision_events").insert({
           user_id: intent.userId,
           strategy_id: intent.strategyId,
           symbol: baseSymbol,
@@ -8140,7 +8144,8 @@ async function executeTradeOrder(
             error: cashResult.error,
             trade_inserted: true,
           }, strategyConfig?.canonicalIsTestMode),
-        });
+        }).select("id");
+        await writeSnapshotForDirectInsert(supabaseClient, _diStdSettle?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, "DEFER", "cash_ledger_settle_failed", strategyConfig?.canonicalIsTestMode);
       }
       // ============= END CASH LEDGER UPDATE =============
 
