@@ -116,6 +116,24 @@ serve(async (req) => {
     const allRows: any[] = [];
 
     for (const sym of SYMBOLS) {
+      // Fast count check first to avoid expensive SELECT * on empty results
+      const { count: preCount, error: countError } = await supabase
+        .from('price_data')
+        .select('*', { count: 'exact', head: true })
+        .eq('symbol', sym)
+        .lt('timestamp', cutoffISO);
+
+      if (countError) {
+        logger.error(`[lifecycle][${runId}] Pre-count query failed for ${sym}: ${countError.message}`);
+        throw new Error(`Pre-count query failed for ${sym}: ${countError.message}`);
+      }
+
+      if ((preCount ?? 0) === 0) {
+        perSymbolCounts[sym] = 0;
+        logger.info(`[lifecycle][${runId}] ${sym}: 0 rows to archive`);
+        continue;
+      }
+
       const { data: rows, error } = await supabase
         .from('price_data')
         .select('*')
