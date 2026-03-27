@@ -204,3 +204,6 @@ verify_jwt = false
 # Chunked dedup utility for live_signals
 [functions.dedup-live-signals]
 verify_jwt = false
+
+[functions.price-data-lifecycle]
+verify_jwt = false
