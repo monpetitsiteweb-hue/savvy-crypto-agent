@@ -2876,6 +2876,7 @@ serve(async (req) => {
             },
           );
       }
+    }
 
     // Check for duplicate/idempotent request
     const cachedDecision = getCachedDecision(idempotencyKey);
