@@ -11,15 +11,11 @@ const SYMBOLS = [
 const HOT_WINDOW_DAYS = 45;
 const PRUNE_BATCH_SIZE = 500;
 const PRUNE_SLEEP_MS = 200;
+const SAFETY_CAP_PER_SYMBOL = 10_000;
+const TIMEOUT_MS = 50_000; // 50 seconds
 
-function computeSHA256Hex(data: Uint8Array): string {
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const ch = data[i];
-    hash = ((hash << 5) - hash) + ch;
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(16).padStart(8, '0');
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function computeSHA256(data: Uint8Array): Promise<string> {
@@ -28,12 +24,14 @@ async function computeSHA256(data: Uint8Array): Promise<string> {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   } catch {
-    return computeSHA256Hex(data);
+    // Fallback: simple hash
+    let hash = 0;
+    for (let i = 0; i < data.length; i++) {
+      hash = ((hash << 5) - hash) + data[i];
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(16).padStart(8, '0');
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 serve(async (req) => {
@@ -43,19 +41,63 @@ serve(async (req) => {
 
   const runId = crypto.randomUUID();
   const startTime = Date.now();
+  const elapsed = () => Date.now() - startTime;
+
   logger.info(`[lifecycle][${runId}] === Price Data Lifecycle Run Started ===`);
 
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  );
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - HOT_WINDOW_DAYS);
+  const cutoffISO = cutoff.toISOString();
+  const archiveDate = new Date().toISOString().split('T')[0];
+
+  logger.info(`[lifecycle][${runId}] Cutoff: ${cutoffISO} (${HOT_WINDOW_DAYS}-day window)`);
+
+  // ── ADDITION 3: Insert audit row at start with 'pending' status ──
+  let logId: string | null = null;
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    const { data: logRow, error: logInsertErr } = await supabase
+      .from('price_data_archive_log')
+      .insert({
+        run_id: runId,
+        archive_date: archiveDate,
+        file_path: 'pending',
+        cutoff_timestamp: cutoffISO,
+        row_count_exported: 0,
+        row_count_deleted: 0,
+        per_symbol_counts: {},
+        prune_status: 'pending',
+      })
+      .select('id')
+      .single();
 
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - HOT_WINDOW_DAYS);
-    const cutoffISO = cutoff.toISOString();
-    logger.info(`[lifecycle][${runId}] Cutoff: ${cutoffISO} (${HOT_WINDOW_DAYS}-day window)`);
+    if (logInsertErr) {
+      logger.error(`[lifecycle][${runId}] Failed to insert audit log: ${logInsertErr.message}`);
+    } else {
+      logId = logRow.id;
+      logger.info(`[lifecycle][${runId}] Audit log created: ${logId}`);
+    }
+  } catch (e) {
+    logger.error(`[lifecycle][${runId}] Audit log insert exception: ${e.message}`);
+  }
 
+  // Helper: update the audit log row
+  async function updateLog(updates: Record<string, unknown>) {
+    if (!logId) return;
+    const { error } = await supabase
+      .from('price_data_archive_log')
+      .update(updates)
+      .eq('id', logId);
+    if (error) {
+      logger.error(`[lifecycle][${runId}] Failed to update audit log: ${error.message}`);
+    }
+  }
+
+  try {
     // ── STEP 1: EXPORT (per-symbol) ──
     logger.info(`[lifecycle][${runId}] Step 1: Export`);
     const perSymbolCounts: Record<string, number> = {};
@@ -79,6 +121,23 @@ serve(async (req) => {
       }
 
       const count = rows?.length ?? 0;
+
+      // ── ADDITION 1: Safety cap per symbol ──
+      if (count > SAFETY_CAP_PER_SYMBOL) {
+        const msg = `export batch too large for symbol ${sym}: ${count} rows`;
+        logger.error(`[lifecycle][${runId}] ${msg}`);
+        await updateLog({
+          prune_status: 'skipped',
+          error_message: msg,
+          per_symbol_counts: { ...perSymbolCounts, [sym]: count },
+        });
+        return withCors({
+          success: false,
+          run_id: runId,
+          error: msg,
+        }, 500);
+      }
+
       perSymbolCounts[sym] = count;
       totalExported += count;
 
@@ -95,18 +154,13 @@ serve(async (req) => {
 
     if (totalExported === 0) {
       logger.info(`[lifecycle][${runId}] No rows older than cutoff. Nothing to do.`);
-
-      await supabase.from('price_data_archive_log').insert({
-        run_id: runId,
-        archive_date: new Date().toISOString().split('T')[0],
+      await updateLog({
         file_path: 'none',
-        cutoff_timestamp: cutoffISO,
         row_count_exported: 0,
         row_count_deleted: 0,
         per_symbol_counts: perSymbolCounts,
         prune_status: 'skipped',
       });
-
       return withCors({
         success: true,
         run_id: runId,
@@ -136,7 +190,6 @@ serve(async (req) => {
     logger.info(`[lifecycle][${runId}] CSV: ${totalExported} rows, ${csvBytes.length} bytes, SHA-256: ${checksum}`);
 
     // Upload to Storage
-    const archiveDate = new Date().toISOString().split('T')[0];
     const filePath = `${archiveDate}/${runId}.csv`;
 
     const { error: uploadError } = await supabase.storage
@@ -155,6 +208,7 @@ serve(async (req) => {
     // ── STEP 2: VALIDATE ──
     logger.info(`[lifecycle][${runId}] Step 2: Validate`);
 
+    // Verify file exists in storage
     const { data: fileCheck } = await supabase.storage
       .from('price-data-archives')
       .list(archiveDate);
@@ -164,28 +218,71 @@ serve(async (req) => {
       throw new Error('Validation failed: file not found in storage after upload');
     }
 
-    // Verify row counts per symbol match
+    // ── ADDITION 2: Independent DB count validation ──
     for (const sym of SYMBOLS) {
-      const exportedCount = perSymbolCounts[sym] ?? 0;
       const csvSymbolCount = allRows.filter(r => r.symbol === sym).length;
-      if (exportedCount !== csvSymbolCount) {
-        throw new Error(`Validation failed: ${sym} count mismatch (query=${exportedCount}, csv=${csvSymbolCount})`);
+      if (csvSymbolCount === 0) continue;
+
+      const { count: dbCount, error: countErr } = await supabase
+        .from('price_data')
+        .select('*', { count: 'exact', head: true })
+        .eq('symbol', sym)
+        .lt('timestamp', cutoffISO);
+
+      if (countErr) {
+        throw new Error(`Validation count query failed for ${sym}: ${countErr.message}`);
+      }
+
+      if (dbCount !== csvSymbolCount) {
+        throw new Error(
+          `Validation failed: ${sym} count mismatch (db=${dbCount}, csv=${csvSymbolCount}). ` +
+          `New rows may have aged past cutoff during run. Aborting to prevent data loss.`
+        );
       }
     }
 
-    logger.info(`[lifecycle][${runId}] Validation passed: file exists, counts match, checksum=${checksum}`);
+    logger.info(`[lifecycle][${runId}] Validation passed: file exists, independent DB counts match, checksum=${checksum}`);
+
+    // Update log with export results before pruning
+    await updateLog({
+      file_path: filePath,
+      row_count_exported: totalExported,
+      per_symbol_counts: perSymbolCounts,
+      earliest_timestamp: earliestTs,
+      latest_timestamp: latestTs,
+      file_checksum: checksum,
+    });
 
     // ── STEP 3: PRUNE (per-symbol batched via RPC) ──
     logger.info(`[lifecycle][${runId}] Step 3: Prune`);
     let totalDeleted = 0;
+    const completedSymbols: string[] = [];
+    let timedOut = false;
 
     for (const sym of SYMBOLS) {
-      if ((perSymbolCounts[sym] ?? 0) === 0) continue;
+      if ((perSymbolCounts[sym] ?? 0) === 0) {
+        completedSymbols.push(sym);
+        continue;
+      }
+
+      // ── ADDITION 4: Timeout guard ──
+      if (elapsed() > TIMEOUT_MS) {
+        timedOut = true;
+        logger.warn(`[lifecycle][${runId}] Timeout guard hit at ${(elapsed() / 1000).toFixed(1)}s before starting ${sym}`);
+        break;
+      }
 
       let symDeleted = 0;
       let batchNum = 0;
 
       while (true) {
+        // Check timeout before each batch
+        if (elapsed() > TIMEOUT_MS) {
+          timedOut = true;
+          logger.warn(`[lifecycle][${runId}] Timeout guard hit at ${(elapsed() / 1000).toFixed(1)}s during ${sym} batch ${batchNum}`);
+          break;
+        }
+
         batchNum++;
         const { data: deleted, error: pruneError } = await supabase.rpc(
           'prune_price_data_batch',
@@ -198,18 +295,8 @@ serve(async (req) => {
 
         if (pruneError) {
           logger.error(`[lifecycle][${runId}] Prune error ${sym} batch ${batchNum}: ${pruneError.message}`);
-          // Log partial progress and abort
-          await supabase.from('price_data_archive_log').insert({
-            run_id: runId,
-            archive_date: archiveDate,
-            file_path: filePath,
-            cutoff_timestamp: cutoffISO,
-            row_count_exported: totalExported,
+          await updateLog({
             row_count_deleted: totalDeleted,
-            per_symbol_counts: perSymbolCounts,
-            earliest_timestamp: earliestTs,
-            latest_timestamp: latestTs,
-            file_checksum: checksum,
             prune_status: 'partial',
             error_message: `Prune failed at ${sym} batch ${batchNum}: ${pruneError.message}`,
           });
@@ -219,6 +306,7 @@ serve(async (req) => {
             error: `Prune failed at ${sym}`,
             exported: totalExported,
             deleted: totalDeleted,
+            completed_symbols: completedSymbols,
           }, 500);
         }
 
@@ -230,47 +318,56 @@ serve(async (req) => {
         await sleep(PRUNE_SLEEP_MS);
       }
 
+      if (timedOut) {
+        // Partial symbol — don't add to completed
+        logger.info(`[lifecycle][${runId}] ${sym}: partially pruned ${symDeleted} rows (timed out)`);
+        break;
+      }
+
+      completedSymbols.push(sym);
       logger.info(`[lifecycle][${runId}] ${sym}: pruned ${symDeleted} rows`);
     }
 
-    // ── STEP 4: LOG ──
-    logger.info(`[lifecycle][${runId}] Step 4: Log`);
+    // ── STEP 4: FINAL LOG UPDATE ──
+    const finalStatus = timedOut ? 'partial' : 'success';
+    const elapsedSec = (elapsed() / 1000).toFixed(1);
 
-    await supabase.from('price_data_archive_log').insert({
-      run_id: runId,
-      archive_date: archiveDate,
-      file_path: filePath,
-      cutoff_timestamp: cutoffISO,
-      row_count_exported: totalExported,
+    await updateLog({
       row_count_deleted: totalDeleted,
-      per_symbol_counts: perSymbolCounts,
-      earliest_timestamp: earliestTs,
-      latest_timestamp: latestTs,
-      file_checksum: checksum,
-      prune_status: 'success',
+      prune_status: finalStatus,
+      error_message: timedOut
+        ? `Timeout at ${elapsedSec}s. Completed symbols: [${completedSymbols.join(', ')}]. Deleted: ${totalDeleted}/${totalExported}.`
+        : null,
     });
 
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    logger.info(`[lifecycle][${runId}] === Lifecycle complete in ${elapsed}s: exported=${totalExported}, deleted=${totalDeleted} ===`);
+    logger.info(`[lifecycle][${runId}] === Lifecycle complete in ${elapsedSec}s: status=${finalStatus}, exported=${totalExported}, deleted=${totalDeleted} ===`);
 
     return withCors({
       success: true,
       run_id: runId,
       cutoff: cutoffISO,
+      status: finalStatus,
       exported: totalExported,
       deleted: totalDeleted,
       per_symbol_counts: perSymbolCounts,
+      completed_symbols: completedSymbols,
       file_path: filePath,
       checksum,
-      elapsed_seconds: parseFloat(elapsed),
+      elapsed_seconds: parseFloat(elapsedSec),
     });
 
   } catch (error) {
-    logger.error(`[lifecycle][${runId}] Fatal error: ${error.message}`);
+    const elapsedSec = (elapsed() / 1000).toFixed(1);
+    logger.error(`[lifecycle][${runId}] Fatal error at ${elapsedSec}s: ${error.message}`);
+    await updateLog({
+      prune_status: 'failed',
+      error_message: error.message,
+    });
     return withCors({
       success: false,
       run_id: runId,
       error: error.message,
+      elapsed_seconds: parseFloat(elapsedSec),
     }, 500);
   }
 });
