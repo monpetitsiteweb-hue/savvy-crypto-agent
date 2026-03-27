@@ -3793,7 +3793,7 @@ serve(async (req) => {
           const baseSymbolForFusion = toBaseSymbol(intent.symbol);
           console.log(`[FUSION_GATE] BLOCKED: ${baseSymbolForFusion} fusion=${precomputedFusionData.score.toFixed(2)} < threshold=${threshold100}`);
 
-          logDecisionAsync(
+          await logDecisionAsync(
             supabaseClient, intent, 'HOLD' as DecisionAction, 'fusion_below_threshold' as Reason,
             unifiedConfig, requestId,
             { fusionScore: precomputedFusionData.score, enterThreshold: threshold100 },
@@ -3863,7 +3863,7 @@ serve(async (req) => {
         console.log("[DEBUG][COORD] UD_MODE=OFF SUCCESS - trade executed");
         console.log(`🎯 UD_MODE=OFF → DIRECT EXECUTION: action=${intent.side} symbol=${intent.symbol} lock=NONE`);
         // Log decision for audit (async, non-blocking) with execution price
-        logDecisionAsync(
+        await logDecisionAsync(
           supabaseClient,
           intent,
           intent.side,
@@ -3897,7 +3897,7 @@ serve(async (req) => {
         console.error(`❌ UD_MODE=OFF → DIRECT EXECUTION FAILED: ${executionResult.error}`);
         // Log decision for audit (async, non-blocking) - pass price even for DEFER
         const priceForLog = intent.metadata?._coordinator_price || null;
-        logDecisionAsync(
+        await logDecisionAsync(
           supabaseClient,
           intent,
           "DEFER",
@@ -3981,7 +3981,7 @@ serve(async (req) => {
       const baseSymbol = toBaseSymbol(intent.symbol);
       const priceData = await getMarketPrice(baseSymbol, 15000);
 
-      logDecisionAsync(
+      await logDecisionAsync(
         supabaseClient,
         intent,
         "DEFER",
@@ -4185,7 +4185,7 @@ serve(async (req) => {
         const baseSymbol = toBaseSymbol(intent.symbol);
         const priceData = await getMarketPrice(baseSymbol, 15000);
 
-        logDecisionAsync(
+        await logDecisionAsync(
           supabaseClient,
           intent,
           "DEFER",
@@ -6494,7 +6494,7 @@ async function executeWithMinimalLock(
       console.log(
         `🚫 COORDINATOR: Trade blocked - insufficient price freshness (${priceData.tickAgeMs}ms > ${priceStaleMaxMs}ms)`,
       );
-      logDecisionAsync(
+      await logDecisionAsync(
         supabaseClient,
         intent,
         "DEFER",
@@ -6514,7 +6514,7 @@ async function executeWithMinimalLock(
       console.log(
         `🚫 COORDINATOR: Trade blocked - spread too wide (${priceData.spreadBps.toFixed(1)}bps > ${spreadThresholdBps}bps)`,
       );
-      logDecisionAsync(
+      await logDecisionAsync(
         supabaseClient,
         intent,
         "DEFER",
@@ -6539,7 +6539,7 @@ async function executeWithMinimalLock(
     const breakerCheck = await checkCircuitBreakers(supabaseClient, intent);
     if (breakerCheck.blocked) {
       console.log(`🚫 COORDINATOR: Blocked by circuit breaker - ${breakerCheck.reason}`);
-      logDecisionAsync(
+      await logDecisionAsync(
         supabaseClient,
         intent,
         "DEFER",
