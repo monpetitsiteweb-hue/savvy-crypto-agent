@@ -638,6 +638,51 @@ function buildDecisionMetadata(
   };
 }
 
+// ============= ORPHAN SNAPSHOT HELPER =============
+// Writes a minimal decision_snapshot for decision_events created via direct .insert()
+// (not via logDecisionAsync). Ensures 100% snapshot coverage.
+async function writeSnapshotForDirectInsert(
+  supabaseClient: any,
+  decisionId: string | null,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  side: string,
+  action: string,
+  reason: string,
+  isTestMode?: boolean,
+): Promise<void> {
+  if (!decisionId) {
+    console.error("[snapshot_write_failed] No decision_id provided for direct insert snapshot");
+    return;
+  }
+  const snapshotType = side === 'SELL' ? 'EXIT' : 'ENTRY';
+  console.log(`[snapshot_write_attempt] decision_id=${decisionId} reason=${reason}`);
+  try {
+    const { error } = await supabaseClient.from("decision_snapshots").insert([{
+      decision_id: decisionId,
+      user_id: userId,
+      strategy_id: strategyId,
+      symbol: symbol,
+      side: side,
+      timestamp_utc: new Date().toISOString(),
+      decision_result: action,
+      decision_reason: reason,
+      schema_version: 'v1',
+      snapshot_type: snapshotType,
+      guard_states_json: { action, reason, is_test_mode: isTestMode ?? false, source: 'direct_insert' },
+    }]);
+    if (error) {
+      console.error(`[snapshot_write_failed] decision_id=${decisionId} error=${error.message}`);
+    } else {
+      console.info(`[snapshot_write_success] decision_id=${decisionId}`);
+    }
+  } catch (err: any) {
+    console.error(`[snapshot_write_failed] decision_id=${decisionId} uncaught=${err?.message}`);
+  }
+}
+
+
 // ============= CASH LEDGER SETTLEMENT HELPER =============
 // Ensures cash_balance_eur moves correctly after every trade insert
 // For BUY: deduct total_value (we don't track fees separately in current data)
