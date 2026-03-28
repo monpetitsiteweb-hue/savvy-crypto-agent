@@ -86,10 +86,12 @@ const ret_24h_window = Math.max(1, Math.round(1440 / sm));
 const ret_7d_window = Math.max(1, Math.round(10080 / sm));
 ```
 
-**Line 389 — Default granularities expanded**
+**Line 389 — Default granularities: 5m intentionally excluded**
 
-Removed: `const DEFAULT_GRANULARITIES = ['1h', '4h', '24h'];`  
-Added: `const DEFAULT_GRANULARITIES = ['5m', '1h', '4h', '24h'];`
+Unchanged: `const DEFAULT_GRANULARITIES = ['1h', '4h', '24h'];`  
+Rationale: 5m is triggered exclusively via dedicated pg_cron jobs with explicit `granularities=["5m"]` payloads. Keeping 5m out of defaults ensures clean rollback (disable 2 crons only), no accidental duplication from legacy call paths, and existing behavior fully unchanged.
+
+> **History**: Initially added `'5m'` to defaults, then removed per operator review to enforce isolation.
 
 ---
 
@@ -123,10 +125,12 @@ const ret_7d_window = Math.max(1, Math.round(10080 / sm));
 Removed: `.limit(500);`  
 Added: `.limit(granularity === '5m' ? 2200 : 500); // 5m needs 2016+ candles for 7d window`
 
-**Line 361 — Default granularities expanded**
+**Line 361 — Default granularities: 5m intentionally excluded**
 
-Removed: `const granularitiesDefault = ["1h", "4h", "24h"];`  
-Added: `const granularitiesDefault = ["5m", "1h", "4h", "24h"];`
+Unchanged: `const granularitiesDefault = ["1h", "4h", "24h"];`  
+Rationale: Same isolation principle as ohlcv-live-ingest — 5m runs only via its dedicated pg_cron job.
+
+> **History**: Initially added `'5m'` to defaults, then removed per operator review.
 
 ---
 
