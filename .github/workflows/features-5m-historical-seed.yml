@@ -1,0 +1,42 @@
+name: Features 5m Historical Seed (one-time)
+
+on:
+  workflow_dispatch:  # Manual trigger only — run after OHLCV rerun completes
+
+jobs:
+  features-5m-seed:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        symbol:
+          - 'BTC-EUR'
+          - 'ETH-EUR'
+          - 'XRP-EUR'
+          - 'ADA-EUR'
+          - 'SOL-EUR'
+          - 'DOT-EUR'
+          - 'AVAX-EUR'
+          - 'LINK-EUR'
+          - 'LTC-EUR'
+          - 'BCH-EUR'
+      max-parallel: 1  # Sequential to avoid overloading
+    steps:
+      - name: Compute 5m features for ${{ matrix.symbol }}
+        run: |
+          echo "📊 Computing historical 5m features for ${{ matrix.symbol }}"
+          RESPONSE=$(curl -sS -w "\n%{http_code}" -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"symbols":["${{ matrix.symbol }}"],"granularities":["5m"],"lookback_days":35,"_seed_limit":9000}' \
+            https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/features-refresh)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP $HTTP_CODE"
+          echo "$BODY" | head -c 2000
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "❌ Failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+          echo ""
+          echo "✅ Features complete for ${{ matrix.symbol }}"
