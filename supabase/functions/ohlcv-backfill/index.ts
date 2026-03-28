@@ -76,20 +76,72 @@ class RateLimiter {
   }
 }
 
+interface FetchResult {
+  candles: CoinbaseCandle[];
+  timedOut: boolean;
+  lastFetchedStart?: string;
+}
+
+async function fetchExistingBounds(
+  supabase: any,
+  symbol: string,
+  granularity: string
+): Promise<{ oldest: string | null; newest: string | null; count: number }> {
+  const [oldestRes, newestRes, countRes] = await Promise.all([
+    supabase
+      .from('market_ohlcv_raw')
+      .select('ts_utc')
+      .eq('symbol', symbol)
+      .eq('granularity', granularity)
+      .order('ts_utc', { ascending: true })
+      .limit(1),
+    supabase
+      .from('market_ohlcv_raw')
+      .select('ts_utc')
+      .eq('symbol', symbol)
+      .eq('granularity', granularity)
+      .order('ts_utc', { ascending: false })
+      .limit(1),
+    supabase
+      .from('market_ohlcv_raw')
+      .select('ts_utc', { count: 'exact', head: true })
+      .eq('symbol', symbol)
+      .eq('granularity', granularity),
+  ]);
+
+  return {
+    oldest: oldestRes.data?.[0]?.ts_utc ?? null,
+    newest: newestRes.data?.[0]?.ts_utc ?? null,
+    count: countRes.count ?? 0,
+  };
+}
+
 async function fetchCoinbaseCandlesPaginated(
   symbol: string,
   granularity: string,
   startTime: Date,
   endTime: Date,
-  rateLimiter: RateLimiter
-): Promise<CoinbaseCandle[]> {
+  rateLimiter: RateLimiter,
+  functionStartTime: number
+): Promise<FetchResult> {
+  const ELAPSED_LIMIT_MS = 50_000; // 50s safety guard
   const granularityMap: Record<string, number> = { '5m': 300, '1h': 3600, '24h': 86400 };
   const granularitySeconds = granularityMap[granularity] ?? 3600;
   const allCandles: CoinbaseCandle[] = [];
+  let timedOut = false;
+  let lastFetchedStart: string | undefined;
   
   let currentStart = new Date(startTime);
   
   while (currentStart < endTime) {
+    // Elapsed-time guard: stop cleanly before 60s wall-clock
+    const elapsed = Date.now() - functionStartTime;
+    if (elapsed > ELAPSED_LIMIT_MS) {
+      logger.warn(`⏱️ Elapsed ${elapsed}ms > ${ELAPSED_LIMIT_MS}ms limit for ${symbol} ${granularity} — stopping cleanly`);
+      timedOut = true;
+      break;
+    }
+
     // Calculate window end (300 candles max per request)
     const windowMs = (MAX_CANDLES_PER_REQUEST - 1) * granularitySeconds * 1000;
     const currentEnd = new Date(Math.min(
@@ -114,13 +166,10 @@ async function fetchCoinbaseCandlesPaginated(
 
       if (!response.ok) {
         if (response.status === 429) {
-          // More aggressive rate limit handling with exponential backoff
           const attemptDelay = Math.min(RATE_LIMIT.baseDelayMs * Math.pow(2, rateLimiter.failureCount), RATE_LIMIT.maxDelayMs);
           logger.warn(`Rate limited on ${symbol} (attempt ${rateLimiter.failureCount + 1}), retrying in ${attemptDelay}ms`);
           rateLimiter.recordFailure();
           await new Promise(resolve => setTimeout(resolve, attemptDelay));
-          
-          // Reset window start to retry this exact same request
           continue;
         }
         
@@ -137,8 +186,9 @@ async function fetchCoinbaseCandlesPaginated(
         logger.info(`Fetched ${candles.length} candles for ${symbol} ${granularity} (${currentStart.toISOString()} to ${currentEnd.toISOString()})`);
       }
       
+      lastFetchedStart = currentStart.toISOString();
       // Advance window
-      currentStart = new Date(currentEnd.getTime() + 1000); // +1s to avoid overlap
+      currentStart = new Date(currentEnd.getTime() + 1000);
     } catch (error) {
       rateLimiter.recordFailure();
       logger.error(`Failed to fetch ${symbol} ${granularity} window: ${error.message}`);
@@ -146,7 +196,7 @@ async function fetchCoinbaseCandlesPaginated(
     }
   }
   
-  return allCandles;
+  return { candles: allCandles, timedOut, lastFetchedStart };
 }
 
 async function synthesize4hCandles(
@@ -392,6 +442,7 @@ Deno.serve(async (req) => {
     logger.info(`Starting paginated backfill for ${symbols.length} symbols × ${granularities.length} granularities, ${lookback_days} days`);
     logger.info(`Processing symbols in random order: ${shuffledSymbols.join(', ')}`);
 
+    const functionStartTime = Date.now();
     const rateLimiter = new RateLimiter();
     const results: any[] = [];
     const endTime = new Date();
@@ -437,27 +488,65 @@ Deno.serve(async (req) => {
 
             logger.info(`✓ ${symbol} ${granularity}: ${synthetic4hCount} synthesized from 1h`);
           } else {
-            // Native granularities (5m, 1h, 24h)
-            logger.info(`🔄 Processing ${symbol} ${granularity} from ${startTime.toISOString()} to ${endTime.toISOString()}`);
-            logger.info(`Backfilling ${symbol} ${granularity} with pagination`);
-            
-            const candles = await fetchCoinbaseCandlesPaginated(
-              symbol,
-              granularity,
-              startTime,
-              endTime,
-              rateLimiter
-            );
+            // Native granularities (5m, 1h, 24h) — bidirectional gap-fill
+            const bounds = await fetchExistingBounds(supabase, symbol, granularity);
+            logger.info(`📊 Existing bounds for ${symbol} ${granularity}: count=${bounds.count}, oldest=${bounds.oldest}, newest=${bounds.newest}`);
 
-            logger.info(`📦 Fetched ${candles.length} candles for ${symbol} ${granularity}`);
-            const upsertedCount = await upsertCandles(supabase, symbol, granularity, candles);
-            logger.info(`💾 Upserted ${upsertedCount} rows for ${symbol} ${granularity}`);
+            let totalFetched = 0;
+            let totalUpserted = 0;
+            let anyTimedOut = false;
+            let resumeFrom: string | undefined;
 
-            
-            // Get latest candle timestamp from fetched data  
-            if (candles.length > 0) {
-              const sortedCandles = candles.sort((a, b) => b[0] - a[0]);
-              latestCandleTs = new Date(sortedCandles[0][0] * 1000).toISOString();
+            if (bounds.count === 0) {
+              // Case 1: Empty — full seed from scratch
+              logger.info(`🆕 No existing data for ${symbol} ${granularity} — full ${lookback_days}-day seed`);
+              const result = await fetchCoinbaseCandlesPaginated(symbol, granularity, startTime, endTime, rateLimiter, functionStartTime);
+              totalFetched = result.candles.length;
+              anyTimedOut = result.timedOut;
+              resumeFrom = result.lastFetchedStart;
+              if (result.candles.length > 0) {
+                totalUpserted = await upsertCandles(supabase, symbol, granularity, result.candles);
+              }
+            } else {
+              const existingOldest = new Date(bounds.oldest!);
+              const existingNewest = new Date(bounds.newest!);
+
+              // Case 2: Historical gap — fill before oldest existing row
+              if (startTime < existingOldest) {
+                logger.info(`⬅️ Filling historical gap for ${symbol} ${granularity}: ${startTime.toISOString()} → ${existingOldest.toISOString()}`);
+                const histResult = await fetchCoinbaseCandlesPaginated(symbol, granularity, startTime, existingOldest, rateLimiter, functionStartTime);
+                totalFetched += histResult.candles.length;
+                if (histResult.timedOut) { anyTimedOut = true; resumeFrom = histResult.lastFetchedStart; }
+                if (histResult.candles.length > 0) {
+                  totalUpserted += await upsertCandles(supabase, symbol, granularity, histResult.candles);
+                }
+              }
+
+              // Case 3: Forward gap — fill after newest existing row (cron outage recovery)
+              if (!anyTimedOut && existingNewest < endTime) {
+                const forwardStart = new Date(existingNewest.getTime() + 1000);
+                logger.info(`➡️ Filling forward gap for ${symbol} ${granularity}: ${forwardStart.toISOString()} → ${endTime.toISOString()}`);
+                const fwdResult = await fetchCoinbaseCandlesPaginated(symbol, granularity, forwardStart, endTime, rateLimiter, functionStartTime);
+                totalFetched += fwdResult.candles.length;
+                if (fwdResult.timedOut) { anyTimedOut = true; resumeFrom = fwdResult.lastFetchedStart; }
+                if (fwdResult.candles.length > 0) {
+                  totalUpserted += await upsertCandles(supabase, symbol, granularity, fwdResult.candles);
+                }
+              }
+            }
+
+            logger.info(`📦 Total fetched ${totalFetched}, upserted ${totalUpserted} for ${symbol} ${granularity}${anyTimedOut ? ' (PARTIAL — timed out)' : ''}`);
+
+            // Get latest candle timestamp
+            if (totalUpserted > 0) {
+              const { data } = await supabase
+                .from('market_ohlcv_raw')
+                .select('ts_utc')
+                .eq('symbol', symbol)
+                .eq('granularity', granularity)
+                .order('ts_utc', { ascending: false })
+                .limit(1);
+              latestCandleTs = data?.[0]?.ts_utc;
             }
             
             await updateHealthMetrics(supabase, symbol, granularity, true, latestCandleTs);
@@ -465,12 +554,15 @@ Deno.serve(async (req) => {
             results.push({
               symbol,
               granularity,
-              candles_fetched: candles.length,
-              candles_upserted: upsertedCount,
+              candles_fetched: totalFetched,
+              candles_upserted: totalUpserted,
+              existing_count: bounds.count,
+              status: anyTimedOut ? 'partial' : 'complete',
+              resume_from: resumeFrom,
               success: true
             });
 
-            logger.info(`✓ ${symbol} ${granularity}: ${candles.length} fetched, ${upsertedCount} upserted`);
+            logger.info(`✓ ${symbol} ${granularity}: ${totalFetched} fetched, ${totalUpserted} upserted, status=${anyTimedOut ? 'partial' : 'complete'}`);
           }
         } catch (error) {
           logger.error(`✗ ${symbol} ${granularity}: ${error.message}`);
