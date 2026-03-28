@@ -442,6 +442,7 @@ Deno.serve(async (req) => {
     logger.info(`Starting paginated backfill for ${symbols.length} symbols × ${granularities.length} granularities, ${lookback_days} days`);
     logger.info(`Processing symbols in random order: ${shuffledSymbols.join(', ')}`);
 
+    const functionStartTime = Date.now();
     const rateLimiter = new RateLimiter();
     const results: any[] = [];
     const endTime = new Date();
