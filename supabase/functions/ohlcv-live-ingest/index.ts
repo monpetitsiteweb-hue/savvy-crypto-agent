@@ -388,7 +388,7 @@ Deno.serve(async (req) => {
     
     // Default symbols and granularities for scheduled runs
     const DEFAULT_SYMBOLS = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 'AVAX-EUR', 'DOT-EUR', 'LINK-EUR', 'LTC-EUR', 'BCH-EUR'];
-    const DEFAULT_GRANULARITIES = ['5m', '1h', '4h', '24h'];
+    const DEFAULT_GRANULARITIES = ['1h', '4h', '24h'];
     
     const symbols: string[] = body.symbols || DEFAULT_SYMBOLS;
     const granularities: string[] = body.granularities || DEFAULT_GRANULARITIES;
