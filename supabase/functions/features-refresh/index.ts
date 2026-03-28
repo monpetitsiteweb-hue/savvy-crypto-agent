@@ -385,7 +385,7 @@ Deno.serve(async (req) => {
       });
     }
     
-    logger.info(`📊 Computing features for ${symbols.length} symbols × ${granularities.length} granularities (lookback: ${lookback_days} days)`);
+    logger.info(`📊 Computing features for ${symbols.length} symbols × ${granularities.length} granularities (lookback: ${lookback_days} days${seedLimit ? `, seed_limit: ${seedLimit}` : ''})`);
 
     const results: any[] = [];
     let totalFeaturesComputed = 0;
