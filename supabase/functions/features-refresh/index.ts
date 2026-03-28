@@ -176,10 +176,15 @@ async function computeFeatures(
   supabase: any,
   symbol: string,
   granularity: string,
-  lookbackDays: number
+  lookbackDays: number,
+  queryLimit?: number
 ): Promise<number> {
   const endTime = new Date();
   const startTime = new Date(endTime.getTime() - (lookbackDays * 24 * 60 * 60 * 1000));
+
+  // Default limits: 2200 for 5m (covers 7d window + EMA-200 warmup), 500 for others
+  // queryLimit override allows one-time historical seed runs with higher limits
+  const effectiveLimit = queryLimit ?? (granularity === '5m' ? 2200 : 500);
 
   // Get OHLCV data for feature computation (need 300 candles for EMA-200 + buffer)
   const { data: candles, error } = await supabase
@@ -189,7 +194,7 @@ async function computeFeatures(
     .eq('granularity', granularity)
     .gte('ts_utc', startTime.toISOString())
     .order('ts_utc')
-    .limit(granularity === '5m' ? 2200 : 500); // 5m needs 2016+ candles for 7d window
+    .limit(effectiveLimit);
 
   if (error) {
     throw new Error(`Failed to fetch candles for features: ${error.message}`);
@@ -366,6 +371,10 @@ Deno.serve(async (req) => {
     const lookback_days = Number.isFinite(payload.lookback_days) && payload.lookback_days > 0 
       ? payload.lookback_days 
       : 30;
+    // Optional override for one-time historical seed — not used by production pg_cron
+    const seedLimit = Number.isFinite(payload._seed_limit) && payload._seed_limit > 0
+      ? payload._seed_limit
+      : undefined;
 
     if (!Array.isArray(symbols) || !Array.isArray(granularities)) {
       return new Response(JSON.stringify({ 
@@ -376,7 +385,7 @@ Deno.serve(async (req) => {
       });
     }
     
-    logger.info(`📊 Computing features for ${symbols.length} symbols × ${granularities.length} granularities (lookback: ${lookback_days} days)`);
+    logger.info(`📊 Computing features for ${symbols.length} symbols × ${granularities.length} granularities (lookback: ${lookback_days} days${seedLimit ? `, seed_limit: ${seedLimit}` : ''})`);
 
     const results: any[] = [];
     let totalFeaturesComputed = 0;
@@ -385,7 +394,7 @@ Deno.serve(async (req) => {
     for (const symbol of symbols) {
       for (const granularity of granularities) {
         try {
-          const featuresCount = await computeFeatures(supabase, symbol, granularity, lookback_days);
+          const featuresCount = await computeFeatures(supabase, symbol, granularity, lookback_days, seedLimit);
           totalFeaturesComputed += featuresCount;
           
           results.push({
