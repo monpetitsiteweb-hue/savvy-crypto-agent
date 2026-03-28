@@ -4603,6 +4603,10 @@ export type Database = {
         Args: { p_strategy_id: string; p_user_id: string }
         Returns: Json
       }
+      prune_5m_market_data_batch: {
+        Args: { p_batch_size?: number; p_cutoff: string; p_table: string }
+        Returns: number
+      }
       prune_price_data_batch: {
         Args: { p_batch_size?: number; p_cutoff: string; p_symbol: string }
         Returns: number
