@@ -394,7 +394,7 @@ Deno.serve(async (req) => {
     for (const symbol of symbols) {
       for (const granularity of granularities) {
         try {
-          const featuresCount = await computeFeatures(supabase, symbol, granularity, lookback_days);
+          const featuresCount = await computeFeatures(supabase, symbol, granularity, lookback_days, seedLimit);
           totalFeaturesComputed += featuresCount;
           
           results.push({
