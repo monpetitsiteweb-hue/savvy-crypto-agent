@@ -1,0 +1,26 @@
+name: OHLCV 5m Backfill Seed (one-time)
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+jobs:
+  backfill-5m:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        batch:
+          - '["BTC-EUR","ETH-EUR"]'
+          - '["XRP-EUR","ADA-EUR","SOL-EUR"]'
+          - '["AVAX-EUR","DOT-EUR","LINK-EUR"]'
+          - '["LTC-EUR","BCH-EUR"]'
+      max-parallel: 1  # Sequential to respect rate limits
+    steps:
+      - name: Backfill 5m batch
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"symbols":${{ matrix.batch }},"granularities":["5m"],"lookback_days":30}' \
+            https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/ohlcv-backfill
