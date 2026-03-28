@@ -359,7 +359,7 @@ Deno.serve(async (req) => {
     const symbols = Array.isArray(payload.symbols) && payload.symbols.length 
       ? payload.symbols 
       : defaultSymbols;
-    const granularitiesDefault = ["5m", "1h", "4h", "24h"];
+    const granularitiesDefault = ["1h", "4h", "24h"];
     const granularities = Array.isArray(payload.granularities) && payload.granularities.length 
       ? payload.granularities 
       : granularitiesDefault;
