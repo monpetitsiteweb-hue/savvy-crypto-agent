@@ -106,7 +106,8 @@ async function fetchLatestCandles(
   since: Date,
   rateLimiter: RateLimiter
 ): Promise<CoinbaseCandle[]> {
-  const granularitySeconds = granularity === '1h' ? 3600 : granularity === '4h' ? 14400 : 86400;
+  const granularityMap: Record<string, number> = { '5m': 300, '1h': 3600, '4h': 14400, '24h': 86400 };
+  const granularitySeconds = granularityMap[granularity] ?? 3600;
   const now = new Date();
   
   for (let attempt = 0; attempt < RATE_LIMIT.maxRetries; attempt++) {
@@ -253,10 +254,11 @@ async function computeFeatures(
   granularity: string,
   latestTimestamp: Date
 ): Promise<void> {
-  // Get enough candles for EMA-200 + buffer
-  const step = { '1h': 1, '4h': 4, '24h': 24 }[granularity] || 1;
-  const lookbackCandles = Math.max(250, 168 / step);
-  const lookbackStart = new Date(latestTimestamp.getTime() - (lookbackCandles * step * 3600000));
+  // Get enough candles for EMA-200 + buffer — use integer stepMinutes to avoid floating-point corruption
+  const stepMinutes: Record<string, number> = { '5m': 5, '1h': 60, '4h': 240, '24h': 1440 };
+  const sm = stepMinutes[granularity] ?? 60;
+  const lookbackCandles = Math.max(250, Math.round(10080 / sm)); // 10080 min = 7 days
+  const lookbackStart = new Date(latestTimestamp.getTime() - (lookbackCandles * sm * 60000));
 
   const { data: candles, error } = await supabase
     .from('market_ohlcv_raw')
@@ -276,11 +278,11 @@ async function computeFeatures(
   const lastIndex = prices.length - 1;
   if (lastIndex < 1) return;
 
-  // Scale windows by granularity
-  const ret_1h_window = Math.max(1, Math.floor(1 / step));
-  const ret_4h_window = Math.max(1, Math.floor(4 / step));
-  const ret_24h_window = Math.max(1, Math.floor(24 / step));
-  const ret_7d_window = Math.max(1, Math.floor(168 / step));
+  // Scale windows by granularity — integer minutes, zero floating-point risk
+  const ret_1h_window = Math.max(1, Math.round(60 / sm));
+  const ret_4h_window = Math.max(1, Math.round(240 / sm));
+  const ret_24h_window = Math.max(1, Math.round(1440 / sm));
+  const ret_7d_window = Math.max(1, Math.round(10080 / sm));
 
   // Returns
   const ret_1h = lastIndex >= ret_1h_window ? Math.log(prices[lastIndex] / prices[lastIndex - ret_1h_window]) : null;
@@ -386,7 +388,7 @@ Deno.serve(async (req) => {
     
     // Default symbols and granularities for scheduled runs
     const DEFAULT_SYMBOLS = ['BTC-EUR', 'ETH-EUR', 'XRP-EUR', 'ADA-EUR', 'SOL-EUR', 'AVAX-EUR', 'DOT-EUR', 'LINK-EUR', 'LTC-EUR', 'BCH-EUR'];
-    const DEFAULT_GRANULARITIES = ['1h', '4h', '24h'];
+    const DEFAULT_GRANULARITIES = ['5m', '1h', '4h', '24h'];
     
     const symbols: string[] = body.symbols || DEFAULT_SYMBOLS;
     const granularities: string[] = body.granularities || DEFAULT_GRANULARITIES;

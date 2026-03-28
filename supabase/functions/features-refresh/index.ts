@@ -189,7 +189,7 @@ async function computeFeatures(
     .eq('granularity', granularity)
     .gte('ts_utc', startTime.toISOString())
     .order('ts_utc')
-    .limit(500);
+    .limit(granularity === '5m' ? 2200 : 500); // 5m needs 2016+ candles for 7d window
 
   if (error) {
     throw new Error(`Failed to fetch candles for features: ${error.message}`);
@@ -212,12 +212,13 @@ async function computeFeatures(
   const ema50 = calculateEMA(closePrices, 50);
   const ema200 = calculateEMA(closePrices, 200);
 
-  // Scale windows by granularity for returns/volatility
-  const step = { '1h': 1, '4h': 4, '24h': 24 }[granularity] || 1;
-  const ret_1h_window = Math.max(1, Math.floor(1 / step));
-  const ret_4h_window = Math.max(1, Math.floor(4 / step));  
-  const ret_24h_window = Math.max(1, Math.floor(24 / step));
-  const ret_7d_window = Math.max(1, Math.floor(168 / step));
+  // Scale windows by granularity — integer stepMinutes to avoid floating-point corruption
+  const stepMinutesMap: Record<string, number> = { '5m': 5, '1h': 60, '4h': 240, '24h': 1440 };
+  const sm = stepMinutesMap[granularity] ?? 60;
+  const ret_1h_window = Math.max(1, Math.round(60 / sm));
+  const ret_4h_window = Math.max(1, Math.round(240 / sm));
+  const ret_24h_window = Math.max(1, Math.round(1440 / sm));
+  const ret_7d_window = Math.max(1, Math.round(10080 / sm));
 
   // Compute features for each candle
   const features = [];
@@ -358,7 +359,7 @@ Deno.serve(async (req) => {
     const symbols = Array.isArray(payload.symbols) && payload.symbols.length 
       ? payload.symbols 
       : defaultSymbols;
-    const granularitiesDefault = ["1h", "4h", "24h"];
+    const granularitiesDefault = ["5m", "1h", "4h", "24h"];
     const granularities = Array.isArray(payload.granularities) && payload.granularities.length 
       ? payload.granularities 
       : granularitiesDefault;
