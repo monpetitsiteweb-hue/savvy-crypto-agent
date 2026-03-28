@@ -83,7 +83,8 @@ async function fetchCoinbaseCandlesPaginated(
   endTime: Date,
   rateLimiter: RateLimiter
 ): Promise<CoinbaseCandle[]> {
-  const granularitySeconds = granularity === '1h' ? 3600 : 86400; // Only native 1h and 24h
+  const granularityMap: Record<string, number> = { '5m': 300, '1h': 3600, '24h': 86400 };
+  const granularitySeconds = granularityMap[granularity] ?? 3600;
   const allCandles: CoinbaseCandle[] = [];
   
   let currentStart = new Date(startTime);
@@ -403,7 +404,7 @@ Deno.serve(async (req) => {
           let latestCandleTs: string | undefined;
           
           if (granularity === '4h') {
-            // Ensure we have 1h data first, then synthesize 4h
+            // Synthesize 4h from 1h — not a native Coinbase granularity
             if (!granularities.includes('1h')) {
               logger.warn(`Skipping 4h synthesis for ${symbol} - 1h not in granularities list`);
               continue;
@@ -436,7 +437,7 @@ Deno.serve(async (req) => {
 
             logger.info(`✓ ${symbol} ${granularity}: ${synthetic4hCount} synthesized from 1h`);
           } else {
-            // Native granularities (1h, 24h)
+            // Native granularities (5m, 1h, 24h)
             logger.info(`🔄 Processing ${symbol} ${granularity} from ${startTime.toISOString()} to ${endTime.toISOString()}`);
             logger.info(`Backfilling ${symbol} ${granularity} with pagination`);
             

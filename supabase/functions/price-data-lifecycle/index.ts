@@ -355,7 +355,50 @@ serve(async (req) => {
       logger.info(`[lifecycle][${runId}] ${sym}: pruned ${symDeleted} rows`);
     }
 
-    // ── STEP 4: FINAL LOG UPDATE ──
+    // ── STEP 4: PRUNE 5m OHLCV + FEATURES (45-day retention) ──
+    logger.info(`[lifecycle][${runId}] Step 4: Prune 5m market data`);
+    const cutoff5m = new Date();
+    cutoff5m.setDate(cutoff5m.getDate() - HOT_WINDOW_DAYS);
+    const cutoff5mISO = cutoff5m.toISOString();
+    let total5mDeleted = 0;
+
+    for (const table of ['market_ohlcv_raw', 'market_features_v0'] as const) {
+      if (elapsed() > TIMEOUT_MS) {
+        logger.warn(`[lifecycle][${runId}] Timeout before 5m prune of ${table}`);
+        break;
+      }
+
+      let batchNum = 0;
+      while (true) {
+        if (elapsed() > TIMEOUT_MS) break;
+        batchNum++;
+
+        const { data: deleted, error: delErr } = await supabase.rpc(
+          'prune_5m_market_data_batch',
+          {
+            p_table: table,
+            p_cutoff: cutoff5mISO,
+            p_batch_size: PRUNE_BATCH_SIZE,
+          }
+        );
+
+        if (delErr) {
+          logger.error(`[lifecycle][${runId}] 5m prune error ${table} batch ${batchNum}: ${delErr.message}`);
+          break;
+        }
+
+        const batchDeleted = deleted ?? 0;
+        total5mDeleted += batchDeleted;
+        if (batchDeleted < PRUNE_BATCH_SIZE) break;
+        await sleep(PRUNE_SLEEP_MS);
+      }
+
+      logger.info(`[lifecycle][${runId}] ${table} 5m: pruned rows in ${batchNum} batches`);
+    }
+
+    logger.info(`[lifecycle][${runId}] Total 5m rows pruned: ${total5mDeleted}`);
+
+    // ── STEP 5: FINAL LOG UPDATE ──
     const finalStatus = timedOut ? 'partial' : 'success';
     const elapsedSec = (elapsed() / 1000).toFixed(1);
 
@@ -363,11 +406,11 @@ serve(async (req) => {
       row_count_deleted: totalDeleted,
       prune_status: finalStatus,
       error_message: timedOut
-        ? `Timeout at ${elapsedSec}s. Completed symbols: [${completedSymbols.join(', ')}]. Deleted: ${totalDeleted}/${totalExported}.`
+        ? `Timeout at ${elapsedSec}s. Completed symbols: [${completedSymbols.join(', ')}]. Deleted: ${totalDeleted}/${totalExported}. 5m pruned: ${total5mDeleted}.`
         : null,
     });
 
-    logger.info(`[lifecycle][${runId}] === Lifecycle complete in ${elapsedSec}s: status=${finalStatus}, exported=${totalExported}, deleted=${totalDeleted} ===`);
+    logger.info(`[lifecycle][${runId}] === Lifecycle complete in ${elapsedSec}s: status=${finalStatus}, exported=${totalExported}, deleted=${totalDeleted}, 5m_pruned=${total5mDeleted} ===`);
 
     return withCors({
       success: true,
@@ -376,6 +419,7 @@ serve(async (req) => {
       status: finalStatus,
       exported: totalExported,
       deleted: totalDeleted,
+      pruned_5m: total5mDeleted,
       per_symbol_counts: perSymbolCounts,
       completed_symbols: completedSymbols,
       file_path: filePath,
