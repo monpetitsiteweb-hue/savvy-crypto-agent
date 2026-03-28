@@ -76,20 +76,72 @@ class RateLimiter {
   }
 }
 
+interface FetchResult {
+  candles: CoinbaseCandle[];
+  timedOut: boolean;
+  lastFetchedStart?: string;
+}
+
+async function fetchExistingBounds(
+  supabase: any,
+  symbol: string,
+  granularity: string
+): Promise<{ oldest: string | null; newest: string | null; count: number }> {
+  const [oldestRes, newestRes, countRes] = await Promise.all([
+    supabase
+      .from('market_ohlcv_raw')
+      .select('ts_utc')
+      .eq('symbol', symbol)
+      .eq('granularity', granularity)
+      .order('ts_utc', { ascending: true })
+      .limit(1),
+    supabase
+      .from('market_ohlcv_raw')
+      .select('ts_utc')
+      .eq('symbol', symbol)
+      .eq('granularity', granularity)
+      .order('ts_utc', { ascending: false })
+      .limit(1),
+    supabase
+      .from('market_ohlcv_raw')
+      .select('ts_utc', { count: 'exact', head: true })
+      .eq('symbol', symbol)
+      .eq('granularity', granularity),
+  ]);
+
+  return {
+    oldest: oldestRes.data?.[0]?.ts_utc ?? null,
+    newest: newestRes.data?.[0]?.ts_utc ?? null,
+    count: countRes.count ?? 0,
+  };
+}
+
 async function fetchCoinbaseCandlesPaginated(
   symbol: string,
   granularity: string,
   startTime: Date,
   endTime: Date,
-  rateLimiter: RateLimiter
-): Promise<CoinbaseCandle[]> {
+  rateLimiter: RateLimiter,
+  functionStartTime: number
+): Promise<FetchResult> {
+  const ELAPSED_LIMIT_MS = 50_000; // 50s safety guard
   const granularityMap: Record<string, number> = { '5m': 300, '1h': 3600, '24h': 86400 };
   const granularitySeconds = granularityMap[granularity] ?? 3600;
   const allCandles: CoinbaseCandle[] = [];
+  let timedOut = false;
+  let lastFetchedStart: string | undefined;
   
   let currentStart = new Date(startTime);
   
   while (currentStart < endTime) {
+    // Elapsed-time guard: stop cleanly before 60s wall-clock
+    const elapsed = Date.now() - functionStartTime;
+    if (elapsed > ELAPSED_LIMIT_MS) {
+      logger.warn(`⏱️ Elapsed ${elapsed}ms > ${ELAPSED_LIMIT_MS}ms limit for ${symbol} ${granularity} — stopping cleanly`);
+      timedOut = true;
+      break;
+    }
+
     // Calculate window end (300 candles max per request)
     const windowMs = (MAX_CANDLES_PER_REQUEST - 1) * granularitySeconds * 1000;
     const currentEnd = new Date(Math.min(
@@ -114,13 +166,10 @@ async function fetchCoinbaseCandlesPaginated(
 
       if (!response.ok) {
         if (response.status === 429) {
-          // More aggressive rate limit handling with exponential backoff
           const attemptDelay = Math.min(RATE_LIMIT.baseDelayMs * Math.pow(2, rateLimiter.failureCount), RATE_LIMIT.maxDelayMs);
           logger.warn(`Rate limited on ${symbol} (attempt ${rateLimiter.failureCount + 1}), retrying in ${attemptDelay}ms`);
           rateLimiter.recordFailure();
           await new Promise(resolve => setTimeout(resolve, attemptDelay));
-          
-          // Reset window start to retry this exact same request
           continue;
         }
         
@@ -137,8 +186,9 @@ async function fetchCoinbaseCandlesPaginated(
         logger.info(`Fetched ${candles.length} candles for ${symbol} ${granularity} (${currentStart.toISOString()} to ${currentEnd.toISOString()})`);
       }
       
+      lastFetchedStart = currentStart.toISOString();
       // Advance window
-      currentStart = new Date(currentEnd.getTime() + 1000); // +1s to avoid overlap
+      currentStart = new Date(currentEnd.getTime() + 1000);
     } catch (error) {
       rateLimiter.recordFailure();
       logger.error(`Failed to fetch ${symbol} ${granularity} window: ${error.message}`);
@@ -146,7 +196,7 @@ async function fetchCoinbaseCandlesPaginated(
     }
   }
   
-  return allCandles;
+  return { candles: allCandles, timedOut, lastFetchedStart };
 }
 
 async function synthesize4hCandles(
