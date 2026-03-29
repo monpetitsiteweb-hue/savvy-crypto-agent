@@ -82,6 +82,89 @@ interface FetchResult {
   lastFetchedStart?: string;
 }
 
+interface InteriorGap {
+  gapStart: string;  // ts_utc of last row before gap
+  gapEnd: string;    // ts_utc of first row after gap
+  gapMinutes: number;
+}
+
+async function findLargestInteriorGap(
+  supabase: any,
+  symbol: string,
+  granularity: string,
+  windowStart: Date,
+  windowEnd: Date
+): Promise<InteriorGap | null> {
+  // Use a SQL query via RPC or raw query to find the largest gap
+  // The query uses the existing (symbol, granularity, ts_utc) index
+  const { data, error } = await supabase.rpc('find_largest_ohlcv_gap', {
+    p_symbol: symbol,
+    p_granularity: granularity,
+    p_window_start: windowStart.toISOString(),
+    p_window_end: windowEnd.toISOString(),
+    p_min_gap_minutes: 10
+  });
+
+  if (error) {
+    // Fallback: if RPC doesn't exist yet, do client-side gap detection
+    logger.warn(`RPC find_largest_ohlcv_gap failed (${error.message}), using client-side fallback`);
+    return findLargestInteriorGapClientSide(supabase, symbol, granularity, windowStart, windowEnd);
+  }
+
+  if (!data || data.length === 0) {
+    return null;
+  }
+
+  return {
+    gapStart: data[0].gap_start,
+    gapEnd: data[0].gap_end,
+    gapMinutes: data[0].gap_minutes
+  };
+}
+
+async function findLargestInteriorGapClientSide(
+  supabase: any,
+  symbol: string,
+  granularity: string,
+  windowStart: Date,
+  windowEnd: Date
+): Promise<InteriorGap | null> {
+  // Fetch all timestamps (just ts_utc) in order — lightweight query
+  const { data, error } = await supabase
+    .from('market_ohlcv_raw')
+    .select('ts_utc')
+    .eq('symbol', symbol)
+    .eq('granularity', granularity)
+    .gte('ts_utc', windowStart.toISOString())
+    .lte('ts_utc', windowEnd.toISOString())
+    .order('ts_utc', { ascending: true })
+    .limit(9000);
+
+  if (error || !data || data.length < 2) {
+    return null;
+  }
+
+  let largestGap: InteriorGap | null = null;
+  let maxGapMinutes = 10; // minimum threshold
+
+  for (let i = 0; i < data.length - 1; i++) {
+    const current = new Date(data[i].ts_utc).getTime();
+    const next = new Date(data[i + 1].ts_utc).getTime();
+    const gapMinutes = (next - current) / 60000;
+
+    if (gapMinutes > maxGapMinutes) {
+      maxGapMinutes = gapMinutes;
+      largestGap = {
+        gapStart: data[i].ts_utc,
+        gapEnd: data[i + 1].ts_utc,
+        gapMinutes
+      };
+    }
+  }
+
+  return largestGap;
+}
+
 async function fetchExistingBounds(
   supabase: any,
   symbol: string,
