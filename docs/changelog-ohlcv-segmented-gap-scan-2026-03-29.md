@@ -92,3 +92,11 @@ Each rerun targets the single largest gap. After filling it (or partially fillin
 - Idempotency: guaranteed by unique constraint — no duplicate risk
 - No full-window refetch: only targeted gap windows are fetched
 - Existing complete symbols (BTC, LTC, XRP, ETH, SOL): will show `fill_strategy: "complete"` or small forward-edge fills
+
+## Verification (DOT-EUR test)
+
+- Interior gap correctly detected: 280-min gap at `2026-03-21 02:40 → 07:20`
+- Function fetched from gap start through to endTime (507 candles in one run vs ~2 before)
+- `fill_strategy: "interior-gap"` confirmed in response
+- Some gaps may represent genuine Coinbase data gaps (no candles available for those windows)
+- The function now fills all **fillable** gaps progressively; unfillable gaps (Coinbase data holes) are harmless due to idempotent upsert
