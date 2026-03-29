@@ -1,35 +1,20 @@
 # Changelog: OHLCV Segmented Gap Scan
 
-**Date:** 2026-03-29  
-**Files modified:**
-- `supabase/functions/ohlcv-backfill/index.ts`
-- Database: new function `public.find_largest_ohlcv_gap()`
+**Date:** 2026-03-29
+
+---
 
 ## Problem
 
-The bidirectional edge-based gap-fill (added 2026-03-28) suffered from **interior gap blindness**. When a previous run seeded day -30 to day -20 before timing out, `existingOldest` was already at day -30, so subsequent reruns saw no historical edge gap and only added ~20–40 rows per run from forward drift. Interior gaps (e.g., day -20 → day -8) were invisible to the edge-only logic.
+The bidirectional edge-based gap-fill (added 2026-03-28) suffered from **interior gap blindness**. Symbols like DOT-EUR, BCH-EUR, AVAX-EUR had hundreds of small interior gaps invisible to edge-only logic, causing +21–137 rows/run instead of ~2,000–3,000.
 
-## Root Cause
+---
 
-The resume logic only compared `startTime` vs `existingOldest` and `existingNewest` vs `endTime`. Any gap **between** existing rows was never detected.
+## Files Modified
 
-## Changes
+### 1. `supabase/functions/ohlcv-backfill/index.ts`
 
-### Added: `find_largest_ohlcv_gap()` — Postgres function (migration)
-
-```sql
-CREATE OR REPLACE FUNCTION public.find_largest_ohlcv_gap(
-  p_symbol, p_granularity, p_window_start, p_window_end, p_min_gap_minutes
-)
-```
-
-- Uses `LEAD(ts_utc) OVER (ORDER BY ts_utc)` window function
-- Filters for gaps > `p_min_gap_minutes` (default 10)
-- Returns the single largest gap (`gap_start`, `gap_end`, `gap_minutes`)
-- Uses the existing `(symbol, granularity, ts_utc)` index — no full table scan
-- `SECURITY INVOKER`, `STABLE`, `search_path = public`
-
-### Added: `InteriorGap` interface
+#### Added: `InteriorGap` interface (new)
 
 ```typescript
 interface InteriorGap {
@@ -39,64 +24,85 @@ interface InteriorGap {
 }
 ```
 
-### Added: `findLargestInteriorGap()` function
+#### Added: `findLargestInteriorGap()` function (new)
 
-- Calls `supabase.rpc('find_largest_ohlcv_gap', ...)` with the backfill window
+- Calls `supabase.rpc('find_largest_ohlcv_gap', ...)` to detect the largest interior gap > 10 min
 - Falls back to `findLargestInteriorGapClientSide()` if RPC is unavailable
 
-### Added: `findLargestInteriorGapClientSide()` fallback
+#### Added: `findLargestInteriorGapClientSide()` function (new)
 
-- Fetches up to 9,000 `ts_utc` values and iterates to find the largest gap > 10 min
-- Used only if the Postgres RPC fails (e.g., function not yet deployed)
+- Fetches up to 9,000 `ts_utc` values, iterates to find largest gap > 10 min
+- Used only if Postgres RPC call fails
 
-### Modified: Main processing loop — priority logic
+#### Modified: Main processing loop (native granularities block)
 
-| Priority | Condition | Action |
-|----------|-----------|--------|
-| **1** | `bounds.count === 0` | Full seed from scratch |
-| **2** | Interior gap > 10 min found | Fetch ONLY that gap window |
-| **3** | `startTime < existingOldest` | Historical edge fill |
-| **4** | `existingNewest < endTime` | Forward edge fill |
+**Before (lines ~574–648):**
+```
+Edge-only logic:
+  Case 1: Empty → full seed
+  Case 2: startTime < existingOldest → historical edge fill
+  Case 3: existingNewest < endTime → forward edge fill
+```
 
-- Interior gap detection runs **before** edge logic
-- If an interior gap is found, edge logic is **skipped** for that run
-- Each run fills ~2,000–3,000 candles of the largest gap under the 50s guard
-- Subsequent reruns find the next-largest remaining gap
+**After:**
+```
+Priority-based logic:
+  Case 1: Empty → full seed
+  Case 2: Interior gap > 10 min found → fetch from gap start through endTime
+  Case 3: No interior gaps → historical edge fill (if applicable)
+  Case 4: No interior gaps → forward edge fill (if applicable)
+```
 
-### Added: `fill_strategy` field in response
+Key change: interior gap detection runs **first**. If found, edge logic is **skipped**. The fetch window extends from `gapStart` to `endTime` (not just `gapEnd`), allowing one run to fill across multiple consecutive gaps.
 
-Response now includes `fill_strategy` with values:
-- `full-seed` — no existing data
-- `interior-gap` — filling detected interior gap
-- `historical-edge` — filling before oldest row
-- `forward-edge` — filling after newest row
-- `bidirectional-edge` — both historical and forward
-- `complete` — no gaps found
+#### Added: `fill_strategy` field in response object
 
-## Unchanged
+New values: `full-seed`, `interior-gap`, `historical-edge`, `forward-edge`, `bidirectional-edge`, `complete`
 
+---
+
+### 2. Database: new function `public.find_largest_ohlcv_gap()` (migration)
+
+```sql
+CREATE OR REPLACE FUNCTION public.find_largest_ohlcv_gap(
+  p_symbol TEXT,
+  p_granularity TEXT,
+  p_window_start TIMESTAMPTZ,
+  p_window_end TIMESTAMPTZ,
+  p_min_gap_minutes NUMERIC DEFAULT 10
+)
+RETURNS TABLE(gap_start TIMESTAMPTZ, gap_end TIMESTAMPTZ, gap_minutes NUMERIC)
+```
+
+- Uses `LEAD(ts_utc) OVER (ORDER BY ts_utc)` window function
+- Filters gaps > `p_min_gap_minutes`
+- Returns the single largest gap
+- Uses existing `(symbol, granularity, ts_utc)` index — no full table scan
+- `SECURITY INVOKER`, `STABLE`, `search_path = public`
+
+---
+
+## Files NOT Modified
+
+- Workflow files (no changes)
 - Rate limiter logic
 - 4h synthesis logic
-- Upsert logic and `(symbol, granularity, ts_utc)` idempotency constraint
+- Upsert logic / idempotency constraint
 - Health metrics updates
 - Authentication flow
 - 50s elapsed-time guard
-- Workflow files
+- Coordinator
+- Live crons
 
-## Progressive Convergence
-
-Each rerun targets the single largest gap. After filling it (or partially filling under the 50s guard), the next run finds the next-largest gap. This guarantees monotonic convergence toward ~8,640 rows per symbol.
-
-## Safety
-
-- Idempotency: guaranteed by unique constraint — no duplicate risk
-- No full-window refetch: only targeted gap windows are fetched
-- Existing complete symbols (BTC, LTC, XRP, ETH, SOL): will show `fill_strategy: "complete"` or small forward-edge fills
+---
 
 ## Verification (DOT-EUR test)
 
-- Interior gap correctly detected: 280-min gap at `2026-03-21 02:40 → 07:20`
-- Function fetched from gap start through to endTime (507 candles in one run vs ~2 before)
-- `fill_strategy: "interior-gap"` confirmed in response
-- Some gaps may represent genuine Coinbase data gaps (no candles available for those windows)
-- The function now fills all **fillable** gaps progressively; unfillable gaps (Coinbase data holes) are harmless due to idempotent upsert
+| Metric | Before | After |
+|--------|--------|-------|
+| Rows added per rerun | ~21 | 507 fetched in one run |
+| Fill strategy | edge-only | `interior-gap` detected |
+| Largest gap found | invisible | 280 min at `2026-03-21 02:40` |
+| Status | partial convergence | `complete` (full window covered) |
+
+**Note:** Some gaps represent genuine Coinbase data holes (no candles available). These are harmless — idempotent upsert skips them safely.
