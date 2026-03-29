@@ -5485,9 +5485,10 @@ async function logDecisionAsync(
               expected_pnl_pct: intent.metadata?.expectedPnL || null,
               horizon: intent.metadata?.horizon || null,
               trigger: intent.metadata?.trigger || null,
-              // A1+A2: Shadow metrics for Phase 1 observation (no behavior change)
+              // A1+A2+A3: Shadow metrics for Phase 1 observation (no behavior change)
               ...(fusedSignalData?._fearGreedShadow && { fear_greed_shadow: fusedSignalData._fearGreedShadow }),
               ...(fusedSignalData?._confidenceShadow && { confidence_shadow: fusedSignalData._confidenceShadow }),
+              ...(fusedSignalData?._entryFilterShadow && { entry_filter_shadow: fusedSignalData._entryFilterShadow }),
             },
             decision_result: action,
             decision_reason: reason,
