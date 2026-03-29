@@ -4401,6 +4401,20 @@ export type Database = {
         Args: { connection_id: string }
         Returns: string
       }
+      find_largest_ohlcv_gap: {
+        Args: {
+          p_granularity: string
+          p_min_gap_minutes?: number
+          p_symbol: string
+          p_window_end: string
+          p_window_start: string
+        }
+        Returns: {
+          gap_end: string
+          gap_minutes: number
+          gap_start: string
+        }[]
+      }
       force_mock_trade_insert:
         | {
             Args: {
