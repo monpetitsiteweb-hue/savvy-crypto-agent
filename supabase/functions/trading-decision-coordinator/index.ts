@@ -3841,6 +3841,62 @@ serve(async (req) => {
         };
         console.log(`[confidence_shadow] symbol=${toBaseSymbol(intent.symbol)} current=${currentConf.toFixed(3)} continuous=${continuous.toFixed(3)} base=${base.toFixed(3)} diversity=${diversityFactor.toFixed(3)} quality=${signalQuality.toFixed(3)}`);
       }
+
+      // === A3: SHADOW LOGGING — RSI + EMA50 entry filter (Phase 1 observation only) ===
+      // Only for validated 5m symbols. Fetches latest 5m features and simulates the entry guard.
+      // Logic: RSI(14) < 40 AND price < EMA50 * 0.995 (i.e., 0.5% below EMA50)
+      // No behavior change — shadow data logged for forward validation.
+      {
+        const SHADOW_5M_SYMBOLS = ['BTC-EUR', 'ETH-EUR', 'SOL-EUR', 'LTC-EUR', 'XRP-EUR'];
+        const pairSymbol = intent.symbol.includes('-') ? intent.symbol : `${intent.symbol}-EUR`;
+
+        if (SHADOW_5M_SYMBOLS.includes(pairSymbol)) {
+          try {
+            const { data: feat5m, error: feat5mErr } = await supabaseClient
+              .from('market_features_v0')
+              .select('ts_utc, rsi_14, ema_50')
+              .eq('symbol', pairSymbol)
+              .eq('granularity', '5m')
+              .order('ts_utc', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (feat5mErr) {
+              console.warn(`[entry_filter_shadow] ${pairSymbol}: query error: ${feat5mErr.message}`);
+            } else if (!feat5m || feat5m.rsi_14 == null || feat5m.ema_50 == null) {
+              console.log(`[entry_filter_shadow] ${pairSymbol}: no 5m features available yet`);
+            } else {
+              const rsi14 = feat5m.rsi_14;
+              const ema50 = feat5m.ema_50;
+              const currentPrice = intent.metadata?.currentPrice || intent.entry_price || null;
+              const ema50Threshold = ema50 * 0.995; // 0.5% below EMA50
+
+              const rsiCondition = rsi14 < 40;
+              const ema50Condition = currentPrice != null ? currentPrice < ema50Threshold : null;
+              const wouldBlock = intent.side === 'BUY' && !(rsiCondition && (ema50Condition ?? true));
+
+              const staleness_min = Math.round((Date.now() - new Date(feat5m.ts_utc).getTime()) / 60000);
+
+              precomputedFusionData._entryFilterShadow = {
+                rsi_14: Number(rsi14.toFixed(2)),
+                ema_50: Number(ema50.toFixed(2)),
+                ema_50_threshold: Number(ema50Threshold.toFixed(2)),
+                current_price: currentPrice,
+                rsi_condition: rsiCondition,
+                ema50_condition: ema50Condition,
+                would_block: wouldBlock,
+                features_ts: feat5m.ts_utc,
+                staleness_min,
+                granularity: '5m',
+              };
+
+              console.log(`[entry_filter_shadow] ${pairSymbol}: rsi=${rsi14.toFixed(1)} ema50=${ema50.toFixed(2)} price=${currentPrice} rsi_ok=${rsiCondition} ema_ok=${ema50Condition} would_block=${wouldBlock} staleness=${staleness_min}min`);
+            }
+          } catch (shadowErr: any) {
+            console.warn(`[entry_filter_shadow] ${pairSymbol}: error: ${shadowErr?.message || shadowErr}`);
+          }
+        }
+      }
     }
 
     // DEBUG INSTRUMENTATION: Track UD mode branching
