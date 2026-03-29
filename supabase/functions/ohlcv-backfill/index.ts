@@ -82,6 +82,89 @@ interface FetchResult {
   lastFetchedStart?: string;
 }
 
+interface InteriorGap {
+  gapStart: string;  // ts_utc of last row before gap
+  gapEnd: string;    // ts_utc of first row after gap
+  gapMinutes: number;
+}
+
+async function findLargestInteriorGap(
+  supabase: any,
+  symbol: string,
+  granularity: string,
+  windowStart: Date,
+  windowEnd: Date
+): Promise<InteriorGap | null> {
+  // Use a SQL query via RPC or raw query to find the largest gap
+  // The query uses the existing (symbol, granularity, ts_utc) index
+  const { data, error } = await supabase.rpc('find_largest_ohlcv_gap', {
+    p_symbol: symbol,
+    p_granularity: granularity,
+    p_window_start: windowStart.toISOString(),
+    p_window_end: windowEnd.toISOString(),
+    p_min_gap_minutes: 10
+  });
+
+  if (error) {
+    // Fallback: if RPC doesn't exist yet, do client-side gap detection
+    logger.warn(`RPC find_largest_ohlcv_gap failed (${error.message}), using client-side fallback`);
+    return findLargestInteriorGapClientSide(supabase, symbol, granularity, windowStart, windowEnd);
+  }
+
+  if (!data || data.length === 0) {
+    return null;
+  }
+
+  return {
+    gapStart: data[0].gap_start,
+    gapEnd: data[0].gap_end,
+    gapMinutes: data[0].gap_minutes
+  };
+}
+
+async function findLargestInteriorGapClientSide(
+  supabase: any,
+  symbol: string,
+  granularity: string,
+  windowStart: Date,
+  windowEnd: Date
+): Promise<InteriorGap | null> {
+  // Fetch all timestamps (just ts_utc) in order — lightweight query
+  const { data, error } = await supabase
+    .from('market_ohlcv_raw')
+    .select('ts_utc')
+    .eq('symbol', symbol)
+    .eq('granularity', granularity)
+    .gte('ts_utc', windowStart.toISOString())
+    .lte('ts_utc', windowEnd.toISOString())
+    .order('ts_utc', { ascending: true })
+    .limit(9000);
+
+  if (error || !data || data.length < 2) {
+    return null;
+  }
+
+  let largestGap: InteriorGap | null = null;
+  let maxGapMinutes = 10; // minimum threshold
+
+  for (let i = 0; i < data.length - 1; i++) {
+    const current = new Date(data[i].ts_utc).getTime();
+    const next = new Date(data[i + 1].ts_utc).getTime();
+    const gapMinutes = (next - current) / 60000;
+
+    if (gapMinutes > maxGapMinutes) {
+      maxGapMinutes = gapMinutes;
+      largestGap = {
+        gapStart: data[i].ts_utc,
+        gapEnd: data[i + 1].ts_utc,
+        gapMinutes
+      };
+    }
+  }
+
+  return largestGap;
+}
+
 async function fetchExistingBounds(
   supabase: any,
   symbol: string,
@@ -488,7 +571,7 @@ Deno.serve(async (req) => {
 
             logger.info(`✓ ${symbol} ${granularity}: ${synthetic4hCount} synthesized from 1h`);
           } else {
-            // Native granularities (5m, 1h, 24h) — bidirectional gap-fill
+            // Native granularities (5m, 1h, 24h) — segmented gap-fill with interior gap priority
             const bounds = await fetchExistingBounds(supabase, symbol, granularity);
             logger.info(`📊 Existing bounds for ${symbol} ${granularity}: count=${bounds.count}, oldest=${bounds.oldest}, newest=${bounds.newest}`);
 
@@ -496,9 +579,11 @@ Deno.serve(async (req) => {
             let totalUpserted = 0;
             let anyTimedOut = false;
             let resumeFrom: string | undefined;
+            let fillStrategy = 'none';
 
             if (bounds.count === 0) {
               // Case 1: Empty — full seed from scratch
+              fillStrategy = 'full-seed';
               logger.info(`🆕 No existing data for ${symbol} ${granularity} — full ${lookback_days}-day seed`);
               const result = await fetchCoinbaseCandlesPaginated(symbol, granularity, startTime, endTime, rateLimiter, functionStartTime);
               totalFetched = result.candles.length;
@@ -508,34 +593,61 @@ Deno.serve(async (req) => {
                 totalUpserted = await upsertCandles(supabase, symbol, granularity, result.candles);
               }
             } else {
-              const existingOldest = new Date(bounds.oldest!);
-              const existingNewest = new Date(bounds.newest!);
+              // Priority 1: Interior gap detection — find the largest gap within existing data
+              const interiorGap = await findLargestInteriorGap(supabase, symbol, granularity, startTime, endTime);
 
-              // Case 2: Historical gap — fill before oldest existing row
-              if (startTime < existingOldest) {
-                logger.info(`⬅️ Filling historical gap for ${symbol} ${granularity}: ${startTime.toISOString()} → ${existingOldest.toISOString()}`);
-                const histResult = await fetchCoinbaseCandlesPaginated(symbol, granularity, startTime, existingOldest, rateLimiter, functionStartTime);
-                totalFetched += histResult.candles.length;
-                if (histResult.timedOut) { anyTimedOut = true; resumeFrom = histResult.lastFetchedStart; }
-                if (histResult.candles.length > 0) {
-                  totalUpserted += await upsertCandles(supabase, symbol, granularity, histResult.candles);
+              if (interiorGap && interiorGap.gapMinutes > 10) {
+                // Case 2: Interior gap found — target ONLY that window
+                fillStrategy = 'interior-gap';
+                const gapFetchStart = new Date(interiorGap.gapStart);
+                const gapFetchEnd = new Date(interiorGap.gapEnd);
+                
+                logger.info(`🔍 Interior gap detected for ${symbol} ${granularity}: ${interiorGap.gapMinutes.toFixed(0)} min gap from ${interiorGap.gapStart} → ${interiorGap.gapEnd}`);
+                
+                const gapResult = await fetchCoinbaseCandlesPaginated(symbol, granularity, gapFetchStart, gapFetchEnd, rateLimiter, functionStartTime);
+                totalFetched = gapResult.candles.length;
+                anyTimedOut = gapResult.timedOut;
+                resumeFrom = gapResult.lastFetchedStart;
+                if (gapResult.candles.length > 0) {
+                  totalUpserted = await upsertCandles(supabase, symbol, granularity, gapResult.candles);
                 }
-              }
+              } else {
+                // Priority 2: Edge-based gap-fill (no interior gaps > 10 min)
+                const existingOldest = new Date(bounds.oldest!);
+                const existingNewest = new Date(bounds.newest!);
 
-              // Case 3: Forward gap — fill after newest existing row (cron outage recovery)
-              if (!anyTimedOut && existingNewest < endTime) {
-                const forwardStart = new Date(existingNewest.getTime() + 1000);
-                logger.info(`➡️ Filling forward gap for ${symbol} ${granularity}: ${forwardStart.toISOString()} → ${endTime.toISOString()}`);
-                const fwdResult = await fetchCoinbaseCandlesPaginated(symbol, granularity, forwardStart, endTime, rateLimiter, functionStartTime);
-                totalFetched += fwdResult.candles.length;
-                if (fwdResult.timedOut) { anyTimedOut = true; resumeFrom = fwdResult.lastFetchedStart; }
-                if (fwdResult.candles.length > 0) {
-                  totalUpserted += await upsertCandles(supabase, symbol, granularity, fwdResult.candles);
+                // Case 3: Historical gap — fill before oldest existing row
+                if (startTime < existingOldest) {
+                  fillStrategy = 'historical-edge';
+                  logger.info(`⬅️ Filling historical gap for ${symbol} ${granularity}: ${startTime.toISOString()} → ${existingOldest.toISOString()}`);
+                  const histResult = await fetchCoinbaseCandlesPaginated(symbol, granularity, startTime, existingOldest, rateLimiter, functionStartTime);
+                  totalFetched += histResult.candles.length;
+                  if (histResult.timedOut) { anyTimedOut = true; resumeFrom = histResult.lastFetchedStart; }
+                  if (histResult.candles.length > 0) {
+                    totalUpserted += await upsertCandles(supabase, symbol, granularity, histResult.candles);
+                  }
+                }
+
+                // Case 4: Forward gap — fill after newest existing row (cron outage recovery)
+                if (!anyTimedOut && existingNewest < endTime) {
+                  fillStrategy = fillStrategy === 'historical-edge' ? 'bidirectional-edge' : 'forward-edge';
+                  const forwardStart = new Date(existingNewest.getTime() + 1000);
+                  logger.info(`➡️ Filling forward gap for ${symbol} ${granularity}: ${forwardStart.toISOString()} → ${endTime.toISOString()}`);
+                  const fwdResult = await fetchCoinbaseCandlesPaginated(symbol, granularity, forwardStart, endTime, rateLimiter, functionStartTime);
+                  totalFetched += fwdResult.candles.length;
+                  if (fwdResult.timedOut) { anyTimedOut = true; resumeFrom = fwdResult.lastFetchedStart; }
+                  if (fwdResult.candles.length > 0) {
+                    totalUpserted += await upsertCandles(supabase, symbol, granularity, fwdResult.candles);
+                  }
+                }
+
+                if (fillStrategy === 'none') {
+                  fillStrategy = 'complete';
                 }
               }
             }
 
-            logger.info(`📦 Total fetched ${totalFetched}, upserted ${totalUpserted} for ${symbol} ${granularity}${anyTimedOut ? ' (PARTIAL — timed out)' : ''}`);
+            logger.info(`📦 Total fetched ${totalFetched}, upserted ${totalUpserted} for ${symbol} ${granularity} [strategy=${fillStrategy}]${anyTimedOut ? ' (PARTIAL — timed out)' : ''}`);
 
             // Get latest candle timestamp
             if (totalUpserted > 0) {
@@ -557,12 +669,13 @@ Deno.serve(async (req) => {
               candles_fetched: totalFetched,
               candles_upserted: totalUpserted,
               existing_count: bounds.count,
+              fill_strategy: fillStrategy,
               status: anyTimedOut ? 'partial' : 'complete',
               resume_from: resumeFrom,
               success: true
             });
 
-            logger.info(`✓ ${symbol} ${granularity}: ${totalFetched} fetched, ${totalUpserted} upserted, status=${anyTimedOut ? 'partial' : 'complete'}`);
+            logger.info(`✓ ${symbol} ${granularity}: ${totalFetched} fetched, ${totalUpserted} upserted, strategy=${fillStrategy}, status=${anyTimedOut ? 'partial' : 'complete'}`);
           }
         } catch (error) {
           logger.error(`✗ ${symbol} ${granularity}: ${error.message}`);
