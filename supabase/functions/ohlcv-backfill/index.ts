@@ -597,14 +597,15 @@ Deno.serve(async (req) => {
               const interiorGap = await findLargestInteriorGap(supabase, symbol, granularity, startTime, endTime);
 
               if (interiorGap && interiorGap.gapMinutes > 10) {
-                // Case 2: Interior gap found — target ONLY that window
+                // Case 2: Interior gap found — fetch from gap start through to endTime
+                // This covers the gap AND all subsequent gaps in a single paginated run
+                // (the 50s guard will stop cleanly if needed)
                 fillStrategy = 'interior-gap';
                 const gapFetchStart = new Date(interiorGap.gapStart);
-                const gapFetchEnd = new Date(interiorGap.gapEnd);
                 
-                logger.info(`🔍 Interior gap detected for ${symbol} ${granularity}: ${interiorGap.gapMinutes.toFixed(0)} min gap from ${interiorGap.gapStart} → ${interiorGap.gapEnd}`);
+                logger.info(`🔍 Interior gap detected for ${symbol} ${granularity}: ${interiorGap.gapMinutes.toFixed(0)} min gap starting at ${interiorGap.gapStart} — fetching through to ${endTime.toISOString()}`);
                 
-                const gapResult = await fetchCoinbaseCandlesPaginated(symbol, granularity, gapFetchStart, gapFetchEnd, rateLimiter, functionStartTime);
+                const gapResult = await fetchCoinbaseCandlesPaginated(symbol, granularity, gapFetchStart, endTime, rateLimiter, functionStartTime);
                 totalFetched = gapResult.candles.length;
                 anyTimedOut = gapResult.timedOut;
                 resumeFrom = gapResult.lastFetchedStart;
