@@ -8,6 +8,8 @@ import { MockWalletProvider } from "@/hooks/useMockWallet";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MarketDataProvider } from "@/contexts/MarketDataContext";
 import { MockTradesRealtimeProvider } from "@/contexts/MockTradesRealtimeContext";
+import { StrategyRealtimeProvider } from "@/contexts/StrategyRealtimeContext";
+import { RealTradesRealtimeProvider } from "@/contexts/RealTradesRealtimeContext";
 import Index from "./pages/Index";
 import AdminPage from "./pages/AdminPage";
 import ProfilePage from "./pages/ProfilePage";
