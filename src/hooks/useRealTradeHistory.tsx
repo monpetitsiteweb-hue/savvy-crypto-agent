@@ -2,15 +2,12 @@
  * useRealTradeHistory Hook
  * 
  * Fetches REAL on-chain trade history from real_trade_history_view.
- * This is the REAL equivalent of mock_trades history.
- * 
- * NO client-side aggregation.
- * NO joins in frontend.
- * NO fallback logic.
+ * Uses shared RealTradesRealtimeContext instead of per-component channel.
  */
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useRealTradesRealtime } from '@/contexts/RealTradesRealtimeContext';
 import type { RealTradeHistoryRow } from '@/types/trading';
 
 interface UseRealTradeHistoryResult {
@@ -38,8 +35,6 @@ export function useRealTradeHistory(): UseRealTradeHistoryResult {
     setError(null);
 
     try {
-      // Query real_trade_history_view directly
-      // Ordered by execution_recorded_at DESC (most recent first)
       const { data, error: queryError } = await (supabase
         .from('real_trade_history_view' as any)
         .select('*')
@@ -50,11 +45,10 @@ export function useRealTradeHistory(): UseRealTradeHistoryResult {
         throw queryError;
       }
 
-      // Map the response to typed rows
       const typedTrades: RealTradeHistoryRow[] = (data || []).map((row: any) => ({
         real_trade_id: row.real_trade_id,
         mock_trade_id: row.mock_trade_id,
-        trade_id: row.real_trade_id, // alias
+        trade_id: row.real_trade_id,
         user_id: row.user_id,
         strategy_id: row.strategy_id,
         symbol: row.symbol,
@@ -93,31 +87,10 @@ export function useRealTradeHistory(): UseRealTradeHistoryResult {
     refresh();
   }, [refresh]);
 
-  // Subscribe to real_trades changes for live updates
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel('real_trades_history_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'real_trades',
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          // Debounce refresh
-          setTimeout(() => refresh(), 500);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, refresh]);
+  // Use shared realtime subscription instead of per-component channel
+  useRealTradesRealtime('useRealTradeHistory', () => {
+    refresh();
+  });
 
   return { trades, isLoading, error, refresh };
 }

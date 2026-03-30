@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,7 @@ import { formatEuro, formatPercentage, formatDuration } from '@/utils/currencyFo
 import { normalizeStrategy, StrategyData } from '@/types/strategy';
 import { serializeStrategy, generateExportFilename, downloadStrategyAsJson } from '@/utils/strategySerializer';
 import { useToast } from '@/hooks/use-toast';
+import { useStrategyRealtime } from '@/contexts/StrategyRealtimeContext';
 
 interface StrategyConfigProps {
   onLayoutChange?: (isFullWidth: boolean) => void;
@@ -51,31 +52,10 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     }
   }, [user, testMode]);
 
-  // Set up real-time subscription for strategy updates
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel('strategy-list-updates')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'trading_strategies',
-          filter: `user_id=eq.${user.id}`
-        },
-        (payload) => {
-          // Refresh the strategy list when any strategy for this user is updated
-          fetchStrategies();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
+  // Use shared realtime subscription instead of per-component channel
+  useStrategyRealtime('StrategyConfig', () => {
+    fetchStrategies();
+  });
 
   // Notify parent component when view changes to full-width
   useEffect(() => {
