@@ -49,6 +49,8 @@ function AppInternal() {
           <TradingModeProvider>
             <MarketDataProvider>
               <MockTradesRealtimeProvider>
+              <StrategyRealtimeProvider>
+              <RealTradesRealtimeProvider>
                 <MockWalletProvider>
                   <ErrorBoundary>
                   <BrowserRouter>
@@ -67,6 +69,8 @@ function AppInternal() {
                   </BrowserRouter>
                   </ErrorBoundary>
                 </MockWalletProvider>
+              </RealTradesRealtimeProvider>
+              </StrategyRealtimeProvider>
               </MockTradesRealtimeProvider>
             </MarketDataProvider>
           </TradingModeProvider>

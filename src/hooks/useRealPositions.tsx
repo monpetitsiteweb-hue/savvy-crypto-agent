@@ -2,18 +2,12 @@
  * useRealPositions Hook
  * 
  * Fetches REAL on-chain positions from real_positions_view.
- * This is the REAL equivalent of open trades/positions.
- * 
- * IMPORTANT: REAL positions show QUANTITY ONLY.
- * - NO P&L
- * - NO average price
- * - NO performance metrics
- * 
- * These remain TEST-only until proper FIFO matching logic is implemented.
+ * Uses shared RealTradesRealtimeContext instead of per-component channel.
  */
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useRealTradesRealtime } from '@/contexts/RealTradesRealtimeContext';
 import type { RealPositionRow } from '@/types/trading';
 
 interface UseRealPositionsResult {
@@ -41,7 +35,6 @@ export function useRealPositions(): UseRealPositionsResult {
     setError(null);
 
     try {
-      // Query real_positions_view directly
       const { data, error: queryError } = await (supabase
         .from('real_positions_view' as any)
         .select('*')
@@ -51,7 +44,6 @@ export function useRealPositions(): UseRealPositionsResult {
         throw queryError;
       }
 
-      // Map the response to typed rows
       const typedPositions: RealPositionRow[] = (data || []).map((row: any) => ({
         user_id: row.user_id,
         strategy_id: row.strategy_id,
@@ -75,31 +67,10 @@ export function useRealPositions(): UseRealPositionsResult {
     refresh();
   }, [refresh]);
 
-  // Subscribe to real_trades changes for live updates
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel('real_positions_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'real_trades',
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => {
-          // Debounce refresh
-          setTimeout(() => refresh(), 500);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, refresh]);
+  // Use shared realtime subscription instead of per-component channel
+  useRealTradesRealtime('useRealPositions', () => {
+    refresh();
+  });
 
   return { positions, isLoading, error, refresh };
 }

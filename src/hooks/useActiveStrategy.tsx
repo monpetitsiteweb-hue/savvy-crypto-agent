@@ -4,6 +4,7 @@ import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { supabase } from '@/integrations/supabase/client';
 import { logger } from '@/utils/logger';
 import { normalizeStrategy, StrategyData } from '@/types/strategy';
+import { useStrategyRealtime } from '@/contexts/StrategyRealtimeContext';
 
 export const useActiveStrategy = () => {
   const { user } = useAuth();
@@ -19,8 +20,6 @@ export const useActiveStrategy = () => {
     }
 
     try {
-      // For simplicity, we'll look for active strategies based on is_active flag
-      // and match the test mode with is_test_mode
       const { data: strategies, error } = await (supabase as any)
         .from('trading_strategies')
         .select('*')
@@ -49,31 +48,10 @@ export const useActiveStrategy = () => {
     loadActiveStrategy();
   }, [user, testMode]);
 
-  // Set up real-time subscription for strategy updates
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel('strategy-updates')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'trading_strategies',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          // Reload the active strategy when any strategy for this user is updated
-          loadActiveStrategy();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
+  // Use shared realtime subscription instead of per-component channel
+  useStrategyRealtime('useActiveStrategy', () => {
+    loadActiveStrategy();
+  });
 
   const hasActiveStrategy = !!activeStrategy;
 
