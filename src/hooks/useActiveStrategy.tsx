@@ -1,18 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { supabase } from '@/integrations/supabase/client';
 import { logger } from '@/utils/logger';
 import { normalizeStrategy, StrategyData } from '@/types/strategy';
-import { useStrategyRealtime } from '@/contexts/StrategyRealtimeContext';
 
+/**
+ * useActiveStrategy — polls trading_strategies every 30s instead of Realtime.
+ * 
+ * Rationale: trading_strategies has only ~1.5K total writes since stats reset.
+ * Realtime subscription was causing reconnect churn on every auth token refresh.
+ * Polling every 30s is more than sufficient for this low-frequency table.
+ */
 export const useActiveStrategy = () => {
   const { user } = useAuth();
   const { testMode } = useTestMode();
   const [activeStrategy, setActiveStrategy] = useState<StrategyData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadActiveStrategy = async () => {
+  const loadActiveStrategy = useCallback(async () => {
     if (!user) {
       setActiveStrategy(null);
       setLoading(false);
@@ -42,16 +48,23 @@ export const useActiveStrategy = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id, testMode]);
 
+  // Initial load + reload on user/testMode change
   useEffect(() => {
     loadActiveStrategy();
-  }, [user, testMode]);
+  }, [loadActiveStrategy]);
 
-  // Use shared realtime subscription instead of per-component channel
-  useStrategyRealtime('useActiveStrategy', () => {
-    loadActiveStrategy();
-  });
+  // Poll every 30s instead of Realtime subscription
+  useEffect(() => {
+    if (!user) return;
+
+    const interval = setInterval(() => {
+      loadActiveStrategy();
+    }, 30_000);
+
+    return () => clearInterval(interval);
+  }, [user?.id, loadActiveStrategy]);
 
   const hasActiveStrategy = !!activeStrategy;
 

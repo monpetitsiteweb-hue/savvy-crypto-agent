@@ -5,17 +5,14 @@ import { useAuth } from '@/hooks/useAuth';
 /**
  * Shared Realtime subscription for the mock_trades table.
  * 
- * Previously, 3 separate components each opened their own Realtime channel
- * to mock_trades, causing 3x fanout amplification on every WAL event.
- * This context consolidates them into a single subscription.
+ * CHURN FIX: Uses user.id (stable string) as dependency instead of user object,
+ * preventing channel recreation on every auth token refresh.
  */
 
 type MockTradesChangeCallback = () => void;
 
 interface MockTradesRealtimeContextType {
-  /** Register a callback that fires on any mock_trades change for the current user */
   subscribe: (id: string, callback: MockTradesChangeCallback) => void;
-  /** Unregister a callback */
   unsubscribe: (id: string) => void;
 }
 
@@ -23,6 +20,7 @@ const MockTradesRealtimeContext = createContext<MockTradesRealtimeContextType | 
 
 export const MockTradesRealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const userId = user?.id;
   const listenersRef = useRef<Map<string, MockTradesChangeCallback>>(new Map());
 
   const subscribe = useCallback((id: string, callback: MockTradesChangeCallback) => {
@@ -34,7 +32,7 @@ export const MockTradesRealtimeProvider: React.FC<{ children: React.ReactNode }>
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
 
     const channel = supabase
       .channel('mock_trades_shared')
@@ -44,10 +42,9 @@ export const MockTradesRealtimeProvider: React.FC<{ children: React.ReactNode }>
           event: '*',
           schema: 'public',
           table: 'mock_trades',
-          filter: `user_id=eq.${user.id}`
+          filter: `user_id=eq.${userId}`
         },
         () => {
-          // Notify all registered listeners
           for (const callback of listenersRef.current.values()) {
             callback();
           }
@@ -58,7 +55,7 @@ export const MockTradesRealtimeProvider: React.FC<{ children: React.ReactNode }>
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [userId]); // Stable string dependency — no churn on token refresh
 
   return (
     <MockTradesRealtimeContext.Provider value={{ subscribe, unsubscribe }}>
@@ -69,9 +66,6 @@ export const MockTradesRealtimeProvider: React.FC<{ children: React.ReactNode }>
 
 /**
  * Hook to subscribe to shared mock_trades realtime changes.
- * @param id - Unique identifier for this subscriber (e.g. component name)
- * @param callback - Function to call when mock_trades changes
- * @param debounceMs - Optional debounce delay (default 500ms)
  */
 export const useMockTradesRealtime = (id: string, callback: () => void, debounceMs = 500) => {
   const ctx = useContext(MockTradesRealtimeContext);

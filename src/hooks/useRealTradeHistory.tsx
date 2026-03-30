@@ -2,12 +2,13 @@
  * useRealTradeHistory Hook
  * 
  * Fetches REAL on-chain trade history from real_trade_history_view.
- * Uses shared RealTradesRealtimeContext instead of per-component channel.
+ * 
+ * NOTE: real_trades is NOT in the supabase_realtime publication and has 0 rows.
+ * No Realtime subscription is needed. Uses polling every 60s as fallback.
  */
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { useRealTradesRealtime } from '@/contexts/RealTradesRealtimeContext';
 import type { RealTradeHistoryRow } from '@/types/trading';
 
 interface UseRealTradeHistoryResult {
@@ -81,16 +82,18 @@ export function useRealTradeHistory(): UseRealTradeHistoryResult {
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  // Use shared realtime subscription instead of per-component channel
-  useRealTradesRealtime('useRealTradeHistory', () => {
-    refresh();
-  });
+  // Poll every 60s (real_trades is not in Realtime publication)
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => refresh(), 60_000);
+    return () => clearInterval(interval);
+  }, [user?.id, refresh]);
 
   return { trades, isLoading, error, refresh };
 }
