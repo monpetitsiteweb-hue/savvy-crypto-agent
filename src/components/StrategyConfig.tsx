@@ -16,7 +16,7 @@ import { formatEuro, formatPercentage, formatDuration } from '@/utils/currencyFo
 import { normalizeStrategy, StrategyData } from '@/types/strategy';
 import { serializeStrategy, generateExportFilename, downloadStrategyAsJson } from '@/utils/strategySerializer';
 import { useToast } from '@/hooks/use-toast';
-import { useStrategyRealtime } from '@/contexts/StrategyRealtimeContext';
+
 
 interface StrategyConfigProps {
   onLayoutChange?: (isFullWidth: boolean) => void;
@@ -52,10 +52,12 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
     }
   }, [user, testMode]);
 
-  // Use shared realtime subscription instead of per-component channel
-  useStrategyRealtime('StrategyConfig', () => {
-    fetchStrategies();
-  });
+  // Poll for strategy updates every 30s (replaced Realtime to eliminate churn)
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => fetchStrategies(), 30_000);
+    return () => clearInterval(interval);
+  }, [user?.id, testMode]);
 
   // Notify parent component when view changes to full-width
   useEffect(() => {

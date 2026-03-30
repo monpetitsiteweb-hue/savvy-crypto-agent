@@ -2,12 +2,13 @@
  * useRealPositions Hook
  * 
  * Fetches REAL on-chain positions from real_positions_view.
- * Uses shared RealTradesRealtimeContext instead of per-component channel.
+ * 
+ * NOTE: real_trades is NOT in the supabase_realtime publication and has 0 rows.
+ * No Realtime subscription is needed. Uses polling every 60s as fallback.
  */
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { useRealTradesRealtime } from '@/contexts/RealTradesRealtimeContext';
 import type { RealPositionRow } from '@/types/trading';
 
 interface UseRealPositionsResult {
@@ -61,16 +62,18 @@ export function useRealPositions(): UseRealPositionsResult {
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  // Use shared realtime subscription instead of per-component channel
-  useRealTradesRealtime('useRealPositions', () => {
-    refresh();
-  });
+  // Poll every 60s (real_trades is not in Realtime publication)
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => refresh(), 60_000);
+    return () => clearInterval(interval);
+  }, [user?.id, refresh]);
 
   return { positions, isLoading, error, refresh };
 }
