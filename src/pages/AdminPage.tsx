@@ -10,8 +10,9 @@ import { DataSourceStatusPanel } from '@/components/admin/DataSourceStatusPanel'
 import { WhaleSignalPanel } from '@/components/admin/WhaleSignalPanel';
 import { CustomerManagementPanel } from '@/components/admin/CustomerManagementPanel';
 import { SignalRegistryPanel } from '@/components/admin/SignalRegistryPanel';
+import { ArchiveHealthPanel } from '@/components/admin/ArchiveHealthPanel';
 import { useUserRole } from '@/hooks/useUserRole';
-import { Settings, Bot, Database, Shield, TrendingUp, ExternalLink, Key, Activity, Users, BarChart3, FlaskConical } from 'lucide-react';
+import { Settings, Bot, Database, Shield, TrendingUp, ExternalLink, Key, Activity, Users, BarChart3, FlaskConical, Archive } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 
@@ -33,6 +34,7 @@ const AdminPage = () => {
     { id: 'llm-config', label: 'AI Configuration', icon: <Bot className="w-4 h-4" /> },
     { id: 'data-sources', label: 'Data Sources', icon: <Database className="w-4 h-4" /> },
     { id: 'signal-registry', label: 'Signal Registry', icon: <BarChart3 className="w-4 h-4" /> },
+    { id: 'archive-health', label: 'Archive Health', icon: <Archive className="w-4 h-4" /> },
     { id: 'dev-learning', label: 'Dev / Learning', icon: <FlaskConical className="w-4 h-4" /> },
   ];
 
@@ -85,6 +87,7 @@ const AdminPage = () => {
             {activeTab === 'llm-config' && <LLMConfigPanel />}
             {activeTab === 'data-sources' && <DataSourcesPanel />}
             {activeTab === 'signal-registry' && <SignalRegistryPanel />}
+            {activeTab === 'archive-health' && <ArchiveHealthPanel />}
             {activeTab === 'dev-learning' && (
               <div className="space-y-4">
                 <Alert className="bg-slate-800 border-slate-700">
