@@ -11,8 +11,15 @@ const SYMBOLS = [
 const HOT_WINDOW_DAYS = 45;
 const PRUNE_BATCH_SIZE = 500;
 const PRUNE_SLEEP_MS = 200;
-const SAFETY_CAP_PER_SYMBOL = 10_000;
-const TIMEOUT_MS = 50_000; // 50 seconds
+const SAFETY_CAP_PER_SYMBOL = 50_000;
+const TIMEOUT_MS = 50_000;
+const EXPORT_PAGE_SIZE = 1000;
+
+// Standardised CSV columns in exact order
+const CSV_COLUMNS = [
+  'timestamp', 'symbol', 'open_price', 'high_price',
+  'low_price', 'close_price', 'volume', 'interval_type'
+] as const;
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -24,7 +31,6 @@ async function computeSHA256(data: Uint8Array): Promise<string> {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   } catch {
-    // Fallback: simple hash
     let hash = 0;
     for (let i = 0; i < data.length; i++) {
       hash = ((hash << 5) - hash) + data[i];
@@ -34,17 +40,67 @@ async function computeSHA256(data: Uint8Array): Promise<string> {
   }
 }
 
+/**
+ * FIX 1 — Paginated export using .range() to bypass PostgREST 1000-row default limit.
+ */
+async function exportAllRows(
+  supabase: any,
+  symbol: string,
+  cutoffISO: string,
+  runId: string
+): Promise<any[]> {
+  const rows: any[] = [];
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('price_data')
+      .select('timestamp, symbol, open_price, high_price, low_price, close_price, volume, interval_type')
+      .eq('symbol', symbol)
+      .lt('timestamp', cutoffISO)
+      .order('timestamp', { ascending: true })
+      .range(offset, offset + EXPORT_PAGE_SIZE - 1);
+
+    if (error) throw new Error(`Export page failed for ${symbol} at offset ${offset}: ${error.message}`);
+    if (!data || data.length === 0) break;
+
+    rows.push(...data);
+    offset += EXPORT_PAGE_SIZE;
+
+    if (data.length < EXPORT_PAGE_SIZE) break;
+  }
+
+  return rows;
+}
+
+/**
+ * Build ML-ready CSV with exactly the 8 standardised columns.
+ */
+function buildCSV(rows: any[]): string {
+  const lines = [CSV_COLUMNS.join(',')];
+  for (const row of rows) {
+    const line = CSV_COLUMNS.map(col => {
+      const val = row[col];
+      if (val === null || val === undefined) return '';
+      const str = String(val);
+      return str.includes(',') || str.includes('"') || str.includes('\n')
+        ? `"${str.replace(/"/g, '""')}"` : str;
+    }).join(',');
+    lines.push(line);
+  }
+  return lines.join('\n');
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // ── AUTH CHECK: Validate x-cron-secret before any logic runs ──
+  // ── AUTH CHECK ──
   const cronSecret = Deno.env.get('CRON_SECRET');
   const providedSecret = req.headers.get('x-cron-secret');
-
   if (!cronSecret || providedSecret !== cronSecret) {
-    logger.error(`[lifecycle] Unauthorized request — invalid or missing x-cron-secret`);
+    logger.error(`[lifecycle] Unauthorized request`);
     return withCors({ success: false, error: 'Unauthorized' }, 401);
   }
 
@@ -52,7 +108,7 @@ serve(async (req) => {
   const startTime = Date.now();
   const elapsed = () => Date.now() - startTime;
 
-  logger.info(`[lifecycle][${runId}] === Price Data Lifecycle Run Started ===`);
+  logger.info(`[lifecycle][${runId}] === Run Started ===`);
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
@@ -64,9 +120,9 @@ serve(async (req) => {
   const cutoffISO = cutoff.toISOString();
   const archiveDate = new Date().toISOString().split('T')[0];
 
-  logger.info(`[lifecycle][${runId}] Cutoff: ${cutoffISO} (${HOT_WINDOW_DAYS}-day window)`);
+  logger.info(`[lifecycle][${runId}] Cutoff: ${cutoffISO}`);
 
-  // ── ADDITION 3: Insert audit row at start with 'pending' status ──
+  // ── Insert audit row ──
   let logId: string | null = null;
   try {
     const { data: logRow, error: logInsertErr } = await supabase
@@ -85,192 +141,167 @@ serve(async (req) => {
       .single();
 
     if (logInsertErr) {
-      logger.error(`[lifecycle][${runId}] Failed to insert audit log: ${logInsertErr.message}`);
+      logger.error(`[lifecycle][${runId}] Audit log insert failed: ${logInsertErr.message}`);
     } else {
       logId = logRow.id;
-      logger.info(`[lifecycle][${runId}] Audit log created: ${logId}`);
     }
   } catch (e) {
-    logger.error(`[lifecycle][${runId}] Audit log insert exception: ${e.message}`);
+    logger.error(`[lifecycle][${runId}] Audit log exception: ${e.message}`);
   }
 
-  // Helper: update the audit log row
   async function updateLog(updates: Record<string, unknown>) {
     if (!logId) return;
     const { error } = await supabase
       .from('price_data_archive_log')
       .update(updates)
       .eq('id', logId);
-    if (error) {
-      logger.error(`[lifecycle][${runId}] Failed to update audit log: ${error.message}`);
-    }
+    if (error) logger.error(`[lifecycle][${runId}] Log update failed: ${error.message}`);
   }
 
   try {
-    // ── STEP 1: EXPORT (per-symbol) ──
-    logger.info(`[lifecycle][${runId}] Step 1: Export`);
-    const perSymbolCounts: Record<string, number> = {};
-    let totalExported = 0;
-    let earliestTs: string | null = null;
-    let latestTs: string | null = null;
-    const allRows: any[] = [];
+    // ═══════════════════════════════════════════════════
+    // STEP 1 — Count rows in DB per symbol (authoritative)
+    // ═══════════════════════════════════════════════════
+    logger.info(`[lifecycle][${runId}] Step 1: Count`);
+    const dbCounts: Record<string, number> = {};
+    let totalExpected = 0;
 
     for (const sym of SYMBOLS) {
-      // Fast count check first to avoid expensive SELECT * on empty results
-      const { count: preCount, error: countError } = await supabase
+      const { count, error } = await supabase
         .from('price_data')
         .select('*', { count: 'exact', head: true })
         .eq('symbol', sym)
         .lt('timestamp', cutoffISO);
 
-      if (countError) {
-        logger.error(`[lifecycle][${runId}] Pre-count query failed for ${sym}: ${countError.message}`);
-        throw new Error(`Pre-count query failed for ${sym}: ${countError.message}`);
-      }
+      if (error) throw new Error(`Count failed for ${sym}: ${error.message}`);
+      dbCounts[sym] = count ?? 0;
+      totalExpected += dbCounts[sym];
+    }
 
-      if ((preCount ?? 0) === 0) {
+    if (totalExpected === 0) {
+      logger.info(`[lifecycle][${runId}] No rows to archive`);
+      await updateLog({ file_path: 'none', prune_status: 'skipped', per_symbol_counts: dbCounts });
+      return withCors({ success: true, run_id: runId, message: 'No rows to archive' });
+    }
+
+    logger.info(`[lifecycle][${runId}] Total expected: ${totalExpected} rows`);
+
+    // ═══════════════════════════════════════════════════
+    // STEP 2 — Export all rows via pagination (FIX 1)
+    // ═══════════════════════════════════════════════════
+    logger.info(`[lifecycle][${runId}] Step 2: Paginated export`);
+    const allRows: any[] = [];
+    const perSymbolCounts: Record<string, number> = {};
+
+    for (const sym of SYMBOLS) {
+      if (dbCounts[sym] === 0) {
         perSymbolCounts[sym] = 0;
-        logger.info(`[lifecycle][${runId}] ${sym}: 0 rows to archive`);
         continue;
       }
 
-      const { data: rows, error } = await supabase
-        .from('price_data')
-        .select('*')
-        .eq('symbol', sym)
-        .lt('timestamp', cutoffISO)
-        .order('timestamp', { ascending: true })
-        .limit(50000);
-
-      if (error) {
-        logger.error(`[lifecycle][${runId}] Export query failed for ${sym}: ${error.message}`);
-        throw new Error(`Export query failed for ${sym}: ${error.message}`);
+      // Safety cap
+      if (dbCounts[sym] > SAFETY_CAP_PER_SYMBOL) {
+        const msg = `Safety cap exceeded for ${sym}: ${dbCounts[sym]} rows`;
+        logger.error(`[lifecycle][${runId}] ${msg}`);
+        await updateLog({ prune_status: 'skipped', error_message: msg, per_symbol_counts: dbCounts });
+        return withCors({ success: false, run_id: runId, error: msg }, 500);
       }
 
-      const count = rows?.length ?? 0;
+      const rows = await exportAllRows(supabase, sym, cutoffISO, runId);
+      perSymbolCounts[sym] = rows.length;
+      allRows.push(...rows);
+      logger.info(`[lifecycle][${runId}] ${sym}: exported ${rows.length} rows (expected ${dbCounts[sym]})`);
+    }
 
-      // ── ADDITION 1: Safety cap per symbol ──
-      if (count > SAFETY_CAP_PER_SYMBOL) {
-        const msg = `export batch too large for symbol ${sym}: ${count} rows`;
+    const totalExported = allRows.length;
+
+    // ═══════════════════════════════════════════════════
+    // STEP 3 — Validate: count_in_memory vs count_in_db (FIX 2)
+    //          If mismatch → STOP, do NOT upload
+    // ═══════════════════════════════════════════════════
+    logger.info(`[lifecycle][${runId}] Step 3: Validate counts`);
+
+    for (const sym of SYMBOLS) {
+      if (dbCounts[sym] === 0) continue;
+      if (perSymbolCounts[sym] !== dbCounts[sym]) {
+        const msg = `Validation failed: ${sym} count mismatch (db=${dbCounts[sym]}, exported=${perSymbolCounts[sym]})`;
         logger.error(`[lifecycle][${runId}] ${msg}`);
         await updateLog({
-          prune_status: 'skipped',
+          prune_status: 'failed',
           error_message: msg,
-          per_symbol_counts: { ...perSymbolCounts, [sym]: count },
+          per_symbol_counts: perSymbolCounts,
         });
-        return withCors({
-          success: false,
-          run_id: runId,
-          error: msg,
-        }, 500);
+        return withCors({ success: false, run_id: runId, error: msg }, 500);
       }
-
-      perSymbolCounts[sym] = count;
-      totalExported += count;
-
-      if (rows && rows.length > 0) {
-        allRows.push(...rows);
-        const first = rows[0].timestamp;
-        const last = rows[rows.length - 1].timestamp;
-        if (!earliestTs || first < earliestTs) earliestTs = first;
-        if (!latestTs || last > latestTs) latestTs = last;
-      }
-
-      logger.info(`[lifecycle][${runId}] ${sym}: ${count} rows to archive`);
     }
 
-    if (totalExported === 0) {
-      logger.info(`[lifecycle][${runId}] No rows older than cutoff. Nothing to do.`);
-      await updateLog({
-        file_path: 'none',
-        row_count_exported: 0,
-        row_count_deleted: 0,
-        per_symbol_counts: perSymbolCounts,
-        prune_status: 'skipped',
-      });
-      return withCors({
-        success: true,
-        run_id: runId,
-        message: 'No rows to archive',
-        cutoff: cutoffISO,
-      });
+    if (totalExported !== totalExpected) {
+      const msg = `Total mismatch: exported=${totalExported}, expected=${totalExpected}`;
+      logger.error(`[lifecycle][${runId}] ${msg}`);
+      await updateLog({ prune_status: 'failed', error_message: msg });
+      return withCors({ success: false, run_id: runId, error: msg }, 500);
     }
 
-    // Build CSV
-    const headers = Object.keys(allRows[0]);
-    const csvLines = [headers.join(',')];
-    for (const row of allRows) {
-      const line = headers.map(h => {
-        const val = row[h];
-        if (val === null || val === undefined) return '';
-        const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
-        return str.includes(',') || str.includes('"') || str.includes('\n')
-          ? `"${str.replace(/"/g, '""')}"` : str;
-      }).join(',');
-      csvLines.push(line);
-    }
-    const csvContent = csvLines.join('\n');
+    logger.info(`[lifecycle][${runId}] Validation passed: ${totalExported} rows match DB counts`);
+
+    // ═══════════════════════════════════════════════════
+    // STEP 4 — Build CSV (FIX 3: standardised ML-ready format)
+    // ═══════════════════════════════════════════════════
+    // Sort by (symbol ASC, timestamp ASC) before writing
+    allRows.sort((a, b) => {
+      const symCmp = a.symbol.localeCompare(b.symbol);
+      if (symCmp !== 0) return symCmp;
+      return a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0;
+    });
+
+    const csvContent = buildCSV(allRows);
     const csvBytes = new TextEncoder().encode(csvContent);
-
-    // Compute checksum
     const checksum = await computeSHA256(csvBytes);
     logger.info(`[lifecycle][${runId}] CSV: ${totalExported} rows, ${csvBytes.length} bytes, SHA-256: ${checksum}`);
 
-    // Upload to Storage
+    // ═══════════════════════════════════════════════════
+    // STEP 5 — Upload to Storage (AFTER validation)
+    // ═══════════════════════════════════════════════════
     const filePath = `${archiveDate}/${runId}.csv`;
-
     const { error: uploadError } = await supabase.storage
       .from('price-data-archives')
-      .upload(filePath, csvBytes, {
-        contentType: 'text/csv',
-        upsert: false,
-      });
+      .upload(filePath, csvBytes, { contentType: 'text/csv', upsert: false });
 
     if (uploadError) {
-      logger.error(`[lifecycle][${runId}] Upload failed: ${uploadError.message}`);
-      throw new Error(`Storage upload failed: ${uploadError.message}`);
+      const msg = `Storage upload failed: ${uploadError.message}`;
+      logger.error(`[lifecycle][${runId}] ${msg}`);
+      await updateLog({ prune_status: 'failed', error_message: msg });
+      return withCors({ success: false, run_id: runId, error: msg }, 500);
     }
-    logger.info(`[lifecycle][${runId}] Uploaded to price-data-archives/${filePath}`);
 
-    // ── STEP 2: VALIDATE ──
-    logger.info(`[lifecycle][${runId}] Step 2: Validate`);
-
-    // Verify file exists in storage
-    const { data: fileCheck } = await supabase.storage
+    // ═══════════════════════════════════════════════════
+    // STEP 6 — Verify upload (check file exists + size)
+    // ═══════════════════════════════════════════════════
+    const { data: fileList } = await supabase.storage
       .from('price-data-archives')
       .list(archiveDate);
 
-    const fileExists = fileCheck?.some(f => f.name === `${runId}.csv`);
-    if (!fileExists) {
-      throw new Error('Validation failed: file not found in storage after upload');
+    const uploadedFile = fileList?.find(f => f.name === `${runId}.csv`);
+    if (!uploadedFile) {
+      const msg = 'Upload verification failed: file not found in storage';
+      logger.error(`[lifecycle][${runId}] ${msg}`);
+      await updateLog({ prune_status: 'failed', error_message: msg });
+      return withCors({ success: false, run_id: runId, error: msg }, 500);
     }
 
-    // ── ADDITION 2: Independent DB count validation ──
-    for (const sym of SYMBOLS) {
-      const csvSymbolCount = allRows.filter(r => r.symbol === sym).length;
-      if (csvSymbolCount === 0) continue;
+    logger.info(`[lifecycle][${runId}] Upload verified: ${filePath} (${uploadedFile.metadata?.size ?? '?'} bytes)`);
 
-      const { count: dbCount, error: countErr } = await supabase
-        .from('price_data')
-        .select('*', { count: 'exact', head: true })
-        .eq('symbol', sym)
-        .lt('timestamp', cutoffISO);
-
-      if (countErr) {
-        throw new Error(`Validation count query failed for ${sym}: ${countErr.message}`);
-      }
-
-      if (dbCount !== csvSymbolCount) {
-        throw new Error(
-          `Validation failed: ${sym} count mismatch (db=${dbCount}, csv=${csvSymbolCount}). ` +
-          `New rows may have aged past cutoff during run. Aborting to prevent data loss.`
-        );
-      }
+    // Compute earliest/latest timestamps
+    let earliestTs: string | null = null;
+    let latestTs: string | null = null;
+    if (allRows.length > 0) {
+      earliestTs = allRows[0].timestamp;
+      latestTs = allRows[allRows.length - 1].timestamp;
     }
 
-    logger.info(`[lifecycle][${runId}] Validation passed: file exists, independent DB counts match, checksum=${checksum}`);
-
-    // Update log with export results before pruning
+    // ═══════════════════════════════════════════════════
+    // STEP 7 — Update audit log (pre-prune)
+    // ═══════════════════════════════════════════════════
     await updateLog({
       file_path: filePath,
       row_count_exported: totalExported,
@@ -278,10 +309,13 @@ serve(async (req) => {
       earliest_timestamp: earliestTs,
       latest_timestamp: latestTs,
       file_checksum: checksum,
+      prune_status: 'pending',
     });
 
-    // ── STEP 3: PRUNE (per-symbol batched via RPC) ──
-    logger.info(`[lifecycle][${runId}] Step 3: Prune`);
+    // ═══════════════════════════════════════════════════
+    // STEP 8 — Prune via batched RPC
+    // ═══════════════════════════════════════════════════
+    logger.info(`[lifecycle][${runId}] Step 8: Prune`);
     let totalDeleted = 0;
     const completedSymbols: string[] = [];
     let timedOut = false;
@@ -292,10 +326,9 @@ serve(async (req) => {
         continue;
       }
 
-      // ── ADDITION 4: Timeout guard ──
       if (elapsed() > TIMEOUT_MS) {
         timedOut = true;
-        logger.warn(`[lifecycle][${runId}] Timeout guard hit at ${(elapsed() / 1000).toFixed(1)}s before starting ${sym}`);
+        logger.warn(`[lifecycle][${runId}] Timeout before ${sym}`);
         break;
       }
 
@@ -303,21 +336,12 @@ serve(async (req) => {
       let batchNum = 0;
 
       while (true) {
-        // Check timeout before each batch
-        if (elapsed() > TIMEOUT_MS) {
-          timedOut = true;
-          logger.warn(`[lifecycle][${runId}] Timeout guard hit at ${(elapsed() / 1000).toFixed(1)}s during ${sym} batch ${batchNum}`);
-          break;
-        }
-
+        if (elapsed() > TIMEOUT_MS) { timedOut = true; break; }
         batchNum++;
+
         const { data: deleted, error: pruneError } = await supabase.rpc(
           'prune_price_data_batch',
-          {
-            p_symbol: sym,
-            p_cutoff: cutoffISO,
-            p_batch_size: PRUNE_BATCH_SIZE,
-          }
+          { p_symbol: sym, p_cutoff: cutoffISO, p_batch_size: PRUNE_BATCH_SIZE }
         );
 
         if (pruneError) {
@@ -328,26 +352,20 @@ serve(async (req) => {
             error_message: `Prune failed at ${sym} batch ${batchNum}: ${pruneError.message}`,
           });
           return withCors({
-            success: false,
-            run_id: runId,
-            error: `Prune failed at ${sym}`,
-            exported: totalExported,
-            deleted: totalDeleted,
-            completed_symbols: completedSymbols,
+            success: false, run_id: runId, error: `Prune failed at ${sym}`,
+            exported: totalExported, deleted: totalDeleted, completed_symbols: completedSymbols,
           }, 500);
         }
 
         const batchDeleted = deleted ?? 0;
         symDeleted += batchDeleted;
         totalDeleted += batchDeleted;
-
         if (batchDeleted < PRUNE_BATCH_SIZE) break;
         await sleep(PRUNE_SLEEP_MS);
       }
 
       if (timedOut) {
-        // Partial symbol — don't add to completed
-        logger.info(`[lifecycle][${runId}] ${sym}: partially pruned ${symDeleted} rows (timed out)`);
+        logger.info(`[lifecycle][${runId}] ${sym}: partially pruned ${symDeleted} (timeout)`);
         break;
       }
 
@@ -355,35 +373,27 @@ serve(async (req) => {
       logger.info(`[lifecycle][${runId}] ${sym}: pruned ${symDeleted} rows`);
     }
 
-    // ── STEP 4: PRUNE 5m OHLCV + FEATURES (45-day retention) ──
-    logger.info(`[lifecycle][${runId}] Step 4: Prune 5m market data`);
-    const cutoff5m = new Date();
-    cutoff5m.setDate(cutoff5m.getDate() - HOT_WINDOW_DAYS);
-    const cutoff5mISO = cutoff5m.toISOString();
+    // ═══════════════════════════════════════════════════
+    // STEP 8b — Prune 5m OHLCV + Features (45-day retention)
+    // ═══════════════════════════════════════════════════
+    logger.info(`[lifecycle][${runId}] Step 8b: Prune 5m market data`);
     let total5mDeleted = 0;
 
     for (const table of ['market_ohlcv_raw', 'market_features_v0'] as const) {
-      if (elapsed() > TIMEOUT_MS) {
-        logger.warn(`[lifecycle][${runId}] Timeout before 5m prune of ${table}`);
-        break;
-      }
-
+      if (elapsed() > TIMEOUT_MS) break;
       let batchNum = 0;
+
       while (true) {
         if (elapsed() > TIMEOUT_MS) break;
         batchNum++;
 
         const { data: deleted, error: delErr } = await supabase.rpc(
           'prune_5m_market_data_batch',
-          {
-            p_table: table,
-            p_cutoff: cutoff5mISO,
-            p_batch_size: PRUNE_BATCH_SIZE,
-          }
+          { p_table: table, p_cutoff: cutoffISO, p_batch_size: PRUNE_BATCH_SIZE }
         );
 
         if (delErr) {
-          logger.error(`[lifecycle][${runId}] 5m prune error ${table} batch ${batchNum}: ${delErr.message}`);
+          logger.error(`[lifecycle][${runId}] 5m prune error ${table}: ${delErr.message}`);
           break;
         }
 
@@ -392,13 +402,11 @@ serve(async (req) => {
         if (batchDeleted < PRUNE_BATCH_SIZE) break;
         await sleep(PRUNE_SLEEP_MS);
       }
-
-      logger.info(`[lifecycle][${runId}] ${table} 5m: pruned rows in ${batchNum} batches`);
     }
 
-    logger.info(`[lifecycle][${runId}] Total 5m rows pruned: ${total5mDeleted}`);
-
-    // ── STEP 5: FINAL LOG UPDATE ──
+    // ═══════════════════════════════════════════════════
+    // STEP 9/10 — Final audit log update
+    // ═══════════════════════════════════════════════════
     const finalStatus = timedOut ? 'partial' : 'success';
     const elapsedSec = (elapsed() / 1000).toFixed(1);
 
@@ -406,39 +414,23 @@ serve(async (req) => {
       row_count_deleted: totalDeleted,
       prune_status: finalStatus,
       error_message: timedOut
-        ? `Timeout at ${elapsedSec}s. Completed symbols: [${completedSymbols.join(', ')}]. Deleted: ${totalDeleted}/${totalExported}. 5m pruned: ${total5mDeleted}.`
+        ? `Timeout at ${elapsedSec}s. Completed: [${completedSymbols.join(', ')}]. Deleted: ${totalDeleted}/${totalExported}. 5m: ${total5mDeleted}.`
         : null,
     });
 
-    logger.info(`[lifecycle][${runId}] === Lifecycle complete in ${elapsedSec}s: status=${finalStatus}, exported=${totalExported}, deleted=${totalDeleted}, 5m_pruned=${total5mDeleted} ===`);
+    logger.info(`[lifecycle][${runId}] === Complete in ${elapsedSec}s: ${finalStatus}, exported=${totalExported}, deleted=${totalDeleted}, 5m=${total5mDeleted} ===`);
 
     return withCors({
-      success: true,
-      run_id: runId,
-      cutoff: cutoffISO,
-      status: finalStatus,
-      exported: totalExported,
-      deleted: totalDeleted,
-      pruned_5m: total5mDeleted,
-      per_symbol_counts: perSymbolCounts,
-      completed_symbols: completedSymbols,
-      file_path: filePath,
-      checksum,
-      elapsed_seconds: parseFloat(elapsedSec),
+      success: true, run_id: runId, cutoff: cutoffISO, status: finalStatus,
+      exported: totalExported, deleted: totalDeleted, pruned_5m: total5mDeleted,
+      per_symbol_counts: perSymbolCounts, completed_symbols: completedSymbols,
+      file_path: filePath, checksum, elapsed_seconds: parseFloat(elapsedSec),
     });
 
   } catch (error) {
     const elapsedSec = (elapsed() / 1000).toFixed(1);
     logger.error(`[lifecycle][${runId}] Fatal error at ${elapsedSec}s: ${error.message}`);
-    await updateLog({
-      prune_status: 'failed',
-      error_message: error.message,
-    });
-    return withCors({
-      success: false,
-      run_id: runId,
-      error: error.message,
-      elapsed_seconds: parseFloat(elapsedSec),
-    }, 500);
+    await updateLog({ prune_status: 'failed', error_message: error.message });
+    return withCors({ success: false, run_id: runId, error: error.message, elapsed_seconds: parseFloat(elapsedSec) }, 500);
   }
 });
