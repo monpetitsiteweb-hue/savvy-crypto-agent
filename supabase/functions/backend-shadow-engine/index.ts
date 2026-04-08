@@ -1082,6 +1082,12 @@ serve(async (req) => {
           const tradeAllocation = config.perTradeAllocation || 50;
           const qtySuggested = tradeAllocation / currentPrice;
 
+          // ============= ML SHADOW: EDA v1 (observation only) =============
+          let mlShadow: EdaShadowResult | null = null;
+          if (SHADOW_ML_ENABLED) {
+            mlShadow = await computeEdaShadow(supabaseClient, symbol);
+          }
+
           const backendRequestId = crypto.randomUUID();
           const timestamp = Date.now();
           const idempotencyKey = `live_${userId}_${strategy.id}_${baseSymbol}_${timestamp}`;
@@ -1106,6 +1112,7 @@ serve(async (req) => {
               origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
               eurAmount: tradeAllocation,
               horizon: config.decisionCadence || '1h',
+              ...(mlShadow ? { ml_shadow: mlShadow } : {}),
             },
             ts: new Date().toISOString(),
             idempotencyKey,
