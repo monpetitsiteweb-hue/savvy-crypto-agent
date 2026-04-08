@@ -1318,6 +1318,7 @@ serve(async (req) => {
                   market_context_json: {
                     entry_price: dec.metadata.price || dec.metadata.currentPrice || null,
                     trigger: dec.metadata.trigger ?? dec.reason,
+                    ml_shadow: dec.metadata.ml_shadow ?? null,
                   },
                   decision_result: dec.action,
                   decision_reason: dec.reason,
