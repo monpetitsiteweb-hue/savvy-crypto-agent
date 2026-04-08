@@ -1199,6 +1199,7 @@ serve(async (req) => {
               intent_side: 'BUY',
               snapshot_type: 'ENTRY',
               snapshot_source: 'coordinator',
+              ...(mlShadow ? { ml_shadow: mlShadow } : {}),
             }
           });
 
