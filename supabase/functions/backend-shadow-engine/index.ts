@@ -29,6 +29,101 @@ const RAW_ENGINE_MODE = Deno.env.get('BACKEND_ENGINE_MODE');
 const BACKEND_ENGINE_MODE: EngineMode = 
   (RAW_ENGINE_MODE as EngineMode) || 'SHADOW';
 
+// ============= SHADOW ML (EDA v1) =============
+const SHADOW_ML_ENABLED = (Deno.env.get('SHADOW_ML_ENABLED') ?? 'true') === 'true';
+
+interface EdaShadowResult {
+  model: string;
+  stoch_k: number | null;
+  rsi14: number | null;
+  eda_signal: boolean;
+  would_filter: boolean;
+  candle_count: number;
+  error?: string;
+}
+
+/**
+ * Compute Stochastic K(14) from 5m OHLCV candles + fetch RSI(14) from features.
+ * Pure observation — never blocks trades.
+ */
+async function computeEdaShadow(
+  supabaseClient: any,
+  symbol: string // e.g. "BTC-EUR"
+): Promise<EdaShadowResult> {
+  const fallback: EdaShadowResult = {
+    model: 'eda_v1',
+    stoch_k: null,
+    rsi14: null,
+    eda_signal: false,
+    would_filter: false,
+    candle_count: 0,
+  };
+
+  try {
+    // Fetch last 14 candles (5m) and latest RSI in parallel
+    const [candlesRes, featuresRes] = await Promise.all([
+      supabaseClient
+        .from('market_ohlcv_raw')
+        .select('high, low, close, ts_utc')
+        .eq('symbol', symbol)
+        .eq('granularity', '5m')
+        .order('ts_utc', { ascending: false })
+        .limit(14),
+      supabaseClient
+        .from('market_features_v0')
+        .select('rsi_14, ts_utc')
+        .eq('symbol', symbol)
+        .eq('granularity', '5m')
+        .order('ts_utc', { ascending: false })
+        .limit(1)
+        .single(),
+    ]);
+
+    const candles = candlesRes.data;
+    const candleCount = candles?.length ?? 0;
+
+    if (!candles || candleCount < 14) {
+      console.log(`[ml_shadow] ${symbol}: insufficient candles (${candleCount}/14)`);
+      return { ...fallback, candle_count: candleCount };
+    }
+
+    const highs = candles.map((c: any) => Number(c.high));
+    const lows = candles.map((c: any) => Number(c.low));
+    const close = Number(candles[0].close); // most recent
+    const highestHigh = Math.max(...highs);
+    const lowestLow = Math.min(...lows);
+
+    const stochK = highestHigh === lowestLow
+      ? 50 // avoid division by zero
+      : ((close - lowestLow) / (highestHigh - lowestLow)) * 100;
+
+    const rsi14 = featuresRes.data?.rsi_14 != null
+      ? Number(featuresRes.data.rsi_14)
+      : null;
+
+    const edaSignal = rsi14 != null && stochK < 10 && rsi14 < 30;
+    // would_filter = true means this trade WOULD have been blocked (signal is OFF)
+    const wouldFilter = !edaSignal;
+
+    console.log(
+      `[ml_shadow] ${symbol}: stochK=${stochK.toFixed(1)} rsi14=${rsi14?.toFixed(1) ?? 'null'} ` +
+      `eda_signal=${edaSignal} would_filter=${wouldFilter}`
+    );
+
+    return {
+      model: 'eda_v1',
+      stoch_k: Number(stochK.toFixed(2)),
+      rsi14: rsi14 != null ? Number(rsi14.toFixed(2)) : null,
+      eda_signal: edaSignal,
+      would_filter: wouldFilter,
+      candle_count: candleCount,
+    };
+  } catch (err: any) {
+    console.error(`[ml_shadow] ${symbol}: error:`, err?.message || err);
+    return { ...fallback, error: err?.message || 'unknown' };
+  }
+}
+
 // ============= TEMP DIAGNOSTIC: ENGINE MODE (REMOVE AFTER INVESTIGATION) =============
 console.log("[ENGINE_MODE_DIAG] ============================================");
 console.log("[ENGINE_MODE_DIAG] BACKEND_ENGINE_MODE raw env =", JSON.stringify(RAW_ENGINE_MODE));
@@ -987,6 +1082,12 @@ serve(async (req) => {
           const tradeAllocation = config.perTradeAllocation || 50;
           const qtySuggested = tradeAllocation / currentPrice;
 
+          // ============= ML SHADOW: EDA v1 (observation only) =============
+          let mlShadow: EdaShadowResult | null = null;
+          if (SHADOW_ML_ENABLED) {
+            mlShadow = await computeEdaShadow(supabaseClient, symbol);
+          }
+
           const backendRequestId = crypto.randomUUID();
           const timestamp = Date.now();
           const idempotencyKey = `live_${userId}_${strategy.id}_${baseSymbol}_${timestamp}`;
@@ -1011,6 +1112,7 @@ serve(async (req) => {
               origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
               eurAmount: tradeAllocation,
               horizon: config.decisionCadence || '1h',
+              ...(mlShadow ? { ml_shadow: mlShadow } : {}),
             },
             ts: new Date().toISOString(),
             idempotencyKey,
@@ -1097,6 +1199,7 @@ serve(async (req) => {
               intent_side: 'BUY',
               snapshot_type: 'ENTRY',
               snapshot_source: 'coordinator',
+              ...(mlShadow ? { ml_shadow: mlShadow } : {}),
             }
           });
 
@@ -1215,6 +1318,7 @@ serve(async (req) => {
                   market_context_json: {
                     entry_price: dec.metadata.price || dec.metadata.currentPrice || null,
                     trigger: dec.metadata.trigger ?? dec.reason,
+                    ml_shadow: dec.metadata.ml_shadow ?? null,
                   },
                   decision_result: dec.action,
                   decision_reason: dec.reason,
