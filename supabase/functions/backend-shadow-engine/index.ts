@@ -1299,7 +1299,17 @@ serve(async (req) => {
             }
           });
 
-        } catch (symbolErr) {
+          // ============= POST-COORDINATOR: Merge ml_shadow into decision_snapshot =============
+          // The coordinator wrote the snapshot but doesn't propagate ml_shadow from intent metadata.
+          // We merge it ourselves, non-blocking, after the coordinator has finished.
+          if (mlShadow && strategy?.id) {
+            try {
+              await mergeMlShadowIntoSnapshot(supabaseClient, userId, strategy.id, baseSymbol, mlShadow);
+            } catch (mergeErr: any) {
+              console.warn(`[ml_shadow] ${baseSymbol}: merge failed (non-fatal): ${mergeErr?.message || mergeErr}`);
+            }
+          }
+
           console.error(`🌑 ${BACKEND_ENGINE_MODE}: Error processing ${coin}:`, symbolErr);
           allDecisions.push({
             symbol: baseSymbol,
