@@ -124,6 +124,102 @@ async function computeEdaShadow(
   }
 }
 
+/**
+ * Merge ml_shadow into an existing decision_snapshot's market_context_json.
+ * Called AFTER the coordinator has written the snapshot (ENTRY path).
+ * Non-blocking: errors are logged but never crash the cycle.
+ */
+async function mergeMlShadowIntoSnapshot(
+  supabaseClient: any,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  mlShadow: EdaShadowResult,
+): Promise<void> {
+  const tag = `[ml_shadow] ${symbol}`;
+
+  try {
+    // Find the most recent decision_event for this ENTRY
+    const { data: recentEvent, error: eventErr } = await supabaseClient
+      .from('decision_events')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('strategy_id', strategyId)
+      .eq('symbol', symbol)
+      .order('decision_ts', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (eventErr || !recentEvent?.id) {
+      console.warn(`${tag}: no recent decision_event found, skipped`);
+      return;
+    }
+
+    const decisionId = recentEvent.id;
+
+    // Attempt to merge ml_shadow into snapshot
+    const doMerge = async (): Promise<boolean> => {
+      const { data: updated, error: updateErr } = await supabaseClient
+        .from('decision_snapshots')
+        .update({
+          market_context_json: supabaseClient.rpc ? undefined : undefined, // placeholder
+        })
+        .eq('decision_id', decisionId);
+
+      // Use raw SQL via rpc for proper jsonb merge (|| operator)
+      // Supabase JS client doesn't support jsonb_concat natively,
+      // so we use a direct PostgREST PATCH with the merged object.
+      
+      // Step 1: Read existing market_context_json
+      const { data: snapshot, error: readErr } = await supabaseClient
+        .from('decision_snapshots')
+        .select('id, market_context_json')
+        .eq('decision_id', decisionId)
+        .limit(1)
+        .single();
+
+      if (readErr || !snapshot) {
+        return false; // snapshot not found
+      }
+
+      // Step 2: Merge ml_shadow into existing JSON (never overwrite other fields)
+      const existingContext = snapshot.market_context_json || {};
+      const mergedContext = {
+        ...existingContext,
+        ml_shadow: mlShadow,
+      };
+
+      // Step 3: Write back
+      const { error: writeErr } = await supabaseClient
+        .from('decision_snapshots')
+        .update({ market_context_json: mergedContext })
+        .eq('id', snapshot.id);
+
+      if (writeErr) {
+        console.error(`${tag}: write error for snapshot ${snapshot.id}: ${writeErr.message}`);
+        return false;
+      }
+
+      console.log(`${tag}: written to snapshot ${snapshot.id}`);
+      return true;
+    };
+
+    // First attempt
+    const ok = await doMerge();
+    if (ok) return;
+
+    // Retry after 2s (snapshot may not exist yet if coordinator is slow)
+    console.log(`${tag}: retry after 2s`);
+    await new Promise(r => setTimeout(r, 2000));
+    const ok2 = await doMerge();
+    if (ok2) return;
+
+    console.warn(`${tag}: snapshot not found after retry, skipped`);
+  } catch (err: any) {
+    console.error(`${tag}: error ${err?.message || err}, skipped`);
+  }
+}
+
 // ============= TEMP DIAGNOSTIC: ENGINE MODE (REMOVE AFTER INVESTIGATION) =============
 console.log("[ENGINE_MODE_DIAG] ============================================");
 console.log("[ENGINE_MODE_DIAG] BACKEND_ENGINE_MODE raw env =", JSON.stringify(RAW_ENGINE_MODE));
