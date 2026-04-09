@@ -159,17 +159,6 @@ async function mergeMlShadowIntoSnapshot(
 
     // Attempt to merge ml_shadow into snapshot
     const doMerge = async (): Promise<boolean> => {
-      const { data: updated, error: updateErr } = await supabaseClient
-        .from('decision_snapshots')
-        .update({
-          market_context_json: supabaseClient.rpc ? undefined : undefined, // placeholder
-        })
-        .eq('decision_id', decisionId);
-
-      // Use raw SQL via rpc for proper jsonb merge (|| operator)
-      // Supabase JS client doesn't support jsonb_concat natively,
-      // so we use a direct PostgREST PATCH with the merged object.
-      
       // Step 1: Read existing market_context_json
       const { data: snapshot, error: readErr } = await supabaseClient
         .from('decision_snapshots')
