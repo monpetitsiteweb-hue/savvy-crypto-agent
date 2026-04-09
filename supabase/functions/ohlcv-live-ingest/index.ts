@@ -109,12 +109,28 @@ async function fetchLatestCandles(
   const granularityMap: Record<string, number> = { '5m': 300, '1h': 3600, '4h': 14400, '24h': 86400 };
   const granularitySeconds = granularityMap[granularity] ?? 3600;
   const now = new Date();
+
+  // Clamp window to max 300 candles (Coinbase hard limit per request)
+  const MAX_CANDLES_PER_REQUEST = 300;
+  const maxRangeMs = MAX_CANDLES_PER_REQUEST * granularitySeconds * 1000;
+  const idealRangeMs = now.getTime() - since.getTime();
+  const estimatedCandles = Math.round(idealRangeMs / (granularitySeconds * 1000));
+
+  let clampedSince = since;
+  if (idealRangeMs > maxRangeMs) {
+    clampedSince = new Date(now.getTime() - maxRangeMs);
+    const missingCandles = estimatedCandles - MAX_CANDLES_PER_REQUEST;
+    logger.warn(
+      `[OHLCV_GAP] ${symbol} ${granularity}: gap=${estimatedCandles} candles (>${MAX_CANDLES_PER_REQUEST} limit). ` +
+      `Fetching latest ${MAX_CANDLES_PER_REQUEST} candles only. ~${missingCandles} candles still missing — will catch up over subsequent cycles.`
+    );
+  }
   
   for (let attempt = 0; attempt < RATE_LIMIT.maxRetries; attempt++) {
     try {
       await rateLimiter.throttle();
 
-      const url = `https://api.exchange.coinbase.com/products/${symbol}/candles?start=${since.toISOString()}&end=${now.toISOString()}&granularity=${granularitySeconds}`;
+      const url = `https://api.exchange.coinbase.com/products/${symbol}/candles?start=${clampedSince.toISOString()}&end=${now.toISOString()}&granularity=${granularitySeconds}`;
       
       const response = await fetch(url, {
         headers: {
@@ -139,8 +155,8 @@ async function fetchLatestCandles(
       const data = await response.json();
       rateLimiter.recordSuccess();
       
-      // Filter out candles older than our high water mark
-      const sinceTimestamp = since.getTime() / 1000;
+      // Filter out candles older than our clamped window
+      const sinceTimestamp = clampedSince.getTime() / 1000;
       return (data as CoinbaseCandle[]).filter(candle => candle[0] > sinceTimestamp);
 
     } catch (error) {
