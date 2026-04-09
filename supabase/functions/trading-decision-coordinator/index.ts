@@ -6629,12 +6629,63 @@ async function executeWithMinimalLock(
     }
 
     // PHASE 1: TP DETECTION - Check if position reached take-profit threshold
+    // ENGINE PNL PASSTHROUGH: For engine-driven exits (TP/SL/Trailing), trust the engine's
+    // FIFO calculation instead of re-computing locally (which diverges due to original_purchase_amount bug).
+    const engineTrigger = intent.metadata?.trigger || intent.metadata?.exit_trigger || "";
+    const isEngineDrivenExit = ["TAKE_PROFIT", "STOP_LOSS", "TRAILING_STOP", "AUTO_CLOSE_TIME", "SELL_TRAILING_RUNNER"].includes(engineTrigger);
+    const enginePnl = parseFloat(intent.metadata?.pnl_at_decision_pct);
+    const engineSnapshotAmount = Number(intent.metadata?.position_snapshot?.totalAmount ?? 0);
+
     let tpEvaluation = null;
-    try {
-      tpEvaluation = await evaluatePositionStatus(supabaseClient, intent, strategyConfig, priceData.price, requestId);
-    } catch (error) {
-      console.error(`❌ COORDINATOR: TP evaluation failed:`, error);
+
+    if (isEngineDrivenExit && Number.isFinite(enginePnl) && engineSnapshotAmount > 1e-8) {
+      // PASSTHROUGH: Use engine's authoritative PnL instead of local re-calculation
+      const baseTpPct = strategyConfig?.takeProfitPercentage || 0.7;
+      const baseSlPct = strategyConfig?.stopLossPercentage || 0.7;
+
+      console.log(`[COORD][ENGINE_PNL_PASSTHROUGH] SELL ${toBaseSymbol(intent.symbol)}: using engine PnL passthrough (pnl=${enginePnl >= 0 ? "+" : ""}${enginePnl.toFixed(2)}%, trigger=${engineTrigger}, positionQty=${engineSnapshotAmount.toFixed(6)}, source=engine_fifo) req=${requestId}`);
+
+      // Determine if the engine's trigger justifies a sell
+      const isTpTrigger = ["TAKE_PROFIT", "SELL_TRAILING_RUNNER"].includes(engineTrigger);
+      const isSlTrigger = ["STOP_LOSS"].includes(engineTrigger);
+      const isTrailingTrigger = ["TRAILING_STOP"].includes(engineTrigger);
+      const isAutoClose = ["AUTO_CLOSE_TIME"].includes(engineTrigger);
+
+      // Engine already decided to sell — trust its evaluation
+      tpEvaluation = {
+        shouldSell: true,
+        pnlPct: enginePnl,
+        tpPct: baseTpPct,
+        slPct: baseSlPct,
+        metadata: {
+          ...intent.metadata,
+          avgPurchasePrice: intent.metadata?.entryPrice?.toFixed?.(2) || "N/A",
+          currentPrice: priceData.price.toFixed(2),
+          pnlPct: enginePnl.toFixed(2),
+          tpPct: baseTpPct.toFixed(2),
+          slPct: baseSlPct.toFixed(2),
+          positionSize: engineSnapshotAmount.toFixed(8),
+          evaluation: "engine_pnl_passthrough",
+          trigger: engineTrigger,
+          source: "engine_passthrough",
+          isTpTrigger,
+          isSlTrigger,
+          isTrailingTrigger,
+          isAutoClose,
+        },
+      };
+    } else if (isEngineDrivenExit && (!Number.isFinite(enginePnl) || engineSnapshotAmount <= 1e-8)) {
+      // STALE POSITION GUARD: Engine sent exit but data is missing/stale — block
+      console.warn(`[COORD][ENGINE_PNL_PASSTHROUGH_REJECTED] SELL ${toBaseSymbol(intent.symbol)}: engine exit blocked — pnl=${enginePnl}, snapshotQty=${engineSnapshotAmount}, trigger=${engineTrigger} req=${requestId}`);
       tpEvaluation = null;
+    } else {
+      // NON-ENGINE SELL: Use local evaluatePositionStatus (original path)
+      try {
+        tpEvaluation = await evaluatePositionStatus(supabaseClient, intent, strategyConfig, priceData.price, requestId);
+      } catch (error) {
+        console.error(`❌ COORDINATOR: TP evaluation failed:`, error);
+        tpEvaluation = null;
+      }
     }
 
     if (tpEvaluation && tpEvaluation.shouldSell) {
