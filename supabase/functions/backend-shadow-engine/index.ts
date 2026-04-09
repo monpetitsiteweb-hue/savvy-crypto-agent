@@ -1299,6 +1299,7 @@ serve(async (req) => {
             }
           }
 
+        } catch (symbolErr) {
           console.error(`🌑 ${BACKEND_ENGINE_MODE}: Error processing ${coin}:`, symbolErr);
           allDecisions.push({
             symbol: baseSymbol,
