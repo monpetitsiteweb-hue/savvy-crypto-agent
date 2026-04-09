@@ -79,7 +79,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.ohlcv-live-ingest]
-verify_jwt = true
+verify_jwt = false
 
 [functions.features-refresh]
 verify_jwt = false
