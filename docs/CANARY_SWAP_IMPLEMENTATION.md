@@ -15,11 +15,17 @@
 ## 2. Fichiers NON modifiés (conformité aux règles absolues)
 
 - `supabase/functions/onchain-sign-and-send/index.ts` — **AUCUNE modification**
-- `supabase/functions/onchain-execute/index.ts` — **AUCUNE modification**
 - `supabase/functions/trading-decision-coordinator/index.ts` — **AUCUNE modification**
 - `supabase/functions/_shared/signer.ts` — **AUCUNE modification**
 - `src/utils/testModeHelpers.ts` — **AUCUNE modification**
 - Pipeline mock/test — **AUCUNE modification**
+
+## 2b. Fixes pré-canary dans `onchain-execute` (2026-04-10)
+
+| Fix | Ligne | Avant | Après |
+|-----|-------|-------|-------|
+| BOT_PK fallback | 228 | `Deno.env.get('BOT_PK')` | `Deno.env.get('BOT_PK') \|\| Deno.env.get('BOT_PRIVATE_KEY')` |
+| Skip Permit2 si ETH natif | 691-700 | `shouldAutoSignPermit2` sans check `tx.value` | Ajout `txValueIsZero` : si le quote 0x a `transaction.value > 0`, Permit2 est entièrement sauté |
 
 ## 3. Procédure d'exécution du Canary Swap
 

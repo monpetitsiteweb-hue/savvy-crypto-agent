@@ -225,7 +225,7 @@ async function runPreflight(
   // Check Permit2 allowance for the sell token
   // SKIP Permit2 preflight check if server-side signing is available (BOT_PK set)
   // The Permit2 will be auto-signed later in the flow
-  const serverSignerAvailable = !!Deno.env.get('BOT_PK');
+  const serverSignerAvailable = !!(Deno.env.get('BOT_PK') || Deno.env.get('BOT_PRIVATE_KEY'));
   if (serverSignerAvailable) {
     console.log(`Preflight: Skipping Permit2 check - server signer available (will auto-sign)`);
     return null; // All checks passed, Permit2 will be handled by auto-sign block
@@ -691,7 +691,14 @@ Deno.serve(async (req) => {
     // Determine which token we're selling and whether to auto-sign Permit2
     const isSellWeth = side === 'SELL' && (base === 'ETH' || base === 'WETH');
     const isBuyWithUsdc = side === 'BUY' && quote === 'USDC';
-    const shouldAutoSignPermit2 = provider === '0x' && chainId === BASE_CHAIN_ID && taker && quoteData.raw?.sellAmount && (isSellWeth || isBuyWithUsdc);
+    // Skip Permit2 entirely if quote uses native ETH (transaction.value > 0)
+    const txValue = quoteData.raw?.transaction?.value || quoteData.raw?.value || '0';
+    const txValueIsZero = BigInt(txValue) === 0n;
+    const shouldAutoSignPermit2 = provider === '0x' && chainId === BASE_CHAIN_ID && taker && quoteData.raw?.sellAmount && (isSellWeth || isBuyWithUsdc) && txValueIsZero;
+    
+    if (!txValueIsZero && (isSellWeth || isBuyWithUsdc)) {
+      console.log(`✅ Permit2 skipped: native ETH flow (tx.value=${txValue})`);
+    }
     
     if (shouldAutoSignPermit2) {
       // Determine the token address for Permit2
