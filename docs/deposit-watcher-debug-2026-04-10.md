@@ -1,205 +1,185 @@
-# Deposit Watcher — Debug Report 2026-04-10
+# Deposit Watcher — Debug Report
+**Date** : 2026-04-10  
+**Fichier** : `supabase/functions/onchain-deposit-watcher/index.ts`  
+**Status** : 🔴 Transaction toujours non détectée
 
-## Contexte
+---
 
-Transaction ETH native envoyée au system wallet, non détectée par `onchain-deposit-watcher`.
+## 1. Contexte
 
-### Transaction cible
-
+Transaction cible :
 | Champ | Valeur |
 |-------|--------|
 | Block | `44523165` |
 | From | `0xD02172fB...dbF30cc04` |
-| To | `0x115030C501b87c0C64834281c704EFDd36D4978d` (BOT_ADDRESS) |
+| To (BOT_ADDRESS) | `0x115030C501b87c0C64834281c704EFDd36D4978d` |
 | Amount | `0.0225 ETH` |
-| Type | Transfert ETH natif (premier niveau, pas internal tx) |
-| Confirmé sur | BaseScan → onglet "Transactions" |
+| Type | Transfert ETH natif (premier niveau, confirmé BaseScan onglet "Transactions") |
 
 ---
 
-## Chronologie des interventions
+## 2. Bugs identifiés et corrigés
 
-### 1. Bug initial — Batch RPC ID alignment (corrigé)
+### Bug #1 — Désalignement batch RPC → block index
 
-**Fichier** : `supabase/functions/onchain-deposit-watcher/index.ts`
+**Problème** : Le code traitait `results[j]` comme correspondant à `batch[j]` après tri par `id`. Mais les IDs étaient calculés comme `i + idx + 100`, ce qui pouvait créer un décalage entre la réponse et le block demandé.
 
-**Problème** : Le code supposait que `results[j]` correspondait à `batch[j]` après tri par `id`. Faux car les IDs étaient calculés comme `i + idx + 100`, créant un désalignement quand les réponses RPC arrivaient dans un ordre différent.
-
-**Fix appliqué** :
+**Avant** (lignes ~276-282) :
 ```typescript
-// AVANT (bugué)
-const blockNum = batch[j];
-
-// APRÈS (corrigé)
-const callIndex = result.id - 100 - i;
-const blockNum = batch[callIndex];
-if (blockNum === undefined) continue;
+for (let j = 0; j < results.length; j++) {
+  const result = results[j];
+  if (!result?.result?.transactions) continue;
+  const blockNum = batch[j];  // ← supposé aligné, FAUX
 ```
 
-**Statut** : ✅ Corrigé et déployé
+**Après** :
+```typescript
+for (let j = 0; j < results.length; j++) {
+  const result = results[j];
+  if (!result?.result?.transactions) continue;
+  const callIndex = result.id - 100 - i;  // ← retrouve l'index via l'ID de la réponse
+  const blockNum = batch[callIndex];
+  if (blockNum === undefined) continue;
+```
+
+**Impact** : Sans ce fix, les transferts trouvés dans un block pouvaient être associés au mauvais numéro de block, ou être silencieusement ignorés si l'index dépassait la taille du batch.
 
 ---
 
-### 2. Ajout du paramètre `from_block` explicite
+### Bug #2 — Pas de `from_block` explicite
 
-**Fichier** : `supabase/functions/onchain-deposit-watcher/index.ts`
+**Problème** : Le watcher ne scannait que les N derniers blocks (lookback). Impossible de scanner un block historique spécifique.
 
-**Problème** : Le block 44523165 était sorti de la fenêtre de lookback par défaut (200 blocks). Impossible de re-scanner un block ancien.
-
-**Fix appliqué** :
+**Fix** : Ajout du paramètre `from_block` dans le payload JSON :
 ```typescript
-// Lecture du body
-let explicitFromBlock: number | null = null;
 if (body?.from_block && typeof body.from_block === "number") {
   explicitFromBlock = body.from_block;
 }
-
-// Calcul du range
+// ...
 const fromBlock = explicitFromBlock ?? (currentBlock - lookbackBlocks);
 ```
 
-**Statut** : ✅ Corrigé et déployé
+**Localisation** : lignes ~185-196 du fichier actuel.
 
 ---
 
-### 3. Fallback séquentiel quand le batch RPC échoue
+### Bug #3 — RPC batch non supporté par `mainnet.base.org`
 
-**Fichier** : `supabase/functions/onchain-deposit-watcher/index.ts`
+**Problème** : Le RPC public `mainnet.base.org` renvoie des réponses batch sans le champ `result.transactions`, ce qui fait que le batch RPC retourne 0 blocks valides.
 
-**Problème** : Le RPC public `mainnet.base.org` ne supporte pas le JSON-RPC batching. Les réponses batch revenaient sans `result.transactions`, et le code les sautait silencieusement → `transfers_found: 0`.
-
-**Fix appliqué** :
-- Tenter le batch RPC en premier
-- Compter les résultats valides (`validCount`)
-- Si `validCount === 0` → fallback automatique en appels séquentiels individuels `eth_getBlockByNumber`
-- Throttle de 100ms entre chaque appel séquentiel pour éviter le rate limit
+**Fix** : Fallback séquentiel automatique. Si la réponse batch ne contient aucun block avec `result.transactions`, le code bascule en appels individuels `eth_getBlockByNumber` avec un throttle de 100ms :
 
 ```typescript
-const validCount = results.filter(
-  (r: any) => r?.result?.transactions !== undefined
-).length;
-
-if (validCount > 0) {
-  batchWorked = true;
-  // ... traitement batch normal
-} else {
-  logger.warn("[deposit-watcher] Batch returned 0 valid blocks, falling back to sequential");
-}
-
-// Sequential fallback
+// Après le batch
 if (!batchWorked) {
   usedSequentialFallback = true;
   for (const blockNum of batch) {
     const blockResult = await fetchBlockSingle(blockNum);
     const found = extractEthTransfers(blockResult, blockNum, botAddressLower, true);
-    // ...
+    // ... push transfers
     await sleep(SEQUENTIAL_THROTTLE_MS); // 100ms
   }
 }
 ```
 
-**Fonctions helper ajoutées** :
-- `fetchBlockSingle(blockNum)` — appel RPC individuel
-- `extractEthTransfers(blockResult, blockNum, botAddressLower, debug)` — extraction factorisée
-- `sleep(ms)` — throttle
-
-**Statut** : ✅ Corrigé et déployé. Le fallback fonctionne (confirmé par logs : "Used sequential fallback for ETH scan", durée ~48s).
+**Localisation** : lignes ~253-327 du fichier actuel.
 
 ---
 
-### 4. Logs de debug temporaires ajoutés
+## 3. Bug actuel — Block sampling (🔴 NON CORRIGÉ)
 
-**Fichier** : `supabase/functions/onchain-deposit-watcher/index.ts`
-
-**Ajouts** :
-- Log du nombre de transactions dans chaque block scanné
-- Log spécial si block `44523165` est rencontré (avec les 3 premiers `tx.to` et les txs matchant le BOT_ADDRESS)
-- Log de la liste des blocks (`includes_44523165`, `blockStep`, `first_5`, `last_5`)
-
-**Statut** : ✅ Déployé (temporaire, à retirer après résolution)
-
----
-
-## 5. BUG RACINE IDENTIFIÉ — Block sampling saute le block cible
-
-### Diagnostic
-
-Après déploiement des logs de debug et exécution avec `{ "from_block": 44523160 }` :
-
-**Logs observés** :
-```
-Block scanned { block: 44524378, tx_count: 167 }
-Block scanned { block: 44524385, tx_count: 205 }
-Block scanned { block: 44524392, tx_count: 195 }
-Block scanned { block: 44524399, tx_count: 204 }
-...
-```
-
-**Constatations** :
-1. Les blocks sont scannés **par pas de 7** (44524378, 44524385, 44524392...)
-2. Le block `44523165` **n'apparaît jamais** dans les logs
-3. Le log "Block list info" n'apparaît pas non plus (probablement tronqué ou pas encore visible)
+### Symptôme
+Avec `{ "from_block": 44523100 }`, le block `44523165` n'apparaît **jamais** dans la liste des blocks scannés.
 
 ### Cause racine
-
 ```typescript
-const totalBlocks = currentBlock - fromBlock;
-// totalBlocks ≈ 1500 (44524700 - 44523160)
+const totalBlocks = currentBlock - fromBlock;  // ex: 44524600 - 44523100 = 1500
 const blockStep = totalBlocks <= 1000 ? 1 : Math.max(1, Math.floor(totalBlocks / 200));
 // blockStep = Math.floor(1500 / 200) = 7
 ```
 
-Quand `from_block` est explicite :
-- Le `to_block` est implicitement le block courant (~44524700)
-- Le range total est ~1500 blocks (> 1000)
-- Le sampling s'active : `blockStep = 7`
-- Block 44523160 + 7n = 44523160, 44523167, 44523174... → **44523165 est sauté**
+Le range `from_block → currentBlock` fait ~1500 blocks, ce qui dépasse le seuil de 1000. Le `blockStep` passe à 7, et la boucle scanne :
+```
+44523100, 44523107, 44523114, ..., 44523156, 44523163, 44523170, ...
+```
+→ **44523165 est sauté** (entre 44523163 et 44523170).
 
-### La reliability policy (mémoire projet) stipule :
-
-> `blockStep = 1` obligatoire pour les fenêtres ≤ 1000 blocks.
-
-Mais ici le range est 1500 blocks car `to_block` n'est pas borné.
+### Preuve (logs)
+```
+[deposit-watcher][DEBUG] Block list info {
+  total_blocks_in_list: 215,
+  blockStep: 7,
+  includes_44523165: false,
+  first_5: [44523100, 44523107, ...],
+  last_5: [...]
+}
+```
 
 ---
 
-## Fix requis (NON ENCORE APPLIQUÉ)
+## 4. Fix proposé — Option A + B combinées
 
-**Deux options** :
-
-### Option A — Ajouter `to_block` explicite
+### Option A : Ajouter `to_block` explicite
+Permet de borner le range pour éviter un `totalBlocks` trop grand :
 ```typescript
-// Si from_block est explicite et to_block aussi → scanner exactement ce range
-// Si from_block est explicite sans to_block → to_block = from_block + lookback_blocks
-const toBlock = explicitToBlock ?? (explicitFromBlock ? fromBlock + lookbackBlocks : currentBlock);
+let explicitToBlock: number | null = null;
+if (body?.to_block && typeof body.to_block === "number") {
+  explicitToBlock = body.to_block;
+}
+const toBlock = explicitToBlock ?? currentBlock;
+// Scanner de fromBlock à toBlock au lieu de currentBlock
 ```
-**Avantage** : Contrôle précis, pas de scan inutile  
-**Inconvénient** : Nécessite un paramètre supplémentaire
 
-### Option B — Forcer `blockStep = 1` quand `from_block` est explicite
+### Option B : Forcer `blockStep = 1` quand le range est raisonnable
 ```typescript
+const blockStep = totalBlocks <= 1000 ? 1 : Math.max(1, Math.floor(totalBlocks / 200));
+```
+Change le seuil ou force `blockStep = 1` quand `from_block` est explicite :
+```typescript
+// Si from_block explicite, ne jamais sampler — scanner chaque block
 const blockStep = explicitFromBlock ? 1 : (totalBlocks <= 1000 ? 1 : Math.max(1, Math.floor(totalBlocks / 200)));
 ```
-**Avantage** : Simple, pas de nouveau paramètre  
-**Inconvénient** : Si from_block est très ancien, le scan séquentiel de milliers de blocks provoquera un timeout
 
-### Recommandation : Option A + B combinées
-- Ajouter `to_block` optionnel
-- Quand `from_block` est explicite sans `to_block`, borner à `from_block + lookback_blocks`
-- Forcer `blockStep = 1` dans tous les cas pour les ranges ≤ 1000 blocks
+### Recommandation : A + B combinées
+1. Ajouter `to_block` pour borner le scan
+2. Quand `from_block` est explicite, forcer `blockStep = 1` (scan exhaustif)
+3. Garder le cap à `lookback_blocks` (max 1000) pour le mode par défaut
 
 ---
 
-## Fichiers modifiés
+## 5. Logs de debug ajoutés (temporaires)
 
-| Fichier | Modifications |
-|---------|--------------|
-| `supabase/functions/onchain-deposit-watcher/index.ts` | Bug fix batch ID alignment, ajout `from_block`, fallback séquentiel, logs debug, helpers `fetchBlockSingle` / `extractEthTransfers` / `sleep` |
+Les logs suivants ont été ajoutés pour le diagnostic et peuvent être retirés après résolution :
 
-## État actuel
+1. **Block list info** : nombre de blocks, `blockStep`, inclusion de 44523165
+2. **Par block scanné** : nombre de transactions, 3 premiers `tx.to`
+3. **Block 44523165 spécifique** : log dédié si ce block est dans la liste, avec matching txs
 
-- ❌ La transaction 0.0225 ETH au block 44523165 n'est toujours pas détectée
-- ✅ Le fallback séquentiel fonctionne
-- ✅ Le batch ID alignment est corrigé
-- ⏳ **Le fix du sampling (blockStep) est en attente d'approbation**
-- ⏳ Les logs de debug sont encore en place (à retirer après résolution)
+Localisation : fonction `extractEthTransfers()` (lignes ~67-116) et boucle principale (lignes ~243-250).
+
+---
+
+## 6. État du fichier actuel
+
+| Section | Lignes | Status |
+|---------|--------|--------|
+| Imports & constantes | 1-43 | ✅ OK |
+| `fetchBlockSingle()` | 48-62 | ✅ OK |
+| `extractEthTransfers()` | 67-116 | ✅ + debug logs |
+| `TransferEvent` interface | 118-128 | ✅ OK |
+| `batchRpc()` | 134-162 | ✅ OK |
+| Handler principal | 164-640 | ✅ sauf blockStep (bug #3) |
+| - Parsing `from_block` | 185-196 | ✅ OK |
+| - Block sampling | 234-241 | 🔴 Bug actif |
+| - Batch + fallback séquentiel | 253-327 | ✅ OK |
+| - ERC20 scan | 336-421 | ✅ OK |
+| - Attribution | 427-604 | ✅ OK |
+
+---
+
+## 7. Prochaine action
+
+**En attente d'approbation** pour appliquer le fix A+B :
+- Ajouter `to_block` dans le payload
+- Forcer `blockStep = 1` quand `from_block` est explicite
+- Déployer et tester avec `{ "from_block": 44523100, "to_block": 44523200 }`
