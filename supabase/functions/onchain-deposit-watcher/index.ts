@@ -15,6 +15,9 @@
  * 
  * NOTE: This function is designed to be called by a cron job or manual trigger
  * It does NOT use webhooks - it polls the blockchain via RPC
+ * 
+ * PERFORMANCE: Uses JSON-RPC batching to scan blocks efficiently.
+ * Default lookback is 200 blocks (~6 min on Base). blockStep=1 for <=1000 blocks.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -22,7 +25,6 @@ import { corsHeaders, withCors } from "../_shared/cors.ts";
 import { logger } from "../_shared/logger.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BASE_RPC_URL = Deno.env.get("BASE_RPC_URL") || "https://mainnet.base.org";
 const BOT_ADDRESS = Deno.env.get("BOT_ADDRESS"); // System wallet address
@@ -34,6 +36,9 @@ const USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 // ERC20 Transfer event signature
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
+// Batch RPC config
+const RPC_BATCH_SIZE = 50; // blocks per batch HTTP call
+
 interface TransferEvent {
   txHash: string;
   blockNumber: number;
@@ -44,6 +49,40 @@ interface TransferEvent {
   amountRaw: string;
   asset: string;
   assetAddress: string | null;
+}
+
+/**
+ * Send a batch of JSON-RPC calls in a single HTTP request.
+ * Returns an array of results in the same order as the calls.
+ */
+async function batchRpc(
+  calls: Array<{ method: string; params: unknown[]; id: number }>
+): Promise<any[]> {
+  const body = calls.map((c) => ({
+    jsonrpc: "2.0",
+    method: c.method,
+    params: c.params,
+    id: c.id,
+  }));
+
+  const resp = await fetch(BASE_RPC_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`RPC batch failed: ${resp.status} ${resp.statusText}`);
+  }
+
+  const results = await resp.json();
+
+  // Sort by id to guarantee order
+  if (Array.isArray(results)) {
+    results.sort((a: any, b: any) => a.id - b.id);
+  }
+
+  return Array.isArray(results) ? results : [results];
 }
 
 Deno.serve(async (req) => {
@@ -62,11 +101,11 @@ Deno.serve(async (req) => {
 
     const botAddressLower = BOT_ADDRESS.toLowerCase();
 
-    // Create Supabase clients
+    // Create Supabase client
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Parse request body for optional parameters
-    let lookbackBlocks = 100; // Default: ~3 minutes of blocks on Base
+    let lookbackBlocks = 200; // Default: ~6 minutes on Base (reduced from 500)
     try {
       const body = await req.json();
       if (body?.lookback_blocks && typeof body.lookback_blocks === "number") {
@@ -76,9 +115,9 @@ Deno.serve(async (req) => {
       // No body or invalid JSON - use defaults
     }
 
-    logger.info("[deposit-watcher] Starting scan", { 
+    logger.info("[deposit-watcher] Starting scan", {
       bot_address: botAddressLower.slice(0, 10) + "...",
-      lookback_blocks: lookbackBlocks 
+      lookback_blocks: lookbackBlocks,
     });
 
     // Get current block number
@@ -89,110 +128,159 @@ Deno.serve(async (req) => {
         jsonrpc: "2.0",
         method: "eth_blockNumber",
         params: [],
-        id: 1
-      })
+        id: 1,
+      }),
     });
 
     const blockNumResult = await blockNumResponse.json();
     const currentBlock = parseInt(blockNumResult.result, 16);
     const fromBlock = currentBlock - lookbackBlocks;
 
-    logger.info("[deposit-watcher] Block range", { 
-      from: fromBlock, 
-      to: currentBlock 
+    logger.info("[deposit-watcher] Block range", {
+      from: fromBlock,
+      to: currentBlock,
     });
 
     // Collect transfers to process
     const transfers: TransferEvent[] = [];
 
-    // 1. Scan for native ETH transfers by iterating blocks
-    // We check each block's transactions for transfers TO the bot address
-    logger.info("[deposit-watcher] Scanning for native ETH transfers...");
-    
-    // To avoid too many RPC calls, sample blocks or use a reasonable range
-    // For each block, get transactions and filter for to === BOT_ADDRESS
-    // Only sample blocks for very large windows (>1000). For normal ranges, scan every block.
+    // ──────────────────────────────────────────────
+    // 1. Scan for native ETH transfers using BATCHED RPC
+    // ──────────────────────────────────────────────
+    logger.info("[deposit-watcher] Scanning for native ETH transfers (batched)...");
+
     const blockStep = lookbackBlocks <= 1000 ? 1 : Math.max(1, Math.floor(lookbackBlocks / 200));
-    
-    for (let blockNum = fromBlock; blockNum <= currentBlock; blockNum += blockStep) {
+
+    // Build list of block numbers to scan
+    const blockNums: number[] = [];
+    for (let b = fromBlock; b <= currentBlock; b += blockStep) {
+      blockNums.push(b);
+    }
+
+    // Process in batches of RPC_BATCH_SIZE
+    for (let i = 0; i < blockNums.length; i += RPC_BATCH_SIZE) {
+      const batch = blockNums.slice(i, i + RPC_BATCH_SIZE);
+
+      const calls = batch.map((blockNum, idx) => ({
+        method: "eth_getBlockByNumber",
+        params: ["0x" + blockNum.toString(16), true], // true = full tx objects
+        id: i + idx + 100, // unique id
+      }));
+
       try {
-        const blockResponse = await fetch(BASE_RPC_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "eth_getBlockByNumber",
-            params: ["0x" + blockNum.toString(16), true], // true = include full tx objects
-            id: 10
-          })
-        });
-        
-        const blockResult = await blockResponse.json();
-        if (!blockResult.result || !blockResult.result.transactions) continue;
-        
-        const blockTimestamp = new Date(parseInt(blockResult.result.timestamp, 16) * 1000).toISOString();
-        
-        for (const tx of blockResult.result.transactions) {
-          // Check if this is a native ETH transfer TO the bot address
-          if (tx.to && tx.to.toLowerCase() === botAddressLower && tx.value && tx.value !== "0x0") {
-            const valueWei = BigInt(tx.value);
-            if (valueWei > 0n) {
-              transfers.push({
-                txHash: tx.hash,
-                blockNumber: blockNum,
-                blockTimestamp,
-                fromAddress: tx.from.toLowerCase(),
-                toAddress: botAddressLower,
-                amount: Number(valueWei) / 1e18,
-                amountRaw: valueWei.toString(),
-                asset: "ETH",
-                assetAddress: null // Native ETH has no contract address
-              });
-              
-              logger.info("[deposit-watcher] Found native ETH transfer", {
-                tx_hash: tx.hash.slice(0, 10),
-                from: tx.from.slice(0, 10),
-                amount_eth: Number(valueWei) / 1e18
-              });
+        const results = await batchRpc(calls);
+
+        for (let j = 0; j < results.length; j++) {
+          const result = results[j];
+          if (!result?.result?.transactions) continue;
+
+          const blockNum = batch[j];
+          const blockTimestamp = new Date(
+            parseInt(result.result.timestamp, 16) * 1000
+          ).toISOString();
+
+          for (const tx of result.result.transactions) {
+            if (
+              tx.to &&
+              tx.to.toLowerCase() === botAddressLower &&
+              tx.value &&
+              tx.value !== "0x0"
+            ) {
+              const valueWei = BigInt(tx.value);
+              if (valueWei > 0n) {
+                transfers.push({
+                  txHash: tx.hash,
+                  blockNumber: blockNum,
+                  blockTimestamp,
+                  fromAddress: tx.from.toLowerCase(),
+                  toAddress: botAddressLower,
+                  amount: Number(valueWei) / 1e18,
+                  amountRaw: valueWei.toString(),
+                  asset: "ETH",
+                  assetAddress: null,
+                });
+
+                logger.info("[deposit-watcher] Found native ETH transfer", {
+                  tx_hash: tx.hash.slice(0, 10),
+                  from: tx.from.slice(0, 10),
+                  amount_eth: Number(valueWei) / 1e18,
+                });
+              }
             }
           }
         }
-      } catch (blockErr) {
-        // Skip failed blocks
-        logger.warn("[deposit-watcher] Block fetch failed", { block: blockNum });
+      } catch (batchErr) {
+        logger.warn("[deposit-watcher] Batch fetch failed", {
+          batch_start: batch[0],
+          batch_size: batch.length,
+          error: batchErr instanceof Error ? batchErr.message : String(batchErr),
+        });
       }
     }
 
-    // 2. Scan for ERC20 transfers (WETH, USDC) to BOT_ADDRESS
+    // ──────────────────────────────────────────────
+    // 2. Scan for ERC20 transfers (WETH, USDC) — single eth_getLogs call
+    // ──────────────────────────────────────────────
     const erc20Logs = await fetch(BASE_RPC_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "eth_getLogs",
-        params: [{
-          fromBlock: "0x" + fromBlock.toString(16),
-          toBlock: "0x" + currentBlock.toString(16),
-          address: [WETH_ADDRESS, USDC_ADDRESS],
-          topics: [
-            TRANSFER_TOPIC,
-            null, // from (any)
-            "0x" + "0".repeat(24) + botAddressLower.slice(2) // to = BOT_ADDRESS (padded)
-          ]
-        }],
-        id: 2
-      })
+        params: [
+          {
+            fromBlock: "0x" + fromBlock.toString(16),
+            toBlock: "0x" + currentBlock.toString(16),
+            address: [WETH_ADDRESS, USDC_ADDRESS],
+            topics: [
+              TRANSFER_TOPIC,
+              null, // from (any)
+              "0x" + "0".repeat(24) + botAddressLower.slice(2), // to = BOT_ADDRESS
+            ],
+          },
+        ],
+        id: 2,
+      }),
     });
 
     const erc20Result = await erc20Logs.json();
-    
+
     if (erc20Result.result && Array.isArray(erc20Result.result)) {
+      // Collect unique block numbers for timestamp lookup
+      const uniqueBlocks = [
+        ...new Set(erc20Result.result.map((l: any) => l.blockNumber as string)),
+      ];
+
+      // Batch-fetch block timestamps
+      const blockTimestampMap: Record<string, string> = {};
+      if (uniqueBlocks.length > 0) {
+        const tsCalls = uniqueBlocks.map((bn, idx) => ({
+          method: "eth_getBlockByNumber",
+          params: [bn, false],
+          id: idx + 5000,
+        }));
+
+        try {
+          const tsResults = await batchRpc(tsCalls);
+          for (let k = 0; k < tsResults.length; k++) {
+            if (tsResults[k]?.result?.timestamp) {
+              blockTimestampMap[uniqueBlocks[k]] = new Date(
+                parseInt(tsResults[k].result.timestamp, 16) * 1000
+              ).toISOString();
+            }
+          }
+        } catch (tsErr) {
+          logger.warn("[deposit-watcher] ERC20 block timestamp batch failed", {
+            error: tsErr instanceof Error ? tsErr.message : String(tsErr),
+          });
+        }
+      }
+
       for (const log of erc20Result.result) {
         const fromAddress = "0x" + log.topics[1].slice(26).toLowerCase();
         const amount = BigInt(log.data);
         const tokenAddress = log.address.toLowerCase();
-        
-        // Determine asset and decimals
+
         let asset = "UNKNOWN";
         let decimals = 18;
         if (tokenAddress === WETH_ADDRESS.toLowerCase()) {
@@ -203,19 +291,8 @@ Deno.serve(async (req) => {
           decimals = 6;
         }
 
-        // Get block timestamp
-        const blockResponse = await fetch(BASE_RPC_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "eth_getBlockByNumber",
-            params: [log.blockNumber, false],
-            id: 3
-          })
-        });
-        const blockResult = await blockResponse.json();
-        const blockTimestamp = new Date(parseInt(blockResult.result.timestamp, 16) * 1000).toISOString();
+        const blockTimestamp =
+          blockTimestampMap[log.blockNumber] || new Date().toISOString();
 
         transfers.push({
           txHash: log.transactionHash,
@@ -226,14 +303,16 @@ Deno.serve(async (req) => {
           amount: Number(amount) / Math.pow(10, decimals),
           amountRaw: amount.toString(),
           asset,
-          assetAddress: tokenAddress
+          assetAddress: tokenAddress,
         });
       }
     }
 
     logger.info("[deposit-watcher] Found transfers", { count: transfers.length });
 
-    // Process each transfer
+    // ──────────────────────────────────────────────
+    // 3. Process each transfer (attribution)
+    // ──────────────────────────────────────────────
     let matched = 0;
     let unmatched = 0;
     let ambiguous = 0;
@@ -249,33 +328,45 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         if (existing) {
-          logger.info("[deposit-watcher] Already processed", { tx_hash: transfer.txHash.slice(0, 10) });
+          alreadyProcessed++;
+          continue;
+        }
+
+        // Also check unattributed_deposits
+        const { data: existingUnattr } = await supabaseAdmin
+          .from("unattributed_deposits")
+          .select("id")
+          .eq("tx_hash", transfer.txHash)
+          .maybeSingle();
+
+        if (existingUnattr) {
           alreadyProcessed++;
           continue;
         }
 
         // Lookup user by external address
-        const { data: lookupResult, error: lookupError } = await supabaseAdmin.rpc(
+        const lookupResult = await supabaseAdmin.rpc(
           "lookup_user_by_external_address",
           {
             p_chain_id: BASE_CHAIN_ID,
-            p_address: transfer.fromAddress
+            p_address: transfer.fromAddress,
           }
         );
 
-        if (lookupError) {
-          logger.error("[deposit-watcher] Lookup error", { error: lookupError.message });
+        if (lookupResult.error) {
+          logger.error("[deposit-watcher] Lookup error", {
+            error: lookupResult.error.message,
+          });
           continue;
         }
 
-        const matchCount = lookupResult?.match_count ?? 0;
-        const userId = lookupResult?.user_id;
+        const matchCount = lookupResult.data?.match_count ?? 0;
+        const userId = lookupResult.data?.user_id;
 
         if (matchCount === 0) {
-          // No match - insert into unattributed_deposits
-          logger.info("[deposit-watcher] No match", { 
+          logger.info("[deposit-watcher] No match", {
             from: transfer.fromAddress.slice(0, 10),
-            tx: transfer.txHash.slice(0, 10)
+            tx: transfer.txHash.slice(0, 10),
           });
 
           await supabaseAdmin.from("unattributed_deposits").insert({
@@ -289,15 +380,14 @@ Deno.serve(async (req) => {
             asset_address: transfer.assetAddress,
             block_number: transfer.blockNumber,
             block_timestamp: transfer.blockTimestamp,
-            reason: "NO_MATCHING_ADDRESS"
+            reason: "NO_MATCHING_ADDRESS",
           });
 
           unmatched++;
         } else if (matchCount > 1) {
-          // Ambiguous - multiple users claim this address (should not happen with unique constraint)
-          logger.warn("[deposit-watcher] Ambiguous match", { 
+          logger.warn("[deposit-watcher] Ambiguous match", {
             from: transfer.fromAddress.slice(0, 10),
-            match_count: matchCount
+            match_count: matchCount,
           });
 
           await supabaseAdmin.from("unattributed_deposits").insert({
@@ -311,20 +401,19 @@ Deno.serve(async (req) => {
             asset_address: transfer.assetAddress,
             block_number: transfer.blockNumber,
             block_timestamp: transfer.blockTimestamp,
-            reason: "AMBIGUOUS_ADDRESS"
+            reason: "AMBIGUOUS_ADDRESS",
           });
 
           ambiguous++;
         } else {
-          // Exact match (match_count = 1) - settle the deposit
-          logger.info("[deposit-watcher] Match found", { 
+          // Exact match — settle deposit
+          logger.info("[deposit-watcher] Match found", {
             user_id: userId?.slice(0, 8),
             amount: transfer.amount,
-            asset: transfer.asset
+            asset: transfer.asset,
           });
 
-          // Fetch EUR rate for the asset
-          // For now, use price_snapshots if available, otherwise estimate
+          // Fetch EUR rate
           let eurAmount = 0;
           let eurRate = 0;
 
@@ -341,29 +430,24 @@ Deno.serve(async (req) => {
               eurRate = priceData.price_eur;
               eurAmount = transfer.amount * eurRate;
             } else {
-              // Fallback: rough estimate (should not happen in production)
-              if (transfer.asset === "WETH") {
-                eurRate = 2000; // Fallback ETH price
-                eurAmount = transfer.amount * eurRate;
+              if (transfer.asset === "WETH" || transfer.asset === "ETH") {
+                eurRate = 2000;
               } else if (transfer.asset === "USDC") {
-                eurRate = 0.92; // Fallback EUR/USD
-                eurAmount = transfer.amount * eurRate;
+                eurRate = 0.92;
               }
-            }
-          } catch (priceErr) {
-            logger.warn("[deposit-watcher] Price fetch failed", { error: priceErr });
-            // Use fallback values
-            if (transfer.asset === "WETH") {
-              eurRate = 2000;
               eurAmount = transfer.amount * eurRate;
+            }
+          } catch {
+            if (transfer.asset === "WETH" || transfer.asset === "ETH") {
+              eurRate = 2000;
             } else if (transfer.asset === "USDC") {
               eurRate = 0.92;
-              eurAmount = transfer.amount * eurRate;
             }
+            eurAmount = transfer.amount * eurRate;
           }
 
-          // Call settle_deposit_attribution RPC
-          const { data: settleResult, error: settleError } = await supabaseAdmin.rpc(
+          // Settle
+          const settleResult = await supabaseAdmin.rpc(
             "settle_deposit_attribution",
             {
               p_user_id: userId,
@@ -377,32 +461,32 @@ Deno.serve(async (req) => {
               p_block_number: transfer.blockNumber,
               p_block_timestamp: transfer.blockTimestamp,
               p_eur_rate: eurRate,
-              p_eur_amount: eurAmount
+              p_eur_amount: eurAmount,
             }
           );
 
-          if (settleError) {
-            logger.error("[deposit-watcher] Settlement error", { 
-              error: settleError.message,
-              tx: transfer.txHash.slice(0, 10)
+          if (settleResult.error) {
+            logger.error("[deposit-watcher] Settlement error", {
+              error: settleResult.error.message,
+              tx: transfer.txHash.slice(0, 10),
             });
-          } else if (settleResult?.already_processed) {
-            logger.info("[deposit-watcher] Settlement idempotent hit", { 
-              tx: transfer.txHash.slice(0, 10)
-            });
+          } else if (settleResult.data?.already_processed) {
             alreadyProcessed++;
           } else {
-            logger.info("[deposit-watcher] Settlement success", { 
+            logger.info("[deposit-watcher] Settlement success", {
               tx: transfer.txHash.slice(0, 10),
-              eur_amount: eurAmount
+              eur_amount: eurAmount,
             });
             matched++;
           }
         }
       } catch (transferErr) {
-        logger.error("[deposit-watcher] Transfer processing error", { 
-          error: transferErr instanceof Error ? transferErr.message : String(transferErr),
-          tx: transfer.txHash.slice(0, 10)
+        logger.error("[deposit-watcher] Transfer processing error", {
+          error:
+            transferErr instanceof Error
+              ? transferErr.message
+              : String(transferErr),
+          tx: transfer.txHash.slice(0, 10),
         });
       }
     }
@@ -415,7 +499,7 @@ Deno.serve(async (req) => {
       unmatched,
       ambiguous,
       already_processed: alreadyProcessed,
-      duration_ms: durationMs
+      duration_ms: durationMs,
     });
 
     return withCors({
@@ -426,17 +510,19 @@ Deno.serve(async (req) => {
         unmatched,
         ambiguous,
         already_processed: alreadyProcessed,
-        block_range: { from: fromBlock, to: currentBlock }
+        block_range: { from: fromBlock, to: currentBlock },
       },
-      duration_ms: durationMs
+      duration_ms: durationMs,
     });
-
   } catch (err) {
-    logger.error("[deposit-watcher] Fatal error", { 
-      error: err instanceof Error ? err.message : String(err)
+    logger.error("[deposit-watcher] Fatal error", {
+      error: err instanceof Error ? err.message : String(err),
     });
-    return withCors({ 
-      error: err instanceof Error ? err.message : "Unknown error" 
-    }, 500);
+    return withCors(
+      {
+        error: err instanceof Error ? err.message : "Unknown error",
+      },
+      500
+    );
   }
 });
