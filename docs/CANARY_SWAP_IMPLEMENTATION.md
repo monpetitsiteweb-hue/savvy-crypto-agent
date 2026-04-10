@@ -10,7 +10,7 @@
 | Fichier | Lignes touchées | Nature du changement |
 |---|---|---|
 | `src/components/strategy/CanarySwapButton.tsx` | **Nouveau fichier** (≈210 lignes) | Composant complet : bouton, modal de confirmation, exécution, affichage du résultat |
-| `src/components/strategy/PerformanceDashboard.tsx` | Ligne 11 (import ajouté), lignes 196–212 (header restructuré) | Import de `CanarySwapButton` + insertion dans le header à côté du bouton Refresh |
+| `src/components/PerformanceOverview.tsx` | Import + insertion dans le header | Import de `CanarySwapButton` + insertion à côté du titre "Performance Overview" |
 
 ## 2. Fichiers NON modifiés (conformité aux règles absolues)
 
@@ -43,8 +43,8 @@
    - Un peu d'ETH supplémentaire pour le gas
 
 ### Étapes
-1. Naviguer vers **Strategy Center → Performance**
-2. Cliquer sur le bouton **🧪 Canary Swap** (en haut à droite)
+1. Naviguer vers l'onglet **Performance** (barre de navigation principale)
+2. Cliquer sur le bouton **🧪 Canary Swap** (en haut à droite du titre "Performance Overview")
 3. Vérifier les paramètres dans la modal de confirmation :
    - SELL 0.002 ETH → USDC
    - Chain: Base (8453)
