@@ -279,7 +279,7 @@ Deno.serve(async (req) => {
             const callIndex = result.id - 100 - i;
             const blockNum = batch[callIndex];
             if (blockNum === undefined) continue;
-            const found = extractEthTransfers(result.result, blockNum, botAddressLower);
+            const found = extractEthTransfers(result.result, blockNum, botAddressLower, true);
             for (const t of found) {
               transfers.push(t);
               logger.info("[deposit-watcher] Found native ETH transfer", {
@@ -306,7 +306,7 @@ Deno.serve(async (req) => {
         for (const blockNum of batch) {
           try {
             const blockResult = await fetchBlockSingle(blockNum);
-            const found = extractEthTransfers(blockResult, blockNum, botAddressLower);
+            const found = extractEthTransfers(blockResult, blockNum, botAddressLower, true);
             for (const t of found) {
               transfers.push(t);
               logger.info("[deposit-watcher] Found native ETH transfer (seq)", {
