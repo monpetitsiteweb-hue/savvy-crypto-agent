@@ -3265,12 +3265,12 @@ serve(async (req) => {
       // Get wallet address - for system_operator_mode use metadata or skip user lookup
       let walletAddress: string;
       
-      if (isSystemOperatorMode) {
-        // System operator trades use BOT_ADDRESS (SYSTEM wallet)
+      if (isSystemOperatorMode || isAutomatedIntelligent) {
+        // System operator and automated intelligent trades use BOT_ADDRESS (SYSTEM wallet)
         // The actual signing happens in onchain-sign-and-send which reads BOT_ADDRESS
-        // We can use a placeholder here or the metadata wallet_address if provided
         walletAddress = intent.metadata?.wallet_address || "SYSTEM_WALLET";
-        console.log("🔧 COORDINATOR: system_operator_mode - using SYSTEM wallet for execution");
+        const walletLabel = isSystemOperatorMode ? "system_operator_mode" : "automated_intelligent";
+        console.log(`🔧 COORDINATOR: ${walletLabel} - using SYSTEM wallet for execution`);
       } else {
         // Regular manual trades - fetch user's execution wallet
         const { data: walletData, error: walletError } = await supabaseClient
