@@ -174,7 +174,10 @@ Deno.serve(async (req) => {
           const result = results[j];
           if (!result?.result?.transactions) continue;
 
-          const blockNum = batch[j];
+          // Recover blockNum via response id, not positional index
+          const callIndex = result.id - 100 - i;
+          const blockNum = batch[callIndex];
+          if (blockNum === undefined) continue;
           const blockTimestamp = new Date(
             parseInt(result.result.timestamp, 16) * 1000
           ).toISOString();
