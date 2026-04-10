@@ -183,6 +183,7 @@ Deno.serve(async (req) => {
     // Parse request body for optional parameters
     let lookbackBlocks = 200; // Default: ~6 minutes on Base
     let explicitFromBlock: number | null = null;
+    let explicitToBlock: number | null = null;
     try {
       const body = await req.json();
       if (body?.lookback_blocks && typeof body.lookback_blocks === "number") {
@@ -190,6 +191,9 @@ Deno.serve(async (req) => {
       }
       if (body?.from_block && typeof body.from_block === "number") {
         explicitFromBlock = body.from_block;
+      }
+      if (body?.to_block && typeof body.to_block === "number") {
+        explicitToBlock = body.to_block;
       }
     } catch {
       // No body or invalid JSON - use defaults
@@ -210,17 +214,14 @@ Deno.serve(async (req) => {
     const blockNumResult = await blockNumResponse.json();
     const currentBlock = parseInt(blockNumResult.result, 16);
     const fromBlock = explicitFromBlock ?? (currentBlock - lookbackBlocks);
+    const toBlock = explicitToBlock ?? currentBlock;
 
     logger.info("[deposit-watcher] Starting scan", {
       bot_address: botAddressLower.slice(0, 10) + "...",
       from_block: fromBlock,
-      to_block: currentBlock,
-      explicit: !!explicitFromBlock,
-    });
-
-    logger.info("[deposit-watcher] Block range", {
-      from: fromBlock,
-      to: currentBlock,
+      to_block: toBlock,
+      explicit_from: !!explicitFromBlock,
+      explicit_to: !!explicitToBlock,
     });
 
     // Collect transfers to process
@@ -231,12 +232,12 @@ Deno.serve(async (req) => {
     // ──────────────────────────────────────────────
     logger.info("[deposit-watcher] Scanning for native ETH transfers (batched)...");
 
-    const totalBlocks = currentBlock - fromBlock;
-    const blockStep = totalBlocks <= 1000 ? 1 : Math.max(1, Math.floor(totalBlocks / 200));
+    const totalBlocks = toBlock - fromBlock;
+    const blockStep = explicitFromBlock ? 1 : (totalBlocks <= 1000 ? 1 : Math.max(1, Math.floor(totalBlocks / 200)));
 
     // Build list of block numbers to scan
     const blockNums: number[] = [];
-    for (let b = fromBlock; b <= currentBlock; b += blockStep) {
+    for (let b = fromBlock; b <= toBlock; b += blockStep) {
       blockNums.push(b);
     }
 
@@ -342,7 +343,7 @@ Deno.serve(async (req) => {
         params: [
           {
             fromBlock: "0x" + fromBlock.toString(16),
-            toBlock: "0x" + currentBlock.toString(16),
+            toBlock: "0x" + toBlock.toString(16),
             address: [WETH_ADDRESS, USDC_ADDRESS],
             topics: [
               TRANSFER_TOPIC,
@@ -622,7 +623,7 @@ Deno.serve(async (req) => {
         unmatched,
         ambiguous,
         already_processed: alreadyProcessed,
-        block_range: { from: fromBlock, to: currentBlock },
+        block_range: { from: fromBlock, to: toBlock },
       },
       duration_ms: durationMs,
     });
